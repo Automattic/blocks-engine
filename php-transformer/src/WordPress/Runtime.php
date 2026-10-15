@@ -7,6 +7,7 @@ use RuntimeException;
 
 final class Runtime
 {
+    private const VIDEO_STATE_ATTRIBUTES = array( 'autoplay', 'controls', 'loop', 'muted', 'playsInline', 'poster', 'preload' );
     /**
      * @var array<int, array<string, mixed>>
      */
@@ -494,6 +495,13 @@ final class Runtime
             $attributes = $this->blockAttributes($name);
             if ( is_array($attributes) && is_array($block['attrs'] ?? null) ) {
                 foreach ( $attributes as $attribute => $schema ) {
+                    // Jetpack re-registers core/video with comment-sourced
+                    // playback attributes. Keep these values in the delimiter
+                    // even when core declares them HTML-sourced; the serialized
+                    // video markup remains the matching save() representation.
+                    if ( 'core/video' === $name && in_array($attribute, self::VIDEO_STATE_ATTRIBUTES, true) ) {
+                        continue;
+                    }
                     if ( is_array($schema) && ( array_key_exists('source', $schema) || 'local' === ($schema['role'] ?? null) ) ) {
                         unset($block['attrs'][ $attribute ]);
                     }

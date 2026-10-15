@@ -9475,6 +9475,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         )), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
 
         if ( 'video' === $tagName ) {
+            // Jetpack re-registers core/video with comment-sourced playback
+            // attributes and defaults controls to true. Preserve the explicit
+            // absence of controls so that registration does not change the
+            // captured playback state when the block is parsed in the editor.
+            $attrs['controls'] = $element->hasAttribute('controls');
             foreach ( array( 'autoplay', 'loop', 'muted' ) as $attribute ) {
                 if ( $element->hasAttribute($attribute) ) {
                     $attrs[$attribute] = true;

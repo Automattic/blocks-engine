@@ -1,0 +1,5557 @@
+{
+  "schema": "blocks-engine/php-transformer/shared-chrome-corpus/v1",
+  "site_count": 74,
+  "results": [
+    {
+      "site": "11-nonprofit-campaign",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/donate.html",
+        "website/endorsements.html",
+        "website/faq.html",
+        "website/the-measure.html",
+        "website/volunteer.html"
+      ],
+      "route_count": 6,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/donate.html",
+            "website/endorsements.html",
+            "website/the-measure.html",
+            "website/volunteer.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/donate.html",
+            "website/endorsements.html",
+            "website/the-measure.html",
+            "website/volunteer.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-faq"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/donate.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/endorsements.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/faq.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/the-measure.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/volunteer.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 5,
+      "wp_navigation_count": 6,
+      "distinct_normalized_link_sets": 6,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "13-realistic-small-business",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/events.html",
+        "website/plant-care.html",
+        "website/shop.html",
+        "website/visit.html",
+        "website/workshops.html"
+      ],
+      "route_count": 6,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/events.html",
+            "website/plant-care.html",
+            "website/shop.html",
+            "website/visit.html",
+            "website/workshops.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/events.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/plant-care.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/shop.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/visit.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/workshops.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 6,
+      "routes_with_repeated_edge_residue": 5,
+      "wp_navigation_count": 10,
+      "distinct_normalized_link_sets": 3,
+      "core_html_fallback_count": 7,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "16-astro-docs-content-collection",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/api-reference.html",
+        "website/changelog.html",
+        "website/getting-started.html",
+        "website/incident-workflow.html",
+        "website/overview.html",
+        "website/support.html"
+      ],
+      "route_count": 7,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/api-reference.html",
+            "website/changelog.html",
+            "website/getting-started.html",
+            "website/incident-workflow.html",
+            "website/overview.html"
+          ]
+        },
+        {
+          "slug": "footer-content",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/support.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-changelog",
+        "page-getting-started",
+        "page-incident-workflow",
+        "page-overview",
+        "page-support"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/api-reference.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/changelog.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/getting-started.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/incident-workflow.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/overview.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/support.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 7,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 13,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "17-markdown-blog-launch-site",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/founder-story.html",
+        "website/how-it-works.html",
+        "website/pantry-staples.html",
+        "website/pricing.html",
+        "website/weekly-menu.html"
+      ],
+      "route_count": 6,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/founder-story.html",
+            "website/how-it-works.html",
+            "website/pantry-staples.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-pricing",
+        "page-weekly-menu"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/founder-story.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/how-it-works.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/pantry-staples.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/pricing.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/weekly-menu.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 6,
+      "routes_with_repeated_edge_residue": 6,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 16,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_runtime_binding"
+      ]
+    },
+    {
+      "site": "18-static-content-library",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/case-study-roslindale.html",
+        "website/grant-readiness.html",
+        "website/meeting-agenda.html",
+        "website/outreach-checklist.html",
+        "website/resources.html"
+      ],
+      "route_count": 7,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/case-study-roslindale.html",
+            "website/grant-readiness.html",
+            "website/meeting-agenda.html",
+            "website/outreach-checklist.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-about",
+        "page-resources"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/case-study-roslindale.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/grant-readiness.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/meeting-agenda.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/outreach-checklist.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/resources.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 7,
+      "routes_with_repeated_edge_residue": 6,
+      "wp_navigation_count": 9,
+      "distinct_normalized_link_sets": 6,
+      "core_html_fallback_count": 18,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "19-product-catalog",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/care.html",
+        "website/custom.html",
+        "website/product.html",
+        "website/shop.html"
+      ],
+      "route_count": 6,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/care.html",
+            "website/custom.html",
+            "website/product.html",
+            "website/shop.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/care.html",
+            "website/custom.html",
+            "website/product.html",
+            "website/shop.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-about"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/care.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/custom.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/product.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/shop.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 3,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 3,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "20-switchback-woocommerce-extra-hard",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/bundles.html",
+        "website/by-condition.html",
+        "website/by-outing.html",
+        "website/product-weekend-camp-kit.html",
+        "website/shop-all.html",
+        "website/size-guide.html",
+        "website/trail-notes.html",
+        "website/trail-notes-day-hike.html"
+      ],
+      "route_count": 9,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/shop-all.html",
+            "website/size-guide.html",
+            "website/trail-notes.html",
+            "website/trail-notes-day-hike.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-bundles",
+        "page-by-condition",
+        "page-by-outing",
+        "page-product-weekend-camp-kit"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/bundles.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/by-condition.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/by-outing.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/product-weekend-camp-kit.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/shop-all.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/size-guide.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/trail-notes.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/trail-notes-day-hike.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 9,
+      "routes_with_repeated_edge_residue": 9,
+      "wp_navigation_count": 13,
+      "distinct_normalized_link_sets": 3,
+      "core_html_fallback_count": 7,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "22-fast-beautiful-website",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/collection.html",
+        "website/contact.html",
+        "website/journal.html"
+      ],
+      "route_count": 5,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/about.html",
+            "website/collection.html",
+            "website/contact.html",
+            "website/journal.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/collection.html",
+            "website/journal.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-contact"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/collection.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/journal.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 2,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 5,
+      "distinct_normalized_link_sets": 4,
+      "core_html_fallback_count": 2,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "23-recipe-blog",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/collections.html",
+        "website/recipe-pan-seared-cod.html",
+        "website/recipes.html"
+      ],
+      "route_count": 5,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/collections.html",
+            "website/recipe-pan-seared-cod.html",
+            "website/recipes.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/collections.html",
+            "website/recipe-pan-seared-cod.html",
+            "website/recipes.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/collections.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/recipe-pan-seared-cod.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/recipes.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 5,
+      "routes_with_repeated_edge_residue": 5,
+      "wp_navigation_count": 6,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 34,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "24-podcast-show",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/episode-014-marcus-haines.html",
+        "website/episodes.html",
+        "website/subscribe.html"
+      ],
+      "route_count": 5,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/episode-014-marcus-haines.html",
+            "website/episodes.html",
+            "website/subscribe.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/episode-014-marcus-haines.html",
+            "website/episodes.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-subscribe"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/episode-014-marcus-haines.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/episodes.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/subscribe.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 4,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "25-real-estate",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/218-river-road-rhinebeck.html",
+        "website/agents.html",
+        "website/contact.html",
+        "website/listings.html"
+      ],
+      "route_count": 5,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/218-river-road-rhinebeck.html",
+            "website/agents.html",
+            "website/contact.html",
+            "website/listings.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/218-river-road-rhinebeck.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/agents.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/listings.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 5,
+      "routes_with_repeated_edge_residue": 4,
+      "wp_navigation_count": 5,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 3,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "26-government-municipal",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/contact-officials.html",
+        "website/departments.html",
+        "website/public-notices.html",
+        "website/services.html"
+      ],
+      "route_count": 5,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/contact-officials.html",
+            "website/departments.html",
+            "website/public-notices.html",
+            "website/services.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/contact-officials.html",
+            "website/departments.html",
+            "website/public-notices.html",
+            "website/services.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/contact-officials.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/departments.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/public-notices.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/services.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 3,
+      "routes_with_repeated_edge_residue": 5,
+      "wp_navigation_count": 5,
+      "distinct_normalized_link_sets": 5,
+      "core_html_fallback_count": 2,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "27-university-department",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/contact.html",
+        "website/courses.html",
+        "website/events.html",
+        "website/faculty.html",
+        "website/news.html",
+        "website/programs.html",
+        "website/research.html"
+      ],
+      "route_count": 8,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/contact.html",
+            "website/courses.html",
+            "website/events.html",
+            "website/faculty.html",
+            "website/news.html",
+            "website/programs.html",
+            "website/research.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/contact.html",
+            "website/courses.html",
+            "website/events.html",
+            "website/news.html",
+            "website/programs.html",
+            "website/research.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-faculty"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/courses.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/events.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/faculty.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/news.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/programs.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/research.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 2,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 12,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "28-enterprise-b2b",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/careers.html",
+        "website/case-study-strathmore.html",
+        "website/contact.html",
+        "website/customers.html",
+        "website/industries.html",
+        "website/platform.html",
+        "website/pricing.html",
+        "website/resources.html"
+      ],
+      "route_count": 9,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/careers.html",
+            "website/case-study-strathmore.html",
+            "website/contact.html",
+            "website/customers.html",
+            "website/pricing.html",
+            "website/resources.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-industries",
+        "page-platform"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/careers.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/case-study-strathmore.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/customers.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/industries.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/platform.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/pricing.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/resources.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 9,
+      "routes_with_repeated_edge_residue": 9,
+      "wp_navigation_count": 40,
+      "distinct_normalized_link_sets": 38,
+      "core_html_fallback_count": 62,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "29-multilingual-i18n",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/about.ar.html",
+        "website/about.ja.html",
+        "website/contact.html",
+        "website/index.ar.html",
+        "website/index.ja.html",
+        "website/programs.html",
+        "website/programs.ar.html",
+        "website/programs.ja.html"
+      ],
+      "route_count": 10,
+      "parts": [],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/about.ar.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/about.ja.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/index.ar.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/index.ja.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/programs.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/programs.ar.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/programs.ja.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 10,
+      "routes_with_repeated_edge_residue": 7,
+      "wp_navigation_count": 20,
+      "distinct_normalized_link_sets": 7,
+      "core_html_fallback_count": 4,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "3-artist-music",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/contact.html",
+        "website/merch.html",
+        "website/music.html",
+        "website/tour.html"
+      ],
+      "route_count": 5,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/contact.html",
+            "website/merch.html",
+            "website/music.html",
+            "website/tour.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/contact.html",
+            "website/merch.html",
+            "website/music.html",
+            "website/tour.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/merch.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/music.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/tour.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 5,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 8,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "32-wedding-microsite",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/details.html",
+        "website/faq.html",
+        "website/photos.html",
+        "website/registry.html",
+        "website/rsvp.html",
+        "website/travel.html"
+      ],
+      "route_count": 7,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/details.html",
+            "website/faq.html",
+            "website/photos.html",
+            "website/registry.html",
+            "website/rsvp.html",
+            "website/travel.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/details.html",
+            "website/faq.html",
+            "website/photos.html",
+            "website/registry.html",
+            "website/rsvp.html",
+            "website/travel.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/details.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/faq.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/photos.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/registry.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/rsvp.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/travel.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 7,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 9,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 1,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "33-sports-team-league",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/contact.html",
+        "website/leaderboard.html",
+        "website/news.html",
+        "website/schedule.html",
+        "website/standings.html",
+        "website/team-roxbury-roar.html",
+        "website/teams.html"
+      ],
+      "route_count": 8,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/contact.html",
+            "website/leaderboard.html",
+            "website/news.html",
+            "website/schedule.html",
+            "website/standings.html",
+            "website/team-roxbury-roar.html",
+            "website/teams.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/contact.html",
+            "website/leaderboard.html",
+            "website/news.html",
+            "website/schedule.html",
+            "website/standings.html",
+            "website/team-roxbury-roar.html",
+            "website/teams.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/leaderboard.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/news.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/schedule.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/standings.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/team-roxbury-roar.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/teams.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 2,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 3,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 25,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "34-comparison-review-site",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/best-espresso-machines-2026.html",
+        "website/grinders.html",
+        "website/guides.html",
+        "website/review-breville-barista-express.html"
+      ],
+      "route_count": 6,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/best-espresso-machines-2026.html",
+            "website/grinders.html",
+            "website/guides.html",
+            "website/review-breville-barista-express.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/grinders.html",
+            "website/guides.html",
+            "website/review-breville-barista-express.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-about",
+        "page-best-espresso-machines-2026"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/best-espresso-machines-2026.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/grinders.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/guides.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/review-breville-barista-express.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 3,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 5,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "35-hyper-minimal-blog",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/essay-the-thing-about-january.html",
+        "website/essays.html",
+        "website/now.html"
+      ],
+      "route_count": 5,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/essays.html",
+            "website/now.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/essay-the-thing-about-january.html",
+            "website/essays.html",
+            "website/now.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-essay-the-thing-about-january"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/essay-the-thing-about-january.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/essays.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/now.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 4,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 4,
+      "distinct_normalized_link_sets": 4,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "36-church-community",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/calendar.html",
+        "website/give.html",
+        "website/ministries.html",
+        "website/sermons.html",
+        "website/services.html"
+      ],
+      "route_count": 7,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/calendar.html",
+            "website/give.html",
+            "website/ministries.html",
+            "website/sermons.html",
+            "website/services.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/calendar.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/give.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/ministries.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/sermons.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/services.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 7,
+      "routes_with_repeated_edge_residue": 7,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 1,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "37-art-gallery-exhibition",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/art-fairs.html",
+        "website/artists.html",
+        "website/contact.html",
+        "website/current-exhibition.html",
+        "website/exhibitions.html",
+        "website/visit.html"
+      ],
+      "route_count": 7,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/art-fairs.html",
+            "website/artists.html",
+            "website/contact.html",
+            "website/current-exhibition.html",
+            "website/exhibitions.html",
+            "website/visit.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/art-fairs.html",
+            "website/artists.html",
+            "website/contact.html",
+            "website/current-exhibition.html",
+            "website/exhibitions.html",
+            "website/visit.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/art-fairs.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/artists.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/current-exhibition.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/exhibitions.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/visit.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 4,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "38-medical-clinic",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/book-appointment.html",
+        "website/conditions.html",
+        "website/contact.html",
+        "website/patients.html",
+        "website/providers.html",
+        "website/services.html"
+      ],
+      "route_count": 7,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/book-appointment.html",
+            "website/conditions.html",
+            "website/contact.html",
+            "website/patients.html",
+            "website/providers.html",
+            "website/services.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/conditions.html",
+            "website/contact.html",
+            "website/patients.html",
+            "website/providers.html",
+            "website/services.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-book-appointment"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/book-appointment.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/conditions.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/patients.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/providers.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/services.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 2,
+      "routes_with_repeated_edge_residue": 7,
+      "wp_navigation_count": 4,
+      "distinct_normalized_link_sets": 3,
+      "core_html_fallback_count": 1,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "39-old-internet-cms",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about-us.html",
+        "website/contact.html",
+        "website/rentals.html"
+      ],
+      "route_count": 4,
+      "parts": [],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about-us.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/rentals.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 0,
+      "distinct_normalized_link_sets": 0,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_retained_incomplete"
+      ]
+    },
+    {
+      "site": "4-course-education",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/curriculum.html",
+        "website/enroll.html",
+        "website/faq.html",
+        "website/instructor.html",
+        "website/pricing.html"
+      ],
+      "route_count": 6,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/curriculum.html",
+            "website/enroll.html",
+            "website/faq.html",
+            "website/instructor.html",
+            "website/pricing.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/curriculum.html",
+            "website/enroll.html",
+            "website/faq.html",
+            "website/instructor.html",
+            "website/pricing.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/curriculum.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/enroll.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/faq.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/instructor.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/pricing.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 1,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "40-job-board",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/companies.html",
+        "website/job-senior-platform-engineer-cellular.html",
+        "website/jobs.html",
+        "website/post-a-job.html",
+        "website/resources.html"
+      ],
+      "route_count": 7,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/companies.html",
+            "website/job-senior-platform-engineer-cellular.html",
+            "website/jobs.html",
+            "website/post-a-job.html",
+            "website/resources.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/companies.html",
+            "website/job-senior-platform-engineer-cellular.html",
+            "website/jobs.html",
+            "website/resources.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-post-a-job"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/companies.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/job-senior-platform-engineer-cellular.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/jobs.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/post-a-job.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/resources.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 7,
+      "wp_navigation_count": 4,
+      "distinct_normalized_link_sets": 3,
+      "core_html_fallback_count": 31,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "41-generative-art-studio",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/contact.html",
+        "website/studio.html",
+        "website/work.html"
+      ],
+      "route_count": 4,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/contact.html",
+            "website/studio.html",
+            "website/work.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/studio.html",
+            "website/work.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-contact"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/studio.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/work.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 5,
+      "distinct_normalized_link_sets": 4,
+      "core_html_fallback_count": 4,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "42-immersive-product-launch",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/features.html",
+        "website/reserve.html",
+        "website/specs.html"
+      ],
+      "route_count": 4,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/features.html",
+            "website/reserve.html",
+            "website/specs.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/features.html",
+            "website/specs.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-reserve"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/features.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/reserve.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/specs.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 19,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "43-interactive-space-explorer",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/data.html",
+        "website/explore.html",
+        "website/mission.html"
+      ],
+      "route_count": 4,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/data.html",
+            "website/explore.html",
+            "website/mission.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/data.html",
+            "website/mission.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-explore"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/data.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/explore.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/mission.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 3,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 15,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "44-experimental-zine",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/issues.html",
+        "website/masthead.html",
+        "website/read.html"
+      ],
+      "route_count": 4,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/issues.html",
+            "website/masthead.html",
+            "website/read.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/issues.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/masthead.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/read.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 4,
+      "wp_navigation_count": 6,
+      "distinct_normalized_link_sets": 6,
+      "core_html_fallback_count": 10,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "45-markdown-ssg-blog",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/content/_index.md",
+        "wordpress-site-plan/routes/posts.html",
+        "website/README.md",
+        "website/tags.html",
+        "website/content/about.md",
+        "wordpress-site-plan/routes/content/posts.html",
+        "website/posts/backpressure.html",
+        "website/posts/consensus-without-tears.html",
+        "website/posts/idempotency-keys.html",
+        "website/posts/lsm-vs-btree.html",
+        "website/posts/retries-make-outages-worse.html",
+        "website/posts/the-cost-of-an-fsync.html",
+        "website/posts/write-ahead-log.html",
+        "website/content/posts/backpressure.md",
+        "website/content/posts/consensus-without-tears.md",
+        "website/content/posts/idempotency-keys.md",
+        "website/content/posts/lsm-vs-btree.md",
+        "website/content/posts/retries-make-outages-worse.md",
+        "website/content/posts/the-cost-of-an-fsync.md",
+        "website/content/posts/write-ahead-log.md"
+      ],
+      "route_count": 22,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "wordpress-site-plan/routes/posts.html",
+            "website/tags.html",
+            "wordpress-site-plan/routes/content/posts.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "wordpress-site-plan/routes/posts.html",
+            "website/tags.html",
+            "wordpress-site-plan/routes/content/posts.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-content",
+        "page-readme",
+        "page-about",
+        "page-backpressure",
+        "page-consensus-without-tears",
+        "page-idempotency-keys",
+        "page-lsm-vs-btree",
+        "page-retries-make-outages-worse",
+        "page-the-cost-of-an-fsync",
+        "page-write-ahead-log"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/content/_index.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "wordpress-site-plan/routes/posts.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/README.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/tags.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/content/about.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "wordpress-site-plan/routes/content/posts.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/posts/backpressure.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/posts/consensus-without-tears.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/posts/idempotency-keys.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/posts/lsm-vs-btree.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/posts/retries-make-outages-worse.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/posts/the-cost-of-an-fsync.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/posts/write-ahead-log.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/content/posts/backpressure.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/content/posts/consensus-without-tears.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/content/posts/idempotency-keys.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/content/posts/lsm-vs-btree.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/content/posts/retries-make-outages-worse.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/content/posts/the-cost-of-an-fsync.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/content/posts/write-ahead-log.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 7,
+      "routes_with_repeated_edge_residue": 12,
+      "wp_navigation_count": 9,
+      "distinct_normalized_link_sets": 9,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "46-mdx-design-system",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/button.html",
+        "website/card.html",
+        "website/color.html",
+        "website/input.html",
+        "website/modal.html",
+        "website/README.md",
+        "website/typography.html"
+      ],
+      "route_count": 8,
+      "parts": [],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/button.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/card.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/color.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/input.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/modal.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/README.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/typography.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 7,
+      "wp_navigation_count": 7,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 7,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_retained_incomplete"
+      ]
+    },
+    {
+      "site": "47-digital-garden",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/amor-fati.html",
+        "website/book-how-to-take-smart-notes.html",
+        "website/compost-is-a-distributed-system.html",
+        "website/evergreen-notes.html",
+        "website/idempotency-is-a-superpower.html",
+        "website/notes/index.md",
+        "website/on-tending-a-digital-garden.html",
+        "website/README.md",
+        "website/tags.html",
+        "website/the-dichotomy-of-control.html",
+        "website/the-two-generals-problem.html",
+        "website/three-sisters-planting.html",
+        "website/why-i-stopped-trusting-wall-clocks.html",
+        "website/notes/amor-fati.md",
+        "website/notes/book-how-to-take-smart-notes.md",
+        "website/notes/compost-is-a-distributed-system.md",
+        "website/notes/evergreen-notes.md",
+        "website/notes/idempotency-is-a-superpower.md",
+        "website/notes/on-tending-a-digital-garden.md",
+        "website/notes/the-dichotomy-of-control.md",
+        "website/notes/the-two-generals-problem.md",
+        "website/notes/three-sisters-planting.md",
+        "website/notes/why-i-stopped-trusting-wall-clocks.md"
+      ],
+      "route_count": 24,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/tags.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-notes",
+        "page-readme",
+        "page-amor-fati",
+        "page-book-how-to-take-smart-notes",
+        "page-compost-is-a-distributed-system",
+        "page-evergreen-notes",
+        "page-idempotency-is-a-superpower",
+        "page-on-tending-a-digital-garden",
+        "page-the-dichotomy-of-control",
+        "page-the-two-generals-problem",
+        "page-three-sisters-planting",
+        "page-why-i-stopped-trusting-wall-clocks"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/amor-fati.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/book-how-to-take-smart-notes.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/compost-is-a-distributed-system.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/evergreen-notes.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/idempotency-is-a-superpower.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/notes/index.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/on-tending-a-digital-garden.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/README.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/tags.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/the-dichotomy-of-control.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/the-two-generals-problem.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/three-sisters-planting.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/why-i-stopped-trusting-wall-clocks.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/notes/amor-fati.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/notes/book-how-to-take-smart-notes.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/notes/compost-is-a-distributed-system.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/notes/evergreen-notes.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/notes/idempotency-is-a-superpower.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/notes/on-tending-a-digital-garden.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/notes/the-dichotomy-of-control.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/notes/the-two-generals-problem.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/notes/three-sisters-planting.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/notes/why-i-stopped-trusting-wall-clocks.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 12,
+      "routes_with_repeated_edge_residue": 14,
+      "wp_navigation_count": 17,
+      "distinct_normalized_link_sets": 17,
+      "core_html_fallback_count": 12,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "48-desktop-os-sim",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/projects.html"
+      ],
+      "route_count": 3,
+      "parts": [],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/projects.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 2,
+      "wp_navigation_count": 0,
+      "distinct_normalized_link_sets": 0,
+      "core_html_fallback_count": 5,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_retained_incomplete"
+      ]
+    },
+    {
+      "site": "49-terminal-text-adventure",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/story.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/story.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/story.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 1,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "5-documentation-knowledge-base",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/api-docs.html",
+        "website/contact.html",
+        "website/getting-started.html",
+        "website/release-notes.html",
+        "website/troubleshooting.html"
+      ],
+      "route_count": 6,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/api-docs.html",
+            "website/contact.html",
+            "website/getting-started.html",
+            "website/release-notes.html",
+            "website/troubleshooting.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/api-docs.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/getting-started.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/release-notes.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/troubleshooting.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 6,
+      "routes_with_repeated_edge_residue": 5,
+      "wp_navigation_count": 15,
+      "distinct_normalized_link_sets": 9,
+      "core_html_fallback_count": 7,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "50-web-audio-synth",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/patches.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/about.html",
+            "website/patches.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/about.html",
+            "website/patches.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/patches.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 8,
+      "distinct_normalized_link_sets": 8,
+      "core_html_fallback_count": 1,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "51-cursed-arg-site",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/archive.html",
+        "website/carrier.html",
+        "website/join.html",
+        "website/manifesto.html",
+        "website/SOLUTION.md"
+      ],
+      "route_count": 6,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/archive.html",
+            "website/join.html",
+            "website/manifesto.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-carrier",
+        "page-solution"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/archive.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/carrier.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/join.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/manifesto.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/SOLUTION.md",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 2,
+      "routes_with_repeated_edge_residue": 4,
+      "wp_navigation_count": 3,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 5,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "52-css-3d-world",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/directory.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/directory.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/directory.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 1,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "53-live-ops-dashboard",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/alerts.html",
+        "website/service.html"
+      ],
+      "route_count": 4,
+      "parts": [],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/alerts.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/service.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 3,
+      "wp_navigation_count": 4,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 4,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_retained_incomplete"
+      ]
+    },
+    {
+      "site": "54-physics-sandbox",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/sandbox.html",
+        "website/scenes.html"
+      ],
+      "route_count": 4,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/scenes.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/scenes.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-sandbox"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/sandbox.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/scenes.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 3,
+      "distinct_normalized_link_sets": 3,
+      "core_html_fallback_count": 1,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "55-algorithm-visualizer",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/pathfinding.html",
+        "website/tree.html"
+      ],
+      "route_count": 4,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/pathfinding.html",
+            "website/tree.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/pathfinding.html",
+            "website/tree.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/pathfinding.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/tree.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 3,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "56-code-playground",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/templates.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/about.html",
+            "website/templates.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/templates.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "57-webgl-shader-gallery",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/editor.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-editor"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/editor.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 2,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 5,
+      "distinct_normalized_link_sets": 5,
+      "core_html_fallback_count": 2,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "58-infinite-whiteboard",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/templates.html"
+      ],
+      "route_count": 3,
+      "parts": [],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/templates.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 2,
+      "routes_with_repeated_edge_residue": 2,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 6,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "59-spreadsheet",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/templates.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/about.html",
+            "website/templates.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-about",
+        "page-templates"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/templates.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 2,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "6-editorial-magazine",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/article.html",
+        "website/arts.html",
+        "website/food.html",
+        "website/politics.html"
+      ],
+      "route_count": 6,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/article.html",
+            "website/arts.html",
+            "website/food.html",
+            "website/politics.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/article.html",
+            "website/arts.html",
+            "website/food.html",
+            "website/politics.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-about"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/article.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/arts.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/food.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/politics.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 2,
+      "routes_with_repeated_edge_residue": 2,
+      "wp_navigation_count": 5,
+      "distinct_normalized_link_sets": 4,
+      "core_html_fallback_count": 33,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "60-node-editor",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/examples.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/about.html",
+            "website/examples.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/examples.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 3,
+      "routes_with_repeated_edge_residue": 2,
+      "wp_navigation_count": 3,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 1,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "61-photo-editor",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/gallery.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/about.html",
+            "website/gallery.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/gallery.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "62-platformer-game",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/levels.html",
+        "website/play.html"
+      ],
+      "route_count": 4,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/levels.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-play"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/levels.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/play.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 4,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 6,
+      "distinct_normalized_link_sets": 6,
+      "core_html_fallback_count": 7,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "63-map-explorer",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/gazetteer.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/about.html",
+            "website/gazetteer.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/gazetteer.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 2,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_incomplete"
+      ]
+    },
+    {
+      "site": "64-kanban-board",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/templates.html"
+      ],
+      "route_count": 3,
+      "parts": [],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/templates.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 3,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 3,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_retained_incomplete"
+      ]
+    },
+    {
+      "site": "65-terminal-emulator",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/docs.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/docs.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/about.html",
+            "website/docs.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/docs.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 2,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "66-regex-tester",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/cheatsheet.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/about.html",
+            "website/cheatsheet.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/cheatsheet.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "67-dataviz-studio",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/gallery.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/about.html",
+            "website/gallery.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-about",
+        "page-gallery"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/gallery.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 3,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "68-drum-machine",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/patterns.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/about.html",
+            "website/patterns.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/patterns.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 5,
+      "distinct_normalized_link_sets": 5,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "69-markdown-editor",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/templates.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/about.html",
+            "website/templates.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/templates.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 2,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "7-event-conference",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/faq.html",
+        "website/schedule.html",
+        "website/speakers.html",
+        "website/tickets.html",
+        "website/travel.html"
+      ],
+      "route_count": 6,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/faq.html",
+            "website/schedule.html",
+            "website/speakers.html",
+            "website/travel.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-tickets"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/faq.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/schedule.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/speakers.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/tickets.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/travel.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 1,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "70-typing-test",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/stats.html"
+      ],
+      "route_count": 3,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/stats.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/stats.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/stats.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "71-beyond-the-block",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/possible.html"
+      ],
+      "route_count": 3,
+      "parts": [],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/possible.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 3,
+      "routes_with_repeated_edge_residue": 3,
+      "wp_navigation_count": 12,
+      "distinct_normalized_link_sets": 12,
+      "core_html_fallback_count": 4,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "72-why-wordpress",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/ai.html",
+        "website/blocks.html"
+      ],
+      "route_count": 4,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/about.html",
+            "website/ai.html",
+            "website/blocks.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/ai.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/blocks.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 4,
+      "routes_with_repeated_edge_residue": 4,
+      "wp_navigation_count": 8,
+      "distinct_normalized_link_sets": 4,
+      "core_html_fallback_count": 21,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "73-h44-lacrosse",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/coaches.html",
+        "website/contact.html",
+        "website/events.html",
+        "website/teams.html"
+      ],
+      "route_count": 6,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/coaches.html",
+            "website/contact.html",
+            "website/events.html",
+            "website/teams.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/coaches.html",
+            "website/contact.html",
+            "website/events.html",
+            "website/teams.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/coaches.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/events.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/teams.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "74-lumen-coffee",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/cart.html",
+        "website/contact.html",
+        "website/shop.html"
+      ],
+      "route_count": 5,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/cart.html",
+            "website/contact.html",
+            "website/shop.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/cart.html",
+            "website/contact.html",
+            "website/shop.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/cart.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/shop.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 5,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 1,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "75-inkwell-books",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/cart.html",
+        "website/contact.html",
+        "website/shop.html"
+      ],
+      "route_count": 5,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/cart.html",
+            "website/contact.html",
+            "website/shop.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/contact.html",
+            "website/shop.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-cart"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/cart.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/shop.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "76-sole-society",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/cart.html",
+        "website/contact.html",
+        "website/shop.html"
+      ],
+      "route_count": 5,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/about.html",
+            "website/cart.html",
+            "website/contact.html",
+            "website/shop.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/cart.html",
+            "website/contact.html",
+            "website/shop.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/cart.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/shop.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 7,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "77-fernwood-plants",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/cart.html",
+        "website/contact.html",
+        "website/shop.html"
+      ],
+      "route_count": 5,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/cart.html",
+            "website/contact.html",
+            "website/shop.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/cart.html",
+            "website/contact.html",
+            "website/shop.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/cart.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/shop.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "78-terra-ceramics",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/cart.html",
+        "website/contact.html",
+        "website/shop.html"
+      ],
+      "route_count": 5,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/cart.html",
+            "website/contact.html",
+            "website/shop.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html",
+            "website/cart.html",
+            "website/contact.html",
+            "website/shop.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/cart.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/shop.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 1,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "8-local-service-business",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html",
+        "website/contact.html",
+        "website/reviews.html",
+        "website/service-areas.html",
+        "website/services.html"
+      ],
+      "route_count": 6,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/about.html",
+            "website/reviews.html",
+            "website/service-areas.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/about.html",
+            "website/contact.html",
+            "website/reviews.html",
+            "website/service-areas.html",
+            "website/services.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-contact",
+        "page-services"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/contact.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/reviews.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/service-areas.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/services.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 5,
+      "wp_navigation_count": 4,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 1,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "84-community-center",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/classes.html",
+        "website/feedback-volunteer.html",
+        "website/rooms.html"
+      ],
+      "route_count": 4,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/classes.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-feedback-volunteer",
+        "page-rooms"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/classes.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/feedback-volunteer.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/rooms.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 2,
+      "routes_with_repeated_edge_residue": 4,
+      "wp_navigation_count": 3,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 9,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted",
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "85-app-marketplace",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/app-detail.html",
+        "website/category-productivity.html"
+      ],
+      "route_count": 3,
+      "parts": [],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/app-detail.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/category-productivity.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 3,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 4,
+      "distinct_normalized_link_sets": 4,
+      "core_html_fallback_count": 4,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_retained_ambiguous"
+      ]
+    },
+    {
+      "site": "9-membership-community",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/faq.html",
+        "website/gatherings.html",
+        "website/membership.html",
+        "website/organizers.html",
+        "website/stories.html"
+      ],
+      "route_count": 6,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/faq.html",
+            "website/gatherings.html",
+            "website/membership.html",
+            "website/organizers.html",
+            "website/stories.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/faq.html",
+            "website/gatherings.html",
+            "website/organizers.html",
+            "website/stories.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page",
+        "page-membership"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/faq.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/gatherings.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/membership.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/organizers.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        },
+        {
+          "route": "website/stories.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 2,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 4,
+      "distinct_normalized_link_sets": 3,
+      "core_html_fallback_count": 2,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "canonical-shared-chrome",
+      "status": "compiled",
+      "routes": [
+        "website/index.html",
+        "website/about.html"
+      ],
+      "route_count": 2,
+      "parts": [
+        {
+          "slug": "footer",
+          "area": "footer",
+          "routes": [
+            "website/index.html",
+            "website/about.html"
+          ]
+        },
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html",
+            "website/about.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        },
+        {
+          "route": "website/about.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": true
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 2,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_extracted"
+      ]
+    },
+    {
+      "site": "nested-header-menu",
+      "status": "compiled",
+      "routes": [
+        "website/index.html"
+      ],
+      "route_count": 1,
+      "parts": [],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": true,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 1,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 2,
+      "distinct_normalized_link_sets": 2,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_retained_incomplete"
+      ]
+    },
+    {
+      "site": "viewport-hidden-wix-mobile-document",
+      "status": "compiled",
+      "routes": [
+        "website/index.html"
+      ],
+      "route_count": 1,
+      "parts": [
+        {
+          "slug": "header",
+          "area": "header",
+          "routes": [
+            "website/index.html"
+          ]
+        }
+      ],
+      "templates": [
+        "index",
+        "search",
+        "single",
+        "archive",
+        "404",
+        "page",
+        "front-page"
+      ],
+      "route_residue": [
+        {
+          "route": "website/index.html",
+          "navigation_in_content": false,
+          "repeated_edge_residue": false
+        }
+      ],
+      "routes_with_navigation_in_content": 0,
+      "routes_with_repeated_edge_residue": 0,
+      "wp_navigation_count": 1,
+      "distinct_normalized_link_sets": 1,
+      "core_html_fallback_count": 0,
+      "shell_diagnostic_codes": [
+        "wordpress_site_plan_shell_entry_extracted"
+      ]
+    }
+  ]
+}
