@@ -166,6 +166,36 @@ final class AssetReferenceCanonicalizer
     /** @param callable(string,string,string):string $replace */
     private static function json(string $comment, callable $replace): string
     {
+        // Block attributes are a JSON data model, not markup. Rewrite CSS URL
+        // values recursively so nested authored-button contentParts styles stay
+        // aligned with the HTML produced by the block's save() implementation.
+        if ( preg_match('~^<!--\s*wp:([^\s]+?)(?:\s+(\{.*\}))?\s*(/)?-->$~s', $comment, $opener) ) {
+            $attributes = isset($opener[2]) && '' !== $opener[2] ? json_decode($opener[2], true) : array();
+            if ( is_array($attributes) ) {
+                $route = in_array(strtolower($opener[1]), WordPressSitePlan::ROUTE_URL_BLOCKS, true);
+                $rewriteModel = static function (array $values) use (&$rewriteModel, $replace, $route): array {
+                    foreach ( $values as $key => $value ) {
+                        $field = strtolower((string) $key);
+                        if ( is_array($value) ) {
+                            $values[$key] = $rewriteModel($value);
+                        } elseif ( is_string($value) && 'style' === $field ) {
+                            $values[$key] = self::css($value, $replace);
+                        } elseif ( is_string($value) && 'srcset' === $field ) {
+                            $values[$key] = self::srcset($value, static fn(string $reference): string => $replace($reference, '', 'srcset'));
+                        } elseif ( is_string($value) && in_array($field, array('url', 'src', 'href', 'poster', 'action'), true) ) {
+                            $attribute = ($route && 'url' === $field) || in_array($field, array('href', 'action'), true) ? 'route_' . $field : $field;
+                            $values[$key] = $replace($value, '', 'json:' . $attribute);
+                        }
+                    }
+                    return $values;
+                };
+                $rewritten = $rewriteModel($attributes);
+                if ( $rewritten !== $attributes ) {
+                    $encoded = json_encode($rewritten, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+                    if ( is_string($encoded) ) return '<!-- wp:' . $opener[1] . ' ' . $encoded . ( ! empty($opener[3]) ? ' /' : '' ) . ' -->';
+                }
+            }
+        }
         // Route-bearing blocks keep their own resolve-or-neutralize recovery, so
         // their url/href/action fields are never treated as media references.
         $route = preg_match('~^<!--\s*wp:([^\s{]+)~i', $comment, $block) && in_array(strtolower($block[1]), WordPressSitePlan::ROUTE_URL_BLOCKS, true);
