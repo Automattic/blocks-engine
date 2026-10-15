@@ -81,9 +81,9 @@ final class AuthorStyleAnalysis
         // differ in every shimmed rule. The three counter slots they used stay
         // reserved so every other generated marker keeps its established name.
         $this->markerCounter = 3;
-        $this->specificityShim = $this->allocateSiteMarker('specificity');
-        $this->classSpecificityShim = $this->allocateSiteMarker('specificity-class');
-        $this->idSpecificityShim = $this->allocateSiteMarker('specificity-id');
+        $this->specificityShim = self::allocateSiteMarker('specificity', array($html, $combinedCss));
+        $this->classSpecificityShim = self::allocateSiteMarker('specificity-class', array($html, $combinedCss));
+        $this->idSpecificityShim = self::allocateSiteMarker('specificity-id', array($html, $combinedCss));
 
         for ( $ancestor = $sourceBody; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
             $this->recordSelectorSignals($ancestor);
@@ -375,12 +375,20 @@ final class AuthorStyleAnalysis
         return $hash;
     }
 
-    private function allocateSiteMarker(string $kind): string
+    /** @param list<string> $avoidTexts */
+    public static function allocateSiteMarker(string $kind, array $avoidTexts): string
     {
         $suffix = 0;
         do {
             $marker = 'blocks-engine-' . $kind . '-site-' . $suffix++;
-        } while ( str_contains($this->markerCollisionTexts[0], $marker) || str_contains($this->markerCollisionTexts[1], $marker) );
+            $collision = false;
+            foreach ($avoidTexts as $text) {
+                if (str_contains($text, $marker)) {
+                    $collision = true;
+                    break;
+                }
+            }
+        } while ($collision);
         return $marker;
     }
 
