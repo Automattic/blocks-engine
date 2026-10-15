@@ -12,6 +12,8 @@ final class QuotePattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
 
+    private const STRUCTURAL_CONTENT_PATTERN = '/<(?:address|article|aside|blockquote|details|div|dl|figure|h[1-6]|hr|main|menu|nav|ol|p|pre|section|table|ul)\b/i';
+
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         return $this->matchBlockquote($element, $context);
@@ -64,6 +66,23 @@ final class QuotePattern implements PatternRecognizerInterface
 
         $citation = $quotes->citationFromElement($blockquote);
         $caption = $this->firstChildElement($figure, 'figcaption');
+        // The figure collapses into core/quote only when it holds just the
+        // blockquote, its caption, and aria-hidden decoration. Any other
+        // child (a rating row, an author card) has no place in the quote, and
+        // a caption carrying block content cannot become the RichText
+        // citation. Leave those figures to generic lowering so every child
+        // survives as its own block.
+        foreach ( $figure->childNodes as $child ) {
+            if ( $child instanceof DOMElement
+                && ! $child->isSameNode($blockquote)
+                && ! ( $caption instanceof DOMElement && $child->isSameNode($caption) )
+                && 'true' !== strtolower(trim($this->attr($child, 'aria-hidden'))) ) {
+                return null;
+            }
+        }
+        if ( '' === $citation && $caption instanceof DOMElement && preg_match(self::STRUCTURAL_CONTENT_PATTERN, SourceDom::innerHtml($caption)) ) {
+            return null;
+        }
         if ( '' === $citation && $caption instanceof DOMElement ) {
             $citation = SourceDom::innerHtml($caption);
             $captionClass = trim($this->attr($caption, 'class'));
@@ -112,7 +131,7 @@ final class QuotePattern implements PatternRecognizerInterface
         // A blockquote may be wrapped in phrasing elements while still carrying
         // structural descendants. Send that shape through child lowering so the
         // structural nodes become inner blocks rather than paragraph RichText.
-        if ( preg_match('/<(?:address|article|aside|blockquote|details|div|dl|figure|h[1-6]|hr|main|menu|nav|ol|p|pre|section|table|ul)\b/i', $value) ) {
+        if ( preg_match(self::STRUCTURAL_CONTENT_PATTERN, $value) ) {
             return array();
         }
 
