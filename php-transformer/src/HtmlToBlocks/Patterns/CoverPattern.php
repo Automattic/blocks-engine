@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -262,7 +263,7 @@ final class CoverPattern implements PatternRecognizerInterface
         }
 
         $declarations = $this->styleResolver->declarations($style);
-        $display      = strtolower(trim((string) ($declarations['display'] ?? '')));
+        $display      = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
         if ( 'grid' === $display ) {
             return 'columns_layout';
         }
