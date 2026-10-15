@@ -24,7 +24,7 @@
     { "path": "blocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Second line." } },
     { "path": "blocks.1.innerBlocks.2", "name": "core/paragraph", "attrs": { "content": "Combined notes" } },
     { "path": "blocks.2", "name": "core/group" },
-    { "path": "blocks.2.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Plain figure text" } },
+    { "path": "blocks.2.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "blocks-engine-synthetic-paragraph", "content": "Plain figure text" } },
     { "path": "blocks.2.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Short caption" } }
   ],
   "expected_fallbacks": [],
@@ -35,7 +35,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-table blocks-engine-table-" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph --><p>Team <em>roster</em></p><!-- /wp:paragraph --></div><!-- /wp:group -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group --><div class=\"wp-block-group\"><!-- wp:paragraph --><p>First line.</p><!-- /wp:paragraph -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph --><p>Plain figure text</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>Short caption</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"className\":\"blocks-engine-synthetic-paragraph\"} --><p class=\"blocks-engine-synthetic-paragraph\">Plain figure text</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>Short caption</p>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }

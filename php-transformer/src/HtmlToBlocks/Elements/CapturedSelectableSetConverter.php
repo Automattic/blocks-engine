@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedSelectableSetProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
@@ -231,12 +232,12 @@ final class CapturedSelectableSetConverter implements ElementConverter
                 }
             }
         }
-        $display = strtolower(trim((string) ($rowDeclarations['display'] ?? '')));
+        $display = CssValueInspector::comparable((string) ($rowDeclarations['display'] ?? ''));
         $direction = strtolower(trim((string) ($rowDeclarations['flex-direction'] ?? '')));
         if (str_contains($display, 'flex')) {
             $vertical = str_starts_with($direction, 'column');
         } else {
-            $itemDisplay = array() === $items ? '' : strtolower(trim((string) ($this->presentation->presentationDeclarations($items[0])['display'] ?? '')));
+            $itemDisplay = array() === $items ? '' : CssValueInspector::comparable((string) ($this->presentation->presentationDeclarations($items[0])['display'] ?? ''));
             $itemTag = array() === $items ? '' : strtolower($items[0]->tagName);
             $vertical = '' !== $itemDisplay
                 ? ! str_starts_with($itemDisplay, 'inline')

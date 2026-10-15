@@ -238,16 +238,16 @@ final class SvgMaterializer implements SvgElementMaterializer
 
         $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
         $presentation = $this->styleResolver->presentationDeclarations($element);
-        $sourceDisplay = strtolower(trim((string) ($presentation['display'] ?? '')));
+        $sourceDisplay = CssValueInspector::comparable((string) ($presentation['display'] ?? ''));
         $parent = $element->parentNode;
         $parentPresentation = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
         // display:contents is not a percentage containing block. The effective
         // parent is the nearest ancestor that actually establishes a box.
-        while ( $parent instanceof DOMElement && 'contents' === strtolower(trim((string) ($parentPresentation['display'] ?? ''))) ) {
+        while ( $parent instanceof DOMElement && 'contents' === CssValueInspector::comparable((string) ($parentPresentation['display'] ?? '')) ) {
             $parent = $parent->parentNode;
             $parentPresentation = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
         }
-        $parentDisplay = strtolower(trim((string) ($parentPresentation['display'] ?? '')));
+        $parentDisplay = CssValueInspector::comparable((string) ($parentPresentation['display'] ?? ''));
         $isFlexOrGridItem = in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
         $sourceObjectFit = strtolower(trim((string) ($presentation['object-fit'] ?? '')));
         $isPositionedMediaBox = $parent instanceof DOMElement
@@ -327,8 +327,11 @@ final class SvgMaterializer implements SvgElementMaterializer
             }
             $carriedProperties = $this->carriedCustomPropertyDeclarations($element, $mediaBox);
             $mediaBox = ( '' === $carriedProperties ? '' : ';' . $carriedProperties ) . $mediaBox;
-            $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:baseline' : '') . $mediaBox . '}';
+            $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:' . $this->sourceVerticalAlign($element) : '') . $mediaBox . '}';
             $conditionedBox = array() === $dimensions ? $this->mediaConditionedBoxRules($element, $presentation, $richTextImage ? '' : '>img') : array();
+            $conditionedItemDisplay = $preserveInlineGeometry && ! $richTextImage && $parent instanceof DOMElement
+                ? $this->mediaConditionedItemDisplay($parent, $imageDisplay)
+                : array();
             // The parent fill the resting cascade could not see, under each
             // media condition that states it. Other viewports keep the
             // inline geometry above.
@@ -343,10 +346,18 @@ final class SvgMaterializer implements SvgElementMaterializer
             $fillFigureRule = '{margin:0;width:100%;height:100%;line-height:0}';
             $fillObjectFit = '' === $sourceObjectFit ? 'contain' : $sourceObjectFit;
             $fillImgRule = '>img{width:100%;height:100%;-o-object-fit:' . $fillObjectFit . ';object-fit:' . $fillObjectFit . '}';
-            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule . implode("\n", $conditionedBox)
+            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule . implode("\n", $conditionedBox) . implode("\n", $conditionedItemDisplay)
                 . (array() === $conditionedFills ? '' : "\nfill:" . implode("\n", array_map(static fn (array $conditions): string => implode('{', $conditions), $conditionedFills))));
-            $geometryCss = ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '') . '.' . $geometryClass . $rule;
-            foreach ( $conditionedBox as $conditionedRule ) {
+            // The image rule must outrank the generic author image bridge
+            // (`:where(figure):not(<type>).wp-block-image > img{display:block}`),
+            // and core/image wraps linked media in an anchor, so it carries the
+            // native wrapper class and reaches the linked image too, as the
+            // parent fill rules do.
+            $geometryCss = ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '')
+                . ($richTextImage
+                    ? '.' . $geometryClass . $rule
+                    : '.wp-block-image.' . $geometryClass . '>img,.wp-block-image.' . $geometryClass . '>a' . $rule);
+            foreach ( array_merge($conditionedItemDisplay, $conditionedBox) as $conditionedRule ) {
                 $geometryCss .= str_replace('.{carrier}', '.' . $geometryClass, $conditionedRule);
             }
             foreach ( $conditionedFills as $conditions ) {
@@ -876,6 +887,20 @@ final class SvgMaterializer implements SvgElementMaterializer
         return $stacks;
     }
 
+    /**
+     * The vertical alignment the inline source SVG takes in its line box: the
+     * author cascade winner at the desktop reference viewport, or `baseline`.
+     * An author `img,svg{vertical-align:middle}` centers the icon on the
+     * line; core/image's own `vertical-align:bottom` must not replace it.
+     */
+    private function sourceVerticalAlign(DOMElement $element): string
+    {
+        $declared = CssValueInspector::withoutImportant((string) ($this->styleResolver->referenceViewportAuthorDeclarations($element, array( 'vertical-align' ))['vertical-align'] ?? ''));
+        $declared = strtolower(trim($declared));
+
+        return 1 === preg_match('/^(?:baseline|sub|super|text-top|text-bottom|middle|top|bottom|-?\d*\.?\d+(?:px|em|rem|%))$/', $declared) ? $declared : 'baseline';
+    }
+
     /** The figure, link and img rules that make a core/image fill its parent. */
     private function parentFillCss(string $class, string $figureRule, string $imgRule): string
     {
@@ -883,6 +908,39 @@ final class SvgMaterializer implements SvgElementMaterializer
         // after theme styles; the native wrapper class lets the fill win.
         return '.' . $class . $figureRule . '.wp-block-image.' . $class . $imgRule
             . '.wp-block-image.' . $class . str_replace('>img', '>a>img', $imgRule) . '.' . $class . '>a{display:block;width:100%;height:100%}';
+    }
+
+    /**
+     * Restate the inline image display under each media condition that
+     * changes the source parent's display.
+     *
+     * A source SVG sits in a line box only while its parent is a block
+     * container. Under a condition where the parent is a flex or grid
+     * container, the SVG is blockified into a flex/grid item with no line box,
+     * so the carrier's inline geometry (and the strut it brings) must yield to
+     * `display:block` there. Entries are emitted in source cascade order, so
+     * overlapping conditions resolve as they do in the source.
+     *
+     * Returns rule strings with a `.{carrier}` placeholder for the class.
+     *
+     * @return list<string>
+     */
+    private function mediaConditionedItemDisplay(DOMElement $parent, string $inlineDisplay): array
+    {
+        $rules = array();
+        $selector = '.wp-block-image.{carrier}>img,.wp-block-image.{carrier}>a>img';
+        foreach ( $this->styleResolver->conditionalDisplayRules($parent) as $conditions => $display ) {
+            $display = $this->plainDeclarationValue((string) $display);
+            if ( 'contents' === $display ) {
+                continue;
+            }
+            // The resting rule still carries vertical-align and the box; a
+            // condition only decides whether the image stays inline.
+            $blockified = in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+            $rules[] = $this->wrapInConditions($selector . '{display:' . ($blockified ? 'block' : $inlineDisplay) . '}', explode('{', (string) $conditions));
+        }
+
+        return $rules;
     }
 
     /** @param list<string> $conditions */
