@@ -78,7 +78,10 @@ final class FigureElementConverter implements ElementConverter
 
         $blockquote = SourceDom::firstChildElement($element, 'blockquote');
         if ( $blockquote instanceof DOMElement ) {
-            return ConversionOutcome::handled($this->context->recognizePatterns($element, $fallbacks, array( FigureQuotePattern::class )));
+            $quote = $this->context->recognizePatterns($element, $fallbacks, array( FigureQuotePattern::class ));
+            if ( null !== $quote ) {
+                return ConversionOutcome::handled($quote);
+            }
         }
 
         return ConversionOutcome::handled($this->context->convertGeneric($element, $fallbacks));
