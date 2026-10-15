@@ -9868,11 +9868,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( $picture instanceof DOMElement && $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
-        // Core's image save contract has no srcset/sizes attributes. Its
-        // attachment-generated candidates cannot reproduce an authored family
-        // (including density-corrected intrinsic sizing). Keep the same bounded
-        // media carrier used for picture selection, before choosing a fallback.
-        if ( ! $nativeImage && $this->sourceElementClassifier->hasResponsiveImageSources($image) ) {
+        // Outside <picture>, HTML defines a w-descriptor srcset as one image at
+        // several resolutions, so core/image may regenerate candidates from its
+        // attachment. Preserve x families (whose rendered width depends on
+        // density without a known display width) and other non-lowerable sources.
+        $hasDisplayWidth = fn (): bool => $this->imageDimensions()->hasAuthorDisplayWidth($image);
+        if ( ! $nativeImage && $this->sourceElementClassifier->requiresResponsiveImageCarrier($image, $hasDisplayWidth) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
 
@@ -9985,6 +9986,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             } else {
                 $attrs = array_filter(array_merge($attrs, $this->imageLinkAttributes($link)), static fn ($value): bool => '' !== $value);
             }
+        }
+
+        $selection = $this->authoredImageSelection($image, (string) $attrs['url']);
+        if ( array() !== $selection ) {
+            $attrs['metadata'] = array_merge(is_array($attrs['metadata'] ?? null) ? $attrs['metadata'] : array(), array( 'blocksEngineImageSelection' => $selection ));
         }
 
         $block = $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
@@ -10168,6 +10174,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $src = $this->safeImageUrl($this->attr($image, 'src'));
         if ( '' !== $src && ! str_starts_with(strtolower($src), 'data:') ) {
             return $src;
+        }
+
+        if ( '' === $src ) {
+            $largest = '';
+            $largestWidth = -1;
+            foreach ( SrcsetParser::parse($this->attr($image, 'srcset')) as $candidate ) {
+                if ( 1 !== preg_match('/^(\d+)w$/', $candidate['descriptor'], $matches) || (int) $matches[1] <= $largestWidth ) {
+                    continue;
+                }
+                $url = $this->safeImageUrl($candidate['url']);
+                if ( '' !== $url ) {
+                    $largest = $url;
+                    $largestWidth = (int) $matches[1];
+                }
+            }
+            if ( '' !== $largest ) {
+                return $largest;
+            }
         }
 
         foreach ( array( 'data-src', 'data-lazy-src', 'data-original', 'data-image-src' ) as $attribute ) {
@@ -11477,6 +11501,33 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->createBlock('core/html', array( 'content' => SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers()) ), array(), $element);
+    }
+
+    /**
+     * The authored candidates, slot sizes and loading of a lowered family.
+     *
+     * core/image saves no srcset or sizes, and attachment-generated candidates
+     * describe file widths rather than authored descriptors, so the browser
+     * would select different bytes. The selection rides in block metadata and
+     * is restored at render while the image still shows the source `src`.
+     * Authored `loading` belongs to it: when candidates share a URL, the first
+     * fetch fixes the image's density, so eager and lazy copies render apart.
+     *
+     * @return array{src?:string,srcset?:string,sizes?:string,loading?:string}
+     */
+    private function authoredImageSelection(DOMElement $image, string $src): array
+    {
+        if ( array() === SrcsetParser::parse($this->attr($image, 'srcset')) || $this->hasUnsafeResponsiveImageSources($image) ) {
+            return array();
+        }
+        $loading = strtolower(trim($this->attr($image, 'loading')));
+
+        return array_filter(array(
+            'src'     => $src,
+            'srcset'  => SrcsetParser::rewrite($this->attr($image, 'srcset'), fn (string $url): string => $this->resolvedAssetImageUrl($url)),
+            'sizes'   => trim($this->attr($image, 'sizes')),
+            'loading' => in_array($loading, array( 'lazy', 'eager' ), true) ? $loading : '',
+        ), static fn (string $value): bool => '' !== $value);
     }
 
     private function hasUnsafeResponsiveImageSources(DOMElement $element): bool

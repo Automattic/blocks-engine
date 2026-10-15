@@ -1,33 +1,45 @@
 # Authored image source selection
 
-Plain `img` elements with authored `srcset` or `sizes` use the existing
-`responsive-media` block and `blocks-engine/responsive-media/v1` renderer. The
-same boundary preserves image-only links and figures. `core/media-text`
-recognition declines these images so ordinary image lowering can preserve their
-selection inside the authored layout.
+A plain `img` `srcset` outside `<picture>` describes one image at several
+resolutions. When its rendered width is known, it lowers to native `core/image`
+so the photo stays editable Media Library content. Mixed, unparseable or
+descriptorless families, `sizes` without `srcset`, and families whose rendered
+width is unknown keep the existing `responsive-media` block and
+`blocks-engine/responsive-media/v1` renderer. In that last case the intrinsic
+size depends on the chosen candidate's density. Art direction (`<picture>`
+sources) also keeps that boundary.
 
-WordPress 7.1 `core/image` and `core/media-text` serialize a fallback URL and
-attachment identity, but do not serialize arbitrary authored `srcset`/`sizes`.
-Attachment-generated thumbnails do not reproduce separately authored pixels or
-density-corrected intrinsic dimensions. Non-responsive images retain native
-lowering.
+WordPress `core/image` serializes a fallback URL and attachment identity, but
+not authored `srcset`/`sizes`. Attachment-generated candidates describe file
+widths rather than authored descriptors, so the browser would decode different
+bytes. The lowered block therefore records
+`metadata.blocksEngineImageSelection` = `{src, srcset, sizes, loading}`.
+The site plan installs a `render_block_core/image` filter that restores those
+attributes only while the rendered `<img src>` still equals the selection's
+`src`. Authored `loading` belongs to the selection: when candidates share a URL,
+the first fetch fixes the image's density.
 
 ## Producer and consumer responsibilities
 
 - The producer retains the source family, order, descriptors (including absent
   descriptors), `sizes`, authored dimensions, presentation, and URL identity in
-  the existing content attribute. Existing source sanitization applies.
+  the responsive-media content attribute or the `core/image` selection
+  metadata. Existing source sanitization applies.
 - Artifact asset analysis and plan canonicalization bind each URL through the
   existing asset reference/token mechanism. Fallback attachment metadata alone
   does not replace the family's independent source references.
-- The consumer binds each authored raster candidate to its exact captured bytes.
+- The consumer binds each authored raster candidate to its exact captured bytes,
+  including the candidates in `core/image` selection metadata, and rebinds the
+  selection's `src` together with the image.
   Its shared `SrcsetParser` distinguishes separator commas from URL commas;
   source-selection descriptors cannot be applied to a promoted larger rendition.
   Core's original-image URL carries the authored bytes when upload processing
   replaces attachment "full" with a scaled image.
 - The consumer's existing `wp-image-{id}` editor control owns replacement. A new
   Media Library selection retires the old image/picture source family and `sizes`,
-  preserves the authored presentation, and saves the replacement URL and ID.
+  preserves the authored presentation, and saves the replacement URL and ID. For
+  `core/image`, a replaced `src` no longer matches the selection, so core's own
+  candidates apply.
 - Source asset content hashes and the existing attachment source-asset metadata
   establish exact byte provenance. Occurrence correspondence and independent
   pixel/geometry validation remain downstream responsibilities.

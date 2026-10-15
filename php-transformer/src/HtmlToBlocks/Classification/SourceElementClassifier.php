@@ -795,6 +795,34 @@ final class SourceElementClassifier
         return false;
     }
 
+    /**
+     * A plain w-descriptor family is one image at several resolutions.
+     *
+     * @param callable(): bool $hasDisplayWidth Resolved only for a lowerable descriptor family.
+     */
+    public function requiresResponsiveImageCarrier(DOMElement $image, callable $hasDisplayWidth): bool
+    {
+        $srcset = SourceDom::attr($image, 'srcset');
+        if ( '' === $srcset ) {
+            return '' !== SourceDom::attr($image, 'sizes');
+        }
+        $candidates = SrcsetParser::parse($srcset);
+        if ( array() === $candidates ) {
+            return true;
+        }
+        $family = null;
+        foreach ( $candidates as $candidate ) {
+            if ( 1 !== preg_match('/^\d+(w|x)$/', $candidate['descriptor'], $matches) ) {
+                return true;
+            }
+            if ( null !== $family && $family !== $matches[1] ) {
+                return true;
+            }
+            $family = $matches[1];
+        }
+        return ! $hasDisplayWidth();
+    }
+
     public function hasCapturedMediaContent(DOMElement $element): bool
     {
         return 0 < $element->getElementsByTagName('img')->length

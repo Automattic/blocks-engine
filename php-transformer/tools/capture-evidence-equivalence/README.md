@@ -174,6 +174,16 @@ replay by case:
   `796065fd`, `9389ce06`, `9cb93b72`, `a73ce3b0`, `b550beb0`, `b913b3b4`,
   `bda59bb9`, `c98ea038`, `dc249610`, `e40ee9dc`, `eaad29ef`, `f0e1a42c`,
   `f5a111b5`, `fcc75319` and `feef8efc`.
+- **Plain srcset resolution families** (#2763). Outside `<picture>` source
+  selection, a descriptor family whose rendered width is known lowers to
+  native `core/image` instead of the responsive media carrier. The Wix
+  `x`-descriptor thumbnails with `width="280"` in `90234027` become
+  `core/image` blocks and the responsive media companion definition drops
+  out. Only the style-rule candidate cache hit counter moves in `c210d1f9`.
+  Each lowered thumbnail keeps its authored `srcset`, `sizes` and `loading`
+  in `metadata.blocksEngineImageSelection`, keyed to its `src`, which the
+  site plan restores at render.
+
 - **Inline SVG geometry reaches linked images** (#2817). The inline geometry
   carrier rule now reads `.wp-block-image.<carrier>>img,.wp-block-image.<carrier>>a>img`
   instead of `.<carrier>>img`, so it outranks the author image bridge and
@@ -190,6 +200,7 @@ replay by case:
   the corpus. Only the `style_rule_candidate_cache_*` diagnostic counters
   fall, because the walk no longer probes the source-style candidate cache.
   This changes the digests of `90234027`, `d21657bb` and `f0e1a42c`.
+
 
 
 - **Reference-viewport menu visibility** (#2667). Navigation toggle and

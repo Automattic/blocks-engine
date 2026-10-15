@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CompanionPluginPayload;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
@@ -68,8 +69,6 @@ $assert('custom/responsive-media' === ($result['blocks'][0]['blockName'] ?? null
 $linkedImage = ( new HtmlTransformer() )->transform('<a href="/item"><img src="item.jpg" alt="Item 1"></a>')->toArray();
 $assert('core/image' === ($linkedImage['blocks'][0]['blockName'] ?? null) && '/item' === ($linkedImage['blocks'][0]['attrs']['href'] ?? null) && 'custom' === ($linkedImage['blocks'][0]['attrs']['linkDestination'] ?? null), 'a plain image-only link promotes to core/image with its native destination');
 foreach (array(
-    '<img src="small.jpg" srcset="small.jpg 480w, large.jpg 1920w" sizes="(min-width: 1000px) 570px, 100vw" width="1920" height="700" alt="Width">',
-    '<a href="/item"><img src="small.jpg" srcset="small.jpg 1x, retina.jpg 2x" width="40" height="20" alt="Density"></a>',
     '<figure><img src="fallback.jpg" srcset="first,w_320.jpg, second,w_640.jpg" alt="Descriptorless"><figcaption>Caption</figcaption></figure>',
 ) as $plainSource) {
     $plain = ( new HtmlTransformer() )->transform($plainSource)->toArray();
@@ -77,6 +76,43 @@ foreach (array(
     $assert($plainSource === ($plain['blocks'][0]['attrs']['content'] ?? null), 'selection, source URL identity and authored geometry survive together');
     $assert(array() === ($plain['fallbacks'] ?? array()), 'safe authored selection needs no HTML fallback');
 }
+$linkedDensity = ( new HtmlTransformer() )->transform('<a href="/item"><img src="small.jpg" srcset="small.jpg 1x, retina.jpg 2x" width="40" height="20" alt="Density"></a>')->toArray();
+$assert('core/image' === ($linkedDensity['blocks'][0]['blockName'] ?? null) && '/item' === ($linkedDensity['blocks'][0]['attrs']['href'] ?? null), 'a density family with known display width uses native core/image and retains its link');
+$widthFamily = ( new HtmlTransformer() )->transform('<img src="small.jpg" srcset="small.jpg 480w, large.jpg 1920w" sizes="(min-width: 1000px) 570px, 100vw" style="width:570px" alt="Width">')->toArray();
+$assert('core/image' === ($widthFamily['blocks'][0]['blockName'] ?? null) && 'small.jpg' === ($widthFamily['blocks'][0]['attrs']['url'] ?? null), 'a plain width-descriptor family with known CSS display width lowers through core/image using src');
+$widthWithoutSrc = ( new HtmlTransformer() )->transform('<img srcset="small.jpg 480w, large.jpg 1920w" sizes="100vw" style="width:1000px" alt="Width">')->toArray();
+$assert('core/image' === ($widthWithoutSrc['blocks'][0]['blockName'] ?? null) && 'large.jpg' === ($widthWithoutSrc['blocks'][0]['attrs']['url'] ?? null), 'a plain width-descriptor family without src materializes its largest candidate');
+// core/image saves no srcset or sizes, and attachment-generated candidates
+// describe file widths rather than authored descriptors. The authored family
+// rides in block metadata, keyed to the src it describes.
+$assert(array( 'src' => 'small.jpg', 'srcset' => 'small.jpg 480w, large.jpg 1920w', 'sizes' => '(min-width: 1000px) 570px, 100vw' ) === ($widthFamily['blocks'][0]['attrs']['metadata']['blocksEngineImageSelection'] ?? null), 'a lowered width family keeps its authored candidates and slot sizes for render');
+$assert(array( 'src' => 'large.jpg', 'srcset' => 'small.jpg 480w, large.jpg 1920w', 'sizes' => '100vw' ) === ($widthWithoutSrc['blocks'][0]['attrs']['metadata']['blocksEngineImageSelection'] ?? null), 'the selection is keyed to the candidate materialized as src');
+$assert(array( 'src' => 'small.jpg', 'srcset' => 'small.jpg 1x, retina.jpg 2x' ) === ($linkedDensity['blocks'][0]['attrs']['metadata']['blocksEngineImageSelection'] ?? null), 'a lowered density family keeps its candidates without inventing sizes');
+$lazyFamily = ( new HtmlTransformer() )->transform('<img src="a-600.webp" srcset="a-600.webp 600w, a-600.webp 2048w" sizes="100vw" loading="lazy" style="width:100%" alt="Lazy">')->toArray();
+$assert('lazy' === ($lazyFamily['blocks'][0]['attrs']['metadata']['blocksEngineImageSelection']['loading'] ?? null), 'the authored loading travels with the selection that decides which fetch fixes a shared candidate density');
+$plainImage = ( new HtmlTransformer() )->transform('<img src="plain.jpg" alt="Plain">')->toArray();
+$assert(!isset($plainImage['blocks'][0]['attrs']['metadata']), 'an image without an authored family carries no selection');
+$densityWithoutWidth = ( new HtmlTransformer() )->transform('<img src="small.jpg" srcset="small.jpg 1x, large.jpg 2x" alt="Density">')->toArray();
+$assert('custom/responsive-media' === ($densityWithoutWidth['blocks'][0]['blockName'] ?? null), 'an x-descriptor family without a display width remains responsive media');
+// A responsive capture serializes each device document's author CSS behind
+// that document's viewport branch. A width declared in the branch covers
+// every viewport its copy of the image is displayed at.
+$deviceDocuments = static function (string $desktopCss, string $mobileCss): array {
+    $image = '<img class="photo" src="/photo-2048.webp" srcset="/photo-600.webp 600w, /photo-2048.webp 2048w" sizes="(max-width: 992px) 100vw, 50vw" alt="Photo">';
+    $html = '<!doctype html><html><head><style>.data-blocks-engine-capture-mobile-document{display:none!important}@media(max-width:1400px){.data-blocks-engine-capture-desktop-document{display:none!important}.data-blocks-engine-capture-mobile-document{display:contents!important}}</style>'
+        . '<style media="(min-width:1401px)">' . $desktopCss . '</style><style media="(max-width:1400px)">' . $mobileCss . '</style></head><body>'
+        . '<div class="data-blocks-engine-capture-desktop-document"><main><h1>Desktop</h1>' . $image . '</main></div>'
+        . '<div class="data-blocks-engine-capture-mobile-document"><main><h1>Mobile</h1>' . $image . '</main></div></body></html>';
+    $serialized = (string) (( new ArtifactCompiler() )->compile(array( 'entrypoint' => 'index.html', 'files' => array( 'index.html' => $html ) ))->toArray()['serialized_blocks'] ?? '');
+
+    return array( substr_count($serialized, '/responsive-media '), substr_count($serialized, '<!-- wp:image') );
+};
+$selectionPlan = ( new ArtifactCompiler() )->compile(array( 'entrypoint' => 'index.html', 'files' => array( 'index.html' => '<!doctype html><html><head><style>.photo{width:100%}</style></head><body><main><h1>Gallery</h1><img class="photo" src="photo-2048.webp" srcset="photo-600.webp 600w, photo-2048.webp 2048w" sizes="(max-width: 992px) 100vw, 50vw" alt="Photo"></main></body></html>', 'photo-600.webp' => 'RIFF', 'photo-2048.webp' => 'RIFF' ) ))->toArray();
+$selectionRuntime = (string) json_encode(( new Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan() )->fromCompilerResult($selectionPlan));
+$assert(str_contains($selectionRuntime, 'render_block_core\\/image') && str_contains($selectionRuntime, 'blocksEngineImageSelection'), 'a plan whose markup carries an authored selection installs its renderer');
+$assert(str_contains(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::IMAGE_SELECTION_RENDERER, "get_attribute( 'src' ) !== \$selection['src']"), 'the renderer applies the selection only while the image still shows its source');
+$assert(array( 0, 2 ) === $deviceDocuments('.photo{width:100%}', ':where(.data-blocks-engine-capture-mobile-document) .photo{width:100%}'), 'a width-descriptor family sized in each captured device branch lowers both copies to core/image');
+$assert(array( 1, 1 ) === $deviceDocuments('.photo{height:auto}', ':where(.data-blocks-engine-capture-mobile-document) .photo{width:100%}'), 'a device copy whose branch leaves its width intrinsic keeps the responsive media carrier');
 $unsafePlain = ( new HtmlTransformer() )->transform('<img src="safe.jpg" srcset="javascript:alert(1) 2x" alt="Unsafe">')->toArray();
 $assert(!str_contains((string) ($unsafePlain['serialized_blocks'] ?? ''), 'javascript:'), 'plain-img admission retains the existing unsafe-source policy');
 $responsivePair = ( new HtmlTransformer() )->transform('<div style="display:flex"><img src="small.jpg" srcset="small.jpg 480w, large.jpg 1920w" sizes="50vw"><div><p>Editable description</p></div></div>')->toArray();
