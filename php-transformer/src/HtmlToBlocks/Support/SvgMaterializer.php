@@ -238,16 +238,16 @@ final class SvgMaterializer implements SvgElementMaterializer
 
         $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
         $presentation = $this->styleResolver->presentationDeclarations($element);
-        $sourceDisplay = strtolower(trim((string) ($presentation['display'] ?? '')));
+        $sourceDisplay = CssValueInspector::comparable((string) ($presentation['display'] ?? ''));
         $parent = $element->parentNode;
         $parentPresentation = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
         // display:contents is not a percentage containing block. The effective
         // parent is the nearest ancestor that actually establishes a box.
-        while ( $parent instanceof DOMElement && 'contents' === strtolower(trim((string) ($parentPresentation['display'] ?? ''))) ) {
+        while ( $parent instanceof DOMElement && 'contents' === CssValueInspector::comparable((string) ($parentPresentation['display'] ?? '')) ) {
             $parent = $parent->parentNode;
             $parentPresentation = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
         }
-        $parentDisplay = strtolower(trim((string) ($parentPresentation['display'] ?? '')));
+        $parentDisplay = CssValueInspector::comparable((string) ($parentPresentation['display'] ?? ''));
         $isFlexOrGridItem = in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
         $sourceObjectFit = strtolower(trim((string) ($presentation['object-fit'] ?? '')));
         $isPositionedMediaBox = $parent instanceof DOMElement

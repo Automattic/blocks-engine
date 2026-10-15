@@ -5130,7 +5130,7 @@ final class StyleResolver implements ElementPresentationResolver
     private function hasSourceSlideRuntimeState(array $declarations, array $runtimeProperties): bool
     {
         return array() !== array_intersect_key($declarations, $runtimeProperties)
-            || 'none' === strtolower(trim((string) ($declarations['display'] ?? '')));
+            || 'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
     }
 
     private function hasAuthorClassSelector(string $className): bool
@@ -5354,16 +5354,23 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * The element's own resolved value for one paint property — from matched
-     * CSS or inline style directly on `$element`, with any `var()` reference
-     * expanded against its ancestor-scoped custom properties. Returns null when
-     * `$element` declares nothing for `$property` (the caller decides whether
-     * to keep walking its ancestors, since that is an SVG-inheritance decision,
-     * not a CSS-cascade-resolution one).
+     * The element's own resolved value for one paint property — the author
+     * cascade winner on `$element` at the desktop reference viewport, with any
+     * `var()` reference expanded against its ancestor-scoped custom properties.
+     * Returns null when `$element` declares nothing for `$property` (the caller
+     * decides whether to keep walking its ancestors, since that is an
+     * SVG-inheritance decision, not a CSS-cascade-resolution one).
+     *
+     * A materialized SVG is a standalone image, so its paint is baked once.
+     * It is read where {@see referenceViewportAuthorDeclarations()} reads the
+     * root fill and stroke: a responsive capture scopes each document's
+     * stylesheet under a width query, and importance and specificity decide
+     * the winner exactly as they do in the browser.
      */
     public function resolvedSvgCascadeValue(DOMElement $element, string $property): ?string
     {
-        $declared = trim((string) ($this->matchedCascadedDeclarations($element)[$property] ?? ''));
+        $declared = trim((string) ($this->referenceViewportAuthorDeclarations($element, array($property))[$property] ?? ''));
+        $declared = trim(preg_replace('/\s*!\s*important\s*$/i', '', $declared) ?? $declared);
         if ( '' === $declared ) {
             return null;
         }
