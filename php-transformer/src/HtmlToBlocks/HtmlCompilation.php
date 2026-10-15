@@ -3994,7 +3994,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $blocks;
         }
 
-        $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($text) ));
+        // A source text run has no paragraph box of its own: the paragraph is
+        // only the validity carrier, so it renders in its parent's box.
+        $blocks[] = $this->createBlock('core/paragraph', array(
+            'className' => self::SYNTHETIC_PARAGRAPH_CLASS,
+            'content'   => $this->runtime->escapeHtml($text),
+        ));
         return $blocks;
     }
 
@@ -4440,10 +4445,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // A grid placement belongs to this inline node. Keep phrasing-only grid
         // siblings in one RichText container rather than replacing their direct
         // grid items with Group/Paragraph wrappers.
-        if ( 'grid' === strtolower(trim((string) ($this->styleResolver->presentationDeclarations($parent)['display'] ?? ''))) && ( '' !== trim((string) ($declarations['grid-column'] ?? '')) || '' !== trim((string) ($declarations['grid-row'] ?? '')) ) ) {
+        if ( 'grid' === CssValueInspector::comparable((string) ($this->styleResolver->presentationDeclarations($parent)['display'] ?? '')) && ( '' !== trim((string) ($declarations['grid-column'] ?? '')) || '' !== trim((string) ($declarations['grid-row'] ?? '')) ) ) {
             return false;
         }
-        $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
+        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? 'inline'));
         if ( 'block' === $display ) {
             return true;
         }
@@ -4646,13 +4651,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $display = strtolower(trim((string) ($declarations['display'] ?? '')));
+        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
         if ( in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
             return true;
         }
 
         foreach ( $this->styleResolver->styleRuleCandidates($element, 'conditional') as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) && in_array(strtolower(trim((string) ($rule['declarations']['display'] ?? ''))), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) && in_array(CssValueInspector::comparable((string) ($rule['declarations']['display'] ?? '')), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
                 return true;
             }
         }
@@ -4710,7 +4715,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
+        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? 'inline'));
         if ( 'block' === $display ) {
             return true;
         }
@@ -5045,11 +5050,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function isCssOwnedFlexElement(DOMElement $element): bool
     {
-        $display = strtolower(trim((string) preg_replace(
-            '/\s*!important\s*$/i',
-            '',
-            (string) ($this->styleResolver->structuralPresentationDeclarations($element)['display'] ?? '')
-        )));
+        $display = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['display'] ?? ''));
 
         return in_array($display, array( 'flex', 'inline-flex' ), true);
     }
@@ -5094,11 +5095,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function isCssOwnedGridElement(DOMElement $element): bool
     {
-        $display = strtolower(trim((string) preg_replace(
-            '/\s*!important\s*$/i',
-            '',
-            (string) ($this->styleResolver->structuralPresentationDeclarations($element)['display'] ?? '')
-        )));
+        $display = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['display'] ?? ''));
 
         return in_array($display, array( 'grid', 'inline-grid' ), true);
     }
@@ -6287,7 +6284,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function hasAuthorInlineAlignment(DOMElement $element): bool
     {
         $declarations = $this->wrapperCoalescer->matchingAuthorDeclarations($element);
-        $display = strtolower(trim((string) ($declarations['display'] ?? '')));
+        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
         $verticalAlign = strtolower(trim((string) ($declarations['vertical-align'] ?? '')));
         return in_array($display, array( 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true)
             && ! in_array($verticalAlign, array( '', 'baseline', 'inherit', 'initial', 'revert', 'revert-layer', 'unset' ), true);
@@ -6360,7 +6357,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         return 0 === $this->childElementCount($element)
             && '' === trim($element->textContent ?? '')
-            && 'none' === strtolower(trim((string) ($this->styleResolver->cssDeclarations($this->attr($element, 'style'))['display'] ?? '')))
+            && 'none' === CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($this->attr($element, 'style'))['display'] ?? ''))
             && '' === trim($this->attr($element, 'class'))
             && '' === trim($this->attr($element, 'id'))
             && '' === trim($this->attr($element, 'role'))
@@ -6397,7 +6394,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
-        $parentDisplay = strtolower(trim((string) ($parentDeclarations['display'] ?? '')));
+        $parentDisplay = CssValueInspector::comparable((string) ($parentDeclarations['display'] ?? ''));
         if ( ! in_array($parentDisplay, array( 'flex', 'inline-flex' ), true) ) {
             return $attrs;
         }
@@ -6513,7 +6510,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function hasAuthoredGridTracks(DOMElement $element): bool
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( ! in_array(strtolower(trim((string) ($declarations['display'] ?? ''))), array( 'grid', 'inline-grid' ), true) ) {
+        if ( ! in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'grid', 'inline-grid' ), true) ) {
             return false;
         }
         foreach ( array( 'grid-template-rows', 'grid-auto-rows' ) as $property ) {
@@ -6659,7 +6656,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $inline = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
-        return strtolower(trim(preg_replace('/\s*!important\s*$/i', '', (string) ($inline['display'] ?? $display)) ?? ''));
+        return CssValueInspector::comparable((string) ($inline['display'] ?? $display));
     }
 
     /**
@@ -9330,7 +9327,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function hasEqualWidthFlexColumnsGeometry(DOMElement $element, array $children): bool
     {
         $container = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( 'flex' !== strtolower(trim((string) ($container['display'] ?? ''))) ) {
+        if ( 'flex' !== CssValueInspector::comparable((string) ($container['display'] ?? '')) ) {
             return false;
         }
 

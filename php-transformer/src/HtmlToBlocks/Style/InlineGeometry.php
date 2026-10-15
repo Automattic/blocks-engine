@@ -374,7 +374,7 @@ final class InlineGeometry
         }
         $properties = array_merge($properties, $this->positioningPropertiesFor($element, $declarations));
         if ( ($this->inlineDisplayOverridesAuthorLayout)($element, $declarations) ) {
-            $inlineDisplay = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', (string) ($declarations['display'] ?? ''))));
+            $inlineDisplay = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
             if ( ! in_array($inlineDisplay, array( 'flex', 'inline-flex' ), true) ) {
                 $properties = array_values(array_diff(
                     $properties,

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
@@ -121,7 +122,7 @@ final class InlineContentElementConverter implements ElementConverter
                 $attrs = array(
                     'content' => '<mark style="' . htmlspecialchars($this->styleResolver->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>',
                 );
-                if ( 'none' === strtolower(trim((string) ($declarations['display'] ?? ''))) ) {
+                if ( 'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? '')) ) {
                     $attrs['className'] = SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS;
                 }
                 return ConversionOutcome::handled($this->context->createBlock('core/paragraph', $attrs, array(), $element));
