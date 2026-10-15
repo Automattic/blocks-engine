@@ -105,6 +105,7 @@ if ( $publishedDownstream !== $documentedDownstream ) {
 $runtimes = array(
     'DISCLOSURE_RUNTIME_SHA256' => 'capture-disclosure-runtime.js',
     'GALLERY_RUNTIME_SHA256' => 'capture-gallery-runtime.js',
+    'CHOICE_RUNTIME_SHA256' => 'capture-choice-runtime.js',
 );
 foreach ( $runtimes as $name => $fixture ) {
     $body = trim((string) file_get_contents($root . '/tests/fixtures/' . $fixture));
