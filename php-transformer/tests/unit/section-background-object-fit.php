@@ -56,4 +56,37 @@ foreach ( array(
     }
 }
 
+// An absolutely positioned fill image inside a flex parent is out of flow, not
+// a flex item. Its figure carries the positioned geometry, so it must keep a
+// real box instead of the transparent display:contents flex-item treatment.
+$flexFigureClass = SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS;
+foreach ( array(
+    'inline' => '<main><section class="hero" style="position:relative;display:flex;align-items:flex-end;min-height:600px">'
+        . '<img src="hero.jpg" alt="" style="position:absolute;height:100%;width:100%;left:0;top:0;right:0;bottom:0;object-fit:cover">'
+        . '<div style="position:absolute;inset:0;background:linear-gradient(#000,transparent)"></div>'
+        . '<div class="copy"><h1>Title</h1><p>Lead copy.</p></div></section></main>',
+    'stylesheet' => '<style>.hero{position:relative;display:flex;min-height:600px}.hero-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.shade{position:absolute;inset:0;background:#0008}</style>'
+        . '<main><section class="hero"><img class="hero-photo" src="hero.jpg" alt="">'
+        . '<div class="shade"></div>'
+        . '<div class="copy"><h1>Title</h1><p>Lead copy.</p></div></section></main>',
+) as $label => $source ) {
+    list( $positionedMarkup, $positionedCss ) = $transform($source);
+    if ( ! preg_match('/<figure[^>]*\b' . preg_quote($fillClass, '/') . '\b/', $positionedMarkup)
+        || str_contains($positionedMarkup, $flexFigureClass)
+        || str_contains($positionedCss, $flexFigureClass)
+    ) {
+        fwrite(STDERR, "FAIL: positioned fill image in a flex parent ({$label}) must keep a real figure box\n" . $positionedMarkup . "\n" . $positionedCss . "\n");
+        exit(1);
+    }
+}
+
+// An in-flow image in a flex parent still gets the transparent figure.
+list( $flowMarkup ) = $transform(
+    '<main><div style="display:flex"><img src="avatar.jpg" alt="" width="48" height="48"><p>Name</p></div></main>'
+);
+if ( ! str_contains($flowMarkup, $flexFigureClass) ) {
+    fwrite(STDERR, "FAIL: in-flow flex item image keeps the transparent synthetic figure\n" . $flowMarkup . "\n");
+    exit(1);
+}
+
 fwrite(STDOUT, "section background object-fit tests: passed\n");

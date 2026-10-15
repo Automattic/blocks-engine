@@ -61,6 +61,7 @@ final class CapturedDialogBlockGenerator
             'ancestorUnverified' => array('type' => 'string', 'default' => ''),
             'dialogId' => array('type' => 'string', 'default' => ''),
             'triggerIds' => array('type' => 'array', 'default' => array(), 'items' => array('type' => 'string')),
+            'closerIds' => array('type' => 'array', 'default' => array(), 'items' => array('type' => 'string')),
             'ariaLabel' => array('type' => 'string', 'default' => ''),
             'ariaLabelledby' => array('type' => 'string', 'default' => ''),
             'ariaDescribedby' => array('type' => 'string', 'default' => ''),
@@ -77,7 +78,7 @@ final class CapturedDialogBlockGenerator
     var InnerBlocks = blockEditor.InnerBlocks;
     function styleObject( value ) { if ( ! value ) return undefined; return String( value ).split( ';' ).reduce( function( output, declaration ) { var separator = declaration.indexOf( ':' ); if ( separator < 1 ) return output; var name = declaration.slice( 0, separator ).trim(); var property = name.indexOf( '--' ) === 0 ? name : name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); output[ property ] = declaration.slice( separator + 1 ).trim(); return output; }, {} ); }
     function dialogProps( attrs ) {
-        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, style: styleObject( attrs.sourceStyle ), '__DIALOG_ANCESTOR_UNVERIFIED__': attrs.ancestorUnverified || undefined, 'data-blocks-engine-presentation': attrs.presentation || undefined, 'data-blocks-engine-placement': attrs.placement || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-gallery-selection': attrs.gallerySelection && attrs.gallerySelection.length ? JSON.stringify( attrs.gallerySelection ) : undefined, 'data-blocks-engine-ancestor-state': attrs.ancestorState && attrs.ancestorState.length ? JSON.stringify( attrs.ancestorState ) : undefined };
+        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, style: styleObject( attrs.sourceStyle ), '__DIALOG_ANCESTOR_UNVERIFIED__': attrs.ancestorUnverified || undefined, 'data-blocks-engine-presentation': attrs.presentation || undefined, 'data-blocks-engine-placement': attrs.placement || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-closers': ( attrs.closerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-gallery-selection': attrs.gallerySelection && attrs.gallerySelection.length ? JSON.stringify( attrs.gallerySelection ) : undefined, 'data-blocks-engine-ancestor-state': attrs.ancestorState && attrs.ancestorState.length ? JSON.stringify( attrs.ancestorState ) : undefined };
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
@@ -213,7 +214,11 @@ JS;
     }
     // A source close control is a native button once converted, so it is
     // recognized by its accessible name as well as the explicit marker.
-    function closeControl( target ) {
+    // The source's own declared close controls (for example a popover's
+    // `popovertargetaction="hide"` button) are bound by id, whatever their label.
+    function closeControl( target, dialog ) {
+        var declared = ( dialog.getAttribute( 'data-blocks-engine-closers' ) || '' ).split( /\s+/ ).map( function( id ) { return id && document.getElementById( id ); } ).filter( Boolean );
+        for ( var i = 0; i < declared.length; i++ ) if ( declared[ i ].contains( target ) ) return declared[ i ];
         var control = target.closest && target.closest( '[data-blocks-engine-dialog-close],button,a,[role="button"]' );
         if ( ! control ) return null;
         if ( control.hasAttribute( 'data-blocks-engine-dialog-close' ) ) return control;
@@ -282,7 +287,7 @@ JS;
         } ); } );
         // A source close control inside the panel still closes it. Outside
         // clicks are not given a meaning the capture did not observe.
-        dialog.addEventListener( 'click', function( event ) { if ( ( ! dropdown && event.target === dialog ) || closeControl( event.target ) ) close(); } );
+        dialog.addEventListener( 'click', function( event ) { if ( ( ! dropdown && event.target === dialog ) || closeControl( event.target, dialog ) ) close(); } );
     }
     function mountAll() { document.querySelectorAll( 'dialog[data-blocks-engine-triggers],div[data-blocks-engine-presentation="dropdown"][data-blocks-engine-triggers]' ).forEach( mount ); }
     if ( 'loading' === document.readyState ) document.addEventListener( 'DOMContentLoaded', mountAll ); else mountAll();

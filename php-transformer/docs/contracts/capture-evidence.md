@@ -137,7 +137,9 @@ See [Native control state](../native-control-state.md).
 
 | Name | Kind | Value | Meaning |
 | ---- | ---- | ----- | ------- |
+| `data-blocks-engine-capture-choice-group` | attribute | integer | Config key of a choice group; its transitions are in the choice runtime. Stripped from projected markup. |
 | `data-blocks-engine-capture-choice-index` | attribute | integer | Capture-internal option index; stripped from projected choice markup. |
+| `data-blocks-engine-capture-choice-runtime` | attribute (flag) on `<script>` | ignored | The capture's choice-group runtime. Its `configs[key].transitions[index]` is the group's markup after selecting choice `index`. Retired when its body is the recognized runtime (below) and every marked group projects. |
 | `data-blocks-engine-capture-native-control-state` | attribute | JSON, version 1 | Observed native control state facts. Never reaches output. |
 | `data-blocks-engine-capture-native-control-runtime` | attribute (flag) on `<script>` | ignored | The capture's native control helper. |
 
@@ -177,6 +179,7 @@ allowed.
 | ---- | ---- | ------- |
 | `b545f43a77b79d075373048431101fe11d7ff8cdfe7987de6d7971512763d88f` | sha256 of the disclosure interpreter | Body: [`tests/fixtures/capture-disclosure-runtime.js`](../../tests/fixtures/capture-disclosure-runtime.js), marker `data-blocks-engine-capture-disclosure-runtime` (value `true`), in `<head>`. |
 | `456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b` | sha256 of the gallery helper | Body: [`tests/fixtures/capture-gallery-runtime.js`](../../tests/fixtures/capture-gallery-runtime.js), marker `data-blocks-engine-capture-gallery-runtime`, in `<head>`. |
+| `82806634d813434b72ca5cbc9532c88f26aa4bd3cec880c2e6c12580dd6849eb` | sha256 of the choice-group runtime | Body: [`tests/fixtures/capture-choice-runtime.js`](../../tests/fixtures/capture-choice-runtime.js) with the JSON config list in place of its empty config list (`var configs=[];`); the digest covers the body with the empty list, marker `data-blocks-engine-capture-choice-runtime` (value `true`), in `<head>`. |
 
 Blocks Engine recognizes one body per runtime: the producer's current one.
 When the producer changes a body, Blocks Engine checks that its native
