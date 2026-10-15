@@ -276,6 +276,7 @@
       "php tests/unit/inline-override-carrier-specificity.php",
       "php tests/unit/embed-block-factory.php",
       "php tests/unit/embed-height-preservation.php",
+      "php tests/unit/embed-author-height-overrides-attribute.php",
       "php tests/unit/media-text-block-factory.php",
       "php tests/unit/video-element-conversion.php",
       "php tests/contract/native-video-poster.php",

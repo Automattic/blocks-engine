@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAn
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
@@ -577,8 +578,9 @@ JS;
 
             return $this->nearestEmbedAspectRatioClassName(null !== $width && 0.0 < $width ? $width / $height : 16 / 9);
         }
-        if ( null !== $height && 0.0 < $height ) {
-            $carrier = $styleResolver->embedWrapperHeightClassName($iframe, $this->cssPixelValue($height));
+        $fixedHeight = $this->authorFixedIframeHeight($iframe, $styleResolver);
+        if ( null !== $fixedHeight ) {
+            $carrier = $styleResolver->embedWrapperHeightClassName($iframe, $this->cssPixelValue($fixedHeight));
             if ('' === $carrier) return '';
             $width = $this->explicitPixelIframeDimension($iframe, 'width', $styleResolver);
             $ratio = null !== $width && 0.0 < $width ? $width / $height : 16 / 9;
@@ -586,8 +588,36 @@ JS;
         }
 
         $ratio = $this->embedAspectRatioCssValue($iframe, $styleResolver);
+        if ( null === $ratio && null !== $height && 0.0 < $height ) {
+            // Author CSS replaced the attribute height with a non-fixed one;
+            // the attributes still record the frame's shape.
+            $width = $this->explicitPixelIframeDimension($iframe, 'width', $styleResolver);
+            $ratio = null !== $width && 0.0 < $width ? $width / $height : 16 / 9;
+        }
 
         return null === $ratio ? '' : $this->nearestEmbedAspectRatioClassName($ratio);
+    }
+
+    /**
+     * The fixed pixel height the source frame renders at, or null.
+     *
+     * A `height` attribute is a presentational hint: any author CSS `height`
+     * overrides it. A frame captured as `height="507"` but styled
+     * `height:auto;aspect-ratio:16/9` renders at its ratio, so only the
+     * ratio may size the embed; pinning the wrapper to the attribute both
+     * freezes it at one viewport and drifts from the ratio's own rounding.
+     */
+    private function authorFixedIframeHeight(DOMElement $iframe, StyleResolver $styleResolver): ?float
+    {
+        $authored = $styleResolver->authoredPresentationDeclarations($iframe)['height'] ?? null;
+        if ( null !== $authored ) {
+            $authored = CssValueInspector::withoutImportant((string) $authored);
+
+            return $this->sourceElementClassifier->isPositiveIframeDimension($authored) ? (float) $authored : null;
+        }
+        $attribute = trim(SourceDom::attr($iframe, 'height'));
+
+        return $this->sourceElementClassifier->isPositiveIframeDimension($attribute) ? (float) $attribute : null;
     }
 
     /** True when the source CSS makes the frame as tall as its parent (`height:100%`). */
@@ -628,7 +658,7 @@ JS;
      */
     private function embedAspectRatioCssValue(DOMElement $iframe, StyleResolver $styleResolver): ?float
     {
-        $value = trim((string) ($styleResolver->presentationDeclarations($iframe)['aspect-ratio'] ?? ''));
+        $value = CssValueInspector::withoutImportant(trim((string) ($styleResolver->authoredPresentationDeclarations($iframe)['aspect-ratio'] ?? '')));
         if ( '' === $value || 1 !== preg_match('/^(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+(?:\.\d+)?))?$/', $value, $matches) ) {
             return null;
         }
