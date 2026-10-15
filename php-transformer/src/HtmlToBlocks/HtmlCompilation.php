@@ -9991,6 +9991,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
+        $selection = $this->authoredImageSelection($image, (string) $attrs['url']);
+        if ( array() !== $selection ) {
+            $attrs['metadata'] = array_merge(is_array($attrs['metadata'] ?? null) ? $attrs['metadata'] : array(), array( 'blocksEngineImageSelection' => $selection ));
+        }
+
         $block = $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
         // core/image saves the class list and anchor on the <figure>; an author
         // subject naming the <img> by class or id must find them there.
@@ -11499,6 +11504,33 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->createBlock('core/html', array( 'content' => SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers()) ), array(), $element);
+    }
+
+    /**
+     * The authored candidates, slot sizes and loading of a lowered family.
+     *
+     * core/image saves no srcset or sizes, and attachment-generated candidates
+     * describe file widths rather than authored descriptors, so the browser
+     * would select different bytes. The selection rides in block metadata and
+     * is restored at render while the image still shows the source `src`.
+     * Authored `loading` belongs to it: when candidates share a URL, the first
+     * fetch fixes the image's density, so eager and lazy copies render apart.
+     *
+     * @return array{src?:string,srcset?:string,sizes?:string,loading?:string}
+     */
+    private function authoredImageSelection(DOMElement $image, string $src): array
+    {
+        if ( array() === SrcsetParser::parse($this->attr($image, 'srcset')) || $this->hasUnsafeResponsiveImageSources($image) ) {
+            return array();
+        }
+        $loading = strtolower(trim($this->attr($image, 'loading')));
+
+        return array_filter(array(
+            'src'     => $src,
+            'srcset'  => SrcsetParser::rewrite($this->attr($image, 'srcset'), fn (string $url): string => $this->resolvedAssetImageUrl($url)),
+            'sizes'   => trim($this->attr($image, 'sizes')),
+            'loading' => in_array($loading, array( 'lazy', 'eager' ), true) ? $loading : '',
+        ), static fn (string $value): bool => '' !== $value);
     }
 
     private function hasUnsafeResponsiveImageSources(DOMElement $element): bool

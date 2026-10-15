@@ -92,6 +92,24 @@ add_filter( 'render_block_core/accordion-heading', static function ( string $con
     return (string) preg_replace_callback( '/(<span\b[^>]*\bwp-block-accordion-heading__toggle-icon\b[^>]*>)[^<]*(<\/span>)/', static fn ( array $match ): string => $match[1] . $svg . $match[2], $content, 1 );
 }, 10, 2 );
 PHP;
+    /**
+     * A lowered srcset family keeps its authored candidates, slot sizes and
+     * loading in core/image metadata. They describe the source `src`; once
+     * the image is replaced, the new attachment's own candidates apply.
+     */
+    public const IMAGE_SELECTION_RENDERER = <<<'PHP'
+add_filter( 'render_block_core/image', static function ( string $content, array $block ): string {
+    $selection = $block['attrs']['metadata']['blocksEngineImageSelection'] ?? null;
+    if ( ! is_array( $selection ) || ! is_string( $selection['src'] ?? null ) || ! is_string( $selection['srcset'] ?? null ) || '' === $selection['srcset'] ) return $content;
+    $tag = new WP_HTML_Tag_Processor( $content );
+    if ( ! $tag->next_tag( 'IMG' ) || $tag->get_attribute( 'src' ) !== $selection['src'] ) return $content;
+    $tag->set_attribute( 'srcset', $selection['srcset'] );
+    if ( is_string( $selection['sizes'] ?? null ) && '' !== $selection['sizes'] ) $tag->set_attribute( 'sizes', $selection['sizes'] );
+    else $tag->remove_attribute( 'sizes' );
+    if ( in_array( $selection['loading'] ?? null, array( 'lazy', 'eager' ), true ) ) $tag->set_attribute( 'loading', $selection['loading'] );
+    return $tag->get_updated_html();
+}, 10, 2 );
+PHP;
     private string $sourceOrigin = '';
     private string $sourceUrl = '';
     private const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
@@ -3999,6 +4017,9 @@ PHP;
         }
         if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineIcon'))) {
             $lines[] = self::ACCORDION_ICON_RENDERER;
+        }
+        if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineImageSelection'))) {
+            $lines[] = self::IMAGE_SELECTION_RENDERER;
         }
         if (array_filter($pages, static fn(array $page): bool => str_contains($page['canonical_block_markup'], 'blocks-engine-listing-overlay'))) {
             $lines[] = "add_filter( 'render_block_core/read-more', static function ( string \$content, array \$block ): string { if ( ! in_array( 'blocks-engine-listing-overlay', preg_split( '/\\s+/', (string) ( \$block['attrs']['className'] ?? '' ) ) ?: array(), true ) ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) { \$tag->set_attribute( 'aria-hidden', 'true' ); \$tag->set_attribute( 'tabindex', '-1' ); } return \$tag->get_updated_html(); }, 10, 2 );";

@@ -175,6 +175,9 @@ replay by case:
   `x`-descriptor thumbnails with `width="280"` in `90234027` become
   `core/image` blocks and the responsive media companion definition drops
   out. Only the style-rule candidate cache hit counter moves in `c210d1f9`.
+  Each lowered thumbnail keeps its authored `srcset`, `sizes` and `loading`
+  in `metadata.blocksEngineImageSelection`, keyed to its `src`, which the
+  site plan restores at render.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.
