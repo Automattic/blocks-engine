@@ -65,6 +65,10 @@ $assertContains(
 );
 $sizedValidity = ( new Runtime() )->validateBlockSerialization($sized['blocks']);
 $assertSame('pass', $sizedValidity['status'] ?? null, 'A fully-attributed core/video block passes serialization validators.');
+$sizedSerialized = ( new Runtime() )->serializeBlocks($sized['blocks']);
+foreach ( array( 'autoplay' => true, 'controls' => true, 'loop' => true, 'muted' => true, 'playsInline' => true, 'poster' => 'https://example.com/clip.jpg', 'preload' => 'none' ) as $attribute => $value ) {
+    $assertContains('"' . $attribute . '":' . json_encode($value, JSON_UNESCAPED_SLASHES), $sizedSerialized, 'Serialized core/video delimiter retains ' . $attribute . '.');
+}
 $sizedFindings = ( new CanonicalSaveShapeValidator() )->findings($sized['blocks']);
 $assertSame(array(), $sizedFindings, 'A fully-attributed core/video block passes the canonical save-shape validator.');
 
@@ -77,9 +81,10 @@ $plain = ( new HtmlTransformer() )->transform(
 )->toArray();
 $plainBlock = $plain['blocks'][0] ?? array();
 $assertSame('core/video', $plainBlock['blockName'] ?? null, 'A dimensionless video still converts to core/video.');
-foreach ( array( 'poster', 'width', 'height', 'preload', 'controls', 'autoplay', 'loop', 'muted', 'playsInline' ) as $attribute ) {
+foreach ( array( 'poster', 'width', 'height', 'preload', 'autoplay', 'loop', 'muted', 'playsInline' ) as $attribute ) {
     $assertSame(false, array_key_exists($attribute, $plainBlock['attrs'] ?? array()), 'A dimensionless/posterless video fabricates no ' . $attribute . ' attribute.');
 }
+$assertSame(false, $plainBlock['attrs']['controls'] ?? null, 'A video without a controls attribute explicitly disables controls for Jetpack schemas.');
 $assertSame('<video src="https://example.com/plain.mp4"></video>', (string) preg_replace('/^<figure class="wp-block-video">|<\/figure>$/', '', (string) ($plainBlock['innerHTML'] ?? '')), 'A dimensionless/posterless video keeps emitting the original plain <video src> markup.');
 $assertNotContains('width=', (string) ($plainBlock['innerHTML'] ?? ''), 'No fabricated width attribute leaks into the saved markup.');
 
@@ -99,6 +104,35 @@ $assertSame(true, $sourceChildBlock['attrs']['muted'] ?? null, 'muted survives w
 $assertSame(true, $sourceChildBlock['attrs']['playsInline'] ?? null, 'playsinline survives when src comes from a child <source>.');
 $sourceChildValidity = ( new Runtime() )->validateBlockSerialization($sourceChild['blocks']);
 $assertSame('pass', $sourceChildValidity['status'] ?? null, 'A <source>-child video with playback attrs passes serialization validators.');
+
+// This trimmed excerpt is taken from the mandatory SOS Calvaires capture's
+// website/index.html background video, rather than a synthetic reproduction.
+$realCaptureVideo = file_get_contents(dirname(__DIR__) . '/fixtures/soscalvaires-home-background-video.html');
+$realCapture = ( new HtmlTransformer() )->transform((string) $realCaptureVideo)->toArray();
+$findVideo = static function (array $blocks) use (&$findVideo): array {
+    foreach ( $blocks as $block ) {
+        if ( 'core/video' === ($block['blockName'] ?? null) ) {
+            return $block;
+        }
+        $found = $findVideo(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array());
+        if ( array() !== $found ) {
+            return $found;
+        }
+    }
+    return array();
+};
+$realVideo = $findVideo($realCapture['blocks'] ?? array());
+$assertSame('core/video', $realVideo['blockName'] ?? null, 'The real-capture background video lowers to core/video.');
+foreach ( array( 'autoplay', 'loop', 'muted', 'playsInline' ) as $attribute ) {
+    $assertSame(true, $realVideo['attrs'][$attribute] ?? null, 'The real-capture video retains ' . $attribute . ' in block attributes.');
+}
+$assertSame(false, $realVideo['attrs']['controls'] ?? null, 'The real-capture video explicitly disables Jetpack-defaulted controls.');
+$realSerialized = ( new Runtime() )->serializeBlocks(array($realVideo));
+$assertContains('"controls":false', $realSerialized, 'The real-capture delimiter explicitly stores controls=false.');
+$assertContains('"autoplay":true', $realSerialized, 'The real-capture delimiter stores autoplay.');
+$assertContains('"loop":true', $realSerialized, 'The real-capture delimiter stores loop.');
+$assertContains('"muted":true', $realSerialized, 'The real-capture delimiter stores muted.');
+$assertContains('playsinline="playsinline"', $realSerialized, 'The real-capture saved HTML retains playsinline.');
 
 if ( 0 === $failures ) {
     echo "video element conversion ok\n";
