@@ -349,7 +349,7 @@ final class ArtifactCompiler
             if (is_array($fallback)) unset($fallback['_collection_binding_declined']);
             return $fallback;
         }, $allFallbacks);
-        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
+        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''));
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
             $documentFiles = $normalized['files'];
@@ -2323,9 +2323,10 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @param array<int, array<string, mixed>> $projections
      * @param array<int, array<string, mixed>> $primaryProjections
+     * @param string $primaryOwner The page that produced the primary projections, '' when they are site-wide.
      * @return array<int, array<string, mixed>>
      */
-    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array()): array
+    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = ''): array
     {
         $attributeStateMarkers = array();
         foreach ($projections as $projection) {
@@ -2358,7 +2359,11 @@ final class ArtifactCompiler
         // the page (owner) that produced them.
         $sharedByPath = array();
         $pageByPath = array();
+        $ownersByPath = array();
         foreach ( $projections as $projection ) {
+            if ( is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null) && '' !== (string) ($projection['owner'] ?? '') ) {
+                $ownersByPath[$projection['path']][$projection['content']][(string) $projection['owner']] = true;
+            }
             if ( ! is_string($projection['path'] ?? null) || ! is_string($projection['content'] ?? null) || isset($primaryByPath[$projection['path']][$projection['content']]) ) {
                 continue;
             }
@@ -2380,6 +2385,36 @@ final class ArtifactCompiler
             }
             $pages = $pageByPath[$path] ?? array();
             $authoritativeContent = array_keys($primaryByPath[$path] ?? array());
+            // The site-wide copy is the projection most pages produced, not
+            // necessarily the entry page's: with per-element markers named
+            // from source context, pages sharing a layout project a shared
+            // stylesheet to the same text, and each page that differs gets
+            // the slice it needs. A site-wide entry projection (a template
+            // surface) stays authoritative.
+            if ( 1 === count($authoritativeContent) && '' !== $primaryOwner && isset($ownersByPath[$path][$authoritativeContent[0]][$primaryOwner]) ) {
+                $primary = $authoritativeContent[0];
+                $best = $primary;
+                foreach ( $ownersByPath[$path] as $content => $owners ) {
+                    if ( count($owners) > count($ownersByPath[$path][$best]) ) {
+                        $best = (string) $content;
+                    }
+                }
+                if ( $best !== $primary ) {
+                    $authoritativeContent = array( $best );
+                    $rebased = array();
+                    foreach ( array_keys($ownersByPath[$path][$primary]) as $owner ) {
+                        $rebased[$owner][] = $primary;
+                    }
+                    foreach ( $pages as $owner => $contents ) {
+                        foreach ( $contents as $content ) {
+                            if ( $content !== $best ) {
+                                $rebased[$owner][] = $content;
+                            }
+                        }
+                    }
+                    $pages = $rebased;
+                }
+            }
             if ( array() === $authoritativeContent ) {
                 // Without an entry projection the last page's projection is
                 // authoritative, as the site-wide copy every page loads.
@@ -3194,6 +3229,10 @@ final class ArtifactCompiler
             // The native control replay interpreter addresses captured control
             // state, not source behavior; its state lowers into control blocks.
             if (NativeControlState::isReplayScript($script['tag'])) continue;
+            // Capture activators describe engine-owned evidence, not source
+            // runtime behavior. Treating their query as a dependency would
+            // preserve every captured target as a runtime island.
+            if (array_key_exists(CaptureEvidence::VIEWPORT_ENTRANCE_ACTIVATOR, HtmlTagScanner::attributes($script['tag']))) continue;
             $src = $this->htmlAttribute($script['tag'], 'src');
             if ( '' === $src ) {
                 $scripts[] = $script['content'];

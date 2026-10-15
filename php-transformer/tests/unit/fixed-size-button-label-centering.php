@@ -85,6 +85,17 @@ if ( preg_match_all('/blocks-engine-semantic-[a-f0-9]+-\d+/', $marginRule, $mark
         }
     }
 }
+// A context-free subject reaches the label through its role and subject
+// classes, which the label carries along with its marker.
+$labelTokens = preg_split('/\s+/', trim($labelClass)) ?: array();
+if ( preg_match_all('/:where\(\.(blocks-engine-role-semantic(?:\.blocks-engine-subject(?:-[a-z]+-[a-z0-9-]+)?)+)\)/', $marginRule, $subjectMatches) ) {
+    foreach ( $subjectMatches[1] as $subject ) {
+        if ( array() === array_diff(explode('.', $subject), $labelTokens) ) {
+            $markerOnLabel = true;
+            break;
+        }
+    }
+}
 $classRuleMatchesLabel = str_contains($marginRule, '.label') && str_contains($labelClass, 'label');
 $assert(
     $markerOnLabel || $classRuleMatchesLabel,

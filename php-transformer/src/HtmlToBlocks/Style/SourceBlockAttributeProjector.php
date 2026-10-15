@@ -362,7 +362,10 @@ final class SourceBlockAttributeProjector
         if ( $facts->hasAuthorControlProjection ) {
             $controlMarker = '' !== $logicalControlPath ? $context->selectorProjections->ensureControlMarker($logicalControlPath) : '';
             if ( '' !== $controlMarker ) {
-                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $controlMarker);
+                $attrs['className'] = SourceDom::mergeClassNames(
+                    (string) ($attrs['className'] ?? ''),
+                    ...$context->selectorProjections->controlCarrierClasses($logicalControlPath)
+                );
                 if ( 'core/button' === $name ) {
                     $this->generatedStyleProjector->registerNativeButtonStyleRule($controlMarker, $attrs, $context->generatedStyles, $nativeButtonTextAlignment, $logicalControl);
                     $blockColor = is_array($attrs['style']['color'] ?? null) ? $attrs['style']['color'] : array();

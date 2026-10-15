@@ -18,11 +18,13 @@ final class CapturedDialogConverter implements ElementConverter
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
      * @param (Closure(DOMElement): string)|null $resolvedStyle The element's authored, cascade-resolved declarations.
+     * @param (Closure(DOMElement): array<string, string>)|null $openStateValues Values a state rule gives the panel over its hiding or offsetting rest rules.
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly Closure $convertChildren,
-        private readonly ?Closure $resolvedStyle = null
+        private readonly ?Closure $resolvedStyle = null,
+        private readonly ?Closure $openStateValues = null
     ) {
     }
 
@@ -57,6 +59,29 @@ final class CapturedDialogConverter implements ElementConverter
     }
 
     /**
+     * The dialog's inline style, plus the open-state values a state rule gives
+     * the panel over rest rules that hide or offset it. The dialog is the
+     * captured open panel, so those rest rules must not win while it is open.
+     * Inline and without `!important`: it beats the rest rules, and the block
+     * stylesheet's `:not([open]){display:none!important}` still closes it.
+     */
+    private function openSourceStyle(DOMElement $element): string
+    {
+        $style = trim(SourceDom::attr($element, 'style'));
+        if ( 'dialog' !== strtolower($element->tagName) || '' !== SourceDom::attr($element, 'data-blocks-engine-presentation') || null === $this->openStateValues ) {
+            return $style;
+        }
+        foreach ( ($this->openStateValues)($element) as $property => $value ) {
+            if ( 1 === preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . '\s*:/i', $style) ) {
+                continue;
+            }
+            $style = rtrim($style, "; \t\n") . ('' === $style ? '' : ';') . $property . ':' . $value;
+        }
+
+        return $style;
+    }
+
+    /**
      * A modal whose source panel positions itself (`position:fixed` or
      * `absolute` from its own author rules) drew its own box: the source panel
      * was not a `<dialog>`, so it had no user agent padding, border, auto
@@ -85,7 +110,7 @@ final class CapturedDialogConverter implements ElementConverter
 
         $attrs = array_filter(array(
             'tagName' => 'div' === strtolower($element->tagName) ? 'div' : '',
-            'sourceStyle' => SourceDom::attr($element, 'style'),
+            'sourceStyle' => $this->openSourceStyle($element),
             'ancestorUnverified' => SourceDom::attr($element, CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED),
             'dialogId' => trim(SourceDom::attr($element, 'id')),
             'triggerIds' => array_values(array_filter(preg_split('/\s+/', trim(SourceDom::attr($element, 'data-blocks-engine-triggers'))) ?: array())),

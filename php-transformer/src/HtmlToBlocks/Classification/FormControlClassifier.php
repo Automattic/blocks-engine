@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use DOMElement;
 
 final class FormControlClassifier
@@ -83,6 +85,65 @@ final class FormControlClassifier
         }
 
         return $controls;
+    }
+
+    /**
+     * The shared control enumeration, with each control replaced by the element
+     * that paints it. Layout and presentation describe these boxes; control
+     * semantics stay on `controlElements()`, index for index.
+     *
+     * @return array<int, DOMElement>
+     */
+    public static function presentedControlElements(DOMElement $form): array
+    {
+        return array_map(self::presentingElement(...), self::controlElements($form));
+    }
+
+    /**
+     * The element that paints a native submit control.
+     *
+     * A site builder may move its native submit off-screen with inline styles
+     * and paint an adjacent sibling carrying the same caption in its place (a
+     * styled link with no destination). That sibling is the submit a visitor
+     * sees and the box a provider button reproduces. Any other control, or an
+     * ambiguous match, paints itself.
+     */
+    public static function presentingElement(DOMElement $control): DOMElement
+    {
+        $parent = $control->parentNode;
+        if ( ! $parent instanceof DOMElement || ! in_array(self::controlType($control), array( 'submit', 'image' ), true) ) {
+            return $control;
+        }
+        $declarations = array_column(CssRuleAnalyzer::declarations($control->getAttribute('style'), array( 'position', 'left', 'top' )), 'value', 'name');
+        if ( ! CssValueInspector::isMovedOffscreenBox($declarations) ) {
+            return $control;
+        }
+        $caption = self::normalizedCaption('input' === strtolower($control->tagName) ? ( '' !== trim($control->getAttribute('value')) ? $control->getAttribute('value') : $control->getAttribute('aria-label') ) : (string) $control->textContent);
+        if ( '' === $caption ) {
+            return $control;
+        }
+        $presenter = null;
+        foreach ( $parent->childNodes as $sibling ) {
+            if ( ! $sibling instanceof DOMElement || $sibling === $control || $sibling->hasAttribute('href') || self::isControlElement($sibling) || self::normalizedCaption((string) $sibling->textContent) !== $caption ) {
+                continue;
+            }
+            foreach ( self::CONTROL_TAGS as $tag ) {
+                if ( 0 < $sibling->getElementsByTagName($tag)->length ) {
+                    continue 2;
+                }
+            }
+            if ( null !== $presenter ) {
+                return $control;
+            }
+            $presenter = $sibling;
+        }
+
+        return $presenter ?? $control;
+    }
+
+    private static function normalizedCaption(string $text): string
+    {
+        return strtolower(trim(preg_replace('/\s+/u', ' ', $text) ?? $text));
     }
 
     /**
@@ -210,7 +271,7 @@ final class FormControlClassifier
             return true;
         }
 
-        return 'button' === $tagName || ( 'input' === $tagName && in_array(self::controlType($control), array( 'checkbox', 'email', 'number', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url' ), true) );
+        return 'button' === $tagName || ( 'input' === $tagName && in_array(self::controlType($control), array( 'checkbox', 'email', 'number', 'password', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url' ), true) );
     }
 
     public static function isSubmitLikeControl(DOMElement $control): bool

@@ -19,6 +19,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
@@ -1032,7 +1033,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (DOMElement $element, array &$fallbacks) use ($convertChildren): array {
                 return $convertChildren($element, $fallbacks, true);
             },
-            fn (DOMElement $element): string => $this->styleResolver->specificityResolvedPresentationStyle($element)
+            fn (DOMElement $element): string => $this->styleResolver->specificityResolvedPresentationStyle($element),
+            fn (DOMElement $element): array => $this->styleResolver->capturedDialogOpenStateValues($element)
         );
         $this->wrapperCoalescer = new WrapperCoalescer(
             $this->sourceElementClassifier,
@@ -1480,7 +1482,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return new DisclosureControlPresentation(
             $this->styleResolver,
             $this->generatedSupportStyles(),
-            fn (DOMElement $element): string => $this->svgMaterializer->ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
+            fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
         );
     }
 
@@ -1595,6 +1597,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $resultComposer->emptyBody($html, $provenance, $context, $startedAt, $selectorCache);
         }
         SourceDom::removeIntegerKeyAttributes($body);
+        $this->restoreCapturedExistingPanelRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
         $this->capturedGlyphColors = CapturedGlyphColor::detach($body);
 
@@ -1752,7 +1755,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $documentRootMarkers = array();
         $analysisRoot = $document->documentElement;
         if ( $analysisRoot instanceof DOMElement && 'html' === strtolower($analysisRoot->tagName) ) {
-            $documentRootMarkers = \Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker::all($analysisRoot->getAttribute('class'));
+            $documentRootMarkers = EngineMarker::all($analysisRoot->getAttribute('class'));
         }
         $blockCompilationOutput = new BlockCompilationOutput(
             sourceProvenance: $sourceProvenance,
@@ -2072,6 +2075,43 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( $link instanceof DOMElement && $this->isNonRenderedMetadataLink($link) ) {
                 $link->parentNode?->removeChild($link);
             }
+        }
+    }
+
+    private function restoreCapturedExistingPanelRestingStates(DOMElement $body): void
+    {
+        foreach ($body->getElementsByTagName('*') as $element) {
+            if (
+                !$element instanceof DOMElement
+                || 'nav' !== strtolower($element->tagName)
+                || !SourceDom::hasClass($element, CaptureEvidence::DROPDOWN_CLASS)
+                || !$element->hasAttribute(CaptureEvidence::EXISTING_PANEL)
+                || !$this->hasAncestorTag($element, array('nav'))
+            ) {
+                continue;
+            }
+
+            $snapshot = json_decode($element->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
+            $resting = is_array($snapshot) ? ($snapshot['resting'] ?? null) : null;
+            if (!is_array($resting)) {
+                continue;
+            }
+
+            foreach (array('style', 'class', 'hidden') as $attribute) {
+                if (!array_key_exists($attribute, $resting)) {
+                    continue;
+                }
+                $value = $resting[$attribute];
+                if ('hidden' === $attribute) {
+                    if (true === $value) $element->setAttribute('hidden', '');
+                    elseif (false === $value) $element->removeAttribute('hidden');
+                    continue;
+                }
+                if (null === $value) $element->removeAttribute($attribute);
+                elseif (is_string($value)) $element->setAttribute($attribute, $value);
+            }
+
+            $element->removeAttribute(CaptureEvidence::EXISTING_PANEL);
         }
     }
 
@@ -4258,9 +4298,49 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $innerBlocks;
     }
 
+    /**
+     * Whether any trigger of a captured dialog can show at some viewport: no
+     * element from the trigger up declares `display:none` at its base without
+     * a conditional value that shows it, and none carries `hidden`.
+     */
+    private function capturedDialogHasReachableTrigger(DOMElement $dialog): bool
+    {
+        $document = $dialog->ownerDocument;
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($dialog, 'data-blocks-engine-triggers'))) ?: array() as $id ) {
+            $trigger = '' !== $id && null !== $document ? $document->getElementById($id) : null;
+            if ( ! $trigger instanceof DOMElement ) {
+                continue;
+            }
+            $reachable = true;
+            for ( $node = $trigger; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
+                $display = $this->styleResolver->declaredPresentation($node, 'display');
+                $base = CssValueInspector::comparable($display->base());
+                $shownSomewhere = array() !== array_filter($display->conditional(), static fn (string $value): bool => 'none' !== CssValueInspector::comparable($value));
+                if ( $node->hasAttribute('hidden') || ( 'none' === $base && ! $shownSomewhere ) ) {
+                    $reachable = false;
+                    break;
+                }
+            }
+            if ( $reachable ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function sourceElementStartsHidden(DOMElement $element): bool
     {
         if ( SourceDom::documentVariantRoot($element) === $element ) {
+            return false;
+        }
+        // A projected captured dialog is the panel's open state. Its source
+        // rest rules hide it until script opens it; the dialog block owns that
+        // closed state, so they do not make the dialog hidden content.
+        // A dialog none of whose triggers can ever show is still dropped.
+        if ( 'dialog' === strtolower($element->tagName) && 'true' === SourceDom::attr($element, 'data-blocks-engine-captured-dialog')
+            && $this->capturedDialogHasReachableTrigger($element)
+        ) {
             return false;
         }
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
@@ -9403,6 +9483,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         )), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
 
         if ( 'video' === $tagName ) {
+            // Jetpack re-registers core/video with comment-sourced playback
+            // attributes and defaults controls to true. Preserve the explicit
+            // absence of controls so that registration does not change the
+            // captured playback state when the block is parsed in the editor.
+            $attrs['controls'] = $element->hasAttribute('controls');
             foreach ( array( 'autoplay', 'loop', 'muted' ) as $attribute ) {
                 if ( $element->hasAttribute($attribute) ) {
                     $attrs[$attribute] = true;
@@ -9886,7 +9971,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $projections->installImageLinkMarker($selectorAnchor, $link->getNodePath() ?? '');
                     $attrs['className'] = $this->mergeClassNames(
                         (string) ($attrs['className'] ?? ''),
-                        $projections->ensureImageWrapperMarker($image->getNodePath() ?? '')
+                        ...$projections->semanticCarrierClasses($projections->ensureImageWrapperMarker($image->getNodePath() ?? ''), $image->getNodePath() ?? '')
                     );
                 }
                 if ( empty($attrs['anchor']) || $linkAnchor === $attrs['anchor'] ) {

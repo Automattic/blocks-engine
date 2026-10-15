@@ -71,7 +71,9 @@ replay by case:
   on the nav or its list, records `"layout":{"type":"default"}`. That adds
   the attribute in `46f79246` and `e2e35d0c`. The extra display lookups only
   move the style-rule candidate cache counters in `2448c3c2`, `2890e8f1`,
-  `448ead36`, `a5a08a86`, `b550beb0`, `c7fff215` and `f025cf28`.
+  `448ead36`, `a5a08a86`, `b550beb0`, `c7fff215` and `f025cf28`. Ranking
+  the item displays by specificity (#2726 follow-up) moves those counters
+  again in all nine cases; the output is otherwise unchanged.
 - **Self-placed modal box reset** (#2726). The captured-dialog block
   stylesheet gains the zero-specificity reset for a modal whose source panel
   positions itself. Only the emitted `style.css` text and the hashes derived
@@ -90,6 +92,83 @@ replay by case:
   there share one header. Only the shared header's `shell_identity` and the
   plan identity hash change in `0a9c1bea`, `15082c2d`, `37284b0e`, `55b724ac`,
   `7c2d1217`, `927aa368`, `944dd63d`, `df9c24a8`, `e5ea5743`.
+- **Context-seeded markers and role classes** (#2755). Per-element markers
+  are named from the source element's context and the author CSS identity
+  instead of the document seed, source-tag markers from the tag and the author
+  CSS identity, control and semantic carriers also carry
+  `blocks-engine-role-control` / `blocks-engine-role-semantic`, and the
+  authored arm of a rewritten rule excludes those carriers through the role
+  class instead of enumerating their markers. With marker seeds and counters
+  normalized and the role classes removed, the outputs are identical except
+  for the changes listed next, and every compiled page resolves the same
+  styles for every element under its own stylesheet sequence. Affected:
+  `131e42da`, `17d97f2c`, `2448c3c2`, `26110ab3`, `2d8a075b`, `2df01069`,
+  `2f3ed5f6`, `33274f74`, `40391902`, `46f79246`, `52210e3a`, `5245a285`,
+  `5b9c65c4`, `6220283c`, `6a28853f`, `6b0e8e51`, `6f5ff150`, `789c11ea`,
+  `7a6a2673`, `7d6524b6`, `81a94623`, `84a0d815`, `8ccdc054`, `90234027`,
+  `9389ce06`, `bc142047`, `c57bc18c`, `c7fff215`, `c98ea038`, `ca523d76`,
+  `e2e35d0c`, `e747c76f`, `ed102407`, `f025cf28`, `f06e5d4a`, `f0e1a42c`.
+  - The exclusion arm itself reads `:not(:where(.blocks-engine-role-semantic))`
+    in `6b0e8e51`.
+  - Identical page-scoped stylesheets become one resource with every page's
+    scope and document instance in `2d8a075b`, `6220283c` and `7a6a2673`.
+  - Identical chrome compiled for two pages now carries identical markers, so
+    the reusable-component evidence retains its repeated occurrences in
+    `7d6524b6`.
+  - A truncated `source_fragment` excerpt cuts through a different marker
+    hash in `f0e1a42c`.
+- **Subject classes and page-independent arms** (#2755, follow-up 1). Control
+  and semantic carriers also carry `blocks-engine-subject`, a
+  `blocks-engine-subject-tag-<tag>` class and one
+  `blocks-engine-subject-class-<hash>` class per source class token. A
+  context-free subject (`a`, `.btn`, `a.btn`, `*`) projects one arm naming the
+  carriers' role and subject classes instead of one arm per matched marker,
+  when every carrier it reaches is one this page routes to that arm.
+  Source-tag markers are named from the tag alone. Every re-recorded case was
+  replayed on both sides and every element of every compiled document
+  resolves the same styles under its own stylesheet sequence
+  (`StaticCssCascade`, 690 elements in 12 documents, 0 differences). With
+  subject classes removed and marker seeds normalized, the remaining text
+  differences are the projected arms, and values derived from changed text:
+  byte counts, content hashes and digests, the content-addressed
+  engine-support asset path and runtime-island ids. Affected: `2448c3c2`,
+  `2df01069`, `2f3ed5f6`, `46f79246`, `52210e3a`, `6b0e8e51`, `90234027`,
+  `c7fff215`, `e2e35d0c`, `f025cf28`.
+  - Only the carriers' class lists change in `2448c3c2`, `2f3ed5f6` and
+    `90234027`; only source-tag marker names change in `46f79246` and
+    `e2e35d0c`.
+  - A navigation container's recorded `target_selector` names the carrier's
+    subject classes in `c7fff215` and `f025cf28`.
+  - The dead-projected-selector findings quote the projected selector, which
+    now holds the role arm, in `6b0e8e51`.
+  - Outside this corpus, the same change re-pins generated names only:
+    `tests/fixtures/parity/html-button-sibling-marker-labels.json` (its
+    carriers gain subject classes), the semantic arm a
+    `html-positioned-inline-geometry-carrier.json` assertion looks for, the
+    dormant-ancestor arm in `tests/unit/author-selector-semantics.php`, the
+    label rule lookup in `tests/unit/fixed-size-button-label-centering.php`,
+    and in `tests/contract/context-seeded-markers.php` the source-tag case
+    (now: another page's type rule reaches neither this page's chrome nor its
+    content) and a context-dependent rule that keeps the shared-slice case
+    needing a slice.
+- **UTF-8 parse hint removed from documents.** Projectors that serialize a
+  whole document now remove the `<?xml encoding="UTF-8">` hint that
+  `DOMDocument::loadHTML()` needs as parser input, instead of stripping only a
+  leading copy. A page projected more than once no longer carries repeated
+  hints after its doctype. Only the page markup, its byte counts and the
+  companion plugin artifact hash derived from it change in `08209f9d`, `1092de6e`, `1fdf1238`, `46d57331`, `5b83e5f7`, `71c3c5d4`, `73824e37`, `76cfd1b8`, `95b3bd5a`, `a674b388`, `b763ab02`, `b7953315`, `c6229f80`, `df9fb671`, `f50c6998`, `ff715749`.
+- **Group caption presentation** (#2760). A v2 form presentation graph
+  always declares `group_captions`. The corpus form has no captioned choice
+  group, so it gains an empty list and the hashes derived from the forms
+  payload change in `c4469897`.
+- **Authored-button save escaping** (#2092). The JavaScript save renderer now
+  encodes apostrophes as `&#039;`, matching the PHP generator's serialization.
+  This changes the generated companion script and derived output digests in
+  `06596271`, `0b294e2c`, `17d97f2c`, `1cfefbc9`, `23fdbeb0`, `28699fde`,
+  `2df01069`, `31dfd889`, `33ae736a`, `4b20435a`, `52210e3a`, `6ed86c41`,
+  `796065fd`, `9389ce06`, `9cb93b72`, `a73ce3b0`, `b550beb0`, `b913b3b4`,
+  `bda59bb9`, `c98ea038`, `dc249610`, `e40ee9dc`, `eaad29ef`, `f0e1a42c`,
+  `f5a111b5`, `fcc75319` and `feef8efc`.
 - **Plain srcset resolution families** (#2763). Outside `<picture>` source
   selection, a descriptor family whose rendered width is known lowers to
   native `core/image` instead of the responsive media carrier. The Wix

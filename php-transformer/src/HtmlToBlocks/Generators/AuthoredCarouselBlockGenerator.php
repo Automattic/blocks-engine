@@ -23,6 +23,7 @@ final class AuthoredCarouselBlockGenerator
 {
     public const LOCAL_NAME = 'authored-carousel';
     private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right');
+    private const SLIDE_INDEX_ATTRIBUTES = array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item');
     private const GEOMETRY_VALUE_PATTERN = '^[0-9a-zA-Z.%()+*/,_ -]+(?:\\s*!important)?$';
 
     /**
@@ -858,10 +859,25 @@ JS;
                 if ( array() !== $rootControls
                     && $this->ownsCarouselIdentity($owner, $list)
                     && array() === array_filter($rootControls, fn(DOMElement $control): bool => ! $this->containsNode($owner, $control))
-                    && $this->hasAuthoredContentOutside($element, $owner)
+                    && $this->hasAuthoredContentOutside($element, $owner, $list, $items)
                 ) {
                     return null;
                 }
+            }
+            // Converting a root replaces everything in it with slides. When the
+            // list and its controls sit inside a smaller owner and the root holds
+            // other authored content, the root is a page region, not a carousel.
+            // Text-less image links (thumbnail pagers) are not authored content,
+            // so they never hold the owner open to the root.
+            $owner = $this->commonAncestor(array_merge(
+                array($list),
+                $rootControls,
+                array_filter(array($this->playbackToggleElement($element)))
+            ));
+            if ( $owner instanceof DOMElement && $owner !== $element && $this->containsNode($element, $owner)
+                && $this->hasAuthoredContentOutside($element, $owner, $list, $items)
+            ) {
+                return null;
             }
         }
         if ( count($items) < 2 ) {
@@ -1415,11 +1431,24 @@ JS;
 
     /**
      * Whether $root holds readable text, media or form controls outside
-     * $owner. Carousel controls (links and buttons) are not authored content
-     * here: the carousel shell rebuilds them.
+     * $owner. Parts the carousel shell rebuilds are not authored content
+     * here: previous/next and pagination controls, thumbnail pager items and
+     * pager collections (slide-indexed items, or images of the slides).
+     *
+     * @param array<int, DOMElement> $slides
      */
-    private function hasAuthoredContentOutside(DOMElement $root, DOMElement $owner): bool
+    private function hasAuthoredContentOutside(DOMElement $root, DOMElement $owner, DOMElement $list, array $slides): bool
     {
+        $claimed = $this->thumbnailPagerItems($root, $list);
+        $slideImages = array();
+        foreach ( $slides as $slide ) {
+            foreach ( $slide->getElementsByTagName('img') as $image ) {
+                if ( $image instanceof DOMElement && '' !== ($identity = self::imageIdentity($image))['path'] ) {
+                    $slideImages['path:' . $identity['path']] = true;
+                    $slideImages['name:' . $identity['name']] = true;
+                }
+            }
+        }
         $pending = array($root);
         while ( array() !== $pending ) {
             $node = array_pop($pending);
@@ -1430,21 +1459,15 @@ JS;
                     }
                     continue;
                 }
-                if ( ! $child instanceof DOMElement || $child === $owner ) {
+                if ( ! $child instanceof DOMElement || $child === $owner || in_array($child, $claimed, true) ) {
                     continue;
                 }
                 $tag = strtolower($child->tagName);
-                if ( in_array($tag, array('button', 'script', 'style', 'template', 'svg'), true) ) {
-                    continue;
-                }
-                // Text-less links are pagination or thumbnails the carousel
-                // rebuilds; a link with readable text is authored content.
-                if ( 'a' === $tag ) {
-                    if ( ! $this->sourceElementClassifier->isCarouselControl($child, $root)
-                        && '' !== trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? ''))
-                    ) {
-                        return true;
-                    }
+                if ( in_array($tag, array('script', 'style', 'template', 'svg'), true)
+                    || $this->isNavigationControl($child, $root)
+                    || $this->isPaginationControl($child)
+                    || $this->isPagerCollection($child, $slideImages)
+                ) {
                     continue;
                 }
                 if ( in_array($tag, array('img', 'picture', 'video', 'iframe', 'input', 'select', 'textarea', 'form'), true) ) {
@@ -1454,6 +1477,107 @@ JS;
             }
         }
         return false;
+    }
+
+    /** A previous or next control, by its label, title, class or text. */
+    private function isNavigationControl(DOMElement $element, DOMElement $root): bool
+    {
+        if ( ! $this->sourceElementClassifier->isCarouselControl($element, $root) ) {
+            return false;
+        }
+        $identity = strtolower(implode(' ', array(SourceDom::attr($element, 'aria-label'), SourceDom::attr($element, 'title'), SourceDom::attr($element, 'class'), trim((string) $element->textContent))));
+        return 1 === preg_match('/(?:^|[^a-z])(?:previous|prev|next)(?:[^a-z]|$)/', $identity);
+    }
+
+    /** A slide-indexed item, or a link or button that selects a numbered slide. */
+    private function isPaginationControl(DOMElement $element): bool
+    {
+        foreach ( self::SLIDE_INDEX_ATTRIBUTES as $attribute ) {
+            if ( ctype_digit(trim(SourceDom::attr($element, $attribute))) ) {
+                return true;
+            }
+        }
+        if ( ! in_array(strtolower($element->tagName), array('a', 'button'), true) ) {
+            return false;
+        }
+        $identity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array(
+            SourceDom::attr($element, 'aria-label'),
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'data-testid'),
+        ))));
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item)[^a-z0-9]*[0-9]+(?:[^a-z0-9]|$)/', $identity);
+    }
+
+    /**
+     * Two or more items that are each a pagination control, or a single image
+     * with no readable text that shows one of the slides (a thumbnail strip).
+     * Images that are not slides are authored content, however they repeat.
+     *
+     * @param array<string, true> $slideImages
+     */
+    private function isPagerCollection(DOMElement $element, array $slideImages): bool
+    {
+        $items = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMText ) {
+                if ( '' !== trim(str_replace("\xc2\xa0", ' ', $child->data)) ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $image = 'img' === strtolower($child->tagName) ? $child : $child->getElementsByTagName('img')->item(0);
+            $slideThumbnail = $image instanceof DOMElement
+                && ($image === $child || (1 === $child->getElementsByTagName('img')->length && '' === trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? ''))))
+                && self::isSlideImage($image, $slideImages);
+            if ( ! $slideThumbnail && ! $this->isPaginationControl($child) ) {
+                return false;
+            }
+            ++$items;
+        }
+        return $items >= 2;
+    }
+
+    /**
+     * Whether $image shows one of the slides: the same media identity or
+     * path, or a resized (-WxH) derivative of a slide file.
+     *
+     * @param array<string, true> $slideImages
+     */
+    private static function isSlideImage(DOMElement $image, array $slideImages): bool
+    {
+        $identity = self::imageIdentity($image);
+        if ( '' === $identity['path'] ) {
+            return false;
+        }
+        return isset($slideImages['path:' . $identity['path']])
+            || ($identity['resized'] && isset($slideImages['name:' . $identity['name']]));
+    }
+
+    /**
+     * A source image's identity, independent of host, query and rendition.
+     * A media-library URL (`/media/<id>/v1/<op>/<params>/<name>`) is keyed by
+     * its media id, since its trailing name is often generic. Any other URL
+     * keeps its directory, so different files that share a generic name stay
+     * different; only a -WxH size suffix is stripped from the file name.
+     *
+     * @return array{path: string, name: string, resized: bool}
+     */
+    private static function imageIdentity(DOMElement $image): array
+    {
+        $path = strtolower((string) parse_url(trim(SourceDom::attr($image, 'src')), PHP_URL_PATH));
+        if ( 1 === preg_match('#/media/([^/]+)#', $path, $media) ) {
+            return array('path' => 'media/' . $media[1], 'name' => 'media/' . $media[1], 'resized' => false);
+        }
+        $path = (string) preg_replace('#/v1/[^/]+/[^/]+/[^/]*$#', '', $path);
+        if ( '' === trim($path, '/') ) {
+            return array('path' => '', 'name' => '', 'resized' => false);
+        }
+        $name = basename($path);
+        $bare = (string) preg_replace('/-\d+x\d+(?=\.[a-z0-9]+$)/', '', $name);
+        return array('path' => rtrim(dirname($path), '/') . '/' . $bare, 'name' => $bare, 'resized' => $bare !== $name);
     }
 
     private function containsNavigationPair(DOMElement $element): bool
@@ -2060,19 +2184,7 @@ JS;
     {
         $count = 0;
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
-                continue;
-            }
-            $identity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array(
-                SourceDom::attr($candidate, 'aria-label'),
-                SourceDom::attr($candidate, 'class'),
-                SourceDom::attr($candidate, 'data-testid'),
-            ))));
-            $indexed = false;
-            foreach ( array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item') as $attribute ) {
-                $indexed = $indexed || ctype_digit(trim(SourceDom::attr($candidate, $attribute)));
-            }
-            if ( $indexed || 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item)[^a-z0-9]*[0-9]+(?:[^a-z0-9]|$)/', $identity) ) {
+            if ( $candidate instanceof DOMElement && in_array(strtolower($candidate->tagName), array('a', 'button'), true) && $this->isPaginationControl($candidate) ) {
                 ++$count;
             }
         }

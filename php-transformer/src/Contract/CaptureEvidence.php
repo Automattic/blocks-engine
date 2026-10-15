@@ -52,6 +52,8 @@ final class CaptureEvidence
     public const DIALOG_CLOSE = 'data-blocks-engine-capture-dialog-close';
     /** JSON snapshot of the opened panel state, on the trigger. */
     public const DIALOG_PANEL_STATE = 'data-blocks-engine-capture-dialog-panel-state';
+    /** JSON resting/opened attribute snapshots on an existing in-place panel. */
+    public const EXISTING_PANEL = 'data-blocks-engine-capture-existing-panel';
     /** JSON list of ancestor attribute bindings toggled with the panel, on the trigger. */
     public const DIALOG_ANCESTOR_STATE = 'data-blocks-engine-capture-dialog-ancestor-state';
     /** Reason the ancestor bindings could not be verified (for example `ancestor-limit`); carried onto the native dialog. */
@@ -162,6 +164,8 @@ final class CaptureEvidence
     public const ANCHOR_UNRESOLVED = 'data-blocks-engine-capture-anchor-unresolved';
     /** Recorded scroll-entrance states of an element the source reveals on viewport entry. */
     public const VIEWPORT_ENTRANCE = 'data-blocks-engine-capture-viewport-entrance';
+    /** Marks the capture's viewport-entrance activator script; engine-owned, not source behavior. */
+    public const VIEWPORT_ENTRANCE_ACTIVATOR = 'data-blocks-engine-capture-viewport-entrances';
 
     // Sidecar schemas.
 

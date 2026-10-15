@@ -154,6 +154,21 @@ foreach (array('index.html' => 'Home production', 'about.html' => 'About the com
 $documentHeaderWrites = $writes($documentHeaderResult);
 $assert(1 === substr_count($documentHeaderWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($documentHeaderWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"'), 'Front-page and page templates each bind the editable shared header once.');
 
+$ariaBannerResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main>Home</main>', 'about.html' => '<main>About</main>')))->toArray();
+foreach ($ariaBannerResult['source_reports']['compiled_site']['pages'] as &$ariaBannerPage) {
+    $title = 'index.html' === $ariaBannerPage['source_path'] ? 'Home' : 'About';
+    $ariaBannerPage['block_markup'] = '<!-- wp:group {"tagName":"div","wrappers":[{"tagName":"div","attributes":{"role":"banner","class":"site-header"}}]} --><div class="wp-block-group site-header" role="banner"><!-- wp:navigation --><!-- wp:navigation-link {"label":"Home","url":"/"} /--><!-- wp:navigation-link {"label":"About","url":"/about"} /--><!-- /wp:navigation --></div><!-- /wp:group --><!-- wp:group {"tagName":"main"} --><main><h1>' . $title . '</h1></main><!-- /wp:group -->';
+}
+unset($ariaBannerPage);
+$ariaBannerPlan = (new WordPressSitePlan())->fromResult($ariaBannerResult);
+$ariaBannerPages = $pages($ariaBannerPlan);
+$ariaBannerPart = current(array_filter($ariaBannerPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$assert(is_array($ariaBannerPart) && str_contains($ariaBannerPart['canonical_block_markup'] ?? '', 'wp:navigation'), 'An identical role=banner landmark on every route becomes one shared header with navigation.');
+foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
+    $markup = $ariaBannerPages[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, 'wp:navigation') && str_contains($markup, $title), "{$source} leaves the shared ARIA banner out of page content.");
+}
+
 $boundForm = '<form method="post"><input type="email" name="email"><button type="submit">Join</button></form>';
 $duplicateBoundFormResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => '<div id="siteWrapper" class="site-wrapper"><header><nav><a href="/">Home</a><a href="/about">About</a></nav></header><main><h1>Home</h1>' . $boundForm . '</main><footer>' . $boundForm . '</footer></div>',

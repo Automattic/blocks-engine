@@ -169,7 +169,9 @@ $assert(
 
 $dormantAncestorState = $transform('<style>.nav.scrolled .nav-logo{color:#211}.nav.scrolled .nav-logo:hover{color:#a42}</style><main class="nav"><button class="nav-logo" style="padding:1px;background:#eee">Brand</button><p>Copy</p></main>');
 $dormantAncestorStateCss = $css($dormantAncestorState);
-$assert(str_contains($dormantAncestorStateCss, '.nav.scrolled :where(.blocks-engine-control-') && 2 === substr_count($dormantAncestorStateCss, '> :where(.wp-block-button__link)') && str_contains($dormantAncestorStateCss, ':hover'), 'dormant ancestor-state selectors retain their runtime state while projecting native control leaves');
+// The context-free leaf (`.nav-logo`) reaches its control carrier through the
+// carrier's role and subject classes rather than a per-element marker.
+$assert(1 === preg_match('/\.nav\.scrolled :where\(\.blocks-engine-role-control\.blocks-engine-subject\.blocks-engine-subject-class-[a-f0-9]{12}\)/', $dormantAncestorStateCss) && 2 === substr_count($dormantAncestorStateCss, '> :where(.wp-block-button__link)') && str_contains($dormantAncestorStateCss, ':hover'), 'dormant ancestor-state selectors retain their runtime state while projecting native control leaves');
 
 $order = $transform('<style>a.cta:hover{color:red}a.cta:hover{color:blue}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
 $orderCss = $css($order);
@@ -194,7 +196,9 @@ $assert(str_contains($css($important), '> :where(.wp-block-button__link):hover{p
 
 $shared = $transform('<style>.shared{margin:1px}p.shared{color:green}*{color:blue}</style><a class="shared cta" href="/go" style="padding:1px;background:#000">Go</a><button class="shared" style="padding:1px;background:#000">Send</button><p class="shared wp-block-button">Other</p>');
 $sharedCss = $css($shared);
-$assert(! str_contains($sharedCss, ':not(.wp-block-button)') && str_contains($sharedCss, '.shared:not(:where(.blocks-engine-control-') && 1 === substr_count($sharedCss, '{margin:1px}') && str_contains($sharedCss, ':not(blocks-engine-specificity-') && str_contains($sharedCss, '*:not(:where('), 'shared selectors exclude only matched control markers without changing specificity or excluding authored wp-block-button classes');
+// Controls carry their kind's shared role class, so the exclusion arm is one
+// constant-size class per kind instead of a per-element enumeration.
+$assert(! str_contains($sharedCss, ':not(.wp-block-button)') && str_contains($sharedCss, '.shared:not(:where(.blocks-engine-role-control))') && 1 === substr_count($sharedCss, '{margin:1px}') && str_contains($sharedCss, ':not(blocks-engine-specificity-') && str_contains($sharedCss, '*:not(:where('), 'shared selectors exclude only matched control markers without changing specificity or excluding authored wp-block-button classes');
 
 $relations = $transform('<style>p{margin:0}p + a.cta{color:red}p ~ button.cta{color:blue}main > p + a.cta{padding:1rem}</style><main><p>Before</p><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button></main>');
 $relationCss = $css($relations);

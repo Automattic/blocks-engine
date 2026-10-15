@@ -413,6 +413,7 @@ PHP;
         $assets = self::projectDetachedChromePaintOrder($assets, $parts, $pages);
         $assets = self::orderPageStylesheetProjections($assets);
         $assets = self::placeSharedStylesheetProjections($assets, $pages);
+        $assets = self::mergeIdenticalPageStylesheets($assets, array_merge($pages, $parts, $frameParts));
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
@@ -1365,16 +1366,44 @@ PHP;
      * cluster; the matching rules must follow the canonical marker onto the
      * shared part instead of remaining page-scoped.
      *
-     * @param array<string,true> $classes
+     * @param array{patterns:list<string>,richtext:list<string>} $matcher from generatedClassMatcher()
      */
-    private static function selectorTargetsGeneratedClass(string $selector, array $classes): bool
+    private static function selectorTargetsGeneratedClass(string $selector, array $matcher): bool
     {
         $positive = self::positiveSelector($selector);
-        foreach (array_keys($classes) as $class) {
-            if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![\\w-])/', $positive)) return true;
-            if (1 === preg_match('/^blocks-engine-richtext-[a-f0-9]+-\d+$/', $class) && str_contains($positive, $class)) return true;
+        foreach ($matcher['patterns'] as $pattern) {
+            if (1 === preg_match($pattern, $positive)) return true;
+        }
+        foreach ($matcher['richtext'] as $class) {
+            if (str_contains($positive, $class)) return true;
         }
         return false;
+    }
+
+    /**
+     * Compile the generated-class test once per projection. Every selector of
+     * the site stylesheet is checked against every shared-part class, so one
+     * regex per class per selector grows with rules x classes; a few
+     * alternation patterns keep it linear in the selector count.
+     *
+     * @param array<string,true> $classes
+     * @return array{patterns:list<string>,richtext:list<string>}
+     */
+    private static function generatedClassMatcher(array $classes): array
+    {
+        $alternatives = array();
+        $richtext = array();
+        foreach (array_keys($classes) as $class) {
+            $class = (string) $class;
+            $alternatives[] = CssIdent::classSelectorRegex($class);
+            if (1 === preg_match('/^blocks-engine-richtext-[a-f0-9]+-\d+$/', $class)) $richtext[] = $class;
+        }
+        $patterns = array();
+        foreach (array_chunk($alternatives, 200) as $chunk) {
+            $patterns[] = '/(?:' . implode('|', $chunk) . ')(?![\\w-])/';
+        }
+
+        return array('patterns' => $patterns, 'richtext' => $richtext);
     }
 
     /**
@@ -1690,7 +1719,12 @@ PHP;
             // Its ancestor-scoped rules belong to that page, not global chrome.
             if ('inline_shared_shell' === ($part['placement']['kind'] ?? '') && 1 === count($part['placement']['source_paths'] ?? array())) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
-            if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) $classes[$class] = true;
+            // A source-tag marker names every element of its tag on every page
+            // under any author CSS, not this chrome: a rule reaching it only
+            // through such a marker (`p{…}` from one page's own stylesheet)
+            // must stay where its stylesheet applies rather than become global.
+            // Each page's own type rules already reach the chrome's elements.
+            if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) if (!str_starts_with((string) EngineMarker::markerKind($class), 'source-')) $classes[$class] = true;
             // The chrome's own authored hooks: rules written for them styled it
             // on every page, so they follow it into the shared part.
             foreach (self::authoredChromeHooks($markup) as $kind => $names) $authored[$kind] += $names;
@@ -1709,7 +1743,8 @@ PHP;
             }
         }
         if (array() === $classes && array() === $authored['class'] && array() === $authored['id']) return $assets;
-        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classes) || self::selectorTargetsAuthoredChrome($selector, $authored, $context);
+        $classMatcher = self::generatedClassMatcher($classes);
+        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher) || self::selectorTargetsAuthoredChrome($selector, $authored, $context);
         $reanchor = static fn (string $selector): string => self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots));
 
         $projected = array();
@@ -1911,6 +1946,123 @@ PHP;
         }
         foreach ($projections as $projection) unset($assets[$projection]['_stylesheet_projection_origins']);
         return $assets;
+    }
+
+    /**
+     * Fields that only identify a stylesheet resource or say which documents
+     * apply it. Everything else (bytes, media, target, placement, parent,
+     * activation, ...) is the delivery contract two page stylesheets must
+     * share before one file can serve both.
+     */
+    private const PAGE_STYLESHEET_IDENTITY_FIELDS = array('source_path', 'target_path', 'token', 'reconciliation_identity', 'scopes', 'stylesheet_instances', 'references');
+
+    /**
+     * Page-scoped stylesheets with identical bytes and delivery contract
+     * become one resource that every one of their pages applies.
+     *
+     * Each page used to publish its own copy of what is often the same
+     * projection: the slice of a shared stylesheet a page needs beyond the
+     * site-wide copy, its compatibility replay, its editor state. A merged
+     * resource keeps the first copy's identity and gains the other copies'
+     * scopes and document instances, so the bootstrap enqueues it for each of
+     * those pages exactly where it enqueued that page's copy.
+     *
+     * The enqueue order on a page is resource order (within one source
+     * position for projected slices). The later copy is folded into the
+     * earlier one only when no resource between them applies to any of the
+     * later copy's pages and both sit on the same side of the first
+     * document-ordered resource, so no page's cascade order changes. Copies
+     * in different directories stay apart: their relative url() references
+     * resolve differently, and a copy a document or stylesheet names by its
+     * token (an inline `<style>` replayed in the head, an `@import`) keeps it.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $documents
+     * @return array<int,array<string,mixed>>
+     */
+    private static function mergeIdenticalPageStylesheets(array $assets, array $documents): array
+    {
+        $assets = array_values($assets);
+        // Tokens and file names anything still links, imports or url()s, and
+        // the stylesheets page slices hang off: those keep their identity.
+        $named = array();
+        foreach (array_merge(array((string) json_encode($documents, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)), array_map(static fn (array $asset): string => is_string($asset['content'] ?? null) ? $asset['content'] : '', $assets)) as $text) {
+            if (preg_match_all('/\{\{wordpress-site-plan:asset:([^}]+)\}\}/', $text, $matches)) $named += array_fill_keys($matches[1], true);
+            if (preg_match_all('/(?:url\(\s*|@import\s+(?!url\()|(?:href|src)=)\\\\?["\']?([^"\'()\s\\\\]+)/i', $text, $matches)) {
+                foreach ($matches[1] as $reference) $named[strtolower(basename((string) parse_url($reference, PHP_URL_PATH)))] = true;
+            }
+        }
+        $parents = array();
+        $instancesBySource = array();
+        foreach ($assets as $asset) {
+            if (is_string($asset['stylesheet_parent'] ?? null)) $parents[$asset['stylesheet_parent']] = true;
+            if (is_string($asset['source_path'] ?? null) && !isset($instancesBySource[$asset['source_path']])) $instancesBySource[$asset['source_path']] = is_array($asset['stylesheet_instances'] ?? null) ? $asset['stylesheet_instances'] : array();
+        }
+        $firstManaged = count($assets);
+        foreach ($assets as $index => $asset) if (!empty($asset['stylesheet_instances'])) $firstManaged = min($firstManaged, $index);
+        $pagesOf = static function (array $asset): ?array {
+            $pages = array();
+            foreach (is_array($asset['scopes'] ?? null) ? $asset['scopes'] : array(array('kind' => 'global')) as $scope) {
+                if ('global' === ($scope['kind'] ?? null) || !is_string($scope['source_path'] ?? null)) return null;
+                $pages[$scope['source_path']] = true;
+            }
+            return $pages;
+        };
+        // How stylesheetEnqueues() places a resource on one page: document
+        // instances sort by their source position (then resource order); a
+        // resource without any sits in the flat before/after run in resource
+        // order. Returns null when the page does not apply the resource.
+        $placement = static function (array $asset, string $page) use ($pagesOf, $instancesBySource): ?array {
+            if ('css' !== ($asset['kind'] ?? null)) return null;
+            $own = $pagesOf($asset);
+            $applies = null === $own || isset($own[$page]);
+            $occurrences = is_array($asset['stylesheet_instances'] ?? null) ? $asset['stylesheet_instances'] : array();
+            if (array() === $occurrences && is_string($asset['stylesheet_parent'] ?? null)) $occurrences = $instancesBySource[$asset['stylesheet_parent']] ?? array();
+            if (array() === $occurrences) return $applies || !empty($asset['frame_fallback']) ? array('flat' => true) : null;
+            $orders = array();
+            foreach ($occurrences as $occurrence) if ($applies && $page === ($occurrence['source_path'] ?? null)) $orders[(int) $occurrence['order']] = true;
+            if (!empty($asset['frame_fallback'])) return array('flat' => true, 'orders' => $orders);
+            return array() === $orders ? null : array('flat' => false, 'orders' => $orders);
+        };
+        $merged = array();
+        $heads = array();
+        foreach ($assets as $index => $asset) {
+            $source = (string) ($asset['source_path'] ?? '');
+            $pages = 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) && !isset($asset['payload_reference']) && !isset($asset['content_base64']) && empty($asset['frame_fallback']) && !isset($parents[$source]) && !isset($named[(string) ($asset['token'] ?? '')]) && !isset($named[strtolower(basename((string) ($asset['target_path'] ?? '')))]) && !isset($named[strtolower(basename($source))]) ? $pagesOf($asset) : null;
+            if (null === $pages || array() === $pages) {
+                $merged[] = $asset;
+                continue;
+            }
+            $contract = array_diff_key($asset, array_flip(self::PAGE_STYLESHEET_IDENTITY_FIELDS));
+            ksort($contract);
+            $key = hash('sha256', serialize(array($contract, dirname($source), dirname((string) $asset['target_path']), $index < $firstManaged, !empty($asset['stylesheet_instances']))));
+            $folded = false;
+            foreach ($heads[$key] ?? array() as $position) {
+                $head = $merged[$position];
+                if (array() !== array_intersect_key($pagesOf($head) ?? array(), $pages)) continue;
+                // Moving this copy up to the head must not pass any resource
+                // the same page enqueues in the same run or source position.
+                foreach (array_keys($pages) as $page) {
+                    $own = $placement($asset, (string) $page);
+                    if (null === $own) continue;
+                    for ($between = $position + 1, $count = count($merged); $between < $count; ++$between) {
+                        $other = $placement($merged[$between], (string) $page);
+                        if (null === $other) continue;
+                        if ($own['flat'] ? $other['flat'] : array() !== array_intersect_key($own['orders'], $other['orders'] ?? array())) continue 3;
+                    }
+                }
+                $head['scopes'] = array_merge($head['scopes'], $asset['scopes']);
+                if (isset($asset['stylesheet_instances']) || isset($head['stylesheet_instances'])) $head['stylesheet_instances'] = array_merge($head['stylesheet_instances'] ?? array(), $asset['stylesheet_instances'] ?? array());
+                if (isset($asset['references']) || isset($head['references'])) $head['references'] = self::mergedReferences(is_array($head['references'] ?? null) ? $head['references'] : array(), is_array($asset['references'] ?? null) ? $asset['references'] : array());
+                $merged[$position] = $head;
+                $folded = true;
+                break;
+            }
+            if ($folded) continue;
+            $heads[$key][] = count($merged);
+            $merged[] = $asset;
+        }
+        return $merged;
     }
 
     /** @param array<string,mixed> $asset */
@@ -2778,6 +2930,7 @@ PHP;
         }
         $shared = $this->sharedPostChromeIdentities($posts);
         $single = null;
+        $singleMenus = array();
         $bodies = array();
         foreach ($posts as $postIndex => $post) {
             $route = is_string($post['route']['path'] ?? null) ? $post['route']['path'] : '';
@@ -2795,6 +2948,13 @@ PHP;
             }
             if (null === $single) {
                 $single = $this->replaceListingArchives($transformed['template'], $posts);
+                $singleMenus = NavigationEntityProjection::renderedMenus($single);
+            }
+            // Every post renders the single template's chrome. A chrome menu
+            // the single template does not render would be lost (and its
+            // entity left with no reference), so the articles stay page-owned.
+            if (array() !== array_diff_key(NavigationEntityProjection::renderedMenus($transformed['template']), $singleMenus)) {
+                return array('pages' => $pages, 'single' => null);
             }
             $bodies[$indexes[$postIndex]] = $transformed['body'];
         }
@@ -3049,6 +3209,9 @@ PHP;
             foreach ($bindingsBySource[$page['source_path']] ?? array() as $anchor) {
                 if (substr_count($replaced, $anchor) !== substr_count($page['canonical_block_markup'], $anchor)) continue 2;
             }
+            // The query loop repeats the first card. A card menu the loop does
+            // not render would be lost, so the listing stays as captured.
+            if (array() !== array_diff_key(NavigationEntityProjection::renderedMenus($page['canonical_block_markup']), NavigationEntityProjection::renderedMenus($replaced))) continue;
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = self::contentHash($replaced);
             $firstCard = ($this->listingCardRanges($sourceListingMarkup, $posts) ?? array())[0] ?? null;

@@ -55,9 +55,26 @@ $assert(1 === count($authorAssets), 'G2: transform emits exactly one author-css 
 $normalizedAuthorCss = preg_replace('/\s+/', '', (string) ($authorAssets[0]['content'] ?? '')) ?? '';
 $normalizedAuthorCss = preg_replace('/:root\.wp-block-navigation\.wp-block-navigation-item\.blocks-engine-navigation-anchor-[^{]+\{color:#fff\}/', '.desktop-nava{color:#fff}', $normalizedAuthorCss, -1, $navigationSubjectRules) ?? $normalizedAuthorCss;
 $assert(1 === $navigationSubjectRules, 'G2: source anchor color stays in its original author rule position on the native subject');
+// The control marker's seed is an identity hash, not part of the contract.
+$normalizedAuthorCss = preg_replace('/blocks-engine-control-[a-f0-9]{12}-(\d+)/', 'blocks-engine-control-#-$1', $normalizedAuthorCss) ?? $normalizedAuthorCss;
 $assert(
-    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons){width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons)>:where(.wp-block-button){width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link){width:100%!important;max-width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0)>:where(.wp-block-button__link){display:inline-flex!important;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
+    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-#-0):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons){width:100%!important}:where(.blocks-engine-control-#-0):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons)>:where(.wp-block-button){width:100%!important}:where(.blocks-engine-control-#-0):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link){width:100%!important;max-width:100%!important}:where(.blocks-engine-control-#-0):not(.blocks-engine-specificity-class-site-0)>:where(.wp-block-button__link){display:inline-flex!important;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
     'G2: author-css contains only its leading at-rule preamble and rewritten author stylesheet'
+);
+$mixedAccessibleButton = ( new HtmlTransformer() )->transform(
+    '<style>.scope .btn{background:#1b293e;padding:9px 20px}</style>'
+        . '<div class="scope"><button class="btn">Native</button><a class="btn" href="mailto:a@example.test" target="_blank" aria-label="Email (opens in new tab)">Email</a></div>'
+)->toArray();
+$mixedAccessibleButtonCss = $cssFor($mixedAccessibleButton, 'author-css');
+// The retained source selector excludes the native controls by a class the
+// lowered link does not carry, so the link keeps the authored paint.
+$retainedExclusion = 1 === preg_match('/\.scope \.btn:not\(:where\(\.(blocks-engine-[a-z0-9-]+)\)\)[^{}]*\{[^}]*background:#1b293e/', $mixedAccessibleButtonCss, $retainedMatch) ? $retainedMatch[1] : '';
+$accessibleLinkClasses = 1 === preg_match('/<!-- wp:custom\/accessible-link (\{.*?\}) -->/', (string) ($mixedAccessibleButton['serialized_blocks'] ?? ''), $linkMatch)
+    ? (string) (json_decode($linkMatch[1], true)['className'] ?? '')
+    : '';
+$assert(
+    '' !== $retainedExclusion && str_contains(' ' . $accessibleLinkClasses . ' ', ' btn ') && ! str_contains(' ' . $accessibleLinkClasses . ' ', ' ' . $retainedExclusion . ' '),
+    'a lowered accessible link keeps authored paint through the retained source selector in a mixed native-control set'
 );
 $assert('author' === ($authorAssets[0]['stylesheet_placement'] ?? ''), 'G4: author-css record declares author placement');
 

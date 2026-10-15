@@ -433,7 +433,9 @@ final class AuthorStylesheetProjector
         if ( '' !== $buttonPresentationPseudoPrelude ) {
             return $buttonPresentationPseudoPrelude;
         }
-        $projected = $this->rewriteSelectorPrelude($prelude, $context, true);
+        // Margins carry no button geometry, so a dormant control arm may name
+        // its subject classes (the main arm stays per element in wrapper mode).
+        $projected = $this->rewriteSelectorPrelude($prelude, $context, true, true, true);
         $selectors = CssStylesheetTransformer::splitSelectorList($projected);
         if ( null === $selectors ) {
             return $projected;
@@ -458,7 +460,7 @@ final class AuthorStylesheetProjector
         if ( '' !== $buttonPresentationPseudoPrelude ) {
             return $buttonPresentationPseudoPrelude . '{' . $body . '}';
         }
-        $projectedPrelude = $this->rewriteSelectorPrelude($prelude, $context);
+        $projectedPrelude = $this->rewriteSelectorPrelude($prelude, $context, false, $this->allowsSubjectArms($prelude, $body), true);
         $authoredBody = $body;
         $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context);
         $nativeButtonCompatRule = $this->nativeButtonLinkCompatRule($prelude, $authoredBody, $context);
@@ -503,6 +505,43 @@ final class AuthorStylesheetProjector
             return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $nonButtonLayout, $inConditional) . $nativeButtonCompatRule;
         }
         return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}' . $nonButtonLayout, $inConditional) . $nativeButtonCompatRule;
+    }
+
+    /**
+     * Whether a rule's control arms may name subject classes instead of
+     * per-element markers.
+     *
+     * The button projection moves some declarations per control: layout and
+     * placement onto the wrapper box each control's own layout participation
+     * picks, `!important` onto anchor-control layout, collapsed keyword widths
+     * off the link. It finds those arms by their per-element marker, so a rule
+     * carrying any such declaration keeps per-element arms. The test reads only
+     * the rule itself, never the page, so every page decides alike; a subject
+     * arm in a stylesheet copy another page loads then carries the same
+     * declarations this page's own projection would.
+     */
+    private function allowsSubjectArms(string $prelude, string $body): bool
+    {
+        $universalReset = $this->preludeIsUniversalReset($prelude);
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            if ( false === $colon ) {
+                continue;
+            }
+            $name = strtolower(trim(substr($declaration, 0, $colon)));
+            if ( '' === $name ) {
+                continue;
+            }
+            // Anchor-control layout turns `!important` (padding keeps its
+            // authored importance, except that a universal reset drops it).
+            $padding = 'padding' === $name || str_starts_with($name, 'padding-');
+            if ( $padding ? $universalReset : $this->isButtonLinkLayoutProperty($name) ) {
+                return false;
+            }
+        }
+        [ $placement, $geometry ] = $this->splitDirectButtonGeometryDeclarations($body);
+        [ $layout ] = $this->splitButtonPresentationDeclarations($body);
+        return '' === $placement && '' === $geometry && '' === $layout && '' === $this->collapsedButtonKeywordWidthDeclarations($body);
     }
 
     /**
@@ -721,12 +760,24 @@ final class AuthorStylesheetProjector
             if ( ! $parsed['supported'] ) {
                 continue;
             }
+            $markers = array();
             foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
                 $path = $element->getNodePath() ?? '';
                 $marker = $context->selectorProjections->controlMarker($path);
                 if ( 'button' !== strtolower($element->tagName) || '' === $marker || $this->isSpecializedNativeButton($element, $body) ) {
                     continue;
                 }
+                $markers[] = $marker;
+            }
+            // Every native button carrier the context-free subject matches is
+            // reached through the role and subject classes; `.button` stands
+            // for the tag test the per-element list applied.
+            $subject = array() !== $markers ? $this->contextFreeSubject('control', $this->withButtonSubject($parsed), $markers, $context) : null;
+            if ( null !== $subject ) {
+                $projected[] = $this->nativeButtonControlTarget($subject['target'], $selector, $parsed, $context);
+                $markers = $subject['rest'];
+            }
+            foreach ( $markers as $marker ) {
                 $projected[] = $this->nativeButtonControlSelector($selector, $parsed, $marker, $context);
             }
         }
@@ -766,6 +817,36 @@ final class AuthorStylesheetProjector
         // Generated button style variations can carry later important declarations.
         // Keep the source-owned control selector specific to its exact target.
         return str_replace(':where(.' . $marker . ')', ':where(.' . $marker . ').' . $marker . '.' . $marker, $projected);
+    }
+
+    /**
+     * The native-button arm for a subject target. The per-element form adds
+     * two class weights by repeating its marker outside `:where()`; the role
+     * class every control carrier has repeats instead, for the same weight.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function nativeButtonControlTarget(string $target, string $selector, array $parsed, AuthorStylesheetProjectionContext $context): string
+    {
+        return $this->projectControlTarget($target . '.blocks-engine-role-control.blocks-engine-role-control', $selector, $parsed, $context);
+    }
+
+    /**
+     * The selector restricted to button elements: a context-free compound
+     * without a type gains `button`; any other shape stays as it is (and a
+     * typed compound other than `button` matches no native button carrier).
+     *
+     * @param array<string, mixed> $parsed
+     * @return array<string, mixed>
+     */
+    private function withButtonSubject(array $parsed): array
+    {
+        if ( 1 !== count($parsed['compounds'] ?? array()) || null !== ($parsed['compounds'][0]['type'] ?? null) ) {
+            return $parsed;
+        }
+        $parsed['compounds'][0]['type'] = 'button';
+        $parsed['compounds'][0]['universal'] = false;
+        return $parsed;
     }
 
     private function nativeButtonEditedPropertyExclusion(string $property): string
@@ -1351,9 +1432,9 @@ final class AuthorStylesheetProjector
         return $this->replaceSelectorSpans($selector, $replacements);
     }
 
-    private function rewriteSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): string
+    private function rewriteSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false, bool $subjectArms = false, bool $semanticSubjectArms = false): string
     {
-        $projected = $this->rewriteSelectorPreludeOnce($prelude, $context, $controlWrapper);
+        $projected = $this->rewriteSelectorPreludeOnce($prelude, $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
         if ( ! $context->selectorProjections->hasAncestorAttributeStateConditions() ) {
             return $projected;
         }
@@ -1370,7 +1451,7 @@ final class AuthorStylesheetProjector
             // Derive the class form from this selector's own projection so it
             // inherits every per-element safeguard (superseded toggles,
             // rich-text exclusions, control and editor variants).
-            $own = 1 === count($selectors) ? $projected : $this->rewriteSelectorPreludeOnce($selector, $context, $controlWrapper);
+            $own = 1 === count($selectors) ? $projected : $this->rewriteSelectorPreludeOnce($selector, $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
             foreach ( CssStylesheetTransformer::splitSelectorList($own) ?? array() as $ownSelector ) {
                 $variant = $ownSelector;
                 foreach ( $conditions as $condition => $marker ) {
@@ -1387,7 +1468,14 @@ final class AuthorStylesheetProjector
         return ( '' === trim($projected) ? '' : $projected . ',' ) . implode(',', array_values(array_unique($variants)));
     }
 
-    private function rewriteSelectorPreludeOnce(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): string
+    /**
+     * @param bool $subjectArms Whether a context-free control arm may address
+     *        its carriers through subject classes (see contextFreeSubject()).
+     *        Only rules whose declarations the button projection never splits
+     *        per element pass true.
+     * @param bool $semanticSubjectArms The same for semantic arms.
+     */
+    private function rewriteSelectorPreludeOnce(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false, bool $subjectArms = false, bool $semanticSubjectArms = false): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors ) {
@@ -1449,7 +1537,7 @@ final class AuthorStylesheetProjector
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
             if ( array() === $matches ) {
-                $dormantControls = $this->projectDormantAncestorControlSelector($selector, $parsed, $context, $controlWrapper);
+                $dormantControls = $this->projectDormantAncestorControlSelector($selector, $parsed, $context, $controlWrapper, $subjectArms);
                 if ( array() !== $dormantControls ) {
                     array_push($rewritten, ...$dormantControls);
                     continue;
@@ -1693,17 +1781,52 @@ final class AuthorStylesheetProjector
                 $hasNonProjected = true;
             }
             if ( $hasNonProjected ) {
+                // Control and semantic carriers also carry their kind's role
+                // class, so the authored arm stays off all of them through one
+                // constant class per kind instead of a list of per-element
+                // markers that differs on every page. RichText markers, whose
+                // carriers have no role class, stay enumerated.
+                $roleExcluded = EngineMarker::roleClasses(array_merge($controls, $semanticLeaves));
+                $exclusion = array();
+                foreach ( $roleExcluded as $roleClass ) {
+                    $exclusion[] = '.' . $roleClass;
+                }
+                $enumerated = array_diff($projectedMarkers, $controls, $semanticLeaves);
+                foreach ( $enumerated as $marker ) {
+                    $exclusion[] = '.' . $marker;
+                }
                 $rewritten[] = $this->rewriteSourceTagTypes(
                     $selector,
                     $parsed,
                     $context,
-                    ':not(:where(.' . implode(',.', $projectedMarkers) . '))' . ( $supersededToggles ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION : '' )
+                    ':not(:where(' . implode(',', $exclusion) . '))' . ( $supersededToggles ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION : '' )
                 );
             }
-            foreach ( $controls as $marker ) {
+            // A context-free subject (`a`, `.btn`, `*`) reaches every control
+            // carrier whose source it matches, wherever it sits. When this page
+            // routes all of those carriers to the control arm, one arm naming
+            // their subject classes replaces their per-element arms, and the
+            // projection no longer depends on the page's other content. In
+            // wrapper mode each control's arm shape depends on its own layout
+            // participation, so those stay per element.
+            $controlSubject = $subjectArms && ! $controlWrapper && array() !== $controls
+                ? $this->contextFreeSubject('control', $parsed, $controls, $context)
+                : null;
+            if ( null !== $controlSubject ) {
+                $rewritten[] = $this->projectControlTarget($controlSubject['target'], $selector, $parsed, $context, false);
+            }
+            foreach ( null === $controlSubject ? $controls : $controlSubject['rest'] as $marker ) {
                 $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $context, $controlWrapper && ! isset($linkOwnedControls[$marker]));
             }
-            foreach ( $semanticLeaves as $marker ) {
+            // Semantic arms take one shape whatever the rule declares, so they
+            // only need the subject to be context-free.
+            $semanticSubject = $semanticSubjectArms && array() !== $semanticLeaves
+                ? $this->contextFreeSubject('semantic', $parsed, $semanticLeaves, $context)
+                : null;
+            if ( null !== $semanticSubject ) {
+                $rewritten[] = $this->projectSemanticTarget($semanticSubject['target'], $selector, $parsed, $context);
+            }
+            foreach ( null === $semanticSubject ? $semanticLeaves : $semanticSubject['rest'] as $marker ) {
                 $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);
             }
             foreach ( $richTextLeaves as $marker ) {
@@ -1774,12 +1897,22 @@ final class AuthorStylesheetProjector
         return false;
     }
 
-    /** @param array<string, mixed> $parsed @return list<string> */
+    /**
+     * A selector no source element matches as a whole, whose rightmost
+     * compound matches controls: keep the authored ancestry and project the
+     * subject onto every control carrier it matches. Every such carrier gets
+     * the same arm shape, so with `$subjectArms` and a context-free subject the
+     * carriers are addressed through their subject classes in one arm.
+     *
+     * @param array<string, mixed> $parsed
+     * @return list<string>
+     */
     private function projectDormantAncestorControlSelector(
         string $selector,
         array $parsed,
         AuthorStylesheetProjectionContext $context,
-        bool $wrapper
+        bool $wrapper,
+        bool $subjectArms = false
     ): array {
         $rightmost = $parsed['rightmost_compound_span'] ?? null;
         if ( ! is_array($rightmost) || 0 === (int) $rightmost['start'] ) {
@@ -1792,13 +1925,23 @@ final class AuthorStylesheetProjector
             return array();
         }
 
-        $projected = array();
+        $markers = array();
         foreach ( $this->matchingSourceElements($leafSelector, $leafParsed, $context) as $element ) {
             $marker = $context->selectorProjections->controlMarker($element->getNodePath() ?? '');
             if ( '' !== $marker ) {
-                $projected[] = substr($selector, 0, (int) $rightmost['start'])
-                    . $this->projectControlSelector($leafSelector, $leafParsed, $marker, $context, $wrapper);
+                $markers[] = $marker;
             }
+        }
+        $markers = array_values(array_unique($markers));
+        $prefix = substr($selector, 0, (int) $rightmost['start']);
+        $subject = $subjectArms && array() !== $markers ? $this->contextFreeSubject('control', $leafParsed, $markers, $context) : null;
+        $projected = array();
+        if ( null !== $subject ) {
+            $projected[] = $prefix . $this->projectControlTarget($subject['target'], $leafSelector, $leafParsed, $context, $wrapper);
+            $markers = $subject['rest'];
+        }
+        foreach ( $markers as $marker ) {
+            $projected[] = $prefix . $this->projectControlSelector($leafSelector, $leafParsed, $marker, $context, $wrapper);
         }
         return array_values(array_unique($projected));
     }
@@ -2341,8 +2484,95 @@ final class AuthorStylesheetProjector
     /** @param array<string, mixed> $parsed */
     private function projectControlSelector(string $selector, array $parsed, string $marker, AuthorStylesheetProjectionContext $context, bool $wrapper = false): string
     {
+        return $this->projectControlTarget(':where(.' . $marker . ')', $selector, $parsed, $context, $wrapper);
+    }
+
+    /**
+     * The control arm for a zero-specificity carrier target: one marker, or
+     * the role and subject classes contextFreeSubject() names.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function projectControlTarget(string $target, string $selector, array $parsed, AuthorStylesheetProjectionContext $context, bool $wrapper = false): string
+    {
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-        return ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed, $context) . ($wrapper ? ':where(.wp-block-buttons)' : '> :where(.wp-block-button__link)') . $suffix;
+        return $target . $this->selectorSpecificityShims($parsed, $context) . ($wrapper ? ':where(.wp-block-buttons)' : '> :where(.wp-block-button__link)') . $suffix;
+    }
+
+    /**
+     * A subject arm target, `:where(.blocks-engine-role-<kind>.<subject
+     * classes>)`, for a selector that is one context-free compound, and the
+     * routed markers it does not cover (which keep their own arms); null when
+     * the target would reach a carrier the per-element arms do not.
+     *
+     * Control and semantic carriers carry their source element's subject
+     * classes (tag and class tokens, EngineMarker::subjectTagClass()), which a
+     * type, universal or class compound can test without any context. The
+     * target therefore reaches every `$kind` carrier with subject classes whose
+     * source the compound matches, on any page. It stands in for the
+     * per-element arms of `$routedMarkers` only when every such carrier on this
+     * page is among them: none is routed elsewhere (a RichText, table or
+     * navigation subject, say). A routed marker without such a carrier (a
+     * presentation child that shares its control's marker, a carrier that
+     * carries no subject classes) keeps its own arm. This page's cascade is
+     * unchanged, and the arm text no longer depends on which other elements
+     * the page has.
+     *
+     * @param array<string, mixed> $parsed
+     * @param list<string> $routedMarkers
+     * @return array{target: string, rest: list<string>}|null
+     */
+    private function contextFreeSubject(string $kind, array $parsed, array $routedMarkers, AuthorStylesheetProjectionContext $context): ?array
+    {
+        if ( ! ($parsed['supported'] ?? false) || 1 !== count($parsed['compounds'] ?? array()) ) {
+            return null;
+        }
+        $compound = $parsed['compounds'][0];
+        if ( ! self::isContextFreeCompound($compound) ) {
+            return null;
+        }
+        $carriers = $context->selectorProjections->carrierMarkersMatching($kind, $compound);
+        if ( null === $carriers ) {
+            return null;
+        }
+        $routed = array_values(array_unique($routedMarkers));
+        if ( array() !== array_diff($carriers['reached'], $routed) ) {
+            return null;
+        }
+        $classes = array( 'blocks-engine-role-' . $kind, EngineMarker::SUBJECT_BASE_CLASS );
+        if ( is_string($compound['type'] ?? null) ) {
+            $classes[] = EngineMarker::subjectTagClass($compound['type']);
+        }
+        foreach ( array_values(array_unique(array_map('strval', $compound['classes'] ?? array()))) as $class ) {
+            $classes[] = EngineMarker::subjectClassClass($class);
+        }
+        return array( 'target' => ':where(.' . implode('.', $classes) . ')', 'rest' => array_values(array_diff($routed, $carriers['covered'])) );
+    }
+
+    /**
+     * A compound whose match is decided by the element's own tag and class
+     * tokens: a type or `*`, plus classes, and nothing else (no id, attribute,
+     * negation, `:is()`/`:where()` argument or structural pseudo-class).
+     *
+     * @param array<string, mixed> $compound
+     */
+    private static function isContextFreeCompound(array $compound): bool
+    {
+        $known = array( 'type', 'universal', 'classes', 'ids', 'attributes', 'not', 'any', 'nth_child', 'first_child', 'last_child', 'root', 'resting_state_negations', 'zero_specificity', 'nth_type' );
+        foreach ( $compound as $key => $value ) {
+            if ( ! in_array($key, $known, true) ) {
+                return false;
+            }
+        }
+        if ( array() !== ($compound['ids'] ?? array()) || array() !== ($compound['attributes'] ?? array())
+            || array() !== ($compound['not'] ?? array()) || array() !== ($compound['any'] ?? array())
+            || null !== ($compound['nth_child'] ?? null) || null !== ($compound['nth_type'] ?? null)
+            || ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false) || ($compound['root'] ?? false)
+            || 0 !== (int) ($compound['resting_state_negations'] ?? 0)
+        ) {
+            return false;
+        }
+        return is_string($compound['type'] ?? null) || ($compound['universal'] ?? false) || array() !== ($compound['classes'] ?? array());
     }
 
     /** @param array<string, mixed> $parsed */
@@ -2355,8 +2585,14 @@ final class AuthorStylesheetProjector
     /** @param array<string, mixed> $parsed */
     private function projectSemanticLeafSelector(string $selector, array $parsed, string $marker, AuthorStylesheetProjectionContext $context): string
     {
+        return $this->projectSemanticTarget(':where(.' . $marker . ')', $selector, $parsed, $context);
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function projectSemanticTarget(string $target, string $selector, array $parsed, AuthorStylesheetProjectionContext $context): string
+    {
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-        return ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+        return $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
     }
 
     /** @param array<string, mixed> $parsed */

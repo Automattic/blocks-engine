@@ -75,7 +75,7 @@ final class NavigationPatternContext
                 $subject = $compounds[array_key_last($compounds)];
                 if (!in_array(strtolower((string) ($subject['type'] ?? '')), array('ul', 'ol'), true)) continue;
                 $match = $styles->selectorMatchCache()->matches($element, $record['selector'], $parsed);
-                if (($match['supported'] ?? false) && ($match['matches'] ?? false)) return $this->session->authorSelectorProjectionState()->ensureSemanticMarker($element->getNodePath() ?? '');
+                if (($match['supported'] ?? false) && ($match['matches'] ?? false)) { $projections = $this->session->authorSelectorProjectionState(); return implode(' ', $projections->semanticCarrierClasses($projections->ensureSemanticMarker($element->getNodePath() ?? ''), $element->getNodePath() ?? '')); }
             }
         }
         return '';
@@ -427,6 +427,22 @@ final class NavigationPatternContext
         return $this->styleResolver?->resolvedConditionalDisplay($element) ?? '';
     }
 
+    /**
+     * The display the browser cascade gives the element at the reference
+     * viewport: static and applying conditional rules, ranked by specificity
+     * and then source order. A recognition signal only, never projected.
+     */
+    public function cascadeDisplay(DOMElement $element): string
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver
+            || 1 !== preg_match('/(?:^|;)\s*display\s*:\s*([^;]+)/i', $this->styleResolver->controlSurfaceResolvedStyle($element), $match)
+        ) {
+            return '';
+        }
+
+        return strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', trim($match[1]))));
+    }
+
     /** Compare the authored display contracts, including breakpoints outside the reference viewport. */
     public function hasDistinctDisplayBoxes(DOMElement $landmark, DOMElement $list): bool
     {
@@ -566,6 +582,7 @@ final class NavigationPatternContext
         if ( '' === $markup || ! SourceDom::isSafeSvgContent($markup) ) {
             return '';
         }
+        $markup = SvgMaterializer::ensureSvgImageNamespace($markup);
 
         $box = $this->navigationLinkIconBox($svg);
         if ( '' === $box ) {

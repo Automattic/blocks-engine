@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Closure;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
 /** Per-transform source identities projected from author CSS selectors. */
@@ -21,6 +22,24 @@ final class AuthorSelectorProjectionState
 
     /** @var array<string, string> */
     private array $controlMarkers = array();
+
+    /**
+     * Marker carriers that received subject classes, by role kind (`control`,
+     * `semantic`) and marker: the source tag and class tokens the subject
+     * classes state, or null when the source element could not be resolved.
+     *
+     * @var array<string, array<string, array{tag: string, classes: array<string, true>}|null>>
+     */
+    private array $subjectCarriers = array();
+
+    /**
+     * Markers some carrier block was emitted for without subject classes
+     * (see routesOutsideRoleArms()). A marker in both maps may sit on blocks
+     * with and without them, so its own arm stays.
+     *
+     * @var array<string, array<string, true>>
+     */
+    private array $withheldSubjectCarriers = array();
 
     /** @var array<string, true> */
     private array $buttonPresentationPaths = array();
@@ -174,7 +193,9 @@ final class AuthorSelectorProjectionState
     public function ensureTagMarker(string $tagName): string
     {
         $tagName = strtolower($tagName);
-        return $this->tagMarkers[$tagName] ??= $this->allocateMarker('source-' . $tagName);
+        return $this->tagMarkers[$tagName] ??= ($this->authorStyles
+            ?? throw new \LogicException('Author styles have not been installed for selector projection.'))
+            ->allocateTagMarker($tagName);
     }
 
     public function tagMarker(string $tagName): string
@@ -212,12 +233,128 @@ final class AuthorSelectorProjectionState
 
     public function ensureControlMarker(string $path): string
     {
-        return $this->controlMarkers[$path] ??= $this->allocateMarker('control');
+        return $this->controlMarkers[$path] ??= $this->allocatePathMarker('control', $path);
     }
 
     public function controlMarker(string $path): string
     {
         return $this->controlMarkers[$path] ?? '';
+    }
+
+    /**
+     * Classes for the block that carries the control at `$path`: its marker,
+     * the control role class, and the subject classes of the source element
+     * (see EngineMarker::subjectTagClass()). The carrier is recorded with the
+     * tag and class tokens those subject classes were made from, so a projected
+     * subject arm can be checked against exactly what the markup carries.
+     *
+     * @return list<string>
+     */
+    public function controlCarrierClasses(string $path): array
+    {
+        return $this->carrierClasses('' === $path ? '' : $this->ensureControlMarker($path), $path);
+    }
+
+    /**
+     * Classes for a block that carries a semantic marker (a semantic or image
+     * wrapper marker) of the source element at `$path`: the marker, the
+     * semantic role class and the element's subject classes, recorded as for
+     * controlCarrierClasses().
+     *
+     * @return list<string>
+     */
+    public function semanticCarrierClasses(string $marker, string $path): array
+    {
+        return $this->carrierClasses($marker, $path);
+    }
+
+    /** @return list<string> */
+    private function carrierClasses(string $marker, string $path): array
+    {
+        if ( '' === $marker ) {
+            return array();
+        }
+        $role = EngineMarker::roleClass($marker);
+        $kind = (string) EngineMarker::markerKind($marker);
+        if ( '' === $role ) {
+            return array($marker);
+        }
+        if ( $this->routesOutsideRoleArms($path) ) {
+            $this->withheldSubjectCarriers[$kind][$marker] = true;
+            return array($marker, $role);
+        }
+        if ( ! array_key_exists($marker, $this->subjectCarriers[$kind] ?? array()) ) {
+            $element = '' === $path ? null : $this->authorStyles?->sourceElementAtPath($path);
+            $this->subjectCarriers[$kind][$marker] = null === $element ? null : array(
+                'tag' => strtolower($element->tagName),
+                'classes' => array_fill_keys(array_values(array_filter(preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($element->getAttribute('class'))) ?: array(), static fn (string $class): bool => '' !== $class)), true),
+            );
+        }
+        $carrier = $this->subjectCarriers[$kind][$marker];
+        if ( null === $carrier ) {
+            return array($marker, $role);
+        }
+        return array($marker, $role, ...EngineMarker::subjectClasses($carrier['tag'], array_map('strval', array_keys($carrier['classes']))));
+    }
+
+    /**
+     * Whether selector projection gives the element at `$path` an arm of its
+     * own instead of the plain control or semantic arm: a RichText or inline
+     * layout carrier, a toggle Core's overlay supersedes, a source box a shell
+     * retains, or something core/navigation or core/social-links renders. Its
+     * carrier gets no subject classes, so a subject arm (which some other
+     * page's copy of a stylesheet may hold) never reaches it; its rules keep
+     * naming its marker.
+     */
+    private function routesOutsideRoleArms(string $path): bool
+    {
+        if ( '' !== $this->richTextMarker($path) || $this->isInlineLayoutCarrierPath($path) || $this->isSupersededControlPath($path)
+            || $this->isRetainedSourcePath($path) || '' !== $this->navigationSubject($path) || '' !== $this->socialAnchorMarker($path)
+        ) {
+            return true;
+        }
+        foreach ( $this->navigationSourcePaths as $paths ) {
+            if ( isset($paths[$path]) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The `$kind` carriers whose recorded source tag and classes satisfy a
+     * context-free compound (type or `*`, plus classes): `reached`, every
+     * marker some block carries with those subject classes, and `covered`,
+     * those whose every block carries them. Null when a carrier could not
+     * record its source element: then the subject classes do not describe
+     * every carrier and a subject arm is unsound.
+     *
+     * @param array<string, mixed> $compound
+     * @return array{reached: list<string>, covered: list<string>}|null
+     */
+    public function carrierMarkersMatching(string $kind, array $compound): ?array
+    {
+        $type = is_string($compound['type'] ?? null) ? strtolower($compound['type']) : null;
+        $reached = array();
+        $covered = array();
+        foreach ( $this->subjectCarriers[$kind] ?? array() as $marker => $carrier ) {
+            if ( null === $carrier ) {
+                return null;
+            }
+            if ( null !== $type && $type !== $carrier['tag'] ) {
+                continue;
+            }
+            foreach ( $compound['classes'] ?? array() as $class ) {
+                if ( ! isset($carrier['classes'][(string) $class]) ) {
+                    continue 2;
+                }
+            }
+            $reached[] = (string) $marker;
+            if ( ! isset($this->withheldSubjectCarriers[$kind][$marker]) ) {
+                $covered[] = (string) $marker;
+            }
+        }
+        return array( 'reached' => $reached, 'covered' => $covered );
     }
 
     public function installButtonPresentationMarker(string $path, string $marker): void
@@ -275,7 +412,7 @@ final class AuthorSelectorProjectionState
 
     public function ensureImageWrapperMarker(string $path): string
     {
-        return $this->imageWrapperMarkers[$path] ??= $this->allocateMarker('semantic');
+        return $this->imageWrapperMarkers[$path] ??= $this->allocatePathMarker('semantic', $path);
     }
 
     public function imageWrapperMarker(string $path): string
@@ -285,7 +422,7 @@ final class AuthorSelectorProjectionState
 
     public function ensureSemanticMarker(string $path): string
     {
-        return $this->semanticMarkers[$path] ??= $this->allocateMarker('semantic');
+        return $this->semanticMarkers[$path] ??= $this->allocatePathMarker('semantic', $path);
     }
 
     public function semanticMarker(string $path): string
@@ -295,7 +432,7 @@ final class AuthorSelectorProjectionState
 
     public function ensureRichTextMarker(string $path): string
     {
-        return $this->richTextMarkers[$path] ??= $this->allocateMarker('richtext');
+        return $this->richTextMarkers[$path] ??= $this->allocatePathMarker('richtext', $path);
     }
 
     public function richTextMarker(string $path): string
@@ -388,7 +525,7 @@ final class AuthorSelectorProjectionState
             return $this->stableAttributeMarkers[$path][$stableIdentity]
                 ??= $this->allocateStableAttributeMarker($stableIdentity);
         }
-        return $this->attributeMarkers[$path] ??= $this->allocateMarker('attribute');
+        return $this->attributeMarkers[$path] ??= $this->allocatePathMarker('attribute', $path);
     }
 
     private function allocateStableAttributeMarker(string $identity): string
@@ -554,7 +691,7 @@ final class AuthorSelectorProjectionState
 
     public function ensureRootChildMarker(string $path): string
     {
-        return $this->rootChildMarkers[$path] ??= $this->allocateMarker('root-child');
+        return $this->rootChildMarkers[$path] ??= $this->allocatePathMarker('root-child', $path);
     }
 
     public function rootChildMarker(string $path): string
@@ -564,7 +701,7 @@ final class AuthorSelectorProjectionState
 
     public function ensureMediaTextImageMarker(string $path): string
     {
-        return '' === $path ? '' : ($this->mediaTextImageMarkers[$path] ??= $this->allocateMarker('media-text-image'));
+        return '' === $path ? '' : ($this->mediaTextImageMarkers[$path] ??= $this->allocatePathMarker('media-text-image', $path));
     }
 
     public function mediaTextImageMarker(string $path): string
@@ -575,8 +712,13 @@ final class AuthorSelectorProjectionState
     /** @return list<string> */
     public function semanticMarkersForPath(string $path): array
     {
+        // A semantic carrier also carries the kind's role class and its
+        // source's subject classes, so a rule arm that has to stay off carriers
+        // excludes them through one constant class, and a context-free arm
+        // reaches them without enumerating every carrier's marker.
         return array_values(array_filter(array_merge(
-            array($this->semanticMarker($path), $this->attributeMarkers[$path] ?? ''),
+            $this->semanticCarrierClasses($this->semanticMarker($path), $path),
+            array($this->attributeMarkers[$path] ?? ''),
             array_values($this->stableAttributeMarkers[$path] ?? array()),
             $this->attributeStateMarkers($path),
             array($this->rootChildMarker($path))
@@ -592,7 +734,7 @@ final class AuthorSelectorProjectionState
      */
     public function ensureTableMarker(string $path, ?\DOMElement $table = null): string
     {
-        return $this->tableMarkers[$path] ??= self::existingTableMarker($table) ?? $this->allocateMarker('table');
+        return $this->tableMarkers[$path] ??= self::existingTableMarker($table) ?? $this->allocatePathMarker('table', $path);
     }
 
     private static function existingTableMarker(?\DOMElement $table): ?string
@@ -627,10 +769,15 @@ final class AuthorSelectorProjectionState
         return $paths[$elementId] ?? '';
     }
 
-    private function allocateMarker(string $kind): string
+    /**
+     * A per-element marker named from the source element's context (see
+     * AuthorStyleAnalysis::allocateContextMarker()), so the same element under
+     * the same author CSS projects the same class on every page.
+     */
+    private function allocatePathMarker(string $kind, string $path): string
     {
         return ($this->authorStyles
             ?? throw new \LogicException('Author styles have not been installed for selector projection.'))
-            ->allocateMarker($kind);
+            ->allocateContextMarker($kind, $path);
     }
 }

@@ -1365,7 +1365,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * layout the host is core's flex row, and items the source stacked full
      * width shrink to their min-width instead. When neither the host nor its
      * list declares a display, the source list is a block box; the items prove
-     * the stack only when every one declares a block-level display. Floated
+     * the stack only when the cascade gives every one a block-level display
+     * (ranked by specificity: `.menu>ul li{display:block}` beats a later
+     * `.item{display:flex}`, as it does in the browser). Floated
      * block items still need flow: a flex row ignores the float that the
      * projected item rule carries. Without item evidence core's default stays.
      *
@@ -1375,8 +1377,8 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function withStackedBlockListLayout(array $attrs, DOMElement $host, ?DOMElement $list, ?NavigationPatternContext $navigationContext): array
     {
         if ( null === $navigationContext || ! $list instanceof DOMElement || is_array($attrs['layout'] ?? null)
-            || '' !== trim($navigationContext->resolvedDisplay($host))
-            || '' !== trim($navigationContext->resolvedDisplay($list))
+            || '' !== $navigationContext->cascadeDisplay($host)
+            || '' !== $navigationContext->cascadeDisplay($list)
         ) {
             return $attrs;
         }
@@ -1386,8 +1388,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
                 continue;
             }
-            $display = strtolower(trim($navigationContext->resolvedDisplay($child)));
-            if ( ! in_array($display, array( 'block', 'list-item', 'flow-root' ), true) ) {
+            if ( ! in_array($navigationContext->cascadeDisplay($child), array( 'block', 'list-item', 'flow-root' ), true) ) {
                 return $attrs;
             }
             ++$items;
@@ -3166,7 +3167,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             // A cluster of child links that follows the item's own anchor is its
             // submenu, not a second anchor carrier. An anchor found inside a
             // sibling wrapper is a peer item's, so the next wrapper is a peer too.
-            if ( array() !== $anchors && $element->isSameNode($anchors[0]->parentNode) && $this->isAnchorOnlyCluster($child) ) {
+            if ( array() !== $anchors && $this->ownsSubmenuCluster($element, $anchors[0], $child) ) {
                 continue;
             }
 
@@ -3235,7 +3236,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $tagName = strtolower($child->tagName);
             if ( in_array($tagName, array( 'nav', 'ul', 'ol' ), true)
                 || $this->hasSubmenuSignal($child)
-                || ( $element->isSameNode($primaryAnchor->parentNode) && $this->isAnchorOnlyCluster($child) )
+                || $this->ownsSubmenuCluster($element, $primaryAnchor, $child)
                 || ( $this->isNavigationWrapperElement($child)
                     && ( 0 < $child->getElementsByTagName('ul')->length || 0 < $child->getElementsByTagName('ol')->length ) )
             ) {
@@ -3367,7 +3368,128 @@ final class NavigationPattern implements PatternRecognizerInterface
     /** @return array{label:string, cluster:DOMElement, button:DOMElement}|null */
     private function buttonDropdownItem(DOMElement $element): ?array
     {
-        return self::buttonDropdownItemParts($element);
+        return self::buttonDropdownItemParts($element) ?? $this->controlledDropdownItemParts($element);
+    }
+
+    /**
+     * An item made of a labelled button and the sibling panel it names with
+     * `aria-controls`, the panel holding nothing but links, each bare or in its
+     * own wrapper: `<div><button aria-controls="p">About</button><div id="p">
+     * <div><a>Mission</a></div><div><a>Team</a></div></div></div>`. The
+     * button's own declaration ties the panel to it, so no class vocabulary is
+     * needed to read the panel as the button's submenu.
+     *
+     * @return array{label:string, cluster:DOMElement, button:DOMElement}|null
+     */
+    private function controlledDropdownItemParts(DOMElement $element): ?array
+    {
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+            $children[] = $child;
+        }
+        if ( 2 !== count($children) || 'button' !== strtolower($children[0]->tagName) ) {
+            return null;
+        }
+        [ $button, $panel ] = $children;
+        $controls = trim($button->getAttribute('aria-controls'));
+        $label = trim(preg_replace('/\s+/', ' ', $this->visibleText($button)) ?? '');
+        if ( '' === $controls || $controls !== trim($panel->getAttribute('id')) || '' === $label ) {
+            return null;
+        }
+        return $this->isWrappedLinkPanel($panel) ? array( 'label' => $label, 'cluster' => $panel, 'button' => $button ) : null;
+    }
+
+    /**
+     * Whether `$cluster` is the submenu of the item whose own link is
+     * `$anchor`. The item must own that link: as its direct child, or as the
+     * only content of a label wrapper
+     * (`<div><span><a>Parent</a></span><div><a>Child</a></div></div>`). A
+     * wrapped label only owns the cluster when the item holds nothing else,
+     * the label is not a heading (a footer column's linked heading titles
+     * its links, it does not open them), and the two do not share a tag or a
+     * class: wrappers alike in either way are peer items of one list. The
+     * cluster holds only links, bare or one per wrapper.
+     */
+    private function ownsSubmenuCluster(DOMElement $element, DOMElement $anchor, DOMElement $cluster): bool
+    {
+        $carrier = $anchor->parentNode;
+        if ( ! $carrier instanceof DOMElement ) {
+            return false;
+        }
+        if ( ! $element->isSameNode($carrier) ) {
+            $parent = $carrier->parentNode;
+            $sole = $this->soleMeaningfulChild($carrier);
+            if ( ! $parent instanceof DOMElement || ! $element->isSameNode($parent)
+                || ! $sole instanceof DOMElement || ! $anchor->isSameNode($sole)
+                || 2 !== $element->childElementCount
+                || 1 === preg_match('/^h[1-6]$/i', $carrier->tagName)
+                || strtolower($carrier->tagName) === strtolower($cluster->tagName)
+                || array() !== array_intersect(
+                    SourceDom::boundedClassTokens($carrier->getAttribute('class')),
+                    SourceDom::boundedClassTokens($cluster->getAttribute('class'))
+                )
+            ) {
+                return false;
+            }
+        }
+
+        return $this->isAnchorOnlyCluster($cluster) || $this->isWrappedLinkPanel($cluster);
+    }
+
+    /**
+     * The text a control paints: screen-reader-only (`sr-only`,
+     * `visually-hidden`, `screen-reader-text`) and `hidden` descendants are
+     * left out, so a visible label does not repeat assistive text.
+     */
+    private function visibleText(DOMElement $element): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $text .= $child->textContent;
+            } elseif ( $child instanceof DOMElement && ! $child->hasAttribute('hidden')
+                && 1 !== preg_match('/(?:^|[\s_-])(?:visually-hidden|sr-only|screen-reader-only|screen-reader-text)(?:$|[\s_-])/', strtolower($child->getAttribute('class')))
+            ) {
+                $text .= ' ' . $this->visibleText($child) . ' ';
+            }
+        }
+
+        return $text;
+    }
+
+    /**
+     * A panel whose entries are all destination links, each bare or the only
+     * child of its own wrapper (`<div><div><a>One</a></div><div><a>Two</a></div></div>`).
+     */
+    private function isWrappedLinkPanel(DOMElement $panel): bool
+    {
+        if ( ! in_array(strtolower($panel->tagName), array( 'div', 'span', 'ul', 'ol' ), true) ) {
+            return false;
+        }
+        $links = 0;
+        foreach ( $panel->childNodes as $item ) {
+            if ( XML_COMMENT_NODE === $item->nodeType || ( XML_TEXT_NODE === $item->nodeType && '' === trim($item->textContent ?? '') ) ) {
+                continue;
+            }
+            $link = $item instanceof DOMElement && in_array(strtolower($item->tagName), array( 'div', 'span', 'li' ), true)
+                ? $this->soleMeaningfulChild($item)
+                : $item;
+            if ( ! $link instanceof DOMElement || 'a' !== strtolower($link->tagName)
+                || '' === trim($link->textContent ?? '') || '' === trim($link->getAttribute('href'))
+                || $link->hasAttribute('aria-controls') || $link->hasAttribute('aria-expanded')
+            ) {
+                return false;
+            }
+            ++$links;
+        }
+
+        return 0 < $links;
     }
 
     /**

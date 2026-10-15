@@ -59,6 +59,16 @@ $assert(in_array('core/heading', $blockNames, true) && in_array('core/paragraph'
 $assert('pass' === ( new BlockValidityValidator() )->validateBlocks($compiled['blocks'] ?? array())['status'], 'layout-shell markup stays Gutenberg-valid');
 $assert(array() === array_filter($compiled['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dom_contract_fallback' === ($diagnostic['code'] ?? '')), 'no runtime island fallback is recorded for the container');
 
+// The capture activator's own selector must not make its evidence targets runtime islands.
+$nestedCapture = '<!doctype html><html><body><div class="a"><div class="b"><p class="preFade fadeIn" data-blocks-engine-capture-viewport-entrance="' . htmlspecialchars((string) json_encode(array('attributes' => array('class' => array('before' => 'preFade', 'after' => 'preFade fadeIn')))), ENT_QUOTES) . '">Hello</p><p>Plain sibling</p></div></div>'
+    . '<script data-blocks-engine-capture-viewport-entrances>(function(){for(const r of document.querySelectorAll("[data-blocks-engine-capture-viewport-entrance]")){}})();</script></body></html>';
+$captureContext = ( new ArtifactCompiler() )->runtimeContextForSource($nestedCapture, 'index.html', array(array('path' => 'index.html', 'content' => $nestedCapture)));
+$captureResult = ( new ArtifactCompiler() )->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $nestedCapture)))->toArray();
+$captureNames = $names($captureResult['blocks'] ?? array());
+$assert(! in_array('[data-blocks-engine-capture-viewport-entrance]', $captureContext['runtime_dom_selectors'] ?? array(), true), 'capture activator is excluded from source runtime selector analysis');
+$assert(2 === count(array_filter($captureNames, static fn (string $name): bool => 'core/paragraph' === $name)) && ! in_array('core/html', $captureNames, true), 'entrance target and sibling paragraphs lower natively inside nested shells: ' . json_encode($captureNames));
+$assert(str_contains((string) ($captureResult['serialized_blocks'] ?? ''), '<p class="preFade fadeIn">Hello</p>'), 'entrance target settles to its captured terminal state');
+
 // A two-pane media/text target must not become a core/media-text, which cannot carry the attribute.
 $twoPane = ( new HtmlTransformer() )->transform(
     '<style>.two{display:grid;grid-template-columns:1fr 1fr;gap:4rem;align-items:center}.frame{aspect-ratio:4/5;overflow:hidden;border-radius:1rem}.cover{width:100%;height:100%;object-fit:cover}.copy{max-width:32rem}</style>'
