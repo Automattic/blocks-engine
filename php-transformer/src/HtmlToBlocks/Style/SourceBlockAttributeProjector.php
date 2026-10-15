@@ -246,6 +246,14 @@ final class SourceBlockAttributeProjector
             return false;
         }
 
+        // An absolutely positioned child is out of flow, not a flex/grid item.
+        // Its figure carries the author's positioned geometry, so it must keep
+        // a real box instead of the transparent flex-item treatment.
+        $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($image)['position'] ?? ''));
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+
         $display = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? ''));
         return in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
     }
@@ -545,7 +553,7 @@ final class SourceBlockAttributeProjector
             return false;
         }
         foreach ( $children as $child ) {
-            $display = strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', (string) ($this->styleResolver->cssDeclarations($child->getAttribute('style'))['display'] ?? ''))));
+            $display = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($child->getAttribute('style'))['display'] ?? ''));
             if ( ! in_array($display, array( 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true) ) {
                 return false;
             }
