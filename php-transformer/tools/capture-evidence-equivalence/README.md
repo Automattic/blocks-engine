@@ -216,6 +216,12 @@ replay by case:
   margin reset. Only the carriers' class lists, the added engine-support
   asset and the values derived from them change in `25b86bf0` and
   `6220283c`.
+- **Section links are not the current page** (#2837). A navigation link
+  with a fragment (`/index.html#services`) names a section, so it no longer
+  takes URL-inferred current state on the route holding that section. Only
+  those links' `blocks-engine-current-navigation-item` class and the values
+  derived from it change in `2322e021`, `5b9c65c4`, `6982a81d`, `771a8a46`,
+  `7d6524b6`, `81a94623`, `8ea9b354` and `a98742a0`.
 
 - **Author separator borders** (#2799). Borders of an author rule that
   reaches a source `hr` are re-emitted scoped to `.wp-block-separator` with

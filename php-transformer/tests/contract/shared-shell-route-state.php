@@ -94,4 +94,30 @@ $twoAttrs = json_decode($two[1] ?? 'null', true) ?? array();
 $twoClasses = preg_split('/\s+/', (string) ($twoAttrs['className'] ?? '')) ?: array();
 $assert(!str_contains($part, 'submenu open') && in_array('submenu-item', $twoClasses, true) && !in_array('submenu-link', $twoClasses, true) && !in_array('blocks-engine-current-navigation-item', $twoClasses, true) && array('style' => '', 'className' => 'submenu-link') === ($twoAttrs['metadata']['blocksEngineNavigationAnchor'] ?? null), 'The shared part freezes neither the disclosed menu nor the selected item; the item renders through its siblings\' anchor subject: ' . $part);
 
+// Shared chrome linking to sections of one route (`/index.html#services`)
+// names those sections, not that page. The route holding the sections and
+// every other route compile one header identity, so it stays one template part.
+// Routes sit under the capture's `website/` root, as importable captures do.
+$sectionHeader = '<header class="top"><div class="bar"><a href="/index.html" class="brand">Brand</a>'
+    . '<nav aria-label="Main" class="desktop"><a href="/index.html#services" class="link">Services</a><a href="/index.html#reviews" class="link">Reviews</a></nav>'
+    . '<button type="button" class="toggle" aria-expanded="false" aria-controls="drawer" data-blocks-engine-capture-dialog-trigger="drawer" aria-haspopup="menu">Menu</button></div>'
+    . '<nav id="drawer" aria-label="Mobile" class="drawer" hidden data-blocks-engine-capture-dialog-panel="drawer"><ul class="items">'
+    . '<li><a href="/index.html#services" class="item">Services</a></li><li><a href="/index.html#reviews" class="item">Reviews</a></li>'
+    . '<li class="cta"><a href="tel:+15550100" class="call">Call us</a></li></ul></nav></header>';
+$sectionPage = static fn(string $main): string => '<!doctype html><html><head><style>'
+    . '.bar{display:flex;justify-content:space-between}.desktop{display:none;gap:2rem}.link{color:#555;font-size:14px;font-weight:500;line-height:20px}.link:hover{color:#000}'
+    . '.toggle{display:inline-flex}.drawer{padding:1rem}.item{display:block;padding:12px;font-size:16px;font-weight:500}.item:hover{background:#eee}'
+    . '.call{display:inline-flex;width:100%;height:44px;background:#c00;color:#fff;font-weight:500}'
+    . '@media (min-width:768px){.desktop{display:flex}.toggle,.drawer{display:none}}</style></head><body>'
+    . $sectionHeader . '<main>' . $main . '</main><footer><p>Footer</p></footer></body></html>';
+$sectionPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array(
+    'website/index.html' => $sectionPage('<section id="services"><h2>Services</h2></section><section id="reviews"><h2>Reviews</h2></section>'),
+    'website/privacy/index.html' => $sectionPage('<h1>Privacy</h1><p>Policy text.</p>'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$sectionHeaders = array_values(array_filter($sectionPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$assert(1 === count($sectionHeaders) && 'extracted' === ($sectionHeaders[0]['provenance']['decision'] ?? null), 'A header linking to sections of one route is one shared header on every route: ' . json_encode(array_column($sectionPlan['diagnostics'], 'code')));
+foreach ($sectionPlan['pages'] as $sectionPageRow) {
+    $assert(!str_contains((string) ($sectionPageRow['canonical_block_markup'] ?? ''), '"label":"Services"'), 'The shared header leaves no copy in ' . $sectionPageRow['source_path'] . '.');
+}
+
 echo "shared-shell-route-state contract passed\n";

@@ -155,11 +155,19 @@ final class NavigationPatternContext
      *
      * Site-rooted hrefs (`/about/index.html`) resolve against the artifact's
      * entry root, the single leading segment of the source path.
+     *
+     * A link with a fragment names a section, not the page: shared chrome
+     * linking to `/index.html#services` must compile the same on the route
+     * holding that section as on every other route.
      */
     public function targetsCurrentDocument(string $href): bool
     {
         $document = $this->session?->sourcePath() ?? '';
-        $href = ArtifactPath::stripQueryAndFragment(trim($href));
+        $href = trim($href);
+        if ( str_contains($href, '#') && '' !== trim((string) substr($href, (int) strpos($href, '#') + 1)) ) {
+            return false;
+        }
+        $href = ArtifactPath::stripQueryAndFragment($href);
         if ( '' === $href || ! str_contains($document, '.') || 1 === preg_match('~^(?:[a-z][a-z0-9+.-]*:|//)~i', $href) ) {
             return false;
         }
