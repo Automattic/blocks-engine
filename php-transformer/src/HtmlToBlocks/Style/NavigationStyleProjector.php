@@ -205,8 +205,11 @@ final class NavigationStyleProjector
                 . $selector . '>.components-placeholder.is-large{display:none!important}'
                 // WordPress 7.1 inserts an anonymous transport element around
                 // empty groups. It must not become the containing block for an
-                // authored absolute painted layer.
-                . ':root .editor-styles-wrapper .block-editor-block-list__block>div:not([class]):not([id]):not([style]):has(>.' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder){display:contents}';
+                // authored absolute painted layer, nor the zero-height parent a
+                // percentage height resolves against. Inside a layout shell the
+                // transport sits under the shell's inner-blocks layer rather
+                // than directly under a block element.
+                . ':root .editor-styles-wrapper :where(.block-editor-block-list__block,.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ')>div:not([class]):not([id]):not([style]):has(>.' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder){display:contents}';
         }
         if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->context->authorStyles()->combinedCss()) ) {
             $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';
