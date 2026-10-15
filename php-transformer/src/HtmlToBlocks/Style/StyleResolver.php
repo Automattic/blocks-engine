@@ -5130,7 +5130,7 @@ final class StyleResolver implements ElementPresentationResolver
     private function hasSourceSlideRuntimeState(array $declarations, array $runtimeProperties): bool
     {
         return array() !== array_intersect_key($declarations, $runtimeProperties)
-            || 'none' === strtolower(trim((string) ($declarations['display'] ?? '')));
+            || 'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
     }
 
     private function hasAuthorClassSelector(string $className): bool
