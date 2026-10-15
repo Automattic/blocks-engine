@@ -235,6 +235,7 @@
       "php tests/unit/numeric-post-route-parent.php",
       "php tests/unit/navigation-entities-after-repeated-chrome.php",
       "php tests/unit/wordpress-site-plan-stylesheet-order.php",
+      "php tests/unit/wordpress-site-plan-frame-template-bindings.php",
       "php tests/unit/wordpress-stylesheet-instances.php",
       "php tests/unit/wordpress-site-plan-inline-stylesheet-order.php",
       "php tests/unit/document-root-font-ownership.php",
