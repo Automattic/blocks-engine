@@ -176,6 +176,12 @@ replay by case:
   unchanged for every corpus case; only the selector-match and style-rule candidate cache counters move in
   `31dfd889`, `448ead36`, `90234027`, `a5a08a86`, `b550beb0`, `c7fff215`,
   `f025cf28` and `fe07751f`.
+- **Text-run paragraph carriers** (#2803). A paragraph synthesized for a
+  source text run carries `blocks-engine-synthetic-paragraph`, so the page
+  gains the engine-support stylesheet holding that carrier's zero-specificity
+  margin reset. Only the carriers' class lists, the added engine-support
+  asset and the values derived from them change in `25b86bf0` and
+  `6220283c`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.

@@ -293,7 +293,7 @@
         {
             "id": "25b86bf04d5b1d1b6fe316daec2c603868662f2d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "368b9043f4006e1bdeba808c95963ae44cc67192326f0dbcaae3ac95ed0046f6",
+            "expected_sha256": "ce38cfec6fb1d99ef9bfa2e9d09a70773a5b2c781f9717acf4f393dfc94c0db7",
             "outcome": "output"
         },
         {
@@ -773,7 +773,7 @@
         {
             "id": "6220283ca7e079f9b3abcecd4b647a4fd2dcfc28",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "712ebcd0b43a580a64e0d1153dd1bc90736cefeb4025ea774975d5c3d630149d",
+            "expected_sha256": "c7d1528d4d6062339cc8d99dc5e633673609cb9ea02172883b3c3dce8aa9b262",
             "outcome": "output"
         },
         {
