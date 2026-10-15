@@ -3994,7 +3994,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $blocks;
         }
 
-        $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($text) ));
+        // A source text run has no paragraph box of its own: the paragraph is
+        // only the validity carrier, so it renders in its parent's box.
+        $blocks[] = $this->createBlock('core/paragraph', array(
+            'className' => self::SYNTHETIC_PARAGRAPH_CLASS,
+            'content'   => $this->runtime->escapeHtml($text),
+        ));
         return $blocks;
     }
 
