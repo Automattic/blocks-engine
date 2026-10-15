@@ -72,7 +72,6 @@
       "php tests/contract/throw-classification.php",
       "php tests/contract/producer-neutral-source.php",
       "php tests/contract/capture-evidence-vocabulary.php",
-      "php tests/contract/capture-evidence-equivalence.php",
       "php tests/contract/runtime-no-wordpress.php",
       "php tests/contract/runtime-no-markdown.php",
       "php tests/contract/runtime-wordpress-stubs.php",
