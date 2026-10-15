@@ -1601,6 +1601,7 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function conditionalInlinePositioningClassName(DOMElement $element, array $excludedProperties, array $forcedProperties): string
     {
+        if (array() === $this->context->sourceStyles()->conditionalRules()) return '';
         $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
         if ('absolute' !== CssValueInspector::comparable((string) ($inline['position'] ?? ''))
             || in_array('position', array_merge($excludedProperties, $forcedProperties), true)
