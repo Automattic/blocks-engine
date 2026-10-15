@@ -174,6 +174,12 @@ replay by case:
   `796065fd`, `9389ce06`, `9cb93b72`, `a73ce3b0`, `b550beb0`, `b913b3b4`,
   `bda59bb9`, `c98ea038`, `dc249610`, `e40ee9dc`, `eaad29ef`, `f0e1a42c`,
   `f5a111b5`, `fcc75319` and `feef8efc`.
+- **Text-run paragraph carriers** (#2803). A paragraph synthesized for a
+  source text run carries `blocks-engine-synthetic-paragraph`, so the page
+  gains the engine-support stylesheet holding that carrier's zero-specificity
+  margin reset. Only the carriers' class lists, the added engine-support
+  asset and the values derived from them change in `25b86bf0` and
+  `6220283c`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.
