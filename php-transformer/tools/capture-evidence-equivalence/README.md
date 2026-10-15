@@ -169,6 +169,12 @@ replay by case:
   `796065fd`, `9389ce06`, `9cb93b72`, `a73ce3b0`, `b550beb0`, `b913b3b4`,
   `bda59bb9`, `c98ea038`, `dc249610`, `e40ee9dc`, `eaad29ef`, `f0e1a42c`,
   `f5a111b5`, `fcc75319` and `feef8efc`.
+- **Inline SVG geometry reaches linked images** (#2817). The inline geometry
+  carrier rule now reads `.wp-block-image.<carrier>>img,.wp-block-image.<carrier>>a>img`
+  instead of `.<carrier>>img`, so it outranks the author image bridge and
+  reaches a linked image, and it states the source's reference-viewport
+  `vertical-align`. Carrier classes are unchanged; the engine-support CSS and
+  its derived asset hashes change in `366a6664`, `736bb581` and `90234027`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.

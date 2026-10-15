@@ -327,7 +327,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             }
             $carriedProperties = $this->carriedCustomPropertyDeclarations($element, $mediaBox);
             $mediaBox = ( '' === $carriedProperties ? '' : ';' . $carriedProperties ) . $mediaBox;
-            $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:baseline' : '') . $mediaBox . '}';
+            $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:' . $this->sourceVerticalAlign($element) : '') . $mediaBox . '}';
             $conditionedBox = array() === $dimensions ? $this->mediaConditionedBoxRules($element, $presentation, $richTextImage ? '' : '>img') : array();
             // The parent fill the resting cascade could not see, under each
             // media condition that states it. Other viewports keep the
@@ -345,7 +345,15 @@ final class SvgMaterializer implements SvgElementMaterializer
             $fillImgRule = '>img{width:100%;height:100%;-o-object-fit:' . $fillObjectFit . ';object-fit:' . $fillObjectFit . '}';
             $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule . implode("\n", $conditionedBox)
                 . (array() === $conditionedFills ? '' : "\nfill:" . implode("\n", array_map(static fn (array $conditions): string => implode('{', $conditions), $conditionedFills))));
-            $geometryCss = ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '') . '.' . $geometryClass . $rule;
+            // The image rule must outrank the generic author image bridge
+            // (`:where(figure):not(<type>).wp-block-image > img{display:block}`),
+            // and core/image wraps linked media in an anchor, so it carries the
+            // native wrapper class and reaches the linked image too, as the
+            // parent fill rules do.
+            $geometryCss = ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '')
+                . ($richTextImage
+                    ? '.' . $geometryClass . $rule
+                    : '.wp-block-image.' . $geometryClass . '>img,.wp-block-image.' . $geometryClass . '>a' . $rule);
             foreach ( $conditionedBox as $conditionedRule ) {
                 $geometryCss .= str_replace('.{carrier}', '.' . $geometryClass, $conditionedRule);
             }
@@ -874,6 +882,20 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return $stacks;
+    }
+
+    /**
+     * The vertical alignment the inline source SVG takes in its line box: the
+     * author cascade winner at the desktop reference viewport, or `baseline`.
+     * An author `img,svg{vertical-align:middle}` centers the icon on the
+     * line; core/image's own `vertical-align:bottom` must not replace it.
+     */
+    private function sourceVerticalAlign(DOMElement $element): string
+    {
+        $declared = CssValueInspector::withoutImportant((string) ($this->styleResolver->referenceViewportAuthorDeclarations($element, array( 'vertical-align' ))['vertical-align'] ?? ''));
+        $declared = strtolower(trim($declared));
+
+        return 1 === preg_match('/^(?:baseline|sub|super|text-top|text-bottom|middle|top|bottom|-?\d*\.?\d+(?:px|em|rem|%))$/', $declared) ? $declared : 'baseline';
     }
 
     /** The figure, link and img rules that make a core/image fill its parent. */
