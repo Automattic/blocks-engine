@@ -9,7 +9,6 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
-use DOMDocument;
 
 /**
  * WordPress runtime compatibility CSS projected from authored stylesheets.
@@ -18,7 +17,8 @@ final class WordPressCompatCss
 {
     /** @var array<string, string> */
     private array $cssCache = array();
-    private ?AuthorStyleAnalysis $specificityContext = null;
+    /** @var array{string, string, string}|null */
+    private ?array $specificityShims = null;
 
     /**
      * @param array<int, array<string, mixed>> $files
@@ -27,7 +27,7 @@ final class WordPressCompatCss
     public function css(string $authoredCss, array $files, array $scriptContents): string
     {
         $this->prepareSpecificityContext($authoredCss, $files);
-        $cacheKey = hash('sha256', $authoredCss . "\0" . $this->specificityContext->specificityShim() . "\0" . $this->specificityContext->classSpecificityShim() . "\0" . $this->specificityContext->idSpecificityShim());
+        $cacheKey = hash('sha256', $authoredCss . "\0" . implode("\0", $this->specificityShims));
         if ( array_key_exists($cacheKey, $this->cssCache) ) {
             return $this->cssCache[$cacheKey];
         }
@@ -56,9 +56,17 @@ final class WordPressCompatCss
     /** @param array<int, array<string, mixed>> $files */
     private function prepareSpecificityContext(string $css, array $files): void
     {
-        $html = implode("\n", array_map(static fn(array $file): string => 'html' === ($file['kind'] ?? '') ? (string) ($file['content'] ?? '') : '', $files));
-        $document = new DOMDocument();
-        $this->specificityContext = new AuthorStyleAnalysis($html, $css, array(), $document->createElement('body'));
+        $avoidTexts = array($css);
+        foreach ($files as $file) {
+            if ('html' === ($file['kind'] ?? '')) {
+                $avoidTexts[] = (string) ($file['content'] ?? '');
+            }
+        }
+        $this->specificityShims = array(
+            AuthorStyleAnalysis::allocateSiteMarker('specificity', $avoidTexts),
+            AuthorStyleAnalysis::allocateSiteMarker('specificity-class', $avoidTexts),
+            AuthorStyleAnalysis::allocateSiteMarker('specificity-id', $avoidTexts)
+        );
     }
 
     /**
@@ -479,7 +487,7 @@ final class WordPressCompatCss
     {
         $pseudo = CssSelectorMatcher::pseudoElementHost($source);
         $parsed = CssSelectorMatcher::parse(null === $pseudo ? $source : $pseudo['selector']);
-        if (! $parsed['supported'] || null === $this->specificityContext) return null;
+        if (! $parsed['supported'] || null === $this->specificityShims) return null;
         $suffix = null === $pseudo ? '' : $pseudo['suffix'];
         if ('' !== $suffix) $target = substr($target, 0, -strlen($suffix));
         $state = '';
@@ -492,9 +500,9 @@ final class WordPressCompatCss
         // the same scope; generated transport never adds to authored ranking.
         return ':root :where(' . $target . ')' . CssSpecificityProjection::shims(
             $parsed,
-            $this->specificityContext->specificityShim(),
-            $this->specificityContext->classSpecificityShim(),
-            $this->specificityContext->idSpecificityShim()
+            $this->specificityShims[0],
+            $this->specificityShims[1],
+            $this->specificityShims[2]
         ) . $state . $suffix;
     }
 
