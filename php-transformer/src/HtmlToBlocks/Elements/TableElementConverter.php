@@ -43,6 +43,10 @@ final class TableElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->context->mediaLayoutTableColumnsBlock($element, $fallbacks));
         }
 
+        if ( $policy->isStructuredLayoutTable($element) ) {
+            return ConversionOutcome::handled($this->context->mediaLayoutTableColumnsBlock($element, $fallbacks));
+        }
+
         if ( $policy->isMetadataLayoutTable($element) ) {
             return ConversionOutcome::handled($this->context->mediaLayoutTableColumnsBlock($element, $fallbacks));
         }
