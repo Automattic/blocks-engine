@@ -413,7 +413,11 @@ final class AuthorStylesheetProjector
      */
     private function selectorRelaxingChildCombinators(string $selector, array $offsets): string
     {
-        $insertion = ' :where(.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ')>';
+        // The layer is the direct child of the block element that hosts it
+        // and the direct parent of each nested block root, so a relaxed
+        // combinator stays a child step on both sides. A descendant step
+        // would let `a > b` reach every block nested at any depth below `a`.
+        $insertion = ' > :where(.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ') >';
         $relaxed = '';
         $cursor = 0;
         foreach ( $offsets as $offset ) {
