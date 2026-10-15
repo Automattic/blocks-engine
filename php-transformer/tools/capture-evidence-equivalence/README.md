@@ -169,6 +169,13 @@ replay by case:
   `796065fd`, `9389ce06`, `9cb93b72`, `a73ce3b0`, `b550beb0`, `b913b3b4`,
   `bda59bb9`, `c98ea038`, `dc249610`, `e40ee9dc`, `eaad29ef`, `f0e1a42c`,
   `f5a111b5`, `fcc75319` and `feef8efc`.
+- **Materialized SVG `currentColor` reads the reference author cascade**
+  (#2816). The inherited color baked into standalone SVG artwork now comes
+  from the author cascade at the desktop reference viewport instead of the
+  resting source-style collection. The transformed output is unchanged in
+  the corpus. Only the `style_rule_candidate_cache_*` diagnostic counters
+  fall, because the walk no longer probes the source-style candidate cache.
+  This changes the digests of `90234027`, `d21657bb` and `f0e1a42c`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.

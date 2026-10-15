@@ -530,6 +530,7 @@
       "php tests/unit/standalone-svg-xlink-namespace.php",
       "php tests/unit/svg-inherited-color-reset.php",
       "php tests/unit/svg-inherited-icon-paint.php",
+      "php tests/unit/svg-current-color-reference-cascade.php",
       "php tests/unit/materialized-svg-custom-property-carry.php",
       "php tests/unit/inset-positioned-parent-fill-svg.php",
       "php tests/unit/media-scoped-inset-parent-fill-svg.php",
