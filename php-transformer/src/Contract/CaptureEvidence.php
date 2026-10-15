@@ -190,8 +190,8 @@ final class CaptureEvidence
     public const DISCLOSURE_RUNTIME_SHA256 = 'b545f43a77b79d075373048431101fe11d7ff8cdfe7987de6d7971512763d88f';
     /** The gallery helper (GALLERY_RUNTIME) that may coexist with a replaced disclosure interpreter. */
     public const GALLERY_RUNTIME_SHA256 = '456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b';
-    /** The choice-group runtime (CHOICE_GROUP_RUNTIME), with its config as the `__DLA_CHOICE_CONFIG__` placeholder. */
-    public const CHOICE_RUNTIME_SHA256 = 'f9ae937ac908e3b7c7538ceb3e588efb70d78b647b9c9e469e7ec6eee7cdff6b';
+    /** The choice-group runtime (CHOICE_GROUP_RUNTIME) with its config slot (`var configs=` up to `;function configFor(`) left empty. */
+    public const CHOICE_RUNTIME_SHA256 = 'a56086d3b1b8fe14decbbfe2f9007d0f69fb84c036ff717c2eefcdcd3f12922b';
 
     // Published for downstream importers; Blocks Engine does not read these.
 

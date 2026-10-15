@@ -179,7 +179,7 @@ allowed.
 | ---- | ---- | ------- |
 | `b545f43a77b79d075373048431101fe11d7ff8cdfe7987de6d7971512763d88f` | sha256 of the disclosure interpreter | Body: [`tests/fixtures/capture-disclosure-runtime.js`](../../tests/fixtures/capture-disclosure-runtime.js), marker `data-blocks-engine-capture-disclosure-runtime` (value `true`), in `<head>`. |
 | `456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b` | sha256 of the gallery helper | Body: [`tests/fixtures/capture-gallery-runtime.js`](../../tests/fixtures/capture-gallery-runtime.js), marker `data-blocks-engine-capture-gallery-runtime`, in `<head>`. |
-| `f9ae937ac908e3b7c7538ceb3e588efb70d78b647b9c9e469e7ec6eee7cdff6b` | sha256 of the choice-group runtime | Body: [`tests/fixtures/capture-choice-runtime.js`](../../tests/fixtures/capture-choice-runtime.js) with the JSON config list in place of `__DLA_CHOICE_CONFIG__`, marker `data-blocks-engine-capture-choice-runtime` (value `true`), in `<head>`. |
+| `a56086d3b1b8fe14decbbfe2f9007d0f69fb84c036ff717c2eefcdcd3f12922b` | sha256 of the choice-group runtime | Body: [`tests/fixtures/capture-choice-runtime.js`](../../tests/fixtures/capture-choice-runtime.js) with the JSON config list filling its empty config slot (`var configs=` … `;function configFor(`); the digest covers the body with that slot empty, marker `data-blocks-engine-capture-choice-runtime` (value `true`), in `<head>`. |
 
 Blocks Engine recognizes one body per runtime: the producer's current one.
 When the producer changes a body, Blocks Engine checks that its native

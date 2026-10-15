@@ -21,7 +21,6 @@ final class CapturedChoiceGroupProjector
     private const MAX_GROUP_BYTES = 262144;
     private const MAX_RUNTIME_BYTES = 2097152;
     private const RUNTIME_CONFIG_START = '(function(){var configs=';
-    private const RUNTIME_CONFIG_PLACEHOLDER = '__DLA_CHOICE_CONFIG__';
     private const RUNTIME_CONFIG_END = ';function configFor(';
 
     /**
@@ -118,8 +117,8 @@ final class CapturedChoiceGroupProjector
     }
 
     /**
-     * Reads the config list from a choice runtime whose body, with the config
-     * replaced by its placeholder, is the published runtime.
+     * Reads the config list from a choice runtime whose body, with its config
+     * slot emptied, is the published runtime.
      *
      * @return array<int, mixed>|null
      */
@@ -128,7 +127,7 @@ final class CapturedChoiceGroupProjector
         $body = trim($script->textContent ?? '');
         $split = strrpos($body, self::RUNTIME_CONFIG_END);
         if (strlen($body) > self::MAX_RUNTIME_BYTES || ! str_starts_with($body, self::RUNTIME_CONFIG_START) || false === $split
-            || CaptureEvidence::CHOICE_RUNTIME_SHA256 !== hash('sha256', self::RUNTIME_CONFIG_START . self::RUNTIME_CONFIG_PLACEHOLDER . substr($body, $split))) {
+            || CaptureEvidence::CHOICE_RUNTIME_SHA256 !== hash('sha256', self::RUNTIME_CONFIG_START . substr($body, $split))) {
             return null;
         }
         $configs = json_decode(substr($body, strlen(self::RUNTIME_CONFIG_START), $split - strlen(self::RUNTIME_CONFIG_START)), true);

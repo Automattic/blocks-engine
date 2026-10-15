@@ -30,7 +30,7 @@ $group = static function (?int $selected) use ($labels): string {
     return '<div role="group" aria-label="Size" class="sizes">' . $buttons . '</div>';
 };
 $page = static function (array $configs) use ($group): string {
-    $runtime = str_replace('__DLA_CHOICE_CONFIG__', str_replace('<', '\u003c', (string) json_encode($configs, JSON_UNESCAPED_SLASHES)), trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-choice-runtime.js')));
+    $runtime = str_replace('var configs=;', 'var configs=' . str_replace('<', '\u003c', (string) json_encode($configs, JSON_UNESCAPED_SLASHES)) . ';', trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-choice-runtime.js')));
     $source = str_replace('<div role="group"', '<div data-blocks-engine-capture-choice-group="0" role="group"', $group(null));
     return '<html><head><script data-blocks-engine-capture-choice-runtime="true">' . $runtime . '</script></head><body><main><h1>Order</h1>' . $source . '</main></body></html>';
 };
