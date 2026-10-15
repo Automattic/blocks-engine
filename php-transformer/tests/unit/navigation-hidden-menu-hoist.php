@@ -73,6 +73,24 @@ $capturedMenu = ( new HtmlTransformer() )->transform(
 $capturedMenuMarkup = (string) ($capturedMenu['serialized_blocks'] ?? '');
 $assertions[] = array(str_contains($capturedMenuMarkup, '"overlayMenu":"always"') && str_contains($capturedMenuMarkup, 'Social') && str_contains($capturedMenuMarkup, 'Contact') && !str_contains($capturedMenuMarkup, '/captured-dialog') && !str_contains($capturedMenuMarkup, '<!-- wp:button'), 'a capture-wired CSS-bar trigger owns its hidden overlay navigation at every width');
 $assertions[] = array(!str_contains($capturedMenuMarkup, '<!-- destination note -->') && !str_contains($capturedMenuMarkup, '&lt;!-- destination note'), 'navigation labels exclude HTML comments');
+// A capture-wired trigger keeps its source viewport: one visible at every
+// width opens an `always` overlay, while a mobile-first `md:hidden` trigger
+// beside a `hidden md:flex` desktop menu stays a mobile-only overlay.
+$capturedTriggerOverlay = static function (string $toggleClass, string $desktopNav): string {
+    $markup = (string) (( new HtmlTransformer() )->transform(
+        '<html><head><style>.hidden{display:none}.toggle{display:inline-flex;width:40px;height:40px}@media (min-width:48rem){.md\:flex{display:flex}.md\:hidden{display:none}}</style></head><body>'
+        . '<header><a href="/">Northwind</a>' . $desktopNav
+        . '<button type="button" class="' . $toggleClass . '" aria-label="Open menu" aria-controls="drawer" aria-expanded="false" aria-haspopup="menu" data-blocks-engine-capture-dialog-trigger="drawer"><span></span><span></span><span></span></button>'
+        . '<nav id="drawer" aria-label="Mobile" class="md:hidden" hidden data-blocks-engine-capture-dialog-panel="drawer"><a href="/#services">Services</a><a href="/#contact">Contact</a><a href="tel:+15550100">Call</a></nav></header></body></html>'
+    )->toArray()['serialized_blocks'] ?? '');
+    preg_match_all('/"overlayMenu":"(\w+)"/', $markup, $matches);
+
+    return implode(',', $matches[1]);
+};
+$assertions[] = array('always' === $capturedTriggerOverlay('toggle', ''), 'a capture-wired trigger visible at every width opens an always overlay');
+$mobileOnlyOverlay = $capturedTriggerOverlay('toggle md:hidden', '<nav aria-label="Main" class="hidden md:flex"><a href="/#services">Services</a><a href="/#contact">Contact</a></nav>');
+$assertions[] = array(str_contains($mobileOnlyOverlay, 'mobile') && ! str_contains($mobileOnlyOverlay, 'always'), 'a mobile-only capture-wired trigger beside a visible desktop menu keeps a mobile overlay: ' . $mobileOnlyOverlay);
+
 $capturedFallback = ( new HtmlTransformer() )->transform(
     '<header><button id="menu-trigger" type="button" aria-label="Open menu" aria-controls="overlay" aria-haspopup="dialog"><span></span><span></span><span></span></button><div id="overlay" hidden></div></header>'
     . '<dialog data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="menu-trigger"><nav><a href="/social">Social</a><a href="mailto:hello@example.test">Contact</a></nav></dialog>'
