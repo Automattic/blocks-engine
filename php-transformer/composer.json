@@ -178,6 +178,7 @@
       "php tests/unit/image-link-anchor.php",
       "php tests/unit/image-transform-reference-box.php",
       "php tests/unit/image-class-figure-carrier.php",
+      "php tests/unit/text-run-synthetic-paragraph.php",
       "php tests/unit/empty-paragraph-source-identity.php",
       "php tests/unit/important-display-author-layout.php",
       "php tests/unit/synthetic-figure-author-rules.php",
