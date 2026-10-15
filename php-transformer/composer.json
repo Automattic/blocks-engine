@@ -59,6 +59,7 @@
     "benchmark:selector-cache": "php tools/benchmarks/css-selector-match-cache.php",
     "benchmark:staged-page-compilation": "php tools/benchmarks/staged-page-compilation-production.php",
     "corpus-diagnostics": "php tools/corpus-diagnostics/run.php",
+    "shared-chrome-corpus": "php -d memory_limit=2G tools/shared-chrome-corpus/run.php",
     "content-round-trip": "php tools/content-round-trip/run.php",
     "test": [
       "@test:canonical",
@@ -446,6 +447,7 @@
       "php tests/unit/button-grid-item-placement.php",
       "php tests/unit/corpus-detectors.php",
       "php tests/unit/live-wp-parity-runner.php",
+      "php tests/unit/shared-chrome-corpus.php",
       "php tests/unit/deterministic-row-deduplicator.php",
       "php tests/unit/conversion-report-projection-input-reuse.php",
       "php tests/unit/html-result-composer.php",
