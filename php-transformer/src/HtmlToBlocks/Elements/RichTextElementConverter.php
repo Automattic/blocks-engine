@@ -176,6 +176,48 @@ final class RichTextElementConverter implements ElementConverter
     }
 
     /**
+     * Lowers a paragraph holding a `<picture>` beside inline text (an avatar
+     * next to an attribution line) to a row group. RichText cannot keep the
+     * picture's `<source>` set, but the container path already converts the
+     * picture through the shared media primitives and the text run to an
+     * editable paragraph. The row keeps the two side by side as in the source
+     * inline flow. Declined when any child would still need core/html.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function pictureWithTextRow(DOMElement $element, array &$fallbacks): ?array
+    {
+        $hasPicture = false;
+        foreach ( $element->childNodes as $node ) {
+            if ( $node instanceof DOMElement && 'picture' === strtolower($node->tagName) ) {
+                $hasPicture = true;
+                break;
+            }
+        }
+        if ( ! $hasPicture || '' === trim($element->textContent ?? '') ) {
+            return null;
+        }
+
+        $local    = array();
+        $children = $this->context->convertChildren($element, $local);
+        if ( count($children) < 2 ) {
+            return null;
+        }
+        foreach ( $children as $child ) {
+            if ( 'core/html' === ($child['blockName'] ?? '') ) {
+                return null;
+            }
+        }
+        $fallbacks = array_merge($fallbacks, $local);
+
+        $attrs = $this->context->presentationAttributes($element);
+        $attrs['layout'] ??= array( 'type' => 'flex', 'flexWrap' => 'nowrap' );
+
+        return $this->context->createBlock('core/group', $attrs, $children, $element);
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
@@ -228,6 +270,11 @@ final class RichTextElementConverter implements ElementConverter
             $disclosure = $this->textWithDisclosureChildren($element, $fallbacks);
             if ( null !== $disclosure ) {
                 return $disclosure;
+            }
+
+            $pictureRow = $this->pictureWithTextRow($element, $fallbacks);
+            if ( null !== $pictureRow ) {
+                return $pictureRow;
             }
 
             return $this->context->htmlPreservationBlock($element);
