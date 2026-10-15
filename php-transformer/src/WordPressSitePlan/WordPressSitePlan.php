@@ -2972,10 +2972,12 @@ PHP;
                 $single = $this->replaceListingArchives($transformed['template'], $posts);
                 $singleMenus = NavigationEntityProjection::renderedMenus($single);
             }
-            // Every post renders the single template's chrome. A chrome menu
-            // the single template does not render would be lost (and its
-            // entity left with no reference), so the articles stay page-owned.
-            if (array() !== array_diff_key(NavigationEntityProjection::renderedMenus($transformed['template']), $singleMenus)) {
+            // After factoring, a post renders only the single template and its
+            // body. Every menu the post rendered before must still be rendered
+            // by one of them; otherwise it would be lost (and its entity left
+            // with no reference), so the articles stay page-owned.
+            $keptMenus = $singleMenus + NavigationEntityProjection::renderedMenus($transformed['body']);
+            if (array() !== array_diff_key(NavigationEntityProjection::renderedMenus($post['canonical_block_markup']), $keptMenus)) {
                 return array('pages' => $pages, 'single' => null);
             }
             $bodies[$indexes[$postIndex]] = $transformed['body'];
