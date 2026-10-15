@@ -149,8 +149,12 @@ final class CaptureEvidence
 
     // Choice groups and native controls.
 
+    /** Config key of a choice group the capture's choice runtime replays. */
+    public const CHOICE_GROUP = 'data-blocks-engine-capture-choice-group';
     /** Capture-internal option index; stripped from projected choice markup. */
     public const CHOICE_INDEX = 'data-blocks-engine-capture-choice-index';
+    /** Marker on the capture's choice-group runtime `<script>`. */
+    public const CHOICE_RUNTIME = 'data-blocks-engine-capture-choice-runtime';
     /** JSON version-1 native control state facts. */
     public const NATIVE_CONTROL_STATE = 'data-blocks-engine-capture-native-control-state';
     /** Marker on the capture's native control helper `<script>`. */
@@ -186,6 +190,8 @@ final class CaptureEvidence
     public const DISCLOSURE_RUNTIME_SHA256 = 'b545f43a77b79d075373048431101fe11d7ff8cdfe7987de6d7971512763d88f';
     /** The gallery helper (GALLERY_RUNTIME) that may coexist with a replaced disclosure interpreter. */
     public const GALLERY_RUNTIME_SHA256 = '456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b';
+    /** The choice-group runtime (CHOICE_GROUP_RUNTIME), with its config as the `__DLA_CHOICE_CONFIG__` placeholder. */
+    public const CHOICE_RUNTIME_SHA256 = 'f9ae937ac908e3b7c7538ceb3e588efb70d78b647b9c9e469e7ec6eee7cdff6b';
 
     // Published for downstream importers; Blocks Engine does not read these.
 
