@@ -204,9 +204,11 @@ $runtimeTarget = $makeConverter(array(
 ));
 $assert('core/group' === ($runtimeTarget->convert($elementFrom('<p id="mount"></p>'), 'p', $fallbacks)->block['blockName'] ?? ''), 'empty-runtime-target-paragraph-is-group');
 
-// An empty paragraph with no runtime claim produces nothing.
+// An empty paragraph with no runtime claim keeps its source box (`p:empty`
+// rules size it), so it stays a paragraph with empty content.
 $emptyParagraph = $makeConverter(array('richTextContent' => static fn (DOMElement $e, array $x): string => ''));
-$assert(null === $emptyParagraph->convert($elementFrom('<p></p>'), 'p', $fallbacks)->block, 'empty-paragraph-drops');
+$emptyBlock = $emptyParagraph->convert($elementFrom('<p></p>'), 'p', $fallbacks)->block;
+$assert('core/paragraph' === ($emptyBlock['blockName'] ?? '') && '' === ($emptyBlock['attrs']['content'] ?? null), 'empty-paragraph-keeps-source-box');
 
 // Empty rich text that still carries a native SVG image object stays a paragraph.
 $svgOnly = $makeConverter(array(

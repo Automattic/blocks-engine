@@ -305,9 +305,16 @@ final class RichTextElementConverter implements ElementConverter
                 return $this->context->createBlock('core/group', $attributes, array(), $element);
             }
 
-            $textBlocks = $this->context->convertText(trim($element->textContent ?? ''));
+            $text = trim($element->textContent ?? '');
+            if ( '' !== $text ) {
+                $textBlocks = $this->context->convertText($text);
 
-            return $textBlocks[0] ?? null;
+                return $textBlocks[0] ?? null;
+            }
+            // An empty source paragraph keeps its box (`p:empty` rules size
+            // it), so it keeps its source identity too: the author `p` rules
+            // that place it address the source marker, never a bare block.
+            $content = '';
         }
 
         return $this->context->createBlock(
