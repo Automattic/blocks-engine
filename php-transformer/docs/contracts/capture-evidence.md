@@ -272,15 +272,3 @@ Blocks Engine does not read these names. Downstream importers do.
 | `data-blocks-engine-capture-device-style` | attribute on `<style>`/`<link>` | profile id | The device profile the stylesheet belongs to. |
 | `data-blocks-engine-capture-member-login` | attribute | provider `[a-z0-9_-]+` | The link leads to a member login with that provider. |
 | `data-blocks-engine-capture-member-login-` | class prefix | `<prefix><provider>`, provider `[a-z0-9_-]+` | Class form of the member-login marker. It survives block conversion, which keeps classes. |
-
-## Equivalence
-
-Moving to this vocabulary lost no behavior. The gate
-`tests/contract/capture-evidence-equivalence.php` replays every entry-point
-call the test suite made with the previous producer-specific names (a corpus
-harvested from the last commit before the move), renamed by the published
-rule, and requires byte-identical compile results, WordPress site plans,
-projected files and exceptions from the pre-move source with the same rule
-applied, except for the deliberate fidelity changes listed in
-`tools/capture-evidence-equivalence/README.md`. That file also describes how
-the corpus and expectations were produced and how to regenerate them.
