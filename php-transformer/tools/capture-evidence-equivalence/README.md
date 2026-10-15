@@ -174,6 +174,15 @@ replay by case:
   `796065fd`, `9389ce06`, `9cb93b72`, `a73ce3b0`, `b550beb0`, `b913b3b4`,
   `bda59bb9`, `c98ea038`, `dc249610`, `e40ee9dc`, `eaad29ef`, `f0e1a42c`,
   `f5a111b5`, `fcc75319` and `feef8efc`.
+- **Inline SVG geometry reaches linked images** (#2817). The inline geometry
+  carrier rule now reads `.wp-block-image.<carrier>>img,.wp-block-image.<carrier>>a>img`
+  instead of `.<carrier>>img`, so it outranks the author image bridge and
+  reaches a linked image, and it states the source's reference-viewport
+  `vertical-align`, and restores `display:block` under each media condition
+  that makes the source parent a flex or grid container. Carrier classes are
+  unchanged; the engine-support CSS and its derived asset hashes change in
+  `366a6664`, `736bb581` and `90234027`.
+
 - **Materialized SVG `currentColor` reads the reference author cascade**
   (#2816). The inherited color baked into standalone SVG artwork now comes
   from the author cascade at the desktop reference viewport instead of the
@@ -181,6 +190,7 @@ replay by case:
   the corpus. Only the `style_rule_candidate_cache_*` diagnostic counters
   fall, because the walk no longer probes the source-style candidate cache.
   This changes the digests of `90234027`, `d21657bb` and `f0e1a42c`.
+
 
 - **Reference-viewport menu visibility** (#2667). Navigation toggle and
   menu visibility is read through the resolved cascade, media-conditional
