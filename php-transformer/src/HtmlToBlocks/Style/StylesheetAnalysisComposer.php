@@ -396,7 +396,7 @@ final class StylesheetAnalysisComposer
                 $ruleSelectors[] = array('selector' => $selector, 'parsed' => $parsed, 'direct_child_parsed' => CssSelectorMatcher::parse($directSelector));
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
                     $tagName = strtolower($typeSpan['name']);
-                    if ( in_array($tagName, array('div', 'li', 'nav', 'p'), true) ) {
+                    if ( in_array($tagName, array('div', 'figure', 'li', 'nav', 'p'), true) ) {
                         $sourceTags[$tagName] = true;
                     }
                 }
