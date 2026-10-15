@@ -94,16 +94,43 @@ final class TableClassificationPolicy
     {
         return $this->isNestedLayoutTableMember($table)
             || $this->isMediaLayoutTable($table)
+            || $this->isStructuredLayoutTable($table)
             || $this->isMetadataLayoutTable($table)
             || $this->isPercentLayoutTable($table);
     }
 
     /**
-     * Legacy tables used for media composition have no tabular semantics, no
-     * spanning, and at least one image-bearing cell. Those can become Columns
-     * without changing the meaning of genuine data tables.
+     * A headerless table whose cells hold block structure - a list, a form, a
+     * nav, a heading, a quotation - is page chrome laid out in a grid. A
+     * core/table cell is rich text: it keeps that markup only as an opaque
+     * string and drops the cell's own id and class, so every source rule keyed
+     * on the cell (`#menu-cell ul li a`) stops matching. Columns keep each cell
+     * as a block that owns its identity and converts its content natively.
      */
-    public function isMediaLayoutTable(DOMElement $table): bool
+    public function isStructuredLayoutTable(DOMElement $table): bool
+    {
+        if ( ! $this->isMultiCellLayoutTable($table) ) {
+            return false;
+        }
+
+        foreach ( self::STRUCTURED_CELL_CONTENT as $tagName ) {
+            foreach ( $table->getElementsByTagName($tagName) as $content ) {
+                if ( $content instanceof DOMElement && $this->belongsToTable($content, $table) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private const STRUCTURED_CELL_CONTENT = array( 'ul', 'ol', 'dl', 'form', 'nav', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote' );
+
+    /**
+     * Representable, headerless, and at least two cells in every row: the
+     * shape a grid of side-by-side regions has.
+     */
+    private function isMultiCellLayoutTable(DOMElement $table): bool
     {
         $classification = $this->classify($table);
         if ( self::LAYOUT_SIMPLE !== $classification['classification']
@@ -113,10 +140,24 @@ final class TableClassificationPolicy
             return false;
         }
 
-        foreach ($classification['signals']['column_counts'] as $columnCount) {
-            if ($columnCount < 2) {
+        foreach ( $classification['signals']['column_counts'] as $columnCount ) {
+            if ( $columnCount < 2 ) {
                 return false;
             }
+        }
+
+        return true;
+    }
+
+    /**
+     * Legacy tables used for media composition have no tabular semantics, no
+     * spanning, and at least one image-bearing cell. Those can become Columns
+     * without changing the meaning of genuine data tables.
+     */
+    public function isMediaLayoutTable(DOMElement $table): bool
+    {
+        if ( ! $this->isMultiCellLayoutTable($table) ) {
+            return false;
         }
 
         foreach ($table->getElementsByTagName('img') as $image) {
