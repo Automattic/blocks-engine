@@ -102,6 +102,7 @@ See [Captured image galleries](../captured-galleries.md).
 | `data-blocks-engine-capture-gallery-sequence` | attribute | JSON frame sequence | The observed frame cycle. |
 | `data-blocks-engine-capture-gallery-slot` | attribute | integer | Image slot offset relative to the current frame. |
 | `data-blocks-engine-capture-gallery-stage` | attribute (flag) | ignored | The gallery stage. |
+| `data-blocks-engine-capture-gallery-track` | attribute on the stage | inactive opacity | A translated track whose complete forward and reverse cycle was observed. Its native slideshow supports horizontal swipes, including when the source has no arrow controls. |
 | `data-blocks-engine-capture-gallery-initial` | attribute | integer | Initial frame of a gallery list. |
 | `data-blocks-engine-capture-gallery-display` | attribute | CSS `display` keyword | Observed display of a gallery item. |
 | `data-blocks-engine-capture-gallery-direction` | attribute on `<button>` | `-1` or `1` | Previous or next control. |
@@ -177,8 +178,10 @@ allowed.
 | ---- | ---- | ------- |
 | `b545f43a77b79d075373048431101fe11d7ff8cdfe7987de6d7971512763d88f` | sha256 of the disclosure interpreter | Body: [`tests/fixtures/capture-disclosure-runtime.js`](../../tests/fixtures/capture-disclosure-runtime.js), marker `data-blocks-engine-capture-disclosure-runtime` (value `true`), in `<head>`. |
 | `456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b` | sha256 of the gallery helper | Body: [`tests/fixtures/capture-gallery-runtime.js`](../../tests/fixtures/capture-gallery-runtime.js), marker `data-blocks-engine-capture-gallery-runtime`, in `<head>`. |
+| `d177c3ad775434d80e7863f728418e8ac969544ece4a9dafee7761907ea3792a` | sha256 of the translated-track gallery helper | Body: [`tests/fixtures/capture-gallery-track-runtime.js`](../../tests/fixtures/capture-gallery-track-runtime.js), the same gallery marker; adds centered-track and horizontal touch replay. |
 
-Blocks Engine recognizes one body per runtime: the producer's current one.
+Blocks Engine recognizes only these explicitly reviewed runtime bodies. The
+original gallery helper remains supported for captures produced before track replay.
 When the producer changes a body, Blocks Engine checks that its native
 replacement does what the new body does, then publishes the new body and
 digest in place of the old ones. An earlier body is no longer recognized: a

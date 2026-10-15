@@ -173,6 +173,16 @@ replay by case:
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.
 
+### Captured track and touch navigation
+
+Cases `4495225c`, `7a7af898`, and `c210d1f9` change only the generated
+carousel editor script, view module, and optional `swipe` attribute schema.
+Both original and candidate outputs were replayed and compared after masking
+those three fields; the remaining output, including saved markup and all
+metrics, is identical. Existing carousels omit `swipe` and keep their saved
+shape. The new neutral captured-track fixtures exercise native directions,
+touch admission, helper retirement, and save/reload independently.
+
 ## Regenerating
 
 From `php-transformer/`, with disposable worktrees of the pre-move commit:
