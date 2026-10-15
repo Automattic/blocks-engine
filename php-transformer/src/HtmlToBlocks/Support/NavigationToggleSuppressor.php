@@ -457,7 +457,7 @@ final class NavigationToggleSuppressor
      */
     public function isRedundantMenuToggleControl(DOMElement $element): bool
     {
-        if ( $this->isCapturedDialogControl($element) || $this->isBoundCapturedDialogTrigger($element) ) {
+        if ( $this->isCapturedDialogControl($element) || $this->isBoundCapturedDialogTrigger($element) || SourceDom::isBoundCapturedDialogCloser($element) ) {
             return false;
         }
 

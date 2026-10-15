@@ -481,11 +481,27 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function overlayMenu(DOMElement $element, ?NavigationPatternContext $context): string
     {
-        if ( $this->isInsideCapturedDisclosurePanel($element) || $this->isMenuPanelContent($element) ) {
+        if ( $this->isInsideCapturedDisclosurePanel($element) || $this->isMenuPanelContent($element) || $this->isInsideCapturedDialog($element) ) {
             return 'never';
         }
 
         return $context?->overlayMenu($element) ?? 'never';
+    }
+
+    /**
+     * A projected native dialog (an adopted popover drawer, say) is already the
+     * open/close mechanism for everything it holds. Links inside it are its open
+     * content, so they never collapse behind a second, Core overlay hamburger.
+     */
+    private function isInsideCapturedDialog(DOMElement $element): bool
+    {
+        for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'true' === $ancestor->getAttribute('data-blocks-engine-captured-dialog') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** A native disclosure already supplies the only mobile open/close control. */

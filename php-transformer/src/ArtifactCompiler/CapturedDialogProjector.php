@@ -187,7 +187,18 @@ final class CapturedDialogProjector
             $key = trim($panel->getAttribute(CaptureEvidence::DIALOG_PANEL));
             if ('' === $key) continue;
             $triggers = $xpath->query('//*[@' . CaptureEvidence::DIALOG_TRIGGER . '=' . $this->xpathLiteral($key) . ']');
-            if ($triggers && 0 === $triggers->length) $panel->removeAttribute('hidden');
+            if (! $triggers) continue;
+            $triggers = array_values(array_filter(iterator_to_array($triggers), static fn ($node): bool => $node instanceof DOMElement));
+            if (array() !== array_filter($triggers, static fn (DOMElement $trigger): bool => ! in_array($trigger, $openers, true))) continue;
+            // Opening the popover is opening this panel: it is the popover's
+            // open content, and the popover dialog now owns its binding.
+            $panel->removeAttribute('hidden');
+            foreach (array(CaptureEvidence::DIALOG_PANEL, CaptureEvidence::EXISTING_PANEL) as $attribute) $panel->removeAttribute($attribute);
+            $classes = array_diff(preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), array(CaptureEvidence::DROPDOWN_CLASS, CaptureEvidence::DIALOG_CLASS));
+            if (array() === array_filter($classes)) $panel->removeAttribute('class'); else $panel->setAttribute('class', implode(' ', $classes));
+            foreach ($triggers as $trigger) {
+                foreach (array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL_STATE, CaptureEvidence::DIALOG_ANCESTOR_STATE, CaptureEvidence::DISCLOSURE_LABEL) as $attribute) $trigger->removeAttribute($attribute);
+            }
         }
         $identity = substr(hash('sha256', $sourcePath . "\npopover\n" . $id), 0, 16);
         $closerIds = $this->boundControlIds($xpath, $closers, 'blocks-engine-dialog-close-' . $identity);

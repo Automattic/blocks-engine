@@ -18,6 +18,10 @@ declare(strict_types=1);
  * the native captured dialog bound to its opener: closed at every viewport,
  * opened by the opener, closed by the hide control (bound by attribute, not
  * label) and by Escape, and its links are shown, not hidden, once it is open.
+ *
+ * The captured fixture (tests/fixtures/source-popover-captured-panel-drawer.html)
+ * is the shape Data Liberation really emits: the inner `<nav>` panel's capture
+ * trigger is the popover opener itself, and the hide control is icon-only.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -110,6 +114,47 @@ $assert(str_contains($generatedAssets, 'data-blocks-engine-closers'), 'the dialo
 // The bound close needs no English label: a Spanish label and non-× glyph still bind.
 $spanish = $compile($dropdown . str_replace('aria-label="Cerrar menú">×', 'aria-label="Cerrar menú">Cerrar', $popoverDrawer));
 $assert(1 === preg_match('/data-blocks-engine-closers="([^"]+)"/', $spanish, $spanishCloser) && str_contains($spanish, 'id="' . $spanishCloser[1] . '"'), 'a hide control with no English label or glyph is still bound', $spanish);
+
+// 6. The captured shape Data Liberation really emits: the drawer's inner
+// `<nav>` is itself a hidden captured dialog panel whose capture trigger IS
+// the popover opener, and the hide control is icon-only (svg + aria-label) in
+// a flex top bar beside the logo. Opening the popover opens that panel, so its
+// links are the popover's open content; the icon-only closer must survive.
+$capturedFixture = (string) file_get_contents(dirname(__DIR__) . '/fixtures/source-popover-captured-panel-drawer.html');
+$compileCaptured = static function (string $html): string {
+    $result = (new ArtifactCompiler())->compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array('index.html' => $html),
+    ))->toArray();
+
+    return (string) ($result['serialized_blocks'] ?? '');
+};
+$captured = $compileCaptured($capturedFixture);
+$capturedMatched = 1 === preg_match('/<!-- wp:([a-z0-9-]+\/captured-dialog) (\{.*?\}) -->(<dialog[^>]*>)(.*?)<\/dialog><!-- \/wp:\1 -->/s', $captured, $capturedDrawer);
+$assert($capturedMatched, 'the captured popover becomes one captured dialog', $captured);
+$capturedAttrs = (array) json_decode($capturedDrawer[2] ?? '{}', true);
+$capturedTag = $capturedDrawer[3] ?? '';
+$capturedBody = $capturedDrawer[4] ?? '';
+$assert('mobile-menu' === ($capturedAttrs['dialogId'] ?? null) && ! preg_match('/\sopen[\s=>]/', $capturedTag), 'the captured popover dialog is closed on load', $capturedTag);
+foreach (array('Home', 'About', 'One', 'Two', 'Three', 'Blog', 'Contact') as $label) {
+    $assert(str_contains($capturedBody, '"label":"' . $label . '"') || str_contains($capturedBody, '>' . $label . '</a>'), 'the opener-triggered panel link renders inside the dialog: ' . $label, $capturedBody);
+}
+$assert(str_contains($capturedBody, '>Services</p>'), 'the panel label renders inside the dialog', $capturedBody);
+$assert(! str_contains($capturedBody, 'hidden=""') && ! str_contains($capturedBody, '"hidden":true') && ! str_contains($capturedBody, 'data-blocks-engine-capture-dialog-panel'), 'the opener-triggered panel is not left hidden inside the dialog', $capturedBody);
+$assert(! preg_match('/"overlayMenu":"(?:mobile|always)"/', $capturedBody) && ! str_contains($capturedBody, 'blocks-engine-native-responsive-navigation'), 'no responsive overlay navigation hides links inside the dialog', $capturedBody);
+$capturedClosers = (array) ($capturedAttrs['closerIds'] ?? array());
+$assert(1 === preg_match('/<button\b[^>]*\bid="([^"]+)"[^>]*aria-label="Close the menu"[^>]*>\s*<svg/', $capturedBody, $closeButton) && in_array($closeButton[1] ?? '', $capturedClosers, true), 'the icon-only hide control renders inside the dialog with its accessible name and bound closer id', $capturedBody);
+$assert(1 === count((array) ($capturedAttrs['triggerIds'] ?? array())) && str_contains($captured, '"anchor":"' . ($capturedAttrs['triggerIds'][0] ?? '-') . '"'), 'the popover opener still opens the dialog', $captured);
+
+// A toggle wired to a list inside the dialog does not turn that list into a
+// second, Core overlay hamburger: the dialog is already the open mechanism.
+$innerToggle = $compileCaptured(str_replace(
+    '<ul role="list" class="mobile-menu__main"><li><a href="/">Home</a></li>',
+    '<button type="button" aria-controls="inner-list" aria-expanded="false" aria-label="Expand"><svg></svg></button><ul id="inner-list" role="list" class="mobile-menu__main"><li><a href="/">Home</a></li>',
+    $capturedFixture
+));
+$innerBody = 1 === preg_match('/<dialog[^>]*>(.*?)<\/dialog>/s', $innerToggle, $innerDrawer) ? $innerDrawer[1] : '';
+$assert(str_contains($innerBody, '"label":"Contact"') && ! preg_match('/"overlayMenu":"(?:mobile|always)"/', $innerBody) && ! str_contains($innerBody, 'blocks-engine-native-responsive-navigation'), 'captured dialog content never becomes a responsive overlay navigation', $innerBody);
 
 if (0 !== $failures) {
     exit(1);
