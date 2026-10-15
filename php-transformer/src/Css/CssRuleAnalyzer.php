@@ -18,52 +18,121 @@ final class CssRuleAnalyzer
     public function analyze(array $stylesheets, string $inlineCss, array $properties, int $maxCssBytes, int $maxRules, int $maxSelectors, int $maxConditionDepth, ?callable $retainSelector = null, ?int $maxScannedSelectors = null): array
     {
         $result = array( 'rules' => array(), 'diagnostics' => array(), 'truncated' => false );
-        $order = 0;
-        $retainedSelectorCount = 0;
-        $scannedSelectorCount = 0;
-        $scanLimitReached = false;
-        $maxScannedSelectors ??= $maxSelectors;
+        $counters = array( 'order' => 0, 'retained' => 0, 'scanned' => 0, 'max_scanned' => $maxScannedSelectors ?? $maxSelectors );
 
         foreach ( $stylesheets as $sheet ) {
             $css = (string) ( $sheet['content'] ?? '' );
-            $layerRanks = array();
-            foreach ( ( new AuthorCascadeLayerOrder() )->names($css) as $index => $name ) {
-                $layerRanks[ $name ] = $index;
-            }
-            $this->analyzeStylesheet(
-                $css,
-                (string) ( $sheet['source_path'] ?? $sheet['path'] ?? '' ),
-                (string) ( $sheet['source_hash'] ?? '' ),
-                $this->linkCondition($sheet),
-                $properties,
-                $maxCssBytes,
-                $maxRules,
-                $maxSelectors,
-                $maxConditionDepth,
-                $result,
-                $order,
-                $retainedSelectorCount,
-                $scannedSelectorCount,
-                $scanLimitReached,
-                $retainSelector,
-                $maxScannedSelectors,
-                $layerRanks
-            );
-            if ( $scanLimitReached ) {
+            $stream = $this->stylesheetStream($css, (string) ( $sheet['source_path'] ?? $sheet['path'] ?? '' ), (string) ( $sheet['source_hash'] ?? '' ), $this->linkCondition($sheet), $properties, $maxCssBytes, $maxConditionDepth);
+            if ( ! $this->replay($stream, $maxRules, $maxSelectors, $retainSelector, $result, $counters) ) {
                 break;
             }
         }
 
         if ( array() === $stylesheets && '' !== trim($inlineCss) ) {
-            $layerRanks = array();
-            foreach ( ( new AuthorCascadeLayerOrder() )->names($inlineCss) as $index => $name ) {
-                $layerRanks[ $name ] = $index;
-            }
-            $this->analyzeStylesheet($inlineCss, 'inline-style', hash('sha256', $inlineCss), null, $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $retainedSelectorCount, $scannedSelectorCount, $scanLimitReached, $retainSelector, $maxScannedSelectors, $layerRanks);
+            $stream = $this->stylesheetStream($inlineCss, 'inline-style', hash('sha256', $inlineCss), null, $properties, $maxCssBytes, $maxConditionDepth);
+            $this->replay($stream, $maxRules, $maxSelectors, $retainSelector, $result, $counters);
         }
 
         $result['diagnostics'] = array_values(array_unique($result['diagnostics']));
         return $result;
+    }
+
+    /**
+     * Parsed stylesheets shared by every analysis in the process. A page asks
+     * the same questions of the same stylesheets once per form, widget, and
+     * pass; only the selector retention and limits differ between callers.
+     *
+     * @var array<string, list<array<string, mixed>>>
+     */
+    private static array $streams = array();
+    private const STREAM_CACHE_SIZE = 128;
+    private static int $stylesheetWalks = 0;
+
+    /** Number of stylesheet walks performed since process start; observable for tests. */
+    public static function stylesheetWalks(): int
+    {
+        return self::$stylesheetWalks;
+    }
+
+    /**
+     * The retention-independent analysis of one stylesheet: its style rules'
+     * selectors with filtered declarations and their diagnostics, in source
+     * order. Each entry records where its condition or layer block ends, so a
+     * replay that reaches a limit can leave that block exactly as the walk
+     * would have.
+     *
+     * @param list<string> $properties
+     * @return list<array<string, mixed>>
+     */
+    private function stylesheetStream(string $css, string $path, string $hash, ?array $condition, array $properties, int $maxCssBytes, int $maxConditionDepth): array
+    {
+        $key = hash('xxh128', $css) . "\0" . serialize(array( $path, $hash, $condition, $properties, $maxCssBytes, $maxConditionDepth ));
+        if ( isset(self::$streams[ $key ]) ) {
+            $stream = self::$streams[ $key ];
+            unset(self::$streams[ $key ]);
+            return self::$streams[ $key ] = $stream;
+        }
+        ++self::$stylesheetWalks;
+        $layerRanks = array();
+        foreach ( ( new AuthorCascadeLayerOrder() )->names($css) as $index => $name ) {
+            $layerRanks[ $name ] = $index;
+        }
+        $stream = array();
+        $this->walkStylesheet($css, $path, $hash, $condition, $properties, $maxCssBytes, $maxConditionDepth, $layerRanks, $stream);
+        if ( count(self::$streams) >= self::STREAM_CACHE_SIZE ) {
+            unset(self::$streams[ array_key_first(self::$streams) ]);
+        }
+        return self::$streams[ $key ] = $stream;
+    }
+
+    /**
+     * Apply one caller's retention and limits to a stylesheet stream.
+     *
+     * @param list<array<string, mixed>> $stream
+     * @param array{rules: list<array<string, mixed>>, diagnostics: list<string>, truncated: bool} $result
+     * @param array{order: int, retained: int, scanned: int, max_scanned: int} $counters
+     * @return bool False once the selector scan limit stops the analysis.
+     */
+    private function replay(array $stream, int $maxRules, int $maxSelectors, ?callable $retainSelector, array &$result, array &$counters): bool
+    {
+        for ( $index = 0, $count = count($stream); $index < $count; ) {
+            $entry = $stream[ $index ];
+            if ( isset($entry['diagnostic']) ) {
+                $result['diagnostics'][] = $entry['diagnostic'];
+                $result['truncated'] = $result['truncated'] || $entry['truncated'];
+                ++$index;
+                continue;
+            }
+            if ( ++$counters['scanned'] > $counters['max_scanned'] ) {
+                $result['truncated'] = true;
+                $result['diagnostics'][] = 'css_selector_scan_limit';
+                return false;
+            }
+            if ( null !== $retainSelector && ! $retainSelector($entry['parsed_selector']) ) {
+                ++$index;
+                continue;
+            }
+            if ( $counters['retained'] >= $maxSelectors || count($result['rules']) >= $maxRules ) {
+                $result['truncated'] = true;
+                $result['diagnostics'][] = 'css_rule_or_selector_limit';
+                $index = $entry['block_end'];
+                continue;
+            }
+            ++$counters['retained'];
+            $result['rules'][] = array(
+                'selector' => $entry['selector'],
+                'parsed_selector' => $entry['parsed_selector'],
+                'declarations' => $entry['declarations'],
+                'condition' => $entry['condition'],
+                'layer' => $entry['layer'],
+                'path' => $entry['path'],
+                'hash' => $entry['hash'],
+                'order' => $counters['order']++,
+                'specificity' => $entry['specificity'],
+            );
+            ++$index;
+        }
+        return true;
     }
 
     /** @param array<string, mixed> $sheet */
@@ -76,24 +145,39 @@ final class CssRuleAnalyzer
 
     /**
      * @param list<string> $properties
-     * @param array{rules: list<array<string, mixed>>, diagnostics: list<string>, truncated: bool} $result
      * @param array<string, int> $layerRanks
+     * @param list<array<string, mixed>> $stream
      */
-    private function analyzeStylesheet(string $css, string $path, string $hash, ?array $condition, array $properties, int $maxCssBytes, int $maxRules, int $maxSelectors, int $maxConditionDepth, array &$result, int &$order, int &$retainedSelectorCount, int &$scannedSelectorCount, bool &$scanLimitReached, ?callable $retainSelector, int $maxScannedSelectors, array &$layerRanks, ?int $layer = null, int $conditionDepth = 0): void
+    private function walkStylesheet(string $css, string $path, string $hash, ?array $condition, array $properties, int $maxCssBytes, int $maxConditionDepth, array &$layerRanks, array &$stream, ?int $layer = null, int $conditionDepth = 0): void
     {
-        if ( $scanLimitReached ) {
-            return;
+        $blockEntries = array();
+        $this->walkBlock($css, $path, $hash, $condition, $properties, $maxCssBytes, $maxConditionDepth, $layerRanks, $stream, $blockEntries, $layer, $conditionDepth);
+        $end = count($stream);
+        foreach ( $blockEntries as $index ) {
+            $stream[ $index ]['block_end'] = $end;
         }
+    }
+
+    /**
+     * @param list<string> $properties
+     * @param array<string, int> $layerRanks
+     * @param list<array<string, mixed>> $stream
+     * @param list<int> $blockEntries
+     */
+    private function walkBlock(string $css, string $path, string $hash, ?array $condition, array $properties, int $maxCssBytes, int $maxConditionDepth, array &$layerRanks, array &$stream, array &$blockEntries, ?int $layer, int $conditionDepth): void
+    {
+        $diagnostic = static function (string $code, bool $truncated) use (&$stream): void {
+            $stream[] = array( 'diagnostic' => $code, 'truncated' => $truncated );
+        };
         if ( strlen($css) > $maxCssBytes ) {
             $css = substr($css, 0, $maxCssBytes);
-            $result['truncated'] = true;
-            $result['diagnostics'][] = 'css_bytes_truncated:' . $path;
+            $diagnostic('css_bytes_truncated:' . $path, true);
         }
         for ( $offset = 0, $length = strlen($css); $offset < $length; ) {
             $boundary = $this->nextRuleBoundary($css, $offset);
             if ( null === $boundary ) {
                 if ( $this->hasNonTrivia($css, $offset) ) {
-                    $result['diagnostics'][] = 'malformed_stylesheet:' . $path;
+                    $diagnostic('malformed_stylesheet:' . $path, false);
                 }
                 return;
             }
@@ -105,7 +189,7 @@ final class CssRuleAnalyzer
 
             $end = $this->matchingBrace($css, $boundary);
             if ( null === $end ) {
-                $result['diagnostics'][] = 'malformed_stylesheet:' . $path;
+                $diagnostic('malformed_stylesheet:' . $path, false);
                 return;
             }
 
@@ -115,14 +199,10 @@ final class CssRuleAnalyzer
             if ( null !== $atRule ) {
                 if ( in_array($atRule['name'], array( 'media', 'container', 'supports' ), true) ) {
                     if ( $conditionDepth >= $maxConditionDepth ) {
-                        $result['truncated'] = true;
-                        $result['diagnostics'][] = 'condition_depth_limit';
+                        $diagnostic('condition_depth_limit', true);
                         return;
                     }
-                    $this->analyzeStylesheet($body, $path, $hash, $this->combineCondition($condition, array( 'kind' => $atRule['name'], 'query' => $atRule['query'] )), $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $retainedSelectorCount, $scannedSelectorCount, $scanLimitReached, $retainSelector, $maxScannedSelectors, $layerRanks, $layer, $conditionDepth + 1);
-                    if ( $scanLimitReached ) {
-                        return;
-                    }
+                    $this->walkStylesheet($body, $path, $hash, $this->combineCondition($condition, array( 'kind' => $atRule['name'], 'query' => $atRule['query'] )), $properties, $maxCssBytes, $maxConditionDepth, $layerRanks, $stream, $layer, $conditionDepth + 1);
                 } elseif ( 'layer' === $atRule['name'] ) {
                     // A cascade layer block gates cascade priority, not whether its
                     // declarations apply at all - unlike media/container/supports it
@@ -130,10 +210,7 @@ final class CssRuleAnalyzer
                     // condition depth and without adding a condition gate. The layer
                     // rank is recorded so consumers can apply cascade-layer precedence
                     // instead of treating every layered rule as unlayered.
-                    $this->analyzeStylesheet($body, $path, $hash, $condition, $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $retainedSelectorCount, $scannedSelectorCount, $scanLimitReached, $retainSelector, $maxScannedSelectors, $layerRanks, $this->layerRank($layerRanks, $atRule['query']), $conditionDepth);
-                    if ( $scanLimitReached ) {
-                        return;
-                    }
+                    $this->walkStylesheet($body, $path, $hash, $condition, $properties, $maxCssBytes, $maxConditionDepth, $layerRanks, $stream, $this->layerRank($layerRanks, $atRule['query']), $conditionDepth);
                 }
                 $offset = $end + 1;
                 continue;
@@ -149,35 +226,22 @@ final class CssRuleAnalyzer
 
             $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
             if ( null === $selectors ) {
-                $result['diagnostics'][] = 'malformed_stylesheet:' . $path;
+                $diagnostic('malformed_stylesheet:' . $path, false);
                 return;
             }
             $declarations = $this->declarations($body, $properties);
+            if ( array() === $declarations ) {
+                $offset = $end + 1;
+                continue;
+            }
             foreach ( $selectors as $selector ) {
                 $selector = trim($this->normalizeSelectorComments($selector));
                 if ( '' === $selector ) {
                     continue;
                 }
-                if ( array() === $declarations ) {
-                    continue;
-                }
-                if ( ++$scannedSelectorCount > $maxScannedSelectors ) {
-                    $result['truncated'] = true;
-                    $result['diagnostics'][] = 'css_selector_scan_limit';
-                    $scanLimitReached = true;
-                    return;
-                }
                 $parsed = CssSelectorMatcher::parse($selector);
-                if ( null !== $retainSelector && ! $retainSelector($parsed) ) {
-                    continue;
-                }
-                if ( $retainedSelectorCount >= $maxSelectors || count($result['rules']) >= $maxRules ) {
-                    $result['truncated'] = true;
-                    $result['diagnostics'][] = 'css_rule_or_selector_limit';
-                    return;
-                }
-                ++$retainedSelectorCount;
-                $result['rules'][] = array(
+                $blockEntries[] = count($stream);
+                $stream[] = array(
                     'selector' => $selector,
                     'parsed_selector' => $parsed,
                     'declarations' => $declarations,
@@ -185,7 +249,6 @@ final class CssRuleAnalyzer
                     'layer' => $layer,
                     'path' => $path,
                     'hash' => $hash,
-                    'order' => $order++,
                     'specificity' => CssSelectorMatcher::specificity($parsed),
                 );
             }
