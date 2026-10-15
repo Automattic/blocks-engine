@@ -169,7 +169,6 @@ replay by case:
   `796065fd`, `9389ce06`, `9cb93b72`, `a73ce3b0`, `b550beb0`, `b913b3b4`,
   `bda59bb9`, `c98ea038`, `dc249610`, `e40ee9dc`, `eaad29ef`, `f0e1a42c`,
   `f5a111b5`, `fcc75319` and `feef8efc`.
-
 - **Reference-viewport menu visibility** (#2667). Navigation toggle and
   menu visibility is read through the resolved cascade, media-conditional
   rules included, and a captured dialog trigger opens an `always` overlay
@@ -189,7 +188,6 @@ replay by case:
   one uniform class shim, so they outrank Core's separator default. Only the
   added separator rules and the hashes derived from the stylesheet change in
   `2df01069` and `52210e3a`.
-
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.
