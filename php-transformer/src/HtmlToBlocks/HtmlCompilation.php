@@ -21,6 +21,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
@@ -4143,12 +4144,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $preserveInlineLayoutLeaf = ! empty($attrs['preserveInlineLayoutLeaf']);
         unset($attrs['preserveInlineLayoutLeaf']);
-        // RichText has no comment nodes: the editor drops them on its first
-        // save, and a re-ingested paragraph never carries them. Source comments
-        // (framework text-split markers such as React's `<!-- -->`) are not
-        // content, so no RichText value keeps them.
+        // Source comments (framework text-split markers such as React's
+        // `<!-- -->`) are not RichText content: the editor shows each one as a
+        // chip. The text-run boundaries they make still shape the text.
         if ( in_array($name, array( 'core/paragraph', 'core/heading' ), true) && str_contains((string) ($attrs['content'] ?? ''), '<!--') ) {
-            $attrs['content'] = preg_replace('/<!--.*?-->/s', '', (string) $attrs['content']) ?? $attrs['content'];
+            $attrs['content'] = CommentTextRunBoundaries::apply((string) $attrs['content']);
         }
         // Set by cssOwnedGroupAttributes() when the container is a CSS-owned
         // layout element whose direct-child topology changed during
