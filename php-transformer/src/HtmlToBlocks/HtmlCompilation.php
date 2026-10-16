@@ -8327,6 +8327,28 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // CSS restores only the source-declared cell sides.
         $rules[] = '.' . $marker . '>table th,.' . $marker . '>table td{border:0}';
 
+        // Core's cell padding and border are unlayered, so they beat author
+        // cell rules inside an `@layer` (Tailwind utilities) whatever their
+        // specificity. When every author rule setting a property family on
+        // these cells is layered, `revert-layer` drops the unlayered values
+        // (core's and the reset above) and lets the author's layered cascade
+        // decide, layer order and media queries included. A family an
+        // unlayered author rule also sets keeps the existing behavior.
+        $layering = array();
+        foreach ( $table->getElementsByTagName('*') as $cell ) {
+            if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) || ! $this->belongsToTable($cell, $table) ) {
+                continue;
+            }
+            foreach ( $this->styleResolver->tableCellBoxLayering($cell) as $family => $layered ) {
+                $layering[ $family ] = ( $layering[ $family ] ?? true ) && $layered;
+            }
+        }
+        $reverted = array_keys(array_filter($layering));
+        sort($reverted);
+        if ( array() !== $reverted ) {
+            $rules[] = '.' . $marker . '>table th,.' . $marker . '>table td{' . implode(';', array_map(static fn (string $family): string => $family . ':revert-layer', $reverted)) . '}';
+        }
+
         $head = $this->firstChildElement($table, 'thead');
         if ( $head instanceof DOMElement ) {
             $headDeclarations = $this->styleResolver->structuralPresentationDeclarations($head);

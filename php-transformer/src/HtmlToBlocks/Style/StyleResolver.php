@@ -782,6 +782,61 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Which cascade a table cell's authored padding and border come from.
+     *
+     * Core's `.wp-block-table td, th { padding; border }` is unlayered, so it
+     * beats every author rule inside an `@layer`. Returns the property
+     * families (`padding`, `border`) that author rules set on this cell, each
+     * mapped to whether every such declaration is layered.
+     *
+     * @return array<string, bool>
+     */
+    public function tableCellBoxLayering(DOMElement $cell): array
+    {
+        $authorStyles = $this->context->authorStyles();
+        $selectorCache = $authorStyles->selectorMatchCache();
+        $families = array();
+        foreach ( $authorStyles->styleRules() as $rule ) {
+            $set = array();
+            foreach ( array_keys(is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array()) as $property ) {
+                $property = strtolower((string) $property);
+                if ( 1 === preg_match('/^(padding|border)(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-(?:width|style|color))?$/', $property, $family) ) {
+                    $set[ $family[1] ] = true;
+                }
+            }
+            if ( array() === $set ) {
+                continue;
+            }
+            $matched = false;
+            foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
+                $selector = (string) ( $record['selector'] ?? '' );
+                if ( '' === $selector || $this->selectorCarriesPseudoState($selector) ) {
+                    continue;
+                }
+                $match = $selectorCache->matches($cell, $selector, is_array($record['parsed'] ?? null) ? $record['parsed'] : array());
+                if ( ( $match['supported'] ?? false ) && ( $match['matches'] ?? false ) ) {
+                    $matched = true;
+                    break;
+                }
+            }
+            if ( ! $matched ) {
+                continue;
+            }
+            $layered = false;
+            foreach ( is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array() as $condition ) {
+                if ( 1 === preg_match('/^@layer\b/i', trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition))) ) {
+                    $layered = true;
+                }
+            }
+            foreach ( array_keys($set) as $family ) {
+                $families[ $family ] = ( $families[ $family ] ?? true ) && $layered;
+            }
+        }
+
+        return $families;
+    }
+
+    /**
      * @param list<string> $properties
      * @return array<string, string>
      */

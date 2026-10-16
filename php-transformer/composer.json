@@ -272,6 +272,7 @@
       "php tests/unit/listing-card-summary-slots.php",
       "php tests/unit/image-responsive-size-not-pinned.php",
       "php tests/unit/listing-unlisted-undated-route-stays-page.php",
+      "php tests/unit/table-cell-layered-author-box.php",
       "php tests/unit/selector-cache-node-path-reuse.php",
       "php tests/unit/style-tag-scanner.php",
       "php tests/unit/integer-attribute-names.php",
