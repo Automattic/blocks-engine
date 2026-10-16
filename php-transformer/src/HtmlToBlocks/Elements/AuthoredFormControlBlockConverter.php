@@ -249,6 +249,7 @@ final class AuthoredFormControlBlockConverter
         $generator = new AuthoredInputBlockGenerator();
         $registry = ($this->generatedBlocks)();
         $registry->register(AuthoredInputBlockGenerator::class, $generator->definition($registry->namespace()));
+        $isImage = 'image' === FormControlClassifier::controlType($input);
         $attrs = array_filter(array(
             'type' => FormControlClassifier::controlType($input),
             'id' => SourceDom::attr($input, 'id'),
@@ -262,6 +263,12 @@ final class AuthoredFormControlBlockConverter
             'min' => SourceDom::attr($input, 'min'),
             'max' => SourceDom::attr($input, 'max'),
             'step' => SourceDom::attr($input, 'step'),
+            // An image submit is painted by its picture; without it the control has no face.
+            'src' => $isImage ? SourceDom::attr($input, 'src') : '',
+            'alt' => $isImage ? SourceDom::attr($input, 'alt') : '',
+            'width' => $isImage ? SourceDom::attr($input, 'width') : '',
+            'height' => $isImage ? SourceDom::attr($input, 'height') : '',
+            'title' => $isImage ? SourceDom::attr($input, 'title') : '',
             'required' => $input->hasAttribute('required'),
             'disabled' => $input->hasAttribute('disabled'),
             'readOnly' => $input->hasAttribute('readonly'),
