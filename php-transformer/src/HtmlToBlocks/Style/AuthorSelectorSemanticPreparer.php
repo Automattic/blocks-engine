@@ -232,6 +232,7 @@ final class AuthorSelectorSemanticPreparer
                 if ( '' !== $path
                     && $this->context->requiresInlineLayoutCarrier($element)
                     && ! $this->isPhrasingWithinHeading($element)
+                    && ! $this->isQuoteCitation($element)
                     && ! $projections->isControlPath($parentPath)
                     && ! ('' !== $projections->richTextMarker($path) && $this->ancestorElement($element, 'label') instanceof DOMElement)
                 ) {
@@ -239,6 +240,25 @@ final class AuthorSelectorSemanticPreparer
                 }
             }
         }
+    }
+
+    /**
+     * Quote lowering consumes a blockquote's first child cite, footer or
+     * figcaption as the core/quote citation, which renders as a native <cite>
+     * rather than an inline-layout carrier paragraph.
+     */
+    private function isQuoteCitation(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement || 'blockquote' !== strtolower($parent->tagName) ) {
+            return false;
+        }
+        foreach ( $parent->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'cite', 'footer', 'figcaption' ), true) ) {
+                return $child->isSameNode($element);
+            }
+        }
+        return false;
     }
 
     /** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
