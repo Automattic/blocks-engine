@@ -287,7 +287,11 @@ final class AuthorStylesheetProjector
                 $variants = array();
                 foreach ( $selectors as $selector ) {
                     foreach ( $this->shellLayerCombinatorVariants(trim($selector)) as $variant ) {
-                        $variants[] = ':root .editor-styles-wrapper ' . $variant;
+                        // The editor scope adds no specificity: the variant
+                        // follows its source rule, so it must tie with every
+                        // rule the source rule ties with, such as a later
+                        // `.col-lg-6` that overrides `.row > *`.
+                        $variants[] = ':where(:root .editor-styles-wrapper) ' . $variant;
                     }
                 }
                 return array() === $variants ? '' : implode(',', $variants) . '{' . $body . '}';
@@ -413,7 +417,11 @@ final class AuthorStylesheetProjector
      */
     private function selectorRelaxingChildCombinators(string $selector, array $offsets): string
     {
-        $insertion = ' :where(.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ')>';
+        // The layer is the direct child of the block element that hosts it
+        // and the direct parent of each nested block root, so a relaxed
+        // combinator stays a child step on both sides. A descendant step
+        // would let `a > b` reach every block nested at any depth below `a`.
+        $insertion = ' > :where(.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ') >';
         $relaxed = '';
         $cursor = 0;
         foreach ( $offsets as $offset ) {
