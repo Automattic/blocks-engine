@@ -205,6 +205,7 @@
       "php tests/unit/comment-text-run-boundaries.php",
       "php tests/unit/label-comment-text-run-boundaries.php",
       "php tests/unit/important-display-author-layout.php",
+      "php tests/unit/author-layout-single-item-wrapper.php",
       "php tests/unit/synthetic-figure-author-rules.php",
       "php tests/unit/visual-iframe-block.php",
       "php tests/unit/fixed-width-media-overflow.php",
