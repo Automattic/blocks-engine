@@ -2542,9 +2542,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             || (null !== $navigationContext && $navigationContext->targetsCurrentDocument($anchor->getAttribute('href')));
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
-        $subjectMarker = $item->isSameNode($anchor) || null !== $submenuContainer || $hasAuthoredCurrentState ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
+        if ($hasAuthoredCurrentState) $navigationContext?->recordCurrentNavigationItem($item, $anchor);
+        $subjectMarker = $item->isSameNode($anchor) || null !== $submenuContainer ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
             $anchorClassName = (string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class'));
+            // The subject renders on every route; the served route's own hooks do not.
+            if ($isCurrentNavigationItem) $anchorClassName = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $anchorClassName))['className'] ?? '');
             // Stylesheet declarations stay on their source subject. Only explicit
             // source item supports remain inline; class-owned values must retain
             // the authored conditional cascade rather than freeze on Core's LI.

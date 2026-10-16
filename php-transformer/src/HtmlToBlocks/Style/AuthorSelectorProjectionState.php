@@ -166,6 +166,47 @@ final class AuthorSelectorProjectionState
         return $this->navigationSubjects[$path] ?? '';
     }
 
+    /** @var array<string,true> Source classes that mark the served route's navigation item. */
+    private array $currentNavigationClasses = array();
+
+    /**
+     * Record the route state of a source navigation item: the classes its item
+     * and anchor carry that their resting peers do not.
+     *
+     * @param list<string> $classes
+     */
+    public function markCurrentNavigationClasses(array $classes): void
+    {
+        foreach ($classes as $class) $this->currentNavigationClasses[$class] = true;
+    }
+
+    public function isCurrentNavigationClass(string $class): bool
+    {
+        return isset($this->currentNavigationClasses[$class]);
+    }
+
+    /** Whether a selector addresses the served route's current-item state. */
+    public function selectsCurrentNavigationState(string $selector): bool
+    {
+        if (1 === preg_match('/\[\s*aria-current\b/i', $selector)) return true;
+        preg_match_all('/\.((?:\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
+        foreach ($classes[1] as $class) {
+            if (isset($this->currentNavigationClasses[stripslashes($class)])) return true;
+        }
+        return false;
+    }
+
+    /**
+     * A navigation subject while its item is the served route. Shared menus
+     * render every item on every route; WordPress marks the current one with
+     * aria-current, so a source current-state rule follows that hook rather
+     * than the item the source snapshot happened to select.
+     */
+    public static function currentNavigationSubject(string $subject): string
+    {
+        return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:has(.wp-block-navigation-item__content[aria-current])', $subject, 1);
+    }
+
     /** @var array<string,string> Source anchor paths whose identity belongs to Core's rendered a, not li. */
     private array $socialAnchorMarkers = array();
 

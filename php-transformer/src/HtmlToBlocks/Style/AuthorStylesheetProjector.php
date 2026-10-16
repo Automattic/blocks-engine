@@ -1650,6 +1650,7 @@ final class AuthorStylesheetProjector
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
                 // One shared carrier baseline defeats Core defaults while the
                 // original specificity and order arbitrate author declarations.
+                if ($context->selectorProjections->selectsCurrentNavigationState(substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start']))) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
                 $rewritten[] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
             }
             if (array() === $otherSubjects) continue;
@@ -2185,6 +2186,7 @@ final class AuthorStylesheetProjector
                 // here anyway. Bind it through the native subject instead, with
                 // the shared carrier baseline every other rule on that item gets;
                 // otherwise Core defaults and lower ranked author rules win.
+                if ($context->selectorProjections->selectsCurrentNavigationState($selector)) $navigationTarget = AuthorSelectorProjectionState::currentNavigationSubject($navigationTarget);
                 $projected[] = ':root ' . $scope . $navigationTarget . $this->selectorSpecificityShims($parsed, $context);
                 continue;
             }
