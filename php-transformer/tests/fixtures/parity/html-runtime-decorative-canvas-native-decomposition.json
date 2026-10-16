@@ -1,0 +1,27 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-runtime-decorative-canvas-native-decomposition",
+  "description": "A decorative aria-hidden background canvas does not make its page wrapper a runtime application shell when other runtime-bound controls exist on the page.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-runtime-decorative-canvas-native-decomposition.json",
+    "notes": "Product-neutral page wrapper with a header, a hero holding an unbound decorative canvas, and two runtime-targeted controls; the wrapper stays editable native blocks."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"page\"><header><h1>Sample</h1></header><section class=\"hero\"><canvas aria-hidden=\"true\" class=\"background\"></canvas><p>Hero content</p></section><section><button data-runtime-action=\"open\">Open</button><button data-runtime-action=\"close\">Close</button></section></div>",
+    "options": {
+      "runtime_dom_selectors": ["[data-runtime-action]"]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "runtime_app_shell" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph" }
+  ]
+}

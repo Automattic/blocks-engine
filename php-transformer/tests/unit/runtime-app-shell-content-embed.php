@@ -52,6 +52,7 @@ foreach ( array(
 // Other workspace surfaces and root tokens keep their shell treatment next to a content embed.
 $embed = '<iframe src="https://media.example.test/embed/abc" title="Explainer"></iframe>';
 $assert(array() !== $appShellIslands($transform($page($embed . '<canvas></canvas>', 'class="article-body"'))), 'a canvas still marks the wrapper as an app shell');
+$assert(array() === $appShellIslands($transform($page($embed . '<canvas aria-hidden="true"></canvas>', 'class="article-body"'))), 'a decorative aria-hidden canvas does not mark the wrapper as an app shell');
 $assert(array() !== $appShellIslands($transform($page($embed, 'id="workspace"'))), 'an app-root token still marks the wrapper as an app shell');
 
 if ( array() !== $failures ) {

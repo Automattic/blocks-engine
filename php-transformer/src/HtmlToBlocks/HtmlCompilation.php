@@ -9216,7 +9216,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         foreach ( $this->descendantElements($element) as $descendant ) {
             $tagName = strtolower($descendant->tagName);
-            if ( in_array($tagName, array( 'canvas', 'template' ), true) ) {
+            if ( 'template' === $tagName ) {
+                return true;
+            }
+            // A canvas hidden from assistive technology is a decorative backdrop,
+            // not a surface the visitor works in, so it does not make its wrapper
+            // an application shell.
+            if ( 'canvas' === $tagName && ! $this->hasAriaHiddenAncestor($descendant) ) {
                 return true;
             }
             // An iframe loading a third-party document by https URL is a content
