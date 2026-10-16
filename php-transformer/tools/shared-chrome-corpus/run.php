@@ -147,6 +147,11 @@ foreach ($inputs as $id => $dir) {
     $templates = array_values(array_map(static fn(array $row): string => (string) ($row['slug'] ?? ''), $plan['templates'] ?? array()));
     $templateMarkup = array_column($plan['templates'] ?? array(), 'canonical_block_markup', 'slug');
     $navInContent = $fallback = 0;
+    // A menu reference is a token; its identity is the links it renders. Two
+    // routes whose language switchers link to different translations do not
+    // repeat the same block, even though both blocks name a menu.
+    $menuLinks = array();
+    foreach ($plan['menus'] ?? array() as $menu) if (is_string($menu['token'] ?? null)) $menuLinks[$menu['token']] = menuLinkSet((string) ($menu['block_markup'] ?? ''));
     $edgeIdentities = array();
     $routeNames = array();
     $runtime = new Runtime();
@@ -158,8 +163,8 @@ foreach ($inputs as $id => $dir) {
         $topBlocks = array_values(array_filter($runtime->parseBlocks($markup), static fn(array $block): bool => is_string($block['blockName'] ?? null)));
         if ($topBlocks) {
             $edgeIdentities[] = array(
-                'leading' => blockIdentity($runtime->serializeBlocks(array($topBlocks[0]))),
-                'trailing' => blockIdentity($runtime->serializeBlocks(array($topBlocks[count($topBlocks) - 1]))),
+                'leading' => blockIdentity($runtime->serializeBlocks(array($topBlocks[0])), $menuLinks),
+                'trailing' => blockIdentity($runtime->serializeBlocks(array($topBlocks[count($topBlocks) - 1])), $menuLinks),
             );
         } else $edgeIdentities[] = array('leading' => null, 'trailing' => null);
     }
@@ -183,17 +188,7 @@ foreach ($inputs as $id => $dir) {
     }
     $menus = $plan['menus'] ?? array();
     $menuSets = array();
-    foreach ($menus as $menu) {
-        $links = array();
-        if (preg_match_all('/<!--\s*wp:navigation-link\s+(\{.*?\})\s*(?:\/)?-->/s', (string) ($menu['block_markup'] ?? ''), $matches)) {
-            foreach ($matches[1] as $attributes) {
-                $attrs = json_decode($attributes, true);
-                if (is_array($attrs)) $links[] = array('label' => (string) ($attrs['label'] ?? ''), 'url' => (string) ($attrs['url'] ?? ''));
-            }
-        }
-        usort($links, static fn(array $a, array $b): int => strcmp($a['url'] . "\0" . $a['label'], $b['url'] . "\0" . $b['label']));
-        $menuSets[hash('sha256', json_encode($links, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '')] = true;
-    }
+    foreach ($menus as $menu) $menuSets[menuLinkSet((string) ($menu['block_markup'] ?? ''))] = true;
     $diagnostics = array();
     foreach (array($result['diagnostics'] ?? array(), $plan['diagnostics'] ?? array()) as $diagnosticRows) foreach ($diagnosticRows as $diagnostic) if (is_array($diagnostic) && is_string($diagnostic['code'] ?? null) && str_starts_with($diagnostic['code'], 'wordpress_site_plan_shell_')) $diagnostics[] = $diagnostic['code'];
     $diagnostics = array_values(array_unique($diagnostics));
@@ -211,10 +206,26 @@ if (isset($options['json'])) {
 fwrite(STDOUT, sprintf("Shared-chrome corpus — %d site(s)\n%-26s %-13s %5s %5s %5s %5s %5s %6s %5s %5s %5s\n", count($results), 'site', 'status', 'routes', 'parts', 'tmpl', 'nav', 'edge', 'wp_nav', 'sets', 'html', 'codes'));
 foreach ($results as $row) fwrite(STDOUT, sprintf("%-26s %-13s %5d %5d %5d %5s %5s %6s %5s %5s %5d\n", $row['site'], $row['status'], $row['route_count'], count($row['parts']), count($row['templates']), $row['routes_with_navigation_in_content'] ?? '—', $row['routes_with_repeated_edge_residue'] ?? '—', $row['wp_navigation_count'] ?? '—', $row['distinct_normalized_link_sets'] ?? '—', $row['core_html_fallback_count'] ?? '—', count($row['shell_diagnostic_codes'])));
 
-function blockIdentity(string $markup): string
+/** Normalized link set a menu renders: sorted label/url pairs. */
+function menuLinkSet(string $markup): string
+{
+    $links = array();
+    if (preg_match_all('/<!--\s*wp:navigation-link\s+(\{.*?\})\s*(?:\/)?-->/s', $markup, $matches)) {
+        foreach ($matches[1] as $attributes) {
+            $attrs = json_decode($attributes, true);
+            if (is_array($attrs)) $links[] = array('label' => (string) ($attrs['label'] ?? ''), 'url' => (string) ($attrs['url'] ?? ''));
+        }
+    }
+    usort($links, static fn(array $a, array $b): int => strcmp($a['url'] . "\0" . $a['label'], $b['url'] . "\0" . $b['label']));
+    return hash('sha256', json_encode($links, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '');
+}
+
+/** @param array<string,string> $menuLinks */
+function blockIdentity(string $markup, array $menuLinks = array()): string
 {
     $markup = ShellExtraction::identityMarkup(ShellExtraction::withoutCurrentNavigationState($markup, true));
     $markup = preg_replace('/\b(?:id|anchor)="[^"]*"/i', '', $markup) ?? $markup;
+    $markup = preg_replace_callback('/\{\{wordpress-site-plan:navigation:([^}]+)\}\}/', static fn(array $match): string => 'menu:' . ($menuLinks[$match[1]] ?? $match[1]), $markup) ?? $markup;
     $markup = preg_replace('/\{\{(?:wordpress-site-plan|blocks-engine):[^}]+\}\}/', '{{token}}', $markup) ?? $markup;
     return hash('sha256', preg_replace('/\s+/', ' ', trim($markup)) ?? trim($markup));
 }
