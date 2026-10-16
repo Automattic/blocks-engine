@@ -19,6 +19,10 @@ final class WordPressCompatCss
     private array $cssCache = array();
     /** @var array{string, string, string}|null */
     private ?array $specificityShims = null;
+    /** @var list<string>|null */
+    private ?array $siteMarkerDocuments = null;
+    /** @var array<string, string> */
+    private array $documentSiteMarkers = array();
 
     /**
      * @param array<int, array<string, mixed>> $files
@@ -56,17 +60,36 @@ final class WordPressCompatCss
     /** @param array<int, array<string, mixed>> $files */
     private function prepareSpecificityContext(string $css, array $files): void
     {
-        $avoidTexts = array($css);
+        $htmlTexts = array();
         foreach ($files as $file) {
             if ('html' === ($file['kind'] ?? '')) {
-                $avoidTexts[] = (string) ($file['content'] ?? '');
+                $htmlTexts[] = (string) ($file['content'] ?? '');
             }
         }
+        // Every stylesheet of a site is projected against the same documents.
+        // Scan them once per document set, then check only the stylesheet.
+        if ($htmlTexts !== $this->siteMarkerDocuments) {
+            $this->siteMarkerDocuments = $htmlTexts;
+            $this->documentSiteMarkers = array();
+        }
         $this->specificityShims = array(
-            AuthorStyleAnalysis::allocateSiteMarker('specificity', $avoidTexts),
-            AuthorStyleAnalysis::allocateSiteMarker('specificity-class', $avoidTexts),
-            AuthorStyleAnalysis::allocateSiteMarker('specificity-id', $avoidTexts)
+            $this->siteMarker('specificity', $css, $htmlTexts),
+            $this->siteMarker('specificity-class', $css, $htmlTexts),
+            $this->siteMarker('specificity-id', $css, $htmlTexts)
         );
+    }
+
+    /**
+     * The first site marker that neither the stylesheet nor any document uses.
+     * The first one free in the documents is that marker unless the
+     * stylesheet happens to use it, when the full search decides.
+     *
+     * @param list<string> $htmlTexts
+     */
+    private function siteMarker(string $kind, string $css, array $htmlTexts): string
+    {
+        $marker = $this->documentSiteMarkers[$kind] ??= AuthorStyleAnalysis::allocateSiteMarker($kind, $htmlTexts);
+        return str_contains($css, $marker) ? AuthorStyleAnalysis::allocateSiteMarker($kind, array_merge(array($css), $htmlTexts)) : $marker;
     }
 
     /**

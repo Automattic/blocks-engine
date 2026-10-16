@@ -178,6 +178,7 @@
       "php tests/unit/html-markup-parser-linear.php",
       "php tests/unit/css-ident-escape.php",
       "php tests/unit/selector-match-cache-batch-eviction.php",
+      "php tests/unit/site-marker-document-scan.php",
       "php tests/unit/form-offscreen-submit-presenter.php",
       "php tests/unit/form-submit-caption-box.php",
       "php tests/unit/runtime-declarations-streaming-hash.php",
