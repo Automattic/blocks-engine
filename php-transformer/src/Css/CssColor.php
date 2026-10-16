@@ -135,6 +135,30 @@ final class CssColor
         return null === $lab ? null : sqrt($lab[1] ** 2 + $lab[2] ** 2);
     }
 
+    /**
+     * WCAG 2 contrast ratio between two colours, from 1 (identical luminance)
+     * to 21 (black on white), or null when either is not a parseable colour.
+     */
+    public static function contrastRatio(string $left, string $right): ?float
+    {
+        $a = self::relativeLuminance($left);
+        $b = self::relativeLuminance($right);
+        if (null === $a || null === $b) return null;
+        return (max($a, $b) + 0.05) / (min($a, $b) + 0.05);
+    }
+
+    /** WCAG 2 relative luminance of the colour's sRGB channels. */
+    private static function relativeLuminance(string $value): ?float
+    {
+        $color = self::parse($value);
+        if (null === $color) return null;
+        $linear = array_map(static function (float $channel): float {
+            $channel /= 255;
+            return $channel <= 0.04045 ? $channel / 12.92 : (($channel + 0.055) / 1.055) ** 2.4;
+        }, array($color[0], $color[1], $color[2]));
+        return 0.2126 * $linear[0] + 0.7152 * $linear[1] + 0.0722 * $linear[2];
+    }
+
     /** CIELAB lightness, 0 (black) to 100 (white). */
     public static function lightness(string $value): ?float
     {

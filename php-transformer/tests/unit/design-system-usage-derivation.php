@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DesignSystem;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PresetBinding;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeJsonProjection;
@@ -183,6 +184,63 @@ $legacy = (new ThemeJsonProjection())->project(array(array('kind' => 'css', 'con
 $assert(1 === preg_match('/^color-/', (string) ($legacy['theme']['settings']['color']['palette'][0]['slug'] ?? '')), 'projection without a design system keeps hashed literal presets');
 $withSystem = (new ThemeJsonProjection())->project(array(array('kind' => 'css', 'content' => 'body{color:#111111}', 'scopes' => array(array('kind' => 'global')))), array(), $bindSystem);
 $assert('var:preset|color|contrast' === ($withSystem['theme']['styles']['color']['text'] ?? null), 'projected selector values resolve to design-system tokens');
+
+// Stylesheet values equal to a token read the preset variable, with the
+// literal as fallback, so links, navigation items and states follow it too.
+$sheet = static fn(string $css, array $assets = array()): string => (new PresetBinding($bindSystem, array_merge($assets, array(array('kind' => 'css', 'content' => $css)))))->bindStylesheet($css);
+$assert('.a{color:var(--wp--preset--color--' . $slug . ',#e11d48)}.a:hover{background-color:var(--wp--preset--color--contrast,#111111)!important}' === $sheet('.a{color:#e11d48}.a:hover{background-color:#111111!important}'), 'stylesheet colours and states bind to the token variable with the literal as fallback, keeping !important');
+$assert('@media (min-width:40rem){.a{color:var(--wp--preset--color--' . $slug . ',#e21d48)}}' === $sheet('@media (min-width:40rem){.a{color:#e21d48}}'), 'a colour within tolerance binds inside a media query');
+$assert('.a{color:#00ff00;border-color:#111111;font-size:23px}' === $sheet('.a{color:#00ff00;border-color:#111111;font-size:23px}'), 'values that are not tokens, and properties outside colour, background, size and family, keep their bytes');
+$assert('.a{font-size:var(--wp--preset--font-size--large,1.5rem)}' === $sheet('.a{font-size:1.5rem}'), 'a font size equal to a preset length binds');
+$assert('.a{font-size:24.4px}' === $sheet('.a{font-size:24.4px}'), 'a font size within tolerance but not equal stays, so no layout moves');
+$assert(':root{--brand:var(--wp--preset--color--' . $slug . ',#e11d48)}' === $sheet(':root{--brand:#e11d48}'), 'a custom property that is a token colour binds, so every utility reading it follows');
+$opacity = '.text-x{--tw-text-opacity:1;color:rgb(225 29 72 / var(--tw-text-opacity, 1))}';
+$assert(str_contains($sheet($opacity), 'color:var(--wp--preset--color--' . $slug . ',rgb(225 29 72 / var(--tw-text-opacity, 1)))'), 'a Tailwind opacity variable every rule sets to its fallback resolves');
+$assert(!str_contains($sheet($opacity . '.text-opacity-50{--tw-text-opacity:.5}'), '--wp--preset--color--'), 'an opacity variable another rule sets differently keeps the literal');
+$assert(!str_contains($sheet('.a{color:hsl(var(--x))}', array(array('kind' => 'css', 'content' => ':root{--x:347 77% 50%}.dark{--x:0 0% 7%}'))), '--wp--preset--color--'), 'a colour read from a custom property a scope redefines keeps the literal');
+$assert('.a{font-family:var(--wp--preset--font-family--body,Inter, sans-serif)}.b{font-family:Inter,Arial}' === $sheet('.a{font-family:Inter, sans-serif}.b{font-family:Inter,Arial}'), 'only the preset\'s own font stack binds, so fallbacks do not change');
+
+// Contrast is the readable main text colour on base, never a low-contrast one.
+$contrastOf = static fn(array $text, array $root = array()): ?string => array_column(DesignSystem::fromUsage(array('a.html' => $usage($text, array(array('role' => 'root', 'color' => '#ffffff', 'authored' => null, 'count' => 1, 'weight' => 500)), $root)))?->colors ?? array(), 'color', 'role')['contrast'] ?? null;
+$assert('#333333' === $contrastOf(array($row('#cccccc', 300), $row('#333333', 120))), 'a heavier text colour below WCAG AA on base is not contrast');
+$assert('#555555' === $contrastOf(array($row('#111111', 100), $row('#555555', 150)), array('background' => '#ffffff', 'color' => '#555555')), 'the root text colour is contrast when it reads on base');
+$assert('#111111' === $contrastOf(array($row('#111111', 100), $row('#bbbbbb', 150)), array('background' => '#ffffff', 'color' => '#bbbbbb')), 'a root text colour below WCAG AA on base is not contrast');
+$assert(null === $contrastOf(array($row('#eeeeee', 100))), 'no colour is contrast when no text reads on base');
+$assert(21.0 === round((float) CssColor::contrastRatio('#000', 'white'), 2) && 1.0 === CssColor::contrastRatio('#123456', '#123456') && null === CssColor::contrastRatio('currentColor', '#fff'), 'contrast ratios follow WCAG 2');
+
+// Every route counts the same: one long route in another style cannot
+// outweigh the shared shell and the other routes.
+$routeUsage = static fn(string $text, string $background, int $weight): array => $usage(array($row($text, $weight, 'body', 16, $background), $row('#e9f1ff', 20, 'heading', 32, '#050b18')), array(array('role' => 'root', 'color' => $background, 'authored' => null, 'count' => 1, 'weight' => $weight + 20)));
+$minority = DesignSystem::fromUsage(array('a.html' => $routeUsage('#e9f1ff', '#050b18', 100), 'b.html' => $routeUsage('#e9f1ff', '#050b18', 100), 'c.html' => $routeUsage('#1a1a1a', '#f3f4f6', 5000)));
+$roles = array_column($minority?->colors ?? array(), 'color', 'role');
+$assert('#050b18' === ($roles['base'] ?? null) && '#e9f1ff' === ($roles['contrast'] ?? null), 'a long route in another style does not take base and contrast from the majority of routes');
+
+// A multi-route site whose header and footer are shared, with five dark
+// marketing routes and one long light app route in a system font.
+[$shellPlan, $shellTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/tailwind-shell.php');
+$shellPalette = array_column($shellTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+$assert('#050b18' === ($shellPalette['base'] ?? null) && '#e9f1ff' === ($shellPalette['contrast'] ?? null), 'tailwind-shell: base and contrast come from the shared shell and most routes (' . json_encode($shellPalette) . ')');
+$assert((CssColor::contrastRatio($shellPalette['contrast'] ?? '', $shellPalette['base'] ?? '') ?? 0) >= DesignSystem::MIN_CONTRAST_RATIO, 'tailwind-shell: contrast reads on base');
+$shellFamilies = array_column($shellTheme['settings']['typography']['fontFamilies'] ?? array(), 'name', 'slug');
+$assert('Inter' === ($shellFamilies['body'] ?? null) && 'Space Grotesk' === ($shellFamilies['heading'] ?? null), 'tailwind-shell: body is the root family and heading the headings\' family (' . json_encode($shellFamilies) . ')');
+$shellParts = implode('', array_column($shellPlan['template_parts'] ?? array(), 'canonical_block_markup'));
+$assert(str_contains($shellParts, '"textColor":"contrast"') && str_contains($shellParts, '"backgroundColor":"base"'), 'tailwind-shell: shared template parts bind like page content');
+$shellCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($shellPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
+$assert(str_contains($shellCss, 'color:var(--wp--preset--color--accent-1,rgb(147 168 206 / var(--tw-text-opacity, 1)))'), 'tailwind-shell: the navigation and footer link colour class reads the palette');
+$shellMetrics = $shellPlan['theme']['design_system']['metrics'] ?? array();
+$assert(($shellMetrics['restyle_coverage'] ?? 0) >= 0.8, 'tailwind-shell: at least 80% of rendered colours come from presets (' . json_encode($shellMetrics['restyle_coverage'] ?? null) . ')');
+[$reversedShell] = $compile(array_replace(require dirname(__DIR__) . '/fixtures/design-system/tailwind-shell.php', array('files' => array_reverse((require dirname(__DIR__) . '/fixtures/design-system/tailwind-shell.php')['files'], true))));
+$assert(($shellPlan['theme']['design_system'] ?? null) === ($reversedShell['theme']['design_system'] ?? null), 'tailwind-shell: route order does not change the design system');
+
+// Root styles name roles, and restyle coverage is reported for every fixture.
+foreach ($plans as $fixture => [$plan, $theme]) {
+    $styles = $theme['styles'] ?? array();
+    $assert(!isset($styles['color']['text']) || 'var:preset|color|contrast' === $styles['color']['text'], "$fixture: root text colour is the contrast role");
+    $assert(!isset($styles['color']['background']) || 'var:preset|color|base' === $styles['color']['background'], "$fixture: root background is the base role");
+    $assert(!isset($styles['elements']['heading']['typography']['fontFamily']) || 'var:preset|font-family|heading' === $styles['elements']['heading']['typography']['fontFamily'], "$fixture: heading family is the heading role");
+    $coverage = $plan['theme']['design_system']['metrics']['restyle_coverage'] ?? null;
+    $assert(is_float($coverage) && $coverage >= 0.8 && $coverage <= 1.0, "$fixture: at least 80% of rendered colours come from presets (" . json_encode($coverage) . ')');
+}
 
 fwrite(STDOUT, "Design system usage derivation: {$passes} passed, {$failures} failed\n");
 exit($failures ? 1 : 0);

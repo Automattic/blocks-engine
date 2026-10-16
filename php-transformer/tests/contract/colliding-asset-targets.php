@@ -37,7 +37,7 @@ $plan = $result['source_reports']['wordpress_site_plan'] ?? null;
 $assert(is_array($plan) && 'failed' !== $result['status'], 'Two compiled assets with one target and identical bytes no longer fail the plan.');
 WordPressSitePlan::assertValid($plan);
 $bundles = array_values(array_filter($plan['assets'], static fn (array $asset): bool => 'stylesheet-bundle' === ($asset['source'] ?? null)));
-$assert(1 === count($bundles) && str_contains((string) $bundles[0]['content'], '.a{color:#c00}'), 'The identical bundle is written once.');
+$assert(1 === count($bundles) && 1 === preg_match('/\.a\{color:(?:#c00|var\(--wp--preset--color--[a-z0-9-]+,#c00\))\}/', (string) $bundles[0]['content']), 'The identical bundle is written once.');
 $targets = array_column($plan['assets'], 'target_path');
 $assert(array_search($bundles[0]['target_path'], $targets, true) > array_search('assets/index.inline-3.css', $targets, true), 'The kept bundle is the later occurrence, so it still follows the print-only style in the cascade.');
 $found = $findings($plan);

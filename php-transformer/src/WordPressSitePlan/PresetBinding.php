@@ -116,6 +116,8 @@ final class PresetBinding
     private array $variables = array();
     /** @var array<string,array<string,true>> Values custom properties take outside the root. */
     private array $scopedVariables = array();
+    /** @var array<string,string> Custom properties every definition, all outside the root, sets to one value. */
+    private array $uniformVariables = array();
 
     /**
      * @param array<int,array<string,mixed>> $assets
@@ -132,6 +134,7 @@ final class PresetBinding
             });
         }
         foreach ($this->scopedVariables as $name => $values) {
+            if (!array_key_exists($name, $this->variables) && 1 === count($values)) $this->uniformVariables[$name] = (string) array_key_first($values);
             if (is_string($this->variables[$name] ?? null) && array($this->variables[$name] => true) !== $values) $this->variables[$name] = false;
             if (!array_key_exists($name, $this->variables)) $this->variables[$name] = false;
         }
@@ -292,6 +295,101 @@ final class PresetBinding
     }
 
     /**
+     * Binds the values a stylesheet sets that equal a design-system token to
+     * the token's preset variable, keeping the literal as the fallback:
+     * `color:#93a8ce` becomes
+     * `color:var(--wp--preset--color--accent-1,#93a8ce)`.
+     *
+     * This reaches what block attributes cannot: links inside text,
+     * navigation items, interaction states, and author classes whose value
+     * the block does not carry. The declaration keeps its selector, its
+     * place in the cascade and its `!important`, so the only thing that
+     * changes is where the value comes from: it renders the token's value,
+     * which is the literal within tolerance, until a site owner edits the
+     * token in Global Styles.
+     *
+     * - A colour (`color`, `background-color`, a lone-colour `background`,
+     *   or a custom property whose whole value is a colour) binds within
+     *   the palette tolerance. A `var()` in it must resolve the same way as
+     *   for a block literal.
+     * - A font size binds only when it is the preset's own length, and a
+     *   font family only when it is the preset's own stack, so no fallback
+     *   or rounding changes what renders.
+     */
+    public function bindStylesheet(string $css): string
+    {
+        $transformer = new CssStylesheetTransformer();
+        return $transformer->transformStyleRules($css, fn(string $prelude, string $body): string => $prelude . '{' . $this->bindRuleBody($transformer, $body) . '}');
+    }
+
+    private function bindRuleBody(CssStylesheetTransformer $transformer, string $body): string
+    {
+        $result = '';
+        foreach ($transformer->splitStyleRuleBody($body) as $part) {
+            if (!isset($part['declarations'])) {
+                $nested = '' === $part['at_rule'] || in_array($part['at_rule'], array('media', 'supports', 'container', 'layer', 'scope'), true);
+                $result .= $part['prelude'] . '{' . ($nested ? $this->bindRuleBody($transformer, $part['body']) : $part['body']) . '}';
+                continue;
+            }
+            $declarations = $part['declarations'];
+            $changed = false;
+            $rewritten = array();
+            foreach (CssValueSplitter::splitTopLevel($declarations, array(';')) as $declaration) {
+                $bound = $this->bindDeclaration($declaration);
+                $changed = $changed || $bound !== $declaration;
+                $rewritten[] = $bound;
+            }
+            // An untouched run keeps its source bytes.
+            $result .= $changed ? implode(';', $rewritten) . (str_ends_with(rtrim($declarations), ';') ? ';' : '') : $declarations;
+        }
+        return $result;
+    }
+
+    private function bindDeclaration(string $declaration): string
+    {
+        $parts = explode(':', $declaration, 2);
+        if (2 !== count($parts)) return $declaration;
+        $property = strtolower(trim($parts[0]));
+        $value = trim($parts[1]);
+        $important = '';
+        if (1 === preg_match('/\s*!\s*important\s*$/i', $value, $match)) {
+            $important = '!important';
+            $value = trim(substr($value, 0, -strlen($match[0])));
+        }
+        if ('' === $value || str_contains($value, '--wp--preset--')) return $declaration;
+        $kind = match (true) {
+            in_array($property, array('color', 'background-color', 'background'), true), str_starts_with($property, '--') => 'color',
+            'font-size' === $property => 'font-size',
+            'font-family' === $property => 'font-family',
+            default => null,
+        };
+        if (null === $kind) return $declaration;
+        $slug = match ($kind) {
+            'color' => $this->comparable('color', $this->resolve($value)) ? $this->system->colorSlug($this->resolve($value)) : null,
+            'font-size' => $this->exactFontSizeSlug($value),
+            default => $this->exactFontFamilySlug($value),
+        };
+        if (null === $slug) return $declaration;
+        ++$this->bound;
+        return $parts[0] . ':var(--wp--preset--' . ('color' === $kind ? 'color' : $kind) . '--' . $slug . ',' . $value . ')' . $important;
+    }
+
+    private function exactFontSizeSlug(string $value): ?string
+    {
+        $px = CssLength::toPx($value, $this->system->rootPx);
+        if (null === $px) return null;
+        foreach ($this->system->fontSizes as $size) if (abs($size['px'] - $px) < 0.01 && $size['slug'] === $this->system->fontSizeSlug($value)) return $size['slug'];
+        return null;
+    }
+
+    private function exactFontFamilySlug(string $value): ?string
+    {
+        $normalize = static fn(string $stack): string => strtolower((string) preg_replace('/[\s"\']+/', '', $stack));
+        foreach ($this->system->fontFamilies as $family) if ($normalize($family['fontFamily']) === $normalize($value)) return $family['slug'];
+        return null;
+    }
+
+    /**
      * The preset slug for a literal value, a class-driven observation, or
      * both. A literal is resolved through root custom properties; when that
      * fails, the value the source rendered for the block's class list stands
@@ -396,14 +494,19 @@ final class PresetBinding
      * properties that are set once, unconditionally, on the document root
      * (`:root`, `html`, `:host`). Any other definition could give the
      * variable a different value under some block, so a value that reads
-     * such a property stays as written.
+     * such a property stays as written, except that a fallback
+     * (`var(--tw-text-opacity, 1)`) stands in for a property that every
+     * definition sets to that same value: the element renders the fallback
+     * whether or not one of them reaches it.
      */
     private function resolve(string $value): string
     {
         for ($depth = 0; $depth < 5 && str_contains($value, 'var('); $depth++) {
             $unresolved = false;
-            $value = (string) preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*\)/', function (array $match) use (&$unresolved): string {
+            $value = (string) preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*?)\s*)?\)/', function (array $match) use (&$unresolved): string {
                 $resolved = $this->variables[$match[1]] ?? false;
+                $fallback = $match[2] ?? '';
+                if (false === $resolved && '' !== $fallback && ($this->uniformVariables[$match[1]] ?? null) === $fallback) return $fallback;
                 if (false === $resolved) {
                     $unresolved = true;
                     return $match[0];

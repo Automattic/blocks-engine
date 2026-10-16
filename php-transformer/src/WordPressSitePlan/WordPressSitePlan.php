@@ -487,6 +487,17 @@ PHP;
          unset($taxonomyEntity);
         $operations = $this->operations($pages);
         $assets = self::withVariantScopedIdSelectors($assets);
+        // Stylesheet values equal to a token follow it too: links inside
+        // text, navigation items and states have no block attribute to bind.
+        if (null !== $this->presetBinding) foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
+            $content = $this->presetBinding->bindStylesheet($asset['content']);
+            if ($content === $asset['content']) continue;
+            $asset['content'] = $content;
+            $asset['bytes'] = strlen($content);
+            $asset['content_hash'] = self::contentHash($content);
+        }
+        unset($asset);
         // Asset payloads are the last canonicalization pass, so the placeholder
         // backing recovered media is declared once every reference is known.
         $assetWrites = $this->assetWrites($assets, $references);
@@ -528,7 +539,7 @@ PHP;
             'taxonomy_entities' => $taxonomyProjection['entities'],
             'navigation_links' => $input->navigationLinks,
             'menus' => $menus,
-            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(array_values(array_filter(array_column(array_merge($pages, $templates, $parts), 'canonical_block_markup'), 'is_string')), $assets)))),
+            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))))))),
             'visual_repair' => $compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
@@ -5353,6 +5364,15 @@ PHP;
     }
     public static function identity(string $kind, string $source, string $target): string { return hash('sha256', "wordpress-site-plan/{$kind}/v2\n{$source}\n{$target}"); }
     public static function contentHash(string $content): string { return hash('sha256', $content); }
+
+    /**
+     * @param array<int,array<string,mixed>> $documents
+     * @return list<string>
+     */
+    private static function markups(array $documents): array
+    {
+        return array_values(array_filter(array_column($documents, 'canonical_block_markup'), 'is_string'));
+    }
     private static function hash(mixed $value): bool { return is_string($value) && preg_match('/^[a-f0-9]{64}$/', $value); }
     /** @return array<int,array{offset:int,length:int}> */
     public static function blockRanges(string $markup): array

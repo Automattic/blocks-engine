@@ -57,6 +57,7 @@
     "test:carousel-control-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-carousel-control-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/carousel-control-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "test:captured-gallery-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-captured-gallery-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/captured-gallery-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "visual:native-emoji-wordpress": "node tools/visual-parity/tests/native-emoji-wordpress.mjs",
+    "test:design-system-restyle": "bash tests/integration/design-system-restyle.sh",
     "benchmark:selector-cache": "php tools/benchmarks/css-selector-match-cache.php",
     "benchmark:staged-page-compilation": "php tools/benchmarks/staged-page-compilation-production.php",
     "corpus-diagnostics": "php tools/corpus-diagnostics/run.php",

@@ -71,6 +71,16 @@ final class DesignSystem
     public const COLOR_CONSOLIDATION_DISTANCE = 18.0;
     /** Share of all colour weight under which a cluster counts as low-weight. */
     public const LOW_WEIGHT_SHARE = 0.03;
+    /** Share of text weight a colour needs to be a `contrast` candidate. */
+    public const CONTRAST_CANDIDATE_SHARE = 0.1;
+    /** WCAG AA contrast ratio for body text: `contrast` must read against `base`. */
+    public const MIN_CONTRAST_RATIO = 4.5;
+    /** WCAG AA contrast ratio for large text, below which no colour is `contrast`. */
+    public const LOW_CONTRAST_RATIO = 3.0;
+    /** Share of the heaviest background's weight that ties it for `base`. */
+    public const BASE_TIE_SHARE = 0.9;
+    /** Total weight every document contributes; see fromUsage(). */
+    public const DOCUMENT_WEIGHT = 1000000;
     private const CSS_WIDE_KEYWORDS = array('inherit', 'initial', 'unset', 'revert', 'revert-layer');
     private const CHROMATIC = 20.0;
     private const GENERIC_FAMILIES = array('serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'math', 'emoji', 'fangsong');
@@ -113,15 +123,16 @@ final class DesignSystem
         foreach ($usageBySource as $usage) {
             $px = (float) ($usage['root_font_size_px'] ?? 16);
             $rootPx[CssLength::format($px)] = ($rootPx[CssLength::format($px)] ?? 0) + 1;
+            $documentMass = self::documentMass($usage);
             foreach ($usage['text'] ?? array() as $row) {
-                $weight = (int) ($row['weight'] ?? 0);
+                $weight = self::documentShare((int) ($row['weight'] ?? 0), $documentMass);
                 if ($weight <= 0) continue;
                 $color = self::opaqueHex($row['color'] ?? null);
                 if (null !== $color) {
                     $textByColor[$color] = ($textByColor[$color] ?? 0) + $weight;
                     if ('button' === ($row['role'] ?? null)) $labelByColor[$color] = ($labelByColor[$color] ?? 0) + $weight;
                     $background = self::opaqueHex($row['background'] ?? null);
-                    if (null !== $background && 'body' === ($row['role'] ?? null)) $textOnBackground[$background][$color] = ($textOnBackground[$background][$color] ?? 0) + $weight;
+                    if (null !== $background && 'button' !== ($row['role'] ?? null)) $textOnBackground[$background][$color] = ($textOnBackground[$background][$color] ?? 0) + $weight;
                 }
                 $size = (float) ($row['font_size_px'] ?? 0);
                 if ($size > 0) {
@@ -139,7 +150,7 @@ final class DesignSystem
             }
             foreach ($usage['backgrounds'] ?? array() as $row) {
                 $color = self::opaqueHex($row['color'] ?? null);
-                $weight = (int) ($row['weight'] ?? 0);
+                $weight = self::documentShare((int) ($row['weight'] ?? 0), $documentMass);
                 if (null === $color || $weight <= 0) continue;
                 $backgroundByColor[$color] = ($backgroundByColor[$color] ?? 0) + $weight;
                 if ('cta' === ($row['role'] ?? null)) $ctaByColor[$color] = ($ctaByColor[$color] ?? 0) + $weight;
@@ -160,14 +171,15 @@ final class DesignSystem
         arsort($rootPx);
         $rootFontPx = (float) rtrim((string) array_key_first($rootPx), 'px');
 
-        $colors = self::palette($textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $labelByColor);
+        $root = self::unanimousRoot($usageBySource);
+        $colors = self::palette($textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $labelByColor, $root);
         $fontSizes = self::fontSizes($sizeWeights, $bodySizeWeights, $rootFontPx);
-        $fontFamilies = self::fontFamilies($familyWeights, $familyStacks, $headingFamilyWeights, $bodyFamilyWeights);
+        $fontFamilies = self::fontFamilies($familyWeights, $familyStacks, $headingFamilyWeights, $bodyFamilyWeights, self::familyKey((string) ($root['font_family'] ?? '')), self::unanimousHeadingFamily($usageBySource));
         $spacing = self::spacing($spacingRows);
         $layout = self::layout($widthRows);
 
         $system = new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource));
-        return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, self::unanimousRoot($usageBySource), self::unanimousElements($usageBySource, $system), $system->rootPx, $system->documentCount);
+        return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, $root, self::unanimousElements($usageBySource, $system), $system->rootPx, $system->documentCount);
     }
 
     /** Slug of the palette colour within tolerance of a value, or null. */
@@ -235,6 +247,15 @@ final class DesignSystem
      *   (`textColor`, `fontSize`, `var:preset|…`) rather than literals. 1.0
      *   when blocks carry no such values. Zero lengths, `auto` and CSS-wide
      *   keywords (`inherit`, …) are not design values and are not counted.
+     * - `restyle_coverage`: of the text and background colours rendered on
+     *   block-level content, the share that come from a preset reference,
+     *   through the block's attributes, its classes' stylesheet rules, an
+     *   ancestor, or the root styles; see RestyleCoverage. These follow a
+     *   palette edit in Global Styles. A shared template part counts once
+     *   per page, as a reader meets it on every route; engine templates count
+     *   once. `restyle_text_elements`,
+     *   `restyle_text_preset`, `restyle_backgrounds` and
+     *   `restyle_backgrounds_preset` are the counts behind it.
      * - `palette_size`: colours in the palette.
      * - `unused_font_families`: primary families (the first name of a
      *   `font-family` stack, unquoted) the source stylesheets declare that no
@@ -248,9 +269,11 @@ final class DesignSystem
      *
      * @param list<string> $markups Every emitted block document.
      * @param array<int,array<string,mixed>> $assets
+     * @param list<string> $routeMarkups For `restyle_coverage`: each
+     *   document as often as readers meet it (see above); `$markups` when empty.
      * @return array<string,mixed>
      */
-    public function metrics(array $markups, array $assets): array
+    public function metrics(array $markups, array $assets, array $routeMarkups = array()): array
     {
         $preset = $literal = 0;
         $generated = $source = 0;
@@ -301,8 +324,14 @@ final class DesignSystem
         $unused = array_values(array_unique(array_diff_key($declared, $rendered)));
         sort($unused, SORT_STRING);
         $total = $preset + $literal;
+        $restyle = RestyleCoverage::measure(array() === $routeMarkups ? $markups : $routeMarkups, $assets, isset($this->root['color']) && null !== $this->colorSlug((string) $this->root['color']));
         return array(
             'preset_share' => 0 === $total ? 1.0 : round($preset / $total, 4),
+            'restyle_coverage' => $restyle['share'],
+            'restyle_text_elements' => $restyle['text_elements'],
+            'restyle_text_preset' => $restyle['text_preset'],
+            'restyle_backgrounds' => $restyle['backgrounds'],
+            'restyle_backgrounds_preset' => $restyle['backgrounds_preset'],
             'preset_value_count' => $preset,
             'literal_value_count' => $literal,
             'palette_size' => count($this->colors),
@@ -322,9 +351,10 @@ final class DesignSystem
      * @param array<string,int> $cta
      * @param array<string,array<string,int>> $textOnBackground
      * @param array<string,int> $labels Button label colours.
+     * @param array<string,string> $root Root values every document agrees on.
      * @return list<array{slug:string,name:string,color:string,role:string,weight:int}>
      */
-    private static function palette(array $text, array $backgrounds, array $cta, array $textOnBackground, array $labels = array()): array
+    private static function palette(array $text, array $backgrounds, array $cta, array $textOnBackground, array $labels = array(), array $root = array()): array
     {
         $total = array();
         foreach (array($text, $backgrounds) as $weights) foreach ($weights as $color => $weight) $total[$color] = ($total[$color] ?? 0) + $weight;
@@ -344,19 +374,28 @@ final class DesignSystem
         };
 
         $roles = array();
-        $backgroundRank = $rank($sum($backgrounds));
-        $base = $backgroundRank[0] ?? null;
-        if (null !== $base) $roles[$base] = 'base';
-        $onBase = array();
-        if (null !== $base) {
+        // `base` is the root background every document renders, else the
+        // heaviest background; among backgrounds about as heavy as that one
+        // (BASE_TIE_SHARE), the first that some text reads on wins, so
+        // `contrast` exists whenever the site has a readable pairing.
+        $rootBackground = isset($root['background']) ? ($memberOf[$root['background']] ?? null) : null;
+        $backgroundWeights = $sum($backgrounds);
+        $baseCandidates = null !== $rootBackground ? array($rootBackground) : array_values(array_filter($rank($backgroundWeights), static fn(int $index): bool => $backgroundWeights[$index] >= self::BASE_TIE_SHARE * max($backgroundWeights ?: array(0))));
+        $rootText = isset($root['color']) ? ($memberOf[$root['color']] ?? null) : null;
+        $base = $baseCandidates[0] ?? null;
+        $contrast = null;
+        foreach ($baseCandidates as $candidate) {
+            $onBase = array();
             foreach ($textOnBackground as $background => $colors) {
-                if (($memberOf[$background] ?? null) !== $base) continue;
+                if (($memberOf[$background] ?? null) !== $candidate) continue;
                 foreach ($colors as $color => $weight) if (isset($memberOf[$color])) $onBase[$color] = ($onBase[$color] ?? 0) + $weight;
             }
+            $contrast = self::contrastCluster($clusters, $candidate, $sum($onBase), $sum($text), $rootText);
+            if (null !== $contrast) { $base = $candidate; break; }
         }
-        foreach (array($rank($sum($onBase)), $rank($sum($text))) as $candidates) {
-            foreach ($candidates as $index) if (!isset($roles[$index])) { $roles[$index] = 'contrast'; break 2; }
-        }
+        if (null !== $base) $roles[$base] = 'base';
+        if (null === $base) $contrast = $rank($sum($text))[0] ?? null;
+        if (null !== $contrast && !isset($roles[$contrast])) $roles[$contrast] = 'contrast';
         $accents = array();
         foreach ($rank($sum($cta)) as $index) if (!isset($roles[$index])) $accents[] = $index;
         $chromatic = array_values(array_filter($rank(array_map(static fn(array $cluster): int => $cluster['weight'], $clusters)), static fn(int $index): bool => (CssColor::chroma($clusters[$index]['color']) ?? 0.0) >= self::CHROMATIC));
@@ -382,6 +421,43 @@ final class DesignSystem
             'role' => preg_replace('/-\d+$/', '', $roles[$index]) ?? $roles[$index],
             'weight' => $clusters[$index]['weight'],
         ), $ordered);
+    }
+
+    /**
+     * The cluster that names `contrast`: the main text colour on `base`.
+     *
+     * Candidates are the high-weight text colours (each at least
+     * CONTRAST_CANDIDATE_SHARE of the text) drawn on `base`, else of all
+     * text. The root text colour every document renders wins when it is one
+     * of them and reads against `base` (WCAG ratio of at least
+     * MIN_CONTRAST_RATIO), so root `styles` and the role agree. Otherwise the
+     * candidate with the highest contrast ratio against `base` wins. A colour
+     * below MIN_CONTRAST_RATIO is only taken when no text colour reaches it,
+     * and never below LOW_CONTRAST_RATIO.
+     *
+     * @param list<array{color:string,weight:int,members:list<string>}> $clusters
+     * @param array<int,int> $onBase Text weight per cluster drawn on `base`.
+     * @param array<int,int> $text Text weight per cluster.
+     */
+    private static function contrastCluster(array $clusters, int $base, array $onBase, array $text, ?int $root): ?int
+    {
+        unset($onBase[$base], $text[$base]);
+        $ratio = static fn(int $index): float => CssColor::contrastRatio($clusters[$index]['color'], $clusters[$base]['color']) ?? 1.0;
+        $highWeight = static function (array $weights): array {
+            $total = array_sum($weights);
+            return array_keys(array_filter($weights, static fn(int $weight): bool => $weight >= self::CONTRAST_CANDIDATE_SHARE * $total));
+        };
+        $best = static function (array $indexes, float $minimum) use ($ratio, $clusters): ?int {
+            usort($indexes, static fn(int $a, int $b): int => ($ratio($b) <=> $ratio($a)) ?: strcmp($clusters[$a]['color'], $clusters[$b]['color']));
+            return null !== ($indexes[0] ?? null) && $ratio($indexes[0]) >= $minimum ? $indexes[0] : null;
+        };
+        foreach (array($onBase, $text) as $pool) {
+            $candidates = $highWeight($pool);
+            if (null !== $root && in_array($root, $candidates, true) && $ratio($root) >= self::MIN_CONTRAST_RATIO) return $root;
+            $choice = $best($candidates, self::MIN_CONTRAST_RATIO);
+            if (null !== $choice) return $choice;
+        }
+        return $best(array_keys($text), self::LOW_CONTRAST_RATIO);
     }
 
     /**
@@ -533,9 +609,11 @@ final class DesignSystem
      * @param array<string,array<string,int>> $stacks
      * @param array<string,int> $headingWeights
      * @param array<string,int> $bodyWeights
+     * @param string $rootKey Primary family every document's root renders, or ''.
+     * @param string $headingKey Primary family every heading renders, or ''.
      * @return list<array{slug:string,name:string,fontFamily:string,key:string,role:string,weight:int}>
      */
-    private static function fontFamilies(array $familyWeights, array $stacks, array $headingWeights, array $bodyWeights): array
+    private static function fontFamilies(array $familyWeights, array $stacks, array $headingWeights, array $bodyWeights, string $rootKey = '', string $headingKey = ''): array
     {
         if (array() === $familyWeights) return array();
         $heaviest = static function (array $weights): ?string {
@@ -543,8 +621,10 @@ final class DesignSystem
             uksort($weights, static fn(string $a, string $b): int => ($weights[$b] <=> $weights[$a]) ?: strcmp($a, $b));
             return (string) array_key_first($weights);
         };
-        $body = $heaviest($bodyWeights);
-        $heading = $heaviest($headingWeights);
+        // Root `styles.typography` and `styles.elements.heading` reference
+        // these families, so they name the roles whenever they are rendered.
+        $body = isset($familyWeights[$rootKey]) ? $rootKey : $heaviest($bodyWeights);
+        $heading = isset($familyWeights[$headingKey]) ? $headingKey : $heaviest($headingWeights);
         if (null === $body) $body = $heading;
         $families = array();
         $roles = array();
@@ -654,6 +734,43 @@ final class DesignSystem
         $family = (string) reset($heading['font_family']);
         if (1 === count($heading['font_family']) && '' !== $family && null !== $system->fontFamilySlug($family)) $elements['heading']['font_family'] = $family;
         return $elements;
+    }
+
+    /**
+     * Primary family key every heading on every document renders, or ''.
+     *
+     * @param array<string,array<string,mixed>> $usageBySource
+     */
+    private static function unanimousHeadingFamily(array $usageBySource): string
+    {
+        $keys = array();
+        foreach ($usageBySource as $usage) foreach ($usage['text'] ?? array() as $row) {
+            if ('heading' === ($row['role'] ?? null)) $keys[self::familyKey((string) ($row['font_family'] ?? ''))] = true;
+        }
+        return 1 === count($keys) ? (string) array_key_first($keys) : '';
+    }
+
+    /**
+     * A document's rendered text mass, the denominator of its shares.
+     *
+     * @param array<string,mixed> $usage
+     */
+    private static function documentMass(array $usage): int
+    {
+        $mass = (int) ($usage['total_mass'] ?? 0);
+        if ($mass <= 0) foreach ($usage['text'] ?? array() as $row) $mass += max(0, (int) ($row['weight'] ?? 0));
+        return max(1, $mass);
+    }
+
+    /**
+     * A usage weight as its share of the document, in DOCUMENT_WEIGHT units.
+     * Every document then weighs the same in total, so a route's say does
+     * not grow with how much text it has.
+     */
+    private static function documentShare(int $weight, int $documentMass): int
+    {
+        if ($weight <= 0) return 0;
+        return max(1, intdiv($weight * self::DOCUMENT_WEIGHT + intdiv($documentMass, 2), $documentMass));
     }
 
     private static function opaqueHex(mixed $value): ?string
