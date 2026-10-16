@@ -8,7 +8,8 @@ declare(strict_types=1);
  * the inline carrier must carry it too. Otherwise both labels render.
  *
  * Content hidden only by a frozen entrance (in flow, not positioned) is still
- * revealed, and the carrier does not start carrying authored partial opacity.
+ * revealed. Authored partial opacity has no block support, so it rides the
+ * same carrier as every other unsupported inline declaration (#2974).
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -59,7 +60,7 @@ foreach ( $entrance['assets'] ?? array() as $asset ) {
 $assert(! preg_match('/opacity:0\b/', (string) $entrance['serialized_blocks'] . $entranceCss), 'in-flow content hidden by a frozen entrance is still revealed', $entranceCss);
 
 $partial = $carrier('<div class="control"><div class="label"><p>Reply</p></div><div class="label-next" style="opacity:0.5"><p>Reply</p></div></div>', 'label-next');
-$assert(! str_contains($partial, 'opacity'), 'authored partial opacity is not newly carried', $partial);
+$assert(1 === preg_match('/(?:^|;)opacity:0\.5\b/', $partial), 'authored partial opacity is carried like any unsupported inline declaration', $partial);
 
 fwrite(STDOUT, sprintf("hidden positioned layer opacity: %d passed, %d failed\n", $passes, $failures));
 exit($failures > 0 ? 1 : 0);

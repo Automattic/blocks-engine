@@ -2465,23 +2465,7 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function carriedDeclarationValue(string $rawValue): string
     {
-        $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', trim($rawValue)) ?? $rawValue);
-        if ( '' === $value || preg_match('~[{}<>;]|/\*~', $value) ) {
-            return '';
-        }
-        if ( substr_count($value, '(') !== substr_count($value, ')') ) {
-            return '';
-        }
-        if ( 0 !== substr_count($value, '"') % 2 || 0 !== substr_count($value, "'") % 2 ) {
-            return '';
-        }
-        // An odd trailing run of backslashes escapes whatever follows the value,
-        // which in the emitted rule is the closing brace.
-        if ( 1 === preg_match('/(\\\\+)$/', $value, $trailing) && 0 !== strlen($trailing[1]) % 2 ) {
-            return '';
-        }
-
-        return $value;
+        return CssValueInspector::carriableDeclarationValue($rawValue);
     }
 
     /**

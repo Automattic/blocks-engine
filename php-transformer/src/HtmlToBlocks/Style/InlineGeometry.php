@@ -19,6 +19,8 @@ use DOMElement;
  */
 final class InlineGeometry
 {
+    private ?StyleAttributeMapper $styleAttributeMapper = null;
+
     /**
      * @param Closure(string): array<string, string> $cssDeclarations
      * @param Closure(DOMElement, array<string, string>): array<string, string> $stripFrozenHiddenState
@@ -425,19 +427,25 @@ final class InlineGeometry
         ) {
             $properties = array_merge($properties, $this->backgroundCarrierProperties());
         }
+        $unsupportedProperties = array_fill_keys($this->unsupportedInlineProperties($declarations), true);
+        $properties = array_merge($properties, array_keys($unsupportedProperties));
         $carried = array_values(array_unique(array_merge($properties, $forcedProperties)));
         foreach ($carried as $property) {
             if (in_array($property, $excludedProperties, true)) {
                 continue;
             }
             $rawValue = trim((string) ($declarations[$property] ?? ($forcedDeclarations[$property] ?? '')));
-            $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
+            $value = isset($unsupportedProperties[$property])
+                ? CssValueInspector::carriableDeclarationValue($rawValue)
+                : trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
             if (in_array($property, array( 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height' ), true)
                 && preg_match('/^(?:\d+|\d*\.\d+)$/', $value)
             ) {
                 $value .= 'px';
             }
-            if ( in_array($property, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true) ) {
+            if ( in_array($property, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true)
+                || ( isset($unsupportedProperties[$property]) && 1 === preg_match('/\burl\s*\(/i', $value) )
+            ) {
                 $value = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->context->resolvedAssetImageUrl($url));
             }
             if ('grid-template-columns' === $property) {
@@ -580,6 +588,52 @@ final class InlineGeometry
         $this->context->layoutGeometry()->registerRule($className, implode("\n", $rules));
 
         return $className;
+    }
+
+    /**
+     * Inline declarations that no block support stores and no dedicated
+     * carrier rule owns, e.g. `backdrop-filter`, `transform`, `filter`.
+     *
+     * A class rule's declaration that maps to no block support survives on
+     * the preserved className and the materialized author stylesheet. An
+     * inline declaration has no such rule, so the element's generated carrier
+     * restates it instead. Declarations a block support stores (background
+     * colour, border, typography, spacing, ...) stay on that support and are
+     * not duplicated here. Properties with their own carrier policy above
+     * (geometry, positioning, layout, list markers, background paint,
+     * text-align, custom properties) keep that policy.
+     *
+     * @param array<string, string> $declarations
+     * @return list<string>
+     */
+    private function unsupportedInlineProperties(array $declarations): array
+    {
+        if ( array() === $declarations ) {
+            return array();
+        }
+
+        $owned = array_fill_keys(array_merge(
+            $this->geometryProperties(),
+            $this->positioningCarrierProperties(),
+            $this->namedFragmentTargetProperties(),
+            $this->backgroundCarrierProperties(),
+            array( 'background-color', 'text-align', 'all' )
+        ), true);
+        $properties = array();
+        foreach ( array_keys($this->styleAttributeMapper()->map($declarations)['leftover']) as $property ) {
+            $property = (string) $property;
+            if ( isset($owned[ $property ]) || str_starts_with($property, '--') ) {
+                continue;
+            }
+            $properties[] = $property;
+        }
+
+        return $properties;
+    }
+
+    private function styleAttributeMapper(): StyleAttributeMapper
+    {
+        return $this->styleAttributeMapper ??= new StyleAttributeMapper();
     }
 
     /**

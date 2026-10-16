@@ -31,6 +31,8 @@ wp core install --url="$url" --title='Stylesheet activation proof' --admin_user=
 runtime_status=0
 wp eval 'require "/engine/tests/integration/stylesheet-activation.php";' || runtime_status=$?
 STYLESHEET_TEST_URL="$url" node "$root/tests/integration/stylesheet-activation-browser.mjs"
+wp eval 'require "/engine/tests/integration/inline-unsupported-declarations.php";'
+INLINE_CARRIER_TEST_URL="$url" node "$root/tests/integration/inline-unsupported-declarations-browser.mjs"
 wp eval 'require "/engine/tests/integration/navigation-inventory.php";'
 NAVIGATION_TEST_URL="$url" node "$root/tests/integration/navigation-inventory-browser.mjs"
 wp eval 'putenv("NAVIGATION_OPENER_TEST=1"); require "/engine/tests/integration/navigation-inventory.php";'
