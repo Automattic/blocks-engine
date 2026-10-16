@@ -108,9 +108,10 @@ $layoutItems = ( new ArtifactCompiler() )->compile(array(
         array( 'path' => 'styles.css', 'kind' => 'css', 'content' => '.hero-visual{display:grid;gap:2rem}.artifact-card{display:grid;grid-template-columns:1fr auto}.artifact-card > span:not(.card-label){grid-column:2}.artifact-card > strong{grid-column:1}.artifact-card .card-label{grid-column:1 / -1}' ),
     ),
 ) )->toArray();
+// A section target keeps the authored link; a skip to <main> is the template's.
 $positionedLink = ( new HtmlTransformer() )->transform(
     '<style>.skip-link{position:fixed;top:-200px;left:0;padding:12px 18px;background:#135e96;color:#fff;border-radius:999px}.skip-link:focus{top:0}</style>'
-        . '<a class="skip-link" href="#content">Skip to content</a><main id="content">Content</main>'
+        . '<a class="skip-link" href="#content">Skip to content</a><main><section id="content">Content</section></main>'
 )->toArray();
 $emptyFlex = ( new HtmlTransformer() )->transform(
     '<style>.utils{display:flex}.placeholder{visibility:hidden;height:80px}</style><div class="utils"><span>Action</span><div class="placeholder"></div></div>'
