@@ -186,6 +186,7 @@
       "php tests/unit/empty-visual-group-shell-transport.php",
       "php tests/unit/empty-paragraph-editor-parity.php",
       "php tests/unit/comment-text-run-boundaries.php",
+      "php tests/unit/label-comment-text-run-boundaries.php",
       "php tests/unit/important-display-author-layout.php",
       "php tests/unit/synthetic-figure-author-rules.php",
       "php tests/unit/visual-iframe-block.php",
