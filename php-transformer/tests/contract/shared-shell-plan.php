@@ -37,13 +37,16 @@ $documents = $pages($plan); $declaredWrites = $writes($plan);
 $header = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
 $diagnostics = array_column($plan['diagnostics'], 'code');
 
-$assert('header' === ($header['slug'] ?? null) && 1 === count(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && 'extracted' === ($header['provenance']['decision'] ?? null) && 'canonical' === ($header['provenance']['reason'] ?? null), 'One canonical header template part is generated with accepted extraction provenance for semantically equivalent source shells.');
+$assert('header' === ($header['slug'] ?? null) && 1 === count(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && 'extracted' === ($header['provenance']['decision'] ?? null) && 'route_edge' === ($header['provenance']['reason'] ?? null), 'One route-edge header template part is generated with accepted extraction provenance for semantically equivalent source shells.');
 $assert(!array_filter($plan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)), 'Differing document footers remain page-local rather than becoming an ambiguous shared part.');
 $assert(str_contains($header['canonical_block_markup'] ?? '', '{{wordpress-site-plan:navigation:' . $plan['menus'][0]['token'] . '}}') && str_contains($plan['menus'][0]['block_markup'], '"url":"/guides/about"') && str_contains($plan['menus'][0]['block_markup'], '"url":"/"'), 'The shared header references navigation whose route-relative destinations are canonicalized before shell identity comparison.');
 $assert(str_contains($header['canonical_block_markup'] ?? '', '"anchor":"site-chrome"') && str_contains($header['canonical_block_markup'] ?? '', 'site-header') && str_contains($header['canonical_block_markup'] ?? '', 'border'), 'Shared shell preserves its canonical landmark wrapper anchor, class, and style attributes.');
+$assert(str_contains($header['canonical_block_markup'] ?? '', 'Skip to content') && strpos($header['canonical_block_markup'], 'Skip to content') < strpos($header['canonical_block_markup'], '"anchor":"site-chrome"'), 'The shared header part holds the skip link ahead of the landmark, in source order.');
 foreach (array('index.html', 'guides/about.html', 'guides/team.html') as $source) {
     $markup = $documents[$source]['canonical_block_markup'] ?? '';
-    $assert(1 === substr_count($markup, '"tagName":"header"') && str_contains($markup, 'Skip to content') && str_contains($markup, 'article header') && str_contains($markup, 'article footer') && 2 === substr_count($markup, '"tagName":"footer"'), "{$source} removes only the shared header and retains skip links, article landmarks, and its footer: {$markup}");
+    // The skip link opens every route with the header, so it moves with it
+    // and still renders before the header.
+    $assert(1 === substr_count($markup, '"tagName":"header"') && !str_contains($markup, 'Skip to content') && str_contains($markup, 'article header') && str_contains($markup, 'article footer') && 2 === substr_count($markup, '"tagName":"footer"'), "{$source} removes the shared header with its skip link and retains article landmarks and its footer: {$markup}");
 }
 $assert(1 === substr_count($declaredWrites['templates/front-page.html']['payload']['data'], '"slug":"header"') && 1 === substr_count($declaredWrites['templates/page.html']['payload']['data'], '"slug":"header"') && 1 === substr_count($declaredWrites['templates/index.html']['payload']['data'], '"slug":"header"'), 'All base templates bind the shared header exactly once.');
 $assert(1 === substr_count($declaredWrites['templates/search.html']['payload']['data'] ?? '', '"slug":"header","area":"header"'), 'The search template binds the shared header wherever index is bound, so search results do not render headerless.');
@@ -198,7 +201,7 @@ $assert(str_contains($mixedWrites['templates/search.html']['payload']['data'] ??
 // edge holds both, so they become one part instead of page-local copies.
 $multipleHeaders = array_values(array_filter($multiple['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
 $multiplePages = $pages($multiple);
-$assert(1 === count($multipleHeaders) && str_contains((string) $multipleHeaders[0]['canonical_block_markup'], 'One') && str_contains((string) $multipleHeaders[0]['canonical_block_markup'], 'Two') && in_array('wordpress_site_plan_shell_edge_extracted', array_column($multiple['diagnostics'], 'code'), true), 'Several header landmarks that open every route form one shared header part.');
+$assert(1 === count($multipleHeaders) && str_contains((string) $multipleHeaders[0]['canonical_block_markup'], 'One') && str_contains((string) $multipleHeaders[0]['canonical_block_markup'], 'Two') && 'route_edge' === ($multipleHeaders[0]['provenance']['reason'] ?? null), 'Several header landmarks that open every route form one shared header part.');
 foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) $assert(!str_contains($multiplePages[$source]['canonical_block_markup'] ?? '', 'One') && str_contains($multiplePages[$source]['canonical_block_markup'] ?? '', $title), "{$source} drops both repeated header landmarks and keeps its content.");
 
 // Authored visibility belongs around each route's shared part reference, not
