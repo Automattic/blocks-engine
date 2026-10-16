@@ -1327,6 +1327,17 @@ final class NavigationStyleProjector
     {
         $values = array();
         foreach ( $anchors as $anchor ) {
+            if ( $this->navigationSourceAnchorHasSynthesizedItem($anchor) ) {
+                // Core wraps a list-less anchor in an li the source never had,
+                // so that item had no box to restore. Layout stays with core's
+                // own item rules; only the hoisted paint and box are reverted.
+                if ( $this->navigationPropertyIsItemLayout($property) ) {
+                    return null;
+                }
+                $values['revert'] = true;
+                continue;
+            }
+
             $item = $this->navigationSourceAnchorOwnListItem($anchor, $class, $property);
             if ( null === $item ) {
                 return null;
@@ -1409,6 +1420,40 @@ final class NavigationStyleProjector
         }
 
         return $node instanceof DOMElement ? $node : null;
+    }
+
+    /**
+     * Whether core/navigation synthesizes the anchor's rendered item: the
+     * anchor sits in no source list item, directly inside a container that
+     * clusters several anchors (`nav > a`, a disclosure panel's links). A
+     * per-item wrapper (`nav > span > a`) may have painted a real box, so it
+     * fails closed.
+     */
+    private function navigationSourceAnchorHasSynthesizedItem(DOMElement $anchor): bool
+    {
+        $container = $anchor->parentNode;
+        if ( ! $container instanceof DOMElement || in_array(strtolower($container->tagName), array( 'li', 'ul', 'ol', 'menu' ), true) ) {
+            return false;
+        }
+        for ( $ancestor = $container; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'li' === strtolower($ancestor->tagName) ) {
+                return false;
+            }
+        }
+
+        $siblingAnchors = 0;
+        foreach ( $container->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) ) {
+                ++$siblingAnchors;
+            }
+        }
+
+        return $siblingAnchors > 1;
+    }
+
+    private function navigationPropertyIsItemLayout(string $property): bool
+    {
+        return 1 === preg_match('/^(?:display|position|inset|top|right|bottom|left|float|order|gap|row-gap|column-gap|align-(?:items|self|content)|justify-(?:content|items|self)|place-(?:items|self|content)|flex(?:-.+)?)$/', $property);
     }
 
     /**
