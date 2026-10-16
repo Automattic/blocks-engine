@@ -172,6 +172,7 @@
       "php tests/unit/conditional-native-button.php",
       "php tests/unit/form-physical-box-ownership.php",
       "php tests/unit/choice-only-control-group.php",
+      "php tests/unit/html-markup-parser-linear.php",
       "php tests/unit/form-offscreen-submit-presenter.php",
       "php tests/unit/form-submit-caption-box.php",
       "php tests/unit/runtime-declarations-streaming-hash.php",
