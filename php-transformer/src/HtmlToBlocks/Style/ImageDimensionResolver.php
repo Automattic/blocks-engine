@@ -37,6 +37,12 @@ final class ImageDimensionResolver
         if ( '' !== $inline && ! in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
             return $this->imageDimensionValue($inline);
         }
+        if ( $this->styles->imageAxisVariesByViewport($image, $property) ) {
+            // A responsive rule resizes this axis: the projected stylesheet
+            // resolves it per viewport, and neither the desktop value nor the
+            // HTML attribute may be pinned inline over it.
+            return '';
+        }
         $stylesheet = $this->imageStylesheetDimension($image, $property);
         if ( '' !== $stylesheet ) {
             return $this->imageDimensionValue($stylesheet);
