@@ -114,6 +114,41 @@ Expected PNG paths are deterministic from page paths, for example `tmp/screensho
 
 The JSON report includes normalized config, source and target probe snapshots, and a deterministic comparison summary. Default probes cover button, link, nav/menu, and card-like candidates. Each match records text, href, bounding box, and computed styles for display, color, background color, border, border radius, padding, font size, and font weight.
 
+## Differential CSS corpus
+
+`differential/` generates small seeded pages, converts each one with the real PHP transformer, renders source and output in Chromium, and compares them element by element.
+
+```sh
+npm run differential                                   # seed 1, 200 cases
+npm run differential -- --seed 7 --count 50 --families cascade,layout
+npm run differential -- --pinned-only                  # pinned regression cases only
+npm run differential -- --out tmp/differential-cases   # write failing cases as HTML
+```
+
+Options: `--seed`, `--count`, `--families` (`selectors`, `cascade`, `layout`, `box-type`, `recognizers`), `--viewports` (default `390,1440`), `--compose-rate` (default `0.35`), `--case <ids>`, `--pinned`, `--pinned-only`, `--report` (default `tmp/differential-report.json`), `--out <dir>`, and `--quiet`. The run prints a JSON summary and exits 0 whatever the cases find. It exits non-zero only when the harness fails (bad options, PHP or Chromium unavailable).
+
+How it works:
+
+- `random.mjs` provides the seeded PRNG. A case depends only on the seed and its index.
+- `grammar.mjs` is the shared case grammar: element budget (at most 15 elements per case), stable marker ids `dx<n>`, text markers, mixed-case custom properties, value and unit pools, and `@media` / `@layer` wrapping.
+- `families/*.mjs` hold one generator per family. Each exports `{ name, features, generate(builder, budget) }` and tags the case `family` and `family:feature`. A case uses one family, or two composed families with their tags merged.
+- `transform-worker.php` is one long-lived PHP process that speaks NDJSON on stdin/stdout. `transformer.mjs` drives it.
+- `render.mjs` uses one Chromium instance and two reused pages. Elements are matched by id, which the transformer keeps as the block anchor. When the id moved to a wrapper, matching uses the same-tag element inside it, then the text marker, then the decoded image `src`. Computed styles and boxes are compared at each viewport.
+- `pinned.mjs` holds minimal pages for fixed bugs: #1914 (`:where()` specificity), #2183 (custom property case), #1837 (custom property declared in `@media`) and #1941 (grid automatic minimum size). `tests/differential-corpus.mjs` asserts they pass, and runs in `npm test`.
+
+The report (schema `blocks-engine/php-transformer/differential-report/v1`) has:
+
+- `seed` and `options`.
+- `summary`.
+- `cases`: id, family, tags, pass, per-viewport per-element per-property `diffs`, `missing` elements, `failing_features`, and informational `editability` metrics (raw HTML blocks, empty wrappers, max nesting depth, generated geometry classes).
+- `failures_by_tag_set`: failures grouped by the case's coarse tag set.
+- `failures_by_feature_set`: failures grouped by the features behind the differing elements. These are the features that created the elements or own rules matching them or an ancestor.
+- `failures_by_tag`: per-tag failure rates.
+
+Each group names its smallest failing case. With the same seed and options the report is byte-identical.
+
+To promote a failure, take `<out>/<case>.html`, which is the standalone source page with its diffs in a header comment, reduce it, and add a focused test under `tests/`. `<case>.converted.html` holds the transformer output for comparison. To add a feature, add a builder to a family and list its name in `features`.
+
 ## Smoke Test
 
 ```sh
