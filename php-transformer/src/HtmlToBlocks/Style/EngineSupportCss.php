@@ -368,9 +368,11 @@ final class EngineSupportCss
             // Native wrappers retain auto table tracks, including min-content
             // overflow and shared multi-row sizing. These are generated-markup
             // repairs, scoped solely to positively classified layout tables.
-            $parts[] = '.wp-block-columns:where(.blocks-engine-layout-table-table),.wp-block-group:where(.blocks-engine-layout-table-table){display:table;margin:0}'
+            // `:root` outranks Core's global layout display (`body .is-layout-flex`),
+            // which the native Columns row always carries.
+            $parts[] = ':root .wp-block-columns:where(.blocks-engine-layout-table-table),:root .wp-block-group:where(.blocks-engine-layout-table-table){display:table;margin:0}'
                 . "\n" . ':where(.blocks-engine-layout-table-table){border-collapse:separate;border-spacing:2px}'
-                . "\n" . '.wp-block-columns:where(.blocks-engine-layout-table-row){display:table-row;margin:0}'
+                . "\n" . ':root .wp-block-columns:where(.blocks-engine-layout-table-row){display:table-row;margin:0}'
                 . "\n" . '.blocks-engine-layout-table-cell{display:table-cell;box-sizing:content-box;word-break:normal;overflow-wrap:normal}'
                 . "\n" . ':where(.blocks-engine-layout-table-cell){vertical-align:middle;padding:1px}'
                 . "\n" . ':root .blocks-engine-layout-table-cell .blocks-engine-synthetic-image-figure-inline{display:contents;margin:0}'
