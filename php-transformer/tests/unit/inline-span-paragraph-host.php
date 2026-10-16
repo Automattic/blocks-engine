@@ -104,13 +104,12 @@ $paddedTextMarkup = (string) ( $paddedText['serialized_blocks'] ?? '' );
 $paddedTextCss    = $cssOf($paddedText);
 
 $assert(
-    str_contains($paddedTextMarkup, 'blocks-engine-synthetic-paragraph')
-        && str_contains($paddedTextMarkup, 'PLAN 1 (0-3s)'),
-    'a childless padded text wrapper keeps the synthetic paragraph margin reset',
+    str_contains($paddedTextMarkup, '<p class="copy blocks-engine-lowered-paragraph">PLAN 1 (0-3s)</p>'),
+    'a childless padded text wrapper is one lowered paragraph that keeps its padded box',
     $paddedTextMarkup
 );
 $assert(
-    str_contains($paddedTextCss, ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}'),
+    str_contains($paddedTextCss, ':root :where(p.blocks-engine-lowered-paragraph){margin-block-start:0;margin-block-end:0}'),
     'engine-support CSS still zeros the introduced paragraph host margins',
     $paddedTextCss
 );
