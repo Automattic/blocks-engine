@@ -84,6 +84,8 @@ final class DesignSystem
     public const COLOR_TOLERANCE = CssColor::JUST_NOTICEABLE_DIFFERENCE;
     public const FONT_SIZE_TOLERANCE_PX = 0.5;
     public const SPACING_TOLERANCE_PX = 0.01;
+    /** Float slack for lengths that are equal: binding never changes a rendered length. */
+    private const EXACT_PX = 0.001;
     /**
      * ΔE*ab within which a low-weight colour cluster merges into, and binds
      * to, a heavier one: the imperceptible bound (see the class comment).
@@ -207,27 +209,16 @@ final class DesignSystem
     }
 
     /**
-     * Slug of the palette colour a value renders as, or null: the token
-     * within tolerance of the value, else the token that absorbed a shade
-     * within tolerance of it (see the class comment).
+     * Slug of the palette colour a value renders as, or null. Binding must
+     * not change what renders, so only a token whose own value is the same
+     * 8-bit colour binds. Nearby shades the palette grouped under a token
+     * keep their literal until they are the token's exact value.
      */
     public function colorSlug(string $value): ?string
     {
         if (!CssColor::opaque($value)) return null;
-        foreach (array('color', 'members') as $field) {
-            $best = null;
-            $bestDistance = INF;
-            foreach ($this->colors as $color) {
-                foreach ((array) $color[$field] as $candidate) {
-                    $distance = CssColor::distance($value, $candidate);
-                    if (null !== $distance && $distance <= self::COLOR_TOLERANCE && $distance < $bestDistance) {
-                        $best = $color['slug'];
-                        $bestDistance = $distance;
-                    }
-                }
-            }
-            if (null !== $best) return $best;
-        }
+        $hex = CssColor::hex($value);
+        foreach ($this->colors as $color) if ($hex === CssColor::hex($color['color'])) return $color['slug'];
         return null;
     }
 
@@ -264,12 +255,12 @@ final class DesignSystem
         return $absorbed;
     }
 
-    /** Slug of the font size within tolerance of an absolute length, or null. */
+    /** Slug of the font size that renders an absolute length exactly, or null. */
     public function fontSizeSlug(string $value): ?string
     {
         $px = CssLength::toPx($value, $this->rootPx);
         if (null === $px || $px <= 0) return null;
-        foreach ($this->fontSizes as $size) if (abs($size['px'] - $px) <= self::FONT_SIZE_TOLERANCE_PX) return $size['slug'];
+        foreach ($this->fontSizes as $size) if (abs($size['px'] - $px) <= self::EXACT_PX) return $size['slug'];
         return null;
     }
 

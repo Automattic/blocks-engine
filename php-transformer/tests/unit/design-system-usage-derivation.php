@@ -111,7 +111,7 @@ $system = DesignSystem::fromUsage(array(
 ));
 $colors = array_column($system?->colors ?? array(), 'color', 'slug');
 $assert(array('base' => '#ffffff', 'contrast' => '#222222', 'primary' => '#e11d48') === $colors, 'near-duplicate colours within one just-noticeable difference merge into the heaviest member');
-$assert('contrast' === $system?->colorSlug('#232323') && 'base' === $system?->colorSlug('#fefefe') && null === $system?->colorSlug('#2a2a2a') && null === $system?->colorSlug('rgba(34,34,34,.5)'), 'token matching uses the documented tolerance and skips translucent colours');
+$assert('contrast' === $system?->colorSlug('#222') && 'base' === $system?->colorSlug('rgb(255,255,255)') && null === $system?->colorSlug('#232323') && null === $system?->colorSlug('#fefefe') && null === $system?->colorSlug('rgba(34,34,34,.5)'), 'only a token\'s exact colour binds, so binding never changes what renders; merged shades and translucent colours keep their literal');
 $many = array();
 for ($i = 0; $i < 20; $i++) $many[] = $row(sprintf('#%02x%02x%02x', 20 + $i * 11, 200 - $i * 9, ($i * 37) % 256), 20 - $i);
 $capped = DesignSystem::fromUsage(array('a.html' => $usage($many)));
@@ -120,7 +120,7 @@ $sizes = array();
 foreach (array(12, 14, 16, 16.2, 18, 20, 24, 30, 36, 48, 60, 72) as $index => $size) $sizes[] = $row('#111111', 100 - $index, 'body', $size);
 $scale = DesignSystem::fromUsage(array('a.html' => $usage($sizes)));
 $scaleSlugs = array_column($scale?->fontSizes ?? array(), 'slug');
-$assert(8 === count($scaleSlugs) && 'medium' === ($scale?->fontSizeSlug('16.2px')) && in_array('small', $scaleSlugs, true) && in_array('large', $scaleSlugs, true), 'font sizes within half a pixel merge and the scale is capped at eight steps');
+$assert(8 === count($scaleSlugs) && 'medium' === ($scale?->fontSizeSlug('16px')) && null === ($scale?->fontSizeSlug('16.2px')) && in_array('small', $scaleSlugs, true) && in_array('large', $scaleSlugs, true), 'font sizes within half a pixel merge, only the preset\'s own size binds, and the scale is capped at eight steps');
 $first = DesignSystem::fromUsage(array('a.html' => $usage(array($row('#111111', 5))), 'b.html' => $usage(array($row('#0369a1', 5, 'link'))))) ?->report();
 $second = DesignSystem::fromUsage(array('b.html' => $usage(array($row('#0369a1', 5, 'link'))), 'a.html' => $usage(array($row('#111111', 5))))) ?->report();
 $assert(null !== $first && $first === $second, 'document order cannot change the derived system');
@@ -155,7 +155,7 @@ $refused = array(
     'the value is not a token' => array(array('classes' => 'text-rose', 'properties' => array('color' => array('#00ff00')))),
 );
 foreach ($refused as $why => $rows) $assert($plain === (new PresetBinding($bindSystem, array(), $classUsage($rows)))->bind($plain), "class-driven colour is not bound when $why");
-$sameToken = (new PresetBinding($bindSystem, array(), $classUsage(array(array('classes' => 'text-rose', 'properties' => array('color' => array('#e11d48;#e21d48')))))))->bind($plain);
+$sameToken = (new PresetBinding($bindSystem, array(), $classUsage(array(array('classes' => 'text-rose', 'properties' => array('color' => array('#e11d48;#e11d48')))))))->bind($plain);
 $assert(str_contains($sameToken, '"textColor":"' . $slug . '"'), 'a breakpoint value that matches the same token does not block binding');
 $roseUsage = $classUsage(array(array('classes' => 'text-rose', 'properties' => array('color' => array('#e11d48')))));
 foreach (array(
@@ -182,7 +182,7 @@ $assert(2 === count($keptCta), 'a call-to-action background is never folded away
 $foldedBackgrounds = array(array('role' => 'root', 'color' => '#050b18', 'authored' => '#050b18', 'count' => 1, 'weight' => 900), array('role' => 'section', 'color' => '#08101f', 'authored' => '#08101f', 'count' => 1, 'weight' => 20), array('role' => 'section', 'color' => '#0a1630', 'authored' => '#0a1630', 'count' => 1, 'weight' => 20));
 $paletteWith = DesignSystem::fromUsage(array('a.html' => $usage(array($row('#e5e7eb', 600)), $foldedBackgrounds)));
 $assert(array('#050b18', '#e5e7eb', '#0a1630') === array_column($paletteWith?->colors ?? array(), 'color'), 'the derived palette omits the folded shade and keeps the distant one (' . json_encode(array_column($paletteWith?->colors ?? array(), 'color')) . ')');
-$assert('base' === $paletteWith?->colorSlug('#08101f') && 'base' === $paletteWith?->colorSlug('#08101e') && 'base' !== $paletteWith?->colorSlug('#0a1630') && null !== $paletteWith?->colorSlug('#0a1630'), 'every colour the palette represents binds: a folded shade binds to the token that absorbed it, a distant one to its own');
+$assert(null === $paletteWith?->colorSlug('#08101f') && 'base' === $paletteWith?->colorSlug('#050b18') && null !== $paletteWith?->colorSlug('#0a1630') && 'base' !== $paletteWith?->colorSlug('#0a1630'), 'a folded shade keeps its literal, since binding it would change what renders; a distant colour binds to its own token');
 $assert(array('#08101f') === ($paletteWith?->report()['palette'][0]['absorbs'] ?? null) && 5.0 === ($paletteWith?->report()['tolerances']['color_consolidation_delta_e76'] ?? null), 'the report names the shades a token absorbs and the imperceptible bound');
 $assert((CssColor::distance('#08101f', '#050b18') ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE && (CssColor::distance('#0a1630', '#050b18') ?? 0.0) > DesignSystem::COLOR_CONSOLIDATION_DISTANCE, 'the fixture shades sit on either side of the bound');
 
@@ -196,7 +196,7 @@ $assert('var:preset|color|contrast' === ($withSystem['theme']['styles']['color']
 // literal as fallback, so links, navigation items and states follow it too.
 $sheet = static fn(string $css, array $assets = array()): string => (new PresetBinding($bindSystem, array_merge($assets, array(array('kind' => 'css', 'content' => $css)))))->bindStylesheet($css);
 $assert('.a{color:var(--wp--preset--color--' . $slug . ',#e11d48)}.a:hover{background-color:var(--wp--preset--color--contrast,#111111)!important}' === $sheet('.a{color:#e11d48}.a:hover{background-color:#111111!important}'), 'stylesheet colours and states bind to the token variable with the literal as fallback, keeping !important');
-$assert('@media (min-width:40rem){.a{color:var(--wp--preset--color--' . $slug . ',#e21d48)}}' === $sheet('@media (min-width:40rem){.a{color:#e21d48}}'), 'a colour within tolerance binds inside a media query');
+$assert('@media (min-width:40rem){.a{color:var(--wp--preset--color--' . $slug . ',#e11d48)}}' === $sheet('@media (min-width:40rem){.a{color:#e11d48}}') && '.a{color:#e21d48}' === $sheet('.a{color:#e21d48}'), 'a token colour binds inside a media query, and a near shade keeps its bytes');
 $assert('.a{color:#00ff00;border-color:#111111;font-size:23px}' === $sheet('.a{color:#00ff00;border-color:#111111;font-size:23px}'), 'values that are not tokens, and properties outside colour, background, size and family, keep their bytes');
 $assert('.a{font-size:var(--wp--preset--font-size--large,1.5rem)}' === $sheet('.a{font-size:1.5rem}'), 'a font size equal to a preset length binds');
 $assert('.a{font-size:24.4px}' === $sheet('.a{font-size:24.4px}'), 'a font size within tolerance but not equal stays, so no layout moves');
@@ -246,7 +246,9 @@ foreach ($plans as $fixture => [$plan, $theme]) {
     $assert(!isset($styles['color']['background']) || 'var:preset|color|base' === $styles['color']['background'], "$fixture: root background is the base role");
     $assert(!isset($styles['elements']['heading']['typography']['fontFamily']) || 'var:preset|font-family|heading' === $styles['elements']['heading']['typography']['fontFamily'], "$fixture: heading family is the heading role");
     $coverage = $plan['theme']['design_system']['metrics']['restyle_coverage'] ?? null;
-    $assert(is_float($coverage) && $coverage >= 0.8 && $coverage <= 1.0, "$fixture: at least 80% of rendered colours come from presets (" . json_encode($coverage) . ')');
+    // Exact binding keeps every rendered value; shades the palette merged
+    // keep their literal, which bounds coverage until they get own tokens.
+    $assert(is_float($coverage) && $coverage >= 0.7 && $coverage <= 1.0, "$fixture: at least 70% of rendered colours come from presets (" . json_encode($coverage) . ')');
 }
 
 // Headings in a display webfont over a system-stack body and interface:

@@ -602,12 +602,12 @@ final class PresetBinding
      * the block does not carry. The declaration keeps its selector, its
      * place in the cascade and its `!important`, so the only thing that
      * changes is where the value comes from: it renders the token's value,
-     * which is the literal within tolerance, until a site owner edits the
-     * token in Global Styles.
+     * which is the literal itself, until a site owner edits the token in
+     * Global Styles.
      *
      * - A colour (`color`, `background-color`, a lone-colour `background`,
-     *   or a custom property whose whole value is a colour) binds within
-     *   the palette tolerance. A `var()` in it must resolve the same way as
+     *   or a custom property whose whole value is a colour) binds when it is
+     *   a token's exact colour. A `var()` in it must resolve the same way as
      *   for a block literal.
      * - A font size binds only when it is the preset's own length, and a
      *   font family only when it is the preset's own stack, so no fallback
