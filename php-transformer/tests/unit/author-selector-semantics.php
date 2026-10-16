@@ -1067,12 +1067,18 @@ $assert(1 === substr_count((string) ($namedFlex['serialized_blocks'] ?? ''), '<!
 
 $boxedTextWrapper = $transform('<style>@layer utilities{.footer-note{margin-top:calc(var(--spacing) * 12);padding-top:calc(var(--spacing) * 6);border-top-style:solid;border-top-width:1px}}</style><footer><div class="footer-note">Footer text</div></footer>');
 $boxedTextWrapperMarkup = (string) ($boxedTextWrapper['serialized_blocks'] ?? '');
+$boxedTextWrapperCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $boxedTextWrapper['assets'] ?? array()));
 $assert(
-    str_contains($boxedTextWrapperMarkup, '<div class="wp-block-group footer-note">')
-        && str_contains($boxedTextWrapperMarkup, '<p>Footer text</p>')
-        && ! str_contains($boxedTextWrapperMarkup, '<p class="footer-note"'),
-    'box-styled div text wrappers retain a native group so source spacing and border utilities do not lose to synthetic paragraph resets',
+    str_contains($boxedTextWrapperMarkup, '<p class="footer-note blocks-engine-lowered-paragraph">Footer text</p>')
+        && ! str_contains($boxedTextWrapperMarkup, 'wp-block-group footer-note'),
+    'a box-styled div text wrapper is one paragraph box, not a group plus an added paragraph',
     $boxedTextWrapperMarkup
+);
+$assert(
+    str_contains($boxedTextWrapperCss, '@layer blocks-engine-reset{:root :where(p.blocks-engine-lowered-paragraph){margin-block-start:0;margin-block-end:0}}')
+        && str_contains($boxedTextWrapperCss, '@layer blocks-engine-reset,utilities;'),
+    'the lowered-paragraph margin reset sits in the engine reset layer, below layered author spacing utilities',
+    $boxedTextWrapperCss
 );
 
 if ( $failures > 0 ) {
