@@ -28,6 +28,7 @@
     "psr-4": {
       "Automattic\\BlocksEngine\\PhpTransformer\\Tests\\": "tests/",
       "Automattic\\BlocksEngine\\PhpTransformer\\CorpusDiagnostics\\": "dev/CorpusDiagnostics/",
+      "Automattic\\BlocksEngine\\PhpTransformer\\Topology\\": "dev/Topology/",
       "Automattic\\BlocksEngine\\PhpTransformer\\VisualParity\\": "dev/VisualParity/"
     }
   },
@@ -59,6 +60,7 @@
     "benchmark:selector-cache": "php tools/benchmarks/css-selector-match-cache.php",
     "benchmark:staged-page-compilation": "php tools/benchmarks/staged-page-compilation-production.php",
     "corpus-diagnostics": "php tools/corpus-diagnostics/run.php",
+    "topology-diff": "php -d memory_limit=3G tools/topology-diff/run.php",
     "shared-chrome-corpus": "php -d memory_limit=2G tools/shared-chrome-corpus/run.php",
     "content-round-trip": "php tools/content-round-trip/run.php",
     "test": [
@@ -464,6 +466,7 @@
       "php tests/unit/button-wrapper-fill-selector-list.php",
       "php tests/unit/button-grid-item-placement.php",
       "php tests/unit/corpus-detectors.php",
+      "php tests/unit/element-tree-diff.php",
       "php tests/unit/live-wp-parity-runner.php",
       "php tests/unit/shared-chrome-corpus.php",
       "php tests/unit/deterministic-row-deduplicator.php",
