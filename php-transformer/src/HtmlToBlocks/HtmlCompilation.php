@@ -487,6 +487,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
     private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
+    private const ENGINE_RESET_LAYER = 'blocks-engine-reset';
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
@@ -2413,7 +2414,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $beforeAuthorCssParts[] = $markerReset;
         }
         $engineSupportCss = new EngineSupportCss();
-        array_push($beforeAuthorCssParts, ...$engineSupportCss->beforeAuthorCss($serializedBlocks, $this->generatedBlocks()->blockName('layout-shell')));
+        $engineResetParts = $engineSupportCss->beforeAuthorCss($serializedBlocks, $this->generatedBlocks()->blockName('layout-shell'));
+        $engineResetStart = count($beforeAuthorCssParts);
+        array_push($beforeAuthorCssParts, ...$engineResetParts);
         // Precedence for everything below is declared on each contribution's
         // CascadeLayer (see CascadeLayer), not by the order these calls
         // appear in. $afterAuthorCss orders the collected stylesheet by that
@@ -2469,7 +2472,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // Artifact compilation has the canonical import graph. Its authoritative
         // empty statement means anonymous source positions cannot be predeclared.
         $authorLayerOrder = $sourceLayerOrder ?? ( new AuthorCascadeLayerOrder() )->statement($settleableAuthorCss);
+        // Layered author rules lose to unlayered ones whatever their specificity,
+        // so once the author uses layers the engine resets join a layer registered
+        // ahead of every author layer. `!important` parts stay unlayered: there
+        // the first layer would win and override authored !important rules. When
+        // the statement is '' (anonymous author layers) nothing is wrapped, since
+        // naming an engine layer could shift anonymous layer positions.
         if ( '' !== $authorLayerOrder ) {
+            foreach ( $engineResetParts as $offset => $part ) {
+                if ( ! str_contains($part, '!important') ) {
+                    $beforeAuthorCssParts[$engineResetStart + $offset] = '@layer ' . self::ENGINE_RESET_LAYER . '{' . $part . '}';
+                }
+            }
+            $authorLayerOrder = '@layer ' . self::ENGINE_RESET_LAYER . ',' . substr($authorLayerOrder, strlen('@layer '));
             array_unshift($beforeAuthorCssParts, $authorLayerOrder);
         }
         $this->stylesheetAssetStage->materialize(
