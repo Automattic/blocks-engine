@@ -158,6 +158,15 @@ foreach ($refused as $why => $rows) $assert($plain === (new PresetBinding($bindS
 $sameToken = (new PresetBinding($bindSystem, array(), $classUsage(array(array('classes' => 'text-rose', 'properties' => array('color' => array('#e11d48;#e11d48')))))))->bind($plain);
 $assert(str_contains($sameToken, '"textColor":"' . $slug . '"'), 'a breakpoint value that matches the same token does not block binding');
 $roseUsage = $classUsage(array(array('classes' => 'text-rose', 'properties' => array('color' => array('#e11d48')))));
+// Core pads `.has-background` paragraphs, headings, lists and columns, so a
+// class-driven background binds there only when the source sets that padding.
+$bgRows = static fn(array $padding): array => array(array('classes' => 'bg-rose', 'properties' => array('background-color' => array('#e11d48')) + $padding));
+$bgParagraph = '<!-- wp:paragraph {"className":"bg-rose"} --><p class="bg-rose">1</p><!-- /wp:paragraph -->';
+$assert($bgParagraph === (new PresetBinding($bindSystem, array(), $classUsage($bgRows(array()))))->bind($bgParagraph), 'a class-driven background is not bound where has-background would add core padding');
+$sourcePadded = $bgRows(array('padding-top' => array('0px'), 'padding-right' => array('8px'), 'padding-bottom' => array('0px'), 'padding-left' => array('8px')));
+$assert(str_contains((new PresetBinding($bindSystem, array(), $classUsage($sourcePadded)))->bind($bgParagraph), '"backgroundColor":"' . $slug . '"'), 'a class-driven background binds when the source sets every padding side');
+$bgGroup = '<!-- wp:group {"className":"bg-rose"} --><div class="wp-block-group bg-rose"></div><!-- /wp:group -->';
+$assert(str_contains((new PresetBinding($bindSystem, array(), $classUsage($bgRows(array()))))->bind($bgGroup), '"backgroundColor":"' . $slug . '"'), 'a class-driven background binds on a block core does not pad');
 foreach (array(
     'an !important rule reaches the block' => '.text-rose{color:#e11d48!important}',
     'a hover rule restyles it' => '.text-rose:hover{color:#111}',
@@ -307,6 +316,7 @@ $assert('<!-- wp:button {"className":"text-rose","textColor":"' . $slug . '"} --
 
 // Values binding refuses are reported by reason.
 $refusalsOf = static fn(array $markups, array $assets = array(), array $rows = array()): array => array_filter((new PresetBinding($bindSystem, $assets, $classUsage($rows)))->refusals($markups));
+$assert(array('background_padding' => 1) === $refusalsOf(array($bgParagraph), array(), $bgRows(array())), 'the core padding refusal is counted as background_padding');
 $para = static fn(string $attributes, string $style): string => '<!-- wp:paragraph ' . $attributes . ' --><p class="has-text-color" style="' . $style . '">Hi</p><!-- /wp:paragraph -->';
 $assert(array('no_matching_token' => 1) === $refusalsOf(array($para('{"style":{"color":{"text":"#00ff00"}}}', 'color:#00ff00'))), 'a colour no token represents is refused as no_matching_token');
 $assert(array('alpha' => 1) === $refusalsOf(array($para('{"style":{"color":{"text":"rgba(225,29,72,0.5)"}}}', 'color:rgba(225,29,72,0.5)'))), 'a translucent block colour is refused as alpha');

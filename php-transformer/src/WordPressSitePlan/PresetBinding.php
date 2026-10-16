@@ -126,9 +126,19 @@ final class PresetBinding
      *   not serialized from the block attributes;
      * - `style_selector`: a stylesheet reads the inline style text;
      * - `unresolved_value`: a `var()` that does not resolve to one colour,
-     *   a gradient or another value that is not a plain colour.
+     *   a gradient or another value that is not a plain colour;
+     * - `background_padding`: a class-driven background would add
+     *   `has-background` to a block whose core style pads that class
+     *   (see BACKGROUND_PADDED_BLOCKS), and the source does not set the
+     *   padding the core rule would replace.
      */
-    public const REFUSAL_REASONS = array('no_matching_token', 'alpha', 'important', 'state_variant', 'breakpoint_variant', 'unsupported_block', 'inline_format_unsupported', 'inconsistent_source', 'style_selector', 'unresolved_value');
+    public const REFUSAL_REASONS = array('no_matching_token', 'alpha', 'important', 'state_variant', 'breakpoint_variant', 'unsupported_block', 'inline_format_unsupported', 'inconsistent_source', 'style_selector', 'unresolved_value', 'background_padding');
+
+    /**
+     * Blocks whose core style pads `.has-background` (`1.25em 2.375em` in
+     * block-library: paragraph, heading, list, columns).
+     */
+    private const BACKGROUND_PADDED_BLOCKS = array('paragraph', 'heading', 'list', 'columns');
 
     /** Refusal reasons for the `!` observations DesignUsageCollector records. */
     private const OBSERVATION_REASONS = array('!' => 'inconsistent_source', '!important' => 'important', '!alpha' => 'alpha', '!state' => 'state_variant', '!breakpoint' => 'breakpoint_variant', '!value' => 'unresolved_value');
@@ -503,6 +513,10 @@ final class PresetBinding
                 $this->refuse($reason);
                 continue;
             }
+            if ('background' === $key && !is_string($literal) && !$this->keepsPaddingWithBackground($name, $classes, $declarations, $observed)) {
+                $this->refuse('background_padding');
+                continue;
+            }
             if (is_string($literal)) {
                 if (!self::removeDeclaration($declarations, $property, $literal)) {
                     $this->refuse('inconsistent_source');
@@ -820,6 +834,24 @@ final class PresetBinding
      * @param array<string,true> $tokens
      * @param list<string> $addedClasses
      */
+    /**
+     * Whether adding `has-background` keeps the block's padding: the block
+     * already has the class, its core style does not pad it, or every side
+     * is set by an inline declaration or an author rule for its class list.
+     *
+     * @param list<array{0:string,1:string}> $declarations
+     * @param array<string,string> $observed
+     */
+    private function keepsPaddingWithBackground(string $name, string $classes, array $declarations, array $observed): bool
+    {
+        if (!in_array($name, self::BACKGROUND_PADDED_BLOCKS, true) || in_array('has-background', preg_split('/\s+/', $classes) ?: array(), true)) return true;
+        foreach (self::SPACING_SIDES as $side) {
+            $inline = array() !== array_filter($declarations, static fn(array $declaration): bool => in_array($declaration[0], array('padding', 'padding-' . $side), true));
+            if (!$inline && '' === ($observed['padding-' . $side] ?? '')) return false;
+        }
+        return true;
+    }
+
     private function safe(string $property, array $tokens, array $addedClasses, bool $staysInline = false, bool $addsDeclaration = false, ?string &$reason = null): bool
     {
         $finalClasses = $tokens;
