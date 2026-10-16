@@ -440,7 +440,12 @@ PHP;
         // A page made later in WordPress renders in the generic page template but
         // owns no stylesheet. The page that authored the frame lends its own as
         // the fallback that routes without styles of their own already use.
-        if (isset($shellFrames['frames']['page']) && is_string($shellFrames['generic_source'])) foreach ($assets as &$asset) if ('css' === ($asset['kind'] ?? null) && array() !== array_filter($asset['scopes'] ?? array(), static fn(array $scope): bool => 'page' === ($scope['kind'] ?? null) && ($scope['source_path'] ?? null) === $shellFrames['generic_source'])) $asset['frame_fallback'] = true; unset($asset);
+        // An entry shell renders on every native template, so its page lends
+        // the stylesheets that dress that chrome in the same way.
+        $fallbackSources = array();
+        if (isset($shellFrames['frames']['page']) && is_string($shellFrames['generic_source'])) $fallbackSources[$shellFrames['generic_source']] = true;
+        foreach ($parts as $part) if ('entry_shell' === ($part['placement']['kind'] ?? null)) $fallbackSources[substr((string) $part['source_path'], 0, (int) strrpos((string) $part['source_path'], '#'))] = true;
+        if (array() !== $fallbackSources) foreach ($assets as &$asset) if ('css' === ($asset['kind'] ?? null) && array() !== array_filter($asset['scopes'] ?? array(), static fn(array $scope): bool => 'page' === ($scope['kind'] ?? null) && isset($fallbackSources[$scope['source_path'] ?? '']))) $asset['frame_fallback'] = true; unset($asset);
         $assets = self::projectDetachedChromePaintOrder($assets, $parts, $pages);
         $assets = self::orderPageStylesheetProjections($assets);
         $assets = self::placeSharedStylesheetProjections($assets, $pages);
@@ -4834,6 +4839,22 @@ PHP;
         return 'document_not_emitted' === $reason
             ? 'A runtime entity binding names a document the plan does not emit; the binding was dropped.'
             : 'A runtime entity binding names a block the page does not emit; the binding was dropped and the block stays static.';
+    }
+
+    /**
+     * @internal Exposed for ShellExtraction. Shell markup rendered beyond its
+     * source route points same-page fragment links at that route, unless the
+     * target is inside the shell itself.
+     */
+    public function qualifyShellFragments(string $content, string $origin): string
+    {
+        $route = $this->routeSources[$origin] ?? null;
+        if (null === $route) return $content;
+        $ids = array();
+        if (preg_match_all('/\bid\s*=\s*\\\\?["\']([^"\'\\\\]+)|"anchor"\s*:\s*"([^"\\\\]+)"/i', $content, $matches)) $ids = array_flip(array_filter(array_merge($matches[1], $matches[2])));
+        $qualify = static fn(array $match): string => isset($ids[$match[2]]) ? $match[0] : $match[1] . $route . '#' . $match[2] . $match[3];
+        // HTML attributes, escaped attributes inside JSON block comments, and JSON url attributes.
+        return preg_replace_callback('/(\b(?:href|data-[a-z0-9_-]*url)\s*=\s*\\\\?["\']|"url"\s*:\s*")#([A-Za-z][\w:.-]*)(\\\\?["\'])/i', $qualify, $content) ?? $content;
     }
 
     /** @internal Exposed for ShellExtraction, which canonicalizes shell-candidate links through the same route table as page content. @param array<int,array<string,mixed>> $routes */
