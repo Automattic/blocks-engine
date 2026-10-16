@@ -293,6 +293,12 @@ $elements = $elementTheme['styles']['elements'] ?? array();
 $assert($preset('#0f766e') === ($elements['link']['color']['text'] ?? null) && $preset('#134e4a') === ($elements['link'][':hover']['color']['text'] ?? null), 'element-styles: link colour and hover colour are palette references (' . json_encode($elements['link'] ?? null) . ')');
 $assert($preset('#ffffff') === ($elements['button']['color']['text'] ?? null) && $preset('#0f766e') === ($elements['button']['color']['background'] ?? null) && $preset('#134e4a') === ($elements['button'][':hover']['color']['background'] ?? null) && '600' === ($elements['button']['typography']['fontWeight'] ?? null), 'element-styles: button colours, hover background and weight project (' . json_encode($elements['button'] ?? null) . ')');
 $assert($preset('#134e4a') === ($elements['heading']['color']['text'] ?? null) && 'var:preset|font-family|heading' === ($elements['heading']['typography']['fontFamily'] ?? null) && '700' === ($elements['heading']['typography']['fontWeight'] ?? null), 'element-styles: heading colour, family and weight project (' . json_encode($elements['heading'] ?? null) . ')');
+// An element style outranks author element rules (`:root :where(h1)`), so a
+// usage-derived value never fills a property an author stylesheet sets to
+// another value: here a selectable `light` set makes `h1` weight 300.
+[, $activationTheme] = $compile(require dirname(__DIR__) . '/fixtures/stylesheet-activation.php');
+$activationElements = $activationTheme['styles']['elements'] ?? array();
+$assert(!isset($activationElements['heading']['typography']['fontWeight']) && !isset($activationElements['h1']['typography']['fontWeight']), 'element-styles: a heading weight a selectable stylesheet varies stays source-owned (' . json_encode($activationElements) . ')');
 $assert(str_starts_with((string) ($elements['h1']['typography']['fontSize'] ?? ''), 'var:preset|font-size|') && ($elements['h1']['typography']['fontSize'] ?? null) !== ($elements['h3']['typography']['fontSize'] ?? null), 'element-styles: heading levels that differ in size get their own size preset');
 $elementMarkup = implode('', array_column($elementPlan['pages'], 'canonical_block_markup'));
 $assert(2 === preg_match_all('/<!-- wp:button \{(?![^}]*"color")(?![^}]*Color")[^>]*--><div [^>]*><a class="wp-block-button__link wp-element-button" style="(?![^"]*color)[^"]*"/', $elementMarkup), 'element-styles: buttons render through the element style without duplicate literal colours');

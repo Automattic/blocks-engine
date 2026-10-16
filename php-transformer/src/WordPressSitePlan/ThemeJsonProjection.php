@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -130,7 +132,7 @@ final class ThemeJsonProjection
         $selected = $this->sharedDefaults($selected, $assets, $documentPaths);
         $responsiveBreakpoints = ResponsiveBreakpoints::fromAssets($assets);
         $theme = $this->theme($selected, $presets, $this->fontFaces($assets), $responsiveBreakpoints['viewport'], $system);
-        if (null !== $system) $theme = $this->withSystem($theme, $system, $presets);
+        if (null !== $system) $theme = $this->withSystem($theme, $system, $presets, $this->authoredElementProperties($deliveryAssets));
 
         return array('assets' => $deliveryAssets, 'theme' => $theme, 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets, 'responsive_breakpoints' => $responsiveBreakpoints['report']);
     }
@@ -396,6 +398,51 @@ final class ThemeJsonProjection
     }
 
     /**
+     * Values author CSS declares for element properties, keyed
+     * `element:<tag>\n<property>`, across every stylesheet: selectable sets,
+     * conditional rules and layers included. Global Styles emits element
+     * styles as `:root :where(h1)`, which outranks an author `h1` rule, so a
+     * usage-derived element value may only fill a property where every
+     * authored value for that element renders the same (see
+     * sameElementValue()); otherwise the property stays source-owned.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @return array<string,list<string>>
+     */
+    private function authoredElementProperties(array $assets): array
+    {
+        $authored = array();
+        $visitor = new CssStylesheetTransformer();
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body) use (&$authored): void {
+                $targets = $this->targets($prelude);
+                if (null === $targets) return;
+                foreach ($this->declarations($body) as $name => $value) foreach ($targets as $target) $authored[$target . "\n" . $name][] = $value;
+            });
+        }
+        return $authored;
+    }
+
+    /**
+     * Whether an authored element declaration renders the usage-derived
+     * value. Undecidable values (shorthands, `var()`, keywords other than the
+     * weight names) count as different, so the property stays source-owned.
+     */
+    private static function sameElementValue(string $property, string $declared, string $value): bool
+    {
+        $declared = strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', $declared)));
+        if (str_contains($declared, 'var(')) return false;
+        return match ($property) {
+            'color', 'background-color' => null !== CssColor::hex($declared) && CssColor::hex($declared) === CssColor::hex($value),
+            'font-family' => '' !== DesignSystem::familyKey($declared) && DesignSystem::familyKey($declared) === DesignSystem::familyKey($value),
+            'font-size' => null !== ($px = CssLength::toPx($declared, 16.0)) && abs($px - (CssLength::toPx($value, 16.0) ?? -1.0)) < 0.001,
+            'font-weight' => (array('normal' => '400', 'bold' => '700')[$declared] ?? $declared) === (array('normal' => '400', 'bold' => '700')[strtolower($value)] ?? strtolower($value)),
+            default => false,
+        };
+    }
+
+    /**
      * Adds what the documents render unanimously to the projected styles:
      * the root background, text colour and family, and the element styles
      * of DesignSystem::unanimousElements() (link, button, heading and
@@ -409,7 +456,7 @@ final class ThemeJsonProjection
      * @param array<string,array<string,string>> $presets
      * @return array<string,mixed>
      */
-    private function withSystem(array $theme, DesignSystem $system, array $presets): array
+    private function withSystem(array $theme, DesignSystem $system, array $presets, array $authored = array()): array
     {
         $styles = $theme['styles'];
         $color = fn(string $value): string => null !== ($slug = $system->colorSlug($value)) ? 'var:preset|color|' . $slug : $value;
@@ -427,10 +474,15 @@ final class ThemeJsonProjection
             'hover_color' => array(array(':hover', 'color', 'text'), $color),
             'hover_background' => array(array(':hover', 'color', 'background'), $color),
         );
+        $properties = array('color' => array('color'), 'background' => array('background', 'background-color'), 'font_family' => array('font-family', 'font'), 'font_size' => array('font-size', 'font'), 'font_weight' => array('font-weight', 'font'));
         foreach ($system->elements as $element => $values) {
+            $tags = 'heading' === $element ? array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') : array($element);
             $element = 'a' === $element ? 'link' : $element;
             foreach ($values as $field => $value) {
                 if (!isset($paths[$field])) continue;
+                $differs = false;
+                foreach ($tags as $tag) foreach ($properties[$field] ?? array() as $property) foreach ($authored['element:' . $tag . "\n" . $property] ?? array() as $declared) $differs = $differs || !self::sameElementValue($property, $declared, $value);
+                if ($differs && !('button' === $element && 'color' === $field)) continue;
                 [$path, $reference] = $paths[$field];
                 $target = &$styles['elements'][$element];
                 foreach ($path as $key) $target = &$target[$key];
