@@ -760,6 +760,25 @@ final class NavigationStyleProjector
                         $editorRule = $condition . '{' . $editorRule . '}';
                     }
                     $rules[] = $editorRule;
+
+                    // Core's unlayered `color:inherit` beats the layered
+                    // author rule on the frontend too (a Tailwind `@layer
+                    // utilities` colour). Restate only the anchor colour
+                    // unlayered at (0,4,0): above core's (0,3,0), below the
+                    // authored state rules that carry a pseudo-class.
+                    $colorDeclarations = array_filter($editorDeclarations, static fn (string $declaration): bool =>
+                        str_starts_with($declaration, 'color:')
+                    );
+                    if ( array() !== $colorDeclarations && '' === $pseudo ) {
+                        $frontendRule = '.wp-block-navigation.blocks-engine-list-navigation '
+                            . $anchorAliases[$class] . '{' . implode(';', $colorDeclarations) . '}';
+                        foreach ( array_reverse(array_values(array_filter($conditions,
+                            static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', trim($condition))
+                        ))) as $condition ) {
+                            $frontendRule = $condition . '{' . $frontendRule . '}';
+                        }
+                        $rules[] = $frontendRule;
+                    }
                 }
                 continue;
             }
