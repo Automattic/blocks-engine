@@ -110,6 +110,7 @@
       "php tests/contract/staged-inline-post-chrome-runtime-bindings.php",
       "php tests/contract/staged-whole-equivalence.php",
       "php tests/contract/omitted-page-receipt.php",
+      "php tests/contract/html-document-stray-block-comments.php",
       "php tests/contract/runtime-entity-budget.php",
       "php tests/contract/whole-page-candidate-count.php",
       "php tests/contract/runtime-dependency-target-miss.php",

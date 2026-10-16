@@ -1434,7 +1434,7 @@ final class ArtifactCompiler
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false, array $runtimeDeclarations = array()): array
     {
         ++$this->htmlDocumentTransformCount;
-        $preserveBlockMarkup = $this->containsBlockMarkup($html);
+        $preserveBlockMarkup = $this->isBlockMarkup($html);
         if ( $preserveBlockMarkup || '' === trim($html) ) {
             return array(
                 'blocks'            => array(),
@@ -3629,7 +3629,7 @@ final class ArtifactCompiler
         if ( '' === trim($html) ) {
             return '';
         }
-        if ( $this->containsBlockMarkup($html) ) {
+        if ( $this->isBlockMarkup($html) ) {
             return $html;
         }
 
@@ -4614,12 +4614,17 @@ final class ArtifactCompiler
             return false;
         }
 
-        return 'html' === ($file['kind'] ?? '') || 'blocks' === ($file['kind'] ?? '') || $this->containsBlockMarkup((string) ($file['content'] ?? ''));
+        return 'html' === ($file['kind'] ?? '') || 'blocks' === ($file['kind'] ?? '') || $this->isBlockMarkup((string) ($file['content'] ?? ''));
     }
 
-    private function containsBlockMarkup(string $content): bool
+    /**
+     * Serialized block markup starts with a block comment. An HTML document
+     * can carry block comments in its text (block-editor content pasted into
+     * a page builder widget); it is still HTML and must be converted.
+     */
+    private function isBlockMarkup(string $content): bool
     {
-        return str_contains($content, '<!-- wp:');
+        return str_starts_with(ltrim($content), '<!-- wp:');
     }
 
     /**
