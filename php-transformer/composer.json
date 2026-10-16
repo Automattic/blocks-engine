@@ -197,6 +197,7 @@
       "php tests/unit/authored-carousel-block.php",
       "php tests/unit/structural-carousel.php",
       "php tests/unit/captured-gallery-contract.php",
+      "php tests/unit/captured-gallery-direction-control.php",
       "php tests/unit/captured-carousel.php",
       "php tests/unit/carousel-single-control-owner.php",
       "php tests/unit/image-slideshow-gallery.php",

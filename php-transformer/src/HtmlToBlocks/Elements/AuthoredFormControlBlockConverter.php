@@ -411,8 +411,16 @@ final class AuthoredFormControlBlockConverter
         }
         $projected = ($this->projectSourceTags)($button) ?? $button;
         $parts = AuthoredButtonBlockGenerator::contentParts($projected);
+        $safeAttributes = AuthoredButtonBlockGenerator::sourceSafeAttributes($button);
+        $ariaLabel = SourceDom::attr($button, 'aria-label');
+        if ( AuthoredButtonBlockGenerator::isCapturedGalleryDirectionControl($button) ) {
+            $semantics = AuthoredButtonBlockGenerator::capturedGalleryDirectionSemantics($button);
+            $safeAttributes += $semantics['attributes'];
+            ksort($safeAttributes);
+            $ariaLabel = '' !== $semantics['ariaLabel'] ? $semantics['ariaLabel'] : $ariaLabel;
+        }
         $sourceAttributes = array();
-        foreach (AuthoredButtonBlockGenerator::sourceSafeAttributes($button) as $name => $value) {
+        foreach ($safeAttributes as $name => $value) {
             $sourceAttributes[] = array('name' => $name, 'value' => $value);
         }
         $attrs = array_filter(array(
@@ -420,7 +428,7 @@ final class AuthoredFormControlBlockConverter
             'type' => $type,
             'id' => SourceDom::attr($button, 'id'),
             'name' => SourceDom::attr($button, 'name'),
-            'ariaLabel' => SourceDom::attr($button, 'aria-label'),
+            'ariaLabel' => $ariaLabel,
             'className' => SourceDom::attr($button, 'class'),
             'style' => SourceDom::attr($button, 'style'),
             'text' => array() === $parts ? trim(preg_replace('/\s+/', ' ', $button->textContent ?? '') ?? '') : '',

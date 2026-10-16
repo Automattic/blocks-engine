@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 use DOMDocument;
 use DOMElement;
 use DOMText;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
 /**
@@ -19,7 +20,45 @@ final class AuthoredButtonBlockGenerator
 
     public static function isRoleButton(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array('div', 'span'), true) && 'button' === strtolower(trim(SourceDom::attr($element, 'role')));
+        return in_array(strtolower($element->tagName), array('div', 'span'), true)
+            && ('button' === strtolower(trim(SourceDom::attr($element, 'role'))) || self::isCapturedGalleryDirectionControl($element));
+    }
+
+    /**
+     * A captured gallery's previous/next control is a button by capture
+     * evidence, whatever element paints it: the capture observed it stepping
+     * its gallery. Icon-only sources paint the arrow from CSS alone.
+     */
+    public static function isCapturedGalleryDirectionControl(DOMElement $element): bool
+    {
+        if (!in_array(strtolower($element->tagName), array('div', 'span'), true)
+            || !in_array(trim(SourceDom::attr($element, CaptureEvidence::GALLERY_DIRECTION)), array('-1', '1'), true)
+            || !in_array(strtolower(trim(SourceDom::attr($element, 'role'))), array('', 'button'), true)
+        ) {
+            return false;
+        }
+        for ($node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+            if ($node->hasAttribute(CaptureEvidence::GALLERY)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * The role, focus stop, and accessible name a captured direction control
+     * needs to be an identifiable button, without overriding source values.
+     *
+     * @return array{attributes: array<string, string>, ariaLabel: string}
+     */
+    public static function capturedGalleryDirectionSemantics(DOMElement $element): array
+    {
+        $attributes = array();
+        if ('' === trim(SourceDom::attr($element, 'role'))) $attributes['role'] = 'button';
+        if (!$element->hasAttribute('tabindex')) $attributes['tabindex'] = '0';
+        $ariaLabel = '';
+        if ('' === trim(SourceDom::attr($element, 'aria-label') . SourceDom::attr($element, 'title') . ($element->textContent ?? ''))) {
+            $ariaLabel = '-1' === trim(SourceDom::attr($element, CaptureEvidence::GALLERY_DIRECTION)) ? 'Previous slide' : 'Next slide';
+        }
+        return array('attributes' => $attributes, 'ariaLabel' => $ariaLabel);
     }
 
     public static function canRetainRoleButton(DOMElement $element): bool
@@ -149,6 +188,13 @@ JS;
 
         $view = <<<'JS'
 ( function() {
+    document.addEventListener( 'keydown', function( event ) {
+        if ( event.key !== 'Enter' && event.key !== ' ' ) return;
+        var control = event.target.closest && event.target.closest( '[role="button"][__DIRECTION_ATTRIBUTE__]:not(button)' );
+        if ( ! control || control !== event.target ) return;
+        event.preventDefault();
+        control.click();
+    } );
     document.addEventListener( 'click', function( event ) {
         var control = event.target.closest( 'button[data-blocks-engine-checkable="true"][role="checkbox"]' );
         if ( ! control || control.disabled ) return;
@@ -162,7 +208,7 @@ JS;
 
         return array(
             'index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__', '__LABEL_TAGS__'), array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), json_encode(self::LABEL_TAGS, JSON_THROW_ON_ERROR)), $script),
-            'view.js' => $view,
+            'view.js' => str_replace('__DIRECTION_ATTRIBUTE__', CaptureEvidence::GALLERY_DIRECTION, $view),
         );
     }
 
