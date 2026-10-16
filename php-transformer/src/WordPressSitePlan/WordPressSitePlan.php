@@ -139,6 +139,8 @@ PHP;
     private array $routeTargets = array();
     /** @var array<string,string|false> */
     private array $routeReferenceCache = array();
+    /** @var array<string,array<string,true>> */
+    private array $routeLinkedFragments = array();
     /** @var list<string> */
     private array $listingQueryContainers = array();
     private readonly ShellExtraction $shellExtraction;
@@ -315,6 +317,7 @@ PHP;
             if ('' !== $sourcePath && '' !== $targetPath) $this->routeSources[$sourcePath] = $targetPath;
             if ('' !== $targetPath) $this->routeTargets['/' === $targetPath ? '/' : '/' . trim($targetPath, '/')] = $targetPath;
         }
+        $this->routeLinkedFragments = $this->routeLinkedFragments($documents, $routeMap);
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
@@ -4990,9 +4993,36 @@ PHP;
         $this->routeReferenceCache[$cacheKey] = $resolved ?? false;
         return $resolved;
     }
+    /**
+     * A section other routes reach as `index.html#donate` is the same target
+     * its own route reaches as `#donate`. Spell that same-document link the
+     * way the other routes do, so chrome repeated on every route carries one
+     * link. A fragment no other route names stays bare: `#top` on every route
+     * means each route's own top.
+     *
+     * @param array<int,array<string,mixed>> $documents
+     * @param array<int,array<string,mixed>> $routes
+     * @return array<string,array<string,true>>
+     */
+    private function routeLinkedFragments(array $documents, array $routes): array
+    {
+        $targets = array_flip($this->routeSources);
+        $linked = array();
+        foreach ($documents as $document) {
+            $origin = (string) ($document['source_path'] ?? '');
+            if (!preg_match_all('/(?:\bhref\s*=\s*(?:\\\\)?["\']|"url"\s*:\s*")([^"\'#\\\\]+)#([^"\'\\\\]+)/i', (string) ($document['block_markup'] ?? ''), $hrefs, PREG_SET_ORDER)) continue;
+            foreach ($hrefs as $href) {
+                $target = $targets[(string) $this->routeReference($href[1], $origin, $routes)] ?? null;
+                if (is_string($target) && $target !== $origin) $linked[$target][$href[2]] = true;
+            }
+        }
+        return $linked;
+    }
+
     /** @param array<int,array<string,mixed>> $routes */
     private function resolveRouteReference(string $value, string $origin, array $routes): ?string
     {
+        if (preg_match('~^#(.+)$~s', $value, $fragment) && isset($this->routeLinkedFragments[$origin][$fragment[1]], $this->routeSources[$origin])) return $this->routeSources[$origin] . $value;
         if ('' === $value || preg_match('~^(?://|#|\?)~', $value)) return null;
         $suffix = ''; if (preg_match('/^([^?#]*)(.*)$/', $value, $match)) { $value = $match[1]; $suffix = $match[2]; }
         if (('.' === $value || './' === $value) && '' !== $suffix) return $this->routeSources[$origin] ?? null ? $this->routeSources[$origin] . $suffix : null;
