@@ -450,6 +450,7 @@ PHP;
         $articleChrome = $this->extractPostArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
          $pages = $articleChrome['pages'];
           $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
+          $pages = self::resolveFeaturedImageTargets($pages, $tokens);
           $assets = ListingQueryPresentation::project($assets, $this->listingQueryContainers);
          // Query Loop projection can shorten page markup after shell extraction.
          // Rebase retained runtime anchors on the final page before validation.
@@ -3229,6 +3230,7 @@ PHP;
         $postsByParent = array();
         $postsByArchive = array();
         $excerpts = array();
+        $featuredImages = array();
         $postMeta = array();
         $bindingsBySource = array();
         foreach ($runtimeDeclarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) {
@@ -3282,6 +3284,16 @@ PHP;
             if (is_array($parent)) $this->listingQueryContainers[] = substr($sourceListingMarkup, $parent['offset'], $parent['length']);
             foreach ($fields as $source => $values) $postMeta[$source] = ($postMeta[$source] ?? array()) + $values;
             foreach ($this->listingCardRanges($sourceListingMarkup, $posts) ?? array() as $card) {
+                if (str_contains($replaced, '<!-- wp:post-featured-image')) {
+                    $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
+                    foreach (self::blockRanges($cardMarkup) as $leaf) {
+                        $slice = substr($cardMarkup, $leaf['offset'], $leaf['length']);
+                        if ('featured-image' !== $this->classifyListingCardBlock($slice, $card['post'], $card['route'])) continue;
+                        $image = self::listingCardImage($slice);
+                        if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
+                        break;
+                    }
+                }
                 $description = ListingExcerptProjection::description($card['post']);
                 if (null === $description) continue;
                 $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
@@ -3293,6 +3305,8 @@ PHP;
         }
         unset($page);
         foreach ($pages as &$page) if (isset($excerpts[$page['source_path']])) $page['metadata']['excerpt'] = $excerpts[$page['source_path']];
+        unset($page);
+        foreach ($pages as &$page) if (isset($featuredImages[$page['source_path']]) && !isset($page['metadata']['featured_image'])) $page['metadata']['featured_image'] = $featuredImages[$page['source_path']];
         unset($page);
         foreach ($pages as &$page) if (isset($postMeta[$page['source_path']])) $page['metadata']['post_meta'] = ($page['metadata']['post_meta'] ?? array()) + $postMeta[$page['source_path']];
         unset($page);
@@ -3326,6 +3340,27 @@ PHP;
             }
         }
         return false;
+    }
+    /**
+     * Name each featured-image handoff by its declared theme write, so the
+     * consumer attaches the same file the plan materializes.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array{token:string,source_path:string,target_path:string}> $tokens
+     * @return array<int,array<string,mixed>>
+     */
+    private static function resolveFeaturedImageTargets(array $pages, array $tokens): array
+    {
+        $targets = array_column($tokens, 'target_path', 'token');
+        foreach ($pages as &$page) {
+            $image = $page['metadata']['featured_image'] ?? null;
+            if (!is_array($image)) continue;
+            $target = $targets[$image['asset_token'] ?? ''] ?? null;
+            if (is_string($target)) $page['metadata']['featured_image']['target_path'] = $target;
+            else unset($page['metadata']['featured_image']);
+        }
+        unset($page);
+        return $pages;
     }
     /** @param array<int,array<string,mixed>> $posts */
     private function replaceListingMarkup(string $markup, array $posts, array &$fields = array(), bool $inheritQuery = false): ?string
@@ -3522,7 +3557,7 @@ PHP;
                 return array('markup' => self::postDateMarkup($slice), 'title' => false, 'content' => false);
             }
             if ('featured-image' === $kind) {
-                return array('markup' => '<!-- wp:post-featured-image /-->', 'title' => false, 'content' => false);
+                return array('markup' => self::postFeaturedImageMarkup($slice), 'title' => false, 'content' => false);
             }
             if ('comments' === $kind || 'chrome' === $kind) {
                 return array('markup' => $slice, 'title' => false, 'content' => false);
@@ -3581,6 +3616,11 @@ PHP;
             }
             $attributes = is_array($node['attributes'] ?? null) ? $node['attributes'] : array();
             $datedTime = null !== $timestamp && 'time' === ($node['name'] ?? '') && is_string($attributes['datetime'] ?? null);
+            // A machine-readable datetime proves the slot even when the visible
+            // text only carries the day of a timestamp that has a time of day.
+            if ($datedTime && self::normalizePublicationTimestamp((string) $attributes['datetime']) === $timestamp) {
+                return 'date';
+            }
             if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes) && !$datedTime) {
                 continue;
             }
@@ -3592,12 +3632,8 @@ PHP;
         if (preg_match('/<(?:iframe|fb:like)\b/i', $slice) || preg_match('/\b(?:blog-social|share-button|twitter-share)\b/', $slice)) {
             return 'skip';
         }
-        if ('image' === $name) {
-            foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
-                if ('tag' === ($node['kind'] ?? null) && 'img' === ($node['name'] ?? null) && 'image' === (($node['attributes']['itemprop'] ?? null))) return 'featured-image';
-            }
-            $images = array_values(array_filter(HtmlMarkupParser::htmlMarkupNodes($slice), static fn(array $node): bool => 'tag' === ($node['kind'] ?? null) && 'img' === ($node['name'] ?? null)));
-            if ($hasRouteLink && 1 === count($images)) return 'featured-image';
+        if ('image' === $name && $hasRouteLink && null !== self::listingCardImage($slice)) {
+            return 'featured-image';
         }
         if (in_array($name, array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true)) {
             return 'body';
@@ -3607,6 +3643,31 @@ PHP;
             return 'chrome';
         }
         return 'body';
+    }
+    /**
+     * The single plan-owned image of a card slot, which the post owns as its
+     * featured image. Remote or ambiguous images stay out of the handoff.
+     *
+     * @return array{asset_token:string,alt:string}|null
+     */
+    private static function listingCardImage(string $slice): ?array
+    {
+        $images = array_values(array_filter(HtmlMarkupParser::htmlMarkupNodes($slice), static fn(array $node): bool => 'tag' === ($node['kind'] ?? null) && 'img' === strtolower((string) ($node['name'] ?? ''))));
+        if (1 !== count($images)) return null;
+        $attributes = is_array($images[0]['attributes'] ?? null) ? $images[0]['attributes'] : array();
+        if (1 !== preg_match('/^' . preg_quote(self::TOKEN_PREFIX, '/') . '(asset-[0-9a-f]{16})\}\}$/', (string) ($attributes['src'] ?? ''), $match)) return null;
+        return array('asset_token' => $match[1], 'alt' => html_entity_decode((string) ($attributes['alt'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    }
+    private static function postFeaturedImageMarkup(string $slice): string
+    {
+        $source = self::listingBlockAttributes($slice);
+        $attrs = array('isLink' => true);
+        foreach (array('width', 'height', 'scale', 'aspectRatio', 'style') as $key) {
+            if (isset($source[$key]) && (is_string($source[$key]) || is_array($source[$key]))) $attrs[$key] = $source[$key];
+        }
+        $classes = array_values(array_filter(preg_split('/\s+/', (string) ($source['className'] ?? '')) ?: array(), static fn(string $class): bool => '' !== $class && 'is-resized' !== $class));
+        if (array() !== $classes) $attrs['className'] = implode(' ', $classes);
+        return '<!-- wp:post-featured-image ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->';
     }
     private static function listingQueryMarkup(int $perPage, string $template, bool $inherit = false): string
     {

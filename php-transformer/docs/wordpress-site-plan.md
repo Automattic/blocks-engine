@@ -43,6 +43,14 @@ is proven against that post's source declaration; full-content listings retain
 `core/post-content`. The block's length is derived from the complete source
 descriptions, rather than applying the default crop to authored excerpts.
 
+`metadata.featured_image`, when declared, hands a compact listing card's image
+to the post it summarizes: `asset_token` names the plan asset, `alt` is the
+source alt text, and `target_path` is that asset's declared theme write.
+Consumers attach that file and set it as the post thumbnail. The card's image
+slot is then a native `core/post-featured-image` carrying the source width,
+height, scale and class, so each post renders its own image. A card image that
+is not a plan-owned asset is not handed off.
+
 `metadata.post_meta` is an optional map of nonempty string keys to string values.
 Consumers pass the map through native `meta_input` with the same WordPress
 slashing contract. Linked listing metadata uses these post-owned fields through
