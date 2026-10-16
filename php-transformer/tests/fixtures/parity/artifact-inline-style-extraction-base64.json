@@ -41,7 +41,7 @@
     { "path": "source_reports.artifact.files_by_intent.style", "assert": "equals", "value": 1 },
     { "path": "source_reports.compiled_site.theme.stylesheets.1", "assert": "equals", "value": "index.inline.css" },
     { "path": "source_reports.materialization_plan.assets.1.target_path", "assert": "equals", "value": "index.inline.css" },
-    { "path": "source_reports.materialization_plan.assets.1.content", "assert": "contains", "value": ":root{--accent:#c4a35a" },
+    { "path": "source_reports.materialization_plan.assets.1.content", "assert": "contains", "value": ":root{--accent:var(--wp--preset--color--primary,#c4a35a)" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Styled Portfolio" },
     { "path": "serialized_blocks", "assert": "contains", "value": "hero" }
   ]

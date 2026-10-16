@@ -49,8 +49,8 @@ foreach ($plan['assets'] ?? array() as $asset) {
     if ($isGlobal) $global .= (string) ($asset['content'] ?? ''); else $route .= (string) ($asset['content'] ?? '');
 }
 $assert(str_contains($global, '.site-header{display:flex'), 'The authored header rule reaches a globally scoped stylesheet.');
-$assert(1 === preg_match('/\.site-header \.brand\{font-size:28px/', $global), 'Descendant rules for header content reach the global stylesheet.');
-$assert(1 === preg_match('/@media \(max-width:700px\)\s*\{\s*\.site-header \.brand\{font-size:20px\}\s*\}/', $global), 'Responsive header rules keep their media condition in the global stylesheet.');
+$assert(1 === preg_match('/\.site-header \.brand\{font-size:(?:28px|var\(--wp--preset--font-size--[a-z0-9-]+,28px\))/', $global), 'Descendant rules for header content reach the global stylesheet.');
+$assert(1 === preg_match('/@media \(max-width:700px\)\s*\{\s*\.site-header \.brand\{font-size:(?:20px|var\(--wp--preset--font-size--[a-z0-9-]+,20px\))\}\s*\}/', $global), 'Responsive header rules keep their media condition in the global stylesheet.');
 $assert(str_contains($global, '#site-chrome{position:sticky'), 'An authored id rule for the header reaches the global stylesheet.');
 $assert(! str_contains($global, '.route-grid'), 'Route-owned layout rules stay out of the global shared stylesheet.');
 $assert(! str_contains($global, '.container{'), 'A class the header shares with route content stays out of the global shared stylesheet.');

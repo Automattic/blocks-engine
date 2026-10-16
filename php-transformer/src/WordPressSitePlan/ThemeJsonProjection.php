@@ -41,10 +41,16 @@ final class ThemeJsonProjection
      * class, state, and responsive selectors remain source-owned.
      *
      * @param array<int,array<string,mixed>> $assets
+     * With a usage-derived design system, presets are its role-named tokens
+     * instead of every literal the stylesheets mention, and root and element
+     * styles the documents render unanimously are projected as preset
+     * references (see DesignSystem). Without one, presets are the hashed
+     * literals of the projected selector-gated declarations.
+     *
      * @param list<string> $documentPaths All documents to which site-wide styles apply.
      * @return array{assets:array<int,array<string,mixed>>,theme:array<string,mixed>,provenance:array<int,array<string,mixed>>,presets:array<string,array<string,string>>,responsive_breakpoints:array<string,mixed>|null}
      */
-    public function project(array $assets, array $documentPaths = array()): array
+    public function project(array $assets, array $documentPaths = array(), ?DesignSystem $system = null): array
     {
         $deliveryAssets = $assets;
         // A selectable set owns its declarations for its entire lifetime.
@@ -120,11 +126,13 @@ final class ThemeJsonProjection
 
         $counts = array_count_values(array_map(static fn(array $candidate): string => $candidate['property'] . "\n" . strtolower($candidate['value']), $candidates));
         $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => !isset($conditionalProperties[$candidate['target'] . "\n" . $candidate['property']]) && !isset($unrepresentableProperties[$candidate['target'] . "\n" . $candidate['property']]) && (1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:'))));
-        $presets = $this->presets($selected, $fontFamilyStacks);
+        $presets = null === $system ? $this->presets($selected, $fontFamilyStacks) : $this->systemPresets($system);
         $selected = $this->sharedDefaults($selected, $assets, $documentPaths);
         $responsiveBreakpoints = ResponsiveBreakpoints::fromAssets($assets);
+        $theme = $this->theme($selected, $presets, $this->fontFaces($assets), $responsiveBreakpoints['viewport'], $system);
+        if (null !== $system) $theme = $this->withSystem($theme, $system, $presets);
 
-        return array('assets' => $deliveryAssets, 'theme' => $this->theme($selected, $presets, $this->fontFaces($assets), $responsiveBreakpoints['viewport']), 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets, 'responsive_breakpoints' => $responsiveBreakpoints['report']);
+        return array('assets' => $deliveryAssets, 'theme' => $theme, 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets, 'responsive_breakpoints' => $responsiveBreakpoints['report']);
     }
 
     /**
@@ -372,42 +380,96 @@ final class ThemeJsonProjection
     }
 
     /**
+     * Design-system tokens keyed by their literal value, in the same shape as
+     * presets(). Display names ride in `names`.
+     *
+     * @return array<string,array<string,string>>
+     */
+    private function systemPresets(DesignSystem $system): array
+    {
+        $presets = array('color' => array(), 'font-family' => array(), 'font-size' => array(), 'spacing' => array(), 'names' => array());
+        foreach ($system->colors as $color) { $presets['color'][$color['color']] = $color['slug']; $presets['names']['color|' . $color['slug']] = $color['name']; }
+        foreach ($system->fontFamilies as $family) { $presets['font-family'][$family['fontFamily']] = $family['slug']; $presets['names']['font-family|' . $family['slug']] = $family['name']; }
+        foreach ($system->fontSizes as $size) { $presets['font-size'][$size['size']] = $size['slug']; $presets['names']['font-size|' . $size['slug']] = $size['name']; }
+        foreach ($system->spacing as $step) { $presets['spacing'][$step['size']] = $step['slug']; $presets['names']['spacing|' . $step['slug']] = $step['name']; }
+        return $presets;
+    }
+
+    /**
+     * Adds what the documents render unanimously to the projected styles:
+     * the root background, text colour and family, link colour, and heading
+     * colour and family, as preset references. A value the source
+     * stylesheets already project for the same target is kept. Also adds the
+     * content and wide widths when no `main` rule supplied them, and turns
+     * off core's default presets so the editor offers the source's tokens.
+     *
+     * @param array<string,mixed> $theme
+     * @param array<string,array<string,string>> $presets
+     * @return array<string,mixed>
+     */
+    private function withSystem(array $theme, DesignSystem $system, array $presets): array
+    {
+        $styles = $theme['styles'];
+        $color = fn(string $value): string => null !== ($slug = $system->colorSlug($value)) ? 'var:preset|color|' . $slug : $value;
+        $family = fn(string $value): string => null !== ($slug = $system->fontFamilySlug($value)) ? 'var:preset|font-family|' . $slug : $value;
+        if (isset($system->root['background'])) $styles['color']['background'] ??= $color($system->root['background']);
+        if (isset($system->root['color'])) $styles['color']['text'] ??= $color($system->root['color']);
+        if (isset($system->root['font_family'])) $styles['typography']['fontFamily'] ??= $family($system->root['font_family']);
+        if (isset($system->elements['link']['color'])) $styles['elements']['link']['color']['text'] ??= $color($system->elements['link']['color']);
+        if (isset($system->elements['heading']['color'])) $styles['elements']['heading']['color']['text'] ??= $color($system->elements['heading']['color']);
+        if (isset($system->elements['heading']['font_family'])) $styles['elements']['heading']['typography']['fontFamily'] ??= $family($system->elements['heading']['font_family']);
+        $settings = $theme['settings'];
+        if (!isset($settings['layout']['contentSize']) && isset($system->layout['content'])) {
+            $settings['layout']['contentSize'] = $system->layout['content']['value'];
+            if (isset($system->layout['wide'])) $settings['layout']['wideSize'] = $system->layout['wide']['value'];
+        }
+        if (array() !== $presets['color']) $settings['color']['defaultPalette'] = false;
+        if (array() !== $presets['font-size']) $settings['typography']['defaultFontSizes'] = false;
+        if (array() !== $presets['spacing']) $settings['spacing']['defaultSpacingSizes'] = false;
+        $theme['settings'] = $settings;
+        $theme['styles'] = $styles;
+        return $theme;
+    }
+
+    /**
      * @param array<int,array<string,mixed>> $selected
      * @param array<string,array<string,string>> $presets
      * @param array<int,array<string,mixed>> $faces
      * @param array<string,string> $viewport
      * @return array<string,mixed>
      */
-    private function theme(array $selected, array $presets, array $faces = array(), array $viewport = array()): array
+    private function theme(array $selected, array $presets, array $faces = array(), array $viewport = array(), ?DesignSystem $system = null): array
     {
         $settings = array();
-        if (array() !== $presets['color']) $settings['color']['palette'] = array_map(static fn(string $value, string $slug): array => array('slug' => $slug, 'name' => $slug, 'color' => $value), array_keys($presets['color']), $presets['color']);
+        $names = $presets['names'] ?? array();
+        if (array() !== $presets['color']) $settings['color']['palette'] = array_map(static fn(string $value, string $slug): array => array('slug' => $slug, 'name' => $names['color|' . $slug] ?? $slug, 'color' => $value), array_keys($presets['color']), $presets['color']);
         if (array() !== $presets['font-family']) {
-            $families = array_map(static fn(string $value, string $slug): array => array('slug' => $slug, 'name' => $slug, 'fontFamily' => $value), array_keys($presets['font-family']), $presets['font-family']);
+            $families = array_map(static fn(string $value, string $slug): array => array('slug' => $slug, 'name' => $names['font-family|' . $slug] ?? $slug, 'fontFamily' => $value), array_keys($presets['font-family']), $presets['font-family']);
             foreach ($families as $index => $family) {
                 $stack = (string) $family['fontFamily'];
                 foreach (explode(',', $stack) as $token) {
                     $token = trim($token, " \t\n\r\0\x0B\"'");
-                    if ('' !== $token && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) { $families[$index]['name'] = $token; break; }
+                    if (!isset($names['font-family|' . $family['slug']]) && '' !== $token && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) { $families[$index]['name'] = $token; break; }
                 }
                 $familyFaces = array_values(array_filter($faces, static fn(array $face): bool => self::stackReferencesFamily($stack, (string) ($face['family'] ?? ''))));
                 if (array() !== $familyFaces) $families[$index]['fontFace'] = $familyFaces;
             }
             $settings['typography']['fontFamilies'] = $families;
         }
-        if (array() !== $presets['font-size']) $settings['typography']['fontSizes'] = array_map(static fn(string $value, string $slug): array => array('slug' => $slug, 'name' => $slug, 'size' => $value), array_keys($presets['font-size']), $presets['font-size']);
-        if (array() !== $presets['spacing']) $settings['spacing']['spacingSizes'] = array_map(static fn(string $value, string $slug): array => array('slug' => $slug, 'name' => $slug, 'size' => $value), array_keys($presets['spacing']), $presets['spacing']);
+        if (array() !== $presets['font-size']) $settings['typography']['fontSizes'] = array_map(static fn(string $value, string $slug): array => array('slug' => $slug, 'name' => $names['font-size|' . $slug] ?? $slug, 'size' => $value), array_keys($presets['font-size']), $presets['font-size']);
+        if (array() !== $presets['spacing']) $settings['spacing']['spacingSizes'] = array_map(static fn(string $value, string $slug): array => array('slug' => $slug, 'name' => $names['spacing|' . $slug] ?? $slug, 'size' => $value), array_keys($presets['spacing']), $presets['spacing']);
+        $presetValue = fn(string $type, string $value): string => null === $system ? $this->presetValue($presets[$type], $value, $type) : $this->systemValue($system, $type, $value);
         $styles = array();
         foreach ($selected as $candidate) {
             $target = $candidate['target']; $property = $candidate['property']; $value = $candidate['value'];
             if ('layout' === $target) { $settings['layout']['contentSize'] = $value; continue; }
             $destination = 'body' === $target ? $styles : ($styles['elements'][substr($target, 8)] ?? array());
-            if ('color' === $property) $destination['color']['text'] = $this->presetValue($presets['color'], $value, 'color');
-            elseif ('background-color' === $property) $destination['color']['background'] = $this->presetValue($presets['color'], $value, 'color');
-            elseif ('font-family' === $property) $destination['typography']['fontFamily'] = $this->presetValue($presets['font-family'], $value, 'font-family');
-            elseif ('font-size' === $property) $destination['typography']['fontSize'] = $this->presetValue($presets['font-size'], $value, 'font-size');
+            if ('color' === $property) $destination['color']['text'] = $presetValue('color', $value);
+            elseif ('background-color' === $property) $destination['color']['background'] = $presetValue('color', $value);
+            elseif ('font-family' === $property) $destination['typography']['fontFamily'] = $presetValue('font-family', $value);
+            elseif ('font-size' === $property) $destination['typography']['fontSize'] = $presetValue('font-size', $value);
             elseif (in_array($property, array('line-height', 'font-weight', 'letter-spacing', 'text-transform', 'font-style'), true)) $destination['typography'][str_replace(array('line-height', 'font-weight', 'letter-spacing', 'text-transform', 'font-style'), array('lineHeight', 'fontWeight', 'letterSpacing', 'textTransform', 'fontStyle'), $property)] = $value;
-            elseif ('body' === $target) $destination['spacing'][('gap' === $property ? 'blockGap' : $property)] = $this->presetValue($presets['spacing'], $value, 'spacing');
+            elseif ('body' === $target) $destination['spacing'][('gap' === $property ? 'blockGap' : $property)] = $presetValue('spacing', $value);
             if ('body' === $target) $styles = $destination; else $styles['elements'][substr($target, 8)] = $destination;
         }
         // Authored CSS owns every gap in a materialized static site. Without an
@@ -439,6 +501,17 @@ final class ThemeJsonProjection
         // drops a tablet that is not larger than mobile.
         if (array() !== $viewport) $settings['viewport'] = $viewport;
         return array('version' => 3, 'settings' => $settings, 'styles' => $styles);
+    }
+
+    private function systemValue(DesignSystem $system, string $type, string $value): string
+    {
+        $slug = match ($type) {
+            'color' => $system->colorSlug($value),
+            'font-family' => $system->fontFamilySlug($value),
+            'font-size' => $system->fontSizeSlug($value),
+            default => $system->spacingSlug($value),
+        };
+        return null === $slug ? $value : 'var:preset|' . $type . '|' . $slug;
     }
 
     /** @param array<string,string> $presets */

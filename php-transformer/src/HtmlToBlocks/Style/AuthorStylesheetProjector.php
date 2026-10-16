@@ -927,10 +927,16 @@ final class AuthorStylesheetProjector
         return $parsed;
     }
 
+    /**
+     * The guard that lets a block's own value win over a restated author rule.
+     * A colour the block carries as a preset class (`has-text-color`,
+     * `has-background`; see PresetBinding) is the block's own value just like
+     * an inline one, so the restated rule steps aside for it too.
+     */
     private function nativeButtonEditedPropertyExclusion(string $property): string
     {
         if ( str_starts_with($property, 'background') ) {
-            return ':not([style*="background"])';
+            return ':not(.has-background):not([style*="background"])';
         }
         if ( str_starts_with($property, 'padding') ) {
             return ':not([style*="padding"])';
@@ -942,7 +948,7 @@ final class AuthorStylesheetProjector
             return ':not([style*="font"]):not([style*="line-height"]):not([style*="letter-spacing"]):not([style*="text-transform"])';
         }
         if ( 'color' === $property ) {
-            return ':not([style*="color:"])';
+            return ':not(.has-text-color):not([style*="color:"])';
         }
         return ':not([style*="text-decoration"])';
     }

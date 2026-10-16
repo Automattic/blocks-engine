@@ -45,6 +45,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlo
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DesignUsageCollector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextInlinePolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedDialogConverter;
@@ -1764,6 +1765,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( $analysisRoot instanceof DOMElement && 'html' === strtolower($analysisRoot->tagName) ) {
             $documentRootMarkers = EngineMarker::all($analysisRoot->getAttribute('class'));
         }
+        // Design usage is observation after conversion. Cache metrics report
+        // conversion work, so they are read before the collector reuses the
+        // resolver's caches.
+        $conversionSelectorCache = clone $selectorCache;
+        $designUsage = (new DesignUsageCollector($this->styleResolver))->collect($body);
         $blockCompilationOutput = new BlockCompilationOutput(
             sourceProvenance: $sourceProvenance,
             editabilityReport: (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $ownershipPaths['runtime'], $ownershipPaths['visual'], $sourceProvenance),
@@ -1780,7 +1786,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             shellArtifacts: $shellArtifacts,
             coreHtmlFallbackEvidence: CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
             validationOutcome: $validationOutcome,
-            documentRootMarkers: $documentRootMarkers
+            documentRootMarkers: $documentRootMarkers,
+            designUsage: $designUsage
         );
 
         return $resultComposer->result(array(
@@ -1793,7 +1800,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'provenance' => $provenance,
             'context' => $context,
             'started_at' => $startedAt,
-            'selector_cache' => $selectorCache,
+            'selector_cache' => $conversionSelectorCache,
             'diagnostics' => $diagnostics,
             'supported_blocks' => $supportedBlocks,
             'native_target_blocks' => $nativeTargetBlocks,

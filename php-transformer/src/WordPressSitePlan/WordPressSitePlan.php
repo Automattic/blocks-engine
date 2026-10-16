@@ -142,6 +142,8 @@ PHP;
     /** @var list<string> */
     private array $listingQueryContainers = array();
     private readonly ShellExtraction $shellExtraction;
+    private ?DesignSystem $designSystem = null;
+    private ?PresetBinding $presetBinding = null;
     private MissingMediaRecovery $missingMedia;
 
     /**
@@ -294,6 +296,11 @@ PHP;
             static fn(array $asset): bool => !isset($runtimeScriptOwnership['assets'][(string) ($asset['source_path'] ?? '')]) || isset($documentScriptAssets[(string) ($asset['source_path'] ?? '')])
         ));
         $assets = $this->applyDeclaredAssetTransformations($assets, $runtimeDeclarations);
+        // The design system comes from what every document renders, before
+        // any document is projected: routeLinks() binds literal block values
+        // to its tokens wherever block markup enters the plan.
+        $this->designSystem = DesignSystem::fromUsage(self::designUsage($documents));
+        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, self::designUsage($documents));
         $tokens = $this->tokens($assets);
         $surfaces = $this->templateSurfaces($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
@@ -388,7 +395,7 @@ PHP;
         $pages = $this->pageHierarchy($pages, $routeMap);
         $assets = $this->scopeAssets($assets, $pages);
         $projector = new ThemeJsonProjection();
-        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'));
+        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
         $assets = $themeProjection['assets'];
         $routes = $this->routesForPages($pages);
         // Entry shells remain in compiled-site/v1 for existing consumers; the
@@ -480,6 +487,17 @@ PHP;
          unset($taxonomyEntity);
         $operations = $this->operations($pages);
         $assets = self::withVariantScopedIdSelectors($assets);
+        // Stylesheet values equal to a token follow it too: links inside
+        // text, navigation items and states have no block attribute to bind.
+        if (null !== $this->presetBinding) foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
+            $content = $this->presetBinding->bindStylesheet($asset['content']);
+            if ($content === $asset['content']) continue;
+            $asset['content'] = $content;
+            $asset['bytes'] = strlen($content);
+            $asset['content_hash'] = self::contentHash($content);
+        }
+        unset($asset);
         // Asset payloads are the last canonicalization pass, so the placeholder
         // backing recovered media is declared once every reference is known.
         $assetWrites = $this->assetWrites($assets, $references);
@@ -521,7 +539,7 @@ PHP;
             'taxonomy_entities' => $taxonomyProjection['entities'],
             'navigation_links' => $input->navigationLinks,
             'menus' => $menus,
-            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization)),
+            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array())))),
             'visual_repair' => $compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
@@ -4836,7 +4854,23 @@ PHP;
             }
             $offset = $match[0][1] + strlen($match[0][0]);
         }
-        return $this->unresolvedNavigationLinks($content, $origin, $routes);
+        $content = $this->unresolvedNavigationLinks($content, $origin, $routes);
+        return null === $this->presetBinding ? $content : $this->presetBinding->bind($content);
+    }
+
+    /**
+     * Rendered design usage of every compiled document, keyed by source path.
+     *
+     * @param array<int,array<string,mixed>> $documents
+     * @return array<string,array<string,mixed>>
+     */
+    private static function designUsage(array $documents): array
+    {
+        $usage = array();
+        foreach ($documents as $document) {
+            if (is_array($document['design_usage'] ?? null) && is_string($document['source_path'] ?? null)) $usage[$document['source_path']] = $document['design_usage'];
+        }
+        return $usage;
     }
     /**
      * A document-relative a/area href or form action that names no artifact route cannot stay
@@ -5330,6 +5364,15 @@ PHP;
     }
     public static function identity(string $kind, string $source, string $target): string { return hash('sha256', "wordpress-site-plan/{$kind}/v2\n{$source}\n{$target}"); }
     public static function contentHash(string $content): string { return hash('sha256', $content); }
+
+    /**
+     * @param array<int,array<string,mixed>> $documents
+     * @return list<string>
+     */
+    private static function markups(array $documents): array
+    {
+        return array_values(array_filter(array_column($documents, 'canonical_block_markup'), 'is_string'));
+    }
     private static function hash(mixed $value): bool { return is_string($value) && preg_match('/^[a-f0-9]{64}$/', $value); }
     /** @return array<int,array{offset:int,length:int}> */
     public static function blockRanges(string $markup): array

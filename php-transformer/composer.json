@@ -57,6 +57,7 @@
     "test:carousel-control-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-carousel-control-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/carousel-control-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "test:captured-gallery-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-captured-gallery-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/captured-gallery-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "visual:native-emoji-wordpress": "node tools/visual-parity/tests/native-emoji-wordpress.mjs",
+    "test:design-system-restyle": "bash tests/integration/design-system-restyle.sh",
     "benchmark:selector-cache": "php tools/benchmarks/css-selector-match-cache.php",
     "benchmark:staged-page-compilation": "php tools/benchmarks/staged-page-compilation-production.php",
     "corpus-diagnostics": "php tools/corpus-diagnostics/run.php",
@@ -289,6 +290,7 @@
       "php tests/unit/theme-json-projection-layered-deferral.php",
       "php tests/unit/theme-json-projection-route-defaults.php",
       "php tests/unit/theme-json-projection-responsive-breakpoints.php",
+      "php tests/unit/design-system-usage-derivation.php",
       "php tests/unit/responsive-font-size-not-baked.php",
       "php tests/unit/heading-block-span-font-size.php",
       "php tests/unit/color-scheme-variant.php",
@@ -643,7 +645,10 @@
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
     "test:migration:legacy-parity": "BLOCKS_ENGINE_PARITY_LEGACY=1 php tests/parity/run.php --migration-comparison",
-    "test:wordpress-integration": "php tests/integration/wordpress-site-plan.php",
+    "test:wordpress-integration": [
+      "php tests/integration/wordpress-site-plan.php",
+      "php tests/integration/design-system-palette.php"
+    ],
     "test:packaging": [
       "php tests/packaging/dist-shape.php",
       "php tests/packaging/install-proof.php"

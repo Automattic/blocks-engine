@@ -231,6 +231,113 @@ They do not rediscover menu equivalence. The plan validator checks declarations
 and reference ownership together; the resolver projects entity asset references
 into `resolved_block_markup` without introducing destination IDs.
 
+## Design system
+
+The theme's palette, type scale, font families, spacing scale and content width
+come from what the documents render, not from every literal the stylesheets
+mention (`WordPressSitePlan\DesignSystem`).
+
+The HTML transformer records each document's rendered usage as
+`compiled_site.pages[].design_usage` (`blocks-engine/design-usage/v1`). It reads
+the resolved styles the conversion already computed, with inheritance and user
+agent defaults. Usage holds text colour, size and family per role (body, link,
+heading, button), the background behind the text, backgrounds, spacing and
+centred `max-width` containers. `class_styles` records, per class list, the
+colour, background colour, font size, font family and padding sides the
+elements with those classes render, with the values media queries give them,
+or `!` when a value cannot be bound. Each is weighted by element count and by text
+area (characters × size²). Documents are summed with integer weights, so route
+order cannot change the result. Each document's text and background weights
+are first scaled to the same total (1,000,000), so every route counts the
+same: one long route in its own style cannot outweigh the shared header and
+footer and the other routes.
+
+Clustering is deterministic:
+
+- Opaque colours within CIE76 ΔE 2.3 (one just-noticeable difference) merge.
+- A low-weight colour (under 3% of all colour weight) then merges into the nearest heavier colour within ΔE 18. Call-to-action backgrounds and button labels are kept. Tailwind's neighbouring steps (blue-500/600, ΔE 19) stay apart. The merged shade still renders as itself, because only the 2.3 tolerance binds a value. The palette keeps at most 12.
+- Font sizes within 0.5px merge. The scale keeps the 8 heaviest steps.
+- Spacing merges only identical pixel lengths and keeps 10 steps.
+- Font stacks group by primary family, ignoring case and quotes, and keep the most used stack. Only families some rendered text uses as its primary become presets. A stack with a generic primary (`ui-monospace`) is not a token. A primary family that is declared but not rendered is reported as unused. Fallbacks and `@font-face` names are not reported.
+
+Roles make the slugs stable:
+
+| Group | Slugs |
+| --- | --- |
+| Colours | `base` is the root background every document renders, else the background covering most text (within 90% of the heaviest, the first that has a readable text colour). `contrast` is the main text colour on `base`: among text colours with at least 10% of the text weight on `base` (or of all text when none is on `base`), the root text colour when it has a WCAG contrast ratio of at least 4.5 against `base`, else the candidate with the highest ratio of at least 4.5. A candidate under 4.5 is only used when none reaches it, and never under 3. `primary` and `secondary` are call-to-action backgrounds, then chromatic colours. Every other colour is `accent-N`. |
+| Fonts | `body` is the root family every document renders, else the heaviest body-text family. `heading` is the family every heading renders, else the heaviest heading family. A heading family identical to the body family is emitted once. |
+| Sizes | `medium` is the body size. Smaller steps are `small`, `x-small`, …; larger steps are `large`, `x-large`, `xx-large`, …. |
+| Spacing | `20`, `30`, … from smallest to largest. Core's default palette, sizes and spacing are turned off. |
+
+Global Styles also get:
+
+- the root background, text colour and family, when every document renders them alike and no media query varies them;
+- link and heading colour and heading family, under the same condition;
+- `contentSize` and `wideSize`, from centred containers when no `main` rule sets them.
+
+Every value is a `var:preset|…` reference. Because the roles follow the root,
+the root background is `base`, its text `contrast` and its family `body`.
+
+`PresetBinding` rewrites block markup wherever it enters the plan. A literal
+`style.color.text`, `style.color.background`, `style.typography.fontSize` or
+`style.typography.fontFamily` that matches a token becomes `textColor`,
+`backgroundColor`, `fontSize` or `fontFamily`. It gets the matching `has-*`
+class, and the redundant inline declaration is removed. Padding, margin and
+block gap values become `var:preset|spacing|…`. Root custom properties
+(`:root`, `html`, `:host`, also inside `@layer`) defined once with one value
+are resolved first.
+
+A value set only by author classes is bound the same way, from the block's
+author class list and `class_styles`. Every element with that class list must
+render the same value. Paragraphs, headings, groups, lists, quotes and columns
+can get colour, font size, family and padding. Buttons can get colour and
+padding. The author class and its projected rule stay. The preset wins because
+core's preset classes are `!important` and spacing presets are inline. The
+projected native-button rules step aside for `.has-text-color` and
+`.has-background`, as they do for inline values.
+
+A value stays literal (or with its class) when binding could change the
+cascade:
+
+- the inline style is not exactly what the attributes serialize;
+- an `!important` rule for the property could match the same element, unless it excludes the preset class (`:not(.has-text-color)`);
+- a selector reads the inline style text (`[style*=…]`);
+- a `:hover`, `:focus` or `:active` rule sets the property on the element;
+- a media query (breakpoint, colour scheme) gives the property a value matching another token, or redefines a custom property it reads;
+- elements with the same class list render different values.
+
+Page content, template parts, shell parts and navigation are bound alike.
+
+`PresetBinding::bindStylesheet()` then binds the stylesheets the plan ships
+(author CSS, projected class rules, engine support CSS), so links, navigation
+items, states (`:hover`) and buttons whose colour only a rule sets follow the
+palette too. A declaration keeps its selector, place and `!important`; only
+its value changes, to the preset variable with the source value as fallback
+(`color:var(--wp--preset--color--primary,#3b82f6)`), so it renders the same
+until the palette changes:
+
+- `color`, `background-color`, a `background` that is one colour, and a custom property whose value is a colour bind within the palette tolerance;
+- `font-size` and `font-family` bind only when equal to the preset, so no layout moves;
+- a `var()` resolves as for block values. A fallback (`var(--tw-text-opacity, 1)`) stands for a property every rule sets to that same value. A property a scope (`.dark`) or media query redefines keeps the declaration literal;
+- `@font-face`, `@keyframes`, values already reading a preset and every other property keep their bytes.
+
+`theme.design_system` reports the tokens and `metrics`, which the editability
+report repeats as `design_system`:
+
+- `preset_share`: the share of block colour, size, family and spacing attribute values that are preset references (zero lengths, `auto` and CSS-wide keywords are not counted);
+- `restyle_coverage`: of the text and background colours on rendered blocks, the share a palette edit changes, because they come from a preset through the block's attributes, its classes' rules, an ancestor or the root styles (`RestyleCoverage`). Template parts count once per page. `restyle_text_elements`, `restyle_text_preset`, `restyle_backgrounds` and `restyle_backgrounds_preset` are the counts;
+- `palette_size`;
+- `unused_font_families`: declared primary families no rendered text uses;
+- `generated_to_source_css_ratio`: engine support CSS plus inline block style bytes, against the author's CSS bytes.
+
+`composer test:design-system-restyle` (`tests/integration/design-system-restyle.sh`) checks the same in WordPress and
+Chromium. For the `tailwind-v3`, `tailwind-v4` and multi-route
+`tailwind-shell` fixtures, it installs the theme and pages in a disposable
+site, records every text element's colour, gives each palette entry a new
+value in the user's Global Styles, and requires at least 80% of the text
+elements to change colour (`RESTYLE_MINIMUM`). It needs `RESTYLE_WP_CLI`,
+`RESTYLE_EVIDENCE_DIR` and `PLAYWRIGHT_MODULE`, and wipes the site's content.
+
 ## Reporting
 
 `reporting` is a compiler-output summary:

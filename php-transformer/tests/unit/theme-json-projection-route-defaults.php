@@ -31,6 +31,10 @@ foreach (array(false, true) as $reverse) {
     $assert(isset($theme['styles']['color']['text']), 'shared foreground projects');
     $assert('1px' === ($theme['styles']['elements']['h1']['typography']['letterSpacing'] ?? null), 'shared heading spacing projects');
     $assert(3 === count($theme['settings']['typography']['fontFamilies'] ?? array()), 'all route families remain editor presets');
+    // Usage-derived presets (#2894): every route renders its family, so each
+    // stays a preset, named by role or typeface rather than a value hash.
+    $assert(array('heading', 'body', 'arial') === array_column($theme['settings']['typography']['fontFamilies'] ?? array(), 'slug'), 'route families are named by role and typeface');
+    $assert('var:preset|color|contrast' === ($theme['styles']['color']['text'] ?? null), 'the shared foreground projects as the contrast role');
 }
 $themePayload = static fn(array $plan): string => array_values(array_filter($plan['writes'], static fn(array $write): bool => 'theme.json' === $write['target_path']))[0]['payload']['data'];
 $assert($themePayload($plans[0]) === $themePayload($plans[1]), 'page inventory order cannot change Global Styles');

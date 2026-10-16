@@ -364,7 +364,8 @@ final class GeneratedBlockStyleProjector
         }
         $media = $this->sourceBackgroundGuardMedia($sourceControl);
         if ( null === $media ) return false;
-        $selector = '.' . $marker . '.' . $marker . '>.wp-block-button__link:not([style*="background"])';
+        // A preset background (`has-background`) is the block's own fill too.
+        $selector = '.' . $marker . '.' . $marker . '>.wp-block-button__link:not([style*="background"]):not(.has-background)';
         foreach ( $this->styleResolver->sourceBackgroundInteractionStates($sourceControl) as $state ) {
             $selector .= ':not(:' . $state . ')';
         }

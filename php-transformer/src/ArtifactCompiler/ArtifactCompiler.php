@@ -460,7 +460,7 @@ final class ArtifactCompiler
         if (array() !== ($capturedDialogs['native_runtime_replacements'] ?? array())) {
             $sourceReports['native_runtime_replacements'] = $capturedDialogs['native_runtime_replacements'];
         }
-        $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts'], is_array($entryBlocks['document_root_markers'] ?? null) ? $entryBlocks['document_root_markers'] : array());
+        $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts'], is_array($entryBlocks['document_root_markers'] ?? null) ? $entryBlocks['document_root_markers'] : array(), is_array($entryBlocks['design_usage'] ?? null) ? $entryBlocks['design_usage'] : array());
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;
         $sourceReports['compiled_site'] = $compiledSite;
         $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($compiledSite);
@@ -1428,6 +1428,7 @@ final class ArtifactCompiler
             'reusable_components' => $result['reusable_components'],
             'layout_geometry_proof' => $result['layout_geometry_proof'],
             'document_root_markers' => $result['document_root_markers'],
+            'design_usage' => $result['design_usage'],
         );
     }
 
@@ -1452,6 +1453,7 @@ final class ArtifactCompiler
                 'shell_artifacts' => array(),
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
                 'document_root_markers' => array(),
+                'design_usage' => array(),
                 'reusable_components' => array(),
                 'runtime_block_paths' => array(),
                 'visual_block_paths' => array(),
@@ -1551,6 +1553,7 @@ final class ArtifactCompiler
             'runtime_script_projections' => $blockCompilationOutput->runtimeScriptProjections,
             'shell_artifacts' => $blockCompilationOutput->shellArtifacts,
             'document_root_markers' => $blockCompilationOutput->documentRootMarkers,
+            'design_usage' => $blockCompilationOutput->designUsage,
         );
     }
 
@@ -3455,7 +3458,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $blockTypes
      * @return array<string, mixed>
      */
-    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array(), array $compiledHtmlDocuments = array(), array $inlineShellArtifacts = array(), array $entryDocumentRootMarkers = array()): array
+    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array(), array $compiledHtmlDocuments = array(), array $inlineShellArtifacts = array(), array $entryDocumentRootMarkers = array(), array $entryDesignUsage = array()): array
     {
         $pages = array();
         $assetPayloadsByPath = array();
@@ -3491,7 +3494,7 @@ final class ArtifactCompiler
             $slug = $this->slugFromPath($path, $entryPath);
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
-                ? array('serialized_blocks' => $serializedBlocks, 'assets' => array(), 'shell_artifacts' => $entryShellArtifacts, 'document_root_markers' => $entryDocumentRootMarkers)
+                ? array('serialized_blocks' => $serializedBlocks, 'assets' => array(), 'shell_artifacts' => $entryShellArtifacts, 'document_root_markers' => $entryDocumentRootMarkers, 'design_usage' => $entryDesignUsage)
                 : ($compiledHtmlDocuments[$path] ?? $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document', '', true));
             foreach ( $compiledBlocks['assets'] ?? array() as $generatedAsset ) {
                 if ( is_array($generatedAsset) ) {
@@ -3528,6 +3531,7 @@ final class ArtifactCompiler
                     'block_markup'   => $blockMarkup,
                     'shell_artifacts' => is_array($compiledBlocks['shell_artifacts'] ?? null) ? $compiledBlocks['shell_artifacts'] : array(),
                     'runtime_islands' => is_array($compiledBlocks['runtime_islands'] ?? null) ? $compiledBlocks['runtime_islands'] : array(),
+                    'design_usage'   => is_array($compiledBlocks['design_usage'] ?? null) ? $compiledBlocks['design_usage'] : array(),
                     'bytes'          => $file['bytes'] ?? 0,
                     'mime_type'      => $file['mime_type'] ?? 'text/html',
                     'asset_references' => $this->assetReferencePaths($assets),
