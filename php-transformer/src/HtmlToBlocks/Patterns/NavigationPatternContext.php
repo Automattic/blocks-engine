@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ProjectedNavigationConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
@@ -318,7 +319,7 @@ final class NavigationPatternContext
             $peerClasses = array();
             foreach ($peers as $peer) foreach (preg_split('/\s+/', trim($peer->getAttribute('class'))) ?: array() as $class) $peerClasses[$class] = true;
             return array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class && !isset($peerClasses[$class])
-                && array() !== array_intersect(preg_split('/[^a-z0-9]+/', strtolower($class)) ?: array(), array('active', 'current', 'selected'))));
+                && MenuVocabulary::containsCurrentStateToken($class)));
         };
         $this->session->authorSelectorProjectionState()->markCurrentNavigationClasses(array_merge($own($item, $peerItems), $item->isSameNode($anchor) ? array() : $own($anchor, $peerAnchors)));
     }
