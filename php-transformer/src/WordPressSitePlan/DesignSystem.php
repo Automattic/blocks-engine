@@ -20,15 +20,26 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  * starts a new one. The heaviest member names the cluster's value.
  *
  * - Colours: opaque colours within CIE76 ΔE*ab 2.3 (one just-noticeable
- *   difference) merge. At most 12 colours are kept.
+ *   difference) merge. Then each low-weight cluster (under 3% of all colour
+ *   weight, and not a call-to-action background or button label) merges
+ *   into the nearest heavier cluster within ΔE*ab 18, so a one-off shade
+ *   (`bg-[#0a1630]` beside a `#050b18` canvas) does not take a palette
+ *   slot. 18 keeps neighbouring framework steps apart (Tailwind
+ *   blue-500/600 are ΔE 19 apart) while folding shades of the same tint
+ *   together. Heavy colours stay distinct however close they are. Only the
+ *   JND tolerance binds values to a token: a consolidated shade keeps
+ *   rendering as itself. At most 12 colours are kept.
  * - Font sizes: sizes within 0.5px merge. The 8 heaviest are kept and
  *   ordered by size.
  * - Spacing: positive absolute lengths merge only when they are the same
  *   pixel length. The 10 heaviest are kept and ordered by size.
  * - Widths: centred `max-width` containers; the heaviest is the content
  *   width and the heaviest wider one is the wide width.
- * - Font families: only stacks that some rendered text uses. A bare generic
- *   family (`monospace`) is the browser's font, not a token, and is dropped.
+ * - Font families: grouped by primary family (the first name in the stack,
+ *   ignoring case and quotes), keeping the stack most text uses. Only
+ *   families some rendered text uses as its primary become presets. A stack
+ *   whose primary is a generic family (`ui-monospace, monospace`) renders
+ *   the browser's font, not a token, and is dropped.
  *
  * Role names make slugs stable across runs:
  *
@@ -56,6 +67,11 @@ final class DesignSystem
     public const COLOR_TOLERANCE = CssColor::JUST_NOTICEABLE_DIFFERENCE;
     public const FONT_SIZE_TOLERANCE_PX = 0.5;
     public const SPACING_TOLERANCE_PX = 0.01;
+    /** ΔE*ab within which a low-weight colour cluster merges into a heavier one. */
+    public const COLOR_CONSOLIDATION_DISTANCE = 18.0;
+    /** Share of all colour weight under which a cluster counts as low-weight. */
+    public const LOW_WEIGHT_SHARE = 0.03;
+    private const CSS_WIDE_KEYWORDS = array('inherit', 'initial', 'unset', 'revert', 'revert-layer');
     private const CHROMATIC = 20.0;
     private const GENERIC_FAMILIES = array('serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'math', 'emoji', 'fangsong');
 
@@ -90,7 +106,7 @@ final class DesignSystem
         if (array() === $usageBySource) return null;
         ksort($usageBySource, SORT_STRING);
 
-        $textByColor = $backgroundByColor = $ctaByColor = $sizeWeights = $bodySizeWeights = $spacingRows = $widthRows = array();
+        $textByColor = $backgroundByColor = $ctaByColor = $labelByColor = $sizeWeights = $bodySizeWeights = $spacingRows = $widthRows = array();
         $familyWeights = $familyStacks = $headingFamilyWeights = $bodyFamilyWeights = array();
         $textOnBackground = array();
         $rootPx = array();
@@ -103,6 +119,7 @@ final class DesignSystem
                 $color = self::opaqueHex($row['color'] ?? null);
                 if (null !== $color) {
                     $textByColor[$color] = ($textByColor[$color] ?? 0) + $weight;
+                    if ('button' === ($row['role'] ?? null)) $labelByColor[$color] = ($labelByColor[$color] ?? 0) + $weight;
                     $background = self::opaqueHex($row['background'] ?? null);
                     if (null !== $background && 'body' === ($row['role'] ?? null)) $textOnBackground[$background][$color] = ($textOnBackground[$background][$color] ?? 0) + $weight;
                 }
@@ -114,7 +131,7 @@ final class DesignSystem
                 }
                 $stack = is_string($row['font_family'] ?? null) ? trim($row['font_family']) : '';
                 $familyKey = self::familyKey($stack);
-                if ('' === $familyKey || in_array($familyKey, self::GENERIC_FAMILIES, true)) continue;
+                if ('' === $familyKey || in_array($familyKey, self::GENERIC_FAMILIES, true) || in_array($familyKey, self::CSS_WIDE_KEYWORDS, true)) continue;
                 $familyWeights[$familyKey] = ($familyWeights[$familyKey] ?? 0) + $weight;
                 $familyStacks[$familyKey][$stack] = ($familyStacks[$familyKey][$stack] ?? 0) + $weight;
                 if ('heading' === ($row['role'] ?? null)) $headingFamilyWeights[$familyKey] = ($headingFamilyWeights[$familyKey] ?? 0) + $weight;
@@ -143,7 +160,7 @@ final class DesignSystem
         arsort($rootPx);
         $rootFontPx = (float) rtrim((string) array_key_first($rootPx), 'px');
 
-        $colors = self::palette($textByColor, $backgroundByColor, $ctaByColor, $textOnBackground);
+        $colors = self::palette($textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $labelByColor);
         $fontSizes = self::fontSizes($sizeWeights, $bodySizeWeights, $rootFontPx);
         $fontFamilies = self::fontFamilies($familyWeights, $familyStacks, $headingFamilyWeights, $bodyFamilyWeights);
         $spacing = self::spacing($spacingRows);
@@ -187,7 +204,7 @@ final class DesignSystem
         return null;
     }
 
-    /** Slug of the font family preset with the same stack, or null. */
+    /** Slug of the font family preset with the same primary family, or null. */
     public function fontFamilySlug(string $stack): ?string
     {
         $key = self::familyKey($stack);
@@ -201,7 +218,7 @@ final class DesignSystem
         return array(
             'schema' => self::SCHEMA,
             'document_count' => $this->documentCount,
-            'tolerances' => array('color_delta_e76' => self::COLOR_TOLERANCE, 'font_size_px' => self::FONT_SIZE_TOLERANCE_PX, 'spacing_px' => self::SPACING_TOLERANCE_PX),
+            'tolerances' => array('color_delta_e76' => self::COLOR_TOLERANCE, 'color_consolidation_delta_e76' => self::COLOR_CONSOLIDATION_DISTANCE, 'color_low_weight_share' => self::LOW_WEIGHT_SHARE, 'font_size_px' => self::FONT_SIZE_TOLERANCE_PX, 'spacing_px' => self::SPACING_TOLERANCE_PX),
             'palette' => array_map(static fn(array $color): array => array('slug' => $color['slug'], 'color' => $color['color'], 'role' => $color['role'], 'weight' => $color['weight']), $this->colors),
             'font_sizes' => array_map(static fn(array $size): array => array('slug' => $size['slug'], 'size' => $size['size'], 'weight' => $size['weight']), $this->fontSizes),
             'font_families' => array_map(static fn(array $family): array => array('slug' => $family['slug'], 'name' => $family['name'], 'font_family' => $family['fontFamily'], 'weight' => $family['weight']), $this->fontFamilies),
@@ -216,10 +233,14 @@ final class DesignSystem
      * - `preset_share`: of the colour, font-size, font-family and spacing
      *   values block attributes carry, the share that are preset references
      *   (`textColor`, `fontSize`, `var:preset|…`) rather than literals. 1.0
-     *   when blocks carry no such values.
+     *   when blocks carry no such values. Zero lengths, `auto` and CSS-wide
+     *   keywords (`inherit`, …) are not design values and are not counted.
      * - `palette_size`: colours in the palette.
-     * - `unused_font_families`: families the source stylesheets declare that
-     *   no rendered text uses, so the theme does not offer them.
+     * - `unused_font_families`: primary families (the first name of a
+     *   `font-family` stack, unquoted) the source stylesheets declare that no
+     *   rendered text uses as its primary, so the theme does not offer them.
+     *   Fallbacks later in a stack and `@font-face` descriptors are not
+     *   declarations of a family in use.
      * - `generated_css_bytes` / `source_css_bytes` /
      *   `generated_to_source_css_ratio`: CSS the conversion adds (engine
      *   support stylesheets plus inline block `style` attributes) against the
@@ -244,7 +265,7 @@ final class DesignSystem
                     foreach (array('padding', 'margin') as $box) foreach ((array) ($style['spacing'][$box] ?? array()) as $value) $values[] = $value;
                     foreach ((array) ($style['spacing']['blockGap'] ?? array()) as $value) $values[] = $value;
                     foreach ($values as $value) {
-                        if (!is_string($value) || 1 === preg_match('/^(?:0[a-z%]*|auto|)$/i', trim($value))) continue;
+                        if (!is_string($value) || 1 === preg_match('/^(?:0[a-z%]*|auto|inherit|initial|unset|revert|revert-layer|)$/i', trim($value))) continue;
                         if (str_starts_with($value, 'var:preset|')) $preset++;
                         else $literal++;
                     }
@@ -265,18 +286,19 @@ final class DesignSystem
                 continue;
             }
             $source += strlen($asset['content']);
-            if (preg_match_all('/(?<![-\w])font-family\s*:\s*([^;{}!]+)/i', $asset['content'], $matches)) {
+            $content = (string) preg_replace('/@font-face\s*\{[^{}]*\}/i', '', $asset['content']);
+            if (preg_match_all('/(?<![-\w])font-family\s*:\s*([^;{}!]+)/i', $content, $matches)) {
                 foreach ($matches[1] as $stack) {
                     $stack = trim($stack);
                     for ($depth = 0; $depth < 5 && 1 === preg_match('/^var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)$/', $stack, $reference); $depth++) $stack = $variables[$reference[1]] ?? trim($reference[2] ?? '');
                     $key = self::familyKey($stack);
-                    if ('' === $key || str_contains($key, 'var(') || in_array($key, self::GENERIC_FAMILIES, true) || in_array($key, array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) continue;
-                    $declared[$key] ??= $stack;
+                    if ('' === $key || str_contains($key, 'var(') || in_array($key, self::GENERIC_FAMILIES, true) || in_array($key, self::CSS_WIDE_KEYWORDS, true)) continue;
+                    $declared[$key] ??= self::primaryFamily($stack);
                 }
             }
         }
         $rendered = array_fill_keys(array_column($this->fontFamilies, 'key'), true);
-        $unused = array_values(array_diff_key($declared, $rendered));
+        $unused = array_values(array_unique(array_diff_key($declared, $rendered)));
         sort($unused, SORT_STRING);
         $total = $preset + $literal;
         return array(
@@ -299,14 +321,15 @@ final class DesignSystem
      * @param array<string,int> $backgrounds
      * @param array<string,int> $cta
      * @param array<string,array<string,int>> $textOnBackground
+     * @param array<string,int> $labels Button label colours.
      * @return list<array{slug:string,name:string,color:string,role:string,weight:int}>
      */
-    private static function palette(array $text, array $backgrounds, array $cta, array $textOnBackground): array
+    private static function palette(array $text, array $backgrounds, array $cta, array $textOnBackground, array $labels = array()): array
     {
         $total = array();
         foreach (array($text, $backgrounds) as $weights) foreach ($weights as $color => $weight) $total[$color] = ($total[$color] ?? 0) + $weight;
         if (array() === $total) return array();
-        $clusters = self::clusterColors($total);
+        $clusters = self::consolidateColors(self::clusterColors($total), $cta + $labels);
         $memberOf = array();
         foreach ($clusters as $index => $cluster) foreach ($cluster['members'] as $member) $memberOf[$member] = $index;
         $sum = static function (array $weights) use ($memberOf): array {
@@ -382,6 +405,46 @@ final class DesignSystem
             $clusters[] = array('color' => $color, 'weight' => $weights[$color], 'members' => array($color));
         }
         return $clusters;
+    }
+
+    /**
+     * Merge each low-weight cluster into the nearest heavier cluster within
+     * COLOR_CONSOLIDATION_DISTANCE. Clusters are visited heaviest first, so a
+     * low-weight cluster joins a cluster that already holds whatever merged
+     * into it; the heavier cluster keeps its colour. A cluster with a
+     * call-to-action background or button label colour is a brand colour
+     * however little area it covers, and is not absorbed.
+     *
+     * @param list<array{color:string,weight:int,members:list<string>}> $clusters Heaviest first.
+     * @param array<string,int> $cta Colours that are never absorbed.
+     * @return list<array{color:string,weight:int,members:list<string>}>
+     */
+    public static function consolidateColors(array $clusters, array $cta = array()): array
+    {
+        $total = array_sum(array_column($clusters, 'weight'));
+        $kept = array();
+        foreach ($clusters as $cluster) {
+            $lowWeight = $cluster['weight'] < self::LOW_WEIGHT_SHARE * $total && array() === array_intersect_key($cta, array_flip($cluster['members']));
+            $nearest = null;
+            $nearestDistance = INF;
+            if ($lowWeight) {
+                foreach ($kept as $index => $candidate) {
+                    if ($candidate['weight'] <= $cluster['weight']) continue;
+                    $distance = CssColor::distance($cluster['color'], $candidate['color']) ?? INF;
+                    if ($distance <= self::COLOR_CONSOLIDATION_DISTANCE && $distance < $nearestDistance) {
+                        $nearest = $index;
+                        $nearestDistance = $distance;
+                    }
+                }
+            }
+            if (null === $nearest) {
+                $kept[] = $cluster;
+                continue;
+            }
+            $kept[$nearest]['weight'] += $cluster['weight'];
+            array_push($kept[$nearest]['members'], ...$cluster['members']);
+        }
+        return $kept;
     }
 
     /**
@@ -599,11 +662,24 @@ final class DesignSystem
         return CssColor::hex($value);
     }
 
-    /** Case-, quote- and whitespace-insensitive identity of a family stack. */
+    /**
+     * Case-, quote- and whitespace-insensitive identity of a family stack:
+     * its primary family. Stacks that only differ in their fallbacks render
+     * the same typeface wherever it is available, so they are one family.
+     */
     public static function familyKey(string $stack): string
     {
-        $parts = array_map(static fn(string $part): string => strtolower(trim($part, " \t\n\r\0\x0B\"'")), explode(',', $stack));
-        return implode(',', array_values(array_filter($parts, static fn(string $part): bool => '' !== $part)));
+        return strtolower(self::primaryFamily($stack));
+    }
+
+    /** The first family name of a stack, unquoted. */
+    private static function primaryFamily(string $stack): string
+    {
+        foreach (explode(',', $stack) as $part) {
+            $part = trim($part, " \t\n\r\0\x0B\"'");
+            if ('' !== $part) return (string) preg_replace('/\s+/', ' ', $part);
+        }
+        return '';
     }
 
     private static function familyName(string $stack): string

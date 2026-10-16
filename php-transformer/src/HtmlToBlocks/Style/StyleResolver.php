@@ -1567,6 +1567,51 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether a resting rule that sets one of the properties on the element
+     * reads a custom property that a media-conditional rule redefines on the
+     * element or an ancestor (`@media (prefers-color-scheme:dark){:root{
+     * --fg:…}}`). The property then renders differently under that condition
+     * although no conditional rule restyles the element itself.
+     *
+     * @param list<string> $properties
+     */
+    public function readsConditionalCustomProperty(DOMElement $element, array $properties): bool
+    {
+        $readers = array();
+        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
+            if ( array() !== array_intersect($properties, array_map('strtolower', array_map('strval', array_keys($rule['declarations'] ?? array())))) ) {
+                foreach ( $rule['customPropertyReferences'] ?? array() as $name ) $readers[(string) $name] = true;
+            }
+        }
+        if ( array() === $readers ) return false;
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            foreach ( $this->matchingStyleRules($current, 'conditional') as $rule ) {
+                foreach ( array_keys(($rule['declarations'] ?? array()) + ($rule['cascadedDeclarations'] ?? array())) as $property ) {
+                    if ( isset($readers[(string) $property]) ) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether an interaction-state rule (`:hover`, `:focus`, `:focus-visible`,
+     * `:focus-within`, `:active`) whose resting selector matches the element
+     * declares a property of the family.
+     */
+    public function hasStateStyleFamily(DOMElement $element, string $family): bool
+    {
+        foreach ( $this->context->sourceStyles()->navigationStateRules() as $rule ) {
+            $declared = array_filter(array_keys($rule['declarations'] ?? array()), fn (int|string $property): bool => $family === $this->responsivePropertyFamily((string) $property));
+            if ( array() !== $declared && $this->matchesCssSelector($element, (string) ($rule['base_selector'] ?? '')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Core supports cannot serialize arbitrary box dimensions. Keep only source
      * inline geometry in a generated stylesheet; class-owned declarations are
      * already retained by author stylesheet materialization.

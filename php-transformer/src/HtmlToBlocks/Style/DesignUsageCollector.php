@@ -43,7 +43,21 @@ final class DesignUsageCollector
 
     private const MONOSPACE_TAGS = array('code', 'pre', 'kbd', 'samp', 'tt');
 
-    private const SPACING_PROPERTIES = array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'gap', 'row-gap', 'column-gap');
+    private const SPACING_PROPERTIES = array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-inline', 'padding-block', 'padding-inline-start', 'padding-inline-end', 'padding-block-start', 'padding-block-end', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'margin-inline', 'margin-block', 'margin-inline-start', 'margin-inline-end', 'margin-block-start', 'margin-block-end', 'gap', 'row-gap', 'column-gap');
+
+    /** Physical sides the logical padding properties set in horizontal left-to-right text. */
+    private const PADDING_SIDES = array(
+        'padding-inline' => array('left', 'right'), 'padding-block' => array('top', 'bottom'),
+        'padding-inline-start' => array('left'), 'padding-inline-end' => array('right'),
+        'padding-block-start' => array('top'), 'padding-block-end' => array('bottom'),
+        'padding-top' => array('top'), 'padding-right' => array('right'), 'padding-bottom' => array('bottom'), 'padding-left' => array('left'),
+    );
+
+    /** Bindable properties of class-styled elements and the style family a variant of each declares. */
+    private const CLASS_STYLE_FAMILIES = array(
+        'color' => 'color', 'background-color' => 'background', 'font-size' => 'font-size', 'font-family' => 'font-family',
+        'padding-top' => 'padding', 'padding-right' => 'padding', 'padding-bottom' => 'padding', 'padding-left' => 'padding',
+    );
 
     /** @var array<string,array<string,mixed>> */
     private array $text = array();
@@ -53,6 +67,8 @@ final class DesignUsageCollector
     private array $spacing = array();
     /** @var array<string,array<string,mixed>> */
     private array $widths = array();
+    /** @var array<string,array<string,array<string,true>>> Class list => property => observations. */
+    private array $classStyles = array();
     private float $rootPx = 16.0;
     private int $elements = 0;
 
@@ -63,7 +79,7 @@ final class DesignUsageCollector
     /** @return array<string,mixed> */
     public function collect(DOMElement $body): array
     {
-        $this->text = $this->backgrounds = $this->spacing = $this->widths = array();
+        $this->text = $this->backgrounds = $this->spacing = $this->widths = $this->classStyles = array();
         $this->elements = 0;
         $this->rootPx = $this->resolver->documentRootFontSize($body) ?? 16.0;
         $html = $body->parentNode instanceof DOMElement && 'html' === strtolower($body->parentNode->tagName) ? $body->parentNode : null;
@@ -108,6 +124,7 @@ final class DesignUsageCollector
             'backgrounds' => self::rows($this->backgrounds),
             'spacing' => self::rows($this->spacing),
             'widths' => self::rows($this->widths),
+            'class_styles' => $this->classStyleRows(),
             'total_mass' => max(1, $mass),
             'element_count' => $this->elements,
         );
@@ -161,6 +178,7 @@ final class DesignUsageCollector
         if ($opaque) $this->addBackground((string) CssColor::hex($background), $control || 'input' === $tag ? 'cta' : 'surface', $mass + 1, $background);
         $this->spacingFrom($element, $declarations, $context['size']);
         $this->widthFrom($declarations, $context['size'], $mass);
+        $this->recordClassStyles($element, $declarations, $parent['size'], $context['size']);
         return $mass;
     }
 
@@ -257,7 +275,12 @@ final class DesignUsageCollector
         foreach (self::SPACING_PROPERTIES as $property) {
             if (!isset($declarations[$property])) continue;
             $value = self::clean($declarations[$property]);
-            $values = in_array($property, array('padding', 'margin'), true) ? CssValueInspector::expandBoxShorthand($value) : (in_array($property, array('gap'), true) ? CssValueSplitter::splitTopLevelWhitespace($value) : array($value));
+            $values = match (true) {
+                in_array($property, array('padding', 'margin'), true) => CssValueInspector::expandBoxShorthand($value),
+                in_array($property, array('padding-inline', 'padding-block', 'margin-inline', 'margin-block'), true) => self::logicalPair($value),
+                'gap' === $property => CssValueSplitter::splitTopLevelWhitespace($value),
+                default => array($value),
+            };
             foreach ($values as $side) {
                 $px = CssLength::toPx($side, $this->rootPx, $fontPx);
                 if (null === $px || $px <= 0) continue;
@@ -268,6 +291,175 @@ final class DesignUsageCollector
                 $this->spacing[$key] = $row;
             }
         }
+    }
+
+    /**
+     * What an element with this exact class list renders for each bindable
+     * property, so the site plan can bind class-driven values to presets
+     * (see PresetBinding). Only the element's own declarations count, not
+     * inherited ones. An observation is the resting value in a comparable
+     * form (opaque hex colour, pixel length, cleaned family stack), followed
+     * by `;`-separated values the property takes under media conditions. It
+     * is `!` when the value cannot be bound (not a plain opaque colour or
+     * absolute length, `!important`, or changed by a `:hover`/`:focus` style)
+     * and empty when the element does not declare the property.
+     *
+     * @param array<string,string> $declarations
+     */
+    private function recordClassStyles(DOMElement $element, array $declarations, float $parentPx, float $fontPx): void
+    {
+        $classes = array_values(array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class)));
+        if (array() === $classes) return;
+        sort($classes, SORT_STRING);
+        $key = implode(' ', $classes);
+        $resting = array(
+            'color' => isset($declarations['color']) ? self::colorObservation($declarations['color']) : '',
+            'background-color' => self::backgroundObservation($declarations),
+            'font-size' => isset($declarations['font-size']) ? $this->fontSizeObservation($declarations['font-size'], $parentPx) : '',
+            'font-family' => isset($declarations['font-family']) ? self::familyObservation($declarations['font-family']) : '',
+        ) + $this->paddingObservations($declarations, $fontPx);
+        foreach ($resting as $property => $observation) {
+            if ('' !== $observation && '!' !== $observation) $observation = $this->withVariants($element, $property, $observation, $parentPx);
+            if ('' !== $observation && '!' !== $observation && $this->readsConditionalVariable($element, $property)) $observation = '!';
+            $this->classStyles[$key][$property][$observation] = true;
+        }
+    }
+
+    /**
+     * Whether the element's own declaration of the property reads a custom
+     * property that a media condition redefines (a dark theme that swaps
+     * `:root` tokens), which a fixed preset could not follow.
+     */
+    private function readsConditionalVariable(DOMElement $element, string $property): bool
+    {
+        $properties = match (true) {
+            'background-color' === $property => array('background', 'background-color'),
+            str_starts_with($property, 'padding-') => array('padding', $property, 'padding-inline', 'padding-block', 'padding-inline-start', 'padding-inline-end', 'padding-block-start', 'padding-block-end'),
+            'font-size' === $property, 'font-family' === $property => array('font', $property),
+            default => array($property),
+        };
+        return $this->resolver->readsConditionalCustomProperty($element, $properties);
+    }
+
+    /** The resting observation followed by the values media-conditional rules give the property, or `!`. */
+    private function withVariants(DOMElement $element, string $property, string $observation, float $parentPx): string
+    {
+        $family = self::CLASS_STYLE_FAMILIES[$property];
+        if ($this->resolver->hasStateStyleFamily($element, $family)) return '!';
+        $fontFamily = in_array($family, array('font-size', 'font-family'), true);
+        if ($fontFamily && ($this->resolver->hasStateStyleFamily($element, 'font') || $this->resolver->hasConditionalStyleFamily($element, 'font'))) return '!';
+        if (!$this->resolver->hasConditionalStyleFamily($element, $family)) return $observation;
+        if (!in_array($property, array('color', 'background-color', 'font-size'), true)) return '!';
+        $variants = array();
+        $properties = 'background-color' === $property ? array('background', 'background-color') : array($property);
+        foreach ($this->resolver->conditionalAuthorDeclaredPropertyValues($element, $properties) as $name => $values) {
+            foreach ($values as $value) {
+                $value = $this->resolver->resolveCssVariablesInValue((string) $value, $element);
+                $variant = match ($property) {
+                    'color' => self::colorObservation($value),
+                    'background-color' => self::backgroundObservation(array($name => $value)),
+                    default => $this->fontSizeObservation($value, $parentPx),
+                };
+                if ('!' === $variant || '' === $variant) return '!';
+                $variants[$variant] = true;
+            }
+        }
+        // A conditional rule of the family that sets none of the property's
+        // own spellings (a `background-image`, say) leaves its value alone.
+        ksort($variants, SORT_STRING);
+        return implode(';', array_merge(array($observation), array_keys($variants)));
+    }
+
+    private static function colorObservation(string $value): string
+    {
+        if (1 === preg_match('/!\s*important\s*$/i', $value) || !CssColor::opaque($value)) return '!';
+        return (string) CssColor::hex($value);
+    }
+
+    /** @param array<string,string> $declarations */
+    private static function backgroundObservation(array $declarations): string
+    {
+        if (isset($declarations['background-color'])) return self::colorObservation($declarations['background-color']);
+        if (!isset($declarations['background'])) return '';
+        $tokens = CssValueSplitter::splitTopLevelWhitespace(trim($declarations['background']));
+        return 1 === count($tokens) ? self::colorObservation($tokens[0]) : '!';
+    }
+
+    private function fontSizeObservation(string $value, float $parentPx): string
+    {
+        if (1 === preg_match('/!\s*important\s*$/i', $value)) return '!';
+        $px = $this->fontSize($value, $parentPx);
+        return null === $px ? '!' : CssLength::format($px);
+    }
+
+    private static function familyObservation(string $value): string
+    {
+        $stack = self::clean($value);
+        if ($stack !== trim($value) || '' === $stack || str_contains($stack, 'var(') || in_array(strtolower($stack), array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) return '!';
+        return $stack;
+    }
+
+    /**
+     * Pixel observations for each physical padding side. The resolved
+     * declarations are in cascade order, so a later shorthand or longhand
+     * replaces the sides an earlier one set. An `!important` padding is not
+     * bindable.
+     *
+     * @param array<string,string> $declarations
+     * @return array<string,string>
+     */
+    private function paddingObservations(array $declarations, float $fontPx): array
+    {
+        $sides = array('top' => '', 'right' => '', 'bottom' => '', 'left' => '');
+        foreach ($declarations as $property => $value) {
+            $property = (string) $property;
+            if ('padding' === $property) {
+                $physical = array('top', 'right', 'bottom', 'left');
+                $values = CssValueInspector::expandBoxShorthand(self::clean($value));
+            } elseif (isset(self::PADDING_SIDES[$property])) {
+                $physical = self::PADDING_SIDES[$property];
+                $values = 2 === count($physical) ? self::logicalPair(self::clean($value)) : array(self::clean($value));
+            } else {
+                continue;
+            }
+            $important = 1 === preg_match('/!\s*important\s*$/i', $value);
+            foreach ($physical as $index => $side) {
+                $px = $important || !isset($values[$index]) ? null : CssLength::toPx((string) $values[$index], $this->rootPx, $fontPx);
+                $sides[$side] = null === $px ? '!' : CssLength::format($px);
+            }
+        }
+        $observations = array();
+        foreach ($sides as $side => $observation) $observations['padding-' . $side] = $observation;
+        return $observations;
+    }
+
+    /** @return list<string> The start and end values of a logical `*-inline` or `*-block` shorthand. */
+    private static function logicalPair(string $value): array
+    {
+        $parts = CssValueSplitter::splitTopLevelWhitespace(trim($value));
+        return match (count($parts)) {
+            1 => array($parts[0], $parts[0]),
+            2 => $parts,
+            default => array(),
+        };
+    }
+
+    /** @return list<array{classes:string,properties:array<string,list<string>>}> */
+    private function classStyleRows(): array
+    {
+        ksort($this->classStyles, SORT_STRING);
+        $rows = array();
+        foreach ($this->classStyles as $classes => $properties) {
+            $properties = array_map(static function (array $observations): array {
+                $observations = array_keys($observations);
+                sort($observations, SORT_STRING);
+                return array_map('strval', $observations);
+            }, array_filter($properties, static fn(array $observations): bool => array('' => true) !== $observations));
+            if (array() === $properties) continue;
+            ksort($properties, SORT_STRING);
+            $rows[] = array('classes' => (string) $classes, 'properties' => $properties);
+        }
+        return $rows;
     }
 
     /** @param array<string,string> $declarations */

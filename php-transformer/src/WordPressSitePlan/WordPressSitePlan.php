@@ -300,7 +300,7 @@ PHP;
         // any document is projected: routeLinks() binds literal block values
         // to its tokens wherever block markup enters the plan.
         $this->designSystem = DesignSystem::fromUsage(self::designUsage($documents));
-        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets);
+        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, self::designUsage($documents));
         $tokens = $this->tokens($assets);
         $surfaces = $this->templateSurfaces($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));

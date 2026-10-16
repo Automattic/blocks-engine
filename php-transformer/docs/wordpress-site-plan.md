@@ -242,16 +242,20 @@ The HTML transformer records each document's rendered usage as
 the resolved styles the conversion already computed, with inheritance and user
 agent defaults. Usage holds text colour, size and family per role (body, link,
 heading, button), the background behind the text, backgrounds, spacing and
-centred `max-width` containers. Each is weighted by element count and by text
+centred `max-width` containers. `class_styles` records, per class list, the
+colour, background colour, font size, font family and padding sides the
+elements with those classes render, with the values media queries give them,
+or `!` when a value cannot be bound. Each is weighted by element count and by text
 area (characters × size²). Documents are summed with integer weights, so route
 order cannot change the result.
 
 Clustering is deterministic:
 
-- Opaque colours within CIE76 ΔE 2.3 (one just-noticeable difference) merge. The palette keeps at most 12.
+- Opaque colours within CIE76 ΔE 2.3 (one just-noticeable difference) merge.
+- A low-weight colour (under 3% of all colour weight) then merges into the nearest heavier colour within ΔE 18. Call-to-action backgrounds and button labels are kept. Tailwind's neighbouring steps (blue-500/600, ΔE 19) stay apart. The merged shade still renders as itself, because only the 2.3 tolerance binds a value. The palette keeps at most 12.
 - Font sizes within 0.5px merge. The scale keeps the 8 heaviest steps.
 - Spacing merges only identical pixel lengths and keeps 10 steps.
-- Only font stacks some rendered text uses become presets. A family that is declared but not rendered is reported as unused.
+- Font stacks group by primary family, ignoring case and quotes, and keep the most used stack. Only families some rendered text uses as its primary become presets. A stack with a generic primary (`ui-monospace`) is not a token. A primary family that is declared but not rendered is reported as unused. Fallbacks and `@font-face` names are not reported.
 
 Roles make the slugs stable:
 
@@ -271,24 +275,39 @@ Global Styles also get:
 Every value is a `var:preset|…` reference.
 
 `PresetBinding` rewrites block markup wherever it enters the plan. A literal
-`style.color.text`, `style.color.background` or `style.typography.fontSize` that
-matches a token becomes `textColor`, `backgroundColor` or `fontSize`. It gets the
-matching `has-*` class, and the redundant inline declaration is removed.
-Padding, margin and block gap values become `var:preset|spacing|…`. Root custom
-properties defined once with one value are resolved first.
+`style.color.text`, `style.color.background`, `style.typography.fontSize` or
+`style.typography.fontFamily` that matches a token becomes `textColor`,
+`backgroundColor`, `fontSize` or `fontFamily`. It gets the matching `has-*`
+class, and the redundant inline declaration is removed. Padding, margin and
+block gap values become `var:preset|spacing|…`. Root custom properties
+(`:root`, `html`, `:host`, also inside `@layer`) defined once with one value
+are resolved first.
 
-A value stays literal when binding could change the cascade:
+A value set only by author classes is bound the same way, from the block's
+author class list and `class_styles`. Every element with that class list must
+render the same value. Paragraphs, headings, groups, lists, quotes and columns
+can get colour, font size, family and padding. Buttons can get colour and
+padding. The author class and its projected rule stay. The preset wins because
+core's preset classes are `!important` and spacing presets are inline. The
+projected native-button rules step aside for `.has-text-color` and
+`.has-background`, as they do for inline values.
+
+A value stays literal (or with its class) when binding could change the
+cascade:
 
 - the inline style is not exactly what the attributes serialize;
-- an `!important` rule for the property could match the same element;
-- a selector reads the inline style text (`[style*=…]`).
+- an `!important` rule for the property could match the same element, unless it excludes the preset class (`:not(.has-text-color)`);
+- a selector reads the inline style text (`[style*=…]`);
+- a `:hover`, `:focus` or `:active` rule sets the property on the element;
+- a media query (breakpoint, colour scheme) gives the property a value matching another token, or redefines a custom property it reads;
+- elements with the same class list render different values.
 
 `theme.design_system` reports the tokens and `metrics`, which the editability
 report repeats as `design_system`:
 
-- `preset_share`: the share of block colour, size, family and spacing values that are preset references;
+- `preset_share`: the share of block colour, size, family and spacing attribute values that are preset references (zero lengths, `auto` and CSS-wide keywords are not counted);
 - `palette_size`;
-- `unused_font_families`;
+- `unused_font_families`: declared primary families no rendered text uses;
 - `generated_to_source_css_ratio`: engine support CSS plus inline block style bytes, against the author's CSS bytes.
 
 ## Reporting
