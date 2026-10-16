@@ -2471,6 +2471,11 @@ PHP;
             } elseif (!isset($listings[$parent])) {
                 $evidence = array_values(array_filter($evidence, static fn(array $row): bool => 'html:visible-date' !== ($row['source'] ?? null)));
             } elseif (array() !== $evidence) {
+                // An Article/BlogPosting schema marker alone does not establish
+                // publication when the listing has no card linking to this route.
+                if (isset($listings[$parent]) && !array_filter($evidence, static fn(array $row): bool => isset($row['publication_timestamp']))) {
+                    $evidence = array_values(array_filter($evidence, static fn(array $row): bool => 'microdata:itemtype' !== ($row['source'] ?? null)));
+                }
                 $hasListing = false;
                 foreach ($evidence as $row) {
                     if ('listing:parent' === ($row['source'] ?? null)) {
