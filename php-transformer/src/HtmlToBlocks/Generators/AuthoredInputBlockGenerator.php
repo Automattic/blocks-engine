@@ -12,7 +12,7 @@ final class AuthoredInputBlockGenerator
     public function blockJson(string $namespace): array
     {
         $attributes = array();
-        foreach (array('type', 'id', 'name', 'form', 'value', 'placeholder', 'ariaLabel', 'className', 'style', 'min', 'max', 'step', 'label', 'labelMarkup', 'labelId', 'labelClassName', 'labelStyle') as $name) {
+        foreach (array('type', 'id', 'name', 'form', 'value', 'placeholder', 'ariaLabel', 'className', 'style', 'min', 'max', 'step', 'src', 'alt', 'width', 'height', 'title', 'label', 'labelMarkup', 'labelId', 'labelClassName', 'labelStyle') as $name) {
             $attributes[$name] = array('type' => 'string', 'default' => 'type' === $name ? 'text' : '');
         }
         foreach (array('required', 'disabled', 'readOnly', 'checked', 'valueDeclared', 'indeterminate', 'labelAfterControl') as $name) $attributes[$name] = array('type' => 'boolean', 'default' => false);
@@ -36,7 +36,7 @@ __CONTROL_HELPERS__
     function styleObject(value){return value?String(value).split(';').reduce(function(output,declaration){var separator=declaration.indexOf(':');if(separator<1)return output;var name=declaration.slice(0,separator).trim();output[name.indexOf('--')===0?name:name.replace(/-([a-z])/g,function(_,letter){return letter.toUpperCase();})]=declaration.slice(separator+1).trim();return output;},{}):undefined;}
     function markup(attrs){
         var output='<input';
-        ['type','id','name','form','value','placeholder','ariaLabel','className','style','min','max','step'].forEach(function(key){
+        ['type','id','name','form','value','placeholder','ariaLabel','className','style','min','max','step','src','alt','width','height','title'].forEach(function(key){
             if(key==='value'&&attrs.type==='file')return;
             if(attrs[key]||(key==='value'&&attrs.valueDeclared))output+=' '+({className:'class',ariaLabel:'aria-label'}[key]||key)+'="'+escapeAttribute(attrs[key])+'"';
         });
@@ -104,7 +104,7 @@ JS;
     {
         $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $html = '<input';
-        foreach (array('type', 'id', 'name', 'form', 'value', 'placeholder', 'ariaLabel', 'className', 'style', 'min', 'max', 'step') as $key) {
+        foreach (array('type', 'id', 'name', 'form', 'value', 'placeholder', 'ariaLabel', 'className', 'style', 'min', 'max', 'step', 'src', 'alt', 'width', 'height', 'title') as $key) {
             if ('value' === $key && 'file' === ($attrs['type'] ?? '')) continue;
             $value = (string) ($attrs[$key] ?? '');
             if ('' !== $value || ('value' === $key && !empty($attrs['valueDeclared']))) $html .= ' ' . (array('className' => 'class', 'ariaLabel' => 'aria-label')[$key] ?? $key) . '="' . $escape($value) . '"';

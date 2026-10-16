@@ -364,6 +364,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private readonly FormDispatcher $formDispatcher;
 
     private readonly NativeGetFormBlockBuilder $nativeGetFormBlockBuilder;
+    /** @var list<string> Hosts the current source document declares as its own. */
+    private array $sourceDocumentHosts = array();
 
     private readonly ElementConversionPrelude $elementPrelude;
 
@@ -732,7 +734,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             },
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             $this,
-            fn (): GeneratedBlockRegistry => $this->generatedBlocks()
+            fn (): GeneratedBlockRegistry => $this->generatedBlocks(),
+            fn (): array => $this->sourceDocumentHosts
         );
         $this->formCompositionPlanner = new FormCompositionPlanner(
             $this->session,
@@ -1571,6 +1574,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
 
         $sourceBodyClasses = $this->documentBodyClassNames($html);
+        $this->sourceDocumentHosts = NativeGetFormBlockBuilder::declaredDocumentHosts($html);
         $normalizedHtml = NativeControlState::withoutReplayScript(
             $this->normalizeHtml5VoidElements($this->documentBodyHtml($this->normalizeExplicitPlaintextElements($html)))
         );
