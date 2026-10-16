@@ -2084,7 +2084,7 @@ $paddedTextWrapper = ( new HtmlTransformer() )->transform(
     '<style>.copy{padding:1rem;font-size:.875rem;line-height:1.625}</style><div class="copy">PLAN 1 (0-3s)</div>'
 )->toArray();
 $paddedTextWrapperMarkup = (string) ($paddedTextWrapper['serialized_blocks'] ?? '');
-$assert(str_contains($paddedTextWrapperMarkup, 'blocks-engine-synthetic-paragraph') && str_contains($paddedTextWrapperMarkup, 'PLAN 1 (0-3s)'), 'a childless padded text wrapper marks its paragraph host for margin neutralization');
+$assert(str_contains($paddedTextWrapperMarkup, '<p class="copy blocks-engine-lowered-paragraph">PLAN 1 (0-3s)</p>'), 'a childless padded text wrapper is one lowered paragraph that keeps its padded box');
 $assert('pass' === ($paddedTextWrapper['source_reports']['wp_block_validity']['status'] ?? ''), 'padded text wrapper paragraphs remain editor-valid');
 
 $outlineButton = ( new HtmlTransformer() )->transform(
