@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
@@ -65,6 +66,11 @@ final class InlineContentElementConverter implements ElementConverter
         }
 
         if ( $this->context->isRuntimeDomTarget($element) ) {
+            // An inline role-button (or a captured gallery direction control)
+            // belongs to the button converter's editable runtime control.
+            if ( AuthoredButtonBlockGenerator::canRetainRoleButton($element) ) {
+                return ConversionOutcome::unhandled();
+            }
             return ConversionOutcome::handled($this->context->htmlPreservationBlock($element));
         }
 
