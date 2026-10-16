@@ -16,7 +16,7 @@
     "content": "<style>.form-shell{display:flex}.form-shell [data-role=\"label\"]{flex-grow:1}.animated:not([data-state=\"settled\"]){animation:fade 1s backwards paused}</style><div class=\"form-shell\"><div data-role=\"label\">Label</div></div><div class=\"animated\" data-state=\"settled\">Visible</div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "custom/layout-shell" },
+    { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Label" } },
     { "path": "blocks.1", "name": "core/paragraph", "attrs": { "content": "Visible" } }
   ],
