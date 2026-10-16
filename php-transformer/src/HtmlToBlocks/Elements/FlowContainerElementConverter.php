@@ -153,10 +153,12 @@ final class FlowContainerElementConverter implements ElementConverter
             && $this->context->isAuthorOwnedLayout($element)
         ) {
             // The element's own CSS layout (a flex/grid list of disclosure
-            // items) must not hide a semantic widget from its recognizer any
-            // more than a parent's layout may (see below). Unclaimed layouts
+            // items) must not hide an accordion from its recognizer any more
+            // than a parent's layout may (see below). A single disclosure item
+            // laid out by its own CSS stays a layout: core/details' plain
+            // summary cannot carry the trigger's box or icon. Unclaimed layouts
             // still lower to the CSS-owned layout block.
-            $claim = $this->semanticPatternClaim($element, $fallbacks);
+            $claim = $this->accordionClaim($element, $fallbacks);
             if ( null !== $claim ) {
                 return $claim;
             }
@@ -331,11 +333,9 @@ final class FlowContainerElementConverter implements ElementConverter
      */
     private function semanticPatternClaim(DOMElement $element, array &$fallbacks): ?ConversionOutcome
     {
-        if ( ! $this->context->shouldDeferNavigationPatternToChildren($element) ) {
-            $block = $this->context->recognizePatterns($element, $fallbacks, array( AccordionPattern::class ));
-            if ( null !== $block ) {
-                return ConversionOutcome::handled($this->context->rememberAccordionDisclosureRoot($block, $element));
-            }
+        $accordion = $this->accordionClaim($element, $fallbacks);
+        if ( null !== $accordion ) {
+            return $accordion;
         }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( DetailsPattern::class ));
         if ( null !== $block ) {
@@ -343,6 +343,16 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($block);
         }
         return null;
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    private function accordionClaim(DOMElement $element, array &$fallbacks): ?ConversionOutcome
+    {
+        if ( $this->context->shouldDeferNavigationPatternToChildren($element) ) {
+            return null;
+        }
+        $block = $this->context->recognizePatterns($element, $fallbacks, array( AccordionPattern::class ));
+        return null === $block ? null : ConversionOutcome::handled($this->context->rememberAccordionDisclosureRoot($block, $element));
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */

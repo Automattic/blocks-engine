@@ -280,6 +280,7 @@
       "php tests/unit/listing-unlisted-undated-route-stays-page.php",
       "php tests/unit/table-cell-layered-author-box.php",
       "php tests/unit/accordion-flex-list-with-sibling.php",
+      "php tests/unit/own-layout-disclosure-item.php",
       "php tests/unit/selector-cache-node-path-reuse.php",
       "php tests/unit/style-tag-scanner.php",
       "php tests/unit/integer-attribute-names.php",
