@@ -257,16 +257,16 @@ final class DocumentHeadContext
                 }
             }
             // The head replays its stylesheets at their parser positions, so it
-            // dequeues their ordered instance handles (#2634) and prints the
-            // stylesheets the enqueue order places ahead of them (before-author
-            // engine support) first.
-            $styles = $before = array();
+            // dequeues their ordered instance handles (#2634). WordPress prints
+            // the rest of the queue first (Core block styles, then before-author
+            // engine support); the replay follows it and prints the stylesheets
+            // the enqueue order places after the head's own (after-author) last.
+            $styles = $after = array();
             foreach (WordPressSitePlan::documentStylesheets(array('assets' => $assets, 'pages' => $pages), $page['source_path']) as $stylesheet) {
-                if (isset($ownedPaths[$stylesheet['target_path']])) $styles[] = $stylesheet['handle'];
-                elseif (array() === $styles) $before[] = $stylesheet['handle'];
+                if (isset($ownedPaths[$stylesheet['target_path']])) { $styles[] = $stylesheet['handle']; $after = array(); }
+                elseif (array() !== $styles) $after[] = $stylesheet['handle'];
             }
-            if (array() === $styles) $before = array();
-            $row = array('identity' => $page['reconciliation_identity'], 'path' => trim($page['route']['path'], '/'), 'front_page' => !empty($page['entrypoint']), 'html' => self::render($head, $assets, $tokens, WordPressSitePlan::entryRootFromDocuments($pages)), 'styles' => $styles, 'before' => $before, 'viewport' => (bool) array_filter($head['elements'], static fn(array $row): bool => 'meta' === $row['tag'] && 'viewport' === strtolower($row['attributes']['name'] ?? '')));
+            $row = array('identity' => $page['reconciliation_identity'], 'path' => trim($page['route']['path'], '/'), 'front_page' => !empty($page['entrypoint']), 'html' => self::render($head, $assets, $tokens, WordPressSitePlan::entryRootFromDocuments($pages)), 'styles' => $styles, 'after' => $after, 'viewport' => (bool) array_filter($head['elements'], static fn(array $row): bool => 'meta' === $row['tag'] && 'viewport' === strtolower($row['attributes']['name'] ?? '')));
             if (isset($taxonomyArchives[$page['source_path']])) $row += $taxonomyArchives[$page['source_path']];
             $rows[] = $row;
         }
@@ -283,14 +283,14 @@ add_filter( 'template_include', static function ( $template ) use ( $blocks_engi
         } elseif ( '' !== $identity ? $identity !== $row['identity'] : !( ( $row['front_page'] && is_front_page() ) || ( is_page() && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) continue;
         if ( $row['viewport'] ) remove_action( 'wp_head', '_block_template_viewport_meta_tag', 0 );
         add_action( 'wp_enqueue_scripts', static function () use ( $row ): void {
-            foreach ( $row['styles'] as $handle ) wp_dequeue_style( $handle );
+            foreach ( array_merge( $row['styles'], $row['after'] ) as $handle ) wp_dequeue_style( $handle );
         }, PHP_INT_MAX );
         add_action( 'wp_head', static function () use ( $row, $blocks_engine_head_assets ): void {
-            if ( array() !== $row['before'] ) wp_print_styles( $row['before'] );
             $references = array();
             foreach ( $blocks_engine_head_assets as $token => $path ) $references[$token] = get_theme_file_uri( implode( '/', array_map( 'rawurlencode', explode( '/', $path ) ) ) );
             echo strtr( $row['html'], $references );
-        }, 7 );
+            if ( array() !== $row['after'] ) wp_print_styles( $row['after'] );
+        }, 8 );
         break;
     }
     return $template;
