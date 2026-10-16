@@ -254,6 +254,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $anchor = SourceDom::anchorAttributeValue(SourceDom::attr($element, 'id'));
+        $variantIdSuffix = '' === $anchor ? '' : $this->documentVariantIdDisambiguationSuffix($element, $anchor);
         $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
             // A non-default responsive document variant (e.g. the mobile
             // counterpart of a desktop document) can reuse the very same
@@ -264,10 +265,10 @@ final class StyleResolver implements ElementPresentationResolver
             // invalid HTML and breaks same-page anchor navigation to that
             // id. An id unique to its own variant (no other variant
             // declares it) is left exactly as authored.
-            'anchor'    => '' === $anchor ? '' : $anchor . $this->documentVariantIdDisambiguationSuffix($element, $anchor),
+            'anchor'    => '' === $anchor ? '' : $anchor . $variantIdSuffix,
             'className' => $this->mergePresentationClassNames(
                 $this->inlineStyleDeclaresAllReset($element) ? '' : $this->context->promotedClassName(SourceDom::attr($element, 'class')),
-                $this->editorAnchorClassName($element),
+                $this->editorAnchorClassName($element, '' !== $variantIdSuffix),
                 $this->viewportRootHeightClassName($element),
                 $this->inlineGeometryClassName(
                     $element,
@@ -3660,9 +3661,16 @@ final class StyleResolver implements ElementPresentationResolver
         return array() === $classes ? '' : CssIdent::compoundClassSelector($classes);
     }
 
-    private function editorAnchorClassName(DOMElement $element): string
+    /**
+     * The editor-anchor class re-expressing the source id. A copy whose id was
+     * renamed for a document variant carries it whatever its tag: author `#id`
+     * selectors are projected as `:is(#id,.blocks-engine-editor-anchor-id)`
+     * ({@see ScopedAnchorSelectorProjection}), and the class is the only hook
+     * left on that copy (e.g. a layout-table cell lowered to a column).
+     */
+    private function editorAnchorClassName(DOMElement $element, bool $renamedForVariant = false): string
     {
-        if ( ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) ) {
+        if ( ! $renamedForVariant && ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) ) {
             return '';
         }
         $anchor = SourceDom::safeAnchor(SourceDom::attr($element, 'id'));
