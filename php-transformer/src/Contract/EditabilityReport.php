@@ -134,6 +134,20 @@ final class EditabilityReport
         );
     }
 
+    /**
+     * Site-level design-system metrics from the WordPress site plan: preset
+     * share, palette size, unused font families and generated-to-source CSS
+     * bytes (see WordPressSitePlan\DesignSystem::metrics()).
+     *
+     * @param array<string,mixed> $report @param array<string,mixed> $designSystem @return array<string,mixed>
+     */
+    public function withDesignSystem(array $report, array $designSystem): array
+    {
+        if (!is_array($designSystem['metrics'] ?? null)) return $report;
+        $report['design_system'] = array('schema' => (string) ($designSystem['schema'] ?? ''), 'metrics' => $designSystem['metrics']);
+        return $report;
+    }
+
     /** @param array<string,mixed> $report @param array<int,array<string,mixed>> $templates @return array<string,mixed> */
     public function withTemplateSurfaceSelection(array $report, array $templates): array
     {

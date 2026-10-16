@@ -231,6 +231,66 @@ They do not rediscover menu equivalence. The plan validator checks declarations
 and reference ownership together; the resolver projects entity asset references
 into `resolved_block_markup` without introducing destination IDs.
 
+## Design system
+
+The theme's palette, type scale, font families, spacing scale and content width
+come from what the documents render, not from every literal the stylesheets
+mention (`WordPressSitePlan\DesignSystem`).
+
+The HTML transformer records each document's rendered usage as
+`compiled_site.pages[].design_usage` (`blocks-engine/design-usage/v1`). It reads
+the resolved styles the conversion already computed, with inheritance and user
+agent defaults. Usage holds text colour, size and family per role (body, link,
+heading, button), the background behind the text, backgrounds, spacing and
+centred `max-width` containers. Each is weighted by element count and by text
+area (characters × size²). Documents are summed with integer weights, so route
+order cannot change the result.
+
+Clustering is deterministic:
+
+- Opaque colours within CIE76 ΔE 2.3 (one just-noticeable difference) merge. The palette keeps at most 12.
+- Font sizes within 0.5px merge. The scale keeps the 8 heaviest steps.
+- Spacing merges only identical pixel lengths and keeps 10 steps.
+- Only font stacks some rendered text uses become presets. A family that is declared but not rendered is reported as unused.
+
+Roles make the slugs stable:
+
+| Group | Slugs |
+| --- | --- |
+| Colours | `base` is the background covering most text. `contrast` is the colour of most body text on `base`. `primary` and `secondary` are call-to-action backgrounds, then chromatic colours. Every other colour is `accent-N`. |
+| Fonts | `body` and `heading`. A heading family identical to the body family is emitted once. |
+| Sizes | `medium` is the body size. Smaller steps are `small`, `x-small`, …; larger steps are `large`, `x-large`, `xx-large`, …. |
+| Spacing | `20`, `30`, … from smallest to largest. Core's default palette, sizes and spacing are turned off. |
+
+Global Styles also get:
+
+- the root background, text colour and family, when every document renders them alike and no media query varies them;
+- link and heading colour and heading family, under the same condition;
+- `contentSize` and `wideSize`, from centred containers when no `main` rule sets them.
+
+Every value is a `var:preset|…` reference.
+
+`PresetBinding` rewrites block markup wherever it enters the plan. A literal
+`style.color.text`, `style.color.background` or `style.typography.fontSize` that
+matches a token becomes `textColor`, `backgroundColor` or `fontSize`. It gets the
+matching `has-*` class, and the redundant inline declaration is removed.
+Padding, margin and block gap values become `var:preset|spacing|…`. Root custom
+properties defined once with one value are resolved first.
+
+A value stays literal when binding could change the cascade:
+
+- the inline style is not exactly what the attributes serialize;
+- an `!important` rule for the property could match the same element;
+- a selector reads the inline style text (`[style*=…]`).
+
+`theme.design_system` reports the tokens and `metrics`, which the editability
+report repeats as `design_system`:
+
+- `preset_share`: the share of block colour, size, family and spacing values that are preset references;
+- `palette_size`;
+- `unused_font_families`;
+- `generated_to_source_css_ratio`: engine support CSS plus inline block style bytes, against the author's CSS bytes.
+
 ## Reporting
 
 `reporting` is a compiler-output summary:

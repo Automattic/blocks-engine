@@ -4349,7 +4349,7 @@ $assert($canonicalViewRejected, 'WordPress site plan materialization rejects can
 try { (new WordPressSitePlanView())->compact($compactPlanView); $compactViewRejected = false; } catch (InvalidArgumentException) { $compactViewRejected = true; }
 $assert($compactViewRejected, 'WordPress site plan compaction rejects compact v2 views');
 $assert(($simple['source_reports']['editability_report'] ?? null) === ($simplePlanView['editability_report'] ?? null), 'WordPress site plan view preserves the producer-owned editability report exactly');
-$assert(array('schema', 'metrics', 'block_types', 'documents', 'signals', 'signal_totals') === array_keys($simplePlanView['editability_report'] ?? array()) && EditabilityReport::SCHEMA === ($simplePlanView['editability_report']['schema'] ?? null), 'WordPress site plan view exposes the current versioned editability report shape');
+$assert(array('schema', 'metrics', 'block_types', 'documents', 'signals', 'signal_totals', 'design_system') === array_keys($simplePlanView['editability_report'] ?? array()) && EditabilityReport::SCHEMA === ($simplePlanView['editability_report']['schema'] ?? null), 'WordPress site plan view exposes the current versioned editability report shape');
 $boundedEditabilityReport = (new EditabilityReport())->fromDocuments(array('large.html' => array('blocks' => array_fill(0, 101, array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => '')))));
 $boundedPlanResult = $simple;
 $boundedPlanResult['source_reports']['editability_report'] = $boundedEditabilityReport;

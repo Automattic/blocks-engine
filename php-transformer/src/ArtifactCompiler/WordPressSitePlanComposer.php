@@ -39,6 +39,7 @@ final class WordPressSitePlanComposer
             try {
                 $wordpressSitePlan = ( new WordPressSitePlan() )->fromResult($envelope);
                 $editabilityReport = (new EditabilityReport())->withTemplateSurfaceSelection($editabilityReport, $wordpressSitePlan['templates']);
+                $editabilityReport = (new EditabilityReport())->withDesignSystem($editabilityReport, is_array($wordpressSitePlan['theme']['design_system'] ?? null) ? $wordpressSitePlan['theme']['design_system'] : array());
                 $sourceReports['editability_report'] = $editabilityReport;
             } catch (DocumentIdentityException $exception) {
                 foreach ( $exception->diagnostics() as $identityDiagnostic ) {

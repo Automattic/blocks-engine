@@ -142,6 +142,8 @@ PHP;
     /** @var list<string> */
     private array $listingQueryContainers = array();
     private readonly ShellExtraction $shellExtraction;
+    private ?DesignSystem $designSystem = null;
+    private ?PresetBinding $presetBinding = null;
     private MissingMediaRecovery $missingMedia;
 
     /**
@@ -294,6 +296,11 @@ PHP;
             static fn(array $asset): bool => !isset($runtimeScriptOwnership['assets'][(string) ($asset['source_path'] ?? '')]) || isset($documentScriptAssets[(string) ($asset['source_path'] ?? '')])
         ));
         $assets = $this->applyDeclaredAssetTransformations($assets, $runtimeDeclarations);
+        // The design system comes from what every document renders, before
+        // any document is projected: routeLinks() binds literal block values
+        // to its tokens wherever block markup enters the plan.
+        $this->designSystem = DesignSystem::fromUsage(self::designUsage($documents));
+        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets);
         $tokens = $this->tokens($assets);
         $surfaces = $this->templateSurfaces($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
@@ -388,7 +395,7 @@ PHP;
         $pages = $this->pageHierarchy($pages, $routeMap);
         $assets = $this->scopeAssets($assets, $pages);
         $projector = new ThemeJsonProjection();
-        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'));
+        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
         $assets = $themeProjection['assets'];
         $routes = $this->routesForPages($pages);
         // Entry shells remain in compiled-site/v1 for existing consumers; the
@@ -521,7 +528,7 @@ PHP;
             'taxonomy_entities' => $taxonomyProjection['entities'],
             'navigation_links' => $input->navigationLinks,
             'menus' => $menus,
-            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization)),
+            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(array_values(array_filter(array_column(array_merge($pages, $templates, $parts), 'canonical_block_markup'), 'is_string')), $assets)))),
             'visual_repair' => $compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
@@ -4836,7 +4843,23 @@ PHP;
             }
             $offset = $match[0][1] + strlen($match[0][0]);
         }
-        return $this->unresolvedNavigationLinks($content, $origin, $routes);
+        $content = $this->unresolvedNavigationLinks($content, $origin, $routes);
+        return null === $this->presetBinding ? $content : $this->presetBinding->bind($content);
+    }
+
+    /**
+     * Rendered design usage of every compiled document, keyed by source path.
+     *
+     * @param array<int,array<string,mixed>> $documents
+     * @return array<string,array<string,mixed>>
+     */
+    private static function designUsage(array $documents): array
+    {
+        $usage = array();
+        foreach ($documents as $document) {
+            if (is_array($document['design_usage'] ?? null) && is_string($document['source_path'] ?? null)) $usage[$document['source_path']] = $document['design_usage'];
+        }
+        return $usage;
     }
     /**
      * A document-relative a/area href or form action that names no artifact route cannot stay

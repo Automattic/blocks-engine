@@ -33,6 +33,7 @@ final class BlockCompilationOutput
      * @param array<int, array<string, mixed>> $shellArtifacts
      * @param array<string, mixed> $coreHtmlFallbackEvidence
      * @param array<int, string> $documentRootMarkers
+     * @param array<string, mixed> $designUsage Rendered design values, see DesignUsageCollector.
      */
     public function __construct(
         public readonly array $sourceProvenance = array(),
@@ -50,7 +51,8 @@ final class BlockCompilationOutput
         public readonly array $shellArtifacts = array(),
         public readonly array $coreHtmlFallbackEvidence = array(),
         public readonly HtmlValidationOutcome $validationOutcome = new HtmlValidationOutcome(),
-        public readonly array $documentRootMarkers = array()
+        public readonly array $documentRootMarkers = array(),
+        public readonly array $designUsage = array()
     ) {
         $ownershipPaths = self::editabilityOwnershipPaths($sourceProvenance);
         $this->runtimeBlockPaths = $ownershipPaths['runtime'];
