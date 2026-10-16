@@ -167,8 +167,13 @@ final class CssSelectorMatchCache
 
         ++$this->matchMisses;
         if ( count($this->matches) >= $this->maxMatches ) {
-            unset($this->matches[array_key_first($this->matches)]);
-            ++$this->matchEvictions;
+            // Evict the least recently used eighth at once. Promoting a hit
+            // leaves a deleted slot at the front of the table, so finding the
+            // single oldest entry with array_key_first() scans past every one
+            // of them; slicing drops a batch and compacts the table.
+            $evict = max(1, intdiv($this->maxMatches, 8));
+            $this->matches = array_slice($this->matches, $evict, null, true);
+            $this->matchEvictions += $evict;
         }
         ++$this->matchExecutions;
         $this->matches[$key] = CssSelectorMatcher::matches($element, $selector, $accountForPseudoStateSuffix, $this);
