@@ -896,7 +896,23 @@ final class SourceElementClassifier
         return (in_array(strtolower($element->tagName), array('a', 'button'), true)
             || ('button' === strtolower(trim(SourceDom::attr($element, 'role')))
                 && '' !== trim(SourceDom::attr($element, 'aria-label'))))
+            && ! self::isDocumentNavigationLink($element)
             && ! $this->isExpandedCarouselState($element, $root);
+    }
+
+    /**
+     * A link that loads another document (a "Previous" or "Next" listing
+     * page, for example) is page navigation. A slide control stays on the
+     * page: a button, or a link with no href, a fragment or a script URL.
+     */
+    private static function isDocumentNavigationLink(DOMElement $element): bool
+    {
+        if ('a' !== strtolower($element->tagName) || 'button' === strtolower(trim(SourceDom::attr($element, 'role')))) {
+            return false;
+        }
+        $href = trim(SourceDom::attr($element, 'href'));
+
+        return '' !== $href && ! str_starts_with($href, '#') && 1 !== preg_match('/^javascript:/i', $href);
     }
 
     /**

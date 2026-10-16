@@ -449,7 +449,7 @@ PHP;
          $menus = $navigation['menus'];
         $articleChrome = $this->extractPostArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
          $pages = $articleChrome['pages'];
-          $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations, $taxonomyProjection['entities']);
+          $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
           $assets = ListingQueryPresentation::project($assets, $this->listingQueryContainers);
          // Query Loop projection can shorten page markup after shell extraction.
          // Rebase retained runtime anchors on the final page before validation.
@@ -3218,8 +3218,13 @@ PHP;
     {
         return str_contains($slice, 'Leave a Reply') || 1 === preg_match('/<iframe\b[^>]*(?:comment|Comment)/', $slice);
     }
-    /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
-    private function materializeListingQueryLoops(array $pages, array $runtimeDeclarations = array(), array $taxonomyEntities = array()): array
+    /**
+     * @param array<int,array<string,mixed>> $pages
+     * @param bool $postChromeSettled Whether shared shells and article chrome
+     *        have been factored out, so post content is final.
+     * @return array<int,array<string,mixed>>
+     */
+    private function materializeListingQueryLoops(array $pages, array $runtimeDeclarations = array(), array $taxonomyEntities = array(), bool $postChromeSettled = false): array
     {
         $postsByParent = array();
         $postsByArchive = array();
@@ -3253,6 +3258,16 @@ PHP;
             if (null === $replaced || $replaced === $page['canonical_block_markup']) {
                 continue;
             }
+            // A card that renders post content repeats whatever chrome the posts
+            // still own. When a post still carries a block the listing page
+            // already renders around its cards (a banner, sidebar or comment
+            // form that could not move to the single template), every listing
+            // item would repeat it, so the listing stays as captured.
+            if ($postChromeSettled && substr_count($replaced, '<!-- wp:post-content') > substr_count($sourceListingMarkup, '<!-- wp:post-content')
+                && $this->postsRepeatListingChrome($sourceListingMarkup, $posts)
+            ) {
+                continue;
+            }
             // A template cannot replace a source region that owns a live entity.
             foreach ($bindingsBySource[$page['source_path']] ?? array() as $anchor) {
                 if (substr_count($replaced, $anchor) !== substr_count($page['canonical_block_markup'], $anchor)) continue 2;
@@ -3282,6 +3297,35 @@ PHP;
         foreach ($pages as &$page) if (isset($postMeta[$page['source_path']])) $page['metadata']['post_meta'] = ($page['metadata']['post_meta'] ?? array()) + $postMeta[$page['source_path']];
         unset($page);
         return $pages;
+    }
+    /**
+     * Whether any post still owns a container block that the listing page
+     * renders outside its cards.
+     *
+     * @param array<int,array<string,mixed>> $posts
+     */
+    private function postsRepeatListingChrome(string $markup, array $posts): bool
+    {
+        $cards = $this->listingCardRanges($markup, $posts) ?? array();
+        $chrome = array();
+        foreach (self::blockRanges($markup) as $range) {
+            $end = $range['offset'] + $range['length'];
+            foreach ($cards as $card) {
+                if ($range['offset'] < $card['offset'] + $card['length'] && $card['offset'] < $end) continue 2;
+            }
+            if (array() === self::childBlockRanges($markup, $range)) continue;
+            $identity = ShellExtraction::identityMarkup(substr($markup, $range['offset'], $range['length']));
+            if ('' !== $identity) $chrome[$identity] = true;
+        }
+        if (array() === $chrome) return false;
+        foreach ($posts as $post) {
+            $postMarkup = (string) ($post['canonical_block_markup'] ?? '');
+            foreach (self::blockRanges($postMarkup) as $range) {
+                if (array() === self::childBlockRanges($postMarkup, $range)) continue;
+                if (isset($chrome[ShellExtraction::identityMarkup(substr($postMarkup, $range['offset'], $range['length']))])) return true;
+            }
+        }
+        return false;
     }
     /** @param array<int,array<string,mixed>> $posts */
     private function replaceListingMarkup(string $markup, array $posts, array &$fields = array(), bool $inheritQuery = false): ?string
