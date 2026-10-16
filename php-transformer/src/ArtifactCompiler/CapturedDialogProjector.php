@@ -1272,6 +1272,13 @@ final class CapturedDialogProjector
         foreach ($wrapper->childNodes as $node) {
             if ($node instanceof DOMElement) { $sourceRoot = $node; break; }
         }
+        // A capture panel envelope around the source's own native `<dialog>`:
+        // the projected dialog replaces that dialog, so its content and
+        // identity are the dialog's, not a second dialog nested inside.
+        $inner = $sourceRoot instanceof DOMElement && 'dialog' !== strtolower($sourceRoot->tagName) ? $this->soleElementChild($sourceRoot) : null;
+        if ($inner instanceof DOMElement && 'dialog' === strtolower($inner->tagName)) {
+            $sourceRoot = $inner;
+        }
         $container = $sourceRoot instanceof DOMElement ? $sourceRoot : $wrapper;
         // Captured interaction markup is runtime evidence. Keep that ownership
         // fact after removing executable and endpoint-bearing source details.
@@ -1327,6 +1334,21 @@ final class CapturedDialogProjector
             return is_array($decoded) ? $decoded : null;
         }
         return null;
+    }
+
+    private function soleElementChild(DOMElement $element): ?DOMElement
+    {
+        $sole = null;
+        foreach ($element->childNodes as $node) {
+            if ($node instanceof DOMElement) {
+                if (null !== $sole) return null;
+                $sole = $node;
+            } elseif (XML_TEXT_NODE === $node->nodeType && '' !== trim((string) $node->textContent)) {
+                return null;
+            }
+        }
+
+        return $sole;
     }
 
     private function normalizedUrl(string $url): string
