@@ -100,8 +100,7 @@
             "removed span": 3,
             "removed svg": 6,
             "removed ul": 1,
-            "retagged div>p [blocks-engine-lowered-paragraph]": 30,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 10,
+            "retagged div>p [blocks-engine-lowered-paragraph]": 40,
             "retagged span>mark": 7,
             "retagged svg>img": 12
         },
@@ -244,8 +243,8 @@
             "removed-wrapper div": 1,
             "retagged div>p": 2,
             "retagged div>p [blocks-engine-editor-anchor-signup-success]": 1,
-            "retagged div>p [blocks-engine-lowered-paragraph]": 6,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 5,
+            "retagged div>p [blocks-engine-lowered-paragraph]": 10,
+            "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged span>mark": 3,
             "retagged svg>figure [blocks-engine-synthetic-image-figure]": 5,
             "retagged svg>img": 6
@@ -318,8 +317,8 @@
             "removed span": 6,
             "removed svg": 1,
             "removed ul": 1,
-            "retagged div>p [blocks-engine-lowered-paragraph]": 18,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 8,
+            "retagged div>p [blocks-engine-lowered-paragraph]": 25,
+            "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged div>span": 6,
             "retagged span>mark": 5,
             "retagged svg>img": 1
@@ -512,7 +511,7 @@
             "removed svg": 2,
             "removed ul": 1,
             "retagged a>div [wp-block-group]": 12,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
+            "retagged div>p [blocks-engine-lowered-paragraph]": 1,
             "retagged input>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 2,
             "retagged span>mark": 14,
@@ -536,8 +535,7 @@
             "removed button": 1,
             "removed svg": 6,
             "removed ul": 1,
-            "retagged div>p [blocks-engine-lowered-paragraph]": 11,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
+            "retagged div>p [blocks-engine-lowered-paragraph]": 12,
             "retagged span>div [blocks-engine-semantic]": 1,
             "retagged span>mark": 5
         },
@@ -898,7 +896,7 @@
             "removed span": 1,
             "removed svg": 6,
             "retagged div>p [blocks-engine-editor-anchor-cellAddr]": 1,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 3,
+            "retagged div>p [blocks-engine-lowered-paragraph]": 3,
             "retagged span>mark": 1,
             "retagged span>p [blocks-engine-inline-layout-carrier]": 1,
             "retagged svg>img": 1
@@ -1053,8 +1051,8 @@
             "removed input": 1,
             "removed nav": 2,
             "removed svg": 4,
-            "retagged div>p [blocks-engine-lowered-paragraph]": 47,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 13,
+            "retagged div>p [blocks-engine-lowered-paragraph]": 54,
+            "retagged div>p [blocks-engine-synthetic-paragraph]": 6,
             "retagged span>mark": 1,
             "retagged svg>div [wp-block-group]": 1,
             "retagged svg>img": 5
@@ -1110,7 +1108,8 @@
             "removed ul": 3,
             "retagged blockquote>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged div>p": 3,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 5,
+            "retagged div>p [blocks-engine-lowered-paragraph]": 1,
+            "retagged div>p [blocks-engine-synthetic-paragraph]": 4,
             "retagged figcaption>span": 3,
             "retagged figure>blockquote [wp-block-quote]": 3,
             "retagged nav>div [wp-block-group]": 3,
@@ -1232,7 +1231,7 @@
             "added p [blocks-engine-synthetic-paragraph]": 1,
             "removed nav": 2,
             "retagged address>p": 2,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 3,
+            "retagged div>p [blocks-engine-lowered-paragraph]": 3,
             "retagged span>mark": 1
         },
         "8-local-service-business": {
@@ -1248,8 +1247,7 @@
             "removed svg": 53,
             "removed ul": 1,
             "retagged div>p": 1,
-            "retagged div>p [blocks-engine-lowered-paragraph]": 12,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 18,
+            "retagged div>p [blocks-engine-lowered-paragraph]": 30,
             "retagged span>div [wp-block-spacer]": 1,
             "retagged svg>img": 2
         },
@@ -1269,7 +1267,7 @@
             "added tbody": 1,
             "removed caption": 1,
             "removed nav": 1,
-            "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
+            "retagged div>p [blocks-engine-lowered-paragraph]": 1,
             "retagged span>mark": 3
         },
         "82-boutique-hotel": {
