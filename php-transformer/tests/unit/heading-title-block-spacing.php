@@ -20,8 +20,8 @@ $assert = static function (bool $ok, string $message, string $detail = '') use (
     }
 };
 
-$title = static function (string $h1): string {
-    $html = '<html><head><title>Unrelated | Example</title></head><body><main>' . $h1 . '<p>Copy</p></main></body></html>';
+$title = static function (string $h1, string $lang = ''): string {
+    $html = '<html' . ( '' !== $lang ? ' lang="' . $lang . '"' : '' ) . '><head><title>Unrelated | Example</title></head><body><main>' . $h1 . '<p>Copy</p></main></body></html>';
     $plan = ( new ArtifactCompiler() )->compile(array(
         'entrypoint' => 'index.html',
         'files' => array( 'index.html' => $html ),
@@ -42,6 +42,15 @@ foreach ( $cases as $name => $case ) {
     $got = $title($case[0]);
     $assert($case[1] === $got, $name, "expected '{$case[1]}', got '{$got}'");
 }
+
+// One lang-tagged child per language: the title keeps the document language.
+$multilingual = '<h1><span lang="en">Turn an idea into a show.</span><span lang="fr">Transformez une idée en émission.</span></h1>';
+$got = $title($multilingual, 'en');
+$assert('Turn an idea into a show.' === $got, 'document-language heading child', "got '{$got}'");
+$got = $title($multilingual, 'fr-CA');
+$assert('Transformez une idée en émission.' === $got, 'regional document language matches its primary subtag', "got '{$got}'");
+$got = $title('<h1><span lang="fr">Bonjour</span></h1>', 'en');
+$assert('Bonjour' === $got, 'heading with no document-language text keeps its text', "got '{$got}'");
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Heading title block spacing failed ({$failures})\n");
