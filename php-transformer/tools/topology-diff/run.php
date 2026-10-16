@@ -10,12 +10,18 @@
  *
  * Usage:
  *   composer topology-diff -- [--corpus <dir>] [--fixture <dir>]... [--output <file>] [--top <n>]
+ *       [--baseline <file>] [--update-baseline <file>] [--shard <i>/<n>]
  *
  * Options:
  *   --corpus <dir>   Corpus root whose subdirectories are fixtures (default: <repo>/fixtures/websites).
  *   --fixture <dir>  Measure only this fixture directory (repeatable; overrides --corpus).
  *   --output <file>  Write the machine-readable JSON report to this path.
  *   --top <n>        Number of ranked divergences to print (default: 40).
+ *   --baseline <file>         Fail when any fixture's divergence counts differ from the
+ *                             baseline: rising counts are regressions, falling counts must
+ *                             lower the baseline.
+ *   --update-baseline <file>  Write the measured counts as the new baseline.
+ *   --shard <i>/<n>           Measure only the i-th of n interleaved fixture shards (1-based).
  */
 
 declare(strict_types=1);
@@ -27,7 +33,7 @@ use Automattic\BlocksEngine\PhpTransformer\Topology\TopologyCorpusRunner;
 $options = array( 'fixture' => array() );
 for ( $i = 1; $i < $argc; $i++ ) {
     $arg = $argv[$i];
-    foreach ( array( 'corpus', 'fixture', 'output', 'top' ) as $name ) {
+    foreach ( array( 'corpus', 'fixture', 'output', 'top', 'baseline', 'update-baseline', 'shard' ) as $name ) {
         $value = null;
         if ( '--' . $name === $arg && $i + 1 < $argc ) {
             $value = $argv[++$i];
@@ -53,6 +59,13 @@ if ( array() === $fixtures ) {
     $fixtures = glob(rtrim($corpus, '/') . '/*', GLOB_ONLYDIR) ?: array();
     sort($fixtures);
 }
+if ( isset($options['shard']) ) {
+    if ( 1 !== preg_match('/^(\d+)\/(\d+)$/', $options['shard'], $shard) || (int) $shard[1] < 1 || (int) $shard[1] > (int) $shard[2] ) {
+        fwrite(STDERR, "--shard must be <i>/<n> with 1 <= i <= n.\n");
+        exit(2);
+    }
+    $fixtures = array_values(array_filter($fixtures, static fn (int $index): bool => $index % (int) $shard[2] === (int) $shard[1] - 1, ARRAY_FILTER_USE_KEY));
+}
 if ( array() === $fixtures ) {
     fwrite(STDERR, "No fixtures found.\n");
     exit(1);
@@ -72,4 +85,33 @@ if ( isset($options['output']) ) {
 }
 
 fwrite(STDOUT, $runner->renderSummary($report, (int) ( $options['top'] ?? 40 )));
+
+if ( isset($options['update-baseline']) ) {
+    $json = json_encode(TopologyCorpusRunner::baseline($report), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if ( false === $json || false === file_put_contents($options['update-baseline'], $json . "\n") ) {
+        fwrite(STDERR, "Failed to write baseline to: {$options['update-baseline']}\n");
+        exit(1);
+    }
+    fwrite(STDOUT, "\nWrote baseline: {$options['update-baseline']}\n");
+}
+
+if ( isset($options['baseline']) ) {
+    $baseline = json_decode((string) @file_get_contents($options['baseline']), true);
+    if ( ! is_array($baseline) || TopologyCorpusRunner::BASELINE_SCHEMA !== ( $baseline['schema'] ?? null ) ) {
+        fwrite(STDERR, "Unreadable baseline: {$options['baseline']}\n");
+        exit(1);
+    }
+    $result = TopologyCorpusRunner::check($report, $baseline);
+    foreach ( $result['regressions'] as $line ) {
+        fwrite(STDOUT, "REGRESSION {$line}\n");
+    }
+    foreach ( $result['improvements'] as $line ) {
+        fwrite(STDOUT, "IMPROVED   {$line}\n");
+    }
+    if ( array() !== $result['regressions'] || array() !== $result['improvements'] ) {
+        fwrite(STDOUT, "\nTopology differs from the baseline. Rising counts add elements author CSS cannot see; remove them or declare why.\nFalling counts: lower the baseline with composer topology-diff -- --update-baseline tools/topology-diff/baseline.json\n");
+        exit(1);
+    }
+    fwrite(STDOUT, "\nTopology matches the baseline.\n");
+}
 exit(0);

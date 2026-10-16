@@ -21,6 +21,8 @@ final class TopologyCorpusRunner
 {
     public const SCHEMA = 'blocks-engine/php-transformer/topology-diff-report/v1';
 
+    public const BASELINE_SCHEMA = 'blocks-engine/php-transformer/topology-diff-baseline/v1';
+
     private const SOURCE_EXTENSIONS = array( 'html', 'css', 'js', 'svg' );
 
     /**
@@ -84,6 +86,60 @@ final class TopologyCorpusRunner
             'dynamic_blocks' => (int) preg_match_all('/<!-- wp:[a-z0-9-]+(?:\/[a-z0-9-]+)? (?:\{(?:(?!-->).)*\} )?\/-->/', $serializedBlocks),
             'kinds' => $kinds,
         );
+    }
+
+    /**
+     * Baseline form of a report: per-fixture divergence counts only.
+     *
+     * @param array<string, mixed> $report
+     * @return array<string, mixed>
+     */
+    public static function baseline(array $report): array
+    {
+        $fixtures = array();
+        foreach ( $report['fixtures'] as $name => $fixture ) {
+            $kinds = (array) ( $fixture['kinds'] ?? array() );
+            ksort($kinds);
+            $fixtures[$name] = $kinds;
+        }
+        ksort($fixtures);
+
+        return array( 'schema' => self::BASELINE_SCHEMA, 'fixtures' => $fixtures );
+    }
+
+    /**
+     * Compares measured fixtures with a baseline. Rising counts are
+     * regressions; falling counts must lower the baseline so the improvement
+     * is kept.
+     *
+     * @param array<string, mixed> $report
+     * @param array<string, mixed> $baseline
+     * @return array{regressions: array<int, string>, improvements: array<int, string>}
+     */
+    public static function check(array $report, array $baseline): array
+    {
+        $regressions = array();
+        $improvements = array();
+        foreach ( self::baseline($report)['fixtures'] as $name => $kinds ) {
+            if ( ! isset($baseline['fixtures'][$name]) ) {
+                $regressions[] = "{$name}: not in the baseline";
+                continue;
+            }
+            $expected = (array) $baseline['fixtures'][$name];
+            foreach ( array_unique(array_merge(array_keys($kinds), array_keys($expected))) as $kind ) {
+                $now = (int) ( $kinds[$kind] ?? 0 );
+                $was = (int) ( $expected[$kind] ?? 0 );
+                if ( $now > $was ) {
+                    $regressions[] = "{$name}: {$kind} {$was} -> {$now}";
+                } elseif ( $now < $was ) {
+                    $improvements[] = "{$name}: {$kind} {$was} -> {$now}";
+                }
+            }
+        }
+        sort($regressions);
+        sort($improvements);
+
+        return array( 'regressions' => $regressions, 'improvements' => $improvements );
     }
 
     /**

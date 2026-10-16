@@ -9,6 +9,7 @@ on:
       - "php-transformer/**"
       - "scripts/production-acceptance-matrix.php"
       - "tests/contract/production-acceptance-matrix.php"
+      - "fixtures/websites/**"
   push:
     branches:
       - trunk
@@ -17,6 +18,7 @@ on:
       - "php-transformer/**"
       - "scripts/production-acceptance-matrix.php"
       - "tests/contract/production-acceptance-matrix.php"
+      - "fixtures/websites/**"
 
 jobs:
   validate:
@@ -57,6 +59,45 @@ jobs:
       - name: Run repository acceptance matrix contract
         working-directory: .
         run: php tests/contract/production-acceptance-matrix.php
+
+  topology:
+    name: Source topology baseline (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    defaults:
+      run:
+        working-directory: php-transformer
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # 2.37.2
+        with:
+          php-version: "8.4"
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Compare source and rendered element trees with the baseline
+        env:
+          COMPOSER_PROCESS_TIMEOUT: 0
+        run: composer topology-diff -- --shard ${{ matrix.shard }}/4 --baseline tools/topology-diff/baseline.json --output "$RUNNER_TEMP/topology-shard-${{ matrix.shard }}.json" --top 0
+
+      - name: Upload topology report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: topology-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/topology-shard-${{ matrix.shard }}.json
+          if-no-files-found: ignore
 
   visual-parity:
     name: Generic visual parity tools

@@ -18,6 +18,24 @@ Each fixture directory is compiled the way an import compiles it (every HTML,
 CSS, JS and SVG file through `ArtifactCompiler`). The source tree is
 `index.html`'s `<body>`; the rendered tree is the compiled saved block markup.
 
+## Baseline gate
+
+`tools/topology-diff/baseline.json` holds every fixture's divergence counts.
+CI (`PHP Transformer / Source topology baseline`, four shards) fails when a
+change moves any count:
+
+- **Rising count:** the change adds, removes, wraps or retags elements author
+  CSS cannot see. Remove the divergence, or explain it in the pull request
+  and update the baseline.
+- **Falling count:** an improvement. Lower the baseline in the same pull
+  request so it is kept:
+
+```sh
+COMPOSER_PROCESS_TIMEOUT=0 composer topology-diff -- --update-baseline tools/topology-diff/baseline.json
+```
+
+Run one shard locally with `--shard <i>/4 --baseline tools/topology-diff/baseline.json`.
+
 ## Divergence kinds
 
 | Kind | Meaning |
