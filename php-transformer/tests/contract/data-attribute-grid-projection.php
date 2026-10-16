@@ -134,7 +134,7 @@ $assert('1 / 1 / 2 / 2' === ($sourceChildStyle['grid-area'] ?? '') && 'relative'
 $nestedArtifact = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'website/index.html',
     'files' => array(
-        array( 'path' => 'website/index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><style>[data-g="svc"]{display:grid;grid-template-columns:100%}[data-g="svc"] > [id="svc-copy"]{position:relative;left:72px;grid-area:1 / 1 / 2 / 2}[data-g="svc"] > [id="svc-seo"]{position:relative;left:419px;grid-area:3 / 1 / 4 / 2}</style></head><body><div data-g="svc"><div><div id="svc-copy">Web copywriting</div><div id="svc-seo">SEO copywriting</div></div></div></body></html>' ),
+        array( 'path' => 'website/index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><style>[data-g="svc"]{display:grid;grid-template-columns:100%}[data-g="svc"] > [id="svc-copy"]{position:relative;left:72px;grid-area:1 / 1 / 2 / 2}[data-g="svc"] > [id="svc-seo"]{position:relative;left:419px;grid-area:3 / 1 / 4 / 2}</style></head><body><div data-g="svc"><div id="svc-copy">Web copywriting</div><div id="svc-seo">SEO copywriting</div></div></body></html>' ),
     ),
 ) )->toArray();
 $nestedMarkup = (string) ($nestedArtifact['serialized_blocks'] ?? '');
@@ -151,7 +151,7 @@ foreach ( $nestedDocument->getElementsByTagName('div') as $element ) {
         break;
     }
 }
-$assert(array( 'svc-copy', 'svc-seo' ) === $nestedIds, 'an authored grid hoists a sole nested group so positioned children remain direct grid items');
+$assert(array( 'svc-copy', 'svc-seo' ) === $nestedIds, 'positioned children of an authored grid remain direct grid items');
 
 if ( 0 !== $failures ) {
     fwrite(STDERR, "FAILURES: {$failures}\n");
