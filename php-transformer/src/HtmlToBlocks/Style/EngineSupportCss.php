@@ -63,12 +63,16 @@ final class EngineSupportCss
             // A paragraph is required for valid block markup, but phrasing content
             // did not have paragraph margins in the source document.
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}'
-                // The paragraph is a validity carrier for phrasing content;
-                // it has no source box. Let the source anchor/span remain the
-                // layout participant unless a separate carrier explicitly
-                // owns a box.
-                // A lowered block-level source wrapper keeps its box.
-                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:contents}'
+                // The paragraph stands for inline source content: an inline
+                // element it was retagged from, or loose text. An inline box
+                // lays out as that content did (in flow it shares the line; a
+                // flex or grid parent blockifies it into the same item), and,
+                // unlike display:contents, it can take focus, so the editor can
+                // select and edit it. A paragraph that only carries a source
+                // anchor stays transparent: the anchor is the layout participant.
+                // A lowered block-level source wrapper keeps its block box.
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:inline}'
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'
                 // A parent's sibling-spacing rule (`.stack > * + *`) now matches the
                 // carrier, whose margins do nothing as display:contents. The
                 // anchor it stands for takes them instead, as in the source.
