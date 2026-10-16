@@ -1189,6 +1189,10 @@ final class ArtifactCompiler
                 $forms[$sourcePath . "\n" . $selector] = $form;
             }
         }
+        foreach ( SchemaProductEvidence::rows($files, $slug, $price) as $productSlug => $row ) {
+            if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
+            foreach ( array('description', 'image') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+        }
         ksort($products, SORT_STRING); ksort($forms, SORT_STRING);
         $collections = array(
             'shop' => array('type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),

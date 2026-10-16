@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -2588,8 +2589,8 @@ PHP;
         $evidence = array(); $add = static function (array &$rows, string $source, ?string $value = null): void { if (count($rows) >= 16) return; $row = array('source' => $source); if (null !== $value) $row['publication_timestamp'] = $value; $rows[] = $row; };
         $timestamp = static fn(string $value): ?string => self::normalizePublicationTimestamp($value);
         foreach (($document['document_metadata']['meta'] ?? array()) as $meta) if (is_array($meta) && is_string($meta['content'] ?? null) && in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('article:published_time', 'article:published', 'pubdate', 'publishdate', 'date', 'dc.date.issued', 'dc.date', 'parsely-pub-date', 'releasedate'), true)) if (null !== ($date = $timestamp($meta['content']))) $add($evidence, 'meta:' . strtolower((string) ($meta['property'] ?? $meta['name'])), $date);
-        foreach (self::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if ('datePublished' === ($attributes['itemprop'] ?? null)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
-        foreach (self::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
+        foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if ('datePublished' === ($attributes['itemprop'] ?? null)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
+        foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : self::pageRoutePath((string) $document['source_path'], self::entryRootFromDocuments(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
         foreach ($this->visiblePublicationEvidence($html) as $row) {
@@ -2616,7 +2617,7 @@ PHP;
     {
         $rows = array();
         foreach ($this->publicationHtmlFragments($html) as $fragment) {
-            foreach (self::htmlMarkupNodes($fragment) as $node) {
+            foreach (HtmlMarkupParser::htmlMarkupNodes($fragment) as $node) {
                 if ('tag' !== ($node['kind'] ?? null) || !is_int($node['inner_offset'] ?? null)) {
                     continue;
                 }
@@ -2637,7 +2638,7 @@ PHP;
     private function publicationHtmlFragments(string $html): array
     {
         $fragments = array($html);
-        foreach (self::htmlMarkupNodes($html) as $node) {
+        foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) {
             if ('comment' !== ($node['kind'] ?? null)) {
                 continue;
             }
@@ -2663,7 +2664,7 @@ PHP;
     }
     private static function elementInnerText(string $html, string $name, int $innerOffset): string
     {
-        $closing = self::rawTextEnd($html, $name, $innerOffset);
+        $closing = HtmlMarkupParser::rawTextEnd($html, $name, $innerOffset);
         if (null === $closing) {
             return '';
         }
@@ -3456,7 +3457,7 @@ PHP;
         $children = self::childBlockRanges($markup, $range);
         if (array() === $children) {
             if ('paragraph' === self::listingBlockName($slice) && '' === ListingExcerptProjection::text($slice)) {
-                foreach (self::htmlMarkupNodes($slice) as $node) {
+                foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
                     $identity = $node['attributes'] ?? array();
                     if ('a' === ($node['name'] ?? '') && self::hrefMatchesListingRoute((string) ($identity['href'] ?? ''), $route) && 'true' === ($identity['aria-hidden'] ?? '') && '-1' === ($identity['tabindex'] ?? '')) {
                         $attrs = array('className' => trim((string) ($identity['class'] ?? '') . ' blocks-engine-listing-overlay'), 'content' => '<span aria-hidden="true"></span>');
@@ -3529,7 +3530,7 @@ PHP;
             return 'title';
         }
         $timestamp = is_string($post['publication_timestamp'] ?? null) ? $post['publication_timestamp'] : null;
-        foreach (self::htmlMarkupNodes($slice) as $node) {
+        foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
             if ('tag' !== ($node['kind'] ?? null) || !is_int($node['inner_offset'] ?? null)) {
                 continue;
             }
@@ -3593,7 +3594,7 @@ PHP;
         if (null !== $className) {
             $attrs['className'] = $className;
         }
-        foreach (self::htmlMarkupNodes($slice) as $node) if ('a' === ($node['name'] ?? '') && is_string($node['attributes']['class'] ?? null)) $attrs['metadata']['blocksEngineLinkClass'] = $node['attributes']['class'];
+        foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) if ('a' === ($node['name'] ?? '') && is_string($node['attributes']['class'] ?? null)) $attrs['metadata']['blocksEngineLinkClass'] = $node['attributes']['class'];
         return '<!-- wp:post-title ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->';
     }
     private static function postDateMarkup(string $slice): string
@@ -3614,7 +3615,7 @@ PHP;
     }
     private static function listingHeadingLevel(string $slice): int
     {
-        foreach (self::htmlMarkupNodes($slice) as $node) {
+        foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
             if ('tag' === ($node['kind'] ?? null) && preg_match('/^h([1-6])$/', (string) ($node['name'] ?? ''), $match)) {
                 return (int) $match[1];
             }
@@ -3631,7 +3632,7 @@ PHP;
                 $classes[$token] = true;
             }
         }
-        foreach (self::htmlMarkupNodes($slice) as $node) {
+        foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
             if ('tag' !== ($node['kind'] ?? null) || !is_string($node['attributes']['class'] ?? null)) {
                 continue;
             }
@@ -3651,7 +3652,7 @@ PHP;
     /** @return array<string,mixed> */
     private static function listingBlockAttributes(string $slice): array
     {
-        foreach (self::htmlMarkupNodes($slice) as $node) {
+        foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
             if ('comment' !== ($node['kind'] ?? null)) {
                 continue;
             }
@@ -3721,7 +3722,7 @@ PHP;
     private function listingAnchors(string $html): array
     {
         $anchors = array();
-        foreach (self::htmlMarkupNodes($html) as $node) {
+        foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) {
             if ('tag' !== ($node['kind'] ?? null) || 'a' !== ($node['name'] ?? null) || !is_string($node['attributes']['href'] ?? null)) {
                 continue;
             }
@@ -4985,7 +4986,7 @@ PHP;
                 foreach ('srcset' === strtolower($name) ? self::srcsetCandidates($value) : array($value) as $candidate) $assertReference($candidate, 'json:' . $routeField);
             }
         };
-        foreach (self::htmlMarkupNodes($content) as $node) {
+        foreach (HtmlMarkupParser::htmlMarkupNodes($content) as $node) {
             if ('tag' === $node['kind']) foreach ($node['attributes'] as $name => $value) {
                 if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style'), true)) continue;
                 if ('action' === $name && 'form' !== $node['name']) continue;
@@ -5015,40 +5016,6 @@ PHP;
     private static function srcsetCandidates(string $srcset): array
     {
         return SrcsetParser::urls($srcset);
-    }
-    /** @return array<int,array<string,mixed>> */
-    private static function htmlMarkupNodes(string $content): array
-    {
-        $nodes = array(); $length = strlen($content); $offset = 0;
-        while ($offset < $length) {
-            $start = strpos($content, '<', $offset); if (false === $start) break;
-            if (str_starts_with(substr($content, $start), '<!--')) { $end = strpos($content, '-->', $start + 4); if (false === $end) break; $nodes[] = array('kind' => 'comment', 'content' => substr($content, $start + 4, $end - $start - 4)); $offset = $end + 3; continue; }
-            if ($start + 1 < $length && '!' === $content[$start + 1]) { if (str_starts_with(substr($content, $start), '<![CDATA[')) { $end = strpos($content, ']]>', $start + 9); $offset = false === $end ? $length : $end + 3; continue; } $cursor = $start + 2; $quote = ''; while ($cursor < $length) { if ('' !== $quote) { if ($quote === $content[$cursor]) $quote = ''; ++$cursor; continue; } if ('"' === $content[$cursor] || "'" === $content[$cursor]) { $quote = $content[$cursor++]; continue; } if ('>' === $content[$cursor++]) break; } $offset = $cursor; continue; }
-            $cursor = $start + 1; if ($cursor >= $length || !ctype_alpha($content[$cursor])) { $offset = $cursor; continue; }
-            $nameStart = $cursor; while ($cursor < $length && preg_match('/[A-Za-z0-9:-]/', $content[$cursor])) ++$cursor;
-            $name = strtolower(substr($content, $nameStart, $cursor - $nameStart)); $attributes = array();
-            while ($cursor < $length) {
-                while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
-                if ($cursor >= $length) break;
-                if ('>' === $content[$cursor] || ('/' === $content[$cursor] && $cursor + 1 < $length && '>' === $content[$cursor + 1])) { $selfClosing = '>' !== $content[$cursor]; $cursor += $selfClosing ? 2 : 1; $tag = array('kind' => 'tag', 'name' => $name, 'attributes' => $attributes); if (!$selfClosing) $tag['inner_offset'] = $cursor; $nodes[] = $tag; if ('style' === $name) { $closing = self::rawTextEnd($content, $name, $cursor); if (null !== $closing) { $nodes[] = array('kind' => 'style', 'css' => substr($content, $cursor, $closing[0] - $cursor)); $offset = $closing[1]; } else { $nodes[] = array('kind' => 'style', 'css' => substr($content, $cursor)); $offset = $length; } continue 2; } if ('plaintext' === $name) { $offset = $length; continue 2; } if (in_array($name, array('script', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes', 'noscript'), true)) { $closing = self::rawTextEnd($content, $name, $cursor); if ('script' === $name && null !== $closing) $nodes[] = array('kind' => 'rawtext', 'name' => $name, 'attributes' => $attributes, 'content' => substr($content, $cursor, $closing[0] - $cursor)); $offset = null === $closing ? $length : $closing[1]; continue 2; } $offset = $cursor; continue 2; }
-                $attributeStart = $cursor; while ($cursor < $length && !ctype_space($content[$cursor]) && !str_contains('=/>', $content[$cursor])) ++$cursor;
-                if ($attributeStart === $cursor) { ++$cursor; continue; }
-                $attribute = strtolower(substr($content, $attributeStart, $cursor - $attributeStart)); while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
-                if ($cursor >= $length || '=' !== $content[$cursor]) { if (!array_key_exists($attribute, $attributes)) $attributes[$attribute] = ''; continue; }
-                ++$cursor; while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
-                if ($cursor >= $length) { if (!array_key_exists($attribute, $attributes)) $attributes[$attribute] = ''; break; }
-                if ('"' === $content[$cursor] || "'" === $content[$cursor]) { $quote = $content[$cursor++]; $valueStart = $cursor; while ($cursor < $length && $quote !== $content[$cursor]) ++$cursor; if (!array_key_exists($attribute, $attributes)) $attributes[$attribute] = substr($content, $valueStart, $cursor - $valueStart); if ($cursor < $length) ++$cursor; continue; }
-                $valueStart = $cursor; while ($cursor < $length && !ctype_space($content[$cursor]) && '>' !== $content[$cursor]) ++$cursor; if (!array_key_exists($attribute, $attributes)) $attributes[$attribute] = substr($content, $valueStart, $cursor - $valueStart);
-            }
-            $nodes[] = array('kind' => 'tag', 'name' => $name, 'attributes' => $attributes); $offset = $cursor;
-        }
-        return $nodes;
-    }
-    /** @return array{0:int,1:int}|null */
-    private static function rawTextEnd(string $content, string $name, int $offset): ?array
-    {
-        if (!preg_match('~</' . preg_quote($name, '~') . '(?=[\s/>])[^>]*>~i', $content, $match, PREG_OFFSET_CAPTURE, $offset)) return null;
-        return array($match[0][1], $match[0][1] + strlen($match[0][0]));
     }
     /** @param array<string,bool> $tokens @param array<string,array<string,mixed>> $writes */
     private static function assertResolution(array $plan, array $tokens, array $writes): void
