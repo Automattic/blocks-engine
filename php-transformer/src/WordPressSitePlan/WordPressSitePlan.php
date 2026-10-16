@@ -2443,6 +2443,40 @@ PHP;
         $html = is_array($parent) ? (is_string($parent['html'] ?? null) ? $parent['html'] : (string) ($parent['block_markup'] ?? '')) : '';
         return preg_match_all('~<article\b~i', $html) >= 2 || 1 === preg_match('~read\s+more|continue\s+reading~i', strip_tags($html));
     }
+    /**
+     * Route paths a document's links point at, resolved against its own route
+     * the way a browser resolves them on the served page.
+     *
+     * @param array<string,mixed> $document
+     * @return list<string>
+     */
+    private static function documentLinkedRoutes(array $document, string $route): array
+    {
+        $html = is_string($document['html'] ?? null) ? $document['html'] : (string) ($document['block_markup'] ?? '');
+        if (!preg_match_all('~<a\b[^>]*?\bhref\s*=\s*["\']([^"\']*)["\']~i', $html, $matches)) return array();
+        $base = '/' === $route ? '/' : $route . '/';
+        $linked = array();
+        foreach ($matches[1] as $href) {
+            $href = html_entity_decode((string) preg_replace('/[?#].*$/s', '', trim($href)), ENT_QUOTES | ENT_HTML5);
+            if (1 === preg_match('~^[a-z][a-z0-9+.-]*:~i', $href) || str_starts_with($href, '//')) {
+                $path = parse_url(str_starts_with($href, '//') ? 'http:' . $href : $href, PHP_URL_PATH);
+                if (!is_string($path)) continue;
+                $href = '' === $path ? '/' : $path;
+            }
+            if ('' === $href) continue;
+            $path = str_starts_with($href, '/') ? $href : $base . $href;
+            $segments = array();
+            foreach (explode('/', $path) as $segment) {
+                if ('' === $segment || '.' === $segment) continue;
+                if ('..' === $segment) { array_pop($segments); continue; }
+                $segments[] = $segment;
+            }
+            if (array() !== $segments && 1 === preg_match('/^index\.html?$/i', (string) end($segments))) array_pop($segments);
+            elseif (array() !== $segments) $segments[count($segments) - 1] = (string) preg_replace('/\.html?$/i', '', (string) end($segments));
+            $linked['/' . implode('/', $segments)] = true;
+        }
+        return array_keys($linked);
+    }
     /** @param mixed $documents @return array<int,array<string,mixed>> */
     private function decideDocuments(mixed $documents): array
     {
@@ -2497,11 +2531,22 @@ PHP;
             } elseif (!isset($listings[$parent])) {
                 $evidence = array_values(array_filter($evidence, static fn(array $row): bool => 'html:visible-date' !== ($row['source'] ?? null)));
             } elseif (array() !== $evidence) {
-                // An Article/BlogPosting schema marker alone does not establish
-                // publication when the listing has no card linking to this route.
-                if (isset($listings[$parent]) && !array_filter($evidence, static fn(array $row): bool => isset($row['publication_timestamp']))) {
-                    $evidence = array_values(array_filter($evidence, static fn(array $row): bool => 'microdata:itemtype' !== ($row['source'] ?? null)));
+                // A listing that links to its entries says which routes it
+                // contains. An undated route it leaves out is not one of its
+                // posts: as a post it would take the import time as its date
+                // and lead the reconstructed Query Loop. A listing that links
+                // to none of its children (an uncaptured or stub index) says
+                // nothing, so blog context still decides those routes.
+                $listingIndex = $indexByRoute[$parent] ?? null;
+                if (null !== $listingIndex && !array_filter($evidence, static fn(array $row): bool => isset($row['publication_timestamp']))) {
+                    $listed = array_flip(self::documentLinkedRoutes($documents[$listingIndex], $parent));
+                    $listsChildren = array() !== array_filter($routes, static fn(string $child): bool => isset($listed[$child]) && $parent === self::parentRoutePath($child));
+                    if ($listsChildren && !isset($listed[$route])) {
+                        $evidence = array();
+                    }
                 }
+            }
+            if (!isset($listings[$route]) && isset($listings[$parent]) && array() !== $evidence) {
                 $hasListing = false;
                 foreach ($evidence as $row) {
                     if ('listing:parent' === ($row['source'] ?? null)) {
