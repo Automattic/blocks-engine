@@ -232,6 +232,42 @@ final class SourceDom
     }
 
     /**
+     * Whether this anchor is the document's skip link: a fragment link, ahead
+     * of the document's first <main>, to that element. A WordPress block
+     * template renders its own skip link to the template's first <main>
+     * (keeping that element's id), so the authored one would be a second.
+     */
+    public static function isMainSkipLink(DOMElement $element): bool
+    {
+        if ( 'a' !== strtolower($element->tagName) || 1 !== preg_match('/^#(.+)$/', trim(self::attr($element, 'href')), $match) ) {
+            return false;
+        }
+        $root = $element->ownerDocument?->documentElement;
+        if ( ! $root instanceof DOMElement ) {
+            return false;
+        }
+        $main = $root->getElementsByTagName('main')->item(0);
+        if ( ! $main instanceof DOMElement || rawurldecode($match[1]) !== self::attr($main, 'id') ) {
+            return false;
+        }
+        // Ahead of main in document order, so not inside it.
+        return self::precedes($element, $main);
+    }
+
+    private static function precedes(DOMElement $first, DOMElement $second): bool
+    {
+        foreach ( $first->ownerDocument?->getElementsByTagName('*') ?? array() as $node ) {
+            if ( $node === $first ) {
+                return true;
+            }
+            if ( $node === $second ) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Whether another element in the same document already owns this fragment
      * identifier, so emitting it again would duplicate the id.
      */

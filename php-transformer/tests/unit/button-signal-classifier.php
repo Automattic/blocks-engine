@@ -85,7 +85,8 @@ $filledButtonCss = implode("\n", array_map(static fn (array $asset): string => (
 $assert('core/button' === ($filledButton['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), '20: a zero-padded positioned button surface that fills its container becomes a native button', json_encode($filledButton['blocks'] ?? array()));
 $assert(str_contains($filledButtonCss, '.wp-block-buttons{height:100%}') && str_contains($filledButtonCss, '.wp-block-button{height:100%}') && str_contains($filledButtonCss, 'height:100%!important'), '21: a positioned container-fill button projects its percentage height through both native wrappers', $filledButtonCss);
 
-$skipLink = ( new HtmlTransformer() )->transform('<style>.skip-link{position:fixed;top:-200px;left:0;padding:12px 18px;background:#135e96;color:#fff;border-radius:999px}.skip-link:focus{top:0}</style><a class="skip-link" href="#content">Skip to content</a><main id="content">Content</main>', array())->toArray();
+// A section target keeps the authored link; a skip to <main> is the template's.
+$skipLink = ( new HtmlTransformer() )->transform('<style>.skip-link{position:fixed;top:-200px;left:0;padding:12px 18px;background:#135e96;color:#fff;border-radius:999px}.skip-link:focus{top:0}</style><a class="skip-link" href="#content">Skip to content</a><main><section id="content">Content</section></main>', array())->toArray();
 $skipLinkMarkup = (string) ($skipLink['serialized_blocks'] ?? '');
 $skipLinkCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $skipLink['assets'] ?? array()));
 $assert('core/paragraph' === ($skipLink['blocks'][0]['blockName'] ?? '') && ! str_contains($skipLinkMarkup, '<!-- wp:button') && str_contains($skipLinkMarkup, '<a class="skip-link" href="#content">Skip to content</a>'), '18: fixed fragment skip links retain native anchor content instead of gaining button wrappers', $skipLinkMarkup);

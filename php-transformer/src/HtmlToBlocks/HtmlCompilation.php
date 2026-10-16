@@ -3541,6 +3541,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( SourceDom::isEmptyNamedFragmentTarget($element) ) {
                 return null;
             }
+            // The block template renders the native skip link to this main.
+            if ( SourceDom::isMainSkipLink($element) ) {
+                return null;
+            }
 
             $anchorBlock = $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
             if ( null !== $anchorBlock ) {
