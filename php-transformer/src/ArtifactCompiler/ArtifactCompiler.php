@@ -4661,7 +4661,7 @@ final class ArtifactCompiler
         $documentLinkMedia = $this->documentLinkMedia($files);
         $caseDistinctTargets = $this->caseDistinctTargetPaths($files);
         foreach ( $files as $file ) {
-            if ( $entryPath === $file['path'] || $this->isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
+            if ( $entryPath === $file['path'] || ArtifactNormalizer::CAPTURE_REPORT_ROLE === $file['role'] || $this->isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
                 continue;
             }
             $asset = array(
