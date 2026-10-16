@@ -8,6 +8,13 @@ final class CssIdent
 {
     public static function escape(string $ident): string
     {
+        // Most identifiers need no escaping: name characters only, not opening
+        // with a digit or with a hyphen and a digit. Return those unchanged
+        // without the per-character scan below.
+        if ( 1 === preg_match('/^(?!-?[0-9])[A-Za-z0-9_-]+$/D', $ident) ) {
+            return $ident;
+        }
+
         $escaped = '';
         $length = strlen($ident);
         for ( $offset = 0; $offset < $length; $offset++ ) {
