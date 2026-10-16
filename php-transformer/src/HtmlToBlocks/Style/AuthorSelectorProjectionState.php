@@ -486,6 +486,17 @@ final class AuthorSelectorProjectionState
         return array() !== $this->richTextMarkers;
     }
 
+    /**
+     * The source element at this path became a block of its own (a text-only
+     * span emitted as its paragraph), so author rules address it through a
+     * block-level semantic marker instead of a carrier or RichText hook.
+     */
+    public function adoptAsSemanticBlock(string $path): string
+    {
+        unset($this->richTextMarkers[$path], $this->inlineLayoutCarrierPaths[$path]);
+        return $this->ensureSemanticMarker($path);
+    }
+
     public function markInlineLayoutCarrierPath(string $path): void
     {
         $this->inlineLayoutCarrierPaths[$path] = true;

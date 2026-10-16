@@ -64,6 +64,7 @@ final class ElementConversionPrelude
         private readonly Closure $requiresStandaloneInlineLayoutLeaf,
         private readonly Closure $proofBackedWrapperCoalescing,
         private readonly Closure $layoutGeometryProofFor,
+        private readonly Closure $adoptAsSemanticBlock,
         private readonly ?CapturedCollectionConverter $capturedCollection = null
     ) {
     }
@@ -288,6 +289,7 @@ final class ElementConversionPrelude
             $attrs = $this->styleResolver->presentationAttributes($element);
             $attrs['content'] = SourceDom::innerHtml($element);
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS);
+            ($this->adoptAsSemanticBlock)($element);
             return $this->createBlock->createBlock('core/paragraph', $attrs, array(), $element);
         }
         $identity = AddressableInlineLayoutLeaf::identity($element, $this->styleResolver);

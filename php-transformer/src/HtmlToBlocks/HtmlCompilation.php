@@ -1155,6 +1155,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): bool => $this->requiresStandaloneInlineLayoutLeaf($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
             fn (DOMElement $element): ?array => $this->wrapperCoalescer->layoutGeometryProofFor($element),
+            fn (DOMElement $element): string => $this->authorSelectorProjections()->adoptAsSemanticBlock($element->getNodePath() ?? ''),
             capturedCollection: new CapturedCollectionConverter(
                 $this->session,
                 function (DOMElement $element, array &$fallbacks) use ($convertChildren): array { return $convertChildren($element, $fallbacks, true); },

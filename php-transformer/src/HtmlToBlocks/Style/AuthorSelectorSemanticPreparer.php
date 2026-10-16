@@ -8,7 +8,6 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use DOMElement;
@@ -136,16 +135,6 @@ final class AuthorSelectorSemanticPreparer
             && '>' === ($combinators[$last - 1] ?? '');
     }
 
-    /** An inline element converted on its own as a layout leaf, outside any parent RichText. */
-    private function isInlineLayoutLeaf(DOMElement $element, AuthorSelectorProjectionState $projections): bool
-    {
-        $parentPath = $element->parentNode instanceof DOMElement ? ($element->parentNode->getNodePath() ?? '') : '';
-        return $this->context->requiresInlineLayoutCarrier($element)
-            && ! $this->isPhrasingWithinHeading($element)
-            && ! $this->isQuoteCitation($element)
-            && ! $projections->isControlPath($parentPath);
-    }
-
     /** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
     private function discoverAuthorControlPaths(array $authorSelectors, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
     {
@@ -220,9 +209,6 @@ final class AuthorSelectorSemanticPreparer
                 } elseif ( $directAuthorLayoutItem
                     || ($structuralListItem && self::richTextSelectorNeedsHook($parsed))
                     || $this->context->requiresIndependentSemanticWrapper($element)
-                    // A text-only span that is its own layout leaf becomes the
-                    // paragraph itself, so the rule follows it as a block hook.
-                    || (AddressableInlineLayoutLeaf::isPlainTextSpan($element) && $this->isInlineLayoutLeaf($element, $projections))
                 ) {
                     $projections->ensureSemanticMarker($path);
                 } elseif ( self::richTextSelectorNeedsHook($parsed) ) {
@@ -242,9 +228,12 @@ final class AuthorSelectorSemanticPreparer
             }
             foreach ( $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $authorSelector['parsed']) as $element ) {
                 $path = $element->getNodePath() ?? '';
+                $parentPath = $element->parentNode instanceof DOMElement ? ($element->parentNode->getNodePath() ?? '') : '';
                 if ( '' !== $path
-                    && ! AddressableInlineLayoutLeaf::isPlainTextSpan($element)
-                    && $this->isInlineLayoutLeaf($element, $projections)
+                    && $this->context->requiresInlineLayoutCarrier($element)
+                    && ! $this->isPhrasingWithinHeading($element)
+                    && ! $this->isQuoteCitation($element)
+                    && ! $projections->isControlPath($parentPath)
                     && ! ('' !== $projections->richTextMarker($path) && $this->ancestorElement($element, 'label') instanceof DOMElement)
                 ) {
                     $projections->markInlineLayoutCarrierPath($path);

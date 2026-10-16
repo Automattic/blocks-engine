@@ -9,12 +9,19 @@ use DOMElement;
 /** The simple span identity that a native paragraph can retain through RichText edits. */
 final class AddressableInlineLayoutLeaf
 {
-    /** A text-only span whose only attribute is its class: a paragraph can be that span. */
+    /**
+     * A text-only span whose only source attribute is its class: a paragraph
+     * can be that span. A span inside a link stays in a carrier, which keeps the link
+     * pushed down around its text.
+     */
     public static function isPlainTextSpan(DOMElement $element): bool
     {
         if ('span' !== strtolower($element->tagName) || 0 !== SourceDom::childElementCount($element) || '' === trim($element->textContent)) return false;
         foreach ($element->attributes as $attribute) {
-            if ('class' !== strtolower($attribute->name)) return false;
+            if ('class' !== strtolower($attribute->name) && 'data-blocks-engine-richtext-marker' !== strtolower($attribute->name)) return false;
+        }
+        for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if ('a' === strtolower($ancestor->tagName)) return false;
         }
         return true;
     }
