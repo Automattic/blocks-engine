@@ -178,7 +178,35 @@ final class AuthorStylesheetProjector
     {
         $css .= $this->visuallyHiddenSourceSelectorRule($prelude, $css, $body);
 
-        return $css . $this->editorPositionRules($css) . $this->editorShellChildCombinatorVariants($css);
+        return $css . $this->editorPositionRules($css) . $this->editorShellChildCombinatorVariants($css) . $this->editorEmptyRichTextVariants($css);
+    }
+
+    /**
+     * An empty core/paragraph is `:empty` saved, but not in the editor: its
+     * RichText holds a padding character and a placeholder. Core marks it
+     * `data-empty="true"` instead. Emit editor-scoped variants of authored
+     * `:empty` rules that match that marker. Negated `:empty` cannot be
+     * mirrored by an added rule, so those selectors are left as they are.
+     */
+    private function editorEmptyRichTextVariants(string $css): string
+    {
+        if ( ! str_contains($css, ':empty') ) {
+            return '';
+        }
+        return ( new CssStylesheetTransformer() )->transformStyleRules(
+            $css,
+            static function (string $prelude, string $body): string {
+                $variants = array();
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $selector = trim($selector);
+                    if ( 1 !== preg_match('/:empty(?![\\w-])/', $selector) || 1 === preg_match('/:not\([^)]*:empty/', $selector) || str_contains($selector, '.editor-styles-wrapper') ) {
+                        continue;
+                    }
+                    $variants[] = ':root .editor-styles-wrapper ' . preg_replace('/:empty(?![\\w-])/', '[data-empty="true"]', $selector);
+                }
+                return array() === $variants ? '' : implode(',', $variants) . '{' . $body . '}';
+            }
+        );
     }
 
     private function visuallyHiddenSourceSelectorRule(string $prelude, string $projectedCss, string $body): string

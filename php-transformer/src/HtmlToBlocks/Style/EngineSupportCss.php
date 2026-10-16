@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 
 /**
@@ -134,6 +135,15 @@ final class EngineSupportCss
                 // static there so the image resolves against the same
                 // containing block as on the front end.
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{position:static}';
+        }
+        if ( str_contains($serializedBlocks, RichTextElementConverter::EMPTY_SOURCE_PARAGRAPH_CLASS) ) {
+            // Saved, an empty source paragraph is an empty element with no line
+            // box. In the editor, RichText fills it with a padding character and
+            // a placeholder whose line box adds a line of height. Collapse that
+            // line and withhold the placeholder until the author types.
+            $emptyParagraph = ':root .editor-styles-wrapper p.' . RichTextElementConverter::EMPTY_SOURCE_PARAGRAPH_CLASS . '[data-empty="true"]';
+            $parts[] = $emptyParagraph . '{line-height:0}'
+                . $emptyParagraph . '>[data-rich-text-placeholder]{display:none}';
         }
         if ( str_contains($serializedBlocks, '<video') ) {
             $parts[] = 'video{max-width:100%}';
