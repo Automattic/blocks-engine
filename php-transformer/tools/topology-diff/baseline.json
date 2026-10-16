@@ -589,7 +589,6 @@
             "removed nav": 3,
             "removed strong": 1,
             "removed svg": 5,
-            "removed-wrapper div": 1,
             "retagged address>p": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 6,
             "retagged span>mark": 10,
@@ -1295,7 +1294,6 @@
             "added p [blocks-engine-synthetic-paragraph]": 3,
             "removed dialog": 1,
             "removed nav": 1,
-            "removed-wrapper div": 1,
             "retagged figcaption>p": 4,
             "retagged figure>div [wp-block-group]": 4
         },
@@ -1319,8 +1317,7 @@
             "added tbody": 1,
             "removed label": 3,
             "removed nav": 1,
-            "removed svg": 4,
-            "removed-wrapper div": 1
+            "removed svg": 4
         },
         "83-startup-docs-hub": {
             "added figure [blocks-engine-table]": 1,
