@@ -3126,7 +3126,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( is_string($attrs['className'] ?? null) ) {
             $classNames = array_values(array_filter(
                 preg_split('/\s+/', trim($attrs['className'])) ?: array(),
-                fn (string $className): bool => ! $this->isCurrentNavigationSignalName($className)
+                fn (string $className): bool => ! MenuVocabulary::containsCurrentStateToken($className)
             ));
             if ( array() === $classNames ) {
                 unset($attrs['className']);
@@ -3135,7 +3135,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
-        if ( is_string($attrs['anchor'] ?? null) && $this->isCurrentNavigationSignalName($attrs['anchor']) ) {
+        if ( is_string($attrs['anchor'] ?? null) && MenuVocabulary::containsCurrentStateToken($attrs['anchor']) ) {
             unset($attrs['anchor']);
         }
 
@@ -3148,19 +3148,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        return $this->isCurrentNavigationSignalName($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+        return MenuVocabulary::containsCurrentStateToken($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
     }
 
-    private function isCurrentNavigationSignalName(string $value): bool
-    {
-        foreach ( preg_split('/[^a-z0-9]+/', strtolower($value)) ?: array() as $token ) {
-            if ( in_array($token, array( 'active', 'current', 'selected' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
     private function primaryNavigationAnchor(DOMElement $element): ?DOMElement
     {

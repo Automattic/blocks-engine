@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -903,7 +904,7 @@ final class NavigationStyleProjector
             if ( ! in_array($pseudo, array( ':hover', ':focus', ':focus-visible', ':active' ), true) ) {
                 continue;
             }
-            $isCurrentClass = $this->isAuthoredCurrentNavigationClass($class);
+            $isCurrentClass = MenuVocabulary::containsCurrentStateToken($class);
             if ( ! $isCurrentClass && (! $hasListNavigation || ! isset($itemClasses[$class])) ) {
                 continue;
             }
@@ -1558,16 +1559,6 @@ final class NavigationStyleProjector
         ));
     }
 
-    private function isAuthoredCurrentNavigationClass(string $className): bool
-    {
-        foreach ( preg_split('/[^a-z0-9]+/', strtolower($className)) ?: array() as $token ) {
-            if ( in_array($token, array( 'active', 'current', 'selected' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
     /**
      * Restore icon-only navigation artwork core/navigation-link cannot save.

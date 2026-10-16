@@ -13,8 +13,9 @@ $assert = static function (bool $condition, string $message): void {
 
 // Each route marks its own menu item current, with aria-current and a state
 // class, and the source styles both the resting items and the current one.
-// Every item also has a class of its own, which is identity rather than state. The header around the menu also holds a
-// route-specific call to action, so each route compiles its own menu. The item
+// Every item also has a class of its own, which is identity rather than state.
+// The current item's underline is a pseudo-element keyed on the state class.
+// The header around the menu also holds a route-specific call to action, so each route compiles its own menu. The item
 // the snapshot served is route state, not a different item: every route's menu
 // is the same navigation, and the current-item paint follows WordPress'
 // served-route hook.
@@ -25,6 +26,7 @@ $page = static function (string $current) use ($routes): string {
     return '<!doctype html><html><head><title>' . $routes[$current] . '</title><style>'
         . '.primary a{color:#123456;border-bottom:2px solid transparent}'
         . '.primary a[aria-current="page"]{color:#654321}.primary a.is-active{border-bottom-color:#abcdef}.item-about{letter-spacing:1px}'
+        . '.primary a::after{content:"";display:block;width:0}.primary a.is-active::after{width:37px}'
         . '</style></head><body><header><a class="brand" href="index.html">Harbor</a><a class="cta" href="' . $current . '.html#book">Book ' . $routes[$current] . '</a><nav class="primary"><ul>' . $menu . '</ul></nav></header>'
         . '<main><h1>' . $routes[$current] . '</h1><p>' . $routes[$current] . ' body copy.</p></main></body></html>';
 };
@@ -48,20 +50,37 @@ array_walk_recursive($plan, static function ($value) use (&$css): void {
 preg_match_all('/([^{}]*)\{[^}]*#abcdef[^}]*\}/i', $css, $rules);
 $projected = array_filter($rules[1], static fn (string $selector): bool => str_contains($selector, 'wp-block-navigation'));
 $assert(array() !== $projected, 'The current-item paint is projected onto the native navigation.');
-$arms = array();
-foreach ($projected as $selector) {
-    $depth = 0; $arm = '';
-    foreach (str_split($selector) as $char) {
-        $depth += '(' === $char ? 1 : (')' === $char ? -1 : 0);
-        if (',' === $char && 0 === $depth) { $arms[] = $arm; $arm = ''; continue; }
-        $arm .= $char;
+$selectorArms = static function (array $selectors): array {
+    $arms = array();
+    foreach ($selectors as $selector) {
+        $depth = 0; $arm = '';
+        foreach (str_split($selector) as $char) {
+            $depth += '(' === $char ? 1 : (')' === $char ? -1 : 0);
+            if (',' === $char && 0 === $depth) { $arms[] = $arm; $arm = ''; continue; }
+            $arm .= $char;
+        }
+        $arms[] = $arm;
     }
-    $arms[] = $arm;
-}
-foreach ($arms as $selector) {
+    return $arms;
+};
+foreach ($selectorArms($projected) as $selector) {
     // A shared menu renders every item on every route, so a selector that
     // freezes the snapshot's current item would paint Home current on About.
     $assert(str_contains($selector, '[aria-current'), 'Current-item paint applies only to the served route\'s item: ' . trim($selector));
+}
+
+// The converter leaves the snapshot's state class behind, so a replayed
+// selector keyed on it alone never matches in WordPress. The underline has to
+// reach the served route's item through the same aria-current hook.
+$css = '';
+array_walk_recursive($plan, static function ($value) use (&$css): void {
+    if (is_string($value) && str_contains($value, '37px')) $css .= $value . "\n";
+});
+preg_match_all('/([^{}]*)\{[^}]*width:\s*37px[^}]*\}/i', $css, $rules);
+$underline = array_filter($selectorArms($rules[1]), static fn (string $selector): bool => str_contains($selector, 'wp-block-navigation') && str_contains($selector, '::after'));
+$assert(array() !== $underline, 'The current-item underline is projected onto the native navigation.');
+foreach ($underline as $selector) {
+    $assert(str_contains($selector, '[aria-current'), 'The current-item underline reaches the served route\'s item: ' . trim($selector));
 }
 
 echo "navigation current item shape contract passed\n";

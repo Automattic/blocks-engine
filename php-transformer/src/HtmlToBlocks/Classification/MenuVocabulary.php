@@ -97,6 +97,21 @@ final class MenuVocabulary
     }
 
     /**
+     * Test whether a class or id names a navigation item's current state,
+     * such as `active`, `is-current` or `menu-item--selected`.
+     */
+    public static function containsCurrentStateToken(string $value): bool
+    {
+        foreach (preg_split('/[^a-z0-9]+/', strtolower($value)) ?: array() as $token) {
+            if (in_array($token, array('active', 'current', 'selected'), true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Test whether an attribute value contains the 'links' token.
      */
     public static function containsLinksToken(string $value): bool

@@ -170,9 +170,39 @@ final class WordPressCompatCss
             }
             $targets = $this->mapNavigationStructureSelector($selector, $body);
             if (array() === $targets) $targets = $this->mapNavigationAnchorSelector($selector);
-            foreach ($targets as $mappedSelector) $mappedSelectors[$mappedSelector] = true;
+            foreach ($targets as $mappedSelector) $mappedSelectors[$this->withServedRouteCurrentState($mappedSelector)] = true;
         }
         return array_keys($mappedSelectors);
+    }
+
+    /**
+     * The converter compiles a source snapshot's current item in its peers'
+     * shape and leaves its state class behind, so a shared menu is the same
+     * on every route. WordPress marks the served route's item with
+     * `aria-current` instead. A replayed state class on a navigation item or
+     * its anchor therefore also matches that hook; the class itself stays for
+     * scripts that still toggle it at runtime. Every replayed target is
+     * weighed by its source selector's shims, so the cascade is unchanged.
+     */
+    private function withServedRouteCurrentState(string $selector): string
+    {
+        return (string) preg_replace_callback(
+            '/(\.wp-block-navigation-item(?:__content)?)(?![\w-])((?:\.[A-Za-z_][\w-]*|\[[^\]]*\])*)/',
+            static function (array $match): string {
+                $served = '.wp-block-navigation-item' === $match[1]
+                    ? ':has(> .wp-block-navigation-item__content[aria-current])'
+                    : '[aria-current]';
+                $tail = (string) preg_replace_callback(
+                    '/\.([A-Za-z_][\w-]*)/',
+                    static fn(array $class): string => MenuVocabulary::containsCurrentStateToken($class[1]) && !str_starts_with($class[1], 'blocks-engine-')
+                        ? ':is(.' . $class[1] . ',' . $served . ')'
+                        : $class[0],
+                    $match[2]
+                );
+                return $match[1] . $tail;
+            },
+            $selector
+        );
     }
 
     private function mapNavigationContainerSelector(string $selector): ?string
