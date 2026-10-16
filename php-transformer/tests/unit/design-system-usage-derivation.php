@@ -165,6 +165,24 @@ foreach (array(
 ) as $why => $css) $assert($plain === (new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => $css)), $roseUsage))->bind($plain), "class-driven colour is not bound when $why");
 $assert(str_contains((new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => 'p.text-rose:not(.has-text-color){color:#e11d48!important}')), $roseUsage))->bind($plain), '"textColor"'), 'an !important rule that steps aside for preset colours does not block binding');
 
+// Core pads a paragraph, heading, list or columns block that has a background
+// (`p.has-background{padding:1.25em 2.375em}`). Binding a class-driven
+// background adds `has-background`, so it is refused unless inline padding on
+// every side keeps core's padding off the block.
+$roseFill = $classUsage(array(array('classes' => 'badge', 'properties' => array('background-color' => array('#e11d48')))));
+$badge = '<!-- wp:paragraph {"className":"badge"} --><p class="badge">1</p><!-- /wp:paragraph -->';
+$assert($badge === (new PresetBinding($bindSystem, array(), $roseFill))->bind($badge), 'a class-driven background is not bound on a paragraph that core would pad');
+$assert(array('core_background_padding' => 1) === array_filter((new PresetBinding($bindSystem, array(), $roseFill))->refusals(array($badge))), 'a background core would pad is refused as core_background_padding');
+foreach (array(
+    'heading' => '<!-- wp:heading {"className":"badge"} --><h2 class="wp-block-heading badge">1</h2><!-- /wp:heading -->',
+    'list' => '<!-- wp:list {"className":"badge"} --><ul class="wp-block-list badge"></ul><!-- /wp:list -->',
+) as $block => $markup) $assert($markup === (new PresetBinding($bindSystem, array(), $roseFill))->bind($markup), "a class-driven background is not bound on a $block that core would pad");
+$paddedBadge = '<!-- wp:paragraph {"className":"badge","style":{"spacing":{"padding":{"top":"0","right":"0","bottom":"0","left":"0"}}}} --><p class="badge" style="padding-top:0;padding-right:0;padding-bottom:0;padding-left:0">1</p><!-- /wp:paragraph -->';
+$assert(str_contains((new PresetBinding($bindSystem, array(), $roseFill))->bind($paddedBadge), '"backgroundColor":"' . $slug . '"'), 'a paragraph whose inline padding sets every side binds its class-driven background');
+$assert(str_contains((new PresetBinding($bindSystem, array(), $classUsage(array(array('classes' => 'badge', 'properties' => array('background-color' => array('#e11d48')))))))->bind('<!-- wp:group {"className":"badge"} --><div class="wp-block-group badge"></div><!-- /wp:group -->'), '"backgroundColor":"' . $slug . '"'), 'a group, which core does not pad, binds its class-driven background');
+$literalFill = '<!-- wp:paragraph {"style":{"color":{"background":"#e11d48"}}} --><p class="has-background" style="background-color:#e11d48">1</p><!-- /wp:paragraph -->';
+$assert(str_contains((new PresetBinding($bindSystem, array()))->bind($literalFill), '"backgroundColor":"' . $slug . '"'), 'a literal background already carries has-background, so binding it changes nothing core pads');
+
 // Low-weight colours fold into a heavier token within the imperceptible
 // bound (ΔE 5) and bind to it; a shade further away keeps a token of its own.
 $consolidated = DesignSystem::consolidateColors(array(

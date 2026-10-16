@@ -71,7 +71,9 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * - the source renders the property differently under a media condition
  *   (breakpoint or colour scheme), unless every such value matches the same
  *   token;
- * - elements with the block's class list render different values.
+ * - elements with the block's class list render different values;
+ * - a class-driven background would add `has-background` to a block core
+ *   then pads, and no inline padding sets every side.
  */
 final class PresetBinding
 {
@@ -126,9 +128,20 @@ final class PresetBinding
      *   not serialized from the block attributes;
      * - `style_selector`: a stylesheet reads the inline style text;
      * - `unresolved_value`: a `var()` that does not resolve to one colour,
-     *   a gradient or another value that is not a plain colour.
+     *   a gradient or another value that is not a plain colour;
+     * - `core_background_padding`: a class-driven background on a block core
+     *   pads once it has a background (see CORE_BACKGROUND_PADDED_BLOCKS).
      */
-    public const REFUSAL_REASONS = array('no_matching_token', 'alpha', 'important', 'state_variant', 'breakpoint_variant', 'unsupported_block', 'inline_format_unsupported', 'inconsistent_source', 'style_selector', 'unresolved_value');
+    public const REFUSAL_REASONS = array('no_matching_token', 'alpha', 'important', 'state_variant', 'breakpoint_variant', 'unsupported_block', 'inline_format_unsupported', 'inconsistent_source', 'style_selector', 'unresolved_value', 'core_background_padding');
+
+    /**
+     * Blocks core pads once they carry `has-background`
+     * (`:root :where(p.has-background){padding:1.25em 2.375em}` and the same
+     * rule for headings, lists and columns). A class-driven background adds
+     * that class, so binding it would pad a block the source did not pad,
+     * unless inline padding on every side wins over core's rule.
+     */
+    private const CORE_BACKGROUND_PADDED_BLOCKS = array('paragraph', 'heading', 'list', 'columns');
 
     /** Refusal reasons for the `!` observations DesignUsageCollector records. */
     private const OBSERVATION_REASONS = array('!' => 'inconsistent_source', '!important' => 'important', '!alpha' => 'alpha', '!state' => 'state_variant', '!breakpoint' => 'breakpoint_variant', '!value' => 'unresolved_value');
@@ -412,6 +425,25 @@ final class PresetBinding
         }
     }
 
+    /**
+     * Whether adding `has-background` leaves the block's padding as it was:
+     * core does not pad the block type, the block already has a background,
+     * or its inline padding sets every side.
+     *
+     * @param list<array{0:string,1:string}> $declarations
+     */
+    private static function keepsCoreBackgroundPaddingOff(string $name, string $classes, array $declarations): bool
+    {
+        if (!in_array($name, self::CORE_BACKGROUND_PADDED_BLOCKS, true)) return true;
+        if (in_array('has-background', preg_split('/\s+/', trim($classes)) ?: array(), true)) return true;
+        $sides = array();
+        foreach ($declarations as [$property]) {
+            if ('padding' === $property) return true;
+            if (str_starts_with($property, 'padding-')) $sides[substr($property, 8)] = true;
+        }
+        return array() === array_diff(self::SPACING_SIDES, array_keys($sides));
+    }
+
     private function refuse(?string $reason): void
     {
         if (null !== $this->refusals && null !== $reason) $this->refusals[$reason] = ($this->refusals[$reason] ?? 0) + 1;
@@ -501,6 +533,10 @@ final class PresetBinding
             $slug = $this->presetSlug('color', $literal, $observed[$observedProperty] ?? null, $reason);
             if (null === $slug || !$this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason)) {
                 $this->refuse($reason);
+                continue;
+            }
+            if ('background' === $key && !is_string($literal) && !self::keepsCoreBackgroundPaddingOff($name, $classes, $declarations)) {
+                $this->refuse('core_background_padding');
                 continue;
             }
             if (is_string($literal)) {
