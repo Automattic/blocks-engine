@@ -4224,7 +4224,7 @@ final class ArtifactCompiler
                 if ( $this->headingIsHyperlinkChrome($headingHtml) ) {
                     continue;
                 }
-                $title = $normalize($headingHtml);
+                $title = $normalize($this->withoutOtherLanguageText($headingHtml, $html));
                 if ( '' !== $title ) {
                     $contentHeading = $title;
                     break;
@@ -4261,6 +4261,25 @@ final class ArtifactCompiler
         }
 
         return $this->titleFromPath($path);
+    }
+
+    /**
+     * Multilingual headings often carry one `lang`-tagged child per language
+     * and show only the active one. Keep the document language's text.
+     */
+    private function withoutOtherLanguageText(string $headingHtml, string $documentHtml): string
+    {
+        if ( ! preg_match('/<html\b[^>]*\blang\s*=\s*["\']?([a-z]+)/i', $documentHtml, $documentLang) ) {
+            return $headingHtml;
+        }
+        $language = strtolower($documentLang[1]);
+        $filtered = preg_replace_callback(
+            '/<([a-z][a-z0-9]*)\b[^>]*\blang\s*=\s*["\']?([a-z]+)[^>]*>.*?<\/\1\s*>/is',
+            static fn (array $match): string => strtolower($match[2]) === $language ? $match[0] : '',
+            $headingHtml
+        );
+
+        return is_string($filtered) && '' !== trim(strip_tags($filtered)) ? $filtered : $headingHtml;
     }
 
     private function headingIsHyperlinkChrome(string $headingHtml): bool
