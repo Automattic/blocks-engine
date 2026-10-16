@@ -969,11 +969,10 @@ final class NavigationStyleProjector
                 }
                 return $projectedRule;
             };
-            // Native frontend subjects already match the layered source rule.
-            // Only the editor needs the unlayered compatibility replay.
-            if ( $isCurrentClass || 'anchor' !== $classOwner || ! isset($anchorAliases[$class]) ) {
-                $rules[$selectorText] = $project($selectorText);
-            }
+            // listNavigationItemAnchorRules() restates the resting anchor
+            // colour unlayered, so the layered source state rule can no longer
+            // outrank it; restate the state rule unlayered too.
+            $rules[$selectorText] = $project($selectorText);
             if ( ! $isCurrentClass && (str_contains($class, ':') || isset($anchorAliases[$class])) ) {
                 // A referenced menu in the site editor has the core navigation
                 // root but not the importer's frontend-only list marker.
