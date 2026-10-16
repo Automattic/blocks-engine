@@ -202,7 +202,9 @@ final class AuthorStylesheetProjector
                     if ( 1 !== preg_match('/:empty(?![\\w-])/', $selector) || 1 === preg_match('/:not\([^)]*:empty/', $selector) || str_contains($selector, '.editor-styles-wrapper') ) {
                         continue;
                     }
-                    $variants[] = ':root .editor-styles-wrapper ' . preg_replace('/:empty(?![\\w-])/', '[data-empty="true"]', $selector);
+                    // `[data-empty]` and `:empty` weigh the same, and the editor
+                    // scope adds nothing, so the variant ties as its source rule does.
+                    $variants[] = ':where(:root .editor-styles-wrapper) ' . preg_replace('/:empty(?![\\w-])/', '[data-empty="true"]', $selector);
                 }
                 return array() === $variants ? '' : implode(',', $variants) . '{' . $body . '}';
             }
