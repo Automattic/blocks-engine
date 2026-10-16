@@ -50,6 +50,7 @@
     "visual:empty-destination-anchor": "node tools/visual-parity/tests/empty-destination-anchor.mjs",
     "visual:conditional-empty-boundary": "node tools/visual-parity/tests/conditional-empty-visual-boundary.mjs",
     "visual:conditional-positioned-fill": "node tools/visual-parity/tests/conditional-positioned-percentage-fill.mjs",
+    "visual:conditional-inline-positioning": "node tools/visual-parity/tests/conditional-inline-positioning.mjs",
     "visual:image-transform-reference-box": "node tools/visual-parity/tests/image-transform-reference-box.mjs",
     "visual:source-class-selector-ownership": "node tools/visual-parity/tests/source-class-selector-ownership.mjs",
     "visual:nested-responsive-font-size": "node tools/visual-parity/tests/nested-responsive-font-size.mjs",
