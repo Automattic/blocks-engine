@@ -559,67 +559,7 @@ final class ShellExtraction
             }
             $diagnostics[] = array('code' => 'wordpress_site_plan_shell_inline_extracted', 'severity' => 'info', 'message' => "Extracted nested responsive {$area} variants at their authored page positions.", 'area' => $area, 'variant_count' => $variantCount, 'page_count' => count($applicable), 'source_paths' => $sourcePaths);
         }
-        if (array() === array_filter($parts, static fn(array $part): bool => 'header' === ($part['area'] ?? null))) {
-            $routeHeaders = $this->routeSharedHeaderVariants($pages, $reservedSlugs, $runtimeDeclarations);
-            $pages = $routeHeaders['pages'];
-            $parts = array_merge($parts, $routeHeaders['parts']);
-            $diagnostics = array_merge($diagnostics, $routeHeaders['diagnostics']);
-        }
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
-    }
-
-    /**
-     * Distinct repeated headers can each be editable without forcing a single
-     * dominant style onto routes which authored a different variant. The part
-     * stays at the header's original position in page content; singletons and
-     * ambiguous or bound candidates remain page-owned.
-     *
-     * @param array<int,array<string,mixed>> $pages
-     * @param array<string,true> $reservedSlugs
-     * @param array<int,array<string,mixed>> $runtimeDeclarations
-     * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
-     */
-    private function routeSharedHeaderVariants(array $pages, array $reservedSlugs, array $runtimeDeclarations): array
-    {
-        $clusters = array(); $parts = array(); $diagnostics = array();
-        foreach ($pages as $index => $page) {
-            if (!empty($page['synthetic'])) continue;
-            $rows = $this->nestedLandmarkCandidates($page['canonical_block_markup'], $page['source_path'], 'header');
-            if (1 !== count($rows) || '' === ($rows[0]['identity_markup'] ?? '')) continue;
-            $identity = hash('sha256', $rows[0]['identity_markup']);
-            $clusters[$identity][$index] = $rows[0];
-        }
-        $repeated = array_filter($clusters, static fn(array $rows): bool => count($rows) >= 2);
-        // A single repeated cluster belongs to sharedShells(), which can bind
-        // the normal header part in the site's templates without page blocks.
-        if (count($repeated) < 2) return compact('pages', 'parts', 'diagnostics');
-        ksort($repeated, SORT_STRING);
-        foreach ($repeated as $identity => $rows) {
-            $slug = 'header-' . substr($identity, 0, 12);
-            if (isset($reservedSlugs[$slug])) continue;
-            $after = array(); $valid = true;
-            foreach ($rows as $index => $row) {
-                $page = $pages[$index];
-                $markup = $page['canonical_block_markup'];
-                if ($row['markup'] !== substr($markup, $row['offset'], $row['length']) || $this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $row['offset'], $row['length'])) { $valid = false; break; }
-                $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"header","tagName":"header"} /-->';
-                $replacement = substr($markup, 0, $row['offset']) . $reference . substr($markup, $row['offset'] + $row['length']);
-                if ('' === trim($replacement)) { $valid = false; break; }
-                $after[$index] = $replacement;
-            }
-            if (!$valid) continue;
-            foreach ($after as $index => $markup) {
-                $pages[$index]['canonical_block_markup'] = $markup;
-                $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
-            }
-            $first = reset($rows);
-            $sourcePath = 'wordpress-site-plan/shared/' . $slug;
-            $sources = array_map(static fn(int $index): string => $pages[$index]['source_path'], array_keys($rows));
-            $partMarkup = self::withoutLandmarkTagName(self::withoutCurrentNavigationState($first['markup']));
-            $parts[] = array('source_path' => $sourcePath . '#header', 'slug' => $slug, 'title' => 'Header Variant ' . (count($parts) + 1), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => 'header', 'tag_name' => 'header', 'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => $sources, 'variant' => count($parts) + 1), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#header', 'kind' => 'template_part'), 'title' => 'Header Variant ' . (count($parts) + 1), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance('header', 'extracted', 'route_variant', array_values($rows), $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#header', 'parts/' . $slug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup));
-            $diagnostics[] = array('code' => 'wordpress_site_plan_shell_route_variant_extracted', 'severity' => 'info', 'message' => 'Extracted a repeated route-specific header as an editable template part.', 'area' => 'header', 'slug' => $slug, 'page_count' => count($rows), 'source_paths' => $sources);
-        }
-        return compact('pages', 'parts', 'diagnostics');
     }
 
     /**
@@ -1200,15 +1140,21 @@ final class ShellExtraction
      * a landmark cluster spans more routes, and where a landmark carries its
      * own placement contract.
      *
+     * When routes repeat more than one chrome design for an area, there is no
+     * single site-wide header or footer to bind in templates: each repeated
+     * design becomes its own editable variant part, placed at its routes'
+     * source position, and the area is settled.
+     *
      * @param array<int,array<string,mixed>> $pages
      * @param array<string,true> $reservedSlugs
      * @param array<int,array<string,mixed>> $runtimeDeclarations
-     * @return array<int,array<string,mixed>>
+     * @return array{pages:array<int,array<string,mixed>>,parts:list<array<string,mixed>>,diagnostics:list<array<string,mixed>>}
      */
-    public function withEdgeShellCandidates(array $pages, array $reservedSlugs, array $runtimeDeclarations): array
+    public function edgeShells(array $pages, array $reservedSlugs, array $runtimeDeclarations): array
     {
+        $parts = array(); $diagnostics = array();
         $applicable = array_filter($pages, static fn(array $page): bool => empty($page['synthetic']));
-        if (count($applicable) < 2) return $pages;
+        if (count($applicable) < 2) return compact('pages', 'parts', 'diagnostics');
         foreach (array('header', 'footer') as $area) {
             if (isset($reservedSlugs[$area])) continue;
             $landmarks = array(); $clusters = array(); $repeats = array();
@@ -1222,12 +1168,26 @@ final class ShellExtraction
                 if (1 === count($rows)) $clusters[self::landmarkIdentity($rows[0])][] = $index;
             }
             $edges = array();
-            foreach ($applicable as $index => $page) {
-                $edge = $this->routeEdge((string) $page['canonical_block_markup'], $page, $area, $runtimeDeclarations);
+            foreach (array_keys($applicable) as $index) {
+                $edge = $this->routeEdge((string) $pages[$index]['canonical_block_markup'], $pages[$index], $area, $runtimeDeclarations);
                 if (array() !== $edge) $edges[$index] = $edge;
             }
-            $group = self::edgeGroup($edges, $pages);
-            if (null === $group || count($group['indexes']) < max(array_map('count', $clusters) ?: array(0))) continue;
+            $groups = self::edgeGroups($edges, $pages);
+            $largestCluster = max(array_map('count', $clusters) ?: array(0));
+            // Variants are distinct designs: they differ from their first
+            // block, so no chrome would be copied into two parts, and no
+            // landmark repeats on more routes than any of them (that landmark
+            // is the site's single shell; the edges only differ around it).
+            $firstBlocks = array_map(static fn(array $group): string => $edges[$group['indexes'][0]][0]['identity'], $groups);
+            if (isset($groups[1]) && count(array_unique($firstBlocks)) === count($groups) && max(array_map(static fn(array $group): int => count($group['indexes']), $groups)) >= $largestCluster) {
+                $variants = $this->edgeVariantParts($pages, $edges, $groups, $area, $reservedSlugs, $runtimeDeclarations);
+                $pages = $variants['pages'];
+                array_push($parts, ...$variants['parts']);
+                array_push($diagnostics, ...$variants['diagnostics']);
+                continue;
+            }
+            $group = $groups[0] ?? null;
+            if (null === $group || count($group['indexes']) < $largestCluster) continue;
             // With a landmark the edge extends it outward only: the blocks
             // before a header, the blocks after a footer. Blocks between the
             // landmark and the content stay page content.
@@ -1257,16 +1217,60 @@ final class ShellExtraction
             $nested = !empty($edges[$group['indexes'][0]][0]['nested']);
             $identity = hash('sha256', implode("\0", array_column(array_slice($edges[$group['indexes'][0]], 0, $length), 'identity')));
             foreach ($group['indexes'] as $index) {
-                $blocks = array_slice($edges[$index], 0, $length);
-                $offset = min(array_column($blocks, 'offset'));
-                $end = max(array_map(static fn(array $block): int => $block['offset'] + $block['length'], $blocks));
-                $markup = substr((string) $pages[$index]['canonical_block_markup'], $offset, $end - $offset);
-                $candidate = array('area' => $area, 'markup' => $markup, 'inner_markup' => $markup, 'template_part_markup' => self::withoutCurrentNavigationState($markup), 'identity_markup' => 'route-edge:' . $identity, 'classes' => array(), 'source_path' => $pages[$index]['source_path'], 'offset' => $offset, 'length' => $end - $offset, 'part_tag_name' => 'div', 'route_edge' => true);
+                $range = self::edgeRange($edges[$index], $length);
+                $markup = substr((string) $pages[$index]['canonical_block_markup'], $range['offset'], $range['length']);
+                $candidate = array('area' => $area, 'markup' => $markup, 'inner_markup' => $markup, 'template_part_markup' => self::withoutCurrentNavigationState($markup), 'identity_markup' => 'route-edge:' . $identity, 'classes' => array(), 'source_path' => $pages[$index]['source_path'], 'offset' => $range['offset'], 'length' => $range['length'], 'part_tag_name' => 'div', 'route_edge' => true);
                 if ($nested) $candidate += array('nested_shell' => true, 'additional_ranges' => array());
                 $pages[$index]['shell_candidates'] = array_merge(array_values(array_filter($pages[$index]['shell_candidates'] ?? array(), static fn(array $row): bool => $area !== ($row['area'] ?? null))), array($candidate));
             }
         }
-        return $pages;
+        return compact('pages', 'parts', 'diagnostics');
+    }
+
+    /**
+     * One inline part per repeated edge group. A group whose edge carries a
+     * runtime binding stays page-owned. An edge that is exactly the area's
+     * landmark keeps that landmark as the part's semantic wrapper.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,list<array{offset:int,length:int,identity:string,nested:bool}>> $edges
+     * @param list<array{indexes:list<int>,length:int}> $groups
+     * @param array<string,true> $reservedSlugs
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @return array{pages:array<int,array<string,mixed>>,parts:list<array<string,mixed>>,diagnostics:list<array<string,mixed>>}
+     */
+    private function edgeVariantParts(array $pages, array $edges, array $groups, string $area, array $reservedSlugs, array $runtimeDeclarations): array
+    {
+        $parts = array(); $diagnostics = array();
+        foreach ($groups as $group) {
+            $identity = hash('sha256', implode("\0", array_column(array_slice($edges[$group['indexes'][0]], 0, $group['length']), 'identity')));
+            $slug = $area . '-' . substr($identity, 0, 12);
+            if (isset($reservedSlugs[$slug])) continue;
+            $ranges = array();
+            foreach ($group['indexes'] as $index) {
+                $ranges[$index] = self::edgeRange($edges[$index], $group['length']);
+                if (array() !== $this->runtimeBindingsInRanges($runtimeDeclarations, $pages[$index], array($ranges[$index]))['refs']) continue 2;
+            }
+            $first = $group['indexes'][0];
+            $markup = self::withoutCurrentNavigationState(substr((string) $pages[$first]['canonical_block_markup'], $ranges[$first]['offset'], $ranges[$first]['length']));
+            $landmark = 1 === $group['length'] && 1 === preg_match('/^<!--\s*wp:group\s+\{[^}]*"tagName":"' . $area . '"/', $markup);
+            $tagName = $landmark ? $area : 'div';
+            if ($landmark) $markup = self::withoutLandmarkTagName($markup);
+            $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"' . $area . '","tagName":"' . $tagName . '"} /-->';
+            // Replace from the end of each page so earlier offsets stay valid.
+            foreach ($group['indexes'] as $index) {
+                $page = (string) $pages[$index]['canonical_block_markup'];
+                $pages[$index]['canonical_block_markup'] = substr($page, 0, $ranges[$index]['offset']) . $reference . substr($page, $ranges[$index]['offset'] + $ranges[$index]['length']);
+                $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($pages[$index]['canonical_block_markup']);
+            }
+            $title = ucfirst($area) . ' Variant ' . (count($parts) + 1);
+            $sourcePath = 'wordpress-site-plan/shared/' . $slug;
+            $sources = array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $group['indexes']));
+            $candidates = array_map(static fn(int $index): array => array(array('source_path' => $pages[$index]['source_path'], 'identity_markup' => 'route-edge:' . $identity)), $group['indexes']);
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $slug, 'title' => $title, 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => $tagName, 'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => $sources, 'variant' => count($parts) + 1), 'canonical_block_markup' => $markup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'route_variant', $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $slug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($markup));
+            $diagnostics[] = array('code' => 'wordpress_site_plan_shell_route_variant_extracted', 'severity' => 'info', 'message' => "Extracted a repeated route-specific {$area} as an editable template part.", 'area' => $area, 'slug' => $slug, 'page_count' => count($sources), 'source_paths' => $sources);
+        }
+        return compact('pages', 'parts', 'diagnostics');
     }
 
     /** @param array<string,mixed> $candidate */
@@ -1343,20 +1347,22 @@ final class ShellExtraction
     }
 
     /**
-     * The routes sharing the longest chrome edge, and its block count. Each
-     * prefix length proposes the largest set of routes that share it; the
-     * edge that moves the most chrome out of pages wins, so a banner most
-     * routes repeat is not cut short by one route that shares only the top
-     * bar above it. The edge stops at the first block where its routes
-     * disagree and must hold more than a lone skip link: chrome carries
-     * navigation, a landmark or links.
+     * Routes grouped by the chrome edge they share, best first: each group is
+     * its routes and the edge's block count. Each prefix length proposes the
+     * largest set of routes that share it; the edge that moves the most chrome
+     * out of pages wins, so a banner most routes repeat is not cut short by
+     * one route that shares only the top bar above it. A route joins one
+     * group. The edge stops at the first block where its routes disagree and
+     * must hold more than a lone skip link: chrome carries navigation, a
+     * landmark or links.
      *
      * @param array<int,list<array{offset:int,length:int,identity:string,nested:bool}>> $edges
      * @param array<int,array<string,mixed>> $pages
-     * @return array{indexes:list<int>,length:int}|null
+     * @return list<array{indexes:list<int>,length:int}>
      */
-    private static function edgeGroup(array $edges, array $pages): ?array
+    private static function edgeGroups(array $edges, array $pages): array
     {
+        $groups = array();
         while (true) {
             $best = null;
             for ($length = 1; ; ++$length) {
@@ -1369,16 +1375,26 @@ final class ShellExtraction
                     if (null === $best || $score > $best['score'] || ($score === $best['score'] && self::holdsEntry($indexes, $pages) > self::holdsEntry($best['indexes'], $pages))) $best = array('score' => $score, 'indexes' => $indexes, 'length' => $length);
                 }
             }
-            if (null === $best) return null;
+            if (null === $best) return $groups;
             $indexes = $best['indexes'];
             usort($indexes, static fn(int $left, int $right): int => (int) empty($pages[$left]['entrypoint']) <=> (int) empty($pages[$right]['entrypoint']) ?: $left <=> $right);
-            $blocks = array_slice($edges[$indexes[0]], 0, $best['length']);
-            $first = min(array_column($blocks, 'offset'));
-            $last = max(array_map(static fn(array $block): int => $block['offset'] + $block['length'], $blocks));
-            if (self::carriesChrome(substr((string) $pages[$indexes[0]]['canonical_block_markup'], $first, $last - $first))) return array('indexes' => $indexes, 'length' => $best['length']);
-            // An edge without chrome yields to the next-best among the rest.
+            $range = self::edgeRange($edges[$indexes[0]], $best['length']);
+            if (self::carriesChrome(substr((string) $pages[$indexes[0]]['canonical_block_markup'], $range['offset'], $range['length']))) $groups[] = array('indexes' => $indexes, 'length' => $best['length']);
             foreach ($indexes as $index) unset($edges[$index]);
         }
+    }
+
+    /**
+     * Byte range of a route's first $length edge blocks.
+     *
+     * @param list<array{offset:int,length:int,identity:string,nested:bool}> $edge
+     * @return array{offset:int,length:int}
+     */
+    private static function edgeRange(array $edge, int $length): array
+    {
+        $blocks = array_slice($edge, 0, $length);
+        $offset = min(array_column($blocks, 'offset'));
+        return array('offset' => $offset, 'length' => max(array_map(static fn(array $block): int => $block['offset'] + $block['length'], $blocks)) - $offset);
     }
 
     /** @param list<int> $indexes @param array<int,array<string,mixed>> $pages */
