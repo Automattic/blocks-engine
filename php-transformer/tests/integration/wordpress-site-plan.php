@@ -338,7 +338,9 @@ $assertQueue(array($essayScript), $scripts, 'Post request enqueues only its reco
 $front = file_get_contents($themeDir . '/templates/front-page.html'); if (false === $front) throw new RuntimeException('Could not read front-page template.');
 $post = $frontPage; $setRequest($post, true);
 $rendered = do_blocks($front); wp_reset_postdata();
-$assert(1 === substr_count($rendered, '<header') && 1 === substr_count($rendered, '<footer') && str_contains($rendered, 'id="site-chrome"') && str_contains($rendered, 'site-chrome') && str_contains($rendered, 'border-top:3px solid #111') && str_contains($rendered, 'href="#content"') && str_contains($rendered, '<main id="content"'), 'WordPress renders one complete styled landmark wrapper per front-page route and preserves the skip-link target.');
+// get_the_block_template_html() finishes with core's skip link to the first <main>.
+$rendered = _block_template_add_skip_link('<div class="wp-site-blocks">' . $rendered . '</div>');
+$assert(1 === substr_count($rendered, '<header') && 1 === substr_count($rendered, '<footer') && str_contains($rendered, 'id="site-chrome"') && str_contains($rendered, 'site-chrome') && str_contains($rendered, 'border-top:3px solid #111') && 1 === substr_count($rendered, 'href="#content"') && str_contains($rendered, 'id="wp-skip-link" href="#content"') && str_contains($rendered, '<main id="content"'), 'WordPress renders one complete styled landmark wrapper per front-page route and one skip link to its main.');
 $assert(str_contains($rendered, 'Home') && str_contains($rendered, home_url('/wp-content/themes/' . $theme . '/assets/assets/logo.svg')), 'WordPress renders front-page content with a browser-valid resolved image URL.');
 $pageTemplate = file_get_contents($themeDir . '/templates/page.html'); if (false === $pageTemplate) throw new RuntimeException('Could not read page template.');
 $post = $about; $setRequest($post, false); $nestedRendered = do_blocks($pageTemplate); wp_reset_postdata();

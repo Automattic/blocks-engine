@@ -232,10 +232,12 @@ final class SourceDom
     }
 
     /**
-     * Whether this anchor is the document's skip link: a fragment link, ahead
-     * of the document's first <main>, to that element. A WordPress block
-     * template renders its own skip link to the template's first <main>
-     * (keeping that element's id), so the authored one would be a second.
+     * Whether this anchor is the document's skip link: a fragment link to the
+     * document's first <main>, ahead of it and outside every landmark (a logo
+     * in the header that links to the top of <main> is the site's brand). A
+     * WordPress block template renders its own skip link to the template's
+     * first <main> (keeping that element's id), so the authored one would be
+     * a second.
      */
     public static function isMainSkipLink(DOMElement $element): bool
     {
@@ -250,7 +252,12 @@ final class SourceDom
         if ( ! $main instanceof DOMElement || rawurldecode($match[1]) !== self::attr($main, 'id') ) {
             return false;
         }
-        // Ahead of main in document order, so not inside it.
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( in_array(strtolower($ancestor->tagName), array('header', 'nav', 'main', 'aside', 'footer', 'section', 'article'), true)
+                || in_array(strtolower(self::attr($ancestor, 'role')), array('banner', 'navigation', 'main', 'complementary', 'contentinfo', 'region'), true) ) {
+                return false;
+            }
+        }
         return self::precedes($element, $main);
     }
 

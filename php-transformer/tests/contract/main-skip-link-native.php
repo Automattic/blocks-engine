@@ -41,6 +41,13 @@ foreach ($plan['pages'] as $document) {
 }
 $assert(! str_contains($compiled, 'Skip to content'), 'The authored skip link is left to the block template.');
 
+// A single-page site's logo links to the top of <main> from inside its
+// header: that is the brand, and it stays.
+$brand = '<!doctype html><html><head><title>Solo</title></head><body><header><a class="brand" href="#top">Ledger</a><nav><a href="#services">Services</a></nav></header><main id="top"><h1>Ledger</h1><h2 id="services">Services</h2><p>Books balanced.</p></main></body></html>';
+$single = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array('website/index.html' => $brand)))->toWordPressSitePlanView()['wordpress_site_plan'];
+$compiled = (string) $single['pages'][0]['canonical_block_markup'] . implode('', array_column($single['template_parts'] ?? array(), 'canonical_block_markup'));
+$assert(str_contains($compiled, 'Ledger</a>'), 'A header logo linking to the top of main stays.');
+
 // A link ahead of <main> to some other fragment is not a skip link.
 $other = '<!doctype html><html><head><title>Solo</title></head><body><a href="#hours">Jump to hours</a><main id="main"><h1>Solo</h1><h2 id="hours">Hours</h2><p>Open daily.</p></main></body></html>';
 $single = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array('website/index.html' => $other)))->toWordPressSitePlanView()['wordpress_site_plan'];
