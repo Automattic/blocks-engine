@@ -4872,6 +4872,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
     {
+        if ( ! $this->preservesScriptStateWrapper($element) ) {
+            $paragraph = $this->textOnlyLayoutDivParagraph($element);
+            if ( null !== $paragraph ) {
+                return $paragraph;
+            }
+        }
         $children = $this->convertChildren($element, $fallbacks, true);
         if ( $this->preservesScriptStateWrapper($element) ) {
             return $this->layoutShellBlockForElements(array( $element ), $children, $element);
@@ -5222,6 +5228,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         foreach ($blocks as $block) {
             $name = $block['blockName'] ?? '';
             $attrs = $block['attrs'] ?? array();
+            // A lowered paragraph is its source div's own box; author tag
+            // selectors reach it through the source-tag projection.
+            if ( 'core/paragraph' === $name && in_array(self::LOWERED_PARAGRAPH_CLASS, preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ) {
+                $tags[] = 'div';
+                continue;
+            }
             $tags[] = $this->generatedBlocks()->blockName(AuthorLayoutBlockGenerator::LOCAL_NAME) === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/group' === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/image' === $name ? 'img' : ('core/paragraph' === $name ? 'p' : ('core/heading' === $name ? 'h' . (string) ($attrs['level'] ?? 2) : ''))));
         }
         return $tags;
@@ -6984,6 +6996,32 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return false;
+    }
+
+    /**
+     * A layout `div` that holds only text is one box in the source: its text is
+     * an anonymous box laid out by the div's own display. A paragraph that
+     * carries the div's classes and presentation is that same box, so the text
+     * keeps its source parent instead of gaining a group plus an added
+     * paragraph. The lowered-paragraph reset removes only the UA paragraph
+     * margins, below every author rule.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function textOnlyLayoutDivParagraph(DOMElement $element): ?array
+    {
+        if ( 'div' !== strtolower($element->tagName) || 0 !== $this->childElementCount($element) || SourceDom::documentVariantRoot($element) === $element ) {
+            return null;
+        }
+        $content = $this->richTextMaterializer->content($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallback($content) ) {
+            return null;
+        }
+        $attrs = $this->styleResolver->presentationAttributes($element);
+        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::LOWERED_PARAGRAPH_CLASS);
+        $attrs['content'] = $content;
+
+        return $this->createBlock('core/paragraph', $attrs, array(), $element);
     }
 
     private function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array
