@@ -2492,14 +2492,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // ahead of every author layer. `!important` parts stay unlayered: there
         // the first layer would win and override authored !important rules. When
         // the statement is '' (anonymous author layers) nothing is wrapped, since
-        // naming an engine layer could shift anonymous layer positions.
-        if ( '' !== $authorLayerOrder ) {
+        // naming an engine layer could shift anonymous layer positions. Layers in
+        // the capture vocabulary are not author layering: a capture-only layer
+        // leaves the author's rules unlayered, and those must keep losing to the
+        // engine resets by specificity.
+        if ( $this->namesAuthorOwnedLayer($authorLayerOrder) ) {
             foreach ( $engineResetParts as $offset => $part ) {
                 if ( ! str_contains($part, '!important') ) {
                     $beforeAuthorCssParts[$engineResetStart + $offset] = '@layer ' . self::ENGINE_RESET_LAYER . '{' . $part . '}';
                 }
             }
             $authorLayerOrder = '@layer ' . self::ENGINE_RESET_LAYER . ',' . substr($authorLayerOrder, strlen('@layer '));
+        }
+        if ( '' !== $authorLayerOrder ) {
             array_unshift($beforeAuthorCssParts, $authorLayerOrder);
         }
         $this->stylesheetAssetStage->materialize(
@@ -2510,6 +2515,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $includeAuthorStyles,
             array() !== $this->authorStyles()->stylesheetAssets()
         );
+    }
+
+    private function namesAuthorOwnedLayer(string $layerOrderStatement): bool
+    {
+        $names = explode(',', rtrim(substr($layerOrderStatement, strlen('@layer ')), ';'));
+        foreach ( $names as $name ) {
+            $name = trim($name);
+            if ( '' !== $name && ! str_starts_with($name, CaptureEvidence::ATTRIBUTE_PREFIX) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function richTextMarkerResetCss(): string
