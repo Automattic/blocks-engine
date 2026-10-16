@@ -1112,7 +1112,38 @@ final class SvgMaterializer implements SvgElementMaterializer
             $classes = array_filter(preg_split('/\s+/', trim($match[2])) ?: array(), static fn (string $class): bool => '' !== $class && 1 !== preg_match('/^blocks-engine-(?:source-[a-z0-9_-]+|attribute(?:-state)?|richtext|control|specificity-class)-[a-f0-9]{6,}(?:-\d+)?$/', $class));
             return array() === $classes ? '' : ' class=' . $match[1] . implode(' ', $classes) . $match[1];
         }, $html) ?? $html;
-        return preg_replace('/<(?:title|desc)\b[^>]*>.*?<\/(?:title|desc)>/is', '', $html) ?? $html;
+        $html = preg_replace('/<(?:title|desc)\b[^>]*>.*?<\/(?:title|desc)>/is', '', $html) ?? $html;
+        return self::withDocumentOrderLocalIds($html);
+    }
+
+    /**
+     * A standalone SVG document's ids name only its own definitions, so their
+     * spelling is not part of the picture: a page author who gives each
+     * route's copy of a logo its own gradient id still draws one logo. Name
+     * each local id by its document order. A payload that spells an id
+     * anywhere other than a definition or a `url(#)`/`href="#"` reference
+     * keeps the authored names, since that other use may depend on them.
+     */
+    private static function withDocumentOrderLocalIds(string $html): string
+    {
+        $reference = '\sid\s*=\s*(["\'])([^"\']+)\1|\burl\(\s*(["\']?)#([^\s"\')]+)\3\s*\)|\b((?:xlink:)?href)\s*=\s*(["\'])#([^"\']+)\6';
+        if (!preg_match_all('/\sid\s*=\s*(["\'])([^"\']+)\1/i', $html, $definitions)) return $html;
+        $names = array();
+        foreach ($definitions[2] as $id) if (!isset($names[$id])) $names[$id] = 'svg-local-' . count($names);
+        $recognized = array();
+        preg_match_all('/' . $reference . '/i', $html, $references, PREG_SET_ORDER);
+        foreach ($references as $match) {
+            $id = (string) (($match[2] ?? '') ?: (($match[4] ?? '') ?: ($match[7] ?? '')));
+            $recognized[$id] = ($recognized[$id] ?? 0) + 1;
+        }
+        foreach (array_keys($names) as $id) {
+            if (preg_match_all('/(?<![\w-])' . preg_quote($id, '/') . '(?![\w-])/', $html) !== ($recognized[$id] ?? 0)) return $html;
+        }
+        return preg_replace_callback('/' . $reference . '/i', static function (array $match) use ($names): string {
+            if ('' !== ($match[2] ?? '')) return isset($names[$match[2]]) ? ' id=' . $match[1] . $names[$match[2]] . $match[1] : $match[0];
+            if ('' !== ($match[4] ?? '')) return isset($names[$match[4]]) ? 'url(' . $match[3] . '#' . $names[$match[4]] . $match[3] . ')' : $match[0];
+            return isset($names[$match[7]]) ? $match[5] . '=' . $match[6] . '#' . $names[$match[7]] . $match[6] : $match[0];
+        }, $html) ?? $html;
     }
 
     /**
