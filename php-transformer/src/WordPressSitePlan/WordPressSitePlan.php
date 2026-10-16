@@ -4995,10 +4995,19 @@ PHP;
      * file is not markup: quotes inside its strings are JSON-escaped, so reading
      * the raw file as HTML turns `href=\"https://…\"` into a bogus local
      * reference. Decode it and validate each markup-bearing string instead.
+     * A generated PHP write (functions.php) carries markup only inside
+     * var_export() string literals, which escape `\` and `'`. Read raw, a
+     * head style's `url('…')` is `url(\'…\')` and its token reads as a
+     * quoted value. Undo those two escapes so the markup is read as written.
+     * (Tokenizing would be exact but costs ~10x the file in memory.)
      */
     private static function assertNoLocalBrowserReferencesInWrite(string $targetPath, string $payload, string $sourcePath): void
     {
         $target = strtolower($targetPath);
+        if (str_ends_with($target, '.php')) {
+            self::assertNoLocalBrowserReferences(strtr($payload, array('\\\\' => '\\', "\\'" => "'")), $sourcePath, 'write:php');
+            return;
+        }
         $decoded = str_ends_with($target, '.json') ? json_decode($payload, true) : null;
         if (!is_array($decoded)) {
             self::assertNoLocalBrowserReferences(str_ends_with($target, '.css') ? '<style>' . $payload . '</style>' : $payload, $sourcePath, 'write');
