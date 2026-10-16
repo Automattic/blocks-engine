@@ -86,11 +86,15 @@ $assert('blocks-engine-synthetic-image-figure' === ElementTreeDiff::marker(( sta
 
 $report = array( 'fixtures' => array( 'site' => array( 'kinds' => array( 'added p' => 2, 'added mark' => 1 ) ) ) );
 $baseline = TopologyCorpusRunner::baseline($report);
-$assert(array() === TopologyCorpusRunner::check($report, $baseline)['regressions'] + TopologyCorpusRunner::check($report, $baseline)['improvements'], 'a report matches its own baseline');
-$rising = TopologyCorpusRunner::check(array( 'fixtures' => array( 'site' => array( 'kinds' => array( 'added p' => 3, 'added mark' => 1, 'added figure' => 1 ) ) ) ), $baseline);
-$assert(array( 'site: added figure 0 -> 1', 'site: added p 2 -> 3' ) === $rising['regressions'], 'rising and new divergences are regressions', json_encode($rising));
-$falling = TopologyCorpusRunner::check(array( 'fixtures' => array( 'site' => array( 'kinds' => array( 'added p' => 2 ) ) ) ), $baseline);
-$assert(array() === $falling['regressions'] && array( 'site: added mark 1 -> 0' ) === $falling['improvements'], 'falling divergences are improvements that must lower the baseline', json_encode($falling));
+$siteCheck = static fn (array $kinds): array => TopologyCorpusRunner::check(array( 'fixtures' => array( 'site' => array( 'kinds' => $kinds ) ) ), $baseline);
+$assert(array( 'regressions' => array(), 'improvements' => array(), 'changes' => array() ) === TopologyCorpusRunner::check($report, $baseline), 'a report matches its own baseline');
+$assert(1 === TopologyCorpusRunner::weight('retagged div>p') && 2 === TopologyCorpusRunner::weight('added p') && 2 === TopologyCorpusRunner::weight('removed-wrapper div') && 7 === TopologyCorpusRunner::score(array( 'added p' => 3, 'retagged div>p' => 1 )), 'a retag weighs half of a box that is added or removed');
+$rising = $siteCheck(array( 'added p' => 3, 'added mark' => 1, 'added figure' => 1 ));
+$assert(array( 'site: score 6 -> 10 (added figure +1, added p +1)' ) === $rising['regressions'], 'a rising weighted score is a regression that names the kind deltas', json_encode($rising));
+$retagged = $siteCheck(array( 'added p' => 1, 'added mark' => 1, 'retagged div>p' => 1 ));
+$assert(array() === $retagged['regressions'] && array( 'site: score 6 -> 5 (added p -1, retagged div>p +1)' ) === $retagged['improvements'], 'an added wrapper that becomes a retag of the source element lowers the score', json_encode($retagged));
+$swapped = $siteCheck(array( 'added p' => 1, 'added mark' => 2 ));
+$assert(array() === $swapped['regressions'] && array() === $swapped['improvements'] && array( 'site: score 6 -> 6 (added mark +1, added p -1)' ) === $swapped['changes'], 'an equal score with different counts is a change that must be recorded', json_encode($swapped));
 $assert(array( 'other: not in the baseline' ) === TopologyCorpusRunner::check(array( 'fixtures' => array( 'other' => array( 'kinds' => array() ) ) ), $baseline)['regressions'], 'an unknown fixture fails until it is baselined');
 
 if ( 0 < $failures ) {
