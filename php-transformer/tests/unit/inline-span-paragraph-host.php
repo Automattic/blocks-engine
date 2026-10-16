@@ -44,15 +44,15 @@ $markup = (string) ( $result['serialized_blocks'] ?? '' );
 $css    = $cssOf($result);
 
 $assert(
-    str_contains($markup, 'blocks-engine-inline-layout-carrier')
-        && str_contains($markup, '<span class="label"')
-        && str_contains($markup, '01 / 05'),
-    'a lone styled span in a flow wrapper uses a boxless paragraph carrier',
+    1 === preg_match('/<p class="label blocks-engine-synthetic-paragraph blocks-engine-semantic-[^"]*">01 \/ 05<\/p>/', $markup)
+        && ! str_contains($markup, 'blocks-engine-inline-layout-carrier'),
+    'a lone styled span in a flow wrapper is its own inline paragraph',
     $markup
 );
 $assert(
-    str_contains($css, ':where(p.blocks-engine-inline-layout-carrier){display:contents;margin:0!important;padding:0!important;border:0!important}'),
-    'the carrier paragraph contributes no box of its own',
+    str_contains($css, ':where(p.blocks-engine-synthetic-paragraph:not(.blocks-engine-source-box-paragraph)){display:inline}')
+        && str_contains($css, '{font-size:10px;line-height:15px;letter-spacing:1px;font-weight:500}'),
+    'the paragraph lays out inline, like the span, and keeps the span typography',
     $css
 );
 $assert(

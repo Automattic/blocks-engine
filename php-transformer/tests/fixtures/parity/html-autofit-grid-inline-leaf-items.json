@@ -31,7 +31,8 @@
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
     { "path": "blocks.0.attrs.style.spacing.blockGap", "assert": "equals", "value": null },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "is-layout-grid" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"blocks-engine-inline-layout-carrier\"><span class=\"client\">Acme Corp</span></p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"client blocks-engine-synthetic-paragraph " },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine-inline-layout-carrier" },
     { "path": "assets.1.content", "assert": "contains", "value": ".client-strip{display:grid;grid-template-columns:repeat(auto-fit, minmax(190px, 1fr));gap:24px}" }
   ]
 }

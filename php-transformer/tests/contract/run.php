@@ -2038,9 +2038,9 @@ $inlineBreadcrumbMarkup = (string) ($inlineBreadcrumb['serialized_blocks'] ?? ''
 $inlineBreadcrumbCss = implode("\n", array_column($inlineBreadcrumb['assets'] ?? array(), 'content'));
 $inlineBreadcrumbNavMarkup = strstr($inlineBreadcrumbMarkup, '</nav>', true) ?: '';
 $assert(str_contains($inlineBreadcrumbMarkup, '<nav class="wp-block-group crumb '), 'inline-only semantic navigation retains its nav group wrapper');
-$assert(3 === substr_count($inlineBreadcrumbNavMarkup, '<p class="blocks-engine-inline-layout-carrier">'), 'authored flex navigation keeps each direct token as an atomic layout item');
+$assert(1 === substr_count($inlineBreadcrumbNavMarkup, '<p class="blocks-engine-inline-layout-carrier">') && 2 === preg_match_all('/<p class="[^"]*\bblocks-engine-synthetic-paragraph\b[^"]*\bblocks-engine-semantic-/', $inlineBreadcrumbNavMarkup), 'authored flex navigation keeps each direct token as an atomic layout item: the link in a carrier, each text span as its own paragraph');
 $assert(str_contains($inlineBreadcrumbMarkup, '<a href="/exhibitions">Exhibitions</a>') && str_contains($inlineBreadcrumbMarkup, '>Current<'), 'inline-only semantic navigation preserves link and text token order');
-$assert(str_contains($inlineBreadcrumbCss, '.crumb > p.blocks-engine-inline-layout-carrier > a{color:blue}') && str_contains($inlineBreadcrumbCss, '.crumb > p.blocks-engine-inline-layout-carrier > .sep{color:#666}'), 'authored flex navigation projects direct-child selectors through inline layout carriers');
+$assert(str_contains($inlineBreadcrumbCss, '.crumb > p.blocks-engine-inline-layout-carrier > a{color:blue}') && 1 === preg_match('/:where\(\.blocks-engine-semantic-[^)]*\)[^{]*\{color:#666\}/', $inlineBreadcrumbCss), 'authored flex navigation projects direct-child selectors through the link carrier and the separator paragraph');
 $assert('pass' === ($inlineBreadcrumb['source_reports']['wp_block_validity']['status'] ?? ''), 'authored flex navigation carriers remain editor-valid');
 
 $anchorMenu = ( new HtmlTransformer() )->transform(
@@ -2065,7 +2065,7 @@ $loneStyledInline = ( new HtmlTransformer() )->transform(
     . '<div class="card"><div class="label-row"><span class="label">01 / 05</span></div><p>Script vidéo 20 secondes</p></div>'
 )->toArray();
 $loneStyledInlineMarkup = (string) ($loneStyledInline['serialized_blocks'] ?? '');
-$assert(str_contains($loneStyledInlineMarkup, 'blocks-engine-inline-layout-carrier') && str_contains($loneStyledInlineMarkup, '<span class="label"') && str_contains($loneStyledInlineMarkup, '01 / 05'), 'a lone styled span in a padded flow wrapper uses a boxless valid carrier');
+$assert(1 === preg_match('/<p class="label blocks-engine-synthetic-paragraph [^"]*">01 \/ 05<\/p>/', $loneStyledInlineMarkup) && ! str_contains($loneStyledInlineMarkup, 'blocks-engine-inline-layout-carrier'), 'a lone styled span in a padded flow wrapper is its own inline paragraph');
 $assert(! str_contains($loneStyledInlineMarkup, '<p class="blocks-engine-synthetic-paragraph"><mark'), 'the span is not rewrapped as a synthetic paragraph host');
 $assert('pass' === ($loneStyledInline['source_reports']['wp_block_validity']['status'] ?? ''), 'lone styled inline carriers remain editor-valid');
 
