@@ -127,7 +127,13 @@ final class EngineSupportCss
             // figure is an extra box; give that box the source's full inline
             // extent so the image's percentage width does not size from an
             // aspect-ratio-constrained, shrink-to-fit figure instead.
-            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '){width:100%}';
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '){width:100%}'
+                // The figure has no source element, so the absolutely placed
+                // image fills the source parent, not the figure. The editor
+                // makes every block root `position:relative`; keep the figure
+                // static there so the image resolves against the same
+                // containing block as on the front end.
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{position:static}';
         }
         if ( str_contains($serializedBlocks, '<video') ) {
             $parts[] = 'video{max-width:100%}';

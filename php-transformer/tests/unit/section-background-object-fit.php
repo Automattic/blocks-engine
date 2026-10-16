@@ -56,6 +56,23 @@ foreach ( array(
     }
 }
 
+// The fill figure has no source element: an absolutely placed image fills the
+// source parent, not the figure. The editor makes every block root
+// position:relative, which would make the zero-height figure the image's
+// containing block and collapse it, so the figure stays static there.
+$fillEditorRule = ':root .editor-styles-wrapper figure.' . $fillClass . '.wp-block-image{position:static}';
+list( $cardMarkup, $cardCss ) = $transform(
+    '<style>.card{position:relative;height:320px}.card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}</style><main><div class="card"><img src="a.jpg" alt=""></div></main>'
+);
+if ( ! str_contains($cardMarkup, $fillClass) || ! str_contains($cardCss, $fillEditorRule) ) {
+    fwrite(STDERR, "FAIL: a positioned fill image keeps the front-end containing block in the editor\n" . $cardMarkup . "\n" . $cardCss . "\n");
+    exit(1);
+}
+if ( isset($otherCss) && str_contains($otherCss, $fillEditorRule) ) {
+    fwrite(STDERR, "FAIL: the editor containing-block rule requires a fill figure\n" . $otherCss . "\n");
+    exit(1);
+}
+
 // An absolutely positioned fill image inside a flex parent is out of flow, not
 // a flex item. Its figure carries the positioned geometry, so it must keep a
 // real box instead of the transparent display:contents flex-item treatment.
