@@ -33,7 +33,9 @@ foreach (array(false, true) as $reverse) {
     $assert(3 === count($theme['settings']['typography']['fontFamilies'] ?? array()), 'all route families remain editor presets');
     // Usage-derived presets (#2894): every route renders its family, so each
     // stays a preset, named by role or typeface rather than a value hash.
-    $assert(array('heading', 'body', 'arial') === array_column($theme['settings']['typography']['fontFamilies'] ?? array(), 'slug'), 'route families are named by role and typeface');
+    // Each route's headings weigh the same, so the largest `h1` (Arial,
+    // 40px) names the heading role.
+    $assert(array('heading', 'body', 'georgia') === array_column($theme['settings']['typography']['fontFamilies'] ?? array(), 'slug'), 'route families are named by role and typeface');
     $assert('var:preset|color|contrast' === ($theme['styles']['color']['text'] ?? null), 'the shared foreground projects as the contrast role');
 }
 $themePayload = static fn(array $plan): string => array_values(array_filter($plan['writes'], static fn(array $write): bool => 'theme.json' === $write['target_path']))[0]['payload']['data'];

@@ -1700,6 +1700,34 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * The value interaction-state rules for one state (`hover`) whose resting
+     * selector matches the element give a property, by specificity and then
+     * source order: null when none declares it, '' when the most specific
+     * rules disagree and one carries `!important`, which order cannot settle.
+     */
+    public function stateDeclaredValue(DOMElement $element, string $state, string $property): ?string
+    {
+        $winner = null;
+        $winnerSpecificity = null;
+        foreach ( $this->context->sourceStyles()->navigationStateRules() as $rule ) {
+            if ( $state !== ($rule['state'] ?? null) || ! is_string($rule['declarations'][ $property ] ?? null) || ! $this->matchesCssSelector($element, (string) ($rule['base_selector'] ?? '')) ) {
+                continue;
+            }
+            $value = trim((string) $rule['declarations'][ $property ]);
+            if ( 1 === preg_match('/!\s*important\s*$/i', $value) ) {
+                return '';
+            }
+            $specificity = $this->mediaTextSelectorSpecificity((string) ($rule['base_selector'] ?? ''));
+            if ( null === $winnerSpecificity || $this->compareMediaTextSpecificity($specificity, $winnerSpecificity) >= 0 ) {
+                $winner = $value;
+                $winnerSpecificity = $specificity;
+            }
+        }
+
+        return $winner;
+    }
+
+    /**
      * Core supports cannot serialize arbitrary box dimensions. Keep only source
      * inline geometry in a generated stylesheet; class-owned declarations are
      * already retained by author stylesheet materialization.

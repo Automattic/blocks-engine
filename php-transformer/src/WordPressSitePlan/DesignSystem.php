@@ -20,12 +20,24 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  * starts a new one. The heaviest member names the cluster's value.
  *
  * - Colours: opaque colours within CIE76 ΔE*ab 2.3 (one just-noticeable
- *   difference) merge. Then each low-weight cluster (under 3% of all colour
- *   weight, and not a call-to-action background or button label) merges
- *   into the nearest heavier cluster within ΔE*ab 5, so a one-off shade
- *   (`text-[#8fa3bf]` beside a `#93a8ce` token) does not take a palette
- *   slot. Heavy colours stay distinct however close they are. At most 12
- *   colours are kept.
+ *   difference) merge. Then each cluster within ΔE*ab 5 of a heavier kept
+ *   cluster merges into the nearest one, however much it is used, so a
+ *   near-duplicate neutral (`#1f2937` beside `#1e293b`) does not take a
+ *   palette slot; it keeps its literal, since only a token's exact colour
+ *   binds and binding never changes what renders. The
+ *   palette represents distinct colours, not every spelling of one. At
+ *   most 12 colours are kept.
+ *
+ *   Clustering, slot ranking and `accent-N` order use each colour's
+ *   prominence: the mean of its share of the document's area (text mass
+ *   and painted backgrounds) and its share of the document's coloured
+ *   runs (text runs and painted elements). Area alone would rank an
+ *   accent that marks many small elements (icons, eyebrows, bullets, a
+ *   brand-coloured word) below a neutral used once on a large block; how
+ *   often a reader meets a colour matters as much as how much ink it
+ *   covers. A colour used through an authored custom property (`var()`)
+ *   counts like a literal, since usage records the value each element
+ *   renders. `base` and `contrast` are still chosen from area alone.
  *
  *   One rule decides both what the palette represents and what binds:
  *   every rendered colour the palette represents binds to its token. A
@@ -33,9 +45,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   the token that absorbed it, which renders it up to ΔE 5 off. That is
  *   the bound for an imperceptible change: below ΔE 5 an untrained
  *   observer only tells two colours apart side by side (Mokrzycki and
- *   Tatol), and a low-weight shade covers little of any page and rarely
- *   sits beside its token. A shade further away would visibly change
- *   where it renders, so it is not folded: it keeps a token of its own.
+ *   Tatol). A shade further away would visibly change where it renders,
+ *   so it is not folded: it keeps a token of its own.
  * - Font sizes: sizes within 0.5px merge. The 8 heaviest are kept and
  *   ordered by size.
  * - Spacing: positive absolute lengths merge only when they are the same
@@ -60,12 +71,16 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  * - Font `body`: the root family every document renders, else the family
  *   of most non-heading text.
  * - Font `heading`: the family heading elements (`core/heading` blocks)
- *   render, weighted like the colours: each document's headings share one
- *   document weight, so a route with many headings does not outvote the
- *   others. Headings that render the body family or a system UI stack
+ *   render. Each document's headings share one document weight, so a
+ *   route with many headings does not outvote the others. Within a
+ *   document a heading weighs by its rank and rendered size, not its
+ *   length: HEADING_LEVEL_FACTOR (3 for `h1`, 2 for `h2`, 1 below) times
+ *   its font size over the root size, per heading. A page title outweighs
+ *   a list of small entry titles, which only name the role on routes that
+ *   have nothing larger. Headings that render the body family or a system UI stack
  *   (`-apple-system`, `BlinkMacSystemFont`, `system-ui`, `Segoe UI`) are
  *   not a heading typeface: the heaviest other family wins when it renders
- *   at least HEADING_FAMILY_SHARE of the heading text. Otherwise the
+ *   at least HEADING_FAMILY_SHARE of the heading weight. Otherwise the
  *   heaviest heading family names the role, as long as it is not the body
  *   family.
  * - Other families take a slug from their typeface name.
@@ -87,14 +102,14 @@ final class DesignSystem
     /** Float slack for lengths that are equal: binding never changes a rendered length. */
     private const EXACT_PX = 0.001;
     /**
-     * ΔE*ab within which a low-weight colour cluster merges into, and binds
-     * to, a heavier one: the imperceptible bound (see the class comment).
+     * ΔE*ab within which a colour cluster merges into, and binds to, a
+     * heavier one: the imperceptible bound (see the class comment).
      */
     public const COLOR_CONSOLIDATION_DISTANCE = 5.0;
+    /** Weight of one heading by level, before its size: a page title above section and entry titles. */
+    public const HEADING_LEVEL_FACTOR = array(1 => 3, 2 => 2);
     /** Share of heading text a family other than the body's needs to be `heading`. */
     public const HEADING_FAMILY_SHARE = 0.25;
-    /** Share of all colour weight under which a cluster counts as low-weight. */
-    public const LOW_WEIGHT_SHARE = 0.03;
     /** Share of text weight a colour needs to be a `contrast` candidate. */
     public const CONTRAST_CANDIDATE_SHARE = 0.1;
     /** WCAG AA contrast ratio for body text: `contrast` must read against `base`. */
@@ -142,21 +157,23 @@ final class DesignSystem
         if (array() === $usageBySource) return null;
         ksort($usageBySource, SORT_STRING);
 
-        $textByColor = $backgroundByColor = $ctaByColor = $labelByColor = $sizeWeights = $bodySizeWeights = $spacingRows = $widthRows = array();
-        $familyWeights = $familyStacks = $headingFamilyWeights = $bodyFamilyWeights = array();
+        $textByColor = $backgroundByColor = $ctaByColor = $prominence = $sizeWeights = $bodySizeWeights = $spacingRows = $widthRows = array();
+        $familyWeights = $familyStacks = $headingFamilyWeights = $headingFamilyProminence = $bodyFamilyWeights = array();
         $textOnBackground = array();
         $rootPx = array();
         foreach ($usageBySource as $usage) {
             $px = (float) ($usage['root_font_size_px'] ?? 16);
             $rootPx[CssLength::format($px)] = ($rootPx[CssLength::format($px)] ?? 0) + 1;
             $documentMass = self::documentMass($usage);
+            $documentRuns = self::documentRuns($usage);
+            $documentHeadings = array();
             foreach ($usage['text'] ?? array() as $row) {
                 $weight = self::documentShare((int) ($row['weight'] ?? 0), $documentMass);
                 if ($weight <= 0) continue;
                 $color = self::opaqueHex($row['color'] ?? null);
                 if (null !== $color) {
+                    $prominence[$color] = ($prominence[$color] ?? 0) + self::prominence($weight, (int) ($row['count'] ?? 1), $documentRuns);
                     $textByColor[$color] = ($textByColor[$color] ?? 0) + $weight;
-                    if ('button' === ($row['role'] ?? null)) $labelByColor[$color] = ($labelByColor[$color] ?? 0) + $weight;
                     $background = self::opaqueHex($row['background'] ?? null);
                     if (null !== $background && 'button' !== ($row['role'] ?? null)) $textOnBackground[$background][$color] = ($textOnBackground[$background][$color] ?? 0) + $weight;
                 }
@@ -171,13 +188,19 @@ final class DesignSystem
                 if ('' === $familyKey || in_array($familyKey, self::GENERIC_FAMILIES, true) || in_array($familyKey, self::CSS_WIDE_KEYWORDS, true)) continue;
                 $familyWeights[$familyKey] = ($familyWeights[$familyKey] ?? 0) + $weight;
                 $familyStacks[$familyKey][$stack] = ($familyStacks[$familyKey][$stack] ?? 0) + $weight;
-                if ('heading' === ($row['role'] ?? null)) $headingFamilyWeights[$familyKey] = ($headingFamilyWeights[$familyKey] ?? 0) + $weight;
+                if ('heading' === ($row['role'] ?? null)) $documentHeadings[$familyKey] = ($documentHeadings[$familyKey] ?? 0) + self::headingProminence($row, $px);
                 else $bodyFamilyWeights[$familyKey] = ($bodyFamilyWeights[$familyKey] ?? 0) + $weight;
+            }
+            $headingMass = array_sum($documentHeadings);
+            foreach ($documentHeadings as $familyKey => $headingWeight) {
+                $headingFamilyWeights[$familyKey] = ($headingFamilyWeights[$familyKey] ?? 0) + (int) round(self::DOCUMENT_WEIGHT * $headingWeight / $headingMass);
+                $headingFamilyProminence[$familyKey] = ($headingFamilyProminence[$familyKey] ?? 0) + (int) round(1000 * $headingWeight);
             }
             foreach ($usage['backgrounds'] ?? array() as $row) {
                 $color = self::opaqueHex($row['color'] ?? null);
                 $weight = self::documentShare((int) ($row['weight'] ?? 0), $documentMass);
                 if (null === $color || $weight <= 0) continue;
+                $prominence[$color] = ($prominence[$color] ?? 0) + self::prominence($weight, (int) ($row['count'] ?? 1), $documentRuns);
                 $backgroundByColor[$color] = ($backgroundByColor[$color] ?? 0) + $weight;
                 if ('cta' === ($row['role'] ?? null)) $ctaByColor[$color] = ($ctaByColor[$color] ?? 0) + $weight;
             }
@@ -198,9 +221,9 @@ final class DesignSystem
         $rootFontPx = (float) rtrim((string) array_key_first($rootPx), 'px');
 
         $root = self::unanimousRoot($usageBySource);
-        $colors = self::palette($textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $labelByColor, $root);
+        $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root);
         $fontSizes = self::fontSizes($sizeWeights, $bodySizeWeights, $rootFontPx);
-        $fontFamilies = self::fontFamilies($familyWeights, $familyStacks, $headingFamilyWeights, $bodyFamilyWeights, self::familyKey((string) ($root['font_family'] ?? '')), self::unanimousHeadingFamily($usageBySource));
+        $fontFamilies = self::fontFamilies($familyWeights, $familyStacks, $headingFamilyWeights, $bodyFamilyWeights, self::familyKey((string) ($root['font_family'] ?? '')), self::unanimousHeadingFamily($usageBySource), $headingFamilyProminence);
         $spacing = self::spacing($spacingRows);
         $layout = self::layout($widthRows);
 
@@ -255,6 +278,52 @@ final class DesignSystem
         return $absorbed;
     }
 
+    /**
+     * The system without the button element styles some `core/button` in
+     * the markup would take from them. An element style reaches every
+     * button that does not carry its own value; the usage it comes from
+     * only covers buttons that render a fill, so an outlined button that
+     * converts to `core/button` would otherwise be painted. A button value
+     * stays only when every button block carries that property itself.
+     *
+     * @param list<string> $markups Every page's block markup.
+     */
+    public function withButtonElementsOwnedBy(array $markups): self
+    {
+        if (!isset($this->elements['button'])) return $this;
+        $owned = array('color' => true, 'background' => true, 'font_family' => true, 'font_size' => true, 'font_weight' => true);
+        foreach ($markups as $markup) {
+            if (!preg_match_all('/<!-- wp:button(?: (\{.*?\}))? \/?-->/s', $markup, $matches)) continue;
+            foreach ($matches[1] as $json) {
+                $attributes = '' === $json ? array() : json_decode($json, true);
+                if (!is_array($attributes)) $attributes = array();
+                $style = is_array($attributes['style'] ?? null) ? $attributes['style'] : array();
+                $carried = array(
+                    'color' => isset($attributes['textColor']) || isset($style['color']['text']),
+                    'background' => isset($attributes['backgroundColor']) || isset($attributes['gradient']) || isset($style['color']['background']) || isset($style['color']['gradient']),
+                    'font_family' => isset($attributes['fontFamily']) || isset($style['typography']['fontFamily']),
+                    'font_size' => isset($attributes['fontSize']) || isset($style['typography']['fontSize']),
+                    'font_weight' => isset($style['typography']['fontWeight']),
+                );
+                foreach ($carried as $field => $present) if (!$present) $owned[$field] = false;
+            }
+        }
+        $button = $this->elements['button'];
+        foreach ($owned as $field => $isOwned) if (!$isOwned) unset($button[$field]);
+        if (!$owned['color']) unset($button['hover_color']);
+        if (!$owned['background']) unset($button['hover_background']);
+        $elements = $this->elements;
+        if (array() === $button) unset($elements['button']); else $elements['button'] = $button;
+        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount);
+    }
+
+    /** A palette colour's value by slug, or null. */
+    public function color(string $slug): ?string
+    {
+        foreach ($this->colors as $color) if ($slug === $color['slug']) return $color['color'];
+        return null;
+    }
+
     /** Slug of the font size that renders an absolute length exactly, or null. */
     public function fontSizeSlug(string $value): ?string
     {
@@ -287,7 +356,7 @@ final class DesignSystem
         return array(
             'schema' => self::SCHEMA,
             'document_count' => $this->documentCount,
-            'tolerances' => array('color_delta_e76' => self::COLOR_TOLERANCE, 'color_consolidation_delta_e76' => self::COLOR_CONSOLIDATION_DISTANCE, 'color_low_weight_share' => self::LOW_WEIGHT_SHARE, 'font_size_px' => self::FONT_SIZE_TOLERANCE_PX, 'spacing_px' => self::SPACING_TOLERANCE_PX),
+            'tolerances' => array('color_delta_e76' => self::COLOR_TOLERANCE, 'color_consolidation_delta_e76' => self::COLOR_CONSOLIDATION_DISTANCE, 'font_size_px' => self::FONT_SIZE_TOLERANCE_PX, 'spacing_px' => self::SPACING_TOLERANCE_PX),
             'palette' => array_map(static fn(array $color): array => array('slug' => $color['slug'], 'color' => $color['color'], 'role' => $color['role'], 'weight' => $color['weight'], 'absorbs' => self::absorbed($color)), $this->colors),
             'font_sizes' => array_map(static fn(array $size): array => array('slug' => $size['slug'], 'size' => $size['size'], 'weight' => $size['weight']), $this->fontSizes),
             'font_families' => array_map(static fn(array $family): array => array('slug' => $family['slug'], 'name' => $family['name'], 'font_family' => $family['fontFamily'], 'weight' => $family['weight']), $this->fontFamilies),
@@ -326,22 +395,31 @@ final class DesignSystem
      *   rendered text uses as its primary, so the theme does not offer them.
      *   Fallbacks later in a stack and `@font-face` descriptors are not
      *   declarations of a family in use.
-     * - `generated_css_bytes` / `source_css_bytes` /
-     *   `generated_to_source_css_ratio`: CSS the conversion adds (engine
-     *   support stylesheets plus inline block `style` attributes) against the
-     *   author's stylesheets.
+     * - `theme_css_bytes`: CSS the theme ships, every stylesheet asset
+     *   (author projections, per-page copies, shared chrome, engine support)
+     *   plus inline block `style` attributes.
+     * - `unique_source_css_bytes`: the author's stylesheets as captured,
+     *   each counted once however often the theme copies it (see
+     *   WordPressSitePlan::uniqueSourceCssBytes()). Without it, the bytes of
+     *   the shipped author stylesheets.
+     * - `engine_css_bytes`: CSS the conversion adds rather than projects:
+     *   engine support stylesheets plus inline block `style` attributes.
+     * - `generated_to_source_css_ratio`: `theme_css_bytes` over
+     *   `unique_source_css_bytes`, so three per-page copies of one
+     *   stylesheet read as about 3.
      *
      * @param list<string> $markups Every emitted block document.
      * @param array<int,array<string,mixed>> $assets
      * @param list<string> $routeMarkups For `restyle_coverage`: each
      *   document as often as readers meet it (see above); `$markups` when empty.
      * @param array<string,int> $refusals From PresetBinding::refusals().
+     * @param int|null $uniqueSourceBytes Captured author CSS, each stylesheet once.
      * @return array<string,mixed>
      */
-    public function metrics(array $markups, array $assets, array $routeMarkups = array(), array $refusals = array()): array
+    public function metrics(array $markups, array $assets, array $routeMarkups = array(), array $refusals = array(), ?int $uniqueSourceBytes = null): array
     {
         $preset = $literal = 0;
-        $generated = $source = 0;
+        $inline = $engine = $shipped = 0;
         foreach ($markups as $markup) {
             if (preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) {
                 foreach ($matches[1] as $json) {
@@ -359,7 +437,7 @@ final class DesignSystem
                     }
                 }
             }
-            if (preg_match_all('/\sstyle="([^"]*)"/', $markup, $matches)) foreach ($matches[1] as $style) $generated += strlen($style);
+            if (preg_match_all('/\sstyle="([^"]*)"/', $markup, $matches)) foreach ($matches[1] as $style) $inline += strlen($style);
         }
         $declared = array();
         $variables = array();
@@ -370,10 +448,10 @@ final class DesignSystem
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             if ('engine-support' === ($asset['source'] ?? null)) {
-                $generated += strlen($asset['content']);
+                $engine += strlen($asset['content']);
                 continue;
             }
-            $source += strlen($asset['content']);
+            $shipped += strlen($asset['content']);
             $content = (string) preg_replace('/@font-face\s*\{[^{}]*\}/i', '', $asset['content']);
             if (preg_match_all('/(?<![-\w])font-family\s*:\s*([^;{}!]+)/i', $content, $matches)) {
                 foreach ($matches[1] as $stack) {
@@ -406,27 +484,26 @@ final class DesignSystem
             'spacing_size_count' => count($this->spacing),
             'font_family_count' => count($this->fontFamilies),
             'unused_font_families' => $unused,
-            'generated_css_bytes' => $generated,
-            'source_css_bytes' => $source,
-            'generated_to_source_css_ratio' => 0 === $source ? null : round($generated / $source, 4),
+            'theme_css_bytes' => $theme = $shipped + $engine + $inline,
+            'unique_source_css_bytes' => $source = $uniqueSourceBytes ?? $shipped,
+            'engine_css_bytes' => $engine + $inline,
+            'generated_to_source_css_ratio' => 0 === $source ? null : round($theme / $source, 4),
         );
     }
 
     /**
-     * @param array<string,int> $text
+     * @param array<string,int> $prominence Colour => prominence (see the class comment), which ranks clusters.
+     * @param array<string,int> $text Colour => text area, which with $backgrounds chooses `base` and `contrast`.
      * @param array<string,int> $backgrounds
      * @param array<string,int> $cta
      * @param array<string,array<string,int>> $textOnBackground
-     * @param array<string,int> $labels Button label colours.
      * @param array<string,string> $root Root values every document agrees on.
      * @return list<array{slug:string,name:string,color:string,role:string,weight:int,members:list<string>}>
      */
-    private static function palette(array $text, array $backgrounds, array $cta, array $textOnBackground, array $labels = array(), array $root = array()): array
+    private static function palette(array $prominence, array $text, array $backgrounds, array $cta, array $textOnBackground, array $root = array()): array
     {
-        $total = array();
-        foreach (array($text, $backgrounds) as $weights) foreach ($weights as $color => $weight) $total[$color] = ($total[$color] ?? 0) + $weight;
-        if (array() === $total) return array();
-        $clusters = self::consolidateColors(self::clusterColors($total), $cta + $labels);
+        if (array() === $prominence) return array();
+        $clusters = self::consolidateColors(self::clusterColors($prominence));
         $memberOf = array();
         foreach ($clusters as $index => $cluster) foreach ($cluster['members'] as $member) $memberOf[$member] = $index;
         $sum = static function (array $weights) use ($memberOf): array {
@@ -552,33 +629,27 @@ final class DesignSystem
     }
 
     /**
-     * Merge each low-weight cluster into the nearest heavier cluster within
-     * COLOR_CONSOLIDATION_DISTANCE. Clusters are visited heaviest first, so a
-     * low-weight cluster joins a cluster that already holds whatever merged
-     * into it; the heavier cluster keeps its colour. A cluster with a
-     * call-to-action background or button label colour is a brand colour
-     * however little area it covers, and is not absorbed.
+     * Merge each cluster into the nearest heavier kept cluster within
+     * COLOR_CONSOLIDATION_DISTANCE, however much it is used: a colour a
+     * reader cannot tell from a token is that token. Clusters are visited
+     * heaviest first, so a cluster joins one that already holds whatever
+     * merged into it; the heavier cluster keeps its colour.
      *
      * @param list<array{color:string,weight:int,members:list<string>}> $clusters Heaviest first.
-     * @param array<string,int> $cta Colours that are never absorbed.
      * @return list<array{color:string,weight:int,members:list<string>}>
      */
-    public static function consolidateColors(array $clusters, array $cta = array()): array
+    public static function consolidateColors(array $clusters): array
     {
-        $total = array_sum(array_column($clusters, 'weight'));
         $kept = array();
         foreach ($clusters as $cluster) {
-            $lowWeight = $cluster['weight'] < self::LOW_WEIGHT_SHARE * $total && array() === array_intersect_key($cta, array_flip($cluster['members']));
             $nearest = null;
             $nearestDistance = INF;
-            if ($lowWeight) {
-                foreach ($kept as $index => $candidate) {
-                    if ($candidate['weight'] <= $cluster['weight']) continue;
-                    $distance = CssColor::distance($cluster['color'], $candidate['color']) ?? INF;
-                    if ($distance <= self::COLOR_CONSOLIDATION_DISTANCE && $distance < $nearestDistance) {
-                        $nearest = $index;
-                        $nearestDistance = $distance;
-                    }
+            foreach ($kept as $index => $candidate) {
+                if ($candidate['weight'] < $cluster['weight']) continue;
+                $distance = CssColor::distance($cluster['color'], $candidate['color']) ?? INF;
+                if ($distance <= self::COLOR_CONSOLIDATION_DISTANCE && $distance < $nearestDistance) {
+                    $nearest = $index;
+                    $nearestDistance = $distance;
                 }
             }
             if (null === $nearest) {
@@ -681,7 +752,7 @@ final class DesignSystem
      * @param string $headingKey Primary family every heading renders, or ''.
      * @return list<array{slug:string,name:string,fontFamily:string,key:string,role:string,weight:int}>
      */
-    private static function fontFamilies(array $familyWeights, array $stacks, array $headingWeights, array $bodyWeights, string $rootKey = '', string $headingKey = ''): array
+    private static function fontFamilies(array $familyWeights, array $stacks, array $headingWeights, array $bodyWeights, string $rootKey = '', string $headingKey = '', array $headingProminence = array()): array
     {
         if (array() === $familyWeights) return array();
         $heaviest = static function (array $weights): ?string {
@@ -692,7 +763,7 @@ final class DesignSystem
         // Root `styles.typography` and `styles.elements.heading` reference
         // these families, so they name the roles whenever they are rendered.
         $body = isset($familyWeights[$rootKey]) ? $rootKey : $heaviest($bodyWeights);
-        $heading = isset($familyWeights[$headingKey]) ? $headingKey : self::headingFamily($headingWeights, $body);
+        $heading = isset($familyWeights[$headingKey]) ? $headingKey : self::headingFamily($headingWeights, $body, $headingProminence);
         if (null === $body) $body = $heading;
         $families = array();
         $roles = array();
@@ -723,15 +794,18 @@ final class DesignSystem
     /**
      * Family key that names the `heading` role (see the class comment): the
      * heaviest heading family that is neither the body family nor a system
-     * UI stack and renders at least HEADING_FAMILY_SHARE of the heading text,
-     * else the heaviest heading family.
+     * UI stack and renders at least HEADING_FAMILY_SHARE of the heading weight,
+     * else the heaviest heading family. Routes that tie (each opens with
+     * one `h1` in its own family) are separated by the headings' level and
+     * size before the family name.
      *
      * @param array<string,int> $headingWeights
+     * @param array<string,int> $prominence Summed per-heading weight (see headingProminence()), the tie-break.
      */
-    private static function headingFamily(array $headingWeights, ?string $body): ?string
+    private static function headingFamily(array $headingWeights, ?string $body, array $prominence = array()): ?string
     {
         if (array() === $headingWeights) return null;
-        uksort($headingWeights, static fn(string $a, string $b): int => ($headingWeights[$b] <=> $headingWeights[$a]) ?: strcmp($a, $b));
+        uksort($headingWeights, static fn(string $a, string $b): int => ($headingWeights[$b] <=> $headingWeights[$a]) ?: (($prominence[$b] ?? 0) <=> ($prominence[$a] ?? 0)) ?: strcmp($a, $b));
         $total = array_sum($headingWeights);
         foreach ($headingWeights as $key => $weight) {
             if ($key === $body || self::isSystemUiFamily($key)) continue;
@@ -799,35 +873,88 @@ final class DesignSystem
     }
 
     /**
-     * Link colour and heading family/colour that every link or heading on every
-     * document renders. Anything less than unanimous would restyle text that
-     * currently inherits a different value.
+     * Element styles (`styles.elements` in theme.json) from what every
+     * element of a kind renders on every document: link colour and `:hover`
+     * colour; button text and background colour, family, size and weight
+     * and their `:hover` colours; heading colour, family and weight; and,
+     * per heading level, colour, family, size and weight where that level
+     * differs from the heading values. Element styles reach every element of
+     * the kind, so only a unanimous value cannot restyle text that renders
+     * something else today. Colours, families and sizes must be tokens (a
+     * colour within the JND of the token's own value). A `:hover` colour
+     * counts only when every element of the kind has one hover rule giving
+     * the same token. A property a media-conditional rule can change for any
+     * element of the kind (a breakpoint size, a dark-mode colour) is left to
+     * the source: an element style would override the variant.
      *
      * @param array<string,array<string,mixed>> $usageBySource
      * @return array<string,array<string,string>>
      */
     private static function unanimousElements(array $usageBySource, self $system): array
     {
-        $link = array();
-        $heading = array('color' => array(), 'font_family' => array());
+        $values = array();
         $conditional = array();
         foreach ($usageBySource as $usage) foreach ($usage['root']['conditional'] ?? array() as $family) $conditional[(string) $family] = true;
-        foreach ($usageBySource as $usage) foreach ($usage['text'] ?? array() as $row) {
-            if ('link' === ($row['role'] ?? null)) $link[(string) ($row['color'] ?? '')] = true;
-            if ('heading' === ($row['role'] ?? null)) {
-                $heading['color'][(string) ($row['color'] ?? '')] = true;
-                $heading['font_family'][self::familyKey((string) ($row['font_family'] ?? ''))] = (string) ($row['font_family'] ?? '');
+        // A media-conditional variant of the property makes the element render
+        // something else under that condition, which an element style would
+        // override: such a field has no single value.
+        $families = array('color' => 'color', 'hover_color' => 'color', 'font_family' => 'font-family', 'font_size' => 'font-size', 'font_weight' => 'font-weight', 'background' => 'background', 'hover_background' => 'background');
+        $observe = static function (string $element, string $field, mixed $value, array $row) use (&$values, $families): void {
+            $varies = in_array($families[$field], (array) ($row['conditional'] ?? array()), true);
+            $values[$element][$field][$varies || null === $value ? '' : (string) $value] = true;
+        };
+        foreach ($usageBySource as $usage) {
+            foreach ($usage['text'] ?? array() as $row) {
+                $role = (string) ($row['role'] ?? '');
+                $elements = match ($role) {
+                    'link' => array('link'),
+                    'button' => array('button'),
+                    'heading' => array('heading', 'h' . (int) ($row['heading_level'] ?? 0)),
+                    default => array(),
+                };
+                foreach ($elements as $element) {
+                    $observe($element, 'color', $row['color'] ?? null, $row);
+                    if ('link' === $element || 'button' === $element) $observe($element, 'hover_color', $row['hover_color'] ?? null, $row);
+                    if ('link' === $element) continue;
+                    $observe($element, 'font_family', self::familyKey((string) ($row['font_family'] ?? '')) . "\n" . (string) ($row['font_family'] ?? ''), $row);
+                    $observe($element, 'font_weight', $row['font_weight'] ?? null, $row);
+                    if ('heading' !== $element) $observe($element, 'font_size', $row['font_size_px'] ?? null, $row);
+                }
+            }
+            foreach ($usage['backgrounds'] ?? array() as $row) {
+                if ('cta' !== ($row['role'] ?? null)) continue;
+                $observe('button', 'background', $row['color'] ?? null, $row);
+                $observe('button', 'hover_background', $row['hover_color'] ?? null, $row);
             }
         }
         // Text that inherits a root value the source varies by media query
         // would stop following it under an element style.
-        if (isset($conditional['color'])) $link = $heading['color'] = array();
-        if (isset($conditional['font-family'])) $heading['font_family'] = array();
+        $varied = array('color' => isset($conditional['color']), 'hover_color' => isset($conditional['color']), 'font_family' => isset($conditional['font-family']), 'font_size' => isset($conditional['font-size']));
+        $token = static function (string $field, string $value) use ($system): ?string {
+            if ('' === $value) return null;
+            return match ($field) {
+                'color', 'hover_color', 'background', 'hover_background' => null !== ($slug = $system->colorSlug($value)) && (CssColor::distance($value, (string) $system->color($slug)) ?? INF) <= self::COLOR_TOLERANCE ? $value : null,
+                'font_family' => null !== $system->fontFamilySlug(explode("\n", $value, 2)[1] ?? '') && '' !== explode("\n", $value, 2)[0] ? explode("\n", $value, 2)[1] : null,
+                'font_size' => null !== $system->fontSizeSlug($value . 'px') ? $value . 'px' : null,
+                'font_weight' => 1 === preg_match('/^\d+$/', $value) ? $value : null,
+                default => null,
+            };
+        };
         $elements = array();
-        if (1 === count($link) && null !== $system->colorSlug((string) array_key_first($link))) $elements['link']['color'] = (string) array_key_first($link);
-        if (1 === count($heading['color']) && null !== $system->colorSlug((string) array_key_first($heading['color']))) $elements['heading']['color'] = (string) array_key_first($heading['color']);
-        $family = (string) reset($heading['font_family']);
-        if (1 === count($heading['font_family']) && '' !== $family && null !== $system->fontFamilySlug($family)) $elements['heading']['font_family'] = $family;
+        foreach ($values as $element => $fields) {
+            foreach ($fields as $field => $observed) {
+                if (1 !== count($observed) || !empty($varied[$field])) continue;
+                $value = $token($field, (string) array_key_first($observed));
+                if (null === $value) continue;
+                // A heading level states only what differs from `heading`.
+                if (1 === preg_match('/^h[1-6]$/', $element) && ($elements['heading'][$field] ?? null) === $value) continue;
+                $elements[$element][$field] = $value;
+            }
+        }
+        // Black text on a document is the user agent's default, not a design
+        // choice the theme should state for buttons.
+        if ('#000000' === ($elements['button']['color'] ?? null)) unset($elements['button']['color']);
+        ksort($elements, SORT_STRING);
         return $elements;
     }
 
@@ -855,6 +982,43 @@ final class DesignSystem
         $mass = (int) ($usage['total_mass'] ?? 0);
         if ($mass <= 0) foreach ($usage['text'] ?? array() as $row) $mass += max(0, (int) ($row['weight'] ?? 0));
         return max(1, $mass);
+    }
+
+    /**
+     * One heading row's weight in its document (see the class comment):
+     * HEADING_LEVEL_FACTOR for its level times its rendered size over the
+     * root size, per heading run.
+     *
+     * @param array<string,mixed> $row
+     */
+    private static function headingProminence(array $row, float $rootPx): float
+    {
+        $level = self::HEADING_LEVEL_FACTOR[(int) ($row['heading_level'] ?? 0)] ?? 1;
+        $size = (float) ($row['font_size_px'] ?? 0) > 0 ? (float) $row['font_size_px'] / max(1.0, $rootPx) : 1.0;
+        return $level * $size * max(1, (int) ($row['count'] ?? 1));
+    }
+
+    /**
+     * A document's coloured runs: its text runs and painted elements, the
+     * denominator of occurrence shares.
+     *
+     * @param array<string,mixed> $usage
+     */
+    private static function documentRuns(array $usage): int
+    {
+        $runs = 0;
+        foreach (array('text', 'backgrounds') as $kind) foreach ($usage[$kind] ?? array() as $row) $runs += max(0, (int) ($row['count'] ?? 1));
+        return max(1, $runs);
+    }
+
+    /**
+     * A colour row's prominence (see the class comment): the mean of its
+     * area share and its share of the document's coloured runs, in
+     * DOCUMENT_WEIGHT units.
+     */
+    private static function prominence(int $areaShare, int $runs, int $documentRuns): int
+    {
+        return intdiv($areaShare + self::documentShare(max(1, $runs), $documentRuns), 2);
     }
 
     /**
