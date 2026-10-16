@@ -1685,6 +1685,20 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether a media-conditioned author rule resizes this image axis between
+     * the desktop and mobile reference viewports. The `!important` box carrier
+     * would pin the desktop value over that rule, so such an axis is left to
+     * the projected stylesheet.
+     */
+    public function imageAxisVariesByViewport(DOMElement $image, string $property): bool
+    {
+        $desktop = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->referenceViewportAuthorDeclarations($image, array( $property ))[$property] ?? ''));
+        $mobile = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->collapsedViewportAuthorDeclarations($image, array( $property ))[$property] ?? ''));
+
+        return $desktop !== $mobile;
+    }
+
+    /**
      * A source `<img>` box constrained by author CSS `min-width`/`max-width`/
      * `min-height`/`max-height` — properties core/image cannot express as a
      * native block attribute at all — or by a `width`/`height` the caller's
@@ -1740,7 +1754,7 @@ final class StyleResolver implements ElementPresentationResolver
         $box = array();
         foreach (array('width', 'min-width', 'max-width') as $property) {
             if ('width' === $property) {
-                if ('' !== $nativeWidth) {
+                if ('' !== $nativeWidth || $this->imageAxisVariesByViewport($image, $property)) {
                     continue;
                 }
                 if ($widthResolvesToAuto) {
@@ -1755,7 +1769,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
         foreach (array('height', 'min-height', 'max-height') as $property) {
             if ('height' === $property) {
-                if ('' !== $nativeHeight || $hasNativeAspectRatio) {
+                if ('' !== $nativeHeight || $hasNativeAspectRatio || $this->imageAxisVariesByViewport($image, $property)) {
                     continue;
                 }
                 if ($heightResolvesToAuto) {
