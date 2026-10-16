@@ -69,6 +69,7 @@
     "test:canonical": [
       "php tests/contract/namespace-resolution.php",
       "php tests/contract/layer-direction.php",
+      "php tests/contract/navigation-anchor-layered-color.php",
       "php tests/contract/engine-reset-cascade-layer.php",
       "php tests/contract/throw-classification.php",
       "php tests/contract/producer-neutral-source.php",
