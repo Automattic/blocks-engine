@@ -259,6 +259,7 @@
       "php tests/unit/document-root-font-ownership.php",
       "php tests/unit/listing-source-excerpts.php",
       "php tests/unit/listing-query-unfactored-post-chrome.php",
+      "php tests/unit/listing-card-summary-slots.php",
       "php tests/unit/selector-cache-node-path-reuse.php",
       "php tests/unit/style-tag-scanner.php",
       "php tests/unit/integer-attribute-names.php",

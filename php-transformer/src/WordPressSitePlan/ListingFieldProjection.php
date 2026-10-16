@@ -13,6 +13,10 @@ final class ListingFieldProjection
     public static function assertMetadata(array $metadata): void
     {
         if (array_key_exists('excerpt', $metadata) && !is_string($metadata['excerpt'])) throw new InvalidArgumentException('Source-backed excerpts must be strings.');
+        if (array_key_exists('featured_image', $metadata)) {
+            $image = $metadata['featured_image'];
+            if (!is_array($image) || !is_string($image['asset_token'] ?? null) || '' === $image['asset_token'] || !is_string($image['alt'] ?? null) || (array_key_exists('target_path', $image) && (!is_string($image['target_path']) || '' === $image['target_path']))) throw new InvalidArgumentException('A featured image handoff names a plan asset token, its alt text and, once resolved, its theme target path.');
+        }
         if (!array_key_exists('post_meta', $metadata)) return;
         if (!is_array($metadata['post_meta'])) throw new InvalidArgumentException('Source-backed post metadata must be a string map.');
         foreach ($metadata['post_meta'] as $key => $value) if (!is_string($key) || '' === $key || !is_string($value)) throw new InvalidArgumentException('Source-backed post metadata must be a string map.');
