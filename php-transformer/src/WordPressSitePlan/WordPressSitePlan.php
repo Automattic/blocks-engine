@@ -3521,6 +3521,9 @@ PHP;
             if ('date' === $kind) {
                 return array('markup' => self::postDateMarkup($slice), 'title' => false, 'content' => false);
             }
+            if ('featured-image' === $kind) {
+                return array('markup' => '<!-- wp:post-featured-image /-->', 'title' => false, 'content' => false);
+            }
             if ('comments' === $kind || 'chrome' === $kind) {
                 return array('markup' => $slice, 'title' => false, 'content' => false);
             }
@@ -3588,6 +3591,13 @@ PHP;
         }
         if (preg_match('/<(?:iframe|fb:like)\b/i', $slice) || preg_match('/\b(?:blog-social|share-button|twitter-share)\b/', $slice)) {
             return 'skip';
+        }
+        if ('image' === $name) {
+            foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
+                if ('tag' === ($node['kind'] ?? null) && 'img' === ($node['name'] ?? null) && 'image' === (($node['attributes']['itemprop'] ?? null))) return 'featured-image';
+            }
+            $images = array_values(array_filter(HtmlMarkupParser::htmlMarkupNodes($slice), static fn(array $node): bool => 'tag' === ($node['kind'] ?? null) && 'img' === ($node['name'] ?? null)));
+            if ($hasRouteLink && 1 === count($images)) return 'featured-image';
         }
         if (in_array($name, array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true)) {
             return 'body';
