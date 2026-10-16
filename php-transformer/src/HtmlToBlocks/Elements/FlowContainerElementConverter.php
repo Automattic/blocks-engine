@@ -152,6 +152,14 @@ final class FlowContainerElementConverter implements ElementConverter
             && ! $this->context->isGeneratedComponentCandidate($element)
             && $this->context->isAuthorOwnedLayout($element)
         ) {
+            // The element's own CSS layout (a flex/grid list of disclosure
+            // items) must not hide a semantic widget from its recognizer any
+            // more than a parent's layout may (see below). Unclaimed layouts
+            // still lower to the CSS-owned layout block.
+            $claim = $this->semanticPatternClaim($element, $fallbacks);
+            if ( null !== $claim ) {
+                return $claim;
+            }
             $navigation = $this->navigationClaim($element, $fallbacks);
             if ( null !== $navigation ) {
                 return $navigation;
