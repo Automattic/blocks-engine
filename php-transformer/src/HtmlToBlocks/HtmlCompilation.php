@@ -6913,11 +6913,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // tag marker, which only elements that were `<p>` in the source carry.
         if ( 0 === $this->childElementCount($element) ) {
             $attrs = array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content ));
-            // A div that owns its spacing keeps it on this same box. The
+            // The paragraph is the source div's own block box. The
             // lowered-paragraph reset removes only the UA paragraph margins;
             // it precedes author CSS (and sits in the engine reset layer when
             // the author uses cascade layers), so authored margins still win.
-            if ( 'div' === strtolower($element->tagName) && $this->hasMarginWrapperStyling($element) ) {
+            if ( 'div' === strtolower($element->tagName) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::LOWERED_PARAGRAPH_CLASS);
                 return $this->createBlock('core/paragraph', $attrs, array(), $element);
             }
