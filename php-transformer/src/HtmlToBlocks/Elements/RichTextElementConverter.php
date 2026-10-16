@@ -24,6 +24,14 @@ final class RichTextElementConverter implements ElementConverter
 {
     private const HEADING_PATTERN = '/^h([1-6])$/';
 
+    /**
+     * Marks a core/paragraph lowered from an empty source `p`. Saved, it is
+     * an empty element; in the editor, RichText fills it with a padding
+     * character and a placeholder, so EngineSupportCss restores its
+     * empty-element geometry there.
+     */
+    public const EMPTY_SOURCE_PARAGRAPH_CLASS = 'blocks-engine-empty-source-paragraph';
+
     public function __construct(private readonly RichTextElementContext $context)
     {
     }
@@ -314,7 +322,10 @@ final class RichTextElementConverter implements ElementConverter
             // An empty source paragraph keeps its box (`p:empty` rules size
             // it), so it keeps its source identity too: the author `p` rules
             // that place it address the source marker, never a bare block.
-            $content = '';
+            $attributes = $this->presentationAttributesWithBakedFontSize($element);
+            $attributes['className'] = SourceDom::mergeClassNames((string) ($attributes['className'] ?? ''), self::EMPTY_SOURCE_PARAGRAPH_CLASS);
+
+            return $this->context->createBlock('core/paragraph', array_merge($attributes, array( 'content' => '' )), array(), $element);
         }
 
         return $this->context->createBlock(

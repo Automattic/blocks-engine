@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredLabel
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -57,7 +58,12 @@ final class AuthoredFormControlBlockConverter
     public function labelContent(DOMElement $label): string
     {
         $content = ($this->editableLabelContent)($label);
-        return '' !== $content ? $content : $this->runtime->escapeHtml($this->metadataBuilder->labelText($label));
+        if ( '' === $content ) {
+            return $this->runtime->escapeHtml($this->metadataBuilder->labelText($label));
+        }
+        // Label content is RichText: source comments become editor chips, but
+        // the text-run boundaries they make still shape the text.
+        return str_contains($content, '<!--') ? CommentTextRunBoundaries::apply($content) : $content;
     }
 
     /** Keep an explicit external association even when its control is outside this fragment. */

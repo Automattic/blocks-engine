@@ -178,7 +178,37 @@ final class AuthorStylesheetProjector
     {
         $css .= $this->visuallyHiddenSourceSelectorRule($prelude, $css, $body);
 
-        return $css . $this->editorPositionRules($css) . $this->editorShellChildCombinatorVariants($css);
+        return $css . $this->editorPositionRules($css) . $this->editorShellChildCombinatorVariants($css) . $this->editorEmptyRichTextVariants($css);
+    }
+
+    /**
+     * An empty core/paragraph is `:empty` saved, but not in the editor: its
+     * RichText holds a padding character and a placeholder. Core marks it
+     * `data-empty="true"` instead. Emit editor-scoped variants of authored
+     * `:empty` rules that match that marker. Negated `:empty` cannot be
+     * mirrored by an added rule, so those selectors are left as they are.
+     */
+    private function editorEmptyRichTextVariants(string $css): string
+    {
+        if ( ! str_contains($css, ':empty') ) {
+            return '';
+        }
+        return ( new CssStylesheetTransformer() )->transformStyleRules(
+            $css,
+            static function (string $prelude, string $body): string {
+                $variants = array();
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $selector = trim($selector);
+                    if ( 1 !== preg_match('/:empty(?![\\w-])/', $selector) || 1 === preg_match('/:not\([^)]*:empty/', $selector) || str_contains($selector, '.editor-styles-wrapper') ) {
+                        continue;
+                    }
+                    // `[data-empty]` and `:empty` weigh the same, and the editor
+                    // scope adds nothing, so the variant ties as its source rule does.
+                    $variants[] = ':where(:root .editor-styles-wrapper) ' . preg_replace('/:empty(?![\\w-])/', '[data-empty="true"]', $selector);
+                }
+                return array() === $variants ? '' : implode(',', $variants) . '{' . $body . '}';
+            }
+        );
     }
 
     private function visuallyHiddenSourceSelectorRule(string $prelude, string $projectedCss, string $body): string
@@ -287,7 +317,11 @@ final class AuthorStylesheetProjector
                 $variants = array();
                 foreach ( $selectors as $selector ) {
                     foreach ( $this->shellLayerCombinatorVariants(trim($selector)) as $variant ) {
-                        $variants[] = ':root .editor-styles-wrapper ' . $variant;
+                        // The editor scope adds no specificity: the variant
+                        // follows its source rule, so it must tie with every
+                        // rule the source rule ties with, such as a later
+                        // `.col-lg-6` that overrides `.row > *`.
+                        $variants[] = ':where(:root .editor-styles-wrapper) ' . $variant;
                     }
                 }
                 return array() === $variants ? '' : implode(',', $variants) . '{' . $body . '}';
@@ -413,7 +447,11 @@ final class AuthorStylesheetProjector
      */
     private function selectorRelaxingChildCombinators(string $selector, array $offsets): string
     {
-        $insertion = ' :where(.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ')>';
+        // The layer is the direct child of the block element that hosts it
+        // and the direct parent of each nested block root, so a relaxed
+        // combinator stays a child step on both sides. A descendant step
+        // would let `a > b` reach every block nested at any depth below `a`.
+        $insertion = ' > :where(.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ') >';
         $relaxed = '';
         $cursor = 0;
         foreach ( $offsets as $offset ) {

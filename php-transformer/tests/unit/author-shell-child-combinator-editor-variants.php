@@ -62,7 +62,7 @@ $assert(
 $assert(
     str_contains(
         $scaledCss,
-        ':root .editor-styles-wrapper .sqs-html-content .scaled-text-container :where(.' . $layer . ')> .scaled-text h1{font-size:inherit !important}'
+        ':where(:root .editor-styles-wrapper) .sqs-html-content .scaled-text-container > :where(.' . $layer . ') > .scaled-text h1{font-size:inherit !important}'
     ),
     'the editor variant reaches through the layout shell inner-blocks layer',
     $scaledCss
@@ -78,9 +78,18 @@ $multiEdge = $transform(
 );
 $multiCss = $cssFor($multiEdge);
 $assert(
-    str_contains($multiCss, ':root .editor-styles-wrapper .wrap :where(.' . $layer . ')> .box > .label')
-        && str_contains($multiCss, ':root .editor-styles-wrapper .wrap > .box :where(.' . $layer . ')> .label'),
+    str_contains($multiCss, ':where(:root .editor-styles-wrapper) .wrap > :where(.' . $layer . ') > .box > .label')
+        && str_contains($multiCss, ':where(:root .editor-styles-wrapper) .wrap > .box > :where(.' . $layer . ') > .label'),
     'each child combinator of a multi-edge selector gets its own relaxation',
+    $multiCss
+);
+
+// The layer is the direct child of its host block element. A descendant step
+// before it would let `.wrap > .box > .label` reach a `.label` block nested at
+// any depth under `.box`, so a body-text rule could restyle nested headings.
+$assert(
+    1 !== preg_match('/[^>\s]\s+:where\(\.' . preg_quote($layer, '/') . '\)/', $multiCss . $scaledCss),
+    'a relaxed combinator stays a child step into the layer',
     $multiCss
 );
 
@@ -89,7 +98,7 @@ $mediaVariant = $transform(
 );
 $mediaCss = $cssFor($mediaVariant);
 $assert(
-    str_contains($mediaCss, '@media (min-width:768px){.wrap > .box{color:red}:root .editor-styles-wrapper .wrap :where(.' . $layer . ')> .box{color:red}}'),
+    str_contains($mediaCss, '@media (min-width:768px){.wrap > .box{color:red}:where(:root .editor-styles-wrapper) .wrap > :where(.' . $layer . ') > .box{color:red}}'),
     'the variant stays inside the authored media condition',
     $mediaCss
 );
@@ -99,7 +108,7 @@ $descendantOnly = $transform(
 );
 $descendantCss = $cssFor($descendantOnly);
 $assert(
-    ! str_contains($descendantCss, ':root .editor-styles-wrapper .wrap'),
+    ! str_contains($descendantCss, ':where(:root .editor-styles-wrapper) .wrap'),
     'descendant-only authored selectors need no shell variant',
     $descendantCss
 );
@@ -109,7 +118,7 @@ $attributeSafe = $transform(
 );
 $attributeCss = $cssFor($attributeSafe);
 $assert(
-    str_contains($attributeCss, ':root .editor-styles-wrapper .wrap :where(.' . $layer . ')> .box::after{content:"a>b"}'),
+    str_contains($attributeCss, ':where(:root .editor-styles-wrapper) .wrap > :where(.' . $layer . ') > .box::after{content:"a>b"}'),
     'quoted combinator characters inside declaration values are left alone',
     $attributeCss
 );
@@ -121,10 +130,29 @@ $frontEndCss = $cssFor($frontEndInert);
 $assert(
     str_contains(
         $frontEndCss,
-        '.wrap > .box{color:red}:root .editor-styles-wrapper .wrap :where(.' . $layer . ')> .box{color:red}'
+        '.wrap > .box{color:red}:where(:root .editor-styles-wrapper) .wrap > :where(.' . $layer . ') > .box{color:red}'
     ),
     'the original rule keeps a plain front-end selector and the variant is editor-scoped',
     $frontEndCss
+);
+
+// A variant follows its source rule, so it must carry the same specificity:
+// on the front end `.col-6` overrides `.row > *` by source order, and an
+// editor variant that outranks `.col-6` would widen every column.
+$gridCss = $cssFor($transform(
+    '<style>.row > *{width:100%}.col-6{width:50%}</style><div class="row"><div class="col-6"><p>A</p></div><div class="col-6"><p>B</p></div></div>'
+));
+$variantSelector = null;
+( new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer() )->visitStyleRules($gridCss, static function (string $prelude) use (&$variantSelector, $layer): void {
+    if ( null === $variantSelector && str_contains($prelude, $layer) && str_contains($prelude, '.row') ) {
+        $variantSelector = trim($prelude);
+    }
+});
+$specificity = static fn (string $selector): array => \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::specificityCounts(\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::parse($selector));
+$assert(
+    null !== $variantSelector && $specificity($variantSelector) === $specificity('.row > *'),
+    'the editor variant ties with its source rule, so later equal-specificity rules still win',
+    (string) $variantSelector . ' in ' . $gridCss
 );
 
 if ( $failures > 0 ) {
