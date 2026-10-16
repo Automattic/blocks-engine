@@ -2,16 +2,19 @@
     "schema": "blocks-engine/php-transformer/topology-diff-baseline/v1",
     "fixtures": {
         "10-nonprofit": {
+            "added button": 5,
             "added div [blocks-engine-control]": 10,
             "added figure [blocks-engine-synthetic-image-figure]": 4,
+            "added h3 [blocks-engine-accordion-toggle]": 5,
             "added img": 4,
             "added mark": 4,
             "added p [blocks-engine-inline-layout-carrier]": 37,
             "added p [blocks-engine-synthetic-paragraph]": 16,
-            "added span": 1,
+            "added span": 6,
             "removed button": 1,
             "removed nav": 1,
-            "removed svg": 5,
+            "removed svg": 10,
+            "retagged button>span": 5,
             "retagged span>mark": 15
         },
         "11-nonprofit-campaign": {
@@ -1352,23 +1355,30 @@
         },
         "87-travel-tours": {
             "added blockquote [wp-block-quote]": 3,
+            "added button": 3,
             "added div": 1,
             "added div [blocks-engine-authored-carousel__source-stage]": 1,
             "added div [blocks-engine-authored-carousel__track]": 1,
             "added div [blocks-engine-authored-carousel__viewport]": 1,
             "added div [blocks-engine-control]": 6,
+            "added div [wp-block-accordion-item]": 3,
+            "added div [wp-block-accordion-panel]": 3,
             "added div [wp-block-group]": 3,
             "added figure [blocks-engine-synthetic-image-figure]": 1,
+            "added h3 [blocks-engine-accordion-toggle]": 3,
             "added img": 1,
             "added p": 3,
             "added p [blocks-engine-inline-layout-carrier]": 6,
             "added p [blocks-engine-synthetic-paragraph]": 7,
+            "added span": 3,
             "added span [blocks-engine-authored-carousel__status]": 1,
             "removed div": 1,
             "removed svg": 1,
             "removed ul": 1,
+            "removed-wrapper details": 3,
             "retagged div>p [blocks-engine-lowered-paragraph]": 1,
-            "retagged figure>div [wp-block-group]": 5
+            "retagged figure>div [wp-block-group]": 5,
+            "retagged summary>span": 3
         },
         "88-accounting-firm": {
             "added div [blocks-engine-control]": 6,
