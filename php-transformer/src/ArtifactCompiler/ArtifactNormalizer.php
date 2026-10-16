@@ -18,6 +18,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
  */
 final class ArtifactNormalizer
 {
+    /** Role of a declared capture report: compiler evidence, never a site asset. */
+    public const CAPTURE_REPORT_ROLE = 'capture-report';
+
     public const DEFAULT_MAX_FILES = 500;
     public const DEFAULT_MAX_FILE_BYTES = 5242880;
     public const DEFAULT_MAX_TOTAL_BYTES = 52428800;
@@ -206,7 +209,7 @@ final class ArtifactNormalizer
             $mimeType = $this->mimeType((string) ($file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? (str_contains((string) ($file['type'] ?? ''), '/') ? $file['type'] : '')), $path);
             $kind = $this->kind((string) ($file['kind'] ?? $file['type'] ?? ''), $path, $payload['content'], $mimeType);
             $declaredRole = $this->sanitizeKey((string) ($file['role'] ?? ''));
-            $role = $this->role($declaredRole, $kind, $mimeType, $path);
+            $role = $capturedReport ? self::CAPTURE_REPORT_ROLE : $this->role($declaredRole, $kind, $mimeType, $path);
             $intent = $this->intent((string) ($file['intent'] ?? ''), $kind, $role);
             $binary = $payload['binary'] || ( ! $this->isTextKind($kind) && $this->isBinaryMimeType($mimeType) );
             $contentBase64 = $payload['content_base64'];

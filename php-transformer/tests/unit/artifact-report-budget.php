@@ -73,6 +73,11 @@ $composedReceipt = (new ArtifactCompiler())->compilePreparedPage($shared, $page,
 $composed = (new ArtifactCompiler())->compose($shared, array($composedReceipt), $reader)->toArray();
 $assert(in_array(($composed['status'] ?? ''), array('success', 'success_with_warnings'), true), 'A capture carrying an oversized declared report compiles end to end.');
 
+// Declared reports are evidence the compiler reads, not files the site serves:
+// they stay out of the asset manifest that materializes into the theme.
+$assetPaths = array_map(static fn(array $asset): string => (string) ($asset['path'] ?? ''), $composed['assets'] ?? array());
+$assert(array() === array_intersect($assetPaths, $artifact['reports']), 'Declared capture reports are not published as theme assets (' . implode(', ', array_intersect($assetPaths, $artifact['reports'])) . ').');
+
 // Page source keeps the budget it always had: the wider ceiling belongs to the
 // report declaration, not to every file that happens to sit beside one.
 $oversizedSource = $artifact;
