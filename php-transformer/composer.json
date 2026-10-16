@@ -322,6 +322,7 @@
       "php tests/unit/serialized-block-whitespace.php",
       "php tests/unit/stylesheet-selector-budget.php",
       "php tests/unit/admin-bar-accommodation.php",
+      "php tests/unit/editor-canvas-body-background.php",
       "php tests/unit/author-cascade-layer-order.php",
       "php tests/unit/navigation-anchor-conditional-replay.php",
       "php tests/unit/navigation-source-correspondence.php",
