@@ -197,6 +197,7 @@
       "php tests/unit/conditional-flex-image-figure.php",
       "php tests/unit/text-run-synthetic-paragraph.php",
       "php tests/unit/synthetic-paragraph-inline-box.php",
+      "php tests/unit/text-span-layout-leaf-paragraph.php",
       "php tests/unit/empty-paragraph-source-identity.php",
       "php tests/unit/empty-visual-group-shell-transport.php",
       "php tests/unit/empty-paragraph-editor-parity.php",

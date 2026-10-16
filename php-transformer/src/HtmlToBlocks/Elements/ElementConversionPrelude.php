@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationPr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
@@ -63,6 +64,7 @@ final class ElementConversionPrelude
         private readonly Closure $requiresStandaloneInlineLayoutLeaf,
         private readonly Closure $proofBackedWrapperCoalescing,
         private readonly Closure $layoutGeometryProofFor,
+        private readonly Closure $adoptAsSemanticBlock,
         private readonly ?CapturedCollectionConverter $capturedCollection = null
     ) {
     }
@@ -279,6 +281,17 @@ final class ElementConversionPrelude
         // A lone addressable span becomes the paragraph's own native anchor.
         // RichText discards unknown <span id> wrappers when its text is edited;
         // keeping the ID on core/paragraph lets the edit survive save/reload.
+        // A text-only span is the paragraph itself: the paragraph takes the
+        // span's class and presentation, and the synthetic-paragraph inline
+        // box lays it out as the span did. A boxless carrier around the span
+        // cannot take focus, so the editor could not select its text.
+        if (AddressableInlineLayoutLeaf::isPlainTextSpan($element)) {
+            $attrs = $this->styleResolver->presentationAttributes($element);
+            $attrs['content'] = SourceDom::innerHtml($element);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS);
+            ($this->adoptAsSemanticBlock)($element);
+            return $this->createBlock->createBlock('core/paragraph', $attrs, array(), $element);
+        }
         $identity = AddressableInlineLayoutLeaf::identity($element, $this->styleResolver);
         $content = null !== $identity ? SourceDom::innerHtml($element) : SourceDom::outerHtml($element);
         $inlineSvgContent = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
