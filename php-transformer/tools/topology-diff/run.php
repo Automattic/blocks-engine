@@ -18,8 +18,8 @@
  *   --output <file>  Write the machine-readable JSON report to this path.
  *   --top <n>        Number of ranked divergences to print (default: 40).
  *   --baseline <file>         Fail when any fixture's divergence counts differ from the
- *                             baseline: rising counts are regressions, falling counts must
- *                             lower the baseline.
+ *                             baseline. A rising weighted score (retag 1, other kinds 2) is a
+ *                             regression; a falling or unchanged score must still be recorded.
  *   --update-baseline <file>  Write the measured counts as the new baseline.
  *   --shard <i>/<n>           Measure only the i-th of n interleaved fixture shards (1-based).
  */
@@ -108,8 +108,14 @@ if ( isset($options['baseline']) ) {
     foreach ( $result['improvements'] as $line ) {
         fwrite(STDOUT, "IMPROVED   {$line}\n");
     }
-    if ( array() !== $result['regressions'] || array() !== $result['improvements'] ) {
-        fwrite(STDOUT, "\nTopology differs from the baseline. Rising counts add elements author CSS cannot see; remove them or declare why.\nFalling counts: lower the baseline with composer topology-diff -- --update-baseline tools/topology-diff/baseline.json\n");
+    foreach ( $result['changes'] as $line ) {
+        fwrite(STDOUT, "CHANGED    {$line}\n");
+    }
+    if ( array() !== $result['regressions'] ) {
+        fwrite(STDOUT, "\nA weighted topology score rose: the change adds, removes or retags elements author CSS cannot see. Remove the divergence, or declare why in the pull request and update the baseline.\n");
+    }
+    if ( array() !== $result['regressions'] || array() !== $result['improvements'] || array() !== $result['changes'] ) {
+        fwrite(STDOUT, "\nRecord the measured counts so the baseline stays exact:\n  composer topology-diff -- --update-baseline tools/topology-diff/baseline.json\n");
         exit(1);
     }
     fwrite(STDOUT, "\nTopology matches the baseline.\n");

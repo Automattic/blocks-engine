@@ -21,14 +21,19 @@ CSS, JS and SVG file through `ArtifactCompiler`). The source tree is
 ## Baseline gate
 
 `tools/topology-diff/baseline.json` holds every fixture's divergence counts.
-CI (`PHP Transformer / Source topology baseline`, four shards) fails when a
-change moves any count:
+CI (`PHP Transformer / Source topology baseline`, four shards) scores each
+fixture and fails when any count moves:
 
-- **Rising count:** the change adds, removes, wraps or retags elements author
-  CSS cannot see. Remove the divergence, or explain it in the pull request
-  and update the baseline.
-- **Falling count:** an improvement. Lower the baseline in the same pull
-  request so it is kept:
+| Kind | Weight | Why |
+|---|---|---|
+| `retagged` | 1 | Same box, position and classes; only tag selectors and user-agent defaults differ. |
+| `added`, `removed`, `removed-wrapper` | 2 | A box appears or disappears, changing parent, child and sibling relations for author selectors, inheritance and layout. |
+
+- **REGRESSION**, the weighted score rose: remove the divergence, or explain it
+  in the pull request and update the baseline.
+- **IMPROVED**, the score fell (for example an added wrapper became a retag of
+  the source element), or **CHANGED**, the score is equal with different counts:
+  record it in the same pull request so the baseline stays exact:
 
 ```sh
 COMPOSER_PROCESS_TIMEOUT=0 composer topology-diff -- --update-baseline tools/topology-diff/baseline.json
