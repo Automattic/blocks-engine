@@ -114,6 +114,10 @@ Expected PNG paths are deterministic from page paths, for example `tmp/screensho
 
 The JSON report includes normalized config, source and target probe snapshots, and a deterministic comparison summary. Default probes cover button, link, nav/menu, and card-like candidates. Each match records text, href, bounding box, and computed styles for display, color, background color, border, border radius, padding, font size, and font weight.
 
+## Differential CSS corpus
+
+Run the deterministic generated corpus from this directory with `npm run differential -- --seed 1 --count 40`. Options include `--families selectors,cascade`, `--viewports 390,1440`, `--report tmp/report.json`, and `--out tmp/failing-cases`. The JSON report has schema `blocks-engine/php-transformer/differential-report/v1`; each case records tags, pass status, element diffs, missing elements, and failures grouped by tag set. `catalog.mjs` contains seeded family generators; add a generator returning `{ html, css, ids, tags }` and register it in `families`. Promote a failure by copying its standalone HTML and assertions into a focused file under `tests/`.
+
 ## Smoke Test
 
 ```sh
