@@ -67,7 +67,10 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  *   property in a way the rewrite would change;
  * - a `:hover`, `:focus`, `:focus-visible`, `:focus-within` or `:active`
  *   rule sets the property on the block's classes or tags, flat
- *   (`.hover\:bg-x:hover`) or nested (`.hover\:bg-x{&:hover{…}}`);
+ *   (`.hover\:bg-x:hover`) or nested (`.hover\:bg-x{&:hover{…}}`). A
+ *   button whose literal colour is the `button` element style's token, and
+ *   whose state rule the element's `:hover` restates, drops the literal
+ *   instead (rendersThroughElement());
  * - the source renders the property differently under a media condition
  *   (breakpoint or colour scheme), unless every such value matches the same
  *   token;
@@ -148,6 +151,9 @@ final class PresetBinding
 
     /** Inline tags that can carry a colour in rich text. */
     private const INLINE_COLOR_TAG = '/<(mark|span|a|strong|em|b|i|small|code|s|u|sub|sup)\b([^>]*)>/i';
+
+    /** Inherited text properties a conversion carrier may hand to the one inline element it wraps. */
+    private const INHERITED_TEXT_PROPERTIES = array('font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'letter-spacing', 'word-spacing', 'line-height', 'text-transform');
 
     /** Core's text-colour format background when none is chosen (format-library `transparentValue`). */
     private const INLINE_TRANSPARENT = 'rgba(0, 0, 0, 0)';
@@ -335,6 +341,17 @@ final class PresetBinding
      * inline background as a literal (it has no preset class for it), so
      * an inline background is kept and counted as a refusal.
      *
+     * The format replaces the element that renders the colour; it never
+     * wraps it. The conversion carries an author-styled inline element as a
+     * marker `<mark>` (`--blocks-engine-richtext-marker`) whose style
+     * restates what the element inherits, so an authored inline element
+     * that is the whole content of such a carrier would otherwise be bound
+     * twice: the carrier to the inherited colour, which renders nowhere,
+     * and the element to its own. The carrier's other declarations move
+     * onto the element (see collapsedCarrier()) and only the element is
+     * bound, to the token it renders. When that colour is not a token,
+     * both stay as they are and the element counts as one refusal.
+     *
      * An element is left alone when it has attributes other than `class`,
      * `style` and `role="none"`, when its colour is not an opaque token,
      * when an `!important`, state or style-text rule could reach it, or,
@@ -351,48 +368,124 @@ final class PresetBinding
     {
         if (!preg_match_all(self::INLINE_COLOR_TAG, $html, $tags, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) return $html;
         $edits = array();
+        $skipUntil = 0;
         foreach ($tags as $tag) {
+            if ($tag[0][1] < $skipUntil) continue;
+            $carried = $this->collapsedCarrier($html, $tag[0][1], strlen($tag[0][0]));
+            if (null !== $carried) {
+                [$end, $name, $values, $inner, $contentStart] = $carried;
+                $skipUntil = $end;
+                if (null !== self::paintedBackground(self::declarations((string) ($values['style'] ?? '')))) $this->refuse('inline_format_unsupported');
+                $bound = $this->inlineFormat($name, $values, $html, $contentStart, $reason);
+                if (null === $bound) {
+                    $this->refuse($reason);
+                    continue;
+                }
+                $edits[$tag[0][1]] = array($end - $tag[0][1], $bound[0] . $inner . '</mark>');
+                continue;
+            }
             $name = strtolower($tag[1][0]);
             $attributes = self::tagAttributes($tag[2][0]);
             $values = $attributes ?? array();
             $declarations = self::declarations((string) ($values['style'] ?? ''));
             $color = self::declared($declarations, 'color');
-            $background = self::declared($declarations, 'background-color') ?? self::declared($declarations, 'background');
-            if (!self::paints($background)) $background = null;
+            $background = self::paintedBackground($declarations);
             if (!self::paints($color)) {
                 if (null !== $background) $this->refuse('inline_format_unsupported');
                 continue;
             }
             $classes = preg_split('/\s+/', trim((string) ($values['class'] ?? ''))) ?: array();
             if (in_array('has-inline-color', $classes, true)) continue;
+            $close = null !== $attributes && 'span' === $name ? self::closingTag($html, 'span', $tag[0][1] + strlen($tag[0][0])) : null;
+            $bound = null === $attributes ? null : $this->inlineFormat($name, $values, $html, $tag[0][1] + strlen($tag[0][0]), $reason);
             if (null !== $background) $this->refuse('inline_format_unsupported');
-            $carrier = in_array($name, array('mark', 'span'), true) && null !== $attributes
-                && array() === array_diff(array_keys($values), array('class', 'style', 'role'))
-                && 'none' === ($values['role'] ?? 'none')
-                && null === self::declared($declarations, 'background');
-            $close = $carrier && 'span' === $name ? self::closingTag($html, 'span', $tag[0][1] + strlen($tag[0][0])) : null;
-            if (!$carrier || ('span' === $name && (null === $close || $this->markRules))) {
-                $this->refuse('inline_format_unsupported');
+            if (null === $bound) {
+                $this->refuse($reason ?? 'inline_format_unsupported');
                 continue;
             }
-            $slug = $this->presetSlug('color', (string) $color, null, $reason);
-            $tokens = $this->tagTokens('<mark>', implode(' ', $classes)) + $this->tagTokens('<' . $name . '>', '');
-            $added = null === $slug ? array() : array('has-inline-color', 'has-' . $slug . '-color');
-            if (null === $slug || !$this->safe('color', $tokens, $added, false, false, $reason)) {
-                $this->refuse($reason);
-                continue;
-            }
-            $kept = array_values(array_filter($declarations, static fn(array $declaration): bool => !in_array($declaration[0], array('color', 'background-color'), true)));
-            $style = 'background-color:' . ($background ?? self::INLINE_TRANSPARENT) . (array() === $kept ? '' : ';' . self::declarationText($kept));
-            $class = implode(' ', array_values(array_unique(array_filter(array_merge($added, $classes), static fn(string $class): bool => '' !== $class))));
-            $open = '<mark style="' . htmlspecialchars($style, ENT_QUOTES, 'UTF-8') . '" class="' . htmlspecialchars($class, ENT_QUOTES, 'UTF-8') . '"' . (isset($values['role']) ? ' role="none"' : '') . '>';
-            $edits[$tag[0][1]] = array(strlen($tag[0][0]), $open);
+            $edits[$tag[0][1]] = array(strlen($tag[0][0]), $bound[0]);
             if (null !== $close) $edits[$close[0]] = array($close[1], '</mark>');
-            ++$this->bound;
         }
         krsort($edits);
         foreach ($edits as $offset => [$length, $replacement]) $html = substr_replace($html, $replacement, $offset, $length);
         return $html;
+    }
+
+    /**
+     * The text-colour format opening tag for an inline element whose colour
+     * is a token, or null with the reason it is not bound. `$html` and
+     * `$after` locate the element's content, for a `<span>`'s closing tag.
+     *
+     * @param array<string,string> $values The element's attributes.
+     * @return array{0:string}|null
+     */
+    private function inlineFormat(string $name, array $values, string $html, int $after, ?string &$reason = null): ?array
+    {
+        $reason = 'inline_format_unsupported';
+        $declarations = self::declarations((string) ($values['style'] ?? ''));
+        $color = self::declared($declarations, 'color');
+        $background = self::paintedBackground($declarations);
+        $classes = preg_split('/\s+/', trim((string) ($values['class'] ?? ''))) ?: array();
+        $carrier = in_array($name, array('mark', 'span'), true)
+            && array() === array_diff(array_keys($values), array('class', 'style', 'role'))
+            && 'none' === ($values['role'] ?? 'none')
+            && !self::paints(self::declared($declarations, 'background'));
+        if (!$carrier || null === $color || ('span' === $name && (null === self::closingTag($html, 'span', $after) || $this->markRules))) return null;
+        $slug = $this->presetSlug('color', $color, null, $reason);
+        $tokens = $this->tagTokens('<mark>', implode(' ', $classes)) + $this->tagTokens('<' . $name . '>', '');
+        $added = null === $slug ? array() : array('has-inline-color', 'has-' . $slug . '-color');
+        if (null === $slug || !$this->safe('color', $tokens, $added, false, false, $reason)) return null;
+        $kept = array_values(array_filter($declarations, static fn(array $declaration): bool => !in_array($declaration[0], array('color', 'background-color'), true)));
+        $style = 'background-color:' . ($background ?? self::INLINE_TRANSPARENT) . (array() === $kept ? '' : ';' . self::declarationText($kept));
+        $class = implode(' ', array_values(array_unique(array_filter(array_merge($added, $classes), static fn(string $class): bool => '' !== $class))));
+        ++$this->bound;
+        $reason = null;
+        return array('<mark style="' . htmlspecialchars($style, ENT_QUOTES, 'UTF-8') . '" class="' . htmlspecialchars($class, ENT_QUOTES, 'UTF-8') . '"' . (isset($values['role']) ? ' role="none"' : '') . '>');
+    }
+
+    /**
+     * A conversion carrier (a `<mark>` whose style holds the
+     * `--blocks-engine-richtext-marker` of an author-styled inline element)
+     * whose whole content is one authored `<mark>` or `<span>` that sets its
+     * own inline colour. The carrier's colour renders nowhere, so the two
+     * are one element: the authored element, with the carrier's other
+     * declarations (its marker and inherited text properties) added. A
+     * carrier that paints a background, has classes or declares a property
+     * that is not inherited text styling, or an element that has its own
+     * marker or redeclares one of the carrier's properties, is not collapsed.
+     *
+     * @return array{0:int,1:string,2:array<string,string>,3:string,4:int}|null End offset of the carrier, the element's tag name and merged attributes, its content and where that starts.
+     */
+    private function collapsedCarrier(string $html, int $offset, int $length): ?array
+    {
+        if (1 !== preg_match('/\G<mark\b([^>]*)>/i', $html, $outer, 0, $offset)) return null;
+        $outerValues = self::tagAttributes($outer[1]);
+        if (null === $outerValues || array('style') !== array_keys($outerValues) || !str_contains($outerValues['style'], '--blocks-engine-richtext-marker:')) return null;
+        if (1 !== preg_match('/\G<(mark|span)\b([^>]*)>/i', $html, $inner, 0, $offset + $length)) return null;
+        $name = strtolower($inner[1]);
+        $values = self::tagAttributes($inner[2]);
+        $contentStart = $offset + $length + strlen($inner[0]);
+        $innerClose = self::closingTag($html, $name, $contentStart);
+        $outerClose = self::closingTag($html, 'mark', $offset + $length);
+        if (null === $values || null === $innerClose || null === $outerClose || $innerClose[0] + $innerClose[1] !== $outerClose[0]) return null;
+        $declarations = self::declarations((string) ($values['style'] ?? ''));
+        if (!self::paints(self::declared($declarations, 'color')) || str_contains((string) ($values['style'] ?? ''), '--blocks-engine-richtext-marker:')) return null;
+        $own = array_flip(array_column($declarations, 0));
+        $moved = array();
+        foreach (self::declarations($outerValues['style']) as [$property, $value]) {
+            if ('color' === $property || (in_array($property, array('background', 'background-color'), true) && !self::paints($value))) continue;
+            if (isset($own[$property]) || (!str_starts_with($property, '--') && !in_array($property, self::INHERITED_TEXT_PROPERTIES, true))) return null;
+            $moved[] = array($property, $value);
+        }
+        $values['style'] = self::declarationText(array_merge($declarations, $moved));
+        return array($outerClose[0] + $outerClose[1], $name, $values, substr($html, $contentStart, $innerClose[0] - $contentStart), $contentStart);
+    }
+
+    /** @param list<array{0:string,1:string}> $declarations An inline background colour that paints, or null. */
+    private static function paintedBackground(array $declarations): ?string
+    {
+        $background = self::declared($declarations, 'background-color') ?? self::declared($declarations, 'background');
+        return self::paints($background) ? $background : null;
     }
 
     /**
@@ -494,7 +587,7 @@ final class PresetBinding
         $tokens = $this->tagTokens($html, $classes . ' ' . (is_string($attributes->className ?? null) ? $attributes->className : ''));
         $supports = self::CLASS_SUPPORTS[$name] ?? array();
         $isLink = in_array($name, self::LINK_BLOCKS, true);
-        $addClasses = array();
+        $addClasses = $dropClasses = array();
         $bound = 0;
         $style = $attributes->style ?? new \stdClass();
 
@@ -509,7 +602,21 @@ final class PresetBinding
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
             $added = array($flagClass, sprintf($presetClass, '%s'));
             $slug = $this->presetSlug('color', $literal, $observed[$observedProperty] ?? null, $reason);
-            if (null === $slug || !$this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason)) {
+            $safe = null !== $slug && $this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason);
+            if (!$safe && 'state_variant' === $reason && is_string($literal) && $this->rendersThroughElement($name, $key, (string) $slug, $property, $tokens)) {
+                // A preset class would mask the hover colour; the button
+                // element style renders this value with its `:hover`, so the
+                // literal only duplicated it.
+                if (!self::removeDeclaration($declarations, $property, $literal)) {
+                    $this->refuse('inconsistent_source');
+                    continue;
+                }
+                unset($style->color->{$key});
+                $dropClasses[] = $flagClass;
+                ++$bound;
+                continue;
+            }
+            if (!$safe) {
                 $this->refuse($reason);
                 continue;
             }
@@ -597,8 +704,8 @@ final class PresetBinding
         if (isset($attributes->style)) self::prune($attributes);
         $newStyle = self::declarationText($declarations);
         $newHtml = self::withAttribute($html, 'style', '' === $newStyle ? null : $newStyle);
-        if (array() !== $addClasses) {
-            $current = preg_split('/\s+/', trim($classes)) ?: array();
+        if (array() !== $addClasses || array() !== $dropClasses) {
+            $current = array_diff(preg_split('/\s+/', trim($classes)) ?: array(), $dropClasses);
             $newHtml = self::withAttribute($newHtml, 'class', implode(' ', array_values(array_unique(array_filter(array_merge($current, $addClasses), static fn(string $class): bool => '' !== $class)))));
         }
         $delimiter = '<!-- wp:' . $name . (array() === get_object_vars($attributes) ? '' : ' ' . self::encode($attributes)) . ' -->';
@@ -852,13 +959,13 @@ final class PresetBinding
         return true;
     }
 
-    private function safe(string $property, array $tokens, array $addedClasses, bool $staysInline = false, bool $addsDeclaration = false, ?string &$reason = null): bool
+    private function safe(string $property, array $tokens, array $addedClasses, bool $staysInline = false, bool $addsDeclaration = false, ?string &$reason = null, bool $statesRendered = false): bool
     {
         $finalClasses = $tokens;
         foreach ($addedClasses as $class) $finalClasses['class:' . $class] = true;
         foreach (self::families($property) as $family) {
             $reason = 'state_variant';
-            if (isset($this->stateTokens[$family]['*']) || array() !== array_intersect_key($this->stateTokens[$family] ?? array(), $tokens)) return false;
+            if (!$statesRendered && (isset($this->stateTokens[$family]['*']) || array() !== array_intersect_key($this->stateTokens[$family] ?? array(), $tokens))) return false;
             $reason = 'style_selector';
             foreach ($this->styleTextRules[$family] ?? array() as $rule) {
                 if (null !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
@@ -875,6 +982,29 @@ final class PresetBinding
         }
         $reason = null;
         return true;
+    }
+
+    /**
+     * Whether a button's literal colour is exactly what the `button` element
+     * style renders (DesignSystem::unanimousElements()), so the block can
+     * drop it and render through Global Styles. That needs the element value
+     * to be this token and, when an interaction-state rule restyles the
+     * colour, the element's `:hover` value too: a state variant then renders
+     * through the element's `:hover`, which a preset class (`!important`)
+     * would mask. The other checks of safe() still apply.
+     *
+     * @param array<string,true> $tokens
+     */
+    private function rendersThroughElement(string $name, string $key, string $slug, string $property, array $tokens): bool
+    {
+        if ('button' !== $name) return false;
+        $element = $this->system->elements['button'] ?? array();
+        $field = 'text' === $key ? 'color' : 'background';
+        if (!isset($element[$field]) || $this->system->colorSlug($element[$field]) !== $slug) return false;
+        $stated = false;
+        foreach (self::families($property) as $family) $stated = $stated || isset($this->stateTokens[$family]['*']) || array() !== array_intersect_key($this->stateTokens[$family] ?? array(), $tokens);
+        if ($stated && !isset($element['hover_' . $field])) return false;
+        return $this->safe($property, $tokens, array(), false, false, $reason, true);
     }
 
     /**

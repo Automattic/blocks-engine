@@ -301,7 +301,10 @@ PHP;
         // The design system comes from what every document renders, before
         // any document is projected: routeLinks() binds literal block values
         // to its tokens wherever block markup enters the plan.
-        $this->designSystem = DesignSystem::fromUsage(self::designUsage($documents));
+        // Button element styles are decided on the markup before binding,
+        // which is what tells a button that renders through them apart from
+        // one that never had the value.
+        $this->designSystem = DesignSystem::fromUsage(self::designUsage($documents))?->withButtonElementsOwnedBy(array_values(array_filter(array_column($documents, 'block_markup'), 'is_string')));
         $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, self::designUsage($documents));
         $tokens = $this->tokens($assets);
         $surfaces = $this->templateSurfaces($documents);
@@ -547,7 +550,7 @@ PHP;
             'taxonomy_entities' => $taxonomyProjection['entities'],
             'navigation_links' => $input->navigationLinks,
             'menus' => $menus,
-            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array())))),
+            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array(), self::uniqueSourceCssBytes($compiled['assets'] ?? array()))))),
             'visual_repair' => $compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
@@ -1528,6 +1531,25 @@ PHP;
      * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $pages
      */
+    /**
+     * Bytes of the author's stylesheets as captured, each counted once: the
+     * compiled site's CSS assets other than engine support, deduplicated by
+     * the hash of the source they were projected from. A stylesheet the
+     * compiler copies per page counts once here, however often it ships.
+     *
+     * @param mixed $assets Compiled-site assets.
+     */
+    private static function uniqueSourceCssBytes(mixed $assets): int
+    {
+        $bytes = array();
+        foreach (is_array($assets) ? $assets : array() as $asset) {
+            if (!is_array($asset) || 'css' !== ($asset['kind'] ?? null) || 'engine-support' === ($asset['source'] ?? null)) continue;
+            $key = (string) ($asset['source_hash'] ?? '');
+            $bytes['' === $key ? 'path:' . (string) ($asset['path'] ?? count($bytes)) : $key] = (int) ($asset['source_bytes'] ?? $asset['bytes'] ?? strlen((string) ($asset['content'] ?? '')));
+        }
+        return array_sum($bytes);
+    }
+
     private static function detachedChromeBackdropRules(array $parts, array $assets = array(), array $pages = array()): string
     {
         $detached = array_values(array_filter($parts, static fn(array $part): bool => 'shared_shell' === ($part['placement']['kind'] ?? null) && is_array($part['ancestor_context'] ?? null) && in_array($part['area'] ?? null, array('header', 'footer'), true)));

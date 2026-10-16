@@ -397,8 +397,10 @@ final class ThemeJsonProjection
 
     /**
      * Adds what the documents render unanimously to the projected styles:
-     * the root background, text colour and family, link colour, and heading
-     * colour and family, as preset references. A value the source
+     * the root background, text colour and family, and the element styles
+     * of DesignSystem::unanimousElements() (link, button, heading and
+     * `h1`–`h6`, with link and button `:hover` colours), as preset
+     * references. A value the source
      * stylesheets already project for the same target is kept. Also adds the
      * content and wide widths when no `main` rule supplied them, and turns
      * off core's default presets so the editor offers the source's tokens.
@@ -415,9 +417,32 @@ final class ThemeJsonProjection
         if (isset($system->root['background'])) $styles['color']['background'] ??= $color($system->root['background']);
         if (isset($system->root['color'])) $styles['color']['text'] ??= $color($system->root['color']);
         if (isset($system->root['font_family'])) $styles['typography']['fontFamily'] ??= $family($system->root['font_family']);
-        if (isset($system->elements['link']['color'])) $styles['elements']['link']['color']['text'] ??= $color($system->elements['link']['color']);
-        if (isset($system->elements['heading']['color'])) $styles['elements']['heading']['color']['text'] ??= $color($system->elements['heading']['color']);
-        if (isset($system->elements['heading']['font_family'])) $styles['elements']['heading']['typography']['fontFamily'] ??= $family($system->elements['heading']['font_family']);
+        $size = fn(string $value): string => null !== ($slug = $system->fontSizeSlug($value)) ? 'var:preset|font-size|' . $slug : $value;
+        $paths = array(
+            'color' => array(array('color', 'text'), $color),
+            'background' => array(array('color', 'background'), $color),
+            'font_family' => array(array('typography', 'fontFamily'), $family),
+            'font_size' => array(array('typography', 'fontSize'), $size),
+            'font_weight' => array(array('typography', 'fontWeight'), static fn(string $value): string => $value),
+            'hover_color' => array(array(':hover', 'color', 'text'), $color),
+            'hover_background' => array(array(':hover', 'color', 'background'), $color),
+        );
+        foreach ($system->elements as $element => $values) {
+            $element = 'a' === $element ? 'link' : $element;
+            foreach ($values as $field => $value) {
+                if (!isset($paths[$field])) continue;
+                [$path, $reference] = $paths[$field];
+                $target = &$styles['elements'][$element];
+                foreach ($path as $key) $target = &$target[$key];
+                // A button colour is what binding relies on when it drops a
+                // button's literal (PresetBinding::rendersThroughElement()),
+                // and every button block carried it (DesignSystem::withButtonElementsOwnedBy()),
+                // so it replaces a colour projected from an authored `button` rule.
+                if (('button' === $element && 'color' === $path[0]) || ':hover' === $path[0]) $target = $reference($value);
+                else $target ??= $reference($value);
+                unset($target);
+            }
+        }
         $settings = $theme['settings'];
         if (!isset($settings['layout']['contentSize']) && isset($system->layout['content'])) {
             $settings['layout']['contentSize'] = $system->layout['content']['value'];

@@ -2477,6 +2477,7 @@ final class ArtifactCompiler
      */
     private function projectedStylesheetFile(array $file, string $path, string $content): array
     {
+        $file['provenance']['projected_from_bytes'] ??= (int) ($file['bytes'] ?? strlen((string) ($file['content'] ?? '')));
         $file['path'] = $path;
         $file['content'] = $content;
         unset($file['content_base64']);
@@ -4415,6 +4416,7 @@ final class ArtifactCompiler
                     'transport_sha256' => $asset['transport_sha256'] ?? null,
                     'hash'             => $asset['hash'] ?? $asset['provenance']['hash'] ?? '',
                     'source_hash'      => $asset['source_hash'] ?? '',
+                    'source_bytes'     => 'css' === ($asset['kind'] ?? null) ? ($asset['source_bytes'] ?? null) : null,
                     'source_role'      => $asset['source_role'] ?? '',
                     'keep_source'      => $asset['keep_source'] ?? null,
                     'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null,
@@ -4678,6 +4680,7 @@ final class ArtifactCompiler
                 'binary'           => $file['binary'],
                 'hash'             => $file['provenance']['hash'] ?? '',
                 'source_hash'      => $file['provenance']['projected_from_hash'] ?? ($file['provenance']['hash'] ?? ''),
+                'source_bytes'     => (int) ($file['provenance']['projected_from_bytes'] ?? $file['bytes']),
                 'provenance'       => $file['provenance'],
             );
             if ( ! empty($file['content_base64']) ) {

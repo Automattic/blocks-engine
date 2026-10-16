@@ -255,7 +255,8 @@ footer and the other routes.
 Clustering is deterministic:
 
 - Opaque colours within CIE76 ΔE 2.3 (one just-noticeable difference) merge.
-- A low-weight colour (under 3% of all colour weight) then merges into the nearest heavier colour within ΔE 18. Call-to-action backgrounds and button labels are kept. Tailwind's neighbouring steps (blue-500/600, ΔE 19) stay apart. The merged shade still renders as itself, because only the 2.3 tolerance binds a value. The palette keeps at most 12.
+- Colours are ranked by prominence: the mean of their share of the document's text and background area and their share of its coloured runs (text runs and painted elements). A colour reached through an authored custom property (`color:var(--cyan)`) counts like a literal. An accent on many small elements (bullets, eyebrow labels) therefore ranks beside a grey on a few long paragraphs, though it covers far less area.
+- A colour within ΔE 5 (imperceptible) of a more prominent kept colour then merges into it however much it is used, so the palette holds distinct colours, not every spelling of one (`#1a1a1a` and `#212121`, ΔE 3.5, are one token). The merged colour binds to that token wherever it is used, including inside authored custom properties (`--cyan:var(--wp--preset--color--accent-1,#22d3ee)`). It then renders as the token, at most ΔE 5 off, which an untrained observer only notices side by side; stylesheet values keep their own colour as the `var()` fallback. Shades a designer can tell apart stay apart (Tailwind's slate-50 beside white, ΔE 2.2, merges; blue-500/600, ΔE 19, do not). The palette keeps at most 12.
 - Font sizes within 0.5px merge. The scale keeps the 8 heaviest steps.
 - Spacing merges only identical pixel lengths and keeps 10 steps.
 - Font stacks group by primary family, ignoring case and quotes, and keep the most used stack. Only families some rendered text uses as its primary become presets. A stack with a generic primary (`ui-monospace`) is not a token. A primary family that is declared but not rendered is reported as unused. Fallbacks and `@font-face` names are not reported.
@@ -265,14 +266,19 @@ Roles make the slugs stable:
 | Group | Slugs |
 | --- | --- |
 | Colours | `base` is the root background every document renders, else the background covering most text (within 90% of the heaviest, the first that has a readable text colour). `contrast` is the main text colour on `base`: among text colours with at least 10% of the text weight on `base` (or of all text when none is on `base`), the root text colour when it has a WCAG contrast ratio of at least 4.5 against `base`, else the candidate with the highest ratio of at least 4.5. A candidate under 4.5 is only used when none reaches it, and never under 3. `primary` and `secondary` are call-to-action backgrounds, then chromatic colours. Every other colour is `accent-N`. |
-| Fonts | `body` is the root family every document renders, else the heaviest body-text family. `heading` is the family every heading renders, else the heaviest heading family. A heading family identical to the body family is emitted once. |
+| Fonts | `body` is the root family every document renders, else the heaviest body-text family. `heading` is the family every heading renders, else the heaviest heading family. Each route's headings share one route weight, and within a route a heading weighs 3 (`h1`), 2 (`h2`) or 1 (`h3`–`h6`) times its font size over the root size, per heading: a blog index of many small entry titles does not outvote the display `h1`/`h2` other routes open with. A family other than the body's or a system UI stack needs 25% of that weight. A heading family identical to the body family is emitted once. |
 | Sizes | `medium` is the body size. Smaller steps are `small`, `x-small`, …; larger steps are `large`, `x-large`, `xx-large`, …. |
 | Spacing | `20`, `30`, … from smallest to largest. Core's default palette, sizes and spacing are turned off. |
 
 Global Styles also get:
 
 - the root background, text colour and family, when every document renders them alike and no media query varies them;
-- link and heading colour and heading family, under the same condition;
+- element styles (`styles.elements`) for what every element of a kind renders on every document, as preset references:
+  - `link`: colour, and `:hover` colour;
+  - `button`: text and background colour, family, size and weight, and `:hover` text and background colour;
+  - `heading`: colour, family and weight; `h1`–`h6`: colour, family, size and weight where the level differs from `heading`.
+
+  Colours must be a token's own value (within ΔE 2.3), families a preset's primary family, sizes a preset size. A `:hover` value is the one the most specific `:hover` rule matching the element gives (an `!important` tie or a non-colour leaves it out), and counts only when every element of the kind has the same token. A property a media query can change for any element of the kind, on it or an ancestor (`md:text-5xl`, a dark-mode colour), is left to the source: an element style would override the variant. Button values are only kept when every `core/button` carries that property itself before binding, so no button is restyled; their colours then replace a colour projected from an authored `button` rule. Weights count the user agent's bold for headings, `th`, `b` and `strong`;
 - `contentSize` and `wideSize`, from centred containers when no `main` rule sets them.
 
 Every value is a `var:preset|…` reference. Because the roles follow the root,
@@ -302,7 +308,7 @@ cascade:
 - the inline style is not exactly what the attributes serialize;
 - an `!important` rule for the property could match the same element, unless it excludes the preset class (`:not(.has-text-color)`);
 - a selector reads the inline style text (`[style*=…]`);
-- a `:hover`, `:focus` or `:active` rule sets the property on the element;
+- a `:hover`, `:focus` or `:active` rule sets the property on the element (a preset class is `!important` and would mask it). A button whose literal colour is the `button` element style's token, with a `:hover` element value, drops the literal and its `has-text-color`/`has-background` class instead: it renders through the element style and its `:hover`;
 - a media query (breakpoint, colour scheme) gives the property a value matching another token, or redefines a custom property it reads;
 - elements with the same class list render different values.
 
@@ -328,7 +334,10 @@ report repeats as `design_system`:
 - `restyle_coverage`: of the text and background colours on rendered blocks, the share a palette edit changes, because they come from a preset through the block's attributes, its classes' rules, an ancestor or the root styles (`RestyleCoverage`). Template parts count once per page. `restyle_text_elements`, `restyle_text_preset`, `restyle_backgrounds` and `restyle_backgrounds_preset` are the counts;
 - `palette_size`;
 - `unused_font_families`: declared primary families no rendered text uses;
-- `generated_to_source_css_ratio`: engine support CSS plus inline block style bytes, against the author's CSS bytes.
+- `theme_css_bytes`: every stylesheet the theme ships (author projections, per-page copies, shared chrome, engine support) plus inline block `style` attribute bytes;
+- `unique_source_css_bytes`: the author's stylesheets as captured, each counted once (compiled-site CSS assets other than engine support, deduplicated by `source_hash`, using their `source_bytes`);
+- `engine_css_bytes`: what the conversion adds rather than projects, engine support CSS plus inline block style bytes;
+- `generated_to_source_css_ratio`: `theme_css_bytes` over `unique_source_css_bytes`, so a stylesheet shipped as three per-page copies reads as about 3.
 
 `composer test:design-system-restyle` (`tests/integration/design-system-restyle.sh`) checks the same in WordPress and
 Chromium. For the `tailwind-v3`, `tailwind-v4` and multi-route

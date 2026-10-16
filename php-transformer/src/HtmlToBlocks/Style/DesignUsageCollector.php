@@ -25,7 +25,14 @@ use DOMText;
  * weighs its character count times the square of its font size relative to
  * 16px: twice the size covers about four times the area. A background
  * weighs the text it contains plus one, so an empty coloured box still
- * counts once. Spacing weighs one per declared side.
+ * counts once. Spacing weighs one per declared side. Heading text also
+ * records its heading level (`heading_level`, 1 for `h1`), so the design
+ * system can weigh a page title above a list of small entry titles. Text
+ * rows carry the numeric font weight they render, and link and button rows
+ * (and call-to-action backgrounds) the colour a `:hover` rule gives them
+ * (`hover_color`, `!` when it is not one opaque colour), and the text or
+ * background properties a media-conditional rule can change for them
+ * (`conditional`).
  *
  * The result is per-document aggregate data. Colours are canonical hex,
  * sizes are pixels, family stacks keep their authored spelling, and weights
@@ -39,6 +46,9 @@ final class DesignUsageCollector
     private const SKIPPED_TAGS = array('script', 'style', 'noscript', 'template', 'head', 'meta', 'link', 'title', 'svg', 'math', 'iframe', 'object', 'select', 'option', 'datalist', 'canvas', 'video', 'audio', 'picture', 'img');
 
     /** User-agent heading sizes, in em of the parent. */
+    /** Inherited text properties whose media-conditional variants usage rows record. */
+    private const CONDITIONAL_TEXT_FAMILIES = array('color', 'font-family', 'font-size', 'font-weight');
+
     private const HEADING_EM = array('h1' => 2.0, 'h2' => 1.5, 'h3' => 1.17, 'h4' => 1.0, 'h5' => 0.83, 'h6' => 0.67);
 
     private const MONOSPACE_TAGS = array('code', 'pre', 'kbd', 'samp', 'tt');
@@ -96,6 +106,10 @@ final class DesignUsageCollector
             'family' => null,
             'background' => $canvas,
             'role' => 'body',
+            'heading_level' => 0,
+            'weight' => 400,
+            'hover_color' => null,
+            'conditional' => array(),
         );
         $htmlContext = null !== $html ? $this->inherit($rootContext, $html, $htmlDeclarations) : $rootContext;
         $bodyContext = $this->inherit($htmlContext, $body, $bodyDeclarations);
@@ -175,7 +189,7 @@ final class DesignUsageCollector
             if ($opaque) $context['role'] = 'button';
             $this->addText($context, $inputMass);
         }
-        if ($opaque) $this->addBackground((string) CssColor::hex($background), $control || 'input' === $tag ? 'cta' : 'surface', $mass + 1, $background);
+        if ($opaque) $this->addBackground((string) CssColor::hex($background), $control || 'input' === $tag ? 'cta' : 'surface', $mass + 1, $background, $control ? $this->hoverColor($element, array('background-color', 'background')) : null, $control && ($this->resolver->hasConditionalStyleFamily($element, 'background') || $this->resolver->readsConditionalCustomProperty($element, array('background', 'background-color'))));
         $this->spacingFrom($element, $declarations, $context['size']);
         $this->widthFrom($declarations, $context['size'], $mass);
         $this->recordClassStyles($element, $declarations, $parent['size'], $context['size']);
@@ -193,7 +207,10 @@ final class DesignUsageCollector
     {
         $tag = strtolower($element->tagName);
         $context = $parent;
-        if (isset(self::HEADING_EM[$tag])) $context['role'] = 'heading';
+        if (isset(self::HEADING_EM[$tag])) {
+            $context['role'] = 'heading';
+            $context['heading_level'] = (int) $tag[1];
+        }
         elseif ('a' === $tag && $element->hasAttribute('href') && 'button' !== $parent['role']) $context['role'] = 'link';
         elseif ('button' === $tag) $context['role'] = 'button';
 
@@ -214,6 +231,17 @@ final class DesignUsageCollector
             if (null !== $hex) $context['color'] = $hex;
         }
 
+        $context['weight'] = $this->fontWeight($declarations['font-weight'] ?? null, $tag, (int) $parent['weight']);
+        // Text properties a media-conditional rule can change here or on an
+        // ancestor it inherits from render differently under that condition.
+        foreach (self::CONDITIONAL_TEXT_FAMILIES as $family) {
+            if (!in_array($family, $context['conditional'], true) && ($this->resolver->hasConditionalStyleFamily($element, $family) || $this->resolver->readsConditionalCustomProperty($element, array($family)))) $context['conditional'][] = $family;
+        }
+        // A link or button changes colour on hover only through its own
+        // state rules; text that sets its own colour stops following them.
+        if (('a' === $tag && $element->hasAttribute('href')) || 'button' === $tag) $context['hover_color'] = $this->hoverColor($element, array('color'));
+        elseif (isset($declarations['color'])) $context['hover_color'] = null;
+
         $family = $this->keyword($declarations['font-family'] ?? null);
         if (null !== $family && !in_array($family, array('inherit', 'unset'), true)) {
             $context['family'] = 'initial' === $family || str_contains($family, 'var(') ? null : self::clean($declarations['font-family']);
@@ -225,6 +253,44 @@ final class DesignUsageCollector
             $context['family'] = null;
         }
         return $context;
+    }
+
+    /**
+     * The colour a `:hover` rule gives the element: canonical hex, `!` when
+     * the rules disagree or the value is not an opaque colour, or null when
+     * no hover rule sets it.
+     *
+     * @param list<string> $properties
+     */
+    private function hoverColor(DOMElement $element, array $properties): ?string
+    {
+        foreach ($properties as $property) {
+            $value = $this->resolver->stateDeclaredValue($element, 'hover', $property);
+            if (null === $value) continue;
+            return '' !== $value && CssColor::opaque($value) ? (string) CssColor::hex($value) : '!';
+        }
+        return null;
+    }
+
+    /** Numeric font weight: the declared one, else the user agent's bold for headings, `th`, `b` and `strong`, else the parent's. */
+    private function fontWeight(?string $value, string $tag, int $parent): int
+    {
+        $value = null === $value ? null : strtolower(self::clean($value));
+        if (null === $value || in_array($value, array('inherit', 'unset'), true)) {
+            if (null !== $value) return $parent;
+            if (isset(self::HEADING_EM[$tag]) || 'th' === $tag) return 700;
+            if (in_array($tag, array('b', 'strong'), true)) $value = 'bolder';
+            elseif ('button' === $tag) return 400;
+            else return $parent;
+        }
+        return match (true) {
+            'normal' === $value, 'initial' === $value => 400,
+            'bold' === $value => 700,
+            'bolder' === $value => $parent < 350 ? 400 : ($parent < 550 ? 700 : 900),
+            'lighter' === $value => $parent < 550 ? 100 : ($parent < 750 ? 400 : 700),
+            1 === preg_match('/^\d{1,4}(?:\.\d+)?$/', $value) => max(1, min(1000, (int) round((float) $value))),
+            default => $parent,
+        };
     }
 
     private function fontSize(?string $value, float $parentPx): ?float
@@ -245,25 +311,30 @@ final class DesignUsageCollector
     private function addText(array $context, int $mass): void
     {
         $family = is_string($context['family']) ? $context['family'] : null;
-        $key = implode("\n", array($context['role'], $context['color'], (string) $family, CssLength::format($context['size']), $context['background']));
+        $level = 'heading' === $context['role'] ? (int) $context['heading_level'] : 0;
+        $hover = in_array($context['role'], array('link', 'button'), true) ? $context['hover_color'] : null;
+        $conditional = $context['conditional'];
+        sort($conditional, SORT_STRING);
+        $key = implode("\n", array($context['role'], $context['color'], (string) $family, CssLength::format($context['size']), $context['background'], (string) $level, (string) $context['weight'], (string) $hover, implode(',', $conditional)));
         $row = $this->text[$key] ?? array(
             'role' => $context['role'],
             'color' => $context['color'],
             'font_family' => $family,
             'font_size_px' => self::number($context['size']),
+            'font_weight' => (int) $context['weight'],
             'background' => $context['background'],
             'count' => 0,
             'weight' => 0,
-        );
+        ) + (0 < $level ? array('heading_level' => $level) : array()) + (null === $hover ? array() : array('hover_color' => $hover)) + (array() === $conditional ? array() : array('conditional' => $conditional));
         ++$row['count'];
         $row['weight'] += $mass;
         $this->text[$key] = $row;
     }
 
-    private function addBackground(string $hex, string $role, int $weight, string $authored): void
+    private function addBackground(string $hex, string $role, int $weight, string $authored, ?string $hover = null, bool $conditional = false): void
     {
-        $key = $role . "\n" . $hex;
-        $row = $this->backgrounds[$key] ?? array('role' => $role, 'color' => $hex, 'authored' => self::clean($authored), 'count' => 0, 'weight' => 0);
+        $key = $role . "\n" . $hex . "\n" . (string) $hover . "\n" . ($conditional ? '1' : '');
+        $row = $this->backgrounds[$key] ?? array('role' => $role, 'color' => $hex, 'authored' => self::clean($authored), 'count' => 0, 'weight' => 0) + (null === $hover ? array() : array('hover_color' => $hover)) + ($conditional ? array('conditional' => array('background')) : array());
         ++$row['count'];
         $row['weight'] += $weight;
         $this->backgrounds[$key] = $row;
