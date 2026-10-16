@@ -319,12 +319,31 @@ final class EngineSupportCss
             $parts[] = ':root :where(.wp-block-group.' . SourceBlockAttributeProjector::CSS_OWNED_LAYOUT_ITEM_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
+            // The generated item's font reset must yield to source item
+            // typography, including low-specificity list selectors.
+            $parts[] = ':where(.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link){font:inherit}';
+        }
+
+        return $parts;
+    }
+
+    /**
+     * Before-author CSS that restates source shape over Core's own block CSS.
+     *
+     * Core's block styles are unlayered, so these parts must stay unlayered:
+     * the engine reset layer (#2878) would make them lose to the Core rule
+     * they exist to replace (#2915). An author rule that wants to beat them
+     * competes with that unlayered Core rule anyway.
+     *
+     * @return list<string>
+     */
+    public function coreOverrideCss(string $serializedBlocks): array
+    {
+        $parts = array();
+        if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
+            // Keep the display baseline at Core's weight, not above authored rules.
             $parts[] = '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}'
-                // The generated item's font reset must yield to source item
-                // typography, including low-specificity list selectors. Keep
-                // the display baseline at Core's weight, not above authored rules.
                 . "\n" . '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item{display:list-item}'
-                . "\n" . ':where(.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link){font:inherit}'
                 . "\n" . '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item__content{display:inline}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}';
             // The navigation host owns the source list's layout box. Core's

@@ -186,7 +186,8 @@ function get_post_meta($id, $key, $single): string { return $GLOBALS['plan']['pa
 function get_theme_file_uri($path): string { return 'https://example.test/theme/' . $path; }
 function get_page_uri($id): string { return ''; }
 function wp_enqueue_style($handle, $src = '', $deps = array(), $ver = null, $media = 'all'): void { $GLOBALS['enqueuedStyles'][$handle] = $src; }
-function wp_print_styles($handles): void { foreach ((array) $handles as $handle) print '<link data-printed-handle="' . $handle . '">'; }
+// Like Core: no argument prints the remaining queue; printed handles leave it.
+function wp_print_styles($handles = false): void { foreach (false === $handles ? array_keys($GLOBALS['enqueuedStyles']) : (array) $handles as $handle) { print '<link data-printed-handle="' . $handle . '">'; unset($GLOBALS['enqueuedStyles'][$handle]); } }
 function wp_dequeue_style($handle): void { unset($GLOBALS['enqueuedStyles'][$handle]); }
 function wp_register_script(...$args): void {}
 function wp_enqueue_script($handle): void { $GLOBALS['enqueuedScripts'][$handle] = true; }
@@ -213,12 +214,16 @@ foreach ($plan['pages'][0]['document_metadata']['head']['elements'] as $row) if 
 $assert(3 === count($headOwnedSources), 'The fixture head owns three stylesheets.');
 foreach ($headOwnedSources as $source) $assert(!in_array($source, $enqueuedStyles, true), 'Head-owned stylesheet ' . $source . ' has no remaining WordPress enqueue.');
 
-// #2877: before-author engine support precedes the stylesheets the head
-// replays, so author CSS keeps the last word (and registers cascade layers
-// after the engine's own layer order).
-$ordered = array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><style id="author">.grid{display:grid}.p-8{padding:2rem}.mt-6{margin-top:1.5rem}</style></head><body><ul class="grid"><li class="p-8"><span>icon</span><h3 class="mt-6">Title</h3><p>Body</p></li></ul></body></html>'));
+// #2877, #2915: the replay follows WordPress's own queue print, so the order is
+// Core block styles, before-author engine support, the replayed author head,
+// then after-author support. Author CSS keeps the last word over engine resets,
+// and engine restatements of Core block CSS follow that Core CSS.
+$ordered = array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><style id="author">.grid{display:grid}.p-8{padding:2rem}.mt-6{margin-top:1.5rem}</style></head><body><nav><ul><li><a href="/a">A</a></li><li><a href="/b">B</a></li></ul></nav><ul class="grid"><li class="p-8"><span>icon</span><h3 class="mt-6">Title</h3><p>Body</p></li></ul></body></html>'));
 $plan = (new ArtifactCompiler())->compile($ordered)->toArray()['source_reports']['wordpress_site_plan'];
-$hooks = array(); $enqueuedStyles = array();
+$hooks = array();
+// Block rendering enqueues Core block styles before wp_enqueue_scripts runs.
+$enqueuedStyles = array('wp-block-navigation' => 'https://example.test/wp-includes/blocks/navigation/style.min.css');
+add_action('wp_head', 'wp_print_styles', 8);
 eval(substr($plan['writes'][array_search('functions.php', array_column($plan['writes'], 'target_path'), true)]['payload']['data'], 5));
 foreach ($hooks['template_include'] as $callbacks) foreach ($callbacks as $callback) $callback('template-canvas.php');
 ksort($hooks['wp_enqueue_scripts']);
@@ -231,6 +236,11 @@ $beforeAuthor = array_values(array_filter($plan['assets'], static fn(array $asse
 $assert(array() !== $beforeAuthor, 'The ordering fixture produces before-author engine support.');
 $printed = strpos($orderedEmitted, 'data-printed-handle="blocks-engine-' . substr(hash('sha256', $beforeAuthor[0]['target_path']), 0, 12) . '"');
 $assert(false !== $printed && false !== strpos($orderedEmitted, '<style id="author"') && $printed < strpos($orderedEmitted, '<style id="author"'), 'Before-author engine support prints ahead of the replayed head stylesheet.');
+$core = strpos($orderedEmitted, 'data-printed-handle="wp-block-navigation"');
+$assert(false !== $core && $core < $printed, 'Core block styles print ahead of before-author engine support, so engine restatements of Core CSS win.');
+$afterAuthor = array_values(array_filter(WordPressSitePlan::documentStylesheets($plan, 'index.html'), static fn(array $row): bool => str_contains($row['target_path'], 'after-author')));
+$assert(array() !== $afterAuthor, 'The ordering fixture produces after-author engine support.');
+foreach ($afterAuthor as $row) $assert(1 === substr_count($orderedEmitted, 'data-printed-handle="' . $row['handle'] . '"') && strpos($orderedEmitted, 'data-printed-handle="' . $row['handle'] . '"') > strpos($orderedEmitted, '<style id="author"'), 'After-author support ' . $row['handle'] . ' prints once, after the replayed head stylesheet.');
 $assert(array() === array_filter($enqueuedStyles, static fn(string $src): bool => str_contains($src, 'inline')), 'The replayed head stylesheet has no remaining WordPress enqueue.');
 
 $repeated = $artifact;
