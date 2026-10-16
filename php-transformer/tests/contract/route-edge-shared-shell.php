@@ -36,7 +36,7 @@ $headers = array_values(array_filter($plan['template_parts'], static fn(array $p
 $assert(1 === count($headers), 'The repeated utility bar and banner are one shared header part: ' . json_encode($codes));
 $header = (string) $headers[0]['canonical_block_markup'];
 $assert(str_contains($header, '555-0100') && str_contains($header, 'Harbor Parish') && str_contains($header, '{{wordpress-site-plan:navigation:'), 'The header part holds both the utility bar and the banner with its menu.');
-$assert(in_array('wordpress_site_plan_shell_edge_extracted', $codes, true), 'Edge extraction reports the part it made.');
+$assert('route_edge' === ($headers[0]['provenance']['reason'] ?? null), 'The part records that the route edge, not a landmark, found it: ' . json_encode($headers[0]['provenance'] ?? null));
 
 $templates = array_column($plan['templates'] ?? array(), 'canonical_block_markup', 'slug');
 $pages = array_column($plan['pages'], null, 'source_path');
@@ -51,5 +51,27 @@ foreach ($routes as $slug => $label) {
 $legacy = (string) ($pages['website/legacy.html']['canonical_block_markup'] ?? '');
 $assert(str_contains($legacy, 'Old Parish') && str_contains($legacy, '<!-- wp:navigation '), 'A route with a different banner keeps its own header blocks.');
 $assert(!str_contains($header, 'aria-current') && !str_contains($header, '"className":"active"'), 'The shared header freezes no route selection.');
+
+// With landmarks, the edge is primary: a utility bar before every <header>
+// and a notice after every <footer> travel with them, so no route keeps a
+// copy. The title band between the header and main stays page content.
+$landmarkPage = static function (string $title): string {
+    return '<!doctype html><html><head><title>' . $title . '</title></head><body>'
+        . '<div class="utility"><a href="tel:+15550100">555-0100</a></div>'
+        . '<header class="masthead"><a href="index.html">Harbor Parish</a><nav><a href="index.html">Home</a><a href="about.html">About</a><a href="visit.html">Visit</a></nav></header>'
+        . '<section class="page-title"><h1>' . $title . ' title</h1></section>'
+        . '<main><p>' . $title . ' body copy.</p></main>'
+        . '<footer class="colophon"><p>1 Shore Road</p></footer>'
+        . '<div class="notice"><p>We use no cookies.</p></div></body></html>';
+};
+$landmarkPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $landmarkPage('Home'), 'about.html' => $landmarkPage('About'), 'visit.html' => $landmarkPage('Visit'))))->toArray()['source_reports']['wordpress_site_plan'];
+WordPressSitePlan::assertValid($landmarkPlan);
+$landmarkParts = array_column($landmarkPlan['template_parts'], null, 'area');
+$assert(str_contains((string) ($landmarkParts['header']['canonical_block_markup'] ?? ''), '555-0100') && str_contains((string) $landmarkParts['header']['canonical_block_markup'], 'masthead') && !str_contains((string) $landmarkParts['header']['canonical_block_markup'], 'title</h1>'), 'The header part holds the utility bar with the landmark, and no title band.');
+$assert(str_contains((string) ($landmarkParts['footer']['canonical_block_markup'] ?? ''), 'We use no cookies.') && str_contains((string) $landmarkParts['footer']['canonical_block_markup'], 'colophon'), 'The footer part holds the trailing notice with the landmark.');
+foreach (array_column($landmarkPlan['pages'], null, 'source_path') as $source => $row) {
+    $markup = (string) $row['canonical_block_markup'];
+    $assert(!str_contains($markup, '555-0100') && !str_contains($markup, 'We use no cookies.') && str_contains($markup, 'title</h1>') && str_contains($markup, 'body copy.'), "{$source} keeps its title band and content and no chrome residue: {$markup}");
+}
 
 fwrite(STDOUT, "Route edge shared shell contract passed.\n");

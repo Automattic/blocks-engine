@@ -1171,10 +1171,10 @@ final class ShellExtraction
             if ($inlineShell) { $templateSlugs = array(); $excludedTemplateSlugs = array(); }
             elseif ($singlePage) $templateSlugs = array('front-page');
             $partMarkup = is_array($absorbed) ? $absorbed['markup'] : ($inlineShell ? self::withoutCurrentNavigationState($first['markup']) : $first['template_part_markup']);
-            $tagName = is_array($absorbed) || $inlineShell ? 'div' : ShellLandmarkPolicy::templatePartAreaTagName($area);
+            $tagName = is_array($absorbed) || $inlineShell ? 'div' : (string) ($first['part_tag_name'] ?? ShellLandmarkPolicy::templatePartAreaTagName($area));
             $ancestorContext = is_array($absorbed) ? ($absorbed['ancestor_context'] ?? null) : ($first['ancestor_context'] ?? null);
             $container = isset($first['legacy_container_opening']) ? array('opening' => $first['legacy_container_opening'], 'closing' => $first['legacy_container_closing']) : null;
-            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => $tagName, 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineShell ? array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $cluster['indexes'])) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $inlineShell ? null : $container, 'template_wrappers' => !$singlePage && !$inlineShell ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : 'canonical', $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => $tagName, 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineShell ? array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $cluster['indexes'])) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $inlineShell ? null : $container, 'template_wrappers' => !$singlePage && !$inlineShell ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : (!empty($first['route_edge']) ? 'route_edge' : 'canonical'), $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         }
         foreach ($pages as &$page) unset($page['shell_candidates']); unset($page);
@@ -1266,6 +1266,89 @@ final class ShellExtraction
     }
 
     /**
+     * Route edges are the primary shell candidates. Where the blocks opening
+     * (header) or closing (footer) the most routes are not exactly that
+     * area's landmark candidate (a skip link, utility bar, background layer or
+     * drawer travels with it, or there is no landmark), those routes offer the
+     * edge instead, so shared-shell placement moves all of it. The landmark
+     * candidates remain the fallback: they stand where no edge repeats, where
+     * a landmark cluster spans more routes, and where a landmark carries its
+     * own placement contract.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<string,true> $reservedSlugs
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @return array<int,array<string,mixed>>
+     */
+    public function withEdgeShellCandidates(array $pages, array $reservedSlugs, array $runtimeDeclarations): array
+    {
+        $applicable = array_filter($pages, static fn(array $page): bool => empty($page['synthetic']));
+        if (count($applicable) < 2) return $pages;
+        foreach (array('header', 'footer') as $area) {
+            if (isset($reservedSlugs[$area])) continue;
+            $landmarks = array(); $clusters = array();
+            foreach ($applicable as $index => $page) {
+                $rows = array_values(array_filter($page['shell_candidates'] ?? array(), static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
+                // Wrapper, legacy and responsive-copy candidates own placement
+                // contracts an edge does not reproduce.
+                foreach ($rows as $row) if (!empty($row['wrapper_contract_shell']) || isset($row['legacy_content_markup']) || isset($row['legacy_container_opening']) || array() !== ($row['additional_ranges'] ?? array())) continue 3;
+                $landmarks[$index] = $rows;
+                if (1 === count($rows)) $clusters[hash('sha256', json_encode($rows[0]['classes'] ?? array()) . "\0" . ($rows[0]['identity_markup'] ?? $rows[0]['markup'] ?? ''))][] = $index;
+            }
+            $edges = array();
+            foreach ($applicable as $index => $page) {
+                $edge = $this->routeEdge((string) $page['canonical_block_markup'], $page, $area, $runtimeDeclarations);
+                if (array() !== $edge) $edges[$index] = $edge;
+            }
+            $group = self::edgeGroups($edges, $pages)[0] ?? null;
+            if (null === $group || count($group['indexes']) < max(array_map('count', $clusters) ?: array(0))) continue;
+            // With a landmark the edge extends it outward only: the blocks
+            // before a header, the blocks after a footer. Blocks between the
+            // landmark and the content stay page content.
+            $length = null;
+            foreach ($group['indexes'] as $index) {
+                if (array() === ($landmarks[$index] ?? array())) continue;
+                $at = 1 === count($landmarks[$index]) ? $this->edgeLandmarkIndex((string) $pages[$index]['canonical_block_markup'], array_slice($edges[$index], 0, $group['length']), (string) ($landmarks[$index][0]['markup'] ?? '')) : null;
+                if (null === $at || (null !== $length && $length !== $at + 1)) continue 2;
+                $length = $at + 1;
+            }
+            // An edge that is only the landmark, or wrappers around it, leaves
+            // the landmark in charge: its path keeps wrapper context such as
+            // responsive visibility.
+            if (1 === $length) continue;
+            $length ??= $group['length'];
+            $nested = !empty($edges[$group['indexes'][0]][0]['nested']);
+            $identity = hash('sha256', implode("\0", array_column(array_slice($edges[$group['indexes'][0]], 0, $length), 'identity')));
+            foreach ($group['indexes'] as $index) {
+                $blocks = array_slice($edges[$index], 0, $length);
+                $offset = min(array_column($blocks, 'offset'));
+                $end = max(array_map(static fn(array $block): int => $block['offset'] + $block['length'], $blocks));
+                $markup = substr((string) $pages[$index]['canonical_block_markup'], $offset, $end - $offset);
+                $candidate = array('area' => $area, 'markup' => $markup, 'inner_markup' => $markup, 'template_part_markup' => self::withoutCurrentNavigationState($markup), 'identity_markup' => 'route-edge:' . $identity, 'classes' => array(), 'source_path' => $pages[$index]['source_path'], 'offset' => $offset, 'length' => $end - $offset, 'part_tag_name' => 'div', 'route_edge' => true);
+                if ($nested) $candidate += array('nested_shell' => true, 'additional_ranges' => array());
+                $pages[$index]['shell_candidates'] = array_merge(array_values(array_filter($pages[$index]['shell_candidates'] ?? array(), static fn(array $row): bool => $area !== ($row['area'] ?? null))), array($candidate));
+            }
+        }
+        return $pages;
+    }
+
+    /**
+     * Position, counted from the page edge, of the edge block that holds the
+     * landmark candidate, or null when the edge does not hold it.
+     *
+     * @param list<array{offset:int,length:int,identity:string,nested:bool}> $edge
+     */
+    private function edgeLandmarkIndex(string $markup, array $edge, string $landmark): ?int
+    {
+        if ('' === $landmark) return null;
+        foreach ($edge as $position => $block) {
+            $at = strpos(substr($markup, $block['offset'], $block['length']), $landmark);
+            if (false !== $at) return $position;
+        }
+        return null;
+    }
+
+    /**
      * The edge blocks of one route, outermost first for a header and last
      * first for a footer, each with its byte range and route-free identity.
      *
@@ -1275,7 +1358,7 @@ final class ShellExtraction
      */
     private function routeEdge(string $markup, array $page, string $area, array $runtimeDeclarations): array
     {
-        $base = 0;
+        $base = 0; $depth = 0;
         $ranges = self::topLevelBlockRanges($markup);
         // Descend through a sole wrapper: the app frame around chrome and main.
         while (1 === count($ranges)) {
@@ -1285,19 +1368,26 @@ final class ShellExtraction
             if (array() === $children) return array();
             $base += $ranges[0]['offset'];
             $ranges = $children;
+            ++$depth;
         }
         if (count($ranges) < 2) return array();
         if ('footer' === $area) $ranges = array_reverse($ranges);
-        $edge = array();
-        // The last block of a route is its content, never chrome.
-        foreach (array_slice($ranges, 0, count($ranges) - 1) as $range) {
+        $edge = array(); $contentFollows = false;
+        $other = 'header' === $area ? 'footer' : 'header';
+        foreach ($ranges as $range) {
             $offset = $base + $range['offset'];
             $block = substr($markup, $offset, $range['length']);
-            if (str_contains($block, 'wp:template-part') || preg_match('/"tagName":"main"/', $block)) break;
-            $found = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array(array('offset' => $offset, 'length' => $range['length'])));
-            if ($found['blocked']) break;
-            $edge[] = array('offset' => $offset, 'length' => $range['length'], 'identity' => self::edgeBlockIdentity($block));
+            // Main content, an existing part, or a block a binding blocks ends
+            // the edge with content beyond it; the other area's landmark ends
+            // it without.
+            if (str_contains($block, 'wp:template-part') || preg_match('/"tagName":"main"|<main\b/', $block)) { $contentFollows = true; break; }
+            if (preg_match('/"tagName":"' . $other . '"|<' . $other . '\b/', $block)) break;
+            if ($this->runtimeBindingsInRanges($runtimeDeclarations, $page, array(array('offset' => $offset, 'length' => $range['length'])))['blocked']) { $contentFollows = true; break; }
+            $edge[] = array('offset' => $offset, 'length' => $range['length'], 'identity' => self::edgeBlockIdentity($block), 'nested' => 0 < $depth);
         }
+        // Chrome frames content: when only the other area's chrome or the
+        // page end follows the edge, its innermost block is the content.
+        if (!$contentFollows) array_pop($edge);
         return $edge;
     }
 
@@ -1306,7 +1396,6 @@ final class ShellExtraction
         $markup = self::identityMarkup(self::withoutCurrentNavigationState($block, true));
         $markup = preg_replace('/\b(?:id|anchor)="[^"]*"/i', '', $markup) ?? $markup;
         $markup = preg_replace('/"anchor":"[^"]*"/', '', $markup) ?? $markup;
-        $markup = preg_replace('/\{\{(?:wordpress-site-plan|blocks-engine):[^}]+\}\}/', '{{token}}', $markup) ?? $markup;
         return hash('sha256', preg_replace('/\s+/', ' ', trim($markup)) ?? trim($markup));
     }
 
