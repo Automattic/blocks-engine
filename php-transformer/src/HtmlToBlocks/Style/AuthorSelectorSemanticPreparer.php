@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use DOMElement;
@@ -209,6 +210,9 @@ final class AuthorSelectorSemanticPreparer
                 } elseif ( $directAuthorLayoutItem
                     || ($structuralListItem && self::richTextSelectorNeedsHook($parsed))
                     || $this->context->requiresIndependentSemanticWrapper($element)
+                    // A text-only span that is its own layout leaf becomes the
+                    // paragraph itself, so the rule follows it as a block hook.
+                    || ($this->context->requiresInlineLayoutCarrier($element) && AddressableInlineLayoutLeaf::isPlainTextSpan($element))
                 ) {
                     $projections->ensureSemanticMarker($path);
                 } elseif ( self::richTextSelectorNeedsHook($parsed) ) {
@@ -231,6 +235,7 @@ final class AuthorSelectorSemanticPreparer
                 $parentPath = $element->parentNode instanceof DOMElement ? ($element->parentNode->getNodePath() ?? '') : '';
                 if ( '' !== $path
                     && $this->context->requiresInlineLayoutCarrier($element)
+                    && ! AddressableInlineLayoutLeaf::isPlainTextSpan($element)
                     && ! $this->isPhrasingWithinHeading($element)
                     && ! $this->isQuoteCitation($element)
                     && ! $projections->isControlPath($parentPath)
