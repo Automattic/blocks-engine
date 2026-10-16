@@ -158,6 +158,7 @@ final class RichTextMaterializer implements RichTextMaterialization
             'background',
             'background-clip',
             'background-color',
+            'background-image',
             'border',
             'border-bottom',
             'border-color',

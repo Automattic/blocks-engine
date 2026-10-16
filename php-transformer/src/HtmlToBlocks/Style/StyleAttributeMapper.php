@@ -299,7 +299,9 @@ final class StyleAttributeMapper
             }
         }
 
-        $gradient = $this->gradient($declarations, $consumed);
+        $textClippedBackground = in_array(strtolower(trim((string) ($declarations['background-clip'] ?? ''))), array('text'), true)
+            || in_array(strtolower(trim((string) ($declarations['-webkit-background-clip'] ?? ''))), array('text'), true);
+        $gradient = $textClippedBackground ? '' : $this->gradient($declarations, $consumed);
         $background = $this->backgroundColor($declarations, $consumed, $resolveValue);
         if ( '' !== $background ) {
             $preset = $this->presetColorSlug($background);
