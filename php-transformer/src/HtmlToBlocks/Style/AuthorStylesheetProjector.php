@@ -287,7 +287,11 @@ final class AuthorStylesheetProjector
                 $variants = array();
                 foreach ( $selectors as $selector ) {
                     foreach ( $this->shellLayerCombinatorVariants(trim($selector)) as $variant ) {
-                        $variants[] = ':root .editor-styles-wrapper ' . $variant;
+                        // The editor scope adds no specificity: the variant
+                        // follows its source rule, so it must tie with every
+                        // rule the source rule ties with, such as a later
+                        // `.col-lg-6` that overrides `.row > *`.
+                        $variants[] = ':where(:root .editor-styles-wrapper) ' . $variant;
                     }
                 }
                 return array() === $variants ? '' : implode(',', $variants) . '{' . $body . '}';
