@@ -2421,6 +2421,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $engineResetParts = $engineSupportCss->beforeAuthorCss($serializedBlocks, $this->generatedBlocks()->blockName('layout-shell'));
         $engineResetStart = count($beforeAuthorCssParts);
         array_push($beforeAuthorCssParts, ...$engineResetParts);
+        array_push($beforeAuthorCssParts, ...$engineSupportCss->coreOverrideCss($serializedBlocks));
         // Precedence for everything below is declared on each contribution's
         // CascadeLayer (see CascadeLayer), not by the order these calls
         // appear in. $afterAuthorCss orders the collected stylesheet by that
