@@ -286,10 +286,41 @@ final class NavigationPatternContext
                 $text = (string) ($selector['selector'] ?? '');
                 $suffix = $selector['parsed']['pseudo_state_suffix_span'] ?? null;
                 if (is_array($suffix)) $text = substr($text, 0, (int) $suffix['start']);
-                if ('' !== $text && $this->styleResolver->matchesCssSelector($element, $text)) return true;
+                // Current-only paint does not make an item a presented subject;
+                // its resting peers decide, so every route shapes it alike.
+                if ('' !== $text && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text) && $this->styleResolver->matchesCssSelector($element, $text)) return true;
             }
         }
         return false;
+    }
+
+    /**
+     * The served route's item is one of its menu's items, not a different
+     * one. Record what marks it current, so its identity and its current-only
+     * paint can follow the served route instead of this snapshot: a state
+     * class its item or anchor carries that its peers do not. A peer-unique
+     * class such as a per-item language hook is the item's own, not state.
+     */
+    public function recordCurrentNavigationItem(DOMElement $item, DOMElement $anchor): void
+    {
+        if (!$this->session instanceof HtmlTransformerSession || !$item->parentNode instanceof DOMElement) return;
+        $peerItems = array();
+        foreach ($item->parentNode->childNodes as $sibling) {
+            if ($sibling instanceof DOMElement && !$sibling->isSameNode($item) && $sibling->tagName === $item->tagName) $peerItems[] = $sibling;
+        }
+        if (array() === $peerItems) return;
+        $peerAnchors = array();
+        foreach ($peerItems as $peer) {
+            $peerAnchor = $item->isSameNode($anchor) ? $peer : ($peer->getElementsByTagName($anchor->tagName)->item(0));
+            if ($peerAnchor instanceof DOMElement) $peerAnchors[] = $peerAnchor;
+        }
+        $own = static function (DOMElement $element, array $peers): array {
+            $peerClasses = array();
+            foreach ($peers as $peer) foreach (preg_split('/\s+/', trim($peer->getAttribute('class'))) ?: array() as $class) $peerClasses[$class] = true;
+            return array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => '' !== $class && !isset($peerClasses[$class])
+                && array() !== array_intersect(preg_split('/[^a-z0-9]+/', strtolower($class)) ?: array(), array('active', 'current', 'selected'))));
+        };
+        $this->session->authorSelectorProjectionState()->markCurrentNavigationClasses(array_merge($own($item, $peerItems), $item->isSameNode($anchor) ? array() : $own($anchor, $peerAnchors)));
     }
 
     public function navigationItemSubjectMarker(DOMElement $item): string
@@ -331,7 +362,9 @@ final class NavigationPatternContext
         foreach ($this->session->authorStyleAnalysis()->styleRules() as $rule) {
             foreach ($rule['selectors'] as $selector) {
                 $text = (string) ($selector['selector'] ?? '');
-                if ('' !== $text && $this->styleResolver->matchesCssSelector($element, $text)) {
+                // Route state is not item identity: the same item on every route
+                // carries one marker, whichever page the snapshot served.
+                if ('' !== $text && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text) && $this->styleResolver->matchesCssSelector($element, $text)) {
                     $rules[] = array($text, $rule['declarations'], $rule['conditions'] ?? array());
                 }
             }
@@ -340,7 +373,9 @@ final class NavigationPatternContext
         for ($sibling = $element->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling) {
             if ($sibling instanceof DOMElement) ++$position;
         }
-        $identity = array(strtolower($element->tagName), $element->getAttribute('id'), $element->getAttribute('class'), $element->getAttribute('style'), $element->getAttribute('href'), $position, $rules);
+        $projections = $this->session->authorSelectorProjectionState();
+        $classes = array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class));
+        $identity = array(strtolower($element->tagName), $element->getAttribute('id'), implode(' ', $classes), $element->getAttribute('style'), $element->getAttribute('href'), $position, $rules);
         return $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-' . $kind, (string) json_encode($identity));
     }
 

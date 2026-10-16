@@ -737,14 +737,16 @@ $dynamicCurrentCss = implode("\n", array_map(
     is_array($dynamicCurrentList['assets'] ?? null) ? $dynamicCurrentList['assets'] : array()
 ));
 $staticCurrentSelector = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.current>.wp-block-navigation-item__content';
-$dynamicCurrentCarrier = 'blocks-engine-navigation-current-color-' . hash('sha256', '#aa1100' . "\0" . '1');
+// The current item has its resting peers' shape; its current-only colour
+// follows the served route's aria-current, never this snapshot's item.
+preg_match_all('/([^{}]*)\{color:#aa1100\}/', $dynamicCurrentCss, $dynamicCurrentRules);
 $assert(
     ! str_contains((string) ($dynamicCurrentLinks[0]['attrs']['className'] ?? ''), ' current')
         && ! str_contains((string) ($dynamicCurrentLinks[0]['attrs']['anchorClassName'] ?? ''), 'current')
         && ! str_contains($dynamicCurrentCss, $staticCurrentSelector)
-        && str_contains((string) ($dynamicCurrentNavigation['attrs']['className'] ?? ''), $dynamicCurrentCarrier)
-        && str_contains($dynamicCurrentCss, '.wp-block-navigation.' . $dynamicCurrentCarrier . '.' . $dynamicCurrentCarrier
-            . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:not(:hover)')
+        && str_contains((string) ($dynamicCurrentLinks[0]['attrs']['className'] ?? ''), 'blocks-engine-navigation-anchor-')
+        && array() !== $dynamicCurrentRules[1]
+        && array() === array_filter($dynamicCurrentRules[1], static fn (string $selector): bool => ! str_contains($selector, '[aria-current]'))
         && str_contains($dynamicCurrentCss, '.wp-block-navigation.current-menu'
             . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:hover')
         && str_contains($dynamicCurrentCss, '{color:#00cc44}'),

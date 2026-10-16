@@ -120,6 +120,7 @@
       "php tests/contract/shared-shell-plan.php",
       "php tests/contract/shared-shell-route-state.php",
       "php tests/contract/route-edge-shared-shell.php",
+      "php tests/contract/navigation-current-item-shape.php",
       "php tests/contract/shared-header-with-landmark-footer.php",
       "php tests/unit/shell-identity-navigation-levels.php",
       "php tests/contract/canonical-html-includes.php",
