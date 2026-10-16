@@ -8,21 +8,22 @@
             "added h3 [blocks-engine-accordion-toggle]": 5,
             "added img": 4,
             "added mark": 4,
-            "added p [blocks-engine-inline-layout-carrier]": 37,
+            "added p [blocks-engine-inline-layout-carrier]": 17,
             "added p [blocks-engine-synthetic-paragraph]": 16,
             "added span": 6,
             "removed button": 1,
             "removed nav": 1,
             "removed svg": 10,
             "retagged button>span": 5,
-            "retagged span>mark": 15
+            "retagged span>mark": 15,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 20
         },
         "11-nonprofit-campaign": {
             "added div [blocks-engine-control]": 14,
             "added figure [blocks-engine-synthetic-image-figure]": 6,
             "added img": 7,
             "added mark": 10,
-            "added p [blocks-engine-inline-layout-carrier]": 13,
+            "added p [blocks-engine-inline-layout-carrier]": 6,
             "added p [blocks-engine-synthetic-paragraph]": 5,
             "removed button": 1,
             "removed nav": 1,
@@ -32,13 +33,14 @@
             "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged footer>cite": 1,
             "retagged span>div [blocks-engine-semantic]": 4,
-            "retagged span>mark": 9
+            "retagged span>mark": 9,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 7
         },
         "12-portfolio": {
             "added figure [blocks-engine-synthetic-image-figure]": 7,
             "added img": 8,
             "added mark": 12,
-            "added p [blocks-engine-inline-layout-carrier]": 60,
+            "added p [blocks-engine-inline-layout-carrier]": 30,
             "added p [blocks-engine-synthetic-paragraph]": 4,
             "added p [blocks-engine-synthetic-svg-paragraph]": 1,
             "removed nav": 1,
@@ -46,7 +48,8 @@
             "removed ul": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 8,
             "retagged span>div [blocks-engine-semantic]": 1,
-            "retagged span>mark": 5
+            "retagged span>mark": 5,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 30
         },
         "13-realistic-small-business": {
             "added div [blocks-engine-control]": 32,
@@ -54,7 +57,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 8,
             "added img": 14,
             "added mark": 3,
-            "added p [blocks-engine-inline-layout-carrier]": 24,
+            "added p [blocks-engine-inline-layout-carrier]": 13,
             "added p [blocks-engine-synthetic-paragraph]": 10,
             "added span": 2,
             "removed button": 1,
@@ -67,6 +70,7 @@
             "retagged span>div [blocks-engine-semantic]": 5,
             "retagged span>mark": 6,
             "retagged span>p": 3,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 11,
             "retagged svg>div [wp-block-group]": 1,
             "retagged svg>img": 2
         },
@@ -77,7 +81,7 @@
             "added img": 6,
             "added mark": 10,
             "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 42,
+            "added p [blocks-engine-inline-layout-carrier]": 6,
             "added p [blocks-engine-synthetic-paragraph]": 7,
             "removed button": 1,
             "removed nav": 1,
@@ -87,6 +91,7 @@
             "retagged footer>cite": 1,
             "retagged span>mark": 3,
             "retagged span>p": 4,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 36,
             "retagged svg>figure [blocks-engine-synthetic-image-figure]": 1,
             "retagged svg>img": 1
         },
@@ -96,7 +101,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 3,
             "added img": 4,
             "added mark": 2,
-            "added p [blocks-engine-inline-layout-carrier]": 19,
+            "added p [blocks-engine-inline-layout-carrier]": 3,
             "added p [blocks-engine-synthetic-paragraph]": 8,
             "added p [blocks-engine-synthetic-svg-paragraph]": 12,
             "removed nav": 1,
@@ -105,6 +110,7 @@
             "removed ul": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 40,
             "retagged span>mark": 7,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 16,
             "retagged svg>img": 12
         },
         "16-astro-docs-content-collection": {
@@ -113,7 +119,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 13,
             "added img": 14,
             "added mark": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 20,
+            "added p [blocks-engine-inline-layout-carrier]": 2,
             "added p [blocks-engine-synthetic-paragraph]": 15,
             "added p [blocks-engine-synthetic-svg-paragraph]": 1,
             "added span": 3,
@@ -126,13 +132,14 @@
             "retagged div>p [blocks-engine-synthetic-paragraph]": 9,
             "retagged span>div [blocks-engine-semantic]": 4,
             "retagged span>mark": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 18,
             "retagged svg>img": 1
         },
         "17-markdown-blog-launch-site": {
             "added div [blocks-engine-control]": 16,
             "added figure [blocks-engine-synthetic-image-figure]": 3,
             "added img": 3,
-            "added p [blocks-engine-inline-layout-carrier]": 15,
+            "added p [blocks-engine-inline-layout-carrier]": 3,
             "added p [blocks-engine-synthetic-paragraph]": 5,
             "removed button": 1,
             "removed svg": 3,
@@ -142,7 +149,7 @@
             "retagged figure>blockquote [wp-block-quote]": 3,
             "retagged span>div [wp-block-group]": 3,
             "retagged span>mark": 3,
-            "retagged span>p [blocks-engine-synthetic-paragraph]": 3,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 15,
             "retagged svg>div [wp-block-group]": 1,
             "retagged svg>figure [blocks-engine-synthetic-image-figure]": 1,
             "retagged svg>img": 2
@@ -153,7 +160,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 9,
             "added img": 18,
             "added mark": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 24,
+            "added p [blocks-engine-inline-layout-carrier]": 16,
             "added p [blocks-engine-synthetic-paragraph]": 26,
             "removed form": 1,
             "removed nav": 1,
@@ -162,6 +169,7 @@
             "retagged div>p [blocks-engine-lowered-paragraph]": 4,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 4,
             "retagged span>mark": 8,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 8,
             "retagged svg>img": 6
         },
         "19-product-catalog": {
@@ -170,7 +178,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 9,
             "added img": 9,
             "added mark": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 17,
+            "added p [blocks-engine-inline-layout-carrier]": 6,
             "added p [blocks-engine-synthetic-paragraph]": 6,
             "removed button": 1,
             "removed svg": 9,
@@ -178,6 +186,7 @@
             "retagged a>div [wp-block-group]": 3,
             "retagged div>p [blocks-engine-lowered-paragraph]": 1,
             "retagged span>mark": 6,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 11,
             "retagged svg>figure [blocks-engine-synthetic-image-figure]": 3,
             "retagged svg>img": 1
         },
@@ -189,20 +198,18 @@
             "added figure [blocks-engine-synthetic-image-figure]": 4,
             "added img": 6,
             "added mark": 3,
-            "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 29,
+            "added p [blocks-engine-inline-layout-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 2,
-            "added span": 1,
             "added span [blocks-engine-authored-marquee__content]": 4,
             "added ul [blocks-engine-social-source-row]": 1,
             "removed a": 3,
             "removed button": 1,
-            "removed span": 1,
             "removed svg": 8,
             "removed ul": 2,
             "removed-wrapper div": 2,
             "retagged address>p": 2,
-            "retagged span>mark": 1
+            "retagged span>mark": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 29
         },
         "20-switchback-woocommerce-extra-hard": {
             "added a": 36,
@@ -212,7 +219,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 2,
             "added img": 16,
             "added mark": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 40,
+            "added p [blocks-engine-inline-layout-carrier]": 10,
             "added p [blocks-engine-synthetic-paragraph]": 41,
             "added p [blocks-engine-synthetic-svg-paragraph]": 15,
             "added span": 1,
@@ -223,6 +230,7 @@
             "retagged div>p [blocks-engine-lowered-paragraph]": 26,
             "retagged p>div [wp-block-group]": 1,
             "retagged span>mark": 16,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 30,
             "retagged svg>figure [blocks-engine-synthetic-image-figure]": 4,
             "retagged svg>img": 13
         },
@@ -234,7 +242,7 @@
             "added img": 9,
             "added input": 1,
             "added mark": 9,
-            "added p [blocks-engine-inline-layout-carrier]": 10,
+            "added p [blocks-engine-inline-layout-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 10,
             "added p [blocks-engine-synthetic-svg-paragraph]": 6,
             "added span [blocks-engine-authored-marquee__content]": 2,
@@ -249,6 +257,7 @@
             "retagged div>p [blocks-engine-lowered-paragraph]": 10,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged span>mark": 3,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 9,
             "retagged svg>figure [blocks-engine-synthetic-image-figure]": 5,
             "retagged svg>img": 6
         },
@@ -258,7 +267,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 5,
             "added img": 5,
             "added mark": 2,
-            "added p [blocks-engine-inline-layout-carrier]": 22,
+            "added p [blocks-engine-inline-layout-carrier]": 18,
             "added p [blocks-engine-synthetic-paragraph]": 8,
             "removed button": 1,
             "removed nav": 1,
@@ -269,7 +278,8 @@
             "retagged nav>div [wp-block-group]": 3,
             "retagged span>div [blocks-engine-semantic]": 3,
             "retagged span>mark": 4,
-            "retagged span>mark [blocks-engine-attribute]": 3
+            "retagged span>mark [blocks-engine-attribute]": 3,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 4
         },
         "23-recipe-blog": {
             "added a": 60,
@@ -295,7 +305,7 @@
             "added img": 7,
             "added mark": 2,
             "added p": 15,
-            "added p [blocks-engine-inline-layout-carrier]": 52,
+            "added p [blocks-engine-inline-layout-carrier]": 14,
             "added p [blocks-engine-propagated-link-color]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 20,
             "removed button": 1,
@@ -306,6 +316,7 @@
             "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 18,
             "retagged span>mark": 5,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 38,
             "retagged svg>img": 2
         },
         "25-real-estate": {
@@ -313,7 +324,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 1,
             "added img": 1,
             "added mark": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 15,
+            "added p [blocks-engine-inline-layout-carrier]": 6,
             "added p [blocks-engine-synthetic-paragraph]": 5,
             "removed button": 1,
             "removed div": 6,
@@ -324,6 +335,7 @@
             "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged div>span": 6,
             "retagged span>mark": 5,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 9,
             "retagged svg>img": 1
         },
         "26-government-municipal": {
@@ -332,7 +344,7 @@
             "added div [blocks-engine-control]": 18,
             "added img": 2,
             "added p": 2,
-            "added p [blocks-engine-inline-layout-carrier]": 42,
+            "added p [blocks-engine-inline-layout-carrier]": 7,
             "added p [blocks-engine-positioned-fragment-link-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 10,
             "added p [blocks-engine-synthetic-svg-paragraph]": 1,
@@ -352,6 +364,7 @@
             "removed-wrapper a": 1,
             "retagged address>p": 1,
             "retagged caption>figcaption": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 35,
             "retagged svg>img": 10,
             "retagged table>figure [blocks-engine-table]": 1
         },
@@ -361,7 +374,7 @@
             "added img": 1,
             "added mark": 2,
             "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 22,
+            "added p [blocks-engine-inline-layout-carrier]": 4,
             "added p [blocks-engine-synthetic-paragraph]": 19,
             "added p [blocks-engine-synthetic-svg-paragraph]": 5,
             "added strong": 1,
@@ -374,13 +387,14 @@
             "retagged a>div [wp-block-group]": 5,
             "retagged div>p [blocks-engine-lowered-paragraph]": 2,
             "retagged span>mark": 19,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 18,
             "retagged svg>img": 6
         },
         "28-enterprise-b2b": {
             "added div [blocks-engine-control]": 18,
             "added figure [blocks-engine-synthetic-image-figure]": 7,
             "added img": 7,
-            "added p [blocks-engine-inline-layout-carrier]": 32,
+            "added p [blocks-engine-inline-layout-carrier]": 13,
             "added p [blocks-engine-positioned-fragment-link-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 78,
             "added span [blocks-engine-summary-content-carrier]": 7,
@@ -396,40 +410,35 @@
             "retagged span>div [blocks-engine-semantic]": 19,
             "retagged span>div [wp-block-group]": 4,
             "retagged span>mark": 16,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 19,
             "retagged svg>img": 2
         },
         "29-multilingual-i18n": {
             "added a": 16,
-            "added br": 1,
             "added div [blocks-engine-control]": 14,
             "added img": 2,
-            "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 20,
+            "added p [blocks-engine-inline-layout-carrier]": 5,
             "added p [blocks-engine-synthetic-paragraph]": 35,
             "added p [blocks-engine-synthetic-svg-paragraph]": 1,
-            "added span": 4,
             "removed bdi": 5,
-            "removed br": 1,
-            "removed span": 4,
             "removed svg": 2,
             "removed ul": 2,
             "retagged a>div [wp-block-group]": 4,
             "retagged nav>div [wp-block-group]": 1,
             "retagged span>div [blocks-engine-semantic]": 4,
             "retagged span>mark": 14,
-            "retagged span>p [blocks-engine-synthetic-paragraph]": 1
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 17
         },
         "3-artist-music": {
             "added div [blocks-engine-control]": 16,
             "added mark": 2,
-            "added p [blocks-engine-inline-layout-carrier]": 6,
             "added p [blocks-engine-synthetic-paragraph]": 2,
             "removed button": 1,
             "removed ul": 3,
             "retagged div>p [blocks-engine-lowered-paragraph]": 9,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged span>mark": 8,
-            "retagged span>p [blocks-engine-synthetic-paragraph]": 18,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 24,
             "retagged svg>figure [blocks-engine-synthetic-image-figure]": 2
         },
         "30-cursed-pangolin-fanwiki": {
@@ -450,7 +459,7 @@
             "added mark": 1,
             "added p": 4,
             "added p [blocks-engine-editor-anchor-welcome-heading]": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 10,
+            "added p [blocks-engine-inline-layout-carrier]": 8,
             "added p [blocks-engine-lowered-paragraph]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 2,
             "added p [blocks-engine-synthetic-svg-paragraph]": 1,
@@ -470,6 +479,7 @@
             "retagged div>strong": 1,
             "retagged span>div [blocks-engine-semantic]": 4,
             "retagged span>mark": 3,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 2,
             "retagged svg>div [wp-block-group]": 1,
             "retagged svg>img": 1
         },
@@ -478,7 +488,7 @@
             "added div [blocks-engine-control]": 8,
             "added figure [blocks-engine-table]": 1,
             "added p": 4,
-            "added p [blocks-engine-inline-layout-carrier]": 51,
+            "added p [blocks-engine-inline-layout-carrier]": 10,
             "added p [blocks-engine-synthetic-paragraph]": 34,
             "added span": 9,
             "added strong": 1,
@@ -497,6 +507,7 @@
             "retagged dl>div [wp-block-group]": 1,
             "retagged span>div [blocks-engine-semantic]": 5,
             "retagged span>mark": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 41,
             "retagged svg>div [wp-block-group]": 1,
             "retagged svg>img": 2
         },
@@ -506,7 +517,7 @@
             "added img": 2,
             "added mark": 2,
             "added p": 3,
-            "added p [blocks-engine-inline-layout-carrier]": 18,
+            "added p [blocks-engine-inline-layout-carrier]": 15,
             "added p [blocks-engine-synthetic-paragraph]": 27,
             "removed button": 1,
             "removed label": 1,
@@ -518,6 +529,7 @@
             "retagged input>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 2,
             "retagged span>mark": 14,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged svg>img": 1
         },
         "35-hyper-minimal-blog": {
@@ -533,14 +545,15 @@
             "added img": 6,
             "added mark": 1,
             "added p": 5,
-            "added p [blocks-engine-inline-layout-carrier]": 9,
+            "added p [blocks-engine-inline-layout-carrier]": 7,
             "added p [blocks-engine-synthetic-paragraph]": 23,
             "removed button": 1,
             "removed svg": 6,
             "removed ul": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 12,
             "retagged span>div [blocks-engine-semantic]": 1,
-            "retagged span>mark": 5
+            "retagged span>mark": 5,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 2
         },
         "37-art-gallery-exhibition": {
             "added a": 28,
@@ -548,7 +561,7 @@
             "added img": 2,
             "added mark": 2,
             "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 20,
+            "added p [blocks-engine-inline-layout-carrier]": 12,
             "added p [blocks-engine-lowered-paragraph]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 33,
             "removed a": 1,
@@ -561,14 +574,15 @@
             "retagged div>mark": 3,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged div>time": 1,
-            "retagged span>mark": 21
+            "retagged span>mark": 21,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 8
         },
         "38-medical-clinic": {
             "added div [blocks-engine-control]": 6,
             "added img": 5,
             "added mark": 1,
             "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 29,
+            "added p [blocks-engine-inline-layout-carrier]": 13,
             "added p [blocks-engine-positioned-fragment-link-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 27,
             "added strong": 1,
@@ -580,7 +594,7 @@
             "retagged address>p": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 6,
             "retagged span>mark": 10,
-            "retagged span>p [blocks-engine-synthetic-paragraph]": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 17,
             "retagged svg>img": 1
         },
         "39-old-internet-cms": {
@@ -608,7 +622,7 @@
             "added img": 6,
             "added mark": 2,
             "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 19,
+            "added p [blocks-engine-inline-layout-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 4,
             "removed button": 1,
             "removed svg": 6,
@@ -617,13 +631,13 @@
             "retagged footer>cite": 1,
             "retagged span>div [blocks-engine-semantic]": 2,
             "retagged span>p": 6,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 18,
             "retagged svg>img": 1
         },
         "40-job-board": {
             "added a": 60,
             "added div [blocks-engine-control]": 50,
             "added mark": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 26,
             "added p [blocks-engine-positioned-fragment-link-carrier]": 1,
             "added p [blocks-engine-propagated-link-color]": 30,
             "added p [blocks-engine-synthetic-paragraph]": 25,
@@ -635,6 +649,7 @@
             "retagged div>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged span>div [blocks-engine-semantic]": 31,
             "retagged span>mark": 7,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 26,
             "retagged svg>img": 2
         },
         "41-generative-art-studio": {
@@ -643,7 +658,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 6,
             "added img": 9,
             "added mark": 9,
-            "added p [blocks-engine-inline-layout-carrier]": 19,
+            "added p [blocks-engine-inline-layout-carrier]": 12,
             "added p [blocks-engine-synthetic-paragraph]": 5,
             "removed button": 1,
             "removed nav": 1,
@@ -654,7 +669,8 @@
             "retagged div>p [blocks-engine-synthetic-paragraph]": 4,
             "retagged nav>div [wp-block-group]": 3,
             "retagged span>mark": 11,
-            "retagged span>p": 4
+            "retagged span>p": 4,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 7
         },
         "42-immersive-product-launch": {
             "added a": 2,
@@ -663,7 +679,7 @@
             "added img": 1,
             "added mark": 2,
             "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 26,
+            "added p [blocks-engine-inline-layout-carrier]": 12,
             "added p [blocks-engine-synthetic-paragraph]": 26,
             "added p [blocks-engine-synthetic-svg-paragraph]": 3,
             "added ul [blocks-engine-social-source-row]": 1,
@@ -679,6 +695,7 @@
             "retagged span>div [blocks-engine-semantic]": 1,
             "retagged span>mark": 7,
             "retagged span>p": 4,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 14,
             "retagged svg>img": 3
         },
         "43-interactive-space-explorer": {
@@ -688,7 +705,7 @@
             "added img": 1,
             "added mark": 2,
             "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 15,
+            "added p [blocks-engine-inline-layout-carrier]": 2,
             "added p [blocks-engine-synthetic-paragraph]": 17,
             "added p [blocks-engine-synthetic-svg-paragraph]": 3,
             "added ul [blocks-engine-social-source-row]": 1,
@@ -704,6 +721,7 @@
             "retagged span>div [blocks-engine-semantic]": 4,
             "retagged span>mark": 12,
             "retagged span>p": 4,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 13,
             "retagged svg>img": 3
         },
         "44-experimental-zine": {
@@ -713,7 +731,7 @@
             "added img": 2,
             "added mark": 3,
             "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 28,
+            "added p [blocks-engine-inline-layout-carrier]": 6,
             "added p [blocks-engine-positioned-fragment-link-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 7,
             "added span": 1,
@@ -724,7 +742,8 @@
             "retagged div>p [blocks-engine-lowered-paragraph]": 3,
             "retagged nav>div [wp-block-group]": 3,
             "retagged span>mark": 3,
-            "retagged span>p": 3
+            "retagged span>p": 3,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 22
         },
         "45-markdown-ssg-blog": {
             "added div [blocks-engine-control]": 44,
@@ -745,13 +764,13 @@
         "47-digital-garden": {
             "added div [blocks-engine-semantic]": 1,
             "added mark": 2,
-            "added p [blocks-engine-inline-layout-carrier]": 4,
+            "added p [blocks-engine-inline-layout-carrier]": 3,
             "added p [blocks-engine-positioned-fragment-link-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 1,
             "removed ul": 6,
             "retagged span>div [blocks-engine-semantic]": 1,
             "retagged span>mark": 20,
-            "retagged span>p [blocks-engine-synthetic-paragraph]": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 2,
             "retagged svg>figure [blocks-engine-synthetic-image-figure]": 1
         },
         "48-desktop-os-sim": {
@@ -779,7 +798,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 12,
             "added img": 19,
             "added mark": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 14,
+            "added p [blocks-engine-inline-layout-carrier]": 6,
             "added p [blocks-engine-synthetic-paragraph]": 10,
             "removed button": 1,
             "removed nav": 3,
@@ -788,6 +807,7 @@
             "retagged div>p [blocks-engine-lowered-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 5,
             "retagged span>mark": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 8,
             "retagged svg>img": 28
         },
         "50-web-audio-synth": {
@@ -806,7 +826,7 @@
             "added div [blocks-engine-control]": 2,
             "added mark": 5,
             "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 8,
+            "added p [blocks-engine-inline-layout-carrier]": 2,
             "added p [blocks-engine-positioned-fragment-link-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 14,
             "removed b": 2,
@@ -814,6 +834,7 @@
             "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged span>mark": 12,
             "retagged span>mark [blocks-engine-attribute]": 2,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 6,
             "retagged svg>img": 1
         },
         "52-css-3d-world": {
@@ -837,10 +858,11 @@
             "retagged svg>img": 6
         },
         "55-algorithm-visualizer": {
-            "added p [blocks-engine-inline-layout-carrier]": 6,
+            "added p [blocks-engine-inline-layout-carrier]": 5,
             "added p [blocks-engine-synthetic-paragraph]": 1,
             "removed nav": 1,
-            "retagged span>mark": 3
+            "retagged span>mark": 3,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 1
         },
         "56-code-playground": {
             "added button": 1,
@@ -850,7 +872,7 @@
             "added div [blocks-engine-layout-neutral-buttons]": 7,
             "added div [wp-block-spacer]": 3,
             "added img": 3,
-            "added p [blocks-engine-inline-layout-carrier]": 15,
+            "added p [blocks-engine-inline-layout-carrier]": 7,
             "added span [blocks-engine-copy-to-clipboard__status]": 1,
             "removed button": 1,
             "removed i": 3,
@@ -863,6 +885,7 @@
             "retagged span>div [blocks-engine-empty-visual-group]": 2,
             "retagged span>div [blocks-engine-semantic]": 4,
             "retagged span>p [blocks-engine-inline-layout-carrier]": 4,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 8,
             "retagged svg>img": 1
         },
         "57-webgl-shader-gallery": {
@@ -891,7 +914,7 @@
             "added div [blocks-engine-layout-child-button]": 7,
             "added div [blocks-engine-layout-neutral-buttons]": 7,
             "added img": 8,
-            "added p [blocks-engine-inline-layout-carrier]": 9,
+            "added p [blocks-engine-inline-layout-carrier]": 8,
             "added span [blocks-engine-copy-to-clipboard__status]": 1,
             "removed button": 2,
             "removed input": 1,
@@ -902,6 +925,7 @@
             "retagged div>p [blocks-engine-lowered-paragraph]": 3,
             "retagged span>mark": 1,
             "retagged span>p [blocks-engine-inline-layout-carrier]": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged svg>img": 1
         },
         "6-editorial-magazine": {
@@ -911,7 +935,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 2,
             "added img": 7,
             "added mark": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 26,
+            "added p [blocks-engine-inline-layout-carrier]": 2,
             "added p [blocks-engine-synthetic-paragraph]": 8,
             "added span": 1,
             "removed button": 1,
@@ -921,20 +945,22 @@
             "removed svg": 7,
             "removed ul": 3,
             "retagged span>div [blocks-engine-semantic]": 5,
-            "retagged span>mark": 6
+            "retagged span>mark": 6,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 24
         },
         "60-node-editor": {
             "added div [blocks-engine-control]": 12,
             "added div [blocks-engine-layout-child-button]": 6,
             "added div [blocks-engine-layout-neutral-buttons]": 6,
             "added img": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 6,
+            "added p [blocks-engine-inline-layout-carrier]": 4,
             "removed div": 2,
             "removed input": 1,
             "removed svg": 2,
             "retagged div>p [blocks-engine-editor-anchor-hint]": 1,
             "retagged span>div [blocks-engine-semantic]": 1,
-            "retagged span>p [blocks-engine-inline-layout-carrier]": 1
+            "retagged span>p [blocks-engine-inline-layout-carrier]": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 2
         },
         "61-photo-editor": {
             "added button": 8,
@@ -944,12 +970,13 @@
             "added img": 9,
             "added mark": 1,
             "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 4,
+            "added p [blocks-engine-inline-layout-carrier]": 2,
             "removed button": 8,
             "removed div": 2,
             "removed label": 1,
             "removed svg": 1,
-            "retagged span>div [blocks-engine-semantic]": 11
+            "retagged span>div [blocks-engine-semantic]": 11,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 2
         },
         "62-platformer-game": {
             "added div [blocks-engine-control]": 10,
@@ -965,21 +992,22 @@
         "64-kanban-board": [],
         "65-terminal-emulator": {
             "added div [blocks-engine-control]": 2,
-            "added p [blocks-engine-inline-layout-carrier]": 2,
             "removed nav": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 2,
             "retagged svg>img": 1
         },
         "66-regex-tester": {
             "added div [blocks-engine-control]": 2,
             "added div [blocks-engine-layout-child-button]": 15,
             "added div [blocks-engine-layout-neutral-buttons]": 15,
-            "added p [blocks-engine-inline-layout-carrier]": 16,
+            "added p [blocks-engine-inline-layout-carrier]": 9,
             "added p [blocks-engine-synthetic-paragraph]": 2,
             "removed nav": 1,
             "removed span": 1,
             "removed ul": 2,
             "retagged span>mark": 3,
             "retagged span>p [blocks-engine-inline-layout-carrier]": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 7,
             "retagged svg>img": 1
         },
         "67-dataviz-studio": {
@@ -1006,7 +1034,6 @@
             "added div [blocks-engine-layout-neutral-buttons]": 16,
             "added mark": 13,
             "added p": 5,
-            "added p [blocks-engine-inline-layout-carrier]": 20,
             "added p [blocks-engine-synthetic-paragraph]": 6,
             "added span [blocks-engine-copy-to-clipboard__status]": 1,
             "removed button": 1,
@@ -1019,7 +1046,8 @@
             "retagged nav>div [wp-block-group]": 3,
             "retagged select>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 1,
-            "retagged span>mark": 6
+            "retagged span>mark": 6,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 20
         },
         "69-markdown-editor": {
             "added button": 13,
@@ -1027,7 +1055,7 @@
             "added div [blocks-engine-layout-child-button]": 20,
             "added div [blocks-engine-layout-neutral-buttons]": 20,
             "added img": 15,
-            "added p [blocks-engine-inline-layout-carrier]": 9,
+            "added p [blocks-engine-inline-layout-carrier]": 6,
             "added p [blocks-engine-synthetic-paragraph]": 6,
             "removed br": 1,
             "removed button": 25,
@@ -1039,6 +1067,7 @@
             "retagged span>div [blocks-engine-semantic]": 5,
             "retagged span>mark": 2,
             "retagged span>p [blocks-engine-inline-layout-carrier]": 3,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged svg>img": 1
         },
         "7-event-conference": {
@@ -1047,7 +1076,7 @@
             "added img": 4,
             "added input": 1,
             "added mark": 2,
-            "added p [blocks-engine-inline-layout-carrier]": 64,
+            "added p [blocks-engine-inline-layout-carrier]": 3,
             "added p [blocks-engine-synthetic-paragraph]": 1,
             "added p [blocks-engine-synthetic-svg-paragraph]": 3,
             "removed button": 1,
@@ -1057,6 +1086,7 @@
             "retagged div>p [blocks-engine-lowered-paragraph]": 54,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 6,
             "retagged span>mark": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 61,
             "retagged svg>div [wp-block-group]": 1,
             "retagged svg>img": 5
         },
@@ -1066,7 +1096,7 @@
             "added div [blocks-engine-layout-child-button]": 13,
             "added div [blocks-engine-layout-neutral-buttons]": 13,
             "added p": 6,
-            "added p [blocks-engine-inline-layout-carrier]": 30,
+            "added p [blocks-engine-inline-layout-carrier]": 26,
             "added p [blocks-engine-synthetic-paragraph]": 2,
             "removed button": 1,
             "removed div": 1,
@@ -1077,13 +1107,14 @@
             "retagged span>div [blocks-engine-semantic]": 3,
             "retagged span>mark": 2,
             "retagged span>p [blocks-engine-inline-layout-carrier]": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 4,
             "retagged svg>img": 1
         },
         "71-beyond-the-block": {
             "added a": 2,
             "added div [blocks-engine-control]": 6,
             "added mark": 13,
-            "added p [blocks-engine-inline-layout-carrier]": 15,
+            "added p [blocks-engine-inline-layout-carrier]": 14,
             "added p [blocks-engine-positioned-fragment-link-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 3,
             "removed button": 1,
@@ -1092,7 +1123,8 @@
             "retagged a>div [wp-block-group]": 1,
             "retagged div>p": 1,
             "retagged nav>div [wp-block-group]": 3,
-            "retagged span>mark": 6
+            "retagged span>mark": 6,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 1
         },
         "72-why-wordpress": {
             "added cite": 3,
@@ -1126,7 +1158,6 @@
             "added a": 15,
             "added div [blocks-engine-control]": 12,
             "added img": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 2,
             "added p [blocks-engine-synthetic-paragraph]": 29,
             "added span": 3,
             "removed a": 5,
@@ -1139,7 +1170,8 @@
             "retagged a>div [wp-block-group]": 3,
             "retagged div>p [blocks-engine-lowered-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 16,
-            "retagged span>mark": 13
+            "retagged span>mark": 13,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 2
         },
         "74-lumen-coffee": {
             "added div [blocks-engine-control]": 12,
@@ -1150,7 +1182,7 @@
             "added input": 1,
             "added mark": 2,
             "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 7,
+            "added p [blocks-engine-inline-layout-carrier]": 5,
             "added p [blocks-engine-synthetic-paragraph]": 3,
             "added small": 1,
             "removed button": 1,
@@ -1161,6 +1193,7 @@
             "removed ul": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 4,
             "retagged span>mark": 4,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 2,
             "retagged svg>img": 1
         },
         "75-inkwell-books": {
@@ -1168,7 +1201,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 4,
             "added img": 5,
             "added input": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 9,
+            "added p [blocks-engine-inline-layout-carrier]": 2,
             "added p [blocks-engine-synthetic-paragraph]": 6,
             "added span": 1,
             "removed button": 1,
@@ -1176,18 +1209,20 @@
             "removed input": 1,
             "removed nav": 1,
             "removed svg": 5,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 7,
             "retagged svg>img": 1
         },
         "76-sole-society": {
             "added a": 12,
             "added div [blocks-engine-control]": 12,
-            "added p [blocks-engine-inline-layout-carrier]": 7,
+            "added p [blocks-engine-inline-layout-carrier]": 4,
             "added p [blocks-engine-synthetic-paragraph]": 8,
             "added p [blocks-engine-synthetic-svg-paragraph]": 5,
             "removed nav": 1,
             "retagged a>div [wp-block-group]": 4,
             "retagged div>p [blocks-engine-lowered-paragraph]": 3,
             "retagged span>mark": 9,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged svg>img": 7
         },
         "77-fernwood-plants": {
@@ -1195,7 +1230,7 @@
             "added div [blocks-engine-control]": 8,
             "added figure [blocks-engine-synthetic-image-figure]": 2,
             "added img": 3,
-            "added p [blocks-engine-inline-layout-carrier]": 5,
+            "added p [blocks-engine-inline-layout-carrier]": 4,
             "added p [blocks-engine-synthetic-paragraph]": 14,
             "added p [blocks-engine-synthetic-svg-paragraph]": 5,
             "removed button": 1,
@@ -1206,6 +1241,7 @@
             "retagged div>p [blocks-engine-lowered-paragraph]": 4,
             "retagged input>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged span>mark": 13,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged svg>img": 5
         },
         "78-terra-ceramics": {
@@ -1216,7 +1252,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 5,
             "added img": 6,
             "added mark": 4,
-            "added p [blocks-engine-inline-layout-carrier]": 2,
+            "added p [blocks-engine-inline-layout-carrier]": 1,
             "added p [blocks-engine-positioned-fragment-link-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 4,
             "removed button": 1,
@@ -1227,6 +1263,7 @@
             "retagged span>div [blocks-engine-semantic]": 3,
             "retagged span>div [wp-block-group]": 4,
             "retagged span>mark [blocks-engine-attribute]": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged svg>img": 2
         },
         "79-law-firm": {
@@ -1243,7 +1280,7 @@
             "added img": 53,
             "added mark": 2,
             "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 10,
+            "added p [blocks-engine-inline-layout-carrier]": 2,
             "added p [blocks-engine-synthetic-paragraph]": 19,
             "removed button": 1,
             "removed nav": 1,
@@ -1252,6 +1289,7 @@
             "retagged div>p": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 30,
             "retagged span>div [wp-block-spacer]": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 8,
             "retagged svg>img": 2
         },
         "80-photographer-portfolio": {
@@ -1288,13 +1326,14 @@
         "83-startup-docs-hub": {
             "added figure [blocks-engine-table]": 1,
             "added p": 2,
-            "added p [blocks-engine-inline-layout-carrier]": 5,
+            "added p [blocks-engine-inline-layout-carrier]": 2,
             "added p [blocks-engine-positioned-fragment-link-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 6,
             "added strong": 2,
             "added tbody": 1,
             "removed nav": 1,
-            "removed strong": 2
+            "removed strong": 2,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 3
         },
         "84-community-center": {
             "added mark": 1,
@@ -1313,7 +1352,7 @@
             "added figure [blocks-engine-synthetic-image-figure]": 11,
             "added img": 11,
             "added p": 4,
-            "added p [blocks-engine-inline-layout-carrier]": 22,
+            "added p [blocks-engine-inline-layout-carrier]": 8,
             "added p [blocks-engine-positioned-fragment-link-carrier]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 18,
             "added span": 10,
@@ -1334,6 +1373,7 @@
             "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 2,
             "retagged span>mark": 8,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 14,
             "retagged table>figure [blocks-engine-table]": 1
         },
         "86-fitness-studio": {
@@ -1341,15 +1381,14 @@
             "added figure [blocks-engine-synthetic-image-figure]": 4,
             "added figure [blocks-engine-table]": 1,
             "added img": 4,
-            "added p": 3,
-            "added p [blocks-engine-inline-layout-carrier]": 6,
+            "added p [blocks-engine-inline-layout-carrier]": 3,
             "added p [blocks-engine-synthetic-paragraph]": 7,
-            "added span": 3,
-            "removed span": 4,
+            "removed span": 1,
             "removed svg": 4,
             "removed ul": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 1,
-            "retagged span>mark": 10
+            "retagged span>mark": 10,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 6
         },
         "87-travel-tours": {
             "added blockquote [wp-block-quote]": 3,
@@ -1366,7 +1405,6 @@
             "added h3 [blocks-engine-accordion-toggle]": 3,
             "added img": 1,
             "added p": 3,
-            "added p [blocks-engine-inline-layout-carrier]": 6,
             "added p [blocks-engine-synthetic-paragraph]": 7,
             "added span": 3,
             "added span [blocks-engine-authored-carousel__status]": 1,
@@ -1376,6 +1414,7 @@
             "removed-wrapper details": 3,
             "retagged div>p [blocks-engine-lowered-paragraph]": 1,
             "retagged figure>div [wp-block-group]": 5,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 6,
             "retagged summary>span": 3
         },
         "88-accounting-firm": {
@@ -1384,11 +1423,12 @@
             "added figure [blocks-engine-table]": 1,
             "added img": 5,
             "added p": 3,
-            "added p [blocks-engine-inline-layout-carrier]": 11,
+            "added p [blocks-engine-inline-layout-carrier]": 7,
             "added p [blocks-engine-synthetic-paragraph]": 1,
             "removed svg": 5,
             "removed ul": 1,
-            "retagged span>mark": 1
+            "retagged span>mark": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 4
         },
         "89-hearth-bistro": {
             "added figure [blocks-engine-synthetic-image-figure]": 1,
@@ -1400,14 +1440,15 @@
             "added figure [blocks-engine-synthetic-image-figure]": 17,
             "added img": 26,
             "added mark": 4,
-            "added p [blocks-engine-inline-layout-carrier]": 20,
+            "added p [blocks-engine-inline-layout-carrier]": 3,
             "added p [blocks-engine-synthetic-paragraph]": 13,
             "removed button": 1,
             "removed svg": 26,
             "removed ul": 3,
             "retagged address>p": 1,
             "retagged span>div [blocks-engine-semantic]": 13,
-            "retagged span>mark": 1
+            "retagged span>mark": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 17
         }
     }
 }
