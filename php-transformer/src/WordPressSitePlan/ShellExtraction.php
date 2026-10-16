@@ -2282,8 +2282,9 @@ final class ShellExtraction
         $markup = self::withoutScrollStateCarrierIdentity($markup);
         $markup = preg_replace('/\s*' . EngineMarker::patternBody() . '/', '', $markup) ?? $markup;
         $markup = preg_replace('/\s*blocks-engine-(?:specificity-class|disclosure-summary)-[a-f0-9]{6,}(?:-\d+)?/', '', $markup) ?? $markup;
-        // A captured dialog trigger's generated id carries a per-document hash.
+        // A captured dialog's generated id, and its triggers' ids, carry a per-document hash.
         $markup = preg_replace('/blocks-engine-dialog-trigger-[a-f0-9]+-(\d+)/', 'blocks-engine-dialog-trigger-$1', $markup) ?? $markup;
+        $markup = preg_replace('/blocks-engine-dialog-[a-f0-9]{16}\b/', 'blocks-engine-dialog', $markup) ?? $markup;
         $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
         $markup = preg_replace('/--blocks-engine-richtext-marker:\s*blocks-engine-richtext-[a-f0-9]+-\d+;?/', '', $markup) ?? $markup;
         $markup = preg_replace('/(?:\.\.\/)+assets\//', 'assets/', $markup) ?? $markup;
