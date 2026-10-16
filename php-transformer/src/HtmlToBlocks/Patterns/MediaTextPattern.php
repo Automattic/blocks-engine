@@ -208,6 +208,23 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // Out-of-flow media (`position: absolute`/`fixed`) sizes against its
+        // containing block — typically the source media wrapper that sets
+        // `position: relative`, a min-height and overflow clipping — not a grid
+        // track. core/media-text replaces that wrapper with its own figure, so
+        // the media would resolve against a distant ancestor (often the
+        // viewport) and cover the text pane. Keep the authored wrapper through
+        // ordinary flow lowering, mirroring the out-of-flow text-pane gate.
+        if ( $this->declaresUnresolvableGateValue($mediaStyle, array( 'position' )) ) {
+            return null;
+        }
+        $mediaPosition = strtolower($this->normalizedCssValue(
+            (string) ($this->styleDeclarations($mediaStyle)['position'] ?? '')
+        ));
+        if ( in_array($mediaPosition, array( 'absolute', 'fixed' ), true) ) {
+            return null;
+        }
+
         // core/media-text sizes its panes as grid tracks: a percentage media
         // track and the remainder for text. A flex row whose text pane alone
         // grows into the free space beside a fixed-size media pane has no

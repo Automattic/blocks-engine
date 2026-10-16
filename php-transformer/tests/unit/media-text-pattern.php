@@ -1488,6 +1488,20 @@ $genuineTwoPaneBlock = $collectMediaText($genuineTwoPaneResult['blocks'] ?? arra
 $assertTrue(is_array($genuineTwoPaneBlock), 'A genuine in-flow media/text pair still converts to core/media-text.');
 $assertSame('core/heading', $genuineTwoPaneBlock['innerBlocks'][0]['blockName'] ?? null, 'Genuine two-pane text side keeps its heading identity.');
 
+// Out-of-flow media sizes against its source wrapper (the containing block),
+// not a media-text grid track. Replacing that wrapper with media-text's figure
+// lets the image resolve against the viewport, so the pattern declines and the
+// authored wrapper survives with its stylesheet positioning.
+$positionedMediaHtml = '<style>.hero{display:grid;grid-template-columns:1.35fr 1fr}.hero-media{position:relative;min-height:560px;overflow:hidden}.hero-media img{width:100%;height:100%;object-fit:cover;position:absolute}</style>'
+    . '<section class="hero"><div class="hero-text"><h1>Heading</h1><p>Copy beside a cover image.</p></div>'
+    . '<div class="hero-media"><img src="photo.jpg" alt="Photo"></div></section>';
+$positionedMediaResult = $transformHtml($positionedMediaHtml);
+$assertNull($collectMediaText($positionedMediaResult['blocks'] ?? array()), 'Absolutely positioned media keeps its source wrapper instead of lowering to core/media-text.');
+$fixedMediaResult = $transformHtml(str_replace('position:absolute}', 'position:fixed}', $positionedMediaHtml));
+$assertNull($collectMediaText($fixedMediaResult['blocks'] ?? array()), 'Fixed-position media also declines core/media-text.');
+$inFlowMediaResult = $transformHtml(str_replace(';position:absolute}', '}', $positionedMediaHtml));
+$assertTrue(is_array($collectMediaText($inFlowMediaResult['blocks'] ?? array())), 'In-flow media in the same layout still lowers to core/media-text.');
+
 if ( 0 === $failures ) {
     echo "media text pattern ok\n";
 }
