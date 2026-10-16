@@ -301,6 +301,7 @@ final class InlineGeometry
             'background-attachment',
             'background-origin',
             'background-clip',
+            '-webkit-background-clip',
             'background-blend-mode',
         );
     }
@@ -417,7 +418,9 @@ final class InlineGeometry
             $properties[] = 'overflow';
         }
         $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
-        if ( preg_match('/\burl\s*\(/i', $inlineBackground)
+        $textClippedBackground = in_array(strtolower(trim((string) ($declarations['background-clip'] ?? ''))), array('text'), true)
+            || in_array(strtolower(trim((string) ($declarations['-webkit-background-clip'] ?? ''))), array('text'), true);
+        if ( ($textClippedBackground || preg_match('/\burl\s*\(/i', $inlineBackground))
             && ( 0 < SourceDom::directElementChildCount($element) || '' !== trim((string) $element->textContent) )
         ) {
             $properties = array_merge($properties, $this->backgroundCarrierProperties());
