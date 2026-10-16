@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DesignSystem;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PresetBinding;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeJsonProjection;
@@ -164,20 +165,26 @@ foreach (array(
 ) as $why => $css) $assert($plain === (new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => $css)), $roseUsage))->bind($plain), "class-driven colour is not bound when $why");
 $assert(str_contains((new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => 'p.text-rose:not(.has-text-color){color:#e11d48!important}')), $roseUsage))->bind($plain), '"textColor"'), 'an !important rule that steps aside for preset colours does not block binding');
 
-// Low-weight colours fold into a nearby heavier token; heavy colours stay.
+// Low-weight colours fold into a heavier token within the imperceptible
+// bound (ΔE 5) and bind to it; a shade further away keeps a token of its own.
 $consolidated = DesignSystem::consolidateColors(array(
     array('color' => '#050b18', 'weight' => 900, 'members' => array('#050b18')),
     array('color' => '#3b82f6', 'weight' => 60, 'members' => array('#3b82f6')),
     array('color' => '#2563eb', 'weight' => 40, 'members' => array('#2563eb')),
     array('color' => '#0a1630', 'weight' => 20, 'members' => array('#0a1630')),
+    array('color' => '#08101f', 'weight' => 15, 'members' => array('#08101f')),
     array('color' => '#e11d48', 'weight' => 10, 'members' => array('#e11d48')),
 ));
-$assert(array('#050b18' => 920, '#3b82f6' => 60, '#2563eb' => 40, '#e11d48' => 10) === array_column($consolidated, 'weight', 'color'), 'a low-weight shade within ΔE 18 merges into the heavier token; distinct and heavier colours stay');
-$assert(array() === array_diff(array('#050b18', '#0a1630'), $consolidated[0]['members']), 'the merged shade is a member of the heavier token');
-$keptCta = DesignSystem::consolidateColors(array(array('color' => '#050b18', 'weight' => 900, 'members' => array('#050b18')), array('color' => '#0a1630', 'weight' => 20, 'members' => array('#0a1630'))), array('#0a1630' => 20));
+$assert(array('#050b18' => 915, '#3b82f6' => 60, '#2563eb' => 40, '#0a1630' => 20, '#e11d48' => 10) === array_column($consolidated, 'weight', 'color'), 'a low-weight shade within ΔE 5 merges into the heavier token; a shade ΔE 12.9 away and heavier colours stay');
+$assert(array() === array_diff(array('#050b18', '#08101f'), $consolidated[0]['members']), 'the merged shade is a member of the heavier token');
+$keptCta = DesignSystem::consolidateColors(array(array('color' => '#050b18', 'weight' => 900, 'members' => array('#050b18')), array('color' => '#08101f', 'weight' => 20, 'members' => array('#08101f'))), array('#08101f' => 20));
 $assert(2 === count($keptCta), 'a call-to-action background is never folded away');
-$paletteWith = DesignSystem::fromUsage(array('a.html' => $usage(array($row('#e5e7eb', 600)), array(array('role' => 'root', 'color' => '#050b18', 'authored' => '#050b18', 'count' => 1, 'weight' => 900), array('role' => 'section', 'color' => '#0a1630', 'authored' => '#0a1630', 'count' => 1, 'weight' => 20)))));
-$assert(array('#050b18', '#e5e7eb') === array_column($paletteWith?->colors ?? array(), 'color') && null === $paletteWith?->colorSlug('#0a1630'), 'the derived palette omits the folded shade, and the shade keeps rendering as itself');
+$foldedBackgrounds = array(array('role' => 'root', 'color' => '#050b18', 'authored' => '#050b18', 'count' => 1, 'weight' => 900), array('role' => 'section', 'color' => '#08101f', 'authored' => '#08101f', 'count' => 1, 'weight' => 20), array('role' => 'section', 'color' => '#0a1630', 'authored' => '#0a1630', 'count' => 1, 'weight' => 20));
+$paletteWith = DesignSystem::fromUsage(array('a.html' => $usage(array($row('#e5e7eb', 600)), $foldedBackgrounds)));
+$assert(array('#050b18', '#e5e7eb', '#0a1630') === array_column($paletteWith?->colors ?? array(), 'color'), 'the derived palette omits the folded shade and keeps the distant one (' . json_encode(array_column($paletteWith?->colors ?? array(), 'color')) . ')');
+$assert('base' === $paletteWith?->colorSlug('#08101f') && 'base' === $paletteWith?->colorSlug('#08101e') && 'base' !== $paletteWith?->colorSlug('#0a1630') && null !== $paletteWith?->colorSlug('#0a1630'), 'every colour the palette represents binds: a folded shade binds to the token that absorbed it, a distant one to its own');
+$assert(array('#08101f') === ($paletteWith?->report()['palette'][0]['absorbs'] ?? null) && 5.0 === ($paletteWith?->report()['tolerances']['color_consolidation_delta_e76'] ?? null), 'the report names the shades a token absorbs and the imperceptible bound');
+$assert((CssColor::distance('#08101f', '#050b18') ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE && (CssColor::distance('#0a1630', '#050b18') ?? 0.0) > DesignSystem::COLOR_CONSOLIDATION_DISTANCE, 'the fixture shades sit on either side of the bound');
 
 // Without usage, projection keeps the legacy hashed presets.
 $legacy = (new ThemeJsonProjection())->project(array(array('kind' => 'css', 'content' => 'body{color:#123456}', 'scopes' => array(array('kind' => 'global')))));
@@ -241,6 +248,76 @@ foreach ($plans as $fixture => [$plan, $theme]) {
     $coverage = $plan['theme']['design_system']['metrics']['restyle_coverage'] ?? null;
     $assert(is_float($coverage) && $coverage >= 0.8 && $coverage <= 1.0, "$fixture: at least 80% of rendered colours come from presets (" . json_encode($coverage) . ')');
 }
+
+// Headings in a display webfont over a system-stack body and interface:
+// `heading` is the webfont, though one route's minor headings stay in the
+// system stack, and the headings that render it bind to it.
+$displayFixture = require dirname(__DIR__) . '/fixtures/design-system/system-stack-display-headings.php';
+[$displayPlan, $displayTheme] = $compile($displayFixture);
+$displayFamilies = array_column($displayTheme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
+$assert(str_contains((string) ($displayFamilies['heading'] ?? ''), 'Fraunces') && str_starts_with((string) ($displayFamilies['body'] ?? ''), '-apple-system'), 'system-stack-display-headings: heading is the webfont headings render, body the system stack (' . json_encode($displayFamilies) . ')');
+$displayMarkup = implode('', array_column($displayPlan['pages'], 'canonical_block_markup'));
+$assert(2 === preg_match_all('/<!-- wp:heading \{"className":"font-display[^}]*"fontFamily":"heading"\} --><h[12] class="[^"]*has-heading-font-family/', implode('', array_column(array_slice($displayPlan['pages'], 0, 1), 'canonical_block_markup'))) && !preg_match('/<!-- wp:heading \{"className":"text-xl","level":3[^}]*"fontFamily"/', $displayMarkup), 'system-stack-display-headings: display headings bind to the heading family; system-stack headings do not');
+$assert(!isset($displayTheme['styles']['elements']['heading']['typography']['fontFamily']), 'system-stack-display-headings: the heading element style is not set while some headings render another family');
+$unanimous = $displayFixture;
+$unanimous['files']['contact.html'] = str_replace('<h3 class="text-xl">', '<h3 class="font-display text-xl">', $unanimous['files']['contact.html']);
+[, $unanimousTheme] = $compile($unanimous);
+$assert('var:preset|font-family|heading' === ($unanimousTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null) && str_contains((string) (array_column($unanimousTheme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug')['heading'] ?? ''), 'Fraunces'), 'every heading in the webfont: the heading element style reads the heading preset');
+$headingOnly = DesignSystem::fromUsage(array('a.html' => $usage(array(
+    array('role' => 'body', 'color' => '#111111', 'font_family' => '-apple-system,BlinkMacSystemFont,sans-serif', 'font_size_px' => 16, 'background' => '#ffffff', 'count' => 1, 'weight' => 900),
+    array('role' => 'heading', 'color' => '#111111', 'font_family' => '-apple-system,BlinkMacSystemFont,sans-serif', 'font_size_px' => 20, 'background' => '#ffffff', 'count' => 3, 'weight' => 60),
+    array('role' => 'heading', 'color' => '#111111', 'font_family' => '"Fraunces",serif', 'font_size_px' => 30, 'background' => '#ffffff', 'count' => 1, 'weight' => 40),
+))));
+$assert('heading' === $headingOnly?->fontFamilySlug('Fraunces, serif') && 'body' === $headingOnly?->fontFamilySlug('-apple-system, sans-serif'), 'a webfont on a share of the headings is heading even when more heading text is in the system stack');
+
+// Inline colours in rich text become core's text-colour format.
+$displayFirst = (string) ($displayPlan['pages'][0]['canonical_block_markup'] ?? '');
+$assert(3 === substr_count($displayFirst, '<mark style="background-color:rgba(0, 0, 0, 0)') && 3 === substr_count($displayFirst, 'class="has-inline-color has-primary-color') && !str_contains($displayFirst, 'color:#38bdf8'), 'system-stack-display-headings: class, inline-style and authored-mark colours become the text-colour format with no literal left');
+$assert(str_contains($displayFirst, 'class="has-inline-color has-primary-color text-sky"') && str_contains($displayFirst, '>a highlighted phrase</mark>') && str_contains($displayFirst, '>a marked one</mark>'), 'system-stack-display-headings: the format keeps the text and the author classes');
+$runtime = new Runtime();
+$assert($displayFirst === $runtime->serializeBlocks($runtime->parseBlocks($displayFirst)) && 'pass' === ($runtime->validateBlockSerialization($displayFirst)['status'] ?? null), 'system-stack-display-headings: the bound page survives parse_blocks/serialize_blocks and validates');
+$inlineBinding = new PresetBinding($bindSystem, array());
+$inline = static fn(string $content): string => '<!-- wp:paragraph --><p>' . $content . '</p><!-- /wp:paragraph -->';
+$assert($inline('A <mark style="background-color:rgba(0, 0, 0, 0)" class="has-inline-color has-' . $slug . '-color x" role="none">b</mark>') === $inlineBinding->bind($inline('A <span class="x" style="color:#e11d48" role="none">b</span>')), 'a token-coloured span becomes the text-colour format mark');
+$assert($inline('<mark style="background-color:#ffffff" class="has-inline-color has-' . $slug . '-color">b</mark>') === $inlineBinding->bind($inline('<mark style="color:#e11d48;background-color:#ffffff">b</mark>')), 'an inline background stays a literal, as core keeps it');
+foreach (array(
+    'it is a link' => '<a href="/x" style="color:#e11d48">b</a>',
+    'it has other attributes' => '<mark id="m" style="color:#e11d48">b</mark>',
+    'it is translucent' => '<mark style="color:rgb(225 29 72 / .5)">b</mark>',
+    'it is not a token' => '<mark style="color:#00ff00">b</mark>',
+) as $why => $content) $assert($inline($content) === $inlineBinding->bind($inline($content)), "an inline colour is left alone when $why");
+$assert($inline('<span style="color:#e11d48">b</span>') === (new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => 'mark{padding:2px}'))))->bind($inline('<span style="color:#e11d48">b</span>')), 'a span is not made a mark that an author mark rule would restyle');
+$assert($inline('<mark style="color:#e11d48">b</mark>') === (new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => 'mark{color:red!important}'))))->bind($inline('<mark style="color:#e11d48">b</mark>')), 'an !important mark colour keeps the inline literal');
+
+// Translucent colours bind in stylesheets as the token mixed with transparency.
+$assert('.a{color:color-mix(in srgb, var(--wp--preset--color--' . $slug . ',#e11d48) 50%, transparent)}' === $sheet('.a{color:rgb(225 29 72 / .5)}'), 'a translucent token colour binds as color-mix() with the token');
+$assert('.a{color:rgb(225 29 72 / .333)}' === $sheet('.a{color:rgb(225 29 72 / .333)}') && '.a{color:rgb(0 255 0 / .5)}' === $sheet('.a{color:rgb(0 255 0 / .5)}'), 'an alpha that is not a whole percentage, or a colour that is no token, keeps its bytes');
+$assert(str_contains((string) json_encode(array_column($displayPlan['assets'], 'content')), 'color-mix(in srgb, var(--wp--preset--color--contrast,#f5f1e8) 70%, transparent)'), 'system-stack-display-headings: the translucent navigation link colour reads the contrast token');
+
+// Navigation and button labels bind through the attributes core supports.
+$roseNav = static fn(string $second): string => '<!-- wp:navigation {"className":"menu"} --><!-- wp:navigation-link {"className":"text-rose","label":"A","url":"/a","kind":"custom"} /-->' . $second . '<!-- /wp:navigation -->';
+$navBinding = new PresetBinding($bindSystem, array(), $classUsage(array(array('classes' => 'text-rose', 'properties' => array('color' => array('#e11d48'))))));
+$assert(str_starts_with($navBinding->bind($roseNav('<!-- wp:navigation-link {"metadata":{"blocksEngineNavigationAnchor":{"style":"","className":"text-rose"}},"label":"B","url":"/b","kind":"custom"} /-->')), '<!-- wp:navigation {"className":"menu","textColor":"' . $slug . '"} -->'), 'a navigation whose links all render one token carries it as textColor');
+$assert($roseNav('<!-- wp:navigation-link {"label":"B","url":"/b","kind":"custom"} /-->') === $navBinding->bind($roseNav('<!-- wp:navigation-link {"label":"B","url":"/b","kind":"custom"} /-->')), 'a navigation with a link that inherits its colour is left alone');
+$assert(str_contains((string) ($shellParts ?? ''), '"textColor":"accent-1","ref"'), 'tailwind-shell: the footer navigation carries its links\' token as textColor');
+$button = '<!-- wp:button {"className":"text-rose"} --><div class="wp-block-button text-rose"><a class="wp-block-button__link wp-element-button">Go</a></div><!-- /wp:button -->';
+$assert('<!-- wp:button {"className":"text-rose","textColor":"' . $slug . '"} --><div class="wp-block-button text-rose"><a class="wp-block-button__link has-text-color has-' . $slug . '-color wp-element-button">Go</a></div><!-- /wp:button -->' === (new PresetBinding($bindSystem, array(), $roseUsage))->bind($button) || str_contains((new PresetBinding($bindSystem, array(), $roseUsage))->bind($button), '"textColor":"' . $slug . '"'), 'a button label coloured by an author class carries the textColor preset');
+
+// Values binding refuses are reported by reason.
+$refusalsOf = static fn(array $markups, array $assets = array(), array $rows = array()): array => array_filter((new PresetBinding($bindSystem, $assets, $classUsage($rows)))->refusals($markups));
+$para = static fn(string $attributes, string $style): string => '<!-- wp:paragraph ' . $attributes . ' --><p class="has-text-color" style="' . $style . '">Hi</p><!-- /wp:paragraph -->';
+$assert(array('no_matching_token' => 1) === $refusalsOf(array($para('{"style":{"color":{"text":"#00ff00"}}}', 'color:#00ff00'))), 'a colour no token represents is refused as no_matching_token');
+$assert(array('alpha' => 1) === $refusalsOf(array($para('{"style":{"color":{"text":"rgba(225,29,72,0.5)"}}}', 'color:rgba(225,29,72,0.5)'))), 'a translucent block colour is refused as alpha');
+$assert(array('important' => 1) === $refusalsOf(array($plain), array(array('kind' => 'css', 'content' => '.text-rose{color:#e11d48!important}')), $roseUsage['a.html']['class_styles']), 'an !important rule is refused as important');
+$assert(array('state_variant' => 1) === $refusalsOf(array($plain), array(array('kind' => 'css', 'content' => '.text-rose:hover{color:#111}')), $roseUsage['a.html']['class_styles']), 'a hover rule is refused as state_variant');
+$assert(array('breakpoint_variant' => 1) === $refusalsOf(array($plain), array(), array(array('classes' => 'text-rose', 'properties' => array('color' => array('#e11d48;#111111'))))) && array('breakpoint_variant' => 1) === $refusalsOf(array($plain), array(), array(array('classes' => 'text-rose', 'properties' => array('color' => array('!breakpoint'))))), 'a breakpoint that changes the token is refused as breakpoint_variant');
+$assert(array('state_variant' => 1, 'alpha' => 1, 'important' => 1) == $refusalsOf(array($plain, str_replace('text-rose', 'text-a', $plain), str_replace('text-rose', 'text-b', $plain)), array(), array(array('classes' => 'text-rose', 'properties' => array('color' => array('!state'))), array('classes' => 'text-a', 'properties' => array('color' => array('!alpha'))), array('classes' => 'text-b', 'properties' => array('color' => array('!important'))))), 'collector observations carry their refusal reason');
+$assert(array('unsupported_block' => 1) === $refusalsOf(array('<!-- wp:cover {"style":{"color":{"text":"#e11d48"}}} --><div class="wp-block-cover"></div><!-- /wp:cover -->')), 'a literal colour on a block binding does not rewrite is refused as unsupported_block');
+$assert(array('inline_format_unsupported' => 1) === $refusalsOf(array($inline('<a href="/x" style="color:#e11d48">b</a>'))), 'a link colour in rich text is refused as inline_format_unsupported');
+$assert(array() === $refusalsOf(array($inlineBinding->bind($inline('<mark style="color:#e11d48">b</mark>')), $classBound)), 'bound values are not refusals');
+$displayMetrics = $displayPlan['theme']['design_system']['metrics'] ?? array();
+$assert(PresetBinding::REFUSAL_REASONS === array_keys($displayMetrics['refusal_reasons'] ?? array()) && ($displayMetrics['refusal_reasons']['alpha'] ?? 0) > 0 && array_sum($displayMetrics['refusal_reasons']) === ($displayMetrics['refused_value_count'] ?? null), 'system-stack-display-headings: metrics break refusals down by every reason (' . json_encode($displayMetrics['refusal_reasons'] ?? null) . ')');
+$assert(1.0 === ($displayMetrics['restyle_coverage'] ?? null), 'system-stack-display-headings: every rendered colour follows the palette (' . json_encode($displayMetrics['restyle_coverage'] ?? null) . ')');
 
 fwrite(STDOUT, "Design system usage derivation: {$passes} passed, {$failures} failed\n");
 exit($failures ? 1 : 0);

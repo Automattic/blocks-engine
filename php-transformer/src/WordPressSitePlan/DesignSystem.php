@@ -22,13 +22,20 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  * - Colours: opaque colours within CIE76 ΔE*ab 2.3 (one just-noticeable
  *   difference) merge. Then each low-weight cluster (under 3% of all colour
  *   weight, and not a call-to-action background or button label) merges
- *   into the nearest heavier cluster within ΔE*ab 18, so a one-off shade
- *   (`bg-[#0a1630]` beside a `#050b18` canvas) does not take a palette
- *   slot. 18 keeps neighbouring framework steps apart (Tailwind
- *   blue-500/600 are ΔE 19 apart) while folding shades of the same tint
- *   together. Heavy colours stay distinct however close they are. Only the
- *   JND tolerance binds values to a token: a consolidated shade keeps
- *   rendering as itself. At most 12 colours are kept.
+ *   into the nearest heavier cluster within ΔE*ab 5, so a one-off shade
+ *   (`text-[#8fa3bf]` beside a `#93a8ce` token) does not take a palette
+ *   slot. Heavy colours stay distinct however close they are. At most 12
+ *   colours are kept.
+ *
+ *   One rule decides both what the palette represents and what binds:
+ *   every rendered colour the palette represents binds to its token. A
+ *   colour within the JND of a token binds to it. A folded shade binds to
+ *   the token that absorbed it, which renders it up to ΔE 5 off. That is
+ *   the bound for an imperceptible change: below ΔE 5 an untrained
+ *   observer only tells two colours apart side by side (Mokrzycki and
+ *   Tatol), and a low-weight shade covers little of any page and rarely
+ *   sits beside its token. A shade further away would visibly change
+ *   where it renders, so it is not folded: it keeps a token of its own.
  * - Font sizes: sizes within 0.5px merge. The 8 heaviest are kept and
  *   ordered by size.
  * - Spacing: positive absolute lengths merge only when they are the same
@@ -50,8 +57,18 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  * - `primary`, `secondary`: the most used call-to-action backgrounds, else
  *   the most used chromatic colours.
  * - `accent-1` … : every other colour, heaviest first.
- * - Fonts `body` and `heading`: the families of most non-heading and most
- *   heading text. Other families take a slug from their typeface name.
+ * - Font `body`: the root family every document renders, else the family
+ *   of most non-heading text.
+ * - Font `heading`: the family heading elements (`core/heading` blocks)
+ *   render, weighted like the colours: each document's headings share one
+ *   document weight, so a route with many headings does not outvote the
+ *   others. Headings that render the body family or a system UI stack
+ *   (`-apple-system`, `BlinkMacSystemFont`, `system-ui`, `Segoe UI`) are
+ *   not a heading typeface: the heaviest other family wins when it renders
+ *   at least HEADING_FAMILY_SHARE of the heading text. Otherwise the
+ *   heaviest heading family names the role, as long as it is not the body
+ *   family.
+ * - Other families take a slug from their typeface name.
  * - Font sizes: `medium` is the size of most body text; smaller steps are
  *   `small`, `x-small`, …, larger ones `large`, `x-large`, `xx-large`, ….
  * - Spacing: `20`, `30`, … from smallest to largest, matching core's
@@ -67,8 +84,13 @@ final class DesignSystem
     public const COLOR_TOLERANCE = CssColor::JUST_NOTICEABLE_DIFFERENCE;
     public const FONT_SIZE_TOLERANCE_PX = 0.5;
     public const SPACING_TOLERANCE_PX = 0.01;
-    /** ΔE*ab within which a low-weight colour cluster merges into a heavier one. */
-    public const COLOR_CONSOLIDATION_DISTANCE = 18.0;
+    /**
+     * ΔE*ab within which a low-weight colour cluster merges into, and binds
+     * to, a heavier one: the imperceptible bound (see the class comment).
+     */
+    public const COLOR_CONSOLIDATION_DISTANCE = 5.0;
+    /** Share of heading text a family other than the body's needs to be `heading`. */
+    public const HEADING_FAMILY_SHARE = 0.25;
     /** Share of all colour weight under which a cluster counts as low-weight. */
     public const LOW_WEIGHT_SHARE = 0.03;
     /** Share of text weight a colour needs to be a `contrast` candidate. */
@@ -83,10 +105,12 @@ final class DesignSystem
     public const DOCUMENT_WEIGHT = 1000000;
     private const CSS_WIDE_KEYWORDS = array('inherit', 'initial', 'unset', 'revert', 'revert-layer');
     private const CHROMATIC = 20.0;
+    /** Primary families of the platform UI font stacks. */
+    private const SYSTEM_UI_FAMILIES = array('-apple-system', 'blinkmacsystemfont', 'system-ui', 'segoe ui', 'ui-sans-serif');
     private const GENERIC_FAMILIES = array('serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'math', 'emoji', 'fangsong');
 
     /**
-     * @param list<array{slug:string,name:string,color:string,role:string,weight:int}> $colors
+     * @param list<array{slug:string,name:string,color:string,role:string,weight:int,members:list<string>}> $colors
      * @param list<array{slug:string,name:string,size:string,px:float,weight:int}> $fontSizes
      * @param list<array{slug:string,name:string,fontFamily:string,key:string,role:string,weight:int}> $fontFamilies
      * @param list<array{slug:string,name:string,size:string,px:float,weight:int}> $spacing
@@ -182,20 +206,62 @@ final class DesignSystem
         return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, $root, self::unanimousElements($usageBySource, $system), $system->rootPx, $system->documentCount);
     }
 
-    /** Slug of the palette colour within tolerance of a value, or null. */
+    /**
+     * Slug of the palette colour a value renders as, or null: the token
+     * within tolerance of the value, else the token that absorbed a shade
+     * within tolerance of it (see the class comment).
+     */
     public function colorSlug(string $value): ?string
     {
-        $best = null;
-        $bestDistance = INF;
         if (!CssColor::opaque($value)) return null;
-        foreach ($this->colors as $color) {
-            $distance = CssColor::distance($value, $color['color']);
-            if (null !== $distance && $distance <= self::COLOR_TOLERANCE && $distance < $bestDistance) {
-                $best = $color['slug'];
-                $bestDistance = $distance;
+        foreach (array('color', 'members') as $field) {
+            $best = null;
+            $bestDistance = INF;
+            foreach ($this->colors as $color) {
+                foreach ((array) $color[$field] as $candidate) {
+                    $distance = CssColor::distance($value, $candidate);
+                    if (null !== $distance && $distance <= self::COLOR_TOLERANCE && $distance < $bestDistance) {
+                        $best = $color['slug'];
+                        $bestDistance = $distance;
+                    }
+                }
             }
+            if (null !== $best) return $best;
         }
-        return $best;
+        return null;
+    }
+
+    /**
+     * A translucent colour whose opaque colour is a token, as the token's
+     * slug and the alpha as a whole percentage (`rgb(245 241 232 / .7)` is
+     * `contrast` at 70). Null for opaque, fully transparent or unmatched
+     * values, and when the alpha is not within 0.2 points of a whole
+     * percentage: an 8-bit alpha (`#f5f1e8b3`, 70.2%) is, below one alpha
+     * step; `.333` is not, so `color-mix()` would not restate it.
+     *
+     * @return array{slug:string,percent:int}|null
+     */
+    public function translucentColor(string $value): ?array
+    {
+        $color = CssColor::parse($value);
+        if (null === $color || $color[3] >= 1.0 || $color[3] <= 0.0) return null;
+        $percent = (int) round($color[3] * 100);
+        if (abs($color[3] * 100 - $percent) > 0.2) return null;
+        $slug = $this->colorSlug(sprintf('#%02x%02x%02x', (int) round($color[0]), (int) round($color[1]), (int) round($color[2])));
+        return null === $slug ? null : array('slug' => $slug, 'percent' => $percent);
+    }
+
+    /**
+     * Shades a token absorbed from other clusters, which bind to it.
+     *
+     * @param array{color:string,members:list<string>} $color
+     * @return list<string>
+     */
+    private static function absorbed(array $color): array
+    {
+        $absorbed = array_values(array_filter($color['members'], static fn(string $member): bool => (CssColor::distance($member, $color['color']) ?? 0.0) > self::COLOR_TOLERANCE));
+        sort($absorbed, SORT_STRING);
+        return $absorbed;
     }
 
     /** Slug of the font size within tolerance of an absolute length, or null. */
@@ -231,7 +297,7 @@ final class DesignSystem
             'schema' => self::SCHEMA,
             'document_count' => $this->documentCount,
             'tolerances' => array('color_delta_e76' => self::COLOR_TOLERANCE, 'color_consolidation_delta_e76' => self::COLOR_CONSOLIDATION_DISTANCE, 'color_low_weight_share' => self::LOW_WEIGHT_SHARE, 'font_size_px' => self::FONT_SIZE_TOLERANCE_PX, 'spacing_px' => self::SPACING_TOLERANCE_PX),
-            'palette' => array_map(static fn(array $color): array => array('slug' => $color['slug'], 'color' => $color['color'], 'role' => $color['role'], 'weight' => $color['weight']), $this->colors),
+            'palette' => array_map(static fn(array $color): array => array('slug' => $color['slug'], 'color' => $color['color'], 'role' => $color['role'], 'weight' => $color['weight'], 'absorbs' => self::absorbed($color)), $this->colors),
             'font_sizes' => array_map(static fn(array $size): array => array('slug' => $size['slug'], 'size' => $size['size'], 'weight' => $size['weight']), $this->fontSizes),
             'font_families' => array_map(static fn(array $family): array => array('slug' => $family['slug'], 'name' => $family['name'], 'font_family' => $family['fontFamily'], 'weight' => $family['weight']), $this->fontFamilies),
             'spacing' => array_map(static fn(array $step): array => array('slug' => $step['slug'], 'size' => $step['size'], 'weight' => $step['weight']), $this->spacing),
@@ -256,6 +322,13 @@ final class DesignSystem
      *   once. `restyle_text_elements`,
      *   `restyle_text_preset`, `restyle_backgrounds` and
      *   `restyle_backgrounds_preset` are the counts behind it.
+     * - `refusal_reasons`: text and background colour values binding left
+     *   as literals, by reason (see PresetBinding::REFUSAL_REASONS), and
+     *   `refused_value_count` their total. Content that should not follow
+     *   the palette (a "before" mock-up in its own colours) shows up here
+     *   rather than being forced onto a token. A class-driven value counted
+     *   here can still follow the palette through a bound stylesheet rule,
+     *   which `restyle_coverage` measures.
      * - `palette_size`: colours in the palette.
      * - `unused_font_families`: primary families (the first name of a
      *   `font-family` stack, unquoted) the source stylesheets declare that no
@@ -271,9 +344,10 @@ final class DesignSystem
      * @param array<int,array<string,mixed>> $assets
      * @param list<string> $routeMarkups For `restyle_coverage`: each
      *   document as often as readers meet it (see above); `$markups` when empty.
+     * @param array<string,int> $refusals From PresetBinding::refusals().
      * @return array<string,mixed>
      */
-    public function metrics(array $markups, array $assets, array $routeMarkups = array()): array
+    public function metrics(array $markups, array $assets, array $routeMarkups = array(), array $refusals = array()): array
     {
         $preset = $literal = 0;
         $generated = $source = 0;
@@ -334,6 +408,8 @@ final class DesignSystem
             'restyle_backgrounds_preset' => $restyle['backgrounds_preset'],
             'preset_value_count' => $preset,
             'literal_value_count' => $literal,
+            'refused_value_count' => array_sum($refusals),
+            'refusal_reasons' => $refusals,
             'palette_size' => count($this->colors),
             'font_size_count' => count($this->fontSizes),
             'spacing_size_count' => count($this->spacing),
@@ -352,7 +428,7 @@ final class DesignSystem
      * @param array<string,array<string,int>> $textOnBackground
      * @param array<string,int> $labels Button label colours.
      * @param array<string,string> $root Root values every document agrees on.
-     * @return list<array{slug:string,name:string,color:string,role:string,weight:int}>
+     * @return list<array{slug:string,name:string,color:string,role:string,weight:int,members:list<string>}>
      */
     private static function palette(array $text, array $backgrounds, array $cta, array $textOnBackground, array $labels = array(), array $root = array()): array
     {
@@ -420,6 +496,7 @@ final class DesignSystem
             'color' => $clusters[$index]['color'],
             'role' => preg_replace('/-\d+$/', '', $roles[$index]) ?? $roles[$index],
             'weight' => $clusters[$index]['weight'],
+            'members' => $clusters[$index]['members'],
         ), $ordered);
     }
 
@@ -624,7 +701,7 @@ final class DesignSystem
         // Root `styles.typography` and `styles.elements.heading` reference
         // these families, so they name the roles whenever they are rendered.
         $body = isset($familyWeights[$rootKey]) ? $rootKey : $heaviest($bodyWeights);
-        $heading = isset($familyWeights[$headingKey]) ? $headingKey : $heaviest($headingWeights);
+        $heading = isset($familyWeights[$headingKey]) ? $headingKey : self::headingFamily($headingWeights, $body);
         if (null === $body) $body = $heading;
         $families = array();
         $roles = array();
@@ -650,6 +727,33 @@ final class DesignSystem
             $families[] = array('slug' => $slug, 'name' => $name, 'fontFamily' => $stack, 'key' => $key, 'role' => $roles[$key] ?? 'family', 'weight' => $familyWeights[$key]);
         }
         return $families;
+    }
+
+    /**
+     * Family key that names the `heading` role (see the class comment): the
+     * heaviest heading family that is neither the body family nor a system
+     * UI stack and renders at least HEADING_FAMILY_SHARE of the heading text,
+     * else the heaviest heading family.
+     *
+     * @param array<string,int> $headingWeights
+     */
+    private static function headingFamily(array $headingWeights, ?string $body): ?string
+    {
+        if (array() === $headingWeights) return null;
+        uksort($headingWeights, static fn(string $a, string $b): int => ($headingWeights[$b] <=> $headingWeights[$a]) ?: strcmp($a, $b));
+        $total = array_sum($headingWeights);
+        foreach ($headingWeights as $key => $weight) {
+            if ($key === $body || self::isSystemUiFamily($key)) continue;
+            if ($weight >= self::HEADING_FAMILY_SHARE * $total) return $key;
+            break;
+        }
+        return (string) array_key_first($headingWeights);
+    }
+
+    /** Whether a family key names a platform UI stack rather than a typeface. */
+    public static function isSystemUiFamily(string $key): bool
+    {
+        return in_array($key, self::SYSTEM_UI_FAMILIES, true);
     }
 
     /**

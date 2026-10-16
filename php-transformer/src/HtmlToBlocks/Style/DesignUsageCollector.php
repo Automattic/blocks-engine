@@ -300,9 +300,12 @@ final class DesignUsageCollector
      * inherited ones. An observation is the resting value in a comparable
      * form (opaque hex colour, pixel length, cleaned family stack), followed
      * by `;`-separated values the property takes under media conditions. It
-     * is `!` when the value cannot be bound (not a plain opaque colour or
-     * absolute length, `!important`, or changed by a `:hover`/`:focus` style)
-     * and empty when the element does not declare the property.
+     * is empty when the element does not declare the property, and `!` and
+     * the reason when the value cannot be bound: `!important`, `!alpha` (a
+     * translucent colour), `!transparent` (paints nothing), `!state` (a `:hover`/`:focus` style changes it),
+     * `!breakpoint` (a media condition changes it in a way an observation
+     * cannot record, or it reads a custom property one redefines) or
+     * `!value` (not a plain opaque colour, absolute length or family stack).
      *
      * @param array<string,string> $declarations
      */
@@ -319,8 +322,8 @@ final class DesignUsageCollector
             'font-family' => isset($declarations['font-family']) ? self::familyObservation($declarations['font-family']) : '',
         ) + $this->paddingObservations($declarations, $fontPx);
         foreach ($resting as $property => $observation) {
-            if ('' !== $observation && '!' !== $observation) $observation = $this->withVariants($element, $property, $observation, $parentPx);
-            if ('' !== $observation && '!' !== $observation && $this->readsConditionalVariable($element, $property)) $observation = '!';
+            if ('' !== $observation && !str_starts_with($observation, '!')) $observation = $this->withVariants($element, $property, $observation, $parentPx);
+            if ('' !== $observation && !str_starts_with($observation, '!') && $this->readsConditionalVariable($element, $property)) $observation = '!breakpoint';
             $this->classStyles[$key][$property][$observation] = true;
         }
     }
@@ -341,15 +344,16 @@ final class DesignUsageCollector
         return $this->resolver->readsConditionalCustomProperty($element, $properties);
     }
 
-    /** The resting observation followed by the values media-conditional rules give the property, or `!`. */
+    /** The resting observation followed by the values media-conditional rules give the property, or `!` and the reason. */
     private function withVariants(DOMElement $element, string $property, string $observation, float $parentPx): string
     {
         $family = self::CLASS_STYLE_FAMILIES[$property];
-        if ($this->resolver->hasStateStyleFamily($element, $family)) return '!';
+        if ($this->resolver->hasStateStyleFamily($element, $family)) return '!state';
         $fontFamily = in_array($family, array('font-size', 'font-family'), true);
-        if ($fontFamily && ($this->resolver->hasStateStyleFamily($element, 'font') || $this->resolver->hasConditionalStyleFamily($element, 'font'))) return '!';
+        if ($fontFamily && $this->resolver->hasStateStyleFamily($element, 'font')) return '!state';
+        if ($fontFamily && $this->resolver->hasConditionalStyleFamily($element, 'font')) return '!breakpoint';
         if (!$this->resolver->hasConditionalStyleFamily($element, $family)) return $observation;
-        if (!in_array($property, array('color', 'background-color', 'font-size'), true)) return '!';
+        if (!in_array($property, array('color', 'background-color', 'font-size'), true)) return '!breakpoint';
         $variants = array();
         $properties = 'background-color' === $property ? array('background', 'background-color') : array($property);
         foreach ($this->resolver->conditionalAuthorDeclaredPropertyValues($element, $properties) as $name => $values) {
@@ -360,7 +364,7 @@ final class DesignUsageCollector
                     'background-color' => self::backgroundObservation(array($name => $value)),
                     default => $this->fontSizeObservation($value, $parentPx),
                 };
-                if ('!' === $variant || '' === $variant) return '!';
+                if (str_starts_with($variant, '!') || '' === $variant) return '!breakpoint';
                 $variants[$variant] = true;
             }
         }
@@ -372,7 +376,11 @@ final class DesignUsageCollector
 
     private static function colorObservation(string $value): string
     {
-        if (1 === preg_match('/!\s*important\s*$/i', $value) || !CssColor::opaque($value)) return '!';
+        if (1 === preg_match('/!\s*important\s*$/i', $value)) return '!important';
+        $color = CssColor::parse($value);
+        if (null === $color) return '!value';
+        if ($color[3] <= 0.0) return '!transparent';
+        if ($color[3] < 1.0) return '!alpha';
         return (string) CssColor::hex($value);
     }
 
@@ -382,20 +390,20 @@ final class DesignUsageCollector
         if (isset($declarations['background-color'])) return self::colorObservation($declarations['background-color']);
         if (!isset($declarations['background'])) return '';
         $tokens = CssValueSplitter::splitTopLevelWhitespace(trim($declarations['background']));
-        return 1 === count($tokens) ? self::colorObservation($tokens[0]) : '!';
+        return 1 === count($tokens) ? self::colorObservation($tokens[0]) : '!value';
     }
 
     private function fontSizeObservation(string $value, float $parentPx): string
     {
-        if (1 === preg_match('/!\s*important\s*$/i', $value)) return '!';
+        if (1 === preg_match('/!\s*important\s*$/i', $value)) return '!important';
         $px = $this->fontSize($value, $parentPx);
-        return null === $px ? '!' : CssLength::format($px);
+        return null === $px ? '!value' : CssLength::format($px);
     }
 
     private static function familyObservation(string $value): string
     {
         $stack = self::clean($value);
-        if ($stack !== trim($value) || '' === $stack || str_contains($stack, 'var(') || in_array(strtolower($stack), array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) return '!';
+        if ($stack !== trim($value) || '' === $stack || str_contains($stack, 'var(') || in_array(strtolower($stack), array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) return '!value';
         return $stack;
     }
 
@@ -425,7 +433,7 @@ final class DesignUsageCollector
             $important = 1 === preg_match('/!\s*important\s*$/i', $value);
             foreach ($physical as $index => $side) {
                 $px = $important || !isset($values[$index]) ? null : CssLength::toPx((string) $values[$index], $this->rootPx, $fontPx);
-                $sides[$side] = null === $px ? '!' : CssLength::format($px);
+                $sides[$side] = match (true) { $important => '!important', null === $px => '!value', default => CssLength::format($px) };
             }
         }
         $observations = array();
