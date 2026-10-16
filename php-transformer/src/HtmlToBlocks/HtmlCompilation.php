@@ -6889,8 +6889,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // authored as `<div class="label">` avoided it) do not capture the collapsed
         // paragraph: author `p` type selectors are projected through the source-`p`
         // tag marker, which only elements that were `<p>` in the source carry.
-        if ( 0 === $this->childElementCount($element) && ! ( 'div' === strtolower($element->tagName) && $this->hasMarginWrapperStyling($element) ) ) {
+        if ( 0 === $this->childElementCount($element) ) {
             $attrs = array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content ));
+            // A div that owns its spacing keeps it on this same box. The
+            // lowered-paragraph reset removes only the UA paragraph margins;
+            // it precedes author CSS (and sits in the engine reset layer when
+            // the author uses cascade layers), so authored margins still win.
+            if ( 'div' === strtolower($element->tagName) && $this->hasMarginWrapperStyling($element) ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::LOWERED_PARAGRAPH_CLASS);
+                return $this->createBlock('core/paragraph', $attrs, array(), $element);
+            }
             // A non-`p` source did not have paragraph margins. Mark the host so
             // engine-support CSS can neutralize them without touching authored <p>.
             if ( 'p' !== strtolower($element->tagName) ) {
