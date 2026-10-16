@@ -244,11 +244,11 @@ $assert(is_int($beforeIndex) && is_int($authorIndex) && is_int($afterIndex) && $
 // keeps the author's own reset layer below its utilities wherever the support
 // CSS is parsed first — which is what the block editor does.
 $assert(
-    str_starts_with(trim((string) ($orderedCssAssets[$beforeIndex]['content'] ?? '')), '@layer contract;'),
-    'G4: before-author engine-support leads with the author cascade layer order'
+    str_starts_with(trim((string) ($orderedCssAssets[$beforeIndex]['content'] ?? '')), '@layer blocks-engine-reset,contract;'),
+    'G4: before-author engine-support leads with the author cascade layer order, engine resets first'
 );
 $assert(
-    1 === substr_count($beforeCss, '@layer contract;'),
+    1 === substr_count($beforeCss, '@layer blocks-engine-reset,contract;'),
     'G4: the author layer order is stated once per before-author stylesheet'
 );
 $assert(str_contains((string) ($orderedCssAssets[$beforeIndex]['content'] ?? ''), 'blocks-engine-list-navigation') && str_contains((string) ($orderedCssAssets[$afterIndex]['content'] ?? ''), 'blocks-engine-list-navigation'), 'G4: split list-navigation rules retain both cascade sides');
