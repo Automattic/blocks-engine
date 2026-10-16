@@ -29,6 +29,10 @@ final class PseudoFormAnalyzer
             return false;
         }
 
+        if ( $this->containsChoiceOnlyControls($element) ) {
+            return false;
+        }
+
         if ( $this->containsUnrelatedLandmark($element) || ! $this->pairsDataEntryWithSubmit($element) ) {
             return false;
         }
@@ -110,6 +114,28 @@ final class PseudoFormAnalyzer
         }
 
         return false;
+    }
+
+    /**
+     * A group of only choice controls (radio, checkbox, select) and `type=button`
+     * actions has no free-text entry and no submission target: it is a client-side
+     * list control such as a sort or filter panel, not a form a provider can host.
+     */
+    private function containsChoiceOnlyControls(DOMElement $element): bool
+    {
+        $hasControl = false;
+        foreach ( FormControlClassifier::controlElements($element) as $control ) {
+            $hasControl = true;
+            $tag = strtolower($control->tagName);
+            $type = FormControlClassifier::controlType($control);
+            $isChoice = 'select' === $tag || ( 'input' === $tag && in_array($type, array( 'radio', 'checkbox', 'button' ), true) );
+            $isButtonAction = 'button' === $tag && 'button' === strtolower(trim(SourceDom::attr($control, 'type')));
+            if ( ! $isChoice && ! $isButtonAction ) {
+                return false;
+            }
+        }
+
+        return $hasControl;
     }
 
     private function containsUnrelatedLandmark(DOMElement $element): bool
