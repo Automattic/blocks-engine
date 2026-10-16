@@ -84,6 +84,15 @@ $assert('blocks-engine-synthetic-image-figure' === ElementTreeDiff::marker(( sta
     return $d->getElementsByTagName('figure')->item(0);
 } )()), 'markers drop their per-site hash and prefer engine reasons over block names');
 
+$report = array( 'fixtures' => array( 'site' => array( 'kinds' => array( 'added p' => 2, 'added mark' => 1 ) ) ) );
+$baseline = TopologyCorpusRunner::baseline($report);
+$assert(array() === TopologyCorpusRunner::check($report, $baseline)['regressions'] + TopologyCorpusRunner::check($report, $baseline)['improvements'], 'a report matches its own baseline');
+$rising = TopologyCorpusRunner::check(array( 'fixtures' => array( 'site' => array( 'kinds' => array( 'added p' => 3, 'added mark' => 1, 'added figure' => 1 ) ) ) ), $baseline);
+$assert(array( 'site: added figure 0 -> 1', 'site: added p 2 -> 3' ) === $rising['regressions'], 'rising and new divergences are regressions', json_encode($rising));
+$falling = TopologyCorpusRunner::check(array( 'fixtures' => array( 'site' => array( 'kinds' => array( 'added p' => 2 ) ) ) ), $baseline);
+$assert(array() === $falling['regressions'] && array( 'site: added mark 1 -> 0' ) === $falling['improvements'], 'falling divergences are improvements that must lower the baseline', json_encode($falling));
+$assert(array( 'other: not in the baseline' ) === TopologyCorpusRunner::check(array( 'fixtures' => array( 'other' => array( 'kinds' => array() ) ) ), $baseline)['regressions'], 'an unknown fixture fails until it is baselined');
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "element tree diff FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);
