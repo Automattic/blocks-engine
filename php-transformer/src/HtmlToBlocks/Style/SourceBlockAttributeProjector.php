@@ -241,33 +241,7 @@ final class SourceBlockAttributeProjector
 
     private function sourceImageIsFlexOrGridItem(DOMElement $image): bool
     {
-        $parent = $image->parentNode;
-        if ( ! $parent instanceof DOMElement ) {
-            return false;
-        }
-
-        // An absolutely positioned child is out of flow, not a flex/grid item.
-        // Its figure carries the author's positioned geometry, so it must keep
-        // a real box instead of the transparent flex-item treatment.
-        $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($image)['position'] ?? ''));
-        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
-            return false;
-        }
-
-        // A responsive capture states each document's layout only inside its
-        // media condition, so the parent is a flex item container whenever any
-        // viewport says so. Where it is plain flow instead, the figure's
-        // `display:contents` still leaves the image in its parent as the
-        // source had it.
-        $displays = $this->styleResolver->authorDeclaredValuesAtAnyViewport($parent, array( 'display' ))['display'] ?? array();
-        $displays[] = (string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? '');
-        foreach ( $displays as $display ) {
-            if ( in_array(CssValueInspector::comparable($display), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->styleResolver->imageIsFlexOrGridItem($image);
     }
 
     private static function isHiddenAccessibilitySupportElement(DOMElement $element): bool
