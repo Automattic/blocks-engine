@@ -245,7 +245,7 @@ final class DocumentHeadContext
         foreach ($pages as $page) {
             if (!isset($page['document_metadata']['head']) || !empty($page['synthetic'])) continue;
             $head = $page['document_metadata']['head'];
-            $styles = array();
+            $ownedPaths = array();
             foreach ($head['elements'] as $element) {
                 if ('style' !== $element['tag'] && !('link' === $element['tag'] && in_array('stylesheet', preg_split('/\s+/', strtolower($element['attributes']['rel'] ?? '')) ?: array(), true))) continue;
                 foreach ($assets as $asset) {
@@ -253,10 +253,20 @@ final class DocumentHeadContext
                     if ('stylesheet-occurrence' === ($asset['source'] ?? null)) foreach ($asset['references'] ?? array() as $reference) {
                         if ($page['source_path'] === ($reference['source_path'] ?? null) && ($element['selector'] ?? '') === ($reference['selector'] ?? null)) $owned = true;
                     }
-                    if ($owned) $styles[] = 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12);
+                    if ($owned) $ownedPaths[$asset['target_path']] = true;
                 }
             }
-            $row = array('identity' => $page['reconciliation_identity'], 'path' => trim($page['route']['path'], '/'), 'front_page' => !empty($page['entrypoint']), 'html' => self::render($head, $assets, $tokens, WordPressSitePlan::entryRootFromDocuments($pages)), 'styles' => $styles, 'viewport' => (bool) array_filter($head['elements'], static fn(array $row): bool => 'meta' === $row['tag'] && 'viewport' === strtolower($row['attributes']['name'] ?? '')));
+            // The head replays its stylesheets at their parser positions, so it
+            // dequeues their ordered instance handles (#2634) and prints the
+            // stylesheets the enqueue order places ahead of them (before-author
+            // engine support) first.
+            $styles = $before = array();
+            foreach (WordPressSitePlan::documentStylesheets(array('assets' => $assets, 'pages' => $pages), $page['source_path']) as $stylesheet) {
+                if (isset($ownedPaths[$stylesheet['target_path']])) $styles[] = $stylesheet['handle'];
+                elseif (array() === $styles) $before[] = $stylesheet['handle'];
+            }
+            if (array() === $styles) $before = array();
+            $row = array('identity' => $page['reconciliation_identity'], 'path' => trim($page['route']['path'], '/'), 'front_page' => !empty($page['entrypoint']), 'html' => self::render($head, $assets, $tokens, WordPressSitePlan::entryRootFromDocuments($pages)), 'styles' => $styles, 'before' => $before, 'viewport' => (bool) array_filter($head['elements'], static fn(array $row): bool => 'meta' === $row['tag'] && 'viewport' === strtolower($row['attributes']['name'] ?? '')));
             if (isset($taxonomyArchives[$page['source_path']])) $row += $taxonomyArchives[$page['source_path']];
             $rows[] = $row;
         }
@@ -276,10 +286,11 @@ add_filter( 'template_include', static function ( $template ) use ( $blocks_engi
             foreach ( $row['styles'] as $handle ) wp_dequeue_style( $handle );
         }, PHP_INT_MAX );
         add_action( 'wp_head', static function () use ( $row, $blocks_engine_head_assets ): void {
+            if ( array() !== $row['before'] ) wp_print_styles( $row['before'] );
             $references = array();
             foreach ( $blocks_engine_head_assets as $token => $path ) $references[$token] = get_theme_file_uri( implode( '/', array_map( 'rawurlencode', explode( '/', $path ) ) ) );
             echo strtr( $row['html'], $references );
-        }, -1 );
+        }, 7 );
         break;
     }
     return $template;
