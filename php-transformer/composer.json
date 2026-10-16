@@ -620,7 +620,8 @@
       "php tests/unit/unreachable-text-trap-controls.php",
       "php tests/unit/form-step-track.php",
       "php tests/unit/form-layout-flex-flow.php",
-      "php tests/unit/form-control-topology-group-label.php"
+      "php tests/unit/form-control-topology-group-label.php",
+      "php tests/unit/artifact-compiler-schema-product-evidence.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
