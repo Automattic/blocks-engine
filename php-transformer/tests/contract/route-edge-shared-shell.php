@@ -106,4 +106,33 @@ foreach (array('index.html', 'about.html', 'visit.html') as $source) $assert(!st
 $assert(str_contains((string) $unremovablePages['events.html']['canonical_block_markup'], 'Harbor Parish') && str_contains((string) $unremovablePages['events.html']['canonical_block_markup'], 'page-head'), 'The route whose header cannot be located keeps both its headers.');
 $assert(in_array('wordpress_site_plan_shell_retained_ambiguous', array_column(array_filter($unremovablePlan['diagnostics'], static fn(array $row): bool => 'events.html' === ($row['source_path'] ?? null)), 'code'), true), 'The retained route is reported.');
 
+// Two chrome designs, each repeated and neither a landmark: there is no
+// single site chrome, so each design is its own editable variant part at its
+// routes' source position, header and footer alike.
+$variantPage = static function (string $design, string $title): string {
+    return '<!doctype html><html><body><div class="banner ' . $design . '"><a href="index.html">Harbor ' . $design . '</a><a href="about.html">About</a><a href="visit.html">Visit</a></div>'
+        . '<main><h1>' . $title . '</h1></main>'
+        . '<div class="colophon ' . $design . '"><a href="index.html">Home</a><a href="visit.html">Visit ' . $design . '</a></div></body></html>';
+};
+$variantEdgePlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $variantPage('light', 'Home'), 'about.html' => $variantPage('light', 'About'),
+    'visit.html' => $variantPage('dark', 'Visit'), 'events.html' => $variantPage('dark', 'Events'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+WordPressSitePlan::assertValid($variantEdgePlan);
+foreach (array('header' => 'Harbor ', 'footer' => 'Visit ') as $area => $text) {
+    $areaParts = array_values(array_filter($variantEdgePlan['template_parts'], static fn(array $part): bool => $area === ($part['area'] ?? null)));
+    $assert(2 === count($areaParts) && array('inline_shared_shell') === array_values(array_unique(array_map(static fn(array $part): string => (string) ($part['placement']['kind'] ?? ''), $areaParts))) && array('route_variant') === array_values(array_unique(array_map(static fn(array $part): string => (string) ($part['provenance']['reason'] ?? ''), $areaParts))), "Each repeated {$area} design is one inline variant part: " . json_encode(array_column($variantEdgePlan['diagnostics'], 'message')));
+    foreach (array('light', 'dark') as $design) $assert(1 === count(array_filter($areaParts, static fn(array $part): bool => str_contains((string) $part['canonical_block_markup'], $text . $design))), "The {$design} {$area} keeps its own design.");
+}
+$variantTemplates = array_column($variantEdgePlan['templates'], 'canonical_block_markup', 'slug');
+foreach (array_column($variantEdgePlan['pages'], null, 'source_path') as $source => $row) {
+    $markup = (string) $row['canonical_block_markup'];
+    $slug = pathinfo($source, PATHINFO_FILENAME);
+    $rendered = $markup . ($variantTemplates['index' === $slug ? 'front-page' : 'page-' . $slug] ?? $variantTemplates['page'] ?? '');
+    $assert(!str_contains($markup, 'Harbor ') && !str_contains($markup, 'Visit light') && !str_contains($markup, 'Visit dark') && str_contains($markup, '</h1>'), "{$source} keeps its content and no chrome: {$markup}");
+    $assert(2 === substr_count($rendered, '<!-- wp:template-part'), "{$source} renders one header and one footer variant: {$rendered}");
+    preg_match_all('/wp:template-part \{"slug":"([^"]+)"/', $rendered, $referenced);
+    foreach ($referenced[1] as $partSlug) $assert(in_array($source, array_column($variantEdgePlan['template_parts'], null, 'slug')[$partSlug]['placement']['source_paths'] ?? array(), true), "{$source} renders the variant its own design repeats ({$partSlug}).");
+}
+
 fwrite(STDOUT, "Route edge shared shell contract passed.\n");
