@@ -168,6 +168,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
+use Automattic\BlocksEngine\PhpTransformer\Css\EditorCanvasBodyBackground;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -2468,6 +2469,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ? $authorCss
             : implode("\n\n", array_column($authorStylesheetProjections, 'content'));
         $afterAuthorCss->addAll(CascadeLayer::REVEAL_SETTLE, ( new RevealAnimationSettler() )->settleRules($settleableAuthorCss));
+        $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, ( new EditorCanvasBodyBackground() )->supportCss($settleableAuthorCss));
         // Engine support CSS may join an author cascade layer, and naming a
         // layer registers it. The editor injects author CSS after the enqueued
         // editor styles, so that registration would otherwise arrive first and
