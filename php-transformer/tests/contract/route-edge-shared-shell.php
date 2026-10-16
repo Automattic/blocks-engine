@@ -74,4 +74,36 @@ foreach (array_column($landmarkPlan['pages'], null, 'source_path') as $source =>
     $assert(!str_contains($markup, '555-0100') && !str_contains($markup, 'We use no cookies.') && str_contains($markup, 'title</h1>') && str_contains($markup, 'body copy.'), "{$source} keeps its title band and content and no chrome residue: {$markup}");
 }
 
+
+// A page-title <header> unique to each route is page content: it neither
+// becomes the shared header nor stops the repeated edge above it.
+$titleHeaderFiles = array_map(static fn(string $html): string => str_replace(array('<section class="page-title">', '</p></section>'), array('<header class="page-title">', '</p></header>'), $html), $files);
+$titleHeaderPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $titleHeaderFiles))->toArray()['source_reports']['wordpress_site_plan'];
+$titleHeaders = array_values(array_filter($titleHeaderPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$titleHeaderPages = array_column($titleHeaderPlan['pages'], null, 'source_path');
+$assert(1 === count($titleHeaders) && str_contains((string) $titleHeaders[0]['canonical_block_markup'], '555-0100') && !str_contains((string) $titleHeaders[0]['canonical_block_markup'], 'About this'), 'The repeated edge, not a page-title header, is the shared header.');
+foreach (array('about', 'visit', 'events') as $slug) $assert(!str_contains((string) $titleHeaderPages['website/' . $slug . '.html']['canonical_block_markup'], '555-0100') && str_contains((string) $titleHeaderPages['website/' . $slug . '.html']['canonical_block_markup'], 'About this'), "{$slug}.html keeps its page-title header and drops the chrome.");
+
+// A route whose shell candidate cannot be located in its page (here its
+// header compiled with route-specific styles beside a second, content header)
+// keeps its header page-owned; the other routes still share theirs.
+$siteHeader = '<header class="site-header"><a href="index.html">Harbor Parish</a><nav><a href="index.html">Home</a><a href="about.html">About</a></nav></header>';
+$unremovableFiles = array();
+foreach (array('index', 'about', 'visit', 'events') as $slug) $unremovableFiles[$slug . '.html'] = '<!doctype html><html><body>' . $siteHeader . '<main><h1>' . ucfirst($slug) . '</h1></main></body></html>';
+$unremovableResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $unremovableFiles))->toArray();
+foreach ($unremovableResult['source_reports']['compiled_site']['pages'] as &$unremovablePage) {
+    if ('events.html' !== $unremovablePage['source_path']) continue;
+    $styled = '<!-- wp:group {"className":"site-header","style":{"border":{"bottom":{"width":"1px","style":"solid"}}},"tagName":"header"} --><header class="wp-block-group site-header" style="border-bottom-style:solid;border-bottom-width:1px"><!-- wp:paragraph --><p><a href="index.html">Harbor Parish</a></p><!-- /wp:paragraph --></header><!-- /wp:group -->';
+    $unremovablePage['block_markup'] = $styled . '<!-- wp:group {"className":"page-head","tagName":"header"} --><header class="wp-block-group page-head"><!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Events</h1><!-- /wp:heading --></header><!-- /wp:group --><!-- wp:group {"tagName":"main"} --><main class="wp-block-group"><!-- wp:paragraph --><p>Events body.</p><!-- /wp:paragraph --></main><!-- /wp:group -->';
+}
+unset($unremovablePage);
+$unremovablePlan = (new WordPressSitePlan())->fromResult($unremovableResult);
+$unremovablePages = array_column($unremovablePlan['pages'], null, 'source_path');
+$unremovableHeaders = array_values(array_filter($unremovablePlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$unremovableSources = array_keys($unremovableHeaders[0]['provenance']['sources'] ?? array()); sort($unremovableSources);
+$assert(1 === count($unremovableHeaders) && array('about.html', 'index.html', 'visit.html') === $unremovableSources && array('page-events') === ($unremovableHeaders[0]['placement']['excluded_template_slugs'] ?? null), 'The routes whose header is located share one header part: ' . json_encode(array_column($unremovablePlan['diagnostics'], 'message')));
+foreach (array('index.html', 'about.html', 'visit.html') as $source) $assert(!str_contains((string) $unremovablePages[$source]['canonical_block_markup'], 'Harbor Parish'), "{$source} no longer carries the shared header.");
+$assert(str_contains((string) $unremovablePages['events.html']['canonical_block_markup'], 'Harbor Parish') && str_contains((string) $unremovablePages['events.html']['canonical_block_markup'], 'page-head'), 'The route whose header cannot be located keeps both its headers.');
+$assert(in_array('wordpress_site_plan_shell_retained_ambiguous', array_column(array_filter($unremovablePlan['diagnostics'], static fn(array $row): bool => 'events.html' === ($row['source_path'] ?? null)), 'code'), true), 'The retained route is reported.');
+
 fwrite(STDOUT, "Route edge shared shell contract passed.\n");
