@@ -31,6 +31,10 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  */
 final class StyleResolver implements ElementPresentationResolver
 {
+    /** @var list<array<string, mixed>> */
+    private array $viewportAuthorRuleSource = array();
+    /** @var array<string, array{rules: list<array<string, mixed>>, parsed: array<string, array<string, mixed>>}> */
+    private array $viewportAuthorRules = array();
     /** Viewport the desktop cascade is evaluated at: the capture's desktop reference. */
     private const DESKTOP_REFERENCE_WIDTH = 1440.0;
 
@@ -784,47 +788,76 @@ final class StyleResolver implements ElementPresentationResolver
     private function authorDeclarationsAtViewport(DOMElement $element, array $properties, float $viewportWidth): array
     {
         $authorStyles = $this->context->authorStyles();
-        $parsedBySelector = array();
-        $rules = ( function () use ($authorStyles, &$parsedBySelector): iterable {
-            foreach ( $authorStyles->styleRules() as $rule ) {
-                $selectors = array();
-                foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
-                    $selector = (string) ( $record['selector'] ?? '' );
-                    // Interaction states and generated content are not the
-                    // resting element, as in the source-style collections.
-                    if ( '' === $selector || $this->selectorCarriesPseudoState($selector) ) {
-                        continue;
-                    }
-                    $selectors[] = $selector;
-                    $parsedBySelector[ $selector ] ??= is_array($record['parsed'] ?? null) ? $record['parsed'] : array();
-                }
-                // The author analysis keeps at-rule preludes verbatim, so a
-                // comment written before `@media` travels with the condition
-                // (`/* tablet */ @media(max-width:1300px)`); the viewport
-                // evaluator reads the at-rule itself.
-                $conditions = array();
-                foreach ( is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array() as $condition ) {
-                    $condition = trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition));
-                    if ( '' !== $condition ) {
-                        $conditions[] = $condition;
-                    }
-                }
-                yield array(
-                    'selectors' => $selectors,
-                    'declarations' => is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(),
-                    'conditions' => $conditions,
-                    'layer' => $rule['layer'] ?? null,
-                );
-            }
-        } )();
+        ['rules' => $rules, 'parsed' => $parsedBySelector] = $this->viewportAuthorRules($authorStyles->styleRules(), $viewportWidth);
         $selectorCache = $authorStyles->selectorMatchCache();
-        $matches = static function (string $selector) use ($element, $selectorCache, &$parsedBySelector): bool {
+        $matches = static function (string $selector) use ($element, $selectorCache, $parsedBySelector): bool {
             $match = $selectorCache->matches($element, $selector, $parsedBySelector[ $selector ] ?? array());
 
             return ( $match['supported'] ?? false ) && ( $match['matches'] ?? false );
         };
 
         return $this->collapsedViewportDeclarationsFromRules($element, $properties, $rules, $matches, $viewportWidth);
+    }
+
+    /**
+     * The author rules that apply at one viewport, in cascade order.
+     *
+     * Which rules apply depends only on the stylesheet and the viewport, never
+     * on the element being resolved, so the list is built once per author rule
+     * set and viewport instead of once per element. Conditions are already
+     * evaluated here, so each kept rule carries none.
+     *
+     * @param list<array<string, mixed>> $styleRules
+     * @return array{rules: list<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>, layer: mixed}>, parsed: array<string, array<string, mixed>>}
+     */
+    private function viewportAuthorRules(array $styleRules, float $viewportWidth): array
+    {
+        if ( $styleRules !== $this->viewportAuthorRuleSource ) {
+            $this->viewportAuthorRuleSource = $styleRules;
+            $this->viewportAuthorRules = array();
+        }
+        $key = (string) $viewportWidth;
+        if ( isset($this->viewportAuthorRules[ $key ]) ) {
+            return $this->viewportAuthorRules[ $key ];
+        }
+
+        $rules = array();
+        $parsedBySelector = array();
+        foreach ( $styleRules as $rule ) {
+            $selectors = array();
+            foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
+                $selector = (string) ( $record['selector'] ?? '' );
+                // Interaction states and generated content are not the
+                // resting element, as in the source-style collections.
+                if ( '' === $selector || $this->selectorCarriesPseudoState($selector) ) {
+                    continue;
+                }
+                $selectors[] = $selector;
+                $parsedBySelector[ $selector ] ??= is_array($record['parsed'] ?? null) ? $record['parsed'] : array();
+            }
+            // The author analysis keeps at-rule preludes verbatim, so a
+            // comment written before `@media` travels with the condition
+            // (`/* tablet */ @media(max-width:1300px)`); the viewport
+            // evaluator reads the at-rule itself.
+            $conditions = array();
+            foreach ( is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array() as $condition ) {
+                $condition = trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition));
+                if ( '' !== $condition ) {
+                    $conditions[] = $condition;
+                }
+            }
+            if ( array() !== $conditions && ! $this->conditionsApplyAtViewport($conditions, $viewportWidth) ) {
+                continue;
+            }
+            $rules[] = array(
+                'selectors' => $selectors,
+                'declarations' => is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(),
+                'conditions' => array(),
+                'layer' => $rule['layer'] ?? null,
+            );
+        }
+
+        return $this->viewportAuthorRules[ $key ] = array( 'rules' => $rules, 'parsed' => $parsedBySelector );
     }
 
     /** Authored control correspondence, retaining query stacks and cascade winners.
