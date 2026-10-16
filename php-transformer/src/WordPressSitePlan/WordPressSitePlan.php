@@ -408,12 +408,6 @@ PHP;
         $shells['parts'] = $footerContent['parts'];
         $shells['diagnostics'] = array_merge($shells['diagnostics'], $footerContent['diagnostics']);
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
-        $edgeShells = $this->shellExtraction->edgeSharedShells($shells['pages'], $parts, $reservedPartSlugs + array_fill_keys(array_column($parts, 'slug'), true), $shells['runtime_declarations']);
-        $shells['pages'] = $edgeShells['pages'];
-        $shells['runtime_declarations'] = $edgeShells['runtime_declarations'];
-        $parts = array_merge($parts, $edgeShells['parts']);
-        $edgeAreas = array_fill_keys(array_column($edgeShells['parts'], 'area'), true);
-        $shells['diagnostics'] = array_merge(array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($edgeAreas[$diagnostic['area'] ?? '']) || !str_starts_with((string) ($diagnostic['code'] ?? ''), 'wordpress_site_plan_shell_retained_'))), $edgeShells['diagnostics']);
         $shellFrames = $this->shellExtraction->hoistInlineShellFrames($shells['pages'], $parts, $shells['runtime_declarations']);
         $pages = $shellFrames['pages'];
         // The generic page template is shared by routes that did not author it,
