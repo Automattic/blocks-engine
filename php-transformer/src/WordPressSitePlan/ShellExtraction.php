@@ -2285,6 +2285,7 @@ final class ShellExtraction
         $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
         $markup = preg_replace('/--blocks-engine-richtext-marker:\s*blocks-engine-richtext-[a-f0-9]+-\d+;?/', '', $markup) ?? $markup;
         $markup = preg_replace('/(?:\.\.\/)+assets\//', 'assets/', $markup) ?? $markup;
+        if (!preg_match('/<pre\b|white-space\s*:\s*(?:pre|break-spaces)/i', $markup)) $markup = preg_replace('/\s*\n\s*/', "\n", $markup) ?? $markup;
         $markup = preg_replace('/\bblock-[a-f0-9]{16,}\b/', 'block', $markup) ?? $markup;
         $markup = preg_replace('/("url":"[^"#\s]+)#(?:\\\\u0022|[^"\\\\])+/', '$1', $markup) ?? $markup;
         $markup = preg_replace_callback('/"className":"([^"]*)"/', static function (array $match): string {
