@@ -466,6 +466,18 @@ final class NavigationPatternContext
         return true;
     }
 
+    /**
+     * Every value the author states for these properties at any viewport.
+     * A recognition signal only, never projected.
+     *
+     * @param array<int, string> $properties
+     * @return array<string, list<string>>
+     */
+    public function declaredValuesAtAnyViewport(DOMElement $element, array $properties): array
+    {
+        return $this->styleResolver?->authorDeclaredValuesAtAnyViewport($element, $properties) ?? array();
+    }
+
     public function resolvedDisplay(DOMElement $element): string
     {
         return $this->styleResolver?->resolvedConditionalDisplay($element) ?? '';
