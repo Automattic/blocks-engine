@@ -340,7 +340,9 @@ $post = $frontPage; $setRequest($post, true);
 $rendered = do_blocks($front); wp_reset_postdata();
 // get_the_block_template_html() finishes with core's skip link to the first <main>.
 $rendered = _block_template_add_skip_link('<div class="wp-site-blocks">' . $rendered . '</div>');
-$assert(1 === substr_count($rendered, '<header') && 1 === substr_count($rendered, '<footer') && str_contains($rendered, 'id="site-chrome"') && str_contains($rendered, 'site-chrome') && str_contains($rendered, 'border-top:3px solid #111') && 1 === substr_count($rendered, 'href="#content"') && str_contains($rendered, 'id="wp-skip-link" href="#content"') && str_contains($rendered, '<main id="content"'), 'WordPress renders one complete styled landmark wrapper per front-page route and one skip link to its main.');
+// The part's landmark group is the box; the bootstrap unwraps Core's
+// template-part transport wrapper, and the group carries resolved supports.
+$assert(1 === substr_count($rendered, '<header') && 1 === substr_count($rendered, '<footer') && 0 === preg_match('/<(?:header|footer|div) class="wp-block-template-part"/', $rendered) && 1 === preg_match('/<header id="site-chrome" class="wp-block-group site-chrome [^"]*" style="[^"]*border-top-color:#111;border-top-style:solid;border-top-width:3px/', $rendered) && 1 === substr_count($rendered, 'href="#content"') && str_contains($rendered, 'id="wp-skip-link" href="#content"') && str_contains($rendered, '<main id="content"'), 'WordPress renders one complete styled landmark wrapper per front-page route and one skip link to its main.');
 $assert(str_contains($rendered, 'Home') && str_contains($rendered, home_url('/wp-content/themes/' . $theme . '/assets/assets/logo.svg')), 'WordPress renders front-page content with a browser-valid resolved image URL.');
 $pageTemplate = file_get_contents($themeDir . '/templates/page.html'); if (false === $pageTemplate) throw new RuntimeException('Could not read page template.');
 $post = $about; $setRequest($post, false); $nestedRendered = _block_template_add_skip_link('<div class="wp-site-blocks">' . do_blocks($pageTemplate) . '</div>'); wp_reset_postdata();
@@ -416,7 +418,7 @@ $sharedRouteNavHeaderMarkup = $bindNavigation($sharedRouteNavPlan, (string) ($sh
 $assert(!str_contains($sharedRouteNavHeaderMarkup, 'blocks-engine-current-navigation-item'), 'The shared header carries no static current-item marker, since one rendered part serves every route.');
 $sharedRouteNavWrites = array(); foreach ($sharedRouteNavPlan['writes'] ?? array() as $write) $sharedRouteNavWrites[$write['target_path']] = $write;
 $sharedRouteNavBootstrap = (string) ($sharedRouteNavWrites['functions.php']['payload']['data'] ?? '');
-$sharedRouteNavClosureStart = strpos($sharedRouteNavBootstrap, "static function ( string \$content, array \$block ): string {");
+$sharedRouteNavClosureStart = strpos($sharedRouteNavBootstrap, "static function ( string \$content, array \$block ): string {", (int) strpos($sharedRouteNavBootstrap, "add_filter( 'render_block_core/navigation-link',"));
 if (false === $sharedRouteNavClosureStart) throw new RuntimeException('The generated theme bootstrap does not declare the navigation-link current-item filter closure for a shared-part-only navigation.');
 $sharedRouteNavClosureEnd = strpos($sharedRouteNavBootstrap, "\n}, 10, 2 );", $sharedRouteNavClosureStart);
 if (false === $sharedRouteNavClosureEnd) throw new RuntimeException('The shared-part navigation filter closure has no discoverable closing statement.');

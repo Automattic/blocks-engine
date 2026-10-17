@@ -1041,7 +1041,7 @@ $sharedRouteNavHeaderMarkup = (string) ($sharedRouteNavHeader['canonical_block_m
 $assert(str_contains($sharedRouteNavHeaderMarkup, '"url":"/day-1"') && str_contains($sharedRouteNavHeaderMarkup, '"url":"/day-13"') && str_contains($sharedRouteNavHeaderMarkup, '"url":"/"') && !str_contains($sharedRouteNavHeaderMarkup, 'blocks-engine-current-navigation-item'), 'The shared header carries every canonical route URL and no static current-item marker, since one rendered part serves every route.');
 $sharedRouteNavBootstrap = (string) ($writeMap($sharedRouteNavPlan['writes'] ?? array())['functions.php']['payload']['data'] ?? '');
 $assert(str_contains($sharedRouteNavBootstrap, "add_filter( 'render_block_core/navigation-link', static function ( string \$content, array \$block ): string {"), 'A shared template-part navigation with no static current-item marker still registers the recovery filter, because the filter also matches by URL.');
-$sharedRouteNavClosureStart = strpos($sharedRouteNavBootstrap, "static function ( string \$content, array \$block ): string {");
+$sharedRouteNavClosureStart = strpos($sharedRouteNavBootstrap, "static function ( string \$content, array \$block ): string {", (int) strpos($sharedRouteNavBootstrap, "add_filter( 'render_block_core/navigation-link',"));
 $assert(false !== $sharedRouteNavClosureStart, 'The shared-part navigation filter closure is discoverable in the bootstrap output.');
 $sharedRouteNavClosureEnd = strpos($sharedRouteNavBootstrap, "\n}, 10, 2 );", $sharedRouteNavClosureStart);
 $assert(false !== $sharedRouteNavClosureEnd, 'The shared-part navigation filter closure has a discoverable closing statement.');
