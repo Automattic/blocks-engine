@@ -4182,7 +4182,11 @@ PHP;
         return $module || '' === $type || in_array($type, array('module', 'text/javascript', 'application/javascript', 'text/ecmascript', 'application/ecmascript'), true);
     }
 
-    private function hasDynamicScriptReferences(string $content): bool { return preg_match('/\bimport\s*\(|\b(?:document\s*\.\s*createElement\s*\(\s*["\']script|appendChild\s*\(|insertBefore\s*\(|\.\s*src\s*=|new\s+URL\s*\()/i', $content) === 1; }
+    // A dynamic reference is a URL the script builds or assigns: an import, an
+    // injected script, a `src` it sets, a URL it constructs. Inserting a node
+    // (`appendChild`, `insertBefore`) names no URL: a copy button's scratch
+    // textarea or a rendered list item references nothing the write must hold.
+    private function hasDynamicScriptReferences(string $content): bool { return preg_match('/\bimport\s*\(|\bdocument\s*\.\s*createElement\s*\(\s*["\']script|\.\s*src\s*=|\bsetAttribute\s*\(\s*["\']src(?:set)?["\']|\bnew\s+URL\s*\(/i', $content) === 1; }
     // Each path segment carries the author's words, so the route grammar folds
     // what it cannot spell instead of deleting it: `RouteSlug` applies
     // WordPress's own `remove_accents()` plus `sanitize_title_with_dashes()`
