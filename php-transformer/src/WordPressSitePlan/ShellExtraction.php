@@ -1760,12 +1760,14 @@ final class ShellExtraction
 
     /**
      * Where an entity was read from, and in what cascade order, is provenance,
-     * not identity; a grid placement written as the `area` shorthand is the
-     * same placement as its `row` and `column` longhands.
+     * not identity; so are the conversion diagnostics a graph collects while
+     * reading its page's stylesheet (every rule it could not evaluate, most of
+     * them about other elements). A grid placement written as the `area`
+     * shorthand is the same placement as its `row` and `column` longhands.
      */
     private static function withoutSourcePaths(array $value): array
     {
-        unset($value['source_path'], $value['provenance'], $value['source_order']);
+        unset($value['source_path'], $value['provenance'], $value['source_order'], $value['diagnostics']);
         if (is_string($value['area'] ?? null) && 4 === count($lines = array_map('trim', explode('/', $value['area'])))) {
             unset($value['area']);
             $value['row'] = $lines[0] . ' / ' . $lines[2];
