@@ -101,6 +101,8 @@ final class CaptureEvidence
     public const GALLERY_SLOT = 'data-blocks-engine-capture-gallery-slot';
     /** Presence marks the gallery stage element. */
     public const GALLERY_STAGE = 'data-blocks-engine-capture-gallery-stage';
+    /** Integer index of one captured frame inside the gallery stage. */
+    public const GALLERY_FRAME = 'data-blocks-engine-capture-gallery-frame';
     /** Integer initial frame of a gallery list. */
     public const GALLERY_INITIAL = 'data-blocks-engine-capture-gallery-initial';
     /** Observed CSS `display` keyword of a gallery item. */
