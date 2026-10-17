@@ -135,4 +135,24 @@ foreach (array_column($variantEdgePlan['pages'], null, 'source_path') as $source
     foreach ($referenced[1] as $partSlug) $assert(in_array($source, array_column($variantEdgePlan['template_parts'], null, 'slug')[$partSlug]['placement']['source_paths'] ?? array(), true), "{$source} renders the variant its own design repeats ({$partSlug}).");
 }
 
+// The variant most routes use is the area's own part, titled after the area;
+// each other variant is titled after the first route (in plan order) that
+// uses it, so the
+// editor never lists anonymous "Variant N" parts.
+$titledPage = static fn(string $design, string $title): string => str_replace('<html><body>', '<html><head><title>' . $title . '</title></head><body>', $variantPage($design, $title));
+$titledPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $titledPage('light', 'Home'), 'about.html' => $titledPage('light', 'About'), 'contact.html' => $titledPage('light', 'Contact'),
+    'visit.html' => $titledPage('dark', 'Plan a Visit'), 'events.html' => $titledPage('dark', 'Events'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+WordPressSitePlan::assertValid($titledPlan);
+foreach (array('header' => 'Harbor ', 'footer' => 'Visit ') as $area => $text) {
+    $titles = array();
+    foreach ($titledPlan['template_parts'] as $part) {
+        if ($area !== ($part['area'] ?? null)) continue;
+        $titles[str_contains((string) $part['canonical_block_markup'], $text . 'light') ? 'light' : 'dark'] = $part['title'];
+    }
+    $label = ucfirst($area);
+    $assert(array('light' => $label, 'dark' => $label . ' (Events)') === array('light' => $titles['light'] ?? null, 'dark' => $titles['dark'] ?? null), "The main {$area} variant is titled {$label} and the other after its first route: " . json_encode($titles));
+}
+
 fwrite(STDOUT, "Route edge shared shell contract passed.\n");
