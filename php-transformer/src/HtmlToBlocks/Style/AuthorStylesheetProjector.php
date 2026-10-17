@@ -1711,12 +1711,25 @@ final class AuthorStylesheetProjector
 
             $tableDescendants = array();
             $nonTableMatches = array();
+            $tableCellGroups = array();
             foreach ( $matches as $element ) {
                 $projected = $this->projectTableDescendantSelector($selector, $parsed, $element, $context);
                 if ( null === $projected ) {
                     $nonTableMatches[] = $element;
-                } else {
+                    continue;
+                }
+                $cellTarget = $this->structuralTableCellTarget($projected, $element, $context);
+                if ( null === $cellTarget ) {
                     $tableDescendants[] = $projected;
+                    continue;
+                }
+                $groupKey = spl_object_id($cellTarget['table']) . "\0" . $cellTarget['tail'];
+                $tableCellGroups[$groupKey] ??= array( 'table' => $cellTarget['table'], 'marker' => $cellTarget['marker'], 'tail' => $cellTarget['tail'], 'cells' => array() );
+                $tableCellGroups[$groupKey]['cells'][spl_object_id($element)] = $element;
+            }
+            foreach ( $tableCellGroups as $group ) {
+                foreach ( $this->compactTableCellPaths($group['table'], $group['cells']) as $path ) {
+                    $tableDescendants[] = '.' . $group['marker'] . '>table>' . $path . $group['tail'];
                 }
             }
             foreach ( array_values(array_unique($tableDescendants)) as $projected ) {
@@ -2830,6 +2843,119 @@ final class AuthorStylesheetProjector
             }
             return $paths;
         });
+    }
+
+    /**
+     * A structurally projected cell selector, split into its table and the
+     * declaration tail (specificity shims and pseudo suffix) after the cell.
+     *
+     * @return array{table: DOMElement, marker: string, tail: string}|null
+     */
+    private function structuralTableCellTarget(string $projected, DOMElement $element, AuthorStylesheetProjectionContext $context): ?array
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'td', 'th' ), true) ) {
+            return null;
+        }
+        $table = $this->ancestorElement($element, 'table');
+        if ( ! $table instanceof DOMElement ) {
+            return null;
+        }
+        $marker = $context->selectorProjections->tableMarker($table->getNodePath() ?? '');
+        $path = $this->serializedTableDescendantPath($table, $element, $context);
+        $prefix = '.' . $marker . '>table>' . $path;
+        if ( '' === $marker || '' === $path || ! str_starts_with($projected, $prefix) ) {
+            return null;
+        }
+        return array( 'table' => $table, 'marker' => $marker, 'tail' => substr($projected, strlen($prefix)) );
+    }
+
+    /**
+     * Cell paths covering exactly the matched cells, folding a whole table,
+     * section, column or row into one path. Every folded path keeps the
+     * per-cell path's specificity (three types, two pseudo-classes): `:is()`
+     * counts as its most specific argument and `:nth-child(n)` matches every
+     * position, so the cascade between authored rules is unchanged.
+     *
+     * @param array<int, DOMElement> $matched Matched cells keyed by object id.
+     * @return list<string>
+     */
+    private function compactTableCellPaths(DOMElement $table, array $matched): array
+    {
+        $cell = ':is(td,th)';
+        $sections = array();
+        foreach ( array( 'thead', 'tbody', 'tfoot' ) as $section ) {
+            $rows = array();
+            foreach ( $table->getElementsByTagName('tr') as $row ) {
+                if ( ! $row instanceof DOMElement || ! $this->belongsToTable($row, $table) || $section !== $this->serializedTableSection($row) ) {
+                    continue;
+                }
+                $cells = array();
+                foreach ( $row->childNodes as $child ) {
+                    if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'td', 'th' ), true) ) {
+                        $cells[] = $child;
+                    }
+                }
+                $rows[] = $cells;
+            }
+            if ( array() !== $rows ) {
+                $sections[$section] = $rows;
+            }
+        }
+        $isMatched = static fn (DOMElement $element): bool => isset($matched[spl_object_id($element)]);
+        $fullSection = static function (array $rows) use ($isMatched): bool {
+            foreach ( $rows as $cells ) {
+                if ( array() === $cells || count($cells) !== count(array_filter($cells, $isMatched)) ) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        $full = array_filter($sections, $fullSection);
+        if ( array() !== $sections && count($full) === count($sections) ) {
+            $sectionSelector = 1 === count($sections) ? (string) array_key_first($sections) : ':is(' . implode(',', array_keys($sections)) . ')';
+            return array( $sectionSelector . '>tr:nth-child(n)>' . $cell . ':nth-child(n)' );
+        }
+
+        $paths = array();
+        foreach ( $sections as $section => $rows ) {
+            if ( isset($full[$section]) ) {
+                $paths[] = $section . '>tr:nth-child(n)>' . $cell . ':nth-child(n)';
+                continue;
+            }
+            $covered = array();
+            $columns = max(array_map('count', $rows));
+            for ( $column = 0; $column < $columns; ++$column ) {
+                $wholeColumn = true;
+                foreach ( $rows as $cells ) {
+                    if ( ! isset($cells[$column]) || ! $isMatched($cells[$column]) ) {
+                        $wholeColumn = false;
+                        break;
+                    }
+                }
+                if ( $wholeColumn && count($rows) > 1 ) {
+                    $paths[] = $section . '>tr:nth-child(n)>' . $cell . ':nth-child(' . ($column + 1) . ')';
+                    foreach ( $rows as $cells ) {
+                        $covered[spl_object_id($cells[$column])] = true;
+                    }
+                }
+            }
+            foreach ( $rows as $rowIndex => $cells ) {
+                $remaining = array_filter($cells, static fn (DOMElement $element): bool => $isMatched($element) && ! isset($covered[spl_object_id($element)]));
+                if ( array() === $remaining ) {
+                    continue;
+                }
+                $rowPath = $section . '>tr:nth-child(' . ($rowIndex + 1) . ')';
+                if ( count($cells) > 1 && count($cells) === count(array_filter($cells, $isMatched)) ) {
+                    $paths[] = $rowPath . '>' . $cell . ':nth-child(n)';
+                    continue;
+                }
+                foreach ( $remaining as $column => $element ) {
+                    $paths[] = $rowPath . '>' . strtolower($element->tagName) . ':nth-child(' . ($column + 1) . ')';
+                }
+            }
+        }
+        return $paths;
     }
 
     private function serializedTableSection(DOMElement $element): string

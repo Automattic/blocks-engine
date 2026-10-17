@@ -36,7 +36,7 @@ $declarations = $revert($layered);
 if ('border:revert-layer;padding:revert-layer' !== $declarations) {
     $fail('layered author cell padding and border revert core\'s unlayered table defaults', $layered);
 }
-if (1 !== preg_match('/@layer utilities\{[^@]*\.blocks-engine-table-[a-z0-9-]+>table>tbody>tr:nth-child\(1\)>td:nth-child\(1\)[^{}]*\{[^}]*padding/', $layered)) {
+if (1 !== preg_match('/@layer utilities\{[^@]*\.blocks-engine-table-[a-z0-9-]+>table>tbody>tr:nth-child\([1n]\)>(?:td|:is\(td,th\)):nth-child\([1n]\)[^{}]*\{[^}]*padding/', $layered)) {
     $fail('the projected cell padding stays in the author layer', $layered);
 }
 
