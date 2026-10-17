@@ -232,6 +232,7 @@
       "php tests/unit/captured-dialog-projector.php",
       "php tests/unit/captured-dialog-source-panel-box.php",
       "php tests/unit/captured-dialog-native-dialog-panel.php",
+      "php tests/unit/captured-dialog-shared-resting-panel.php",
       "php tests/unit/captured-dialog-open-state.php",
       "php tests/unit/captured-dialog-dropdown-panel.php",
       "php tests/unit/captured-dialog-shared-header.php",
