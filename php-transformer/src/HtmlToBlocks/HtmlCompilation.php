@@ -168,6 +168,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
+use Automattic\BlocksEngine\PhpTransformer\Css\TemplatePartStickyContainment;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\EditorCanvasBodyBackground;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
@@ -2425,6 +2426,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== trim($authorCss) ) {
             $authorCssParts[] = $authorCss;
             $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, (new AdminBarAccommodation())->supportCss($authorCss));
+            $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, (new TemplatePartStickyContainment())->supportCss($authorCss));
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $mobileOverlayBackground = $this->navigationStyleProjector->sourceMobileNavigationOverlayBackground();

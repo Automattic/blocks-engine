@@ -56,7 +56,7 @@ $assert(! str_contains($global, '.route-grid'), 'Route-owned layout rules stay o
 $assert(! str_contains($global, '.container{'), 'A class the header shares with route content stays out of the global shared stylesheet.');
 $assert(str_contains($route, '.container{max-width:960px}'), 'A class the header shares with route content keeps its rule on the route stylesheet.');
 // In-place shared content retains the ancestor the author selector names.
-$assert(str_contains($global, '#site-root .site-header .brand{letter-spacing:2px}') && !str_contains($global, ':has(> #site-chrome)'), 'In-place header ancestry needs no detached-context selector compensation: ' . substr($global, 0, 600));
+$assert(str_contains($global, '#site-root .site-header .brand{letter-spacing:2px}') && !str_contains($global, ':where(:has(> #site-chrome))'), 'In-place header ancestry needs no detached-context selector compensation: ' . substr($global, 0, 600));
 $assert(str_contains($route, '.route-grid'), 'Route-owned rules stay on their route stylesheet.');
 
 // Pages carry the same header rule in stylesheets with different media
