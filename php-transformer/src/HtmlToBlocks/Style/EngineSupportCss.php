@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConversionPrelude;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
@@ -344,6 +345,15 @@ final class EngineSupportCss
     public function coreOverrideCss(string $serializedBlocks): array
     {
         $parts = array();
+        if ( str_contains($serializedBlocks, ElementConversionPrelude::SCRIPT_NAVIGATION_CLASS) ) {
+            // Core copies the menu's classes onto its list, so a script-set
+            // state class on the menu would never reach the copy. A source
+            // list keeps its items; a source of bare links keeps them as the
+            // menu's own items.
+            $menu = '.wp-block-navigation.' . ElementConversionPrelude::SCRIPT_NAVIGATION_CLASS;
+            $parts[] = $menu . '>.wp-block-navigation__container,'
+                . $menu . ':not(.blocks-engine-list-navigation)>.wp-block-navigation__container>.wp-block-navigation-item{display:contents!important}';
+        }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             // Keep the display baseline at Core's weight, not above authored rules.
             // The overlay list follows core's own wrap setting, so a native

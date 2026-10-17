@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
@@ -27,6 +28,13 @@ use DOMElement;
  */
 final class ElementConversionPrelude
 {
+    /**
+     * A menu its script opens in place. Core's generated list and items are
+     * transport, so the source's own children stay the menu's layout items
+     * and the state classes the script sets on the menu govern alone.
+     */
+    public const SCRIPT_NAVIGATION_CLASS = 'blocks-engine-script-navigation';
+
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): ?array<string, mixed> $convertElement
@@ -171,6 +179,17 @@ final class ElementConversionPrelude
             && ! $this->isPortableSrcSwapGallery($element)
             && $this->runtimeIslands->shouldPreserveDataAttributeRuntimeTarget($element)
         ) {
+            // A script-addressed menu stays a native navigation block; its hooks
+            // render with it. Anything the pattern cannot claim stays an island.
+            if ( 'nav' === $tagName ) {
+                $navigation = ($this->recognizePatterns)($element, $fallbacks, array( NavigationPattern::class ));
+                if ( 'core/navigation' === ($navigation['blockName'] ?? null) ) {
+                    if ( 'mobile' !== ($navigation['attrs']['overlayMenu'] ?? 'never') ) {
+                        $navigation['attrs']['className'] = SourceDom::mergeClassNames((string) ($navigation['attrs']['className'] ?? ''), self::SCRIPT_NAVIGATION_CLASS);
+                    }
+                    return ConversionOutcome::handled($navigation);
+                }
+            }
             return ConversionOutcome::handled(($this->htmlPreservationBlock)($element));
         }
 

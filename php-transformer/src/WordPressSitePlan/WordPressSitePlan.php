@@ -4577,6 +4577,12 @@ PHP;
             $lines[] = "}, 10, 2 );";
         }
         foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
+            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineRuntimeAttributes')) {
+                $lines[] = RuntimeAttributesRuntime::source();
+                break;
+            }
+        }
+        foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
             if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineNavigationAnchor')) {
                 $lines[] = NavigationAnchorRuntime::source();
                 break;
