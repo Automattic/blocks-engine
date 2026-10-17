@@ -284,6 +284,7 @@
       "php tests/unit/listing-source-excerpts.php",
       "php tests/unit/listing-query-unfactored-post-chrome.php",
       "php tests/unit/listing-card-summary-slots.php",
+      "php tests/unit/listing-card-date-class.php",
       "php tests/unit/flex-item-image-responsive-box.php",
       "php tests/unit/navigation-nowrap-row.php",
       "php tests/unit/image-responsive-size-not-pinned.php",
