@@ -75,7 +75,7 @@ $mediaResult = (new ArtifactCompiler())->compile(array(
 ));
 $mediaPlan = $mediaResult->toWordPressSitePlanView()['wordpress_site_plan'] ?? null;
 $assert(is_array($mediaPlan) && array() !== ($mediaPlan['assets'] ?? array()), 'Identical header rules under different media compile without colliding targets: ' . json_encode(array_values(array_filter(array_column($mediaResult->toArray()['diagnostics'] ?? array(), 'message'), static fn ($m): bool => str_contains((string) $m, 'colliding')))));
-$mediaShared = array_values(array_filter($mediaPlan['assets'], static fn (array $asset): bool => str_contains((string) ($asset['target_path'] ?? ''), 'shared-chrome-') && str_contains((string) ($asset['content'] ?? ''), '.site-header{background:#eee}')));
+$mediaShared = array_values(array_filter($mediaPlan['assets'], static fn (array $asset): bool => str_contains((string) ($asset['target_path'] ?? ''), 'shared-chrome-') && 1 === preg_match('/\.site-header\{background:(?:var\(--wp--preset--color--[a-z0-9-]+,)?#eee\)?\}/', (string) ($asset['content'] ?? ''))));
 $assert(2 === count($mediaShared) && 2 === count(array_unique(array_column($mediaShared, 'target_path'))) && array('(max-width:767px)', '(min-width:768px)') === (static function (array $m): array { sort($m); return $m; })(array_map(static fn (array $a): string => (string) ($a['media'] ?? ''), $mediaShared)), 'Each media condition keeps its own shared stylesheet: ' . json_encode(array_map(static fn (array $a): array => array($a['target_path'] ?? null, $a['media'] ?? null), $mediaShared)));
 
 // The engine rewrites an ancestor id into an editor-parity compound; its
