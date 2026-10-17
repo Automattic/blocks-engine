@@ -273,12 +273,10 @@ $assert(
     $cardCss
 );
 
-// The arm is a deliberately narrow allowlist, not a general "carry every
-// leftover declaration" rule: animation, filter and counter-reset have side
-// effects and sit outside this defect family.
-// The companion `max-width` is load-bearing: it mints a carrier, so these three
-// assertions are proving the properties are ABSENT FROM a rule that exists,
-// rather than passing vacuously against an empty carrier string.
+// Declarations with no block support are not dropped either (#2974): an
+// inline `animation`, `filter` or `counter-reset` has no author rule to ride
+// on, so the element's carrier restates it alongside the companion
+// `max-width` geometry, in the same carrier rule.
 $sideEffects = $transform(
     '<section><div style="animation:pulse 2s infinite;filter:blur(2px);counter-reset:step 0;max-width:40rem;">'
     . '<p>Copy inside a decorated wrapper.</p></div></section>'
@@ -286,15 +284,16 @@ $sideEffects = $transform(
 $sideEffectsCss = $cssFor($sideEffects, 'engine-support');
 $sideEffectRules = $tierRules($sideEffectsCss);
 
+$carrierRule = $anyWith($sideEffectRules, 'max-width:40rem');
 $assert(
-    '' !== $anyWith($sideEffectRules, 'max-width:40rem'),
-    'unmatched arm: the companion declaration mints a carrier, so the negative assertions below are non-vacuous',
+    '' !== $carrierRule,
+    'unsupported inline declarations: the companion declaration mints a carrier',
     $sideEffectsCss
 );
-foreach ( array( 'animation', 'filter', 'counter-reset' ) as $property ) {
+foreach ( array( 'animation:pulse 2s infinite', 'filter:blur(2px)', 'counter-reset:step 0' ) as $declaration ) {
     $assert(
-        '' === $anyWith($sideEffectRules, $property),
-        'unmatched arm: ' . $property . ' is outside the allowlist and is not carried',
+        str_contains($carrierRule, $declaration),
+        'unsupported inline declarations: ' . $declaration . ' is carried by the element carrier',
         $sideEffectsCss
     );
 }
