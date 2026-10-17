@@ -129,6 +129,7 @@ final class RuntimeScriptEvidenceAnalyzer
             $script = substr($script, 0, self::MAX_SCRIPT_BYTES);
         }
 
+        $script = $this->withSelectorHelpersInlined($script);
         $selectors = $this->selectors($script);
         $events = $this->events($script);
         $controls = $this->controlSelectors($script);
@@ -158,6 +159,41 @@ final class RuntimeScriptEvidenceAnalyzer
             'mutation_selectors' => $this->mutationSelectors($script, $selectors),
             'diagnostics' => $truncated ? array(array('code' => 'runtime_script_analysis_truncated', 'severity' => 'warning', 'source_path' => $sourcePath, 'script_path' => $scriptPath, 'max_bytes' => self::MAX_SCRIPT_BYTES, 'actual_bytes' => $originalBytes, 'fail_closed' => true)) : array(),
         );
+    }
+
+    /**
+     * Hand-written scripts often wrap the DOM lookup in a one-line helper:
+     * `function $(sel, root) { return (root || document).querySelector(sel); }`,
+     * `const $$ = (s, r = document) => Array.from(r.querySelectorAll(s))`.
+     * A call with a literal selector, `$('[data-grid]')`, addresses the same
+     * element as the lookup it forwards to, so it is read as that lookup. Only
+     * helpers this script defines are inlined; an undefined `$` (jQuery) is not.
+     * The rewritten text is analysis input only; the script ships unchanged.
+     */
+    private function withSelectorHelpersInlined(string $script): string
+    {
+        $name = '[A-Za-z_$][A-Za-z0-9_$]*';
+        $definitions = '/(?:\bfunction\s+(' . $name . ')\s*\(\s*(' . $name . ')[^)]*\)\s*\{([^{}]{0,240})\}'
+            . '|\b(?:const|let|var)\s+(' . $name . ')\s*=\s*(?:function\s*\(\s*(' . $name . ')[^)]*\)\s*\{([^{}]{0,240})\}'
+            . '|(?:\(\s*(' . $name . ')[^)]*\)|(' . $name . '))\s*=>\s*([^;\n]{1,240})))/';
+        if (!preg_match_all($definitions, $script, $matches, PREG_SET_ORDER)) return $script;
+        $helpers = array();
+        foreach ($matches as $match) {
+            $helper = ($match[1] ?? '') . ($match[4] ?? '');
+            $parameter = ($match[2] ?? '') . ($match[5] ?? '') . ($match[7] ?? '') . ($match[8] ?? '');
+            $body = ($match[3] ?? '') . ($match[6] ?? '');
+            $expression = $match[9] ?? '';
+            if ('' !== $body) {
+                if (!preg_match('/^\s*return\b/', $body)) continue;
+                $expression = $body;
+            }
+            if ('' === $helper || '' === $parameter || !preg_match('/\b(querySelectorAll|querySelector|getElementById)\s*\(\s*' . preg_quote($parameter, '/') . '\s*\)/', $expression, $lookup)) continue;
+            $helpers[$helper] = $lookup[1];
+        }
+        foreach ($helpers as $helper => $lookup) {
+            $script = preg_replace_callback('/(?<![A-Za-z0-9_$.])' . preg_quote($helper, '/') . '\s*\(\s*(["\'])((?:(?!\1)[^\\\\\n]){1,240})\1\s*(?:,[^()]{0,120})?\)/', static fn(array $call): string => 'document.' . $lookup . '(' . $call[1] . $call[2] . $call[1] . ')', $script) ?? $script;
+        }
+        return $script;
     }
 
     /** @return array<int, string> */

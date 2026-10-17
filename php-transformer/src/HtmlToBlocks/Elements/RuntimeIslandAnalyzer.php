@@ -476,6 +476,10 @@ final class RuntimeIslandAnalyzer
         if ($blockName === $this->context->generatedBlockName('layout-shell') && in_array(strtolower($element->tagName), array('div', 'span', 'article', 'aside', 'header', 'footer', 'main', 'section', 'nav'), true)) {
             $root = SourceDom::documentVariantRoot($element);
             if ($root && $root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)) return true;
+            // A captured gallery frame is the gallery runtime's own contract:
+            // the shell saves its frame attributes and `hidden` state verbatim,
+            // and the runtime only flips them, so the frame stays editable.
+            if ($element->hasAttribute(CaptureEvidence::GALLERY_FRAME) && $element->parentNode instanceof DOMElement && $element->parentNode->hasAttribute(CaptureEvidence::GALLERY_STAGE)) return true;
         }
         // The authored hidden marker is the exact save() DOM contract for these
         // companion blocks. A native editable marker is not a runtime island.
