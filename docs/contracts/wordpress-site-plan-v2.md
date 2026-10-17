@@ -165,6 +165,11 @@ and `WordPressSitePlanResolver::resolve()`.
   `provenance.source_url` site, or becomes `#` when no source URL is recorded; each
   such link is reported once as a `wordpress_site_plan_unresolved_navigation_link`
   warning in `diagnostics` rather than failing the plan.
+  A captured script or JSON data file is published verbatim apart from declared
+  asset tokens, so a local link or path written in its strings (markup a script
+  builds at runtime) is not rewritten. Each distinct value is reported once per
+  file as a `wordpress_site_plan_unresolved_script_reference` warning naming the
+  file and value, rather than failing the plan; page markup keeps the strict check.
   A head `link` declaration must name a captured asset or an explicit URL. One
   that names neither costs that declaration and not the plan when it carries no
   subresource: an unresolved feed, resource hint, manifest, vendor, oEmbed
