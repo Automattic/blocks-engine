@@ -386,6 +386,16 @@ final class RichTextMaterializer implements RichTextMaterialization
         return $this->requiresHtmlFallback($content);
     }
 
+    public function requiresHtmlFallbackForElement(DOMElement $element, string $content): bool
+    {
+        // Inline images beside text are RichText `core/image` objects, so a
+        // text element whose images all qualify is gated on its other content.
+        if ( SourceDom::carriesOnlyRichTextInlineImages($element) ) {
+            $content = preg_replace('@<img\b[^>]*>@i', '', $content) ?? $content;
+        }
+        return $this->requiresHtmlFallbackWithoutNativeSvgImageObjects($content);
+    }
+
     public function containsNativeSvgImageObject(string $content): bool
     {
         if ( ! preg_match_all('@<img\b[^>]*\s*/?>@i', $content, $matches) ) {

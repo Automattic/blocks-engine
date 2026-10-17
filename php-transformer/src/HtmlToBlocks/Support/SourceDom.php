@@ -660,6 +660,43 @@ final class SourceDom
     }
 
     /**
+     * Whether a text element's every `<img>` is an inline image beside its text
+     * that RichText carries as its `core/image` object format: a real, safe
+     * source sitting directly in the element or inside links and inline
+     * formatting. Image-only content and interactive elements keep their own
+     * routes.
+     * An image inside any other host (a custom element, a `<picture>`) keeps
+     * the host's own semantics, so the element does not qualify.
+     */
+    public static function carriesOnlyRichTextInlineImages(DOMElement $element): bool
+    {
+        $images = $element->getElementsByTagName('img');
+        // Interactive elements (links, buttons, role-bearing controls) keep
+        // their own routes; this is about plain text carriers only.
+        if ( 0 === $images->length
+            || '' === trim(str_replace("\u{00A0}", ' ', $element->textContent))
+            || $element->hasAttribute('role')
+            || in_array(strtolower($element->tagName), array( 'a', 'button', 'label', 'summary' ), true) ) {
+            return false;
+        }
+
+        foreach ( $images as $image ) {
+            if ( ! self::isRichTextImageObject($image) || ! self::hasOnlySafeFallbackAttributes($image) ) {
+                return false;
+            }
+            for ( $parent = $image->parentNode; $parent !== $element; $parent = $parent->parentNode ) {
+                if ( ! $parent instanceof DOMElement
+                    || ! in_array(strtolower($parent->tagName), array( 'a', 'span', 'strong', 'em', 'b', 'i', 'small', 'mark', 'sub', 'sup' ), true)
+                    || ! self::hasOnlySafeFallbackAttributes($parent) ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * An `<img>` that RichText can carry as-is: a real `src` (not a `data:`
      * placeholder) and no lazy-load source attribute that still has to be
      * resolved into it.

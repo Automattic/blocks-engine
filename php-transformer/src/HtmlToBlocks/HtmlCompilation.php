@@ -4201,13 +4201,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( $sourceElement instanceof DOMElement
             && in_array($name, array( 'core/paragraph', 'core/heading' ), true)
             && ! ('core/heading' === $name && SourceDom::isImageOnlyHeading($sourceElement))
-            && $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
+            && $this->richTextMaterializer->requiresHtmlFallbackForElement($sourceElement, (string) ($attrs['content'] ?? '')) ) {
             $materialized = $this->richTextMaterializer->contentWithMaterializedSvgImages($sourceElement, (string) ($attrs['content'] ?? ''));
             if ( null !== $materialized ) {
                 $attrs['content'] = $materialized;
             }
             $attrs['content'] = $this->richTextMaterializer->stripDecorativeSvg((string) ($attrs['content'] ?? ''));
-            if ( $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
+            if ( $this->richTextMaterializer->requiresHtmlFallbackForElement($sourceElement, (string) ($attrs['content'] ?? '')) ) {
                 return $this->createBlock('core/html', array( 'content' => SourceDom::safeFallbackHtml($sourceElement, $this->authorSelectorProjections()->tagMarkers()) ), array(), $sourceElement);
             }
         }

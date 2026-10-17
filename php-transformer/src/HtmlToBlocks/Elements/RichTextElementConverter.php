@@ -263,7 +263,7 @@ final class RichTextElementConverter implements ElementConverter
             return $emptyLayout;
         }
 
-        if ( $this->context->requiresHtmlFallback($content) ) {
+        if ( $this->context->requiresHtmlFallbackForElement($element, $content) ) {
             // A paragraph wrapping one anchor that mixes an image with text is
             // not RichText, but the container path already converts that anchor
             // shape natively. Lower it the same way instead of preserving a
