@@ -93,6 +93,7 @@
       "php tests/contract/inert-document-declarations.php",
       "php tests/contract/document-head-runtime.php",
       "php tests/contract/script-dom-insertion-proof.php",
+      "php tests/contract/script-write-local-references.php",
       "php tests/contract/rewritten-asset-integrity.php",
       "php tests/contract/head-script-retirement.php",
       "php tests/contract/form-source-ownership.php",
