@@ -186,6 +186,7 @@
       "php tests/unit/semantic-heading-brand.php",
       "php tests/unit/conditional-native-button.php",
       "php tests/unit/form-physical-box-ownership.php",
+      "php tests/unit/form-layout-graph-important-facts.php",
       "php tests/unit/choice-only-control-group.php",
       "php tests/unit/html-markup-parser-linear.php",
       "php tests/unit/css-ident-escape.php",
