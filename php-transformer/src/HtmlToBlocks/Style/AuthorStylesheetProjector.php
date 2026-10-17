@@ -371,6 +371,10 @@ final class AuthorStylesheetProjector
         return array_values(array_filter(
             $offsets,
             static function (int $offset) use ($selector, $length): bool {
+                // A template part hosts its blocks directly, never a layout shell layer.
+                if ( str_ends_with(rtrim(substr($selector, 0, $offset)), ':where(.wp-block-template-part)') ) {
+                    return false;
+                }
                 $state = CssSyntaxScanner::state();
                 $index = $offset + 1;
                 while ( $index < $length && CssSyntaxScanner::isCssWhitespace($selector[ $index ] ) ) {
@@ -1685,11 +1689,7 @@ final class AuthorStylesheetProjector
                     $matches
                 ))));
                 $markers = array_values(array_unique(array_filter(array_map(
-                    static function (DOMElement $element) use ($shellTags, $context): string {
-                        return in_array(strtolower($element->tagName), $shellTags, true)
-                            ? ''
-                            : $context->selectorProjections->rootChildMarker($element->getNodePath() ?? '');
-                    },
+                    static fn (DOMElement $element): string => $context->selectorProjections->rootChildMarker($element->getNodePath() ?? ''),
                     $matches
                 ))));
                 if ( array() === $markers && array() === $shellTags ) {
@@ -1700,10 +1700,10 @@ final class AuthorStylesheetProjector
                     $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);
                 }
                 foreach ( $shellTags as $tag ) {
-                    $rewritten[] = ':where(' . $tag . '.wp-block-template-part)' . $this->selectorSpecificityShims($parsed, $context);
-                    // Core keeps this transport wrapper in the editor but removes it
-                    // from the frontend response for inline shell parts.
-                    $rewritten[] = ':root .editor-styles-wrapper :where(.wp-block-template-part):has(> ' . $tag . ')' . $this->selectorSpecificityShims($parsed, $context);
+                    // A shell part's landmark group is the box and keeps the
+                    // authored selector's projection. The editor still nests
+                    // it in Core's template-part transport wrapper.
+                    $rewritten[] = ':root .editor-styles-wrapper :where(.wp-block-template-part) > ' . $tag . $this->selectorSpecificityShims($parsed, $context);
                 }
                 continue;
             }

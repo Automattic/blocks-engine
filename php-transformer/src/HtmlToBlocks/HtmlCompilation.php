@@ -1712,9 +1712,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         )->report();
         $deadProjectedSelectorHaystack = $serializedBlocks;
         foreach ( $shellArtifacts as $shellArtifact ) {
-            foreach ( array('block_markup', 'inner_block_markup', 'template_part_block_markup') as $markupKey ) {
-                $deadProjectedSelectorHaystack .= "\n" . (string) ( $shellArtifact[$markupKey] ?? '' );
-            }
+            $deadProjectedSelectorHaystack .= "\n" . (string) ( $shellArtifact['block_markup'] ?? '' );
         }
         $deadProjectedSelectorEvaluation = $this->deadProjectedSelectorReporter->evaluate(
             $this->projectedSelectorBindings,
@@ -1971,33 +1969,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 continue;
             }
 
-            // The landmark converts like any other element, so its wrapper
+            // The landmark converts like any other element, so its group
             // carries the same resolved block supports and carrier classes on
-            // every route whether or not an app frame wraps it.
+            // every route whether or not an app frame wraps it. That group is
+            // the landmark box: the template part renders exactly it.
             $shellFallbacks = array();
             $converted = $this->convertElement($child, $shellFallbacks, true);
             $converted = null === $converted ? array() : (isset($converted['blockName']) ? array($converted) : $converted);
             $converted = $this->navigationBlockNormalizer->normalize($converted, $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
-            $wrapper = 1 === count($converted) && 'core/group' === ($converted[0]['blockName'] ?? null)
-                ? $converted[0]
-                : $this->createBlock('core/group', array(), $converted, $child);
-            $innerBlocks = $wrapper['innerBlocks'] ?? array();
-            $innerMarkup = $this->runtime->serializeBlocks($innerBlocks);
-            $wrapperAttrs = is_array($wrapper['attrs'] ?? null) ? $wrapper['attrs'] : array();
-            $wrapperAttrs['tagName'] = $area;
-            $blocks = array($this->createBlock('core/group', $wrapperAttrs, $innerBlocks, $child));
-            $markup = $this->runtime->serializeBlocks($blocks);
-            $templatePartAttrs = $wrapperAttrs;
-            unset($templatePartAttrs['tagName'], $templatePartAttrs['metadata']);
-            if ( array() === $templatePartAttrs ) {
-                $templatePartMarkup = $innerMarkup;
+            if ( 1 === count($converted) && 'core/group' !== ($converted[0]['blockName'] ?? null) && $area === ($converted[0]['attrs']['tagName'] ?? null) ) {
+                // A landmark block of its own (a scroll-state carrier) is the box.
+                $markup = $this->runtime->serializeBlocks($converted);
             } else {
-                $responsiveMarginTop = $this->styleResolver->responsiveBlockMarginTopClassName($child);
-                if ( '' !== $responsiveMarginTop ) {
-                    $templatePartAttrs['className'] = SourceDom::mergeClassNames((string) ($templatePartAttrs['className'] ?? ''), $responsiveMarginTop);
-                }
-                $templatePartBlock = $this->createBlock('core/group', $templatePartAttrs, $innerBlocks);
-                $templatePartMarkup = $this->runtime->serializeBlocks(array($templatePartBlock));
+                $wrapper = 1 === count($converted) && 'core/group' === ($converted[0]['blockName'] ?? null)
+                    ? $converted[0]
+                    : $this->createBlock('core/group', array(), $converted, $child);
+                $wrapperAttrs = is_array($wrapper['attrs'] ?? null) ? $wrapper['attrs'] : array();
+                $wrapperAttrs['tagName'] = $area;
+                $markup = $this->runtime->serializeBlocks(array($this->createBlock('core/group', $wrapperAttrs, $wrapper['innerBlocks'] ?? array(), $child)));
             }
             if ( '' === trim($markup) ) {
                 continue;
@@ -2009,8 +1998,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 'area' => $area,
                 'body_format' => 'blocks',
                 'block_markup' => $markup,
-                'inner_block_markup' => $innerMarkup,
-                'template_part_block_markup' => $templatePartMarkup,
                 'source_selector' => strtolower($child->tagName),
                 'source_hash' => hash('sha256', $this->outerHtml($child)),
                 'placement' => array('kind' => 'entry_shell', 'source_path' => $source, 'template_slugs' => array('front-page')),

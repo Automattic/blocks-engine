@@ -49,7 +49,7 @@ $home = '<a class="flex items-center gap-4 home-link" href="/" target="_blank" r
 $document = '<!doctype html><html><body><header class="site-bar"><div class="site-bar-inner">' . $home . '<nav class="menu"><a href="/about/">About</a></nav></div></header><main><p>Hello</p></main></body></html>';
 $result = $transform($document);
 $serialized = (string) ($result['serialized_blocks'] ?? '');
-$shell = (string) (($result['source_reports']['shell_artifacts'][0]['template_part_block_markup'] ?? ''));
+$shell = (string) (($result['source_reports']['shell_artifacts'][0]['block_markup'] ?? ''));
 $block = $find($result['blocks'] ?? array(), 'custom/linked-responsive-content');
 $comment = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
 $inner = (string) ($block['innerHTML'] ?? '');

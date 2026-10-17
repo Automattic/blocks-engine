@@ -4373,13 +4373,13 @@ PHP;
             $lines[] = "    }";
             $lines[] = "} );";
         }
-        // Responsive inline shells carry their own landmark. Route-specific
-        // parts deliberately carry an inner div so Core's semantic template-part
-        // wrapper is the sole <header> at the authored document position.
-        $inlineShellSlugs = array_values(array_map(static fn(array $part): string => (string) $part['slug'], array_filter($parts, static fn(array $part): bool => 'inline_shared_shell' === ($part['placement']['kind'] ?? null) && 'route_variant' !== ($part['provenance']['reason'] ?? null))));
-        if (array() !== $inlineShellSlugs) {
+        // A generated header or footer part carries its own landmark box.
+        // Core's template-part wrapper is transport only, so the frontend
+        // renders the landmark at its authored document position.
+        $shellSlugs = array_values(array_map(static fn(array $part): string => (string) $part['slug'], array_filter($parts, static fn(array $part): bool => in_array($part['area'] ?? null, array('header', 'footer'), true) && in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell', 'inline_shared_shell'), true))));
+        if (array() !== $shellSlugs) {
             $lines[] = "add_filter( 'render_block_core/template-part', static function ( string \$content, array \$block ): string {";
-            $lines[] = '    $slugs = ' . var_export($inlineShellSlugs, true) . ';';
+            $lines[] = '    $slugs = ' . var_export($shellSlugs, true) . ';';
             $lines[] = "    if ( ! in_array( (string) ( \$block['attrs']['slug'] ?? '' ), \$slugs, true ) || ! preg_match( '/^<([a-z][a-z0-9-]*)\\b[^>]*>(.*)<\\/\\1>$/s', \$content, \$match ) ) return \$content;";
             $lines[] = "    return \$match[2];";
             $lines[] = "}, 10, 2 );";
