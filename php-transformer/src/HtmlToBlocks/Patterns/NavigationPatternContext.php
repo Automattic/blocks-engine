@@ -569,7 +569,19 @@ final class NavigationPatternContext
 
     public function overlayMenu(DOMElement $element): string
     {
-        return $this->navigationToggleSuppressor?->navigationOverlayMenu($element) ?? 'never';
+        $overlayMenu = $this->navigationToggleSuppressor?->navigationOverlayMenu($element) ?? 'never';
+
+        // A script that addresses both the menu and its toggle keeps that
+        // toggle and opens the menu itself. Core's overlay would add a second
+        // toggle and hide the links where the script never looks.
+        if ( 'mobile' === $overlayMenu && $this->isRuntimeDomTarget($element) ) {
+            $toggle = $this->navigationToggleSuppressor?->navigationToggleControl($element);
+            if ( $toggle instanceof DOMElement && $this->isRuntimeDomTarget($toggle) ) {
+                return 'never';
+            }
+        }
+
+        return $overlayMenu;
     }
 
     public function capturedMenuFold(DOMElement $row): ?CapturedMenuDialogFold

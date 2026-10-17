@@ -466,6 +466,30 @@ final class RuntimeIslandAnalyzer
         return true;
     }
 
+    /**
+     * Source hooks a dynamic block cannot save but must render for the script
+     * that finds it: its data-* attributes, role and aria state other than the
+     * label. They ride in block metadata and are applied when WordPress renders
+     * the block (WordPressSitePlan's runtime attribute filter).
+     *
+     * @return array<string, string>
+     */
+    public function runtimeAttributesCarriedBy(DOMElement $element, string $blockName): array
+    {
+        if ('core/navigation' !== $blockName || 'nav' !== strtolower($element->tagName) || ! $this->isRuntimeDomTarget($element)) return array();
+        $attributes = array();
+        foreach ($element->attributes ?? array() as $attribute) {
+            $name = strtolower($attribute->nodeName);
+            if (str_starts_with($name, 'data-blocks-engine-') || ! preg_match('/^(?:data-[a-z0-9_.:-]+|aria-(?!label$)[a-z]+|role)$/', $name)) continue;
+            $value = (string) $attribute->nodeValue;
+            if (strlen($value) > 300 || preg_match('/javascript\s*:/i', $value)) continue;
+            $attributes[$name] = $value;
+        }
+        ksort($attributes);
+
+        return $attributes;
+    }
+
     public function canRetainRuntimeDomContractNatively(DOMElement $element, string $blockName): bool
     {
         if ($blockName === $this->context->generatedBlockName('authored-button') && AuthoredButtonBlockGenerator::isRoleButton($element)) return true;
@@ -487,6 +511,10 @@ final class RuntimeIslandAnalyzer
             ($blockName === $this->context->generatedBlockName('live-clock') && $element->hasAttribute('data-blocks-engine-live-clock'))
             || ($blockName === $this->context->generatedBlockName('motion-sequence') && $element->hasAttribute('data-blocks-engine-motion-steps'))
         )) return true;
+        // Core navigation renders its <nav> dynamically: the anchor and aria-label
+        // supports carry id and label, and the remaining hooks travel as
+        // render-time attributes (see runtimeAttributesCarriedBy()).
+        if ('core/navigation' === $blockName && 'nav' === strtolower($element->tagName)) return true;
         $isLayoutShell = $blockName === $this->context->generatedBlockName('layout-shell');
         if ( ! $isLayoutShell && ! in_array($blockName, array('core/group', 'core/paragraph', 'core/heading'), true) ) {
             return false;

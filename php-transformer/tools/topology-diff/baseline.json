@@ -213,6 +213,7 @@
         },
         "20-switchback-woocommerce-extra-hard": {
             "added a": 36,
+            "added div [blocks-engine-authored-select-wrapper]": 4,
             "added div [blocks-engine-control]": 30,
             "added div [blocks-engine-layout-child-button]": 1,
             "added div [blocks-engine-layout-neutral-buttons]": 1,
@@ -894,6 +895,7 @@
         },
         "59-spreadsheet": {
             "added button": 2,
+            "added div [blocks-engine-authored-select-wrapper]": 1,
             "added div [blocks-engine-control]": 14,
             "added div [blocks-engine-layout-child-button]": 7,
             "added div [blocks-engine-layout-neutral-buttons]": 7,
@@ -1020,6 +1022,7 @@
             "retagged svg>img": 5
         },
         "70-typing-test": {
+            "added div [blocks-engine-authored-select-wrapper]": 1,
             "added div [blocks-engine-control]": 2,
             "added p [blocks-engine-inline-layout-carrier]": 17,
             "added p [blocks-engine-synthetic-paragraph]": 2,
@@ -1118,6 +1121,7 @@
             "added img": 4,
             "added p [blocks-engine-inline-layout-carrier]": 2,
             "added p [blocks-engine-synthetic-paragraph]": 6,
+            "removed nav": 1,
             "removed svg": 4,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 7,
             "retagged svg>img": 1
@@ -1143,6 +1147,7 @@
             "added p [blocks-engine-inline-layout-carrier]": 4,
             "added p [blocks-engine-synthetic-paragraph]": 14,
             "added p [blocks-engine-synthetic-svg-paragraph]": 5,
+            "removed nav": 1,
             "removed svg": 3,
             "retagged a>div [wp-block-group]": 5,
             "retagged div>p [blocks-engine-lowered-paragraph]": 4,

@@ -95,10 +95,14 @@ final class AuthoredFormControlBlockConverter
     }
 
     /** @return array<string, mixed>|null */
-    public function select(DOMElement $select, bool $forceNative = false, ?DOMElement $labelElement = null): ?array
+    /**
+     * @param bool $runtimeTarget The control is a script's DOM target: it stays native and keeps
+     *                            the data-* hooks and the id the script finds it by.
+     */
+    public function select(DOMElement $select, bool $forceNative = false, ?DOMElement $labelElement = null, bool $runtimeTarget = false): ?array
     {
         $state = NativeControlState::attributes($select);
-        $forceNative = $forceNative || null !== $state;
+        $forceNative = $forceNative || $runtimeTarget || null !== $state;
         $label = $this->metadataBuilder->readableLabel($select);
         ($this->registerEcho)($label);
         $options = $this->metadataBuilder->options($select);
@@ -137,7 +141,7 @@ final class AuthoredFormControlBlockConverter
             'form' => SourceDom::attr($select, 'form'),
             'multiple' => $select->hasAttribute('multiple'),
             'size' => SourceDom::attr($select, 'size'),
-            'dataAttributes' => null !== $state ? $this->dataAttributes($select) : array(),
+            'dataAttributes' => $runtimeTarget || null !== $state ? $this->dataAttributes($select) : array(),
             'ariaLabel' => SourceDom::attr($select, 'aria-label'),
             'placeholder' => SourceDom::attr($select, 'placeholder'),
             'className' => SourceDom::attr($select, 'class'),
@@ -164,7 +168,9 @@ final class AuthoredFormControlBlockConverter
         // Preserve the established structural address while source identity and
         // authored selectors remain on the native control inside this shell.
         return $this->createBlock->createBlock('core/group', array_filter(array(
-            'anchor' => null !== $state ? '' : ($this->safeAnchor)(SourceDom::attr($select, 'id')),
+            // The control owns its id; a wrapper anchor would duplicate it, and a
+            // script's getElementById would find the wrapper instead.
+            'anchor' => null !== $state || $runtimeTarget ? '' : ($this->safeAnchor)(SourceDom::attr($select, 'id')),
             'className' => 'blocks-engine-authored-select-wrapper',
         )), array( $controlBlock ), null);
     }
