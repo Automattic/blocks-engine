@@ -165,7 +165,7 @@ final class NavigationPatternContext
     {
         $document = $this->session?->sourcePath() ?? '';
         $href = trim($href);
-        if ( str_contains($href, '#') && '' !== trim((string) substr($href, (int) strpos($href, '#') + 1)) ) {
+        if ( ArtifactPath::namesSection($href) ) {
             return false;
         }
         $href = ArtifactPath::stripQueryAndFragment($href);

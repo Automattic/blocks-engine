@@ -240,7 +240,7 @@ final class ArtifactCompiler
         $selectableSets = (new CapturedSelectableSetProjector())->project($collections['files'], $collections['consumed_selectable_bindings'] ?? array());
         $choiceGroups = (new CapturedChoiceGroupProjector())->project($selectableSets['files']);
         $scrollStates = (new ScrollStateProjector())->project($choiceGroups['files']);
-        $normalized['files'] = $scrollStates['files'];
+        $normalized['files'] = (new RouteStateProjector())->project($scrollStates['files'])['files'];
         return $this->finalizeArtifact($artifact, array(
             'normalized' => $normalized,
             'inline_compilation' => true,
