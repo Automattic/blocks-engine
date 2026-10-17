@@ -204,9 +204,13 @@ final class FormLayoutGraphBuilder
                 $nodes[$entry['id']]['sizing'] = $sizing;
             }
         }
+        $this->hoistFieldListSpacing($entries, $nodes, $analysis['rules'], $customPropertyAnalysis['rules']);
+        $this->hoistFieldGroupSpacing($entries, $nodes, $analysis['rules'], $customPropertyAnalysis['rules']);
         // Structural ancestors restored without layout facts of their own still
         // carry resolved presentation (inherited alignment and typography), so a
-        // consumer reading any box on the path sees what that box renders.
+        // consumer reading any box on the path sees what that box renders. This
+        // runs after the spacing hoists, so ancestors they restore through
+        // ensureAncestorNodes() carry presentation too.
         foreach ( $entries as $entry ) {
             if ( ! isset($nodes[$entry['id']]) || isset($nodes[$entry['id']]['presentation']) || 'container' !== $entry['kind'] || 'form' === $entry['id'] ) {
                 continue;
@@ -218,8 +222,6 @@ final class FormLayoutGraphBuilder
                 $this->diagnostics[] = 'element_presentation_limit';
             }
         }
-        $this->hoistFieldListSpacing($entries, $nodes, $analysis['rules'], $customPropertyAnalysis['rules']);
-        $this->hoistFieldGroupSpacing($entries, $nodes, $analysis['rules'], $customPropertyAnalysis['rules']);
 
         $graph = array(
             'schema' => 'generic/computed-layout-graph/v3',
