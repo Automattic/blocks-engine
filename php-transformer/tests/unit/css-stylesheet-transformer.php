@@ -163,6 +163,14 @@ $source = '.small{padding:20px}@media(min-width:768px){.wide{padding:32px}}';
 $projection = '.small:not(.control){padding:20px}@media(min-width:768px){.wide{padding:32px}}';
 $assert($projection === $transformer->rulesAbsentFrom(array($projection), array($source), true), 'a later page delta retains responsive rules after its rewritten base rule, preserving cascade order');
 $assert('' === $transformer->rulesAbsentFrom(array($source), array($source), true), 'an unchanged projection still needs no page stylesheet');
+$shared = 'footer.sitewide ul a{color:#036;font-weight:700}';
+$assert('' === $transformer->rulesAbsentFrom(array($shared), array($shared), true), 'reduced multi-page footer projections do not repeat shared stylesheet rules');
+$delta = $transformer->rulesAbsentFrom(
+    array('.link.page-a{color:red}.unrelated{margin:0}.link.page-a{color:blue}.tail{padding:0}'),
+    array('.link{color:black}.unrelated{margin:0}.link.page-a{color:blue}.tail{padding:0}'),
+    true
+);
+$assert('.link.page-a{color:red}.link.page-a{color:blue}' === $delta, 'cascade-preserving page deltas retain changed rules and later selector/property overrides, not unrelated suffix rules');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssStylesheetTransformer unit tests: {$failures} failed, {$passes} passed\n");
