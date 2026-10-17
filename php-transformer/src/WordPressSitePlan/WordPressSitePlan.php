@@ -3847,13 +3847,17 @@ PHP;
             if ('tag' !== ($node['kind'] ?? null) || !is_string($node['attributes']['class'] ?? null)) {
                 continue;
             }
+            $contributed = false;
             foreach (preg_split('/\s+/', trim($node['attributes']['class'])) ?: array() as $token) {
                 if ('' === $token || str_starts_with($token, 'wp-block-') || in_array($token, $omit, true) || str_starts_with($token, 'blocks-engine-')) {
                     continue;
                 }
                 $classes[$token] = true;
+                $contributed = true;
             }
-            break;
+            if ($contributed) {
+                break;
+            }
         }
         if (array() === $classes) {
             return null;
