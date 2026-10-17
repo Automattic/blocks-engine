@@ -960,7 +960,9 @@ final class ShellExtraction
             if (count($cluster['indexes']) !== count($applicable)) foreach ($applicable as $index => $page) {
                 $selected = in_array($index, $cluster['indexes'], true);
                 if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
-                if ('post' === ($page['post_type'] ?? null)) { if ($selected) $templateSlugs[] = 'single'; } elseif ($selected) $templateSlugs[] = 'page';
+                // The generic fallback templates always carry the dominant
+                // shell; excluded routes get their own override templates.
+                $templateSlugs[] = 'post' === ($page['post_type'] ?? null) ? 'single' : 'page';
                 if (!$selected) {
                     $slug = 'page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug'];
                     if (isset($overrides[$slug])) {
@@ -1081,7 +1083,9 @@ final class ShellExtraction
                     foreach ($applicable as $index => $page) {
                         $selected = isset($withoutShells[$index]);
                         if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
-                        if ('post' === ($page['post_type'] ?? null)) { if ($selected) $templateSlugs[] = 'single'; } elseif ($selected) $templateSlugs[] = 'page';
+                        // The generic fallback templates always carry the dominant
+                        // shell; excluded routes get their own override templates.
+                        $templateSlugs[] = 'post' === ($page['post_type'] ?? null) ? 'single' : 'page';
                         if (!$selected) {
                             $slug = 'page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug'];
                             if (isset($overrides[$slug])) {
@@ -1873,7 +1877,9 @@ final class ShellExtraction
             foreach ($applicable as $index => $page) {
                 $selected = isset($withoutShells[$index]);
                 if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
-                if ('post' === ($page['post_type'] ?? null)) { if ($selected) $templateSlugs[] = 'single'; } elseif ($selected) $templateSlugs[] = 'page';
+                // The generic fallback templates always carry the dominant
+                // shell; excluded routes get their own override templates.
+                $templateSlugs[] = 'post' === ($page['post_type'] ?? null) ? 'single' : 'page';
                 if (!$selected) {
                     $slug = 'page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug'];
                     if (isset($overrides[$slug])) return null;
@@ -1994,14 +2000,29 @@ final class ShellExtraction
         $rows = $this->nestedLandmarkCandidates($markup, '', $area);
         $remove = array();
         $present = array();
-        foreach ($rows as $row) {
-            $class = self::responsiveVariantClass($row);
-            if (null === $class) return null;
-            if (!isset($identities[$class]) || $identities[$class] !== $row['identity_markup']) return null;
-            $present[$class] = true;
-            $remove[] = $row;
+        $scopeless = array() !== $rows;
+        foreach ($rows as $row) if (null !== self::responsiveVariantClass($row)) { $scopeless = false; break; }
+        if ($scopeless) {
+            // A plain document carries no capture-document scopes (as when one
+            // viewport capture fails). It is adopted when its landmark equals
+            // the rank-0 (primary) variant identity.
+            $classes = array_keys($identities);
+            usort($classes, static fn(string $left, string $right): int => self::responsiveVariantRank($left) <=> self::responsiveVariantRank($right) ?: strcmp($left, $right));
+            $primary = array() === $classes ? null : $identities[$classes[0]];
+            foreach ($rows as $row) {
+                if (null === $primary || $primary !== $row['identity_markup']) return null;
+                $remove[] = $row;
+            }
+        } else {
+            foreach ($rows as $row) {
+                $class = self::responsiveVariantClass($row);
+                if (null === $class) return null;
+                if (!isset($identities[$class]) || $identities[$class] !== $row['identity_markup']) return null;
+                $present[$class] = true;
+                $remove[] = $row;
+            }
+            if ($requireAll) foreach (array_keys($identities) as $class) if (!isset($present[$class])) return null;
         }
-        if ($requireAll) foreach (array_keys($identities) as $class) if (!isset($present[$class])) return null;
         usort($remove, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
         foreach ($remove as $row) {
             if ($row['markup'] !== substr($markup, $row['offset'], $row['length'])) return null;
