@@ -1190,10 +1190,12 @@ final class ShellExtraction
             }
             $group = $groups[0] ?? null;
             if (null === $group || count($group['indexes']) < $largestCluster) continue;
-            // With a landmark the edge extends it outward only: the blocks
-            // before a header, the blocks after a footer. Blocks between the
-            // landmark and the content stay page content.
-            $length = null;
+            // With a landmark the edge holds it at the same position on every
+            // route, and runs the edge's full repeated length: blocks the
+            // routes share between the landmark and the content (a drawer, a
+            // mobile menu, an overlay) are chrome too. A page's own title band
+            // differs per route, so the repeated edge already ends before it.
+            $landmarkEnd = null;
             foreach ($group['indexes'] as $index) {
                 if (array() === ($landmarks[$index] ?? array())) continue;
                 // A landmark the edge's routes repeat is chrome, so the shared
@@ -1208,14 +1210,14 @@ final class ShellExtraction
                     $at = max($at, $position);
                 }
                 if (-1 === $at) continue;
-                if (null !== $length && $length !== $at + 1) continue 2;
-                $length = $at + 1;
+                if (null !== $landmarkEnd && $landmarkEnd !== $at + 1) continue 2;
+                $landmarkEnd = $at + 1;
             }
             // An edge that is only the landmark, or wrappers around it, leaves
             // the landmark in charge: its path keeps wrapper context such as
             // responsive visibility.
-            if (1 === $length) continue;
-            $length ??= $group['length'];
+            $length = $group['length'];
+            if (1 === $length && 1 === $landmarkEnd) continue;
             $nested = !empty($edges[$group['indexes'][0]][0]['nested']);
             $identity = hash('sha256', implode("\0", array_column(array_slice($edges[$group['indexes'][0]], 0, $length), 'identity')));
             foreach ($group['indexes'] as $index) {
