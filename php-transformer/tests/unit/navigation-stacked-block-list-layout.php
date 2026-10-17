@@ -72,7 +72,10 @@ $assert(
     array( 'type' => 'default' ) === $layout($menu('', 'display:block;float:left')),
     'floated block items take flow, where their projected float still applies'
 );
-$assert(null === $layout($menu('', 'display:block') . '.menu>ul{display:flex}'), 'a flex list keeps core\'s row');
+// A source flex row is carried as core's horizontal row; a row that never
+// wraps carries core's native flexWrap:nowrap (#2987), never a stack.
+$flexListLayout = $layout($menu('', 'display:block') . '.menu>ul{display:flex}');
+$assert(null === $flexListLayout || ( 'flex' === ($flexListLayout['type'] ?? null) && ! isset($flexListLayout['orientation']) ), 'a flex list keeps core\'s row', json_encode($flexListLayout));
 $assert(null === $layout('.menu{direction:ltr}'), 'a menu without item display evidence keeps core\'s default');
 $assert(null === $layout('.item{display:flex}'), 'flex items keep core\'s row');
 

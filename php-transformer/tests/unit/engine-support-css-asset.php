@@ -187,7 +187,7 @@ $beforeFamilies = array(
     'list-navigation alignment' => '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}',
     'list-navigation item display' => '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item{display:list-item}',
     'list-navigation item font reset' => ':where(.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link){font:inherit}',
-    'responsive list-navigation container layout' => '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}',
+    'responsive list-navigation container layout' => '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:var(--navigation-layout-wrap,wrap);list-style:none}',
     'non-overlay list-navigation transport' => '.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation)>.wp-block-navigation__container{display:contents!important}',
     'nativeSearchTriggerCssRules' => 'flex:0 0 24px!important;width:24px!important;height:80px!important',
 );

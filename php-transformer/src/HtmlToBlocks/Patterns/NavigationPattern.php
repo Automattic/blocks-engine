@@ -255,6 +255,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             : $this->navigationContainerAttributes($navigationSource, $presentationAttributes);
         $navigationAttrs = $this->withResolvedNonFlexNavigationLayout($navigationAttrs, $navigationSource, $navigationContext);
         $navigationAttrs = $this->withResolvedVerticalNavigationOrientation($navigationAttrs, $navigationSource, $navigationContext);
+        $navigationAttrs = $this->withNoWrapNavigationRow($navigationAttrs, $navigationSource, $listSource, $navigationContext);
         $navigationAttrs = $this->withCollapsedItemBand($navigationAttrs, $navigationSource, $navigationContext);
         if ( $splitLandmarkOwnership && $navigationContext?->isOutOfFlow($element) ) {
             // A positioned rail's semantic source list is a stack. Persist that intent on
@@ -1449,6 +1450,49 @@ final class NavigationPattern implements PatternRecognizerInterface
             'orientation' => 'vertical',
             'justifyContent' => $this->verticalNavigationJustification($style),
         );
+
+        return $attrs;
+    }
+
+    /**
+     * A source flex row wraps only when the author says so: `flex-wrap`'s
+     * initial value is `nowrap`. core/navigation instead defaults its row to
+     * `wrap` (`--navigation-layout-wrap`), so where the row runs out of room
+     * (a tablet header) whole items drop to a second line and the bar grows,
+     * while the source kept one line and let each item's label wrap inside
+     * it. Carry a row that never wraps at any viewport as core's native
+     * `flexWrap` layout.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withNoWrapNavigationRow(array $attrs, DOMElement $element, ?DOMElement $list, ?NavigationPatternContext $navigationContext): array
+    {
+        if ( null === $navigationContext || is_array($attrs['layout'] ?? null) ) {
+            return $attrs;
+        }
+
+        foreach ( array( $element, $list ) as $row ) {
+            if ( ! $row instanceof DOMElement ) {
+                continue;
+            }
+            $declared = $navigationContext->declaredValuesAtAnyViewport($row, array( 'display', 'flex-direction', 'flex-wrap', 'flex-flow' ));
+            $values = static fn (string $property): array => array_map(
+                static fn (string $value): string => strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', trim($value)))),
+                $declared[$property] ?? array()
+            );
+            if ( array() === array_intersect($values('display'), array( 'flex', 'inline-flex' )) ) {
+                continue;
+            }
+            foreach ( array( ...$values('flex-direction'), ...$values('flex-wrap'), ...$values('flex-flow') ) as $value ) {
+                if ( 1 === preg_match('/\b(?:column|column-reverse|wrap|wrap-reverse)\b/', $value) ) {
+                    return $attrs;
+                }
+            }
+            $attrs['layout'] = array( 'type' => 'flex', 'flexWrap' => 'nowrap' );
+
+            return $attrs;
+        }
 
         return $attrs;
     }
