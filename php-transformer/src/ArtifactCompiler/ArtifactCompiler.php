@@ -20,6 +20,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\MotionSequenc
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LiveClockBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
+use Automattic\BlocksEngine\PhpTransformer\Css\TemplatePartStickyContainment;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -390,7 +391,7 @@ final class ArtifactCompiler
             if (isset($generatedAssetIdentities[$identity])) continue;
             $generatedAssetIdentities[$identity] = true; $generatedAssets[] = $asset;
         }
-        $projectedAdminBarAsset = $this->projectedAdminBarAccommodationAsset($normalized['files']);
+        $projectedAdminBarAsset = $this->projectedViewportChromeAsset($normalized['files']);
         if (null !== $projectedAdminBarAsset) {
             $generatedAssets[] = $projectedAdminBarAsset;
         }
@@ -2909,17 +2910,19 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<string, mixed>|null
      */
-    private function projectedAdminBarAccommodationAsset(array $files): ?array
+    private function projectedViewportChromeAsset(array $files): ?array
     {
         $css = array();
         $accommodation = new AdminBarAccommodation();
+        $stickyContainment = new TemplatePartStickyContainment();
         foreach ($files as $file) {
             if ('css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) {
                 continue;
             }
-            $supportCss = $accommodation->supportCss($file['content']);
-            if ('' !== $supportCss) {
-                $css[] = $supportCss;
+            foreach (array($accommodation->supportCss($file['content']), $stickyContainment->supportCss($file['content'])) as $supportCss) {
+                if ('' !== $supportCss) {
+                    $css[] = $supportCss;
+                }
             }
         }
         $content = trim(implode("\n", $css));
