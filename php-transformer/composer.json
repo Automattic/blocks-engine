@@ -125,6 +125,7 @@
       "php tests/contract/shared-shell-route-state.php",
       "php tests/contract/route-edge-shared-shell.php",
       "php tests/contract/route-edge-inward-chrome.php",
+      "php tests/contract/runtime-app-shell-site-frame.php",
       "php tests/contract/navigation-current-item-shape.php",
       "php tests/contract/svg-local-id-identity.php",
       "php tests/contract/route-fragment-link-identity.php",

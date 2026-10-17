@@ -133,8 +133,35 @@ final class RuntimeIslandAnalyzer
         if ( in_array($tagName, array( 'body', 'main' ), true) && ! in_array('app_root_token', $signals, true) ) {
             return false;
         }
+        if ( ! in_array('app_root_token', $signals, true) && ! in_array('workspace_surface', $signals, true) ) {
+            return false;
+        }
 
-        return in_array('app_root_token', $signals, true) || in_array('workspace_surface', $signals, true);
+        // A frame around the site's own navigation is the page layout, not an
+        // application surface: its navigation, header and content convert
+        // natively, and the application surfaces inside it are judged on their
+        // own.
+        return ! $this->holdsSiteNavigation($element);
+    }
+
+    /**
+     * Whether a subtree holds a navigation landmark with links of its own.
+     */
+    private function holdsSiteNavigation(DOMElement $element): bool
+    {
+        foreach ( $this->context->descendantElements($element) as $descendant ) {
+            if ( 'nav' !== strtolower($descendant->tagName) && 'navigation' !== strtolower(trim(SourceDom::attr($descendant, 'role'))) ) {
+                continue;
+            }
+            $links = 0;
+            foreach ( $descendant->getElementsByTagName('a') as $link ) {
+                if ( '' !== trim(SourceDom::attr($link, 'href')) && 2 <= ++$links ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
