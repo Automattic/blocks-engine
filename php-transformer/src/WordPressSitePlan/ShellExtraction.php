@@ -1191,10 +1191,11 @@ final class ShellExtraction
             $group = $groups[0] ?? null;
             if (null === $group || count($group['indexes']) < $largestCluster) continue;
             // With a landmark the edge holds it at the same position on every
-            // route, and runs the edge's full repeated length: blocks the
-            // routes share between the landmark and the content (a drawer, a
-            // mobile menu, an overlay) are chrome too. A page's own title band
-            // differs per route, so the repeated edge already ends before it.
+            // route and extends outward from it: the blocks before a header,
+            // the blocks after a footer. Between the landmark and the content
+            // it continues only through chrome (a drawer, a navigation overlay,
+            // an empty scrim); a block with its own content there, such as a
+            // hero, stays page content even when every route repeats it.
             $landmarkEnd = null;
             foreach ($group['indexes'] as $index) {
                 if (array() === ($landmarks[$index] ?? array())) continue;
@@ -1216,8 +1217,10 @@ final class ShellExtraction
             // An edge that is only the landmark, or wrappers around it, leaves
             // the landmark in charge: its path keeps wrapper context such as
             // responsive visibility.
-            $length = $group['length'];
-            if (1 === $length && 1 === $landmarkEnd) continue;
+            $length = $landmarkEnd ?? $group['length'];
+            $first = $group['indexes'][0];
+            while ($length < $group['length'] && self::isOutOfFlowChrome(substr((string) $pages[$first]['canonical_block_markup'], $edges[$first][$length]['offset'], $edges[$first][$length]['length']))) ++$length;
+            if (null !== $landmarkEnd && 1 === $length) continue;
             $nested = !empty($edges[$group['indexes'][0]][0]['nested']);
             $identity = hash('sha256', implode("\0", array_column(array_slice($edges[$group['indexes'][0]], 0, $length), 'identity')));
             foreach ($group['indexes'] as $index) {
@@ -1340,6 +1343,23 @@ final class ShellExtraction
         // page end follows the edge, its innermost block is the content.
         if (!$contentFollows) array_pop($edge);
         return $edge;
+    }
+
+    /**
+     * Whether a block is chrome rather than page content: it carries site
+     * navigation, its own element is a dialog, drawer or hidden layer, or it
+     * holds no text or media at all (an overlay or scrim).
+     */
+    private static function isOutOfFlowChrome(string $block): bool
+    {
+        if (1 === preg_match('/<!--\s*wp:navigation\b/', $block)) return true;
+        $html = preg_replace('/<!--.*?-->/s', '', $block) ?? '';
+        if (1 !== preg_match('/<([a-z][a-z0-9-]*)\b([^>]*)>/i', $html, $tag)) return false;
+        if ('' === trim(html_entity_decode(strip_tags($html))) && 1 !== preg_match('/<(?:img|picture|video|audio|iframe|svg|canvas|object|embed|input|select|textarea|button)\b/i', $html)) return true;
+        if (in_array(strtolower($tag[1]), array('nav', 'dialog'), true)) return true;
+        $attributes = $tag[2];
+        if (1 === preg_match('/\srole=["\']?(?:dialog|alertdialog|navigation|menu)\b/i', $attributes)) return true;
+        return 1 === preg_match('/\saria-(?:hidden=["\']?true|modal=["\']?true)\b|\shidden(?:[\s=>]|$)/i', $attributes);
     }
 
     private static function edgeBlockIdentity(string $block): string
