@@ -63,6 +63,15 @@ final class DesignUsageCollector
         'padding-top' => array('top'), 'padding-right' => array('right'), 'padding-bottom' => array('bottom'), 'padding-left' => array('left'),
     );
 
+    /** Style families read at the desktop reference viewport when media rules set them, and their properties. */
+    private const DESKTOP_READ_FAMILIES = array(
+        'color' => array('color'),
+        'background' => array('background-color', 'background'),
+        'font-family' => array('font-family'),
+        'font-size' => array('font-size'),
+        'font-weight' => array('font-weight'),
+    );
+
     /** Bindable properties of class-styled elements and the style family a variant of each declares. */
     private const CLASS_STYLE_FAMILIES = array(
         'color' => 'color', 'background-color' => 'background', 'font-size' => 'font-size', 'font-family' => 'font-family',
@@ -577,12 +586,34 @@ final class DesignUsageCollector
         return null;
     }
 
-    /** @return array<string,string> */
+    /**
+     * The element's design declarations where it renders at the desktop
+     * reference viewport.
+     *
+     * The unconditional cascade alone misses what only media rules declare. A
+     * responsive capture scopes the whole desktop stylesheet to a min-width
+     * query and gives phones a scoped copy, so every authored colour and
+     * family is conditional there although one applies at every width. A
+     * property family the unconditional cascade leaves unset but a media rule
+     * sets is read as the desktop-anchored resolvers read it, with custom
+     * properties resolved in the element's scope. A family with a base value
+     * keeps it: mobile-first breakpoints only refine what is already there.
+     *
+     * @return array<string,string>
+     */
     private function declarations(DOMElement $element): array
     {
         $declarations = array();
         foreach ($this->resolver->resolvedPresentationDeclarations($element) as $property => $value) {
             $declarations[strtolower((string) $property)] = (string) $value;
+        }
+        $conditional = array();
+        foreach (self::DESKTOP_READ_FAMILIES as $family => $properties) {
+            if (array() === array_intersect_key($declarations, array_flip($properties)) && $this->resolver->hasConditionalStyleFamily($element, $family)) array_push($conditional, ...$properties);
+        }
+        if (array() === $conditional) return $declarations;
+        foreach ($this->resolver->referenceViewportAuthorDeclarations($element, $conditional) as $property => $value) {
+            $declarations[strtolower((string) $property)] = $this->resolver->resolveCssVariablesInValue((string) $value, $element);
         }
         return $declarations;
     }
