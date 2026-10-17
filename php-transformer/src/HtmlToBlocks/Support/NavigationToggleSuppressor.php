@@ -804,6 +804,12 @@ final class NavigationToggleSuppressor
             return false;
         }
 
+        // A control wired to the source `<nav>` itself is that navigation's
+        // toggle, whatever its visible text ("Menu", "Browse").
+        if ( SourceDom::controlsSourceNavigation($element) ) {
+            return true;
+        }
+
         if ( '' !== $this->visibleMenuToggleLabel($element) ) {
             return false;
         }
