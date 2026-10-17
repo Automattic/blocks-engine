@@ -147,6 +147,7 @@ final class AuthorStylesheetProjector
             );
             $imageRule .= implode(',', $inlineSelectors) . '{display:' . ($declarations['display'] ?? 'inline')
                 . ';max-width:' . ($declarations['max-width'] ?? 'none') . ';vertical-align:' . ($declarations['vertical-align'] ?? 'baseline') . '}';
+            $imageRule .= $this->flexItemImageBoxRule($prelude, $imagePrelude, $declarations, $context);
         }
         $svgImageRule = '' === $svgImagePrelude
             ? ''
@@ -2477,6 +2478,61 @@ final class AuthorStylesheetProjector
     {
         $objectFit = strtolower(trim((string) ($declarations['object-fit'] ?? '')));
         return in_array($objectFit, array( 'contain', 'cover', 'fill', 'none', 'scale-down' ), true) ? $objectFit : '';
+    }
+
+    /**
+     * A source flex/grid-item image keeps its core/image figure in the DOM but
+     * with `display:contents` (see EngineSupportCss), so an author class on
+     * that figure sizes no box. The generic bridge's `width:100%;height:100%`
+     * then resolves against the flex container instead of the author's box.
+     * Restate the author's own item-box declarations on the image itself, at
+     * this rule's position and under its conditions, so a media-conditioned
+     * size still takes over exactly where it did in the source (#2973).
+     *
+     * @param array<string, string> $declarations
+     */
+    private function flexItemImageBoxRule(string $prelude, string $imagePrelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        if ( ! $this->selectsFlexItemImage($prelude, $context) ) {
+            return '';
+        }
+        $box = array();
+        foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'align-self', 'justify-self' ) as $property ) {
+            $value = trim((string) ($declarations[$property] ?? ''));
+            if ( '' !== $value && 1 !== preg_match('~[{}<>;]|/\*~', $value) ) {
+                $box[] = $property . ':' . $value;
+            }
+        }
+        if ( array() === $box ) {
+            return '';
+        }
+        // A listing card's image becomes core/post-featured-image, whose
+        // figure keeps the same classes but not `.wp-block-image`.
+        $selectors = array();
+        foreach ( CssValueSplitter::splitTopLevel($imagePrelude, array(',')) as $selector ) {
+            foreach ( array( '.wp-block-image', '.wp-block-post-featured-image' ) as $figureClass ) {
+                $selectors[] = str_replace('.wp-block-image', $figureClass . ':where(.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ')', $selector);
+            }
+        }
+
+        return implode(',', $selectors) . '{' . implode(';', $box) . '}';
+    }
+
+    private function selectsFlexItemImage(string $prelude, AuthorStylesheetProjectionContext $context): bool
+    {
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                continue;
+            }
+            foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                if ( 'img' === strtolower($element->tagName) && $this->styleResolver->imageIsFlexOrGridItem($element) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /** @param array<string, string> $declarations */
