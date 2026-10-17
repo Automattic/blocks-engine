@@ -144,6 +144,7 @@
       "php tests/contract/shared-chrome-titled-stylesheet.php",
       "php tests/contract/colliding-asset-targets.php",
       "php tests/contract/shared-chrome-authored-rules.php",
+      "php tests/contract/shared-chrome-dead-richtext-markers.php",
       "php tests/contract/shared-author-stylesheet-scaling.php",
       "php tests/contract/context-seeded-markers.php",
       "php tests/contract/shared-chrome-paint-order-root.php",

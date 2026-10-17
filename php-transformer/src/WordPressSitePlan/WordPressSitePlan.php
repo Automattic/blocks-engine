@@ -437,7 +437,14 @@ PHP;
         // so the rules aimed at its markers are site-wide chrome rules.
         $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
         $assetTargetCollisions = array();
-        $assets = self::projectSharedChromeStylesheets($assets, array_merge($parts, $frameParts), $pages, $references, $assetTargetCollisions);
+        // Rich-text markers some emitted markup still carries. A chrome rule
+        // naming any other marker names an element extraction replaced (one
+        // route's copy of the chrome), which matches nothing anywhere.
+        // Underscore keys are working state the plan does not emit, such as a
+        // route's projected source markup from before its chrome was extracted.
+        $emitted = static fn (array $rows): array => array_map(static fn (mixed $row): mixed => is_array($row) ? array_filter($row, static fn (int|string $key): bool => !is_string($key) || !str_starts_with($key, '_'), ARRAY_FILTER_USE_KEY) : $row, $rows);
+        $liveRichTextMarkers = preg_match_all('/blocks-engine-richtext-[a-f0-9]+-\d+/', (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shells['runtime_declarations'] ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
+        $assets = self::projectSharedChromeStylesheets($assets, array_merge($parts, $frameParts), $pages, $references, $assetTargetCollisions, $liveRichTextMarkers);
         foreach ($assetTargetCollisions as $collision) $this->recordUnitFinding(array(
             'code' => 'wordpress_site_plan_colliding_asset_target',
             'unit' => 'asset',
@@ -1783,7 +1790,7 @@ PHP;
      * @param list<array<string,string>> $collisions Receives one row per projection given a suffixed target.
      * @return array<int,array<string,mixed>>
      */
-    private static function projectSharedChromeStylesheets(array $assets, array $parts, array $pages = array(), ?AssetReferenceCanonicalizer $references = null, array &$collisions = array()): array
+    private static function projectSharedChromeStylesheets(array $assets, array $parts, array $pages = array(), ?AssetReferenceCanonicalizer $references = null, array &$collisions = array(), ?array $liveRichTextMarkers = null): array
     {
         $classes = array();
         $authored = array('class' => array(), 'id' => array());
@@ -1834,7 +1841,7 @@ PHP;
             $unparseable = false;
             $shared = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
-                static function (string $prelude, string $body) use ($targetsChrome, $reanchor, &$matched, &$unparseable): string {
+                static function (string $prelude, string $body) use ($targetsChrome, $reanchor, $liveRichTextMarkers, &$matched, &$unparseable): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) {
                         $unparseable = true;
@@ -1842,6 +1849,11 @@ PHP;
                     }
                     $kept = array_values(array_filter($selectors, $targetsChrome));
                     if (array() === $kept) return '';
+                    if (null !== $liveRichTextMarkers) {
+                        $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::withoutDeadRichTextMarkers($selector, $liveRichTextMarkers), $kept), 'is_string'));
+                        // Every selector named only replaced elements: the rule matches nothing.
+                        if (array() === $kept) return '';
+                    }
                     $matched = true;
                     return implode(',', array_map($reanchor, $kept)) . '{' . $body . '}';
                 }
@@ -2142,6 +2154,77 @@ PHP;
     }
 
     /** @param array<string,mixed> $asset */
+    /**
+     * A selector without the `:where()` arguments that name a rich-text
+     * marker no emitted markup carries, or null when the selector can only
+     * match such an element.
+     *
+     * A dead marker matches nothing, so dropping an argument that requires
+     * it leaves what the `:where()` matches unchanged, and `:where()` adds no
+     * specificity. A `:not(:where(...))` left with no arguments excluded
+     * nothing and is removed. Each route's copy of extracted chrome carries
+     * its own marker, so without this the shared chrome rules differ per
+     * route only by dead markers and every route ships its own copy.
+     *
+     * @param array<string,true> $live
+     */
+    private static function withoutDeadRichTextMarkers(string $selector, array $live): ?string
+    {
+        $dead = static function (string $text) use ($live): bool {
+            if (!preg_match_all('/blocks-engine-richtext-[a-f0-9]+-\d+/', $text, $markers)) return false;
+            foreach ($markers[0] as $marker) if (!isset($live[$marker])) return true;
+            return false;
+        };
+        if (!$dead($selector)) return $selector;
+        $offset = 0;
+        while (false !== ($start = stripos($selector, ':where(', $offset))) {
+            $open = $start + strlen(':where(');
+            $depth = 1;
+            for ($end = $open; $end < strlen($selector) && $depth > 0; ++$end) {
+                if ('(' === $selector[$end]) ++$depth;
+                elseif (')' === $selector[$end]) --$depth;
+            }
+            if (0 !== $depth) return $selector;
+            $inner = substr($selector, $open, $end - 1 - $open);
+            $arguments = CssStylesheetTransformer::splitSelectorList($inner);
+            if (null === $arguments || !$dead($inner)) {
+                $offset = $open;
+                continue;
+            }
+            $alive = array();
+            foreach ($arguments as $argument) {
+                $argument = self::withoutDeadRichTextMarkers(trim($argument), $live);
+                if (null !== $argument) $alive[] = $argument;
+            }
+            if (array() !== $alive) {
+                $replacement = ':where(' . implode(',', $alive) . ')';
+                $selector = substr($selector, 0, $start) . $replacement . substr($selector, $end);
+                $offset = $start + strlen($replacement);
+                continue;
+            }
+            // `:not(:where(dead))` excluded nothing; any other position required a dead element.
+            if ($start >= 5 && 0 === strcasecmp(substr($selector, $start - 5, 5), ':not(') && ')' === ($selector[$end] ?? '')) {
+                // A compound left with no other simple selector keeps `*`,
+                // which, like `:not(:where())`, adds no specificity.
+                $before = $start - 5;
+                $after = $selector[$end + 1] ?? '';
+                $alone = (0 === $before || str_contains(" \t\n>+~(,", $selector[$before - 1])) && ('' === $after || str_contains(" \t\n>+~),", $after));
+                $replacement = $alone ? '*' : '';
+                $selector = substr($selector, 0, $before) . $replacement . substr($selector, $end + 1);
+                $offset = $before + strlen($replacement);
+                continue;
+            }
+            return null;
+        }
+        // A dead marker outside `:where()` (a class or attribute the subject
+        // must carry) leaves nothing to match; inside another `:not()` it is
+        // left as authored.
+        $positive = self::positiveSelector($selector);
+        if ($dead($positive)) return null;
+        $selector = trim($selector);
+        return '' === $selector ? null : $selector;
+    }
+
     private static function sharedChromeContract(array $asset): string
     {
         return (string) ($asset['media'] ?? '') . "\0" . (string) ($asset['stylesheet_target'] ?? 'both') . "\0" . ('engine-support' === ($asset['source'] ?? '') ? 'engine' : 'author');
