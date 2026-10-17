@@ -173,9 +173,9 @@ final class CssStylesheetTransformer
      * The rules of `$stylesheets`, in order and each once, that do not occur
      * with the same text inside the same conditional group rules in `$present`.
      * Malformed input yields the stylesheets unchanged.
-     * When preserving cascade for a later-loaded page projection, keep the
-     * suffix after the first changed rule: unchanged later rules may need to
-     * outrank that rule even though they already exist in the shared sheet.
+     * When preserving cascade for a later-loaded page projection, also keep
+     * later shared rules that target the same selectors and properties as a
+     * changed rule, so their ordering continues to determine the cascade.
      *
      * @param list<string> $stylesheets
      * @param list<string> $present
@@ -196,21 +196,48 @@ final class CssStylesheetTransformer
             }
         }
         $kept = array();
-        $changed = false;
+        $changedUnits = array();
         foreach ( $stylesheets as $stylesheet ) {
             $units = array();
             $this->collectRuleUnits($stylesheet, array(), $units);
             foreach ( $units as $unit ) {
                 $key = self::ruleUnitKey($unit);
-                if ( $unit['dedupable'] && isset($seen[ $key ]) && ! ($preserveCascade && $changed) ) {
-                    continue;
+                $isChanged = ! $unit['dedupable'] || ! isset($seen[ $key ]);
+                $interacts = false;
+                if ( $preserveCascade && ! $isChanged ) {
+                    foreach ( $changedUnits as $changedUnit ) {
+                        if ( self::rulesMayInteract($unit['text'], $changedUnit['text']) ) {
+                            $interacts = true;
+                            break;
+                        }
+                    }
                 }
-                $changed = true;
+                if ( $isChanged || $interacts ) {
+                    $kept[] = $unit;
+                }
+                if ( $isChanged ) {
+                    $changedUnits[] = $unit;
+                }
                 $seen[ $key ] = true;
-                $kept[] = $unit;
             }
         }
         return $this->serializeRuleUnits($kept);
+    }
+
+    private static function rulesMayInteract(string $left, string $right): bool
+    {
+        $parse = static function (string $rule): ?array {
+            $brace = strpos($rule, '{');
+            if ( false === $brace || ! str_ends_with(trim($rule), '}') ) {
+                return null;
+            }
+            $selectors = array_map('trim', self::splitSelectorList(substr($rule, 0, $brace)) ?? array());
+            preg_match_all('/(?:^|;)\\s*([a-zA-Z_-][a-zA-Z0-9_-]*)\\s*:/', substr($rule, $brace + 1), $matches);
+            return array($selectors, array_map('strtolower', $matches[1]));
+        };
+        $a = $parse($left);
+        $b = $parse($right);
+        return null !== $a && null !== $b && ((bool) array_intersect($a[0], $b[0]) || (bool) array_intersect($a[1], $b[1]));
     }
 
     /** @param array{context: list<string>, text: string, dedupable: bool} $unit */
