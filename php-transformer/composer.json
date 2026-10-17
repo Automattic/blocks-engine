@@ -344,6 +344,7 @@
       "php tests/unit/rich-text-svg-transaction.php",
       "php tests/unit/heading-inline-svg-rich-text.php",
       "php tests/unit/image-only-heading-rich-text.php",
+      "php tests/unit/inline-image-paragraph-rich-text.php",
       "php tests/unit/paragraph-inline-picture-text.php",
       "php tests/unit/richtext-type-selector-preservation.php",
       "php tests/unit/richtext-class-selector-projection.php",

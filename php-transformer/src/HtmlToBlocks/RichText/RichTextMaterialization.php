@@ -35,6 +35,9 @@ interface RichTextMaterialization
 
     public function requiresHtmlFallbackWithoutNativeSvgImageObjects(string $content): bool;
 
+    /** The fallback gate for content materialized from a source text element. */
+    public function requiresHtmlFallbackForElement(DOMElement $element, string $content): bool;
+
     public function containsNativeSvgImageObject(string $content): bool;
 
     public function stripDecorativeSvg(string $content): string;
