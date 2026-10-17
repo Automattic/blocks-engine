@@ -60,8 +60,6 @@ final class ShellExtraction
             if (!is_array($candidate) || !in_array($candidate['area'] ?? null, array('header', 'footer'), true) || !is_string($candidate['block_markup'] ?? null) || '' === trim($candidate['block_markup'])) continue;
             $sourcePath = WordPressSitePlan::value($document, 'source_path');
             $markup = $this->plan->routeLinks($references->content($candidate['block_markup'], $sourcePath), $sourcePath, $routes);
-            $classes = array_values(array_filter($candidate['source_classes'] ?? array(), 'is_string'));
-            sort($classes, SORT_STRING);
             $innerMarkup = is_string($candidate['inner_block_markup'] ?? null) ? $this->plan->routeLinks($references->content($candidate['inner_block_markup'], $sourcePath), $sourcePath, $routes) : $markup;
             $templatePartMarkup = is_string($candidate['template_part_block_markup'] ?? null) ? $this->plan->routeLinks($references->content($candidate['template_part_block_markup'], $sourcePath), $sourcePath, $routes) : $innerMarkup;
             // One rendered part serves every route; a page's own current item
@@ -74,7 +72,7 @@ final class ShellExtraction
             // page could otherwise make ambiguous.
             $range = $this->topLevelShellRange($canonical, (string) $candidate['area'], $markup);
             $identity = self::normalizeNestedChromeMarkup($markup);
-            $row = array('area' => $candidate['area'], 'markup' => $markup, 'inner_markup' => $innerMarkup, 'template_part_markup' => $templatePartMarkup, 'identity_markup' => $identity, 'classes' => $classes, 'source_path' => $sourcePath, 'source_hash' => is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '');
+            $row = array('area' => $candidate['area'], 'markup' => $markup, 'inner_markup' => $innerMarkup, 'template_part_markup' => $templatePartMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '');
             if (is_array($range)) { $row['offset'] = $range['offset']; $row['length'] = $range['length']; }
             $candidates[] = $row;
         }
@@ -157,7 +155,6 @@ final class ShellExtraction
                 'inner_markup' => $chrome,
                 'template_part_markup' => self::withoutCurrentNavigationState($chrome),
                 'identity_markup' => $identity,
-                'classes' => array(),
                 'source_path' => $sourcePath,
                 'source_hash' => hash('sha256', $chrome),
                 'legacy_container_opening' => $opening,
@@ -207,7 +204,6 @@ final class ShellExtraction
                 'inner_markup' => $row['markup'],
                 'template_part_markup' => $partMarkup,
                 'identity_markup' => $row['identity_markup'],
-                'classes' => array(),
                 'source_path' => $sourcePath,
                 'source_hash' => $row['source_hash'],
                 'nested_shell' => true,
@@ -454,7 +450,7 @@ final class ShellExtraction
             foreach (array_slice($rows, 1) as $extra) $additional[] = array('offset' => $extra['offset'], 'length' => $extra['length'], 'markup' => $extra['markup']);
             // The candidate's own block-tree offset is carried forward so removal
             // never needs to re-derive its position by searching for its bytes.
-            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null);
+            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null);
         }
         return $candidates;
     }
@@ -915,7 +911,7 @@ final class ShellExtraction
                 $rows = $candidates[$index] ?? array();
                 if (1 !== count($rows)) { $excluded[$index] = count($rows) > 1 ? 'multiple' : 'missing'; continue; }
                 $candidate = $rows[0];
-                $candidateIdentity = hash('sha256', $area . "\0" . json_encode($candidate['classes']) . "\0" . ($candidate['identity_markup'] ?? $candidate['markup']));
+                $candidateIdentity = hash('sha256', $area . "\0" . ($candidate['identity_markup'] ?? $candidate['markup']));
                 if (!isset($clusters[$candidateIdentity]['candidate']) || self::prefersScrollStateCarrier($candidate, $clusters[$candidateIdentity]['candidate'])) $clusters[$candidateIdentity]['candidate'] = $candidate;
                 $clusters[$candidateIdentity]['indexes'][] = $index;
             }
@@ -1221,7 +1217,7 @@ final class ShellExtraction
             foreach ($group['indexes'] as $index) {
                 $range = self::edgeRange($edges[$index], $length);
                 $markup = substr((string) $pages[$index]['canonical_block_markup'], $range['offset'], $range['length']);
-                $candidate = array('area' => $area, 'markup' => $markup, 'inner_markup' => $markup, 'template_part_markup' => self::withoutCurrentNavigationState($markup), 'identity_markup' => 'route-edge:' . $identity, 'classes' => array(), 'source_path' => $pages[$index]['source_path'], 'offset' => $range['offset'], 'length' => $range['length'], 'part_tag_name' => 'div', 'route_edge' => true);
+                $candidate = array('area' => $area, 'markup' => $markup, 'inner_markup' => $markup, 'template_part_markup' => self::withoutCurrentNavigationState($markup), 'identity_markup' => 'route-edge:' . $identity, 'source_path' => $pages[$index]['source_path'], 'offset' => $range['offset'], 'length' => $range['length'], 'part_tag_name' => 'div', 'route_edge' => true);
                 if ($nested) $candidate += array('nested_shell' => true, 'additional_ranges' => array());
                 $pages[$index]['shell_candidates'] = array_merge(array_values(array_filter($pages[$index]['shell_candidates'] ?? array(), static fn(array $row): bool => $area !== ($row['area'] ?? null))), array($candidate));
             }
@@ -1278,7 +1274,7 @@ final class ShellExtraction
     /** @param array<string,mixed> $candidate */
     private static function landmarkIdentity(array $candidate): string
     {
-        return hash('sha256', json_encode($candidate['classes'] ?? array()) . "\0" . ($candidate['identity_markup'] ?? $candidate['markup'] ?? ''));
+        return hash('sha256', ($candidate['identity_markup'] ?? $candidate['markup'] ?? ''));
     }
 
     /**

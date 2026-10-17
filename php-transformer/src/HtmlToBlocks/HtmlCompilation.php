@@ -1971,27 +1971,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 continue;
             }
 
+            // The landmark converts like any other element, so its wrapper
+            // carries the same resolved block supports and carrier classes on
+            // every route whether or not an app frame wraps it.
             $shellFallbacks = array();
-            $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($child, $shellFallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
-            $innerMarkup = $this->runtime->serializeBlocks($blocks);
-            $wrapperAttrs = $this->hoistedStylingAttributes($child);
+            $converted = $this->convertElement($child, $shellFallbacks, true);
+            $converted = null === $converted ? array() : (isset($converted['blockName']) ? array($converted) : $converted);
+            $converted = $this->navigationBlockNormalizer->normalize($converted, $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
+            $wrapper = 1 === count($converted) && 'core/group' === ($converted[0]['blockName'] ?? null)
+                ? $converted[0]
+                : $this->createBlock('core/group', array(), $converted, $child);
+            $innerBlocks = $wrapper['innerBlocks'] ?? array();
+            $innerMarkup = $this->runtime->serializeBlocks($innerBlocks);
+            $wrapperAttrs = is_array($wrapper['attrs'] ?? null) ? $wrapper['attrs'] : array();
             $wrapperAttrs['tagName'] = $area;
-            $inlineStyle = trim($this->attr($child, 'style'));
-            if ( '' !== $inlineStyle ) {
-                // Group support maps only its canonical subset; retain the source
-                // declaration so the landmark wrapper still owns its visual hook.
-                $wrapperAttrs['inlineGeometryStyle'] = $inlineStyle;
-            }
-            $anchor = trim($this->attr($child, 'id'));
-            if ( '' !== $anchor ) {
-                $wrapperAttrs['anchor'] = $anchor;
-            }
-            // Use one core/group landmark wrapper rather than nesting the source
-            // landmark around an independently converted landmark block.
-            $blocks = array($this->createBlock('core/group', $wrapperAttrs, $blocks, $child));
+            $blocks = array($this->createBlock('core/group', $wrapperAttrs, $innerBlocks, $child));
             $markup = $this->runtime->serializeBlocks($blocks);
             $templatePartAttrs = $wrapperAttrs;
-            unset($templatePartAttrs['tagName']);
+            unset($templatePartAttrs['tagName'], $templatePartAttrs['metadata']);
             if ( array() === $templatePartAttrs ) {
                 $templatePartMarkup = $innerMarkup;
             } else {
@@ -1999,7 +1996,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 if ( '' !== $responsiveMarginTop ) {
                     $templatePartAttrs['className'] = SourceDom::mergeClassNames((string) ($templatePartAttrs['className'] ?? ''), $responsiveMarginTop);
                 }
-                $templatePartBlock = $this->createBlock('core/group', $templatePartAttrs, $blocks[0]['innerBlocks'] ?? array());
+                $templatePartBlock = $this->createBlock('core/group', $templatePartAttrs, $innerBlocks);
                 $templatePartMarkup = $this->runtime->serializeBlocks(array($templatePartBlock));
             }
             if ( '' === trim($markup) ) {
@@ -2015,7 +2012,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 'inner_block_markup' => $innerMarkup,
                 'template_part_block_markup' => $templatePartMarkup,
                 'source_selector' => strtolower($child->tagName),
-                'source_classes' => $this->shellSourceClasses($child),
                 'source_hash' => hash('sha256', $this->outerHtml($child)),
                 'placement' => array('kind' => 'entry_shell', 'source_path' => $source, 'template_slugs' => array('front-page')),
             );
@@ -2027,15 +2023,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         foreach ($removals as $child) $body->removeChild($child);
 
         return $artifacts;
-    }
-
-    /** @return array<int, string> */
-    private function shellSourceClasses(DOMElement $element): array
-    {
-        $classes = preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array();
-        $classes = array_values(array_unique(array_filter($classes, static fn (string $class): bool => '' !== $class)));
-        sort($classes, SORT_STRING);
-        return $classes;
     }
 
     private function reusableComponentFingerprintFor(DOMElement $element): ?string
