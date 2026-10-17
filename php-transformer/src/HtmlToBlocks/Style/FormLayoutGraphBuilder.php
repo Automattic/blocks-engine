@@ -161,6 +161,13 @@ final class FormLayoutGraphBuilder
                 continue;
             }
             $nodes[$entry['id']] = $this->node($entry, $layout, $this->provenance($base, null));
+            // Base facts declared `!important` override every conflicting rule
+            // and later runtime style toggles, unlike a plain declaration.
+            $important = array_values(array_filter(array_keys($base), static fn (string $property): bool => true === ($base[$property]['important'] ?? false) && isset($layout[self::layoutKey($property)])));
+            if ( array() !== $important ) {
+                sort($important, SORT_STRING);
+                $nodes[$entry['id']]['important'] = $important;
+            }
             if ( 'container' === $entry['kind'] && 'form' !== $entry['id'] ) {
                 $presentation = $presentationBuilder->buildElement($entry['element'], $stylesheets, $inlineCss);
                 $nodes[$entry['id']]['presentation'] = $presentation;
@@ -300,6 +307,9 @@ final class FormLayoutGraphBuilder
                 break;
             }
             self::assertFacts($node['layout'], $node['provenance'], null, $properties, $layoutKeys);
+            if ( isset($node['important']) && ( ! is_array($node['important']) || ! array_is_list($node['important']) || array() === $node['important'] || array_filter($node['important'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, $properties, true) || ! isset($node['layout'][self::layoutKey($property)])) ) ) {
+                throw new InvalidArgumentException('Form layout graph important facts are invalid.');
+            }
             if ( isset($node['sizing']) && ( $v1 || ! self::validSizing($node, $node['sizing'], $graph['nodes']) ) ) {
                 throw new InvalidArgumentException('Form layout graph sizing evidence is invalid.');
             }
@@ -330,7 +340,7 @@ final class FormLayoutGraphBuilder
     private static function assertNodeIdentity(array $node, int $classLimit, bool $v3): void
     {
         $nodeKeys = array( 'id', 'kind', 'parent', 'order', 'source', 'layout', 'provenance', 'sizing' );
-        if ( $v3 ) $nodeKeys[] = 'presentation';
+        if ( $v3 ) array_push($nodeKeys, 'presentation', 'important');
         $id = $node['id'] ?? null;
         if ( array_diff(array_keys($node), $nodeKeys) || ! is_string($id) || 1 !== preg_match($v3 ? '/^(?:form|wrapper-[0-9]+|control-[0-9]+|context-[0-9]+)$/D' : '/^(?:form|wrapper-[0-9]+|control-[0-9]+)$/D', $id) || (str_starts_with($id, 'context-') && 'container' !== ($node['kind'] ?? null)) || ! is_int($node['order'] ?? null) || $node['order'] < 0 ) {
             throw new InvalidArgumentException('Form layout graph node identity is invalid.');

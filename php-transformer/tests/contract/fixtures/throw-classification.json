@@ -299,6 +299,7 @@
       "InvalidArgumentException('Form layout graph parents must precede their children.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph provenance exceeds its limit.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph provenance is invalid.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Form layout graph important facts are invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph sizing evidence is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph value is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph variant is invalid.')": {"class": "integrity", "count": 1},
