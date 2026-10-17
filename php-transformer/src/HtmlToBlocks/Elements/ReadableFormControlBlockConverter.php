@@ -64,6 +64,12 @@ final class ReadableFormControlBlockConverter
                     return $inputBlock;
                 }
             }
+            if ( 'select' === $tagName ) {
+                $selectBlock = $this->authoredBlockConverter->select($element, true, $label, true);
+                if ( null !== $selectBlock ) {
+                    return $selectBlock;
+                }
+            }
 
             return ($this->htmlPreservationBlock)($element);
         }
@@ -148,6 +154,12 @@ final class ReadableFormControlBlockConverter
                         $inputBlock = $this->authoredBlockConverter->input($control, $element, true);
                         if ( null !== $inputBlock ) {
                             return $inputBlock;
+                        }
+                    }
+                    if ( 1 === count($controls) && 'select' === strtolower($control->tagName) ) {
+                        $selectBlock = $this->authoredBlockConverter->select($control, true, $element, true);
+                        if ( null !== $selectBlock ) {
+                            return $selectBlock;
                         }
                     }
                     return ($this->htmlPreservationBlock)($element);
