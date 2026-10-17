@@ -107,7 +107,7 @@ final class CapturedDialogProjector
 
             $projection = $this->projectPage((string) $files[$index]['content'], $dialogStates, $path);
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
-            if (0 < $projection['projected_count'] || array() !== $projection['retired_scripts']) {
+            if (0 < $projection['projected_count'] || ! empty($projection['restored']) || array() !== $projection['retired_scripts']) {
                 $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $projection['html']);
                 $projection['script_bindings']?->rebind($files, $path);
                 $projected += $projection['projected_count'];
@@ -397,7 +397,7 @@ final class CapturedDialogProjector
         }
 
         $output = HtmlSerialization::documentHtml($document);
-        return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired, 'script_bindings' => is_string($output) ? $scriptBindings : null);
+        return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'restored' => $adoption['restored'], 'retired_scripts' => $retired, 'script_bindings' => is_string($output) ? $scriptBindings : null);
     }
 
     /** Consume viewport-scoped, observed image selection before the ordinary dialog adoption. */
@@ -599,10 +599,11 @@ final class CapturedDialogProjector
         $xpath = new DOMXPath($document);
         $adopted = array();
         $count = 0;
+        $restored = false;
         $scopes = $this->documentScopes($document);
         $nativeScopedWiring = $this->canReplaceScopedDisclosure($document, $scopes);
         if (count($scopes) > self::MAX_STATES_PER_PAGE) {
-            return array('triggers' => array(), 'count' => 0);
+            return array('triggers' => array(), 'count' => 0, 'restored' => false);
         }
         foreach ($scopes as $scopeIndex => $scope) {
             $groups = array();
@@ -621,6 +622,11 @@ final class CapturedDialogProjector
                 $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
                 if (! $panel instanceof DOMElement || array() !== array_filter($triggers, static fn(DOMElement $trigger): bool => SourceDom::elementContains($panel, $trigger))) continue;
                 if (array() !== array_filter($triggers, fn(DOMElement $trigger): bool => $this->isCapturedNavigationOverlayTrigger($trigger))) continue;
+                if ($this->restoreVisibleRestingPanel($panel, $triggers)) {
+                    array_push($adopted, ...$triggers);
+                    $restored = true;
+                    continue;
+                }
                 // Sanitize the panel envelope, retaining its content wrapper:
                 // that wrapper can own a menu's hierarchy and presentation.
                 $html = (string) $document->saveHTML($panel);
@@ -682,7 +688,7 @@ final class CapturedDialogProjector
             }
         }
 
-        return array('triggers' => $adopted, 'count' => $count);
+        return array('triggers' => $adopted, 'count' => $count, 'restored' => $restored);
     }
 
     /** All generated bindings must have one local, bounded native endpoint.
@@ -766,6 +772,31 @@ final class CapturedDialogProjector
         }
 
         return false;
+    }
+
+    /**
+     * A source panel the producer reused for a toggle and recorded as visible at
+     * rest is shared by the responsive document: widths without the toggle show
+     * it in place, under authored CSS. Restore that resting panel and leave its
+     * toggle to the source runtime instead of moving it into a dialog.
+     *
+     * @param list<DOMElement> $triggers
+     */
+    private function restoreVisibleRestingPanel(DOMElement $panel, array $triggers): bool
+    {
+        $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
+        $resting = is_array($snapshot) ? ($snapshot['resting'] ?? null) : null;
+        if (! is_array($resting) || false !== ($resting['hidden'] ?? null)) return false;
+        $style = $resting['style'] ?? null;
+        if (is_string($style) && '' !== trim($style)) $panel->setAttribute('style', $style); else $panel->removeAttribute('style');
+        $classes = array_diff(preg_split('/\s+/', trim((string) ($resting['class'] ?? ''))) ?: array(), array(CaptureEvidence::DROPDOWN_CLASS, CaptureEvidence::DIALOG_CLASS, ''));
+        if (array() === $classes) $panel->removeAttribute('class'); else $panel->setAttribute('class', implode(' ', $classes));
+        foreach (array('hidden', CaptureEvidence::EXISTING_PANEL, CaptureEvidence::DIALOG_PANEL, CaptureEvidence::OBSERVED_PLACEMENT) as $attribute) $panel->removeAttribute($attribute);
+        foreach ($triggers as $trigger) {
+            foreach (array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL_STATE, CaptureEvidence::DIALOG_ANCESTOR_STATE, CaptureEvidence::DISCLOSURE_LABEL) as $attribute) $trigger->removeAttribute($attribute);
+        }
+
+        return true;
     }
 
     private function isNavigationDropdownTrigger(DOMElement $trigger): bool
