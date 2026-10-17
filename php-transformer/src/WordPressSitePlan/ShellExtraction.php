@@ -1244,7 +1244,11 @@ final class ShellExtraction
     private function edgeVariantParts(array $pages, array $edges, array $groups, string $area, array $reservedSlugs, array $runtimeDeclarations): array
     {
         $parts = array(); $diagnostics = array();
-        foreach ($groups as $group) {
+        // The variant most routes use is the area's own part; each other one
+        // is named after the first route that uses it.
+        $mainGroup = null;
+        foreach ($groups as $key => $group) if (null === $mainGroup || count($group['indexes']) > count($groups[$mainGroup]['indexes'])) $mainGroup = $key;
+        foreach ($groups as $groupKey => $group) {
             $identity = hash('sha256', implode("\0", array_column(array_slice($edges[$group['indexes'][0]], 0, $group['length']), 'identity')));
             $slug = $area . '-' . substr($identity, 0, 12);
             if (isset($reservedSlugs[$slug])) continue;
@@ -1262,7 +1266,7 @@ final class ShellExtraction
                 $pages[$index]['canonical_block_markup'] = substr($page, 0, $ranges[$index]['offset']) . $reference . substr($page, $ranges[$index]['offset'] + $ranges[$index]['length']);
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($pages[$index]['canonical_block_markup']);
             }
-            $title = ucfirst($area) . ' Variant ' . (count($parts) + 1);
+            $title = $groupKey === $mainGroup ? ucfirst($area) : self::routeVariantTitle($area, $pages[$first], count($parts) + 1);
             $sourcePath = 'wordpress-site-plan/shared/' . $slug;
             $sources = array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $group['indexes']));
             $candidates = array_map(static fn(int $index): array => array(array('source_path' => $pages[$index]['source_path'], 'identity_markup' => 'route-edge:' . $identity)), $group['indexes']);
@@ -1270,6 +1274,22 @@ final class ShellExtraction
             $diagnostics[] = array('code' => 'wordpress_site_plan_shell_route_variant_extracted', 'severity' => 'info', 'message' => "Extracted a repeated route-specific {$area} as an editable template part.", 'area' => $area, 'slug' => $slug, 'page_count' => count($sources), 'source_paths' => $sources);
         }
         return compact('pages', 'parts', 'diagnostics');
+    }
+
+    /**
+     * Readable title for a route variant that is not the area's main part:
+     * the area and the first route using it, `Header (Pricing)`. A route
+     * without a title falls back to its slug, then to the variant number.
+     *
+     * @param array<string,mixed> $page
+     */
+    private static function routeVariantTitle(string $area, array $page, int $variant): string
+    {
+        foreach (array('title', 'slug') as $field) {
+            $name = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags((string) ($page[$field] ?? '')), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+            if ('' !== $name) return ucfirst($area) . ' (' . $name . ')';
+        }
+        return ucfirst($area) . ' Variant ' . $variant;
     }
 
     /** @param array<string,mixed> $candidate */
