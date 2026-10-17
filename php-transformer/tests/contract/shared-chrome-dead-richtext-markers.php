@@ -52,7 +52,8 @@ foreach ($plan['template_parts'] ?? array() as $part) {
 }
 $assert(1 === count($headerMarkers), 'The shared header carries one rich-text marker for its hidden label.');
 
-$chrome = array_values(array_filter($plan['assets'] ?? array(), static fn (array $asset): bool => str_contains((string) ($asset['target_path'] ?? ''), 'shared-chrome-')));
+// What visitors load; an editor-only copy of a stylesheet holds the same rules.
+$chrome = array_values(array_filter($plan['assets'] ?? array(), static fn (array $asset): bool => str_contains((string) ($asset['target_path'] ?? ''), 'shared-chrome-') && 'editor' !== ($asset['stylesheet_target'] ?? 'both')));
 $chromeCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $chrome));
 $dead = array_diff($markers($chromeCss), array_keys($live));
 $assert(array() === $dead, 'Global chrome stylesheets name no rich-text marker absent from emitted markup: ' . implode(', ', $dead));
