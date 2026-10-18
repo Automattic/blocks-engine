@@ -263,6 +263,10 @@ $assert(! $classifier->isPositiveCssLength('-4px'), 'a negative length is not po
 $assert(! $classifier->isPositiveCssLength('auto'), 'a keyword is not a length');
 $assert(! $classifier->isPositiveCssLength('50%'), 'a percentage is not an absolute length');
 $assert(! $classifier->isPositiveCssLength(''), 'an empty value is not a length');
+$assert($classifier->isPositiveCssLength('calc(.25rem * 2)'), 'a calc() scaling a definite length is a positive length');
+$assert($classifier->isPositiveCssLength('calc(3 * 4px)'), 'a calc() with the number first is a positive length');
+$assert(! $classifier->isPositiveCssLength('calc(.25rem * 0)'), 'a calc() that scales to zero is not positive');
+$assert(! $classifier->isPositiveCssLength('calc(100% - 2rem)'), 'a calc() whose size depends on layout is not a definite length');
 
 // --- tokens: commerce vocabulary -------------------------------------------
 
