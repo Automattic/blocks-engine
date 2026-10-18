@@ -32,12 +32,11 @@ final class FormPresentationGraphBuilder
     /** Authored values such as system font stacks exceed a few hundred bytes; bound like selectors and conditions. */
     private const MAX_STYLE_VALUE_BYTES = 1024;
     private const MAX_DIAGNOSTICS = 32;
-    /** The text properties a label role reads from its text carrier when the label declares none itself. */
+    /**
+     * The inherited text properties a label or button caption reads from its
+     * text carrier when it declares none itself, including the caption's case.
+     */
     private const TYPOGRAPHY_PROPERTIES = array(
-        'color', 'font', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height',
-    );
-    /** A button caption carrier also sets the caption's case. */
-    private const CAPTION_PROPERTIES = array(
         'color', 'font', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'text-transform',
     );
     /** A block-level caption carrier fills its button, so its padding sizes the button box. */
@@ -743,7 +742,7 @@ final class FormPresentationGraphBuilder
      */
     private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules, array $labelConditional = array(), bool $captionBox = false): array
     {
-        $properties = array_flip(array() === $roles ? self::CAPTION_PROPERTIES : self::TYPOGRAPHY_PROPERTIES);
+        $properties = array_flip(self::TYPOGRAPHY_PROPERTIES);
         $excluded = array_values(array_filter(
             array( $roles['control'] ?? null, $roles['required_marker'] ?? null ),
             static fn (mixed $element): bool => $element instanceof DOMElement

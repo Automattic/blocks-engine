@@ -194,6 +194,7 @@
       "php tests/unit/site-marker-document-scan.php",
       "php tests/unit/form-offscreen-submit-presenter.php",
       "php tests/unit/form-submit-caption-box.php",
+      "php tests/unit/form-label-carrier-case.php",
       "php tests/unit/runtime-declarations-streaming-hash.php",
       "php tests/unit/external-metric-declarations.php",
       "php tests/unit/runtime-script-evidence-analyzer.php",
