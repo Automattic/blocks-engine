@@ -189,6 +189,32 @@ $assert(is_array($scopeConfig)
         'position' => array('rest' => 'absolute', 'scrolled' => 'fixed'),
     ))) === ($scopeConfig['styleTargets'] ?? null), 'the projected config keeps the exact :scope computed rest/scrolled styles');
 
+// --- relative child-path style target ---------------------------------------
+// A captured style-target selector is a child path from the toggle target.
+// The runtime resolves it with querySelector(), which searches all
+// descendants, so the projected config must anchor it to direct children:
+// here an unanchored `div:nth-of-type(2)` would first hit the second div
+// inside the brand link instead of the header's own progress bar.
+$pathHtml = '<html><body><header><div class="bar"><a class="brand"><div class="mark"></div><div class="wordmark">Brand</div></a></div><div class="progress" style="width:0%"></div></header></body></html>';
+$pathResult = $project($files(array('https://example.test/path' => $pathHtml), array('https://example.test/path' => array(
+    $toggle(array('selector' => 'body > header', 'tag' => 'header'), array(
+        'classes' => array('add' => array(), 'remove' => array()),
+        'styleTargets' => array(
+            array('selector' => 'div:nth-of-type(2)', 'tag' => 'div', 'properties' => array('width' => array('rest' => '0%', 'scrolled' => '12%'))),
+            array('selector' => 'div > a', 'tag' => 'a', 'properties' => array('opacity' => array('rest' => '1', 'scrolled' => '0.8'))),
+            array('selector' => '.not-a-child-path', 'tag' => 'div', 'properties' => array('opacity' => array('rest' => '1', 'scrolled' => '0'))),
+        ),
+    )),
+))));
+$pathConfig = $scrollStateConfig((string) ($pathResult['files'][0]['content'] ?? ''));
+$pathSelectors = array_map(static fn (array $target): string => (string) ($target['selector'] ?? ''), is_array($pathConfig['styleTargets'] ?? null) ? $pathConfig['styleTargets'] : array());
+$assert(array(':scope > div:nth-of-type(2)', ':scope > div > a', '.not-a-child-path') === $pathSelectors, 'relative child-path style targets are anchored to the toggle target; other selectors are left unchanged');
+$pathDocument = new DOMDocument();
+@$pathDocument->loadHTML($pathHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+$pathHeader = $pathDocument->getElementsByTagName('header')->item(0);
+$directDivs = array_values(array_filter(iterator_to_array($pathHeader->childNodes), static fn ($node): bool => $node instanceof DOMElement && 'div' === $node->tagName));
+$assert('progress' === ($directDivs[1] ?? null)?->getAttribute('class'), 'the anchored path names the header\'s own second div (the progress bar), not the nested wordmark');
+
 if (0 !== $failures) {
     fwrite(STDERR, "scroll-state-projector failed: {$failures} failure(s), {$passes} pass(es)\n");
     exit(1);

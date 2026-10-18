@@ -189,9 +189,30 @@ final class ScrollStateProjector
             if (array() === $properties) {
                 continue;
             }
-            $normalized[] = array('selector' => $target['selector'], 'properties' => $properties);
+            $normalized[] = array('selector' => $this->scopedStyleTargetSelector($selector), 'properties' => $properties);
         }
         return $normalized;
+    }
+
+    /**
+     * A captured style-target selector is a child path relative to the toggle
+     * target (`div:nth-of-type(2)` is the target's second direct `div` child),
+     * the same grammar bySelectorPath() resolves. The runtime resolves it with
+     * `element.querySelector()`, which searches every descendant, so an
+     * unanchored path would bind the first deeper element that happens to fit
+     * (for example the second `div` inside a nested logo link). Anchor child
+     * paths to the target with `:scope >`; leave `:scope`, id selectors and
+     * anything outside that grammar unchanged.
+     */
+    private function scopedStyleTargetSelector(string $selector): string
+    {
+        $part = '[a-z][a-z0-9]*(?:#[A-Za-z][A-Za-z0-9_.:-]*)?(?::nth-of-type\(\d+\))?';
+        if (1 !== preg_match('/^' . $part . '(?:\s*>\s*' . $part . ')*$/i', $selector)) {
+            return $selector;
+        }
+        $parts = preg_split('/\s*>\s*/', $selector);
+
+        return ':scope > ' . implode(' > ', is_array($parts) ? $parts : array($selector));
     }
 
     /** @return array<int, string> */
