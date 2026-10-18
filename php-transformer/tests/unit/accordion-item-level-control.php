@@ -38,7 +38,7 @@ $collect = static function (array $blocks, string $name) use (&$collect): array 
     return $found;
 };
 
-$check = static function (string $case, string $html, array $expectedOpen) use ($assert, $collect): void {
+$check = static function (string $case, string $html, array $expectedOpen, ?array $panelClasses = null) use ($assert, $collect): void {
     $result = ( new HtmlTransformer() )->transform($html)->toArray();
     $blocks = $result['blocks'] ?? array();
     $serialized = (string) ( $result['serialized_blocks'] ?? '' );
@@ -58,6 +58,23 @@ $check = static function (string $case, string $html, array $expectedOpen) use (
         $panels = $collect(array( $item ), 'core/accordion-panel');
         $assert(1 === count($headings) && str_contains((string) ( $headings[0]['attrs']['title'] ?? '' ), 'Question ' . $index . '?'), $case . ': item ' . $index . ' heading carries the question', $serialized);
         $assert(1 === count($panels) && str_contains(serialize($panels[0]), 'Answer ' . $index . '.'), $case . ': item ' . $index . ' answer sits inside core/accordion-panel', $serialized);
+        if ( null !== $panelClasses && 1 === count($panels) ) {
+            // Native core/accordion owns the open/closed state, so the saved
+            // panel presents its recorded open-state classes; a closed-only
+            // class such as `hidden` would keep it invisible when opened.
+            $panelHtml = (string) ( $panels[0]['innerHTML'] ?? '' ) . implode('', array_filter($panels[0]['innerContent'] ?? array(), 'is_string'));
+            $panelTag = preg_match('/<div[^>]*wp-block-accordion-panel[^>]*>/', $panelHtml, $pm) ? $pm[0] : '';
+            $panelClassList = preg_match('/class="([^"]*)"/', $panelTag, $cm) ? preg_split('/\s+/', trim($cm[1])) : array();
+            $savedClasses = array_merge($panelClassList ?: array(), preg_split('/\s+/', trim((string) ( $panels[0]['attrs']['className'] ?? '' ))) ?: array());
+            foreach ( $panelClasses['present'] as $class ) {
+                $assert(in_array($class, $savedClasses, true), $case . ': item ' . $index . ' panel keeps class ' . $class, $panelTag . ' ' . json_encode($panels[0]['attrs'] ?? array()));
+            }
+            foreach ( $panelClasses['absent'] as $class ) {
+                $assert(! in_array($class, $savedClasses, true), $case . ': item ' . $index . ' panel drops closed-state class ' . $class, $panelTag . ' ' . json_encode($panels[0]['attrs'] ?? array()));
+            }
+            $panelShell = json_encode($panels[0]['attrs'] ?? array()) . $panelTag;
+            $assert(! str_contains($panelShell, 'data-blocks-engine-capture-disclosure-'), $case . ': item ' . $index . ' panel carries no capture disclosure attributes', $panelShell);
+        }
         $assert(1 === count($headings) && ! str_contains(serialize($headings[0]), 'Answer ' . $index . '.'), $case . ': item ' . $index . ' answer is not part of the heading', $serialized);
         $assert($expectedOpen[$index] === ( true === ( $item['attrs']['openByDefault'] ?? false ) ), $case . ': item ' . $index . ' openByDefault follows the item aria-expanded', json_encode($item['attrs'] ?? array()) ?: '');
 
@@ -86,20 +103,40 @@ $capturedItem = static fn (int $n, string $expanded): string =>
     '<div class="faq-item" onclick="toggleFaq(this)" aria-controls="faq-panel-' . $n . '" aria-expanded="' . $expanded . '" tabindex="0">'
     . '<div class="faq-question"><h3>Question ' . $n . '?</h3>'
     . '<span class="faq-icon" data-blocks-engine-capture-disclosure-open-class="faq-icon rotate" data-blocks-engine-capture-disclosure-closed-class="faq-icon">+</span></div>'
-    . '<div class="faq-answer" id="faq-panel-' . $n . '" role="region"'
+    . '<div class="faq-answer mt-4 text-gray-600 hidden" id="faq-panel-' . $n . '" role="region"'
     . ' data-blocks-engine-capture-local-disclosure="true"'
     . ' data-blocks-engine-capture-hydrated-disclosure="true"'
-    . ' data-blocks-engine-capture-disclosure-open-class="faq-answer open"'
-    . ' data-blocks-engine-capture-disclosure-closed-class="faq-answer"'
+    . ' data-blocks-engine-capture-disclosure-open-class="faq-answer mt-4 text-gray-600"'
+    . ' data-blocks-engine-capture-disclosure-closed-class="faq-answer mt-4 text-gray-600 hidden"'
     . ' hidden><p>Answer ' . $n . '.</p></div>'
     . '</div>';
 
-$captured = '<style>.faq-answer{display:none}.faq-answer.open{display:block}.faq-icon.rotate{transform:rotate(45deg)}</style>'
+$captured = '<style>.hidden{display:none}.mt-4{margin-top:1rem}.text-gray-600{color:#4b5563}.faq-icon.rotate{transform:rotate(45deg)}</style>'
     . '<section><h2>Frequently asked</h2><div class="list">'
     . $capturedItem(0, 'false') . $capturedItem(1, 'false') . $capturedItem(2, 'true') . $capturedItem(3, 'false')
     . '</div></section>';
 
-$check('full captured shape', $captured, array( false, false, true, false ));
+$check('full captured shape', $captured, array( false, false, true, false ), array(
+    'present' => array( 'faq-answer', 'mt-4', 'text-gray-600' ),
+    'absent' => array( 'hidden' ),
+));
+
+// The same rule holds when the disclosure control is a title button.
+$buttonItem = static fn (int $n, string $expanded): string =>
+    '<div class="faq-item"><h3><button type="button" aria-controls="faq-btn-panel-' . $n . '" aria-expanded="' . $expanded . '">Question ' . $n . '?'
+    . '<span class="faq-icon" data-blocks-engine-capture-disclosure-open-class="faq-icon rotate" data-blocks-engine-capture-disclosure-closed-class="faq-icon">+</span></button></h3>'
+    . '<div class="faq-answer mt-4 hidden" id="faq-btn-panel-' . $n . '" role="region"'
+    . ' data-blocks-engine-capture-local-disclosure="true"'
+    . ' data-blocks-engine-capture-disclosure-open-class="faq-answer mt-4"'
+    . ' data-blocks-engine-capture-disclosure-closed-class="faq-answer mt-4 hidden"'
+    . ' hidden><p>Answer ' . $n . '.</p></div>'
+    . '</div>';
+
+$check('title button control', '<style>.hidden{display:none}.mt-4{margin-top:1rem}</style><section><div class="list">'
+    . $buttonItem(0, 'false') . $buttonItem(1, 'true') . '</div></section>', array( false, true ), array(
+    'present' => array( 'faq-answer', 'mt-4' ),
+    'absent' => array( 'hidden' ),
+));
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Accordion item-level control: {$failures} failed, {$passes} passed\n");

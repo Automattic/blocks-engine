@@ -107,8 +107,58 @@ final class AccordionPattern implements PatternRecognizerInterface
             'openByDefault' => $this->isOpen($item, $stateControl, $panel) ? true : '',
         )), static fn ($value): bool => '' !== $value), array(
             $createBlock('core/accordion-heading', $headingAttrs, array(), $title),
-            $createBlock('core/accordion-panel', $panel instanceof DOMElement ? $presentationAttributes($panel) : array(), $panelBlocks, $panel),
+            $createBlock('core/accordion-panel', $panel instanceof DOMElement ? $this->openPanelPresentation($panel, $presentationAttributes) : array(), $panelBlocks, $panel),
         ), $item);
+    }
+
+    /**
+     * Presentation of a disclosure panel in its open state.
+     *
+     * Native core/accordion owns the open/closed state: it opens a panel by
+     * removing its `hidden` attribute and never touches classes. A captured
+     * panel records its open-state class list, so the panel is presented with
+     * that list and the capture's closed-state-only classes (e.g. a Tailwind
+     * `hidden`) are dropped; otherwise the panel would stay invisible when its
+     * item opens. Applies whether the control is item-level or a title button.
+     *
+     * @return array<string, mixed>
+     */
+    private function openPanelPresentation(DOMElement $panel, callable $presentationAttributes): array
+    {
+        $openAttribute = CaptureEvidence::DISCLOSURE_OPEN_PREFIX . 'class';
+        if ( ! $panel->hasAttribute($openAttribute) ) {
+            return $presentationAttributes($panel);
+        }
+
+        $hadClass = $panel->hasAttribute('class');
+        $sourceClass = $panel->getAttribute('class');
+        $panel->setAttribute('class', $this->openClassList($panel));
+        try {
+            return $presentationAttributes($panel);
+        } finally {
+            if ( $hadClass ) {
+                $panel->setAttribute('class', $sourceClass);
+            } else {
+                $panel->removeAttribute('class');
+            }
+        }
+    }
+
+    /** The panel's source classes with closed-only classes swapped for the recorded open-state list. */
+    private function openClassList(DOMElement $panel): string
+    {
+        $tokens = static fn (string $value): array => array_values(array_filter(preg_split('/\s+/', trim($value)) ?: array(), static fn (string $t): bool => '' !== $t));
+        $open = $tokens($panel->getAttribute(CaptureEvidence::DISCLOSURE_OPEN_PREFIX . 'class'));
+        $closed = $tokens($panel->getAttribute(CaptureEvidence::DISCLOSURE_CLOSED_PREFIX . 'class'));
+        $closedOnly = array_diff($closed, $open);
+
+        $classes = array_values(array_diff($tokens($panel->getAttribute('class')), $closedOnly));
+        foreach ( $open as $class ) {
+            if ( ! in_array($class, $classes, true) ) {
+                $classes[] = $class;
+            }
+        }
+        return implode(' ', $classes);
     }
 
     /**
