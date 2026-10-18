@@ -52,6 +52,34 @@ final class CapturedDialogBlockGenerator
         return $state;
     }
 
+    /**
+     * The closed/opened presentation of a dropdown adopted in place from an
+     * existing source panel: the `class` and `style` the panel rests with
+     * (authored CSS decides whether it shows while closed) and the ones the
+     * source gave it open. Capture-only class tokens are dropped. A malformed
+     * state yields no rows.
+     *
+     * @return array{closed?:array{class:?string, style:?string}, opened?:array{class:?string, style:?string}}
+     */
+    public static function restingState(mixed $state): array
+    {
+        if (! is_array($state) || ! is_array($state['closed'] ?? null) || ! is_array($state['opened'] ?? null)) return array();
+        $out = array();
+        foreach (array('closed', 'opened') as $side) {
+            foreach (array('class', 'style') as $name) {
+                $value = $state[$side][$name] ?? null;
+                if (null !== $value && ! is_string($value)) return array();
+                $value = trim((string) $value);
+                if (strlen($value) > self::MAX_ANCESTOR_VALUE_BYTES) return array();
+                if ('class' === $name) {
+                    $value = implode(' ', array_diff(preg_split('/\s+/', $value) ?: array(), array(CaptureEvidence::DROPDOWN_CLASS, CaptureEvidence::DIALOG_CLASS, '')));
+                }
+                $out[$side][$name] = '' === $value ? null : $value;
+            }
+        }
+        return $out;
+    }
+
     /** @return array<string, mixed> */
     public function definition(string $blockName): array
     {
@@ -71,6 +99,8 @@ final class CapturedDialogBlockGenerator
             'addCloseButton' => array('type' => 'boolean', 'default' => false),
             'gallerySelection' => array('type' => 'array', 'default' => array()),
             'ancestorState' => array('type' => 'array', 'default' => array()),
+            'resting' => array('type' => 'string', 'default' => ''),
+            'restingState' => array('type' => 'object', 'default' => array()),
         );
         $editor = <<<'JS'
 ( function( blocks, blockEditor, element ) {
@@ -78,7 +108,7 @@ final class CapturedDialogBlockGenerator
     var InnerBlocks = blockEditor.InnerBlocks;
     function styleObject( value ) { if ( ! value ) return undefined; return String( value ).split( ';' ).reduce( function( output, declaration ) { var separator = declaration.indexOf( ':' ); if ( separator < 1 ) return output; var name = declaration.slice( 0, separator ).trim(); var property = name.indexOf( '--' ) === 0 ? name : name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); output[ property ] = declaration.slice( separator + 1 ).trim(); return output; }, {} ); }
     function dialogProps( attrs ) {
-        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, style: styleObject( attrs.sourceStyle ), '__DIALOG_ANCESTOR_UNVERIFIED__': attrs.ancestorUnverified || undefined, 'data-blocks-engine-presentation': attrs.presentation || undefined, 'data-blocks-engine-placement': attrs.placement || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-closers': ( attrs.closerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-gallery-selection': attrs.gallerySelection && attrs.gallerySelection.length ? JSON.stringify( attrs.gallerySelection ) : undefined, 'data-blocks-engine-ancestor-state': attrs.ancestorState && attrs.ancestorState.length ? JSON.stringify( attrs.ancestorState ) : undefined };
+        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, style: styleObject( attrs.sourceStyle ), '__DIALOG_ANCESTOR_UNVERIFIED__': attrs.ancestorUnverified || undefined, 'data-blocks-engine-presentation': attrs.presentation || undefined, 'data-blocks-engine-placement': attrs.placement || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-closers': ( attrs.closerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-gallery-selection': attrs.gallerySelection && attrs.gallerySelection.length ? JSON.stringify( attrs.gallerySelection ) : undefined, 'data-blocks-engine-ancestor-state': attrs.ancestorState && attrs.ancestorState.length ? JSON.stringify( attrs.ancestorState ) : undefined, 'data-blocks-engine-resting': attrs.resting || undefined, 'data-blocks-engine-resting-state': attrs.restingState && attrs.restingState.closed ? JSON.stringify( attrs.restingState ) : undefined };
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
@@ -237,10 +267,16 @@ JS;
         // that trigger. Anything else keeps the modal contract.
         var dropdown = 'dropdown' === dialog.getAttribute( 'data-blocks-engine-presentation' );
         var opener = null;
+        // A dropdown adopted in place from an existing source panel wraps that
+        // panel. Closed, the panel keeps its resting class and style, so
+        // authored CSS decides whether it shows; open, it takes the class and
+        // style the source gave it open, as the capture runtime did.
+        var resting = JSON.parse( dialog.getAttribute( 'data-blocks-engine-resting-state' ) || 'null' );
+        var panel = resting && resting.closed && resting.opened ? dialog.firstElementChild : null;
         function expanded( value ) { if ( dropdown ) triggers.forEach( function( trigger ) { control( trigger ).setAttribute( 'aria-expanded', value ? 'true' : 'false' ); } ); }
         function close() { expanded( false ); if ( dialog.close ) dialog.close(); else { dialog.removeAttribute( 'open' ); dialog.dispatchEvent( new Event( 'close' ) ); } }
         expanded( false );
-        dialog.addEventListener( 'close', function() { expanded( false ); } );
+        dialog.addEventListener( 'close', function() { expanded( false ); if ( panel ) replay( panel, resting.opened, resting.closed ); } );
         if ( dropdown ) document.addEventListener( 'keydown', function( event ) {
             if ( 'Escape' !== event.key || ! dialog.hasAttribute( 'open' ) ) return;
             event.preventDefault();
@@ -274,6 +310,7 @@ JS;
                 opener = trigger;
                 applyAncestors( dialog, ancestors[ triggers.indexOf( trigger ) ] );
                 if ( 'under-header' === dialog.getAttribute( 'data-blocks-engine-placement' ) ) placeDropdown( dialog, trigger );
+                if ( panel ) replay( panel, resting.closed, resting.opened );
                 if ( dialog.show ) dialog.show(); else dialog.setAttribute( 'open', '' );
                 expanded( true );
                 return;
@@ -303,12 +340,18 @@ JS;
         // rules have no specificity, so the source classes still win.
         // A dropdown kept at its observed source place flows there like the
         // source panel did: only the user agent's dialog box is reset.
+        // A dropdown adopted in place around an existing source panel adds no
+        // box of its own. One that rested without `hidden` stays out of the
+        // closed rule: the panel's own resting class and authored CSS decide
+        // where it shows while closed (a desktop nav whose phone toggle
+        // opens it, or a class-hidden menu that shows only once opened).
         // A modal whose source panel positions itself keeps the source's own
         // placement: the user agent's box geometry (padding, border, auto
         // margins, insets and size caps) is reset under its rules. Canvas
         // paint stays as the backdrop for panel layers that paint over it.
         $style = 'dialog[data-blocks-engine-triggers]:not([open]){display:none!important}'
-            . 'div[data-blocks-engine-presentation="dropdown"][data-blocks-engine-triggers]:not([open]){display:none!important}'
+            . 'div[data-blocks-engine-presentation="dropdown"][data-blocks-engine-triggers]:not([open]):not([data-blocks-engine-resting="authored"]){display:none!important}'
+            . ':where(div[data-blocks-engine-resting]){display:contents}'
             . ':where(dialog[data-blocks-engine-presentation="dropdown"][data-blocks-engine-placement="under-header"]){position:fixed;top:var(--blocks-engine-dropdown-top,0px);left:0;width:100%;max-width:none;max-height:calc(100vh - var(--blocks-engine-dropdown-top,0px));margin:0;overflow-y:auto;z-index:var(--blocks-engine-dropdown-layer,auto);background-color:var(--blocks-engine-dropdown-background,Canvas);-webkit-backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);color:inherit}'
             . ':where(dialog[data-blocks-engine-presentation="dropdown"][data-blocks-engine-placement="in-place"]){position:static;inset:auto;width:auto;height:auto;max-width:none;max-height:none;margin:0;padding:0;border-width:0;background-color:transparent;color:inherit;overflow:visible}'
             . ':where(dialog:not([data-blocks-engine-presentation])[data-blocks-engine-placement="source"]){inset:auto;max-width:none;max-height:none;margin:0;padding:0;border-width:0}';
