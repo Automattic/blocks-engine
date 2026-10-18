@@ -23,8 +23,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   difference) merge. Then each cluster within ΔE*ab 5 of a heavier kept
  *   cluster merges into the nearest one, however much it is used, so a
  *   near-duplicate neutral (`#1f2937` beside `#1e293b`) does not take a
- *   palette slot; it keeps its literal, since only a token's exact colour
- *   binds and binding never changes what renders. The
+ *   palette slot; it binds to the token that absorbed it. The
  *   palette represents distinct colours, not every spelling of one. At
  *   most 12 colours are kept.
  *
@@ -40,10 +39,11 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   renders. `base` and `contrast` are still chosen from area alone.
  *
  *   One rule decides both what the palette represents and what binds:
- *   every rendered colour the palette represents binds to its token. A
- *   colour within the JND of a token binds to it. A folded shade binds to
- *   the token that absorbed it, which renders it up to ΔE 5 off. That is
- *   the bound for an imperceptible change: below ΔE 5 an untrained
+ *   every rendered colour the palette represents binds to its token, in
+ *   block attributes, stylesheet bindings and element styles alike. A
+ *   rendered colour within the JND of a token binds to it. A folded
+ *   shade binds to the token that absorbed it, which renders it up to
+ *   ΔE 5 off. That is the bound for an imperceptible change: below ΔE 5 an untrained
  *   observer only tells two colours apart side by side (Mokrzycki and
  *   Tatol). A shade further away would visibly change where it renders,
  *   so it is not folded: it keeps a token of its own.
@@ -232,15 +232,23 @@ final class DesignSystem
     }
 
     /**
-     * Slug of the palette colour a value binds to, or null. Exact token
-     * colours and shades absorbed by that token share the same binding rule.
+     * Slug of the palette colour a value binds to, or null. One rule binds
+     * every opaque colour the palette represents: a token's own colour and
+     * every member of its cluster, whether a rendered shade within the JND
+     * or one the token absorbed (see absorbed()). A colour the documents
+     * never rendered is not represented and keeps its literal. Block
+     * attributes, stylesheet bindings and element styles all bind through
+     * this method. Translucent colours never bind here; see
+     * translucentColor().
      */
     public function colorSlug(string $value): ?string
     {
         if (!CssColor::opaque($value)) return null;
         $hex = CssColor::hex($value);
+        if (null === $hex) return null;
+        foreach ($this->colors as $color) if ($hex === CssColor::hex($color['color'])) return $color['slug'];
         foreach ($this->colors as $color) {
-            if ($hex === CssColor::hex($color['color']) || in_array($hex, self::absorbed($color), true)) return $color['slug'];
+            foreach ($color['members'] as $member) if ($hex === CssColor::hex($member)) return $color['slug'];
         }
         return null;
     }

@@ -259,19 +259,21 @@ $assert(($shellPlan['theme']['design_system'] ?? null) === ($reversedShell['them
 // Six greys each written two indistinguishable ways, all on long paragraphs,
 // and a cyan accent that only marks many small elements through a custom
 // property: the palette holds the distinct colours, so the accent keeps a
-// token, and each twin keeps its literal colour.
+// token, and each twin binds to the token that absorbed it.
 [$accentPlan, $accentTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/near-duplicate-neutrals-small-accent.php');
 $accentPalette = array_column($accentTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
 $cyan = (string) array_search('#22d3ee', $accentPalette, true);
 $assert(1 === preg_match($roleSlug, $cyan) && array() === array_intersect(array('#212121', '#424242', '#646464', '#858585', '#a6a6a6', '#cbcbcb'), $accentPalette), 'near-duplicate-neutrals-small-accent: the accent on many small elements keeps a token and no near-duplicate takes a slot (' . json_encode($accentPalette) . ')');
 $accentMarkup = implode('', array_column($accentPlan['pages'], 'canonical_block_markup'));
-$twinsKeepLiteral = array();
+$twinsBind = array();
 foreach (array('g1', 'g2', 'g3', 'g4', 'g5', 'g6') as $grey) {
-    // Binding never changes what renders: a twin keeps its own literal
-    // rather than taking the token of the grey it sits beside.
-    $twinsKeepLiteral[$grey] = 0 === preg_match('/"className":"' . $grey . 'b","textColor":"/', $accentMarkup);
+    // A twin binds to the token of the grey it sits beside, which absorbed
+    // it: the same token its sibling binds to.
+    $sibling = preg_match('/"className":"' . $grey . '","textColor":"([^"]+)"/', $accentMarkup, $siblingMatch) ? $siblingMatch[1] : null;
+    $twin = preg_match('/"className":"' . $grey . 'b","textColor":"([^"]+)"/', $accentMarkup, $twinMatch) ? $twinMatch[1] : null;
+    $twinsBind[$grey] = null !== $twin && $twin === $sibling;
 }
-$assert(array() === array_filter($twinsKeepLiteral, static fn(bool $kept): bool => $kept), 'near-duplicate-neutrals-small-accent: a near-duplicate absorbed into a token binds to it');
+$assert(array() === array_filter($twinsBind, static fn(bool $bound): bool => !$bound), 'near-duplicate-neutrals-small-accent: a near-duplicate absorbed into a token binds to it (' . json_encode($twinsBind) . ')');
 $accentCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($accentPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
 $assert(str_contains($accentCss, '--cyan:var(--wp--preset--color--' . $cyan . ',#22d3ee)') && 1 === preg_match('/\\.dot[^{]*\\{color:var\\(--wp--preset--color--' . $cyan . ',var\\(--cyan\\)\\)/', $accentCss), 'near-duplicate-neutrals-small-accent: the authored --cyan custom property reads the accent token, so every rule using it follows the palette');
 
@@ -415,6 +417,21 @@ $assert(array() === $refusalsOf(array($inlineBinding->bind($inline('<mark style=
 $displayMetrics = $displayPlan['theme']['design_system']['metrics'] ?? array();
 $assert(PresetBinding::REFUSAL_REASONS === array_keys($displayMetrics['refusal_reasons'] ?? array()) && ($displayMetrics['refusal_reasons']['alpha'] ?? 0) > 0 && array_sum($displayMetrics['refusal_reasons']) === ($displayMetrics['refused_value_count'] ?? null), 'system-stack-display-headings: metrics break refusals down by every reason (' . json_encode($displayMetrics['refusal_reasons'] ?? null) . ')');
 $assert(1.0 === ($displayMetrics['restyle_coverage'] ?? null), 'system-stack-display-headings: every rendered colour follows the palette (' . json_encode($displayMetrics['restyle_coverage'] ?? null) . ')');
+
+// Issue #3043: a shade the palette folded into a token binds to it in block
+// attributes and stylesheets alike. The `#f6f8fa` surfaces are absorbed by
+// the white `base`, so all four backgrounds follow the palette; with
+// exact-only binding just the white card did (1 of 14 rendered colours).
+[$surfacePlan] = $compile(require dirname(__DIR__) . '/fixtures/design-system/absorbed-surface-shades.php');
+$surfaceSystem = $surfacePlan['theme']['design_system'] ?? array();
+$surfacePalette = array_column($surfaceSystem['palette'] ?? array(), null, 'slug');
+$assert('#ffffff' === ($surfacePalette['base']['color'] ?? null) && array('#f6f8fa') === ($surfacePalette['base']['absorbs'] ?? null), 'absorbed-surface-shades: base is white and absorbs the #f6f8fa surface (' . json_encode($surfaceSystem['palette'] ?? null) . ')');
+$surfaceMarkup = implode('', array_column($surfacePlan['pages'] ?? array(), 'canonical_block_markup'));
+$assert(3 === preg_match_all('/"className":"bg-surface"[^}]*\}\}\},"tagName":"section","metadata":\{"name":"(?:Card|Plain)"\},"backgroundColor":"base"/', $surfaceMarkup) && !str_contains(strtolower($surfaceMarkup), '"background":"#f6f8fa"'), 'absorbed-surface-shades: every surface section binds its background to the absorbing token');
+$surfaceCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($surfacePlan['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
+$assert(str_contains($surfaceCss, '.bg-surface{background-color:var(--wp--preset--color--base,#f6f8fa)'), 'absorbed-surface-shades: the stylesheet surface rule reads the absorbing token, keeping its literal as fallback');
+$surfaceMetrics = $surfaceSystem['metrics'] ?? array();
+$assert(4 === ($surfaceMetrics['restyle_backgrounds'] ?? null) && 4 === ($surfaceMetrics['restyle_backgrounds_preset'] ?? null) && 0 === ($surfaceMetrics['literal_value_count'] ?? null) && (float) ($surfaceMetrics['restyle_coverage'] ?? 0) > round(1 / 14, 4), 'absorbed-surface-shades: restyle coverage rises above the exact-only baseline (' . json_encode($surfaceMetrics['restyle_coverage'] ?? null) . ')');
 
 fwrite(STDOUT, "Design system usage derivation: {$passes} passed, {$failures} failed\n");
 exit($failures ? 1 : 0);

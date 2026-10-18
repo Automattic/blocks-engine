@@ -725,13 +725,15 @@ final class PresetBinding
      * the block does not carry. The declaration keeps its selector, its
      * place in the cascade and its `!important`, so the only thing that
      * changes is where the value comes from: it renders the token's value,
-     * which is the literal itself, until a site owner edits the token in
-     * Global Styles.
+     * which is the literal itself or, for a shade the token absorbed, a
+     * colour at most ΔE 5 off (DesignSystem::colorSlug()), until a site
+     * owner edits the token in Global Styles.
      *
      * - A colour (`color`, `background-color`, a lone-colour `background`,
-     *   or a custom property whose whole value is a colour) binds when it is
-     *   a token's exact colour. A `var()` in it must resolve the same way as
-     *   for a block literal.
+     *   or a custom property whose whole value is a colour) binds when the
+     *   token represents it: its own colour or a shade in its cluster,
+     *   absorbed shades included (DesignSystem::colorSlug()). A `var()` in
+     *   it must resolve the same way as for a block literal.
      * - A font size binds only when it is the preset's own length, and a
      *   font family only when it is the preset's own stack, so no fallback
      *   or rounding changes what renders.
