@@ -232,16 +232,16 @@ final class DesignSystem
     }
 
     /**
-     * Slug of the palette colour a value renders as, or null. Binding must
-     * not change what renders, so only a token whose own value is the same
-     * 8-bit colour binds. Nearby shades the palette grouped under a token
-     * keep their literal until they are the token's exact value.
+     * Slug of the palette colour a value binds to, or null. Exact token
+     * colours and shades absorbed by that token share the same binding rule.
      */
     public function colorSlug(string $value): ?string
     {
         if (!CssColor::opaque($value)) return null;
         $hex = CssColor::hex($value);
-        foreach ($this->colors as $color) if ($hex === CssColor::hex($color['color'])) return $color['slug'];
+        foreach ($this->colors as $color) {
+            if ($hex === CssColor::hex($color['color']) || in_array($hex, self::absorbed($color), true)) return $color['slug'];
+        }
         return null;
     }
 
@@ -933,7 +933,7 @@ final class DesignSystem
         $token = static function (string $field, string $value) use ($system): ?string {
             if ('' === $value) return null;
             return match ($field) {
-                'color', 'hover_color', 'background', 'hover_background' => null !== ($slug = $system->colorSlug($value)) && (CssColor::distance($value, (string) $system->color($slug)) ?? INF) <= self::COLOR_TOLERANCE ? $value : null,
+                'color', 'hover_color', 'background', 'hover_background' => null !== ($slug = $system->colorSlug($value)) ? $value : null,
                 'font_family' => null !== $system->fontFamilySlug(explode("\n", $value, 2)[1] ?? '') && '' !== explode("\n", $value, 2)[0] ? explode("\n", $value, 2)[1] : null,
                 'font_size' => null !== $system->fontSizeSlug($value . 'px') ? $value . 'px' : null,
                 'font_weight' => 1 === preg_match('/^\d+$/', $value) ? $value : null,

@@ -111,7 +111,7 @@ $system = DesignSystem::fromUsage(array(
 ));
 $colors = array_column($system?->colors ?? array(), 'color', 'slug');
 $assert(array('base' => '#ffffff', 'contrast' => '#222222', 'primary' => '#e11d48') === $colors, 'near-duplicate colours within one just-noticeable difference merge into the heaviest member');
-$assert('contrast' === $system?->colorSlug('#222') && 'base' === $system?->colorSlug('rgb(255,255,255)') && null === $system?->colorSlug('#232323') && null === $system?->colorSlug('#fefefe') && null === $system?->colorSlug('rgba(34,34,34,.5)'), 'only a token\'s exact colour binds, so binding never changes what renders; merged shades and translucent colours keep their literal');
+$assert('contrast' === $system?->colorSlug('#222') && 'base' === $system?->colorSlug('rgb(255,255,255)') && 'contrast' === $system?->colorSlug('#232323') && 'base' === $system?->colorSlug('#fefefe') && null === $system?->colorSlug('rgba(34,34,34,.5)'), 'absorbed shades bind to their palette token while translucent colours do not');
 $many = array();
 for ($i = 0; $i < 20; $i++) $many[] = $row(sprintf('#%02x%02x%02x', 20 + $i * 11, 200 - $i * 9, ($i * 37) % 256), 20 - $i);
 $capped = DesignSystem::fromUsage(array('a.html' => $usage($many)));
@@ -196,7 +196,7 @@ $assert(array('#333333' => 950, '#2563eb' => 400) === array_column($heavyTwins, 
 $foldedBackgrounds = array(array('role' => 'root', 'color' => '#050b18', 'authored' => '#050b18', 'count' => 1, 'weight' => 900), array('role' => 'section', 'color' => '#08101f', 'authored' => '#08101f', 'count' => 1, 'weight' => 20), array('role' => 'section', 'color' => '#0a1630', 'authored' => '#0a1630', 'count' => 1, 'weight' => 20));
 $paletteWith = DesignSystem::fromUsage(array('a.html' => $usage(array($row('#e5e7eb', 600)), $foldedBackgrounds)));
 $assert(array('#050b18', '#e5e7eb', '#0a1630') === array_column($paletteWith?->colors ?? array(), 'color'), 'the derived palette omits the folded shade and keeps the distant one (' . json_encode(array_column($paletteWith?->colors ?? array(), 'color')) . ')');
-$assert(null === $paletteWith?->colorSlug('#08101f') && 'base' === $paletteWith?->colorSlug('#050b18') && null !== $paletteWith?->colorSlug('#0a1630') && 'base' !== $paletteWith?->colorSlug('#0a1630'), 'a folded shade keeps its literal, since binding it would change what renders; a distant colour binds to its own token');
+$assert('base' === $paletteWith?->colorSlug('#08101f') && 'base' === $paletteWith?->colorSlug('#050b18') && null !== $paletteWith?->colorSlug('#0a1630') && 'base' !== $paletteWith?->colorSlug('#0a1630'), 'a folded shade binds to its absorbing token while a distant colour does not');
 $assert(array('#08101f') === ($paletteWith?->report()['palette'][0]['absorbs'] ?? null) && 5.0 === ($paletteWith?->report()['tolerances']['color_consolidation_delta_e76'] ?? null), 'the report names the shades a token absorbs and the imperceptible bound');
 $assert((CssColor::distance('#08101f', '#050b18') ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE && (CssColor::distance('#0a1630', '#050b18') ?? 0.0) > DesignSystem::COLOR_CONSOLIDATION_DISTANCE, 'the fixture shades sit on either side of the bound');
 
@@ -271,7 +271,7 @@ foreach (array('g1', 'g2', 'g3', 'g4', 'g5', 'g6') as $grey) {
     // rather than taking the token of the grey it sits beside.
     $twinsKeepLiteral[$grey] = 0 === preg_match('/"className":"' . $grey . 'b","textColor":"/', $accentMarkup);
 }
-$assert(array() === array_filter($twinsKeepLiteral, static fn(bool $kept): bool => !$kept), 'near-duplicate-neutrals-small-accent: a near-duplicate that takes no slot keeps its literal colour');
+$assert(array() === array_filter($twinsKeepLiteral, static fn(bool $kept): bool => $kept), 'near-duplicate-neutrals-small-accent: a near-duplicate absorbed into a token binds to it');
 $accentCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($accentPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
 $assert(str_contains($accentCss, '--cyan:var(--wp--preset--color--' . $cyan . ',#22d3ee)') && 1 === preg_match('/\\.dot[^{]*\\{color:var\\(--wp--preset--color--' . $cyan . ',var\\(--cyan\\)\\)/', $accentCss), 'near-duplicate-neutrals-small-accent: the authored --cyan custom property reads the accent token, so every rule using it follows the palette');
 
