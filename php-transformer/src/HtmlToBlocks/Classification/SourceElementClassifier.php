@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -272,8 +273,18 @@ final class SourceElementClassifier
         return 1 === preg_match('/^(?:align-|appearance|aspect-ratio|background|border|bottom|box-shadow|column|contain|cursor|display|filter|flex|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|table-layout|top|transform|vertical-align|width|z-index)/', $property);
     }
 
+    /**
+     * A definite length above zero. Besides a plain length this accepts a
+     * `calc()` that scales one ({@see CssLength::toPx()}), the form Tailwind
+     * v4 sizing utilities resolve to: `calc(.25rem * 2)` sizes a box as surely
+     * as `8px` does.
+     */
     public function isPositiveCssLength(string $value): bool
     {
+        if ( str_starts_with(strtolower(trim($value)), 'calc(') ) {
+            $px = CssLength::toPx($value);
+            return null !== $px && $px > 0;
+        }
         if ( ! preg_match('/^([+]?(?:\d+(?:\.\d+)?|\.\d+))(?:px|em|rem|ex|ch|cm|mm|in|pt|pc|vw|vh|vmin|vmax)$/i', trim($value), $matches) ) {
             return false;
         }
