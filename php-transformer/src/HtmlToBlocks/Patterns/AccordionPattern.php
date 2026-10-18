@@ -67,9 +67,13 @@ final class AccordionPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // The label and toggle presentation come from the title's control;
+        // ARIA state and the controlled panel come from the item itself when
+        // the whole row is the disclosure control.
         $control = $this->disclosureControlElement($title);
+        $stateControl = $this->isItemLevelDisclosure($item, $title) ? $item : $control;
 
-        $panel = $this->panelElement($item, $control);
+        $panel = $this->panelElement($item, $stateControl);
         if ( null !== $panel && $panel->isSameNode($title) ) {
             return null;
         }
@@ -100,7 +104,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         ), static fn ($value): bool => '' !== $value);
 
         return $createBlock('core/accordion-item', array_filter(array_merge($presentationAttributes($item), array(
-            'openByDefault' => $this->isOpen($item, $control, $panel) ? true : '',
+            'openByDefault' => $this->isOpen($item, $stateControl, $panel) ? true : '',
         )), static fn ($value): bool => '' !== $value), array(
             $createBlock('core/accordion-heading', $headingAttrs, array(), $title),
             $createBlock('core/accordion-panel', $panel instanceof DOMElement ? $presentationAttributes($panel) : array(), $panelBlocks, $panel),
@@ -163,7 +167,7 @@ final class AccordionPattern implements PatternRecognizerInterface
             }
 
             $title = $this->titleElement($element);
-            if ( ! $title instanceof DOMElement || ! $this->isDisclosureTitle($title) ) {
+            if ( ! $title instanceof DOMElement || ! ( $this->isDisclosureTitle($title) || $this->isItemLevelDisclosure($element, $title) ) ) {
                 return false;
             }
             $hasNonNativeDisclosure = true;
@@ -207,7 +211,33 @@ final class AccordionPattern implements PatternRecognizerInterface
 
         $title = $this->titleElement($element);
 
-        return $title instanceof DOMElement && $this->isDisclosureTitle($title);
+        return $title instanceof DOMElement && ( $this->isDisclosureTitle($title) || $this->isItemLevelDisclosure($element, $title) );
+    }
+
+    /**
+     * Whether the item element itself is the disclosure control: the whole row
+     * is clickable, so the item carries `aria-controls` naming a panel it
+     * contains. Applies only when the title has no control of its own, so a
+     * title-level control keeps deciding state and panel as before.
+     */
+    private function isItemLevelDisclosure(DOMElement $item, DOMElement $title): bool
+    {
+        if ( $this->isDisclosureTitle($title) ) {
+            return false;
+        }
+
+        $controlledId = $this->trimmedAttribute($item, 'aria-controls');
+        if ( '' === $controlledId ) {
+            return false;
+        }
+
+        foreach ( $item->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement && $candidate->getAttribute('id') === $controlledId ) {
+                return ! $this->containsNode($candidate, $title);
+            }
+        }
+
+        return false;
     }
 
     private function isDisclosureTitle(DOMElement $title): bool
