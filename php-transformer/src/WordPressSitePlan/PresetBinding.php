@@ -162,7 +162,7 @@ final class PresetBinding
     private array $importantRules = array();
     /** @var array<string,list<array{tokens:list<string>|null,negated:list<string>,fragment:string}>> `[style*=…]` selectors per family; null tokens reach any element. */
     private array $styleTextRules = array();
-    /** @var array<string,array<string,true>> Tokens of elements an interaction-state rule restyles, per family; `*` is any element. */
+    /** @var array<string,list<array{tokens:list<string>,negated:list<string>}>> Subjects of interaction-state rules, per family. */
     private array $stateTokens = array();
     /** @var array<string,array<string,string>> Authored class list => property => the one observation every element agreed on, or `!`. */
     private array $classStyles = array();
@@ -965,7 +965,7 @@ final class PresetBinding
         foreach ($addedClasses as $class) $finalClasses['class:' . $class] = true;
         foreach (self::families($property) as $family) {
             $reason = 'state_variant';
-            if (!$statesRendered && (isset($this->stateTokens[$family]['*']) || array() !== array_intersect_key($this->stateTokens[$family] ?? array(), $tokens))) return false;
+            if (!$statesRendered && $this->stateMatches($family, $tokens)) return false;
             $reason = 'style_selector';
             foreach ($this->styleTextRules[$family] ?? array() as $rule) {
                 if (null !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
@@ -1002,7 +1002,7 @@ final class PresetBinding
         $field = 'text' === $key ? 'color' : 'background';
         if (!isset($element[$field]) || $this->system->colorSlug($element[$field]) !== $slug) return false;
         $stated = false;
-        foreach (self::families($property) as $family) $stated = $stated || isset($this->stateTokens[$family]['*']) || array() !== array_intersect_key($this->stateTokens[$family] ?? array(), $tokens);
+        foreach (self::families($property) as $family) $stated = $stated || $this->stateMatches($family, $tokens);
         if ($stated && !isset($element['hover_' . $field])) return false;
         return $this->safe($property, $tokens, array(), false, false, $reason, true);
     }
@@ -1101,13 +1101,32 @@ final class PresetBinding
         }
     }
 
+    /** Whether a state-rule subject can match an element with these known tokens. */
+    private function stateMatches(string $family, array $tokens): bool
+    {
+        foreach ($this->stateTokens[$family] ?? array() as $subject) {
+            if (array() !== array_intersect_key(array_flip($subject['negated']), $tokens)) continue;
+            $impossibleTag = false;
+            foreach ($subject['tokens'] as $token) {
+                if (str_starts_with($token, 'tag:')) {
+                    $elementTags = array_keys(array_filter($tokens, static fn($_, string $key): bool => str_starts_with($key, 'tag:'), ARRAY_FILTER_USE_BOTH));
+                    if (array() !== $elementTags && !isset($tokens[$token])) $impossibleTag = true;
+                } elseif (str_starts_with($token, 'attr:') && !isset($tokens[$token])) {
+                    $name = substr($token, 5, (int) strpos(substr($token, 5), '=') ?: null);
+                    if (array() === array_filter(array_keys($tokens), static fn(string $key): bool => str_starts_with($key, 'attr:' . $name . '='))) $impossibleTag = true;
+                }
+            }
+            if (!$impossibleTag) return true;
+        }
+        return false;
+    }
+
     private function indexState(string $prelude, string $family): void
     {
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
             $subject = self::subjectTokens((string) preg_replace(self::STATE_PSEUDO, '', $selector));
             if (null === $subject) continue;
-            if (array() === $subject['tokens']) $this->stateTokens[$family]['*'] = true;
-            foreach ($subject['tokens'] as $token) $this->stateTokens[$family][$token] = true;
+            $this->stateTokens[$family][] = $subject;
         }
     }
 
@@ -1165,6 +1184,7 @@ final class PresetBinding
         if (1 === preg_match('/^([a-z][a-z0-9-]*)/i', $compound, $match)) $tokens[] = 'tag:' . strtolower($match[1]);
         if (preg_match_all('/\.((?:\\\\.|[\w-])+)/', $compound, $matches)) foreach ($matches[1] as $class) $tokens[] = 'class:' . stripslashes($class);
         if (preg_match_all('/#((?:\\\\.|[\w-])+)/', $compound, $matches)) foreach ($matches[1] as $id) $tokens[] = 'id:' . stripslashes($id);
+        if (preg_match_all('/\[\s*([\w-]+)\s*(?:=\s*["\']?([^\]"\']+)["\']?)?\s*\]/', $compound, $matches, PREG_SET_ORDER)) foreach ($matches as $attribute) $tokens[] = 'attr:' . strtolower($attribute[1]) . (isset($attribute[2]) && '' !== $attribute[2] ? '=' . strtolower($attribute[2]) : '');
         return array('tokens' => $tokens, 'negated' => $negated);
     }
 
@@ -1176,6 +1196,7 @@ final class PresetBinding
         foreach (preg_split('/\s+/', trim($classes)) ?: array() as $class) if ('' !== $class) $tokens['class:' . $class] = true;
         $id = self::attribute($html, 'id');
         if (null !== $id && '' !== $id) $tokens['id:' . $id] = true;
+        if (preg_match_all('/\s+([\w-]+)="([^"]*)"/', $html, $attributes, PREG_SET_ORDER)) foreach ($attributes as $attribute) $tokens['attr:' . strtolower($attribute[1]) . '=' . strtolower(html_entity_decode($attribute[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'))] = true;
         return $tokens;
     }
 
