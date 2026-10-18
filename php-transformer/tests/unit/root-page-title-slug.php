@@ -35,6 +35,15 @@ $pages = static function (array $files, string $entrypoint = 'index.html'): arra
 $document = static fn (string $title, string $body): string => '<!doctype html><html><head><title>' . $title . '</title></head><body>' . $body . '</body></html>';
 $nav = '<nav><a href="/">Home</a><a href="/about/">About</a></nav>';
 
+$fragmentOnly = $pages(array(
+    'index.html' => $document('Acme Youth Org | Springfield', '<nav><a href="/#focus">Area of Focus <span class="icon">expand_more</span></a></nav><main><h1>Welcome</h1></main>'),
+    'about/index.html' => $document('About Us | Acme Youth Org', '<nav><a href="/#focus">Area of Focus <span class="icon">expand_more</span></a></nav><main><h1>About</h1></main>'),
+    'programs/index.html' => $document('Programs | Acme Youth Org', '<nav><a href="/#focus">Area of Focus <span class="icon">expand_more</span></a></nav><main><h1>Programs</h1></main>'),
+    'contact/index.html' => $document('Contact | Acme Youth Org', '<nav><a href="/#focus">Area of Focus <span class="icon">expand_more</span></a></nav><main><h1>Contact</h1></main>'),
+));
+$assert(!str_starts_with((string) ($fragmentOnly['index.html']['title'] ?? ''), 'Area of Focus'), 'a fragment link does not name the front page', (string) ($fragmentOnly['index.html']['title'] ?? ''));
+$assert('Springfield' !== ($fragmentOnly['index.html']['title'] ?? null) && 'home' === ($fragmentOnly['index.html']['slug'] ?? null), 'fragment-only navigation falls through to the existing root fallback', json_encode($fragmentOnly['index.html'] ?? null));
+
 $named = $pages(array(
     'index.html' => $document('Example Site | keyword phrase', $nav . '<main><p>Welcome</p></main>'),
     'about/index.html' => $document('About | Example Site', $nav . '<main><p>Studio</p></main>'),

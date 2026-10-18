@@ -4292,9 +4292,9 @@ final class ArtifactCompiler
      * The first navigation label that targets the front page.
      *
      * These are the same anchors navigation_links are built from: a
-     * core/navigation-link comment, else an anchor inside nav. A fragment is
-     * an in-page jump, so a hash-less label wins. A label that is only the
-     * shared site name is not the page name.
+     * core/navigation-link comment, else an anchor inside nav. Fragment links
+     * name a section of the front page, never the page itself. A label that is
+     * only the shared site name is not the page name.
      *
      * @param array<int, array<string, mixed>> $files
      * @param list<string> $siteNameSegments
@@ -4303,7 +4303,6 @@ final class ArtifactCompiler
     {
         $siteName = implode(' ', $siteNameSegments);
         $plain = '';
-        $any = '';
         foreach ( $files as $file ) {
             if ( ! is_array($file) || 'html' !== ($file['kind'] ?? '') ) {
                 continue;
@@ -4320,16 +4319,13 @@ final class ArtifactCompiler
                 if ( ( ! is_string($fragment) || '' === $fragment ) && '' === $plain ) {
                     $plain = $label;
                 }
-                if ( '' === $any ) {
-                    $any = $label;
-                }
                 if ( '' !== $plain ) {
                     return $plain;
                 }
             }
         }
 
-        return '' !== $plain ? $plain : $any;
+        return $plain;
     }
 
     /**
