@@ -28,28 +28,24 @@ final class CssSelectorMatcher
     }
 
     /**
-     * HTML defines these enumerated attribute values as ASCII-case-insensitive
-     * by default, which this matcher does not model.
+     * HTML matches these attributes' values ASCII-case-insensitively in
+     * selectors unless the selector carries an explicit `s` flag (HTML,
+     * "Selectors": case-sensitivity of selectors). Every other attribute is
+     * matched case-sensitively.
      *
-     * Keyed for O(1) membership because every selector match that misses the
-     * cache tests it, and a page can miss hundreds of thousands of times. As a
-     * class constant it is built once at compile time rather than rebuilt on
-     * each of those calls.
+     * Keyed for O(1) membership because every attribute match tests it.
      */
-    private const ENUMERATED_ATTRIBUTES = array(
-        'autocomplete' => true,
-        'contenteditable' => true,
-        'dir' => true,
-        'draggable' => true,
-        'enterkeyhint' => true,
-        'hidden' => true,
-        'inputmode' => true,
-        'kind' => true,
-        'method' => true,
-        'rel' => true,
-        'spellcheck' => true,
-        'translate' => true,
-        'type' => true,
+    private const CASE_INSENSITIVE_ATTRIBUTES = array(
+        'accept' => true, 'accept-charset' => true, 'align' => true, 'alink' => true, 'axis' => true,
+        'bgcolor' => true, 'charset' => true, 'checked' => true, 'clear' => true, 'codetype' => true,
+        'color' => true, 'compact' => true, 'declare' => true, 'defer' => true, 'dir' => true,
+        'direction' => true, 'disabled' => true, 'enctype' => true, 'face' => true, 'frame' => true,
+        'hreflang' => true, 'http-equiv' => true, 'lang' => true, 'language' => true, 'link' => true,
+        'media' => true, 'method' => true, 'multiple' => true, 'nohref' => true, 'noresize' => true,
+        'noshade' => true, 'nowrap' => true, 'readonly' => true, 'rel' => true, 'rev' => true,
+        'rules' => true, 'scope' => true, 'scrolling' => true, 'selected' => true, 'shape' => true,
+        'target' => true, 'text' => true, 'type' => true, 'valign' => true, 'valuetype' => true,
+        'vlink' => true,
     );
 
     /**
@@ -260,10 +256,6 @@ final class CssSelectorMatcher
         if ( null !== ($selector['pseudo_state_suffix_span'] ?? null) && ! $accountForPseudoStateSuffix ) {
             return array( 'supported' => false, 'matches' => false );
         }
-        if ( self::hasUnmodeledHtmlAttributeValueSemantics($selector['compounds']) ) {
-            return array( 'supported' => false, 'matches' => false );
-        }
-
         return array(
             'supported' => true,
             'matches' => self::matchesAt($element, $selector['compounds'], $selector['combinators'], count($selector['compounds']) - 1, $cache),
@@ -922,7 +914,8 @@ final class CssSelectorMatcher
         }
 
         $expected = (string) $attribute['value'];
-        if ( 'i' === $attribute['flag'] ) {
+        $flag = $attribute['flag'] ?? ( isset(self::CASE_INSENSITIVE_ATTRIBUTES[ strtolower($attribute['name']) ]) ? 'i' : null );
+        if ( 'i' === $flag ) {
             $actual = strtolower($actual);
             $expected = strtolower($expected);
         }
@@ -936,18 +929,6 @@ final class CssSelectorMatcher
         };
     }
 
-    /** @param list<array<string, mixed>> $compounds */
-    private static function hasUnmodeledHtmlAttributeValueSemantics(array $compounds): bool
-    {
-        foreach ( $compounds as $compound ) {
-            foreach ( $compound['attributes'] as $attribute ) {
-                if ( null !== $attribute['operator'] && null === $attribute['flag'] && isset(self::ENUMERATED_ATTRIBUTES[ $attribute['name'] ]) ) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
 
     private static function previousElementSibling(DOMElement $element): ?DOMElement
     {
