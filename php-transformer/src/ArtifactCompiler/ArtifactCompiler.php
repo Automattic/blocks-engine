@@ -4329,7 +4329,7 @@ final class ArtifactCompiler
             }
         }
 
-        return '' !== $plain ? $plain : $any;
+        return $plain;
     }
 
     /**
