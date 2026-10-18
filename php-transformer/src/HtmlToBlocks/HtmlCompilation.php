@@ -1076,6 +1076,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                  $this->session,
                  function (DOMElement $element, array &$fallbacks) use ($convertChildren): array {
                      return $convertChildren($element, $fallbacks, true);
+                 },
+                 $this->styleResolver,
+                 function (string $className, string $rule): void {
+                     $this->layoutGeometry()->registerRule($className, $rule);
+                 },
+                 function (): void {
+                     $this->sourceStyles()->invalidateSelectorMatches();
                  }
              ),
              new CapturedListboxConverter($this->authoredFormControlBlockConverter),
