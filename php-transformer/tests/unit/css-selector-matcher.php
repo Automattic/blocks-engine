@@ -87,10 +87,16 @@ foreach ( array( ':disabled', ':is(.x,:has(.y))', ':where(.x,)', ':is(.x,.y:hove
     $assert(! CssSelectorMatcher::parse($selector)['supported'], "rejects unsupported or malformed {$selector}");
 }
 
-foreach ( array( '[type=text]', '[TYPE="TEXT"]' ) as $selector ) {
+// HTML matches `type` (and the rest of its case-insensitive attribute list)
+// ASCII-case-insensitively; other attributes stay case-sensitive.
+foreach ( array( '[type=text]', '[TYPE="TEXT"]', 'input[type="Text"]' ) as $selector ) {
     $result = $match($selector, $byId('control'));
-    $assert(! $result['supported'], "declines unmodeled HTML enumerated value semantics {$selector}");
+    $assert($result['supported'] && $result['matches'], "matches HTML case-insensitive attribute value {$selector}");
 }
+$result = $match('[type=email]', $byId('control'));
+$assert($result['supported'] && ! $result['matches'], 'case-insensitive attribute value still compares the value');
+$result = $match('[data-value~="ALPHA"]', $byId('one'));
+$assert($result['supported'] && ! $result['matches'], 'attributes outside the HTML list stay case-sensitive');
 $result = $match('[TYPE="TEXT" I]', $byId('control'));
 $assert($result['supported'] && $result['matches'], 'explicit ASCII-insensitive attribute flag is matched');
 $result = $match('[TYPE="TEXT" s]', $byId('control'));
