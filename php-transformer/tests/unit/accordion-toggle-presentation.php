@@ -120,11 +120,58 @@ $bare = $transform(
     . '<div><h3><button type="button" aria-expanded="false">Plain two</button></h3><div><p>B</p></div></div>'
     . '</div></main>'
 );
+// A trigger with no box of its own still states its padding: core pads the
+// toggle through the destination theme's spacing preset, which the source
+// never had. Nothing else is carried for it.
+preg_match('/"className":"(blocks-engine-accordion-toggle-[0-9a-f]{12})"/', (string) ( $bare['serialized_blocks'] ?? '' ), $bareMarker);
 $assert(
-    ! str_contains((string) ( $bare['serialized_blocks'] ?? '' ), 'blocks-engine-accordion-toggle-'),
-    'a trigger with no resolved box of its own carries no marker',
-    (string) ( $bare['serialized_blocks'] ?? '' )
+    isset($bareMarker[1]) && 1 === preg_match('/\.' . preg_quote($bareMarker[1], '/') . '>\.wp-block-accordion-heading__toggle\{padding:0\}/', $supportCss($bare)),
+    'a trigger with no resolved box of its own carries only a zero toggle padding',
+    $supportCss($bare)
 );
+
+// A button-driven disclosure list whose header row ends in its own SVG icon,
+// with item padding and a divider, and a variant where the item row is its own
+// toggle and the answer is hidden by a class (#2861).
+$endIconSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M5 12h14M12 5v14" stroke="currentColor" fill="none"/></svg>';
+$endIconStyle = '<style>body{font-family:Arial,sans-serif}.list>.entry{padding:24px 0;border-bottom:1px solid #0d2123}'
+    . '.header{display:block;width:100%;border:0;background:none;text-align:left;font:inherit;cursor:pointer}'
+    . '.row{display:flex;justify-content:space-between;align-items:center;gap:16px}.title{margin:0;font-size:20px}'
+    . '.mark{width:24px;height:24px;flex-shrink:0}.collapsed{display:none}</style>';
+$endIconVariants = array(
+    'button header' => static fn (string $n): string => '<div class="entry"><button class="header" aria-expanded="false" aria-controls="p' . $n . '">'
+        . '<div class="row"><h3 class="title">Question ' . $n . '?</h3><div class="mark" aria-hidden="true">' . $endIconSvg . '</div></div></button>'
+        . '<div id="p' . $n . '" role="region" hidden><p>Answer ' . $n . '</p></div></div>',
+    'item-level class-hidden' => static fn (string $n): string => '<div class="entry" aria-expanded="false" aria-controls="c' . $n . '">'
+        . '<div class="row"><h3 class="title">Question ' . $n . '?</h3><div class="mark" aria-hidden="true">' . $endIconSvg . '</div></div>'
+        . '<div id="c' . $n . '" class="answer collapsed" data-blocks-engine-capture-disclosure-closed-class="answer collapsed" data-blocks-engine-capture-disclosure-open-class="answer"><p>Answer ' . $n . '</p></div></div>',
+);
+foreach ( $endIconVariants as $variant => $endIconItem ) {
+    $endIcon = $transform($endIconStyle . '<main><div class="list">' . $endIconItem('1') . $endIconItem('2') . '</div></main>');
+    $endBlocks = (string) ( $endIcon['serialized_blocks'] ?? '' );
+    $endCss = $supportCss($endIcon);
+    $assert(2 === substr_count($endBlocks, '<!-- wp:accordion-heading'), $variant . ': the disclosure list converts to core/accordion', $endBlocks);
+    preg_match('/<!-- wp:accordion-heading (\{.*?\}) -->/', $endBlocks, $endHeading);
+    $endHeadingAttrs = json_decode($endHeading[1] ?? 'null', true);
+    $endMarker = (string) ( $endHeadingAttrs['className'] ?? '' );
+    $assert(str_contains((string) ( $endHeadingAttrs['metadata']['blocksEngineIcon'] ?? '' ), 'M5 12h14M12 5v14'), $variant . ': the source end icon is carried as the heading icon', $endBlocks);
+    $assert(str_contains(rawurldecode($endCss), 'M5 12h14M12 5v14') && str_contains($endCss, 'toggle-icon{width:24px;height:24px'), $variant . ': the icon slot shows the source artwork at the source size', $endCss);
+    preg_match('/\.wp-block-accordion-heading\.' . preg_quote($endMarker, '/') . '>\.wp-block-accordion-heading__toggle\{([^}]*)\}/', $endCss, $toggleRule);
+    $toggleDeclarations = $toggleRule[1] ?? '';
+    $assert('' !== $endMarker && 1 === preg_match('/(?:^|;)padding:0(?:;|$)/', $toggleDeclarations) && 1 === preg_match_all('/(?:^|;)padding/', $toggleDeclarations), $variant . ': the toggle padding is the source header\'s 0, not the theme spacing preset', $toggleDeclarations);
+    $assert(! str_contains($toggleDeclarations, 'display:'), $variant . ': core\'s flex toggle display is not overridden', $toggleDeclarations);
+    $assert(str_contains($toggleDeclarations, 'column-gap:16px'), $variant . ': the icon follows the source row gap at the inline end', $toggleDeclarations);
+    preg_match('/<!-- wp:accordion-item (\{.*?\}) -->/', $endBlocks, $endItem);
+    $endItemStyle = json_decode($endItem[1] ?? 'null', true)['style'] ?? array();
+    $assert(
+        array('top' => '24px', 'right' => '0', 'bottom' => '24px', 'left' => '0') === ( $endItemStyle['spacing']['padding'] ?? null )
+        && array('width' => '1px', 'style' => 'solid', 'color' => '#0d2123') === ( $endItemStyle['border']['bottom'] ?? null ),
+        $variant . ': the source item padding and divider land on core/accordion-item',
+        $endItem[1] ?? $endBlocks
+    );
+    $assert(str_contains($endBlocks, 'style="border-bottom-color:#0d2123;border-bottom-style:solid;border-bottom-width:1px;padding-top:24px'), $variant . ': the item box is saved on the item wrapper', $endBlocks);
+    $assert('pass' === ( $endIcon['source_reports']['wp_block_validity']['status'] ?? null ), $variant . ': the accordion keeps canonical Core block validity');
+}
 
 $iconItem = static fn (string $label): string => '<article><button type="button" aria-expanded="false">'
     . $label . '<svg xmlns="http://www.w3.org/2000/svg" class="resting-mark" data-blocks-engine-capture-disclosure-open-class="expanded-mark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button><div role="region" hidden><p>Answer</p></div></article>';

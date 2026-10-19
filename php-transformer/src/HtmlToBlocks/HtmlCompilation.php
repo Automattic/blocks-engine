@@ -3347,11 +3347,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
                 || $this->sourceElementStartsHidden($sourceElement),
             fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
-            fn (DOMElement $control): array => $this->disclosureControlPresentation()->accordionToggle($control),
+            fn (DOMElement $control, ?DOMElement $row = null): array => $this->disclosureControlPresentation()->accordionToggle($control, $row),
             fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
             fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array(),
             fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src),
-            fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : ''
+            fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : '',
+            fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item)
         );
     }
 
@@ -3440,7 +3441,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
                 || $this->sourceElementStartsHidden($sourceElement),
              disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
-             accordionToggle: fn (DOMElement $control): array => $this->disclosureControlPresentation()->accordionToggle($control),
+             accordionToggle: fn (DOMElement $control, ?DOMElement $row = null): array => $this->disclosureControlPresentation()->accordionToggle($control, $row),
+             accordionItemBox: fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
              authoredIconColor: fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
              assetMetadata: fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array()
          );

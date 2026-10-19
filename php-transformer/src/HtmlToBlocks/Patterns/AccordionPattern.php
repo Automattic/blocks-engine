@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -30,7 +31,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         $fallbacks = array();
         $items = array();
         foreach ( $itemElements as $child ) {
-            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggle(...));
+            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggle(...), $context->accordionItemBox(...));
             if ( null === $item ) {
                 return null;
             }
@@ -56,7 +57,7 @@ final class AccordionPattern implements PatternRecognizerInterface
     }
 
     /** @param list<array<string, mixed>> $fallbacks */
-    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggle): ?array
+    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggle, callable $accordionItemBox): ?array
     {
         if ( ! $this->isAccordionItemElement($item) || $this->hasRuntimeHeavyDescendant($item) ) {
             return null;
@@ -94,8 +95,11 @@ final class AccordionPattern implements PatternRecognizerInterface
         // source trigger's own box — the vertical padding that gives every row
         // its height — is carried on the heading as a marker instead. A
         // source-proved vector icon rides in block metadata: core saves a fixed
-        // `+` icon slot, and the theme renders the actual SVG into it.
-        $toggle = $control instanceof DOMElement ? $accordionToggle($control) : array('className' => '', 'iconSvg' => '');
+        // `+` icon slot, and the theme renders the actual SVG into it. The
+        // source header row is offered too: when the row, not the control,
+        // holds the end icon (an item-level control beside a bare heading),
+        // that icon is the one carried.
+        $toggle = $accordionToggle($control, $this->headerRowElement($item, $title, $panel));
         $headingAttrs = array_filter(array(
             'title' => $titleHtml,
             'level' => $this->headingLevel($title),
@@ -103,12 +107,58 @@ final class AccordionPattern implements PatternRecognizerInterface
             'metadata' => '' !== $toggle['iconSvg'] ? array('blocksEngineIcon' => $toggle['iconSvg']) : '',
         ), static fn ($value): bool => '' !== $value);
 
-        return $createBlock('core/accordion-item', array_filter(array_merge($presentationAttributes($item), array(
+        return $createBlock('core/accordion-item', array_filter(array_merge($this->withItemBox($presentationAttributes($item), $accordionItemBox($item)), array(
             'openByDefault' => $this->isOpen($item, $stateControl, $panel) ? true : '',
         )), static fn ($value): bool => '' !== $value), array(
             $createBlock('core/accordion-heading', $headingAttrs, array(), $title),
             $createBlock('core/accordion-panel', $panel instanceof DOMElement ? $this->openPanelPresentation($panel, $presentationAttributes) : array(), $panelBlocks, $panel),
         ), $item);
+    }
+
+    /**
+     * The item's resolved padding and border as core/accordion-item style
+     * attributes; anything the source already states inline keeps its value.
+     *
+     * @param array<string, mixed> $attributes
+     * @param array<string, string> $box
+     * @return array<string, mixed>
+     */
+    private function withItemBox(array $attributes, array $box): array
+    {
+        if ( array() === $box ) {
+            return $attributes;
+        }
+        $mapped = ( new StyleAttributeMapper() )->map($box, static fn (string $value): string => $value);
+        $style = is_array($mapped['style'] ?? null) ? $mapped['style'] : array();
+        $style = array_intersect_key($style, array_flip(array('spacing', 'border')));
+        if ( isset($style['spacing']) && is_array($style['spacing']) ) {
+            $style['spacing'] = array_intersect_key($style['spacing'], array_flip(array('padding')));
+        }
+        $style = array_filter($style, static fn ($value): bool => array() !== $value);
+        if ( array() === $style ) {
+            return $attributes;
+        }
+        $existing = is_array($attributes['style'] ?? null) ? $attributes['style'] : array();
+        $attributes['style'] = array_replace_recursive($style, $existing);
+
+        return $attributes;
+    }
+
+    /**
+     * The source header row of an item: the outermost element around the
+     * title that stays inside the item and does not contain the panel.
+     */
+    private function headerRowElement(DOMElement $item, DOMElement $title, ?DOMElement $panel): DOMElement
+    {
+        $row = $title;
+        for ( $node = $title->parentNode; $node instanceof DOMElement && ! $node->isSameNode($item); $node = $node->parentNode ) {
+            if ( $panel instanceof DOMElement && $this->containsNode($node, $panel) ) {
+                break;
+            }
+            $row = $node;
+        }
+
+        return $row;
     }
 
     /**
