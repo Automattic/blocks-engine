@@ -85,10 +85,12 @@ trait PatternDomHelpersTrait
             && 0 === $element->getElementsByTagName('img')->length;
     }
 
-    private function hasRuntimeHeavyDescendant(DOMElement $element): bool
+    /** @param array<int, string> $allowedTags runtime-heavy tags the caller has already made inert */
+    private function hasRuntimeHeavyDescendant(DOMElement $element, array $allowedTags = array()): bool
     {
+        $heavy = array_diff(array( 'script', 'canvas', 'template', 'iframe', 'form' ), $allowedTags);
         foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( $candidate instanceof DOMElement && in_array(strtolower($candidate->tagName), array( 'script', 'canvas', 'template', 'iframe', 'form' ), true) ) {
+            if ( $candidate instanceof DOMElement && in_array(strtolower($candidate->tagName), $heavy, true) ) {
                 return true;
             }
         }

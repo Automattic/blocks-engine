@@ -6250,6 +6250,61 @@ $assert(str_contains($regionLayoutMarkup, 'role="tab"') && str_contains($regionL
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($regionLayoutSelectableSet['blocks'] ?? array()), 'region-layout selectable-set tabs retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($regionLayoutSelectableSet['blocks'] ?? array())['status'] ?? ''), 'region-layout selectable-set tabs remain Gutenberg-valid');
 
+// #3076: a form inside a captured tab panel keeps its box so rules that target
+// the form's children (Tailwind space-y-*) keep spacing the fields.
+$formPanel = static fn (string $title): string => '<div class="p-5"><h4 class="mb-4">' . $title . '</h4><form class="space-y-3" action="https://collect.example/subscribe" method="post" enctype="multipart/form-data" target="_blank" novalidate accept-charset="utf-8"><div class="form-field-a"><label>Name</label><input name="name"></div><div class="form-field-b"><label>Email</label><input name="email"></div><button type="submit" formaction="https://collect.example/alt">Send</button></form></div>';
+$formSelectableState = static fn (int $index, string $label): array => array(
+    'status' => 'captured',
+    'kind' => 'selectable-set',
+    'trigger' => array('selector' => 'body > main > div > button:nth-of-type(' . ($index + 1) . ')', 'tag' => 'button', 'label' => $label, 'ariaHaspopup' => '', 'dataBindings' => array()),
+    'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $formPanel($label), 'htmlBytes' => strlen($formPanel($label)), 'htmlTruncated' => false),
+    'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => $index),
+);
+$formSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Form Panel Selectable Set Site', 'slug' => 'captured-form-panel-selectable-set-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<html><head><style>.p-5{padding:1.25rem}.mb-4{margin-bottom:1rem}.space-y-3>:not([hidden])~:not([hidden]){margin-top:.75rem}</style></head><body><main><div><button type="button">Alpha</button><button type="button">Beta</button></div><div><p>Select an item to view details</p></div></main></body></html>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'pages' => array(array('sourceUrl' => 'https://example.com/', 'states' => array($formSelectableState(0, 'Alpha'), $formSelectableState(1, 'Beta')))),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$formSelectableMarkup = (string) ($formSelectableSet['serialized_blocks'] ?? '');
+$formSelectableCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $formSelectableSet['assets'] ?? array()));
+$assert(str_contains($formSelectableMarkup, '<!-- wp:tabs') && 2 === substr_count($formSelectableMarkup, 'role="tabpanel"'), 'tab panels holding a form still serialize as native core/tabs');
+$assert(2 === preg_match_all('/<form\b[^>]*class="[^"]*\bspace-y-3\b/', $formSelectableMarkup), 'each panel keeps the form box with its source class', $formSelectableMarkup);
+$assert(1 !== preg_match('/<form\b[^>]*\b(?:action|method|enctype|target|novalidate|accept-charset)=?/i', $formSelectableMarkup) && ! str_contains($formSelectableMarkup, 'collect.example'), 'the kept form box drops its submission semantics');
+$formPanelDocument = new DOMDocument();
+$formPanelPrevious = libxml_use_internal_errors(true);
+$formPanelDocument->loadHTML('<?xml encoding="UTF-8"><body>' . $formSelectableMarkup . '</body>');
+libxml_clear_errors();
+libxml_use_internal_errors($formPanelPrevious);
+$formSecondFields = iterator_to_array((new DOMXPath($formPanelDocument))->query('//*[contains(concat(" ", normalize-space(@class), " "), " form-field-b ")]') ?: array());
+$formSpacingSelectors = array();
+if (preg_match_all('/(?:^|})([^{}]*\.space-y-3>[^{}]*)\{margin-top:\.75rem\}/', $formSelectableCss, $formSpacingRules)) {
+    foreach ($formSpacingRules[1] as $formSpacingList) {
+        foreach (explode(',', $formSpacingList) as $formSpacingSelector) {
+            $formSpacingSelectors[] = trim($formSpacingSelector);
+        }
+    }
+}
+$formSecondFieldSpaced = 2 === count($formSecondFields) && array() !== $formSpacingSelectors;
+foreach ($formSecondFields as $formSecondField) {
+    $formSecondFieldSpaced = $formSecondFieldSpaced && array() !== array_filter(
+        $formSpacingSelectors,
+        static fn (string $selector): bool => $formSecondField instanceof DOMElement && (\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($formSecondField, \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::parse($selector))['matches'] ?? false),
+    );
+}
+$assert($formSecondFieldSpaced, 'the source space-y-3 field-spacing rule still resolves for the second field in every panel', implode("\n", $formSpacingSelectors));
+$assert(array() === (new CanonicalSaveShapeValidator())->findings($formSelectableSet['blocks'] ?? array()), 'form-panel selectable-set tabs retain a canonical save shape');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($formSelectableSet['blocks'] ?? array())['status'] ?? ''), 'form-panel selectable-set tabs remain Gutenberg-valid');
+
 $graphicAlpha = '<div><h2>FR1</h2><p>Flower Room 1 specification</p></div>';
 $graphicBeta = '<div><h2>FR2</h2><p>Flower Room 2 specification</p></div>';
 $graphicSelectableSet = $compiler->compile(array(
