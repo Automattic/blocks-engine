@@ -445,6 +445,7 @@ PHP;
         $emitted = static fn (array $rows): array => array_map(static fn (mixed $row): mixed => is_array($row) ? array_filter($row, static fn (int|string $key): bool => !is_string($key) || !str_starts_with($key, '_'), ARRAY_FILTER_USE_KEY) : $row, $rows);
         $liveRichTextMarkers = preg_match_all('/blocks-engine-richtext-[a-f0-9]+-\d+/', (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shells['runtime_declarations'] ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
         $assets = self::projectSharedChromeStylesheets($assets, array_merge($parts, $frameParts), $pages, $references, $assetTargetCollisions, $liveRichTextMarkers);
+        $assets = self::withoutDeadRichTextMarkerSelectors($assets, $liveRichTextMarkers);
         foreach ($assetTargetCollisions as $collision) $this->recordUnitFinding(array(
             'code' => 'wordpress_site_plan_colliding_asset_target',
             'unit' => 'asset',
@@ -2176,6 +2177,46 @@ PHP;
      *
      * @param array<string,true> $live
      */
+    /**
+     * A rich-text marker no emitted markup, runtime declaration or entity
+     * record carries names an element the plan replaced or dropped, so every
+     * stylesheet selector naming it matches nothing: drop those arms from
+     * page stylesheets too, as the shared-chrome projection already does.
+     *
+     * @param list<array<string,mixed>> $assets
+     * @param array<string,true> $live
+     * @return list<array<string,mixed>>
+     */
+    private static function withoutDeadRichTextMarkerSelectors(array $assets, array $live): array
+    {
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference']) || !str_contains($asset['content'], 'blocks-engine-richtext-')) continue;
+            $content = (new CssStylesheetTransformer())->transformStyleRules(
+                $asset['content'],
+                static function (string $prelude, string $body) use ($live): string {
+                    if (!str_contains($prelude, 'blocks-engine-richtext-')) return $prelude . '{' . $body . '}';
+                    $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+                    if (null === $selectors) return $prelude . '{' . $body . '}';
+                    $kept = array();
+                    $changed = false;
+                    foreach ($selectors as $selector) {
+                        $pruned = self::withoutDeadRichTextMarkers(trim($selector), $live);
+                        if ($pruned !== trim($selector)) $changed = true;
+                        if (null !== $pruned) $kept[] = $pruned;
+                    }
+                    if (!$changed) return $prelude . '{' . $body . '}';
+                    return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
+                }
+            );
+            if ($content === $asset['content']) continue;
+            $asset['content'] = $content;
+            $asset['bytes'] = strlen($content);
+            $asset['content_hash'] = self::contentHash($content);
+        }
+        unset($asset);
+        return $assets;
+    }
+
     private static function withoutDeadRichTextMarkers(string $selector, array $live): ?string
     {
         $dead = static function (string $text) use ($live): bool {
