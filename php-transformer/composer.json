@@ -283,6 +283,7 @@
       "php tests/unit/artifact-normalizer-idempotence.php",
       "php tests/unit/asset-target-case-collision.php",
       "php tests/unit/asset-target-dot-segments.php",
+      "php tests/unit/rewritten-asset-transport-twin.php",
       "php tests/unit/staged-transport.php",
       "php tests/unit/wordpress-site-plan-composer.php",
       "php tests/unit/numeric-post-route-parent.php",
