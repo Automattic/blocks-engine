@@ -4672,7 +4672,7 @@ final class ArtifactCompiler
         $assets = array();
         $unsupportedStylesheets = $this->unsupportedStylesheetPaths($entryHtml, $entryPath);
         $documentLinkMedia = $this->documentLinkMedia($files);
-        $caseDistinctTargets = $this->caseDistinctTargetPaths($files);
+        $portableTargets = $this->portableTargetPaths($files);
         foreach ( $files as $file ) {
             if ( $entryPath === $file['path'] || ArtifactNormalizer::CAPTURE_REPORT_ROLE === $file['role'] || $this->isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
                 continue;
@@ -4680,7 +4680,7 @@ final class ArtifactCompiler
             $asset = array(
                 'source'           => $file['source'] ?? 'artifact',
                 'path'             => $file['path'],
-                'target_path'      => $caseDistinctTargets[$file['path']] ?? $file['path'],
+                'target_path'      => $portableTargets[$file['path']] ?? $file['path'],
                 'kind'             => $file['kind'],
                 'bytes'            => $file['bytes'],
                 'media_type'       => $file['mime_type'],
@@ -4830,19 +4830,26 @@ final class ArtifactCompiler
     }
 
     /**
-     * Theme asset targets follow the site plan's case-insensitive collision
-     * policy: two captured files whose paths differ only by letter case would
-     * land in one file on a case-insensitive filesystem, so the plan rejects
-     * them. Give every later spelling in such a group a numbered target
-     * (`photo-2.png`) that no other file uses in any case. The byte-order-first
-     * spelling keeps its name, so the outcome does not depend on file order.
+     * Theme asset targets must be portable to any WordPress host:
+     *
+     * - No path segment contains `..`. Hosts such as WordPress.com's `_static/??`
+     *   stylesheet concatenator reject such paths, so runs of dots collapse to
+     *   one (`_..x.css` becomes `_.x.css`) and the extension is kept.
+     * - Targets follow the site plan's case-insensitive collision policy: two
+     *   files whose targets differ only by letter case would land in one file
+     *   on a case-insensitive filesystem, so the plan rejects them.
+     *
+     * Files are grouped by their lowercased collapsed path. Within a group, an
+     * already portable path keeps its name (byte-order-first when several do),
+     * and every other file gets a numbered target (`photo-2.png`) that no other
+     * file uses in any case. The outcome does not depend on file order.
      * Source paths stay as captured: references resolve by exact source path,
      * and each asset's token hashes its own target.
      *
      * @param array<int, array<string, mixed>> $files
      * @return array<string, string> Source path to target path, for renamed files only.
      */
-    private function caseDistinctTargetPaths(array $files): array
+    private function portableTargetPaths(array $files): array
     {
         $groups = array();
         $reserved = array();
@@ -4852,23 +4859,34 @@ final class ArtifactCompiler
                 continue;
             }
             $reserved[strtolower($path)] = true;
-            $groups[strtolower($path)][$path] = true;
+            $collapsed = self::collapseDotRuns($path);
+            $groups[strtolower($collapsed)][$path] = $collapsed;
         }
         $targets = array();
         ksort($groups, SORT_STRING);
         foreach ( $groups as $spellings ) {
-            if ( count($spellings) < 2 ) {
-                continue;
-            }
-            $paths = array_keys($spellings);
-            sort($paths, SORT_STRING);
-            foreach ( array_slice($paths, 1) as $path ) {
-                $target = ArtifactNormalizer::dedupePath((string) $path, $reserved, true);
+            $paths = array_map('strval', array_keys($spellings));
+            // Portable spellings first, then byte order.
+            usort($paths, static fn(string $left, string $right): int => (($left !== $spellings[$left]) <=> ($right !== $spellings[$right])) ?: strcmp($left, $right));
+            foreach ( $paths as $index => $path ) {
+                if ( 0 === $index && $path === $spellings[$path] ) {
+                    continue;
+                }
+                $target = ArtifactNormalizer::dedupePath($spellings[$path], $reserved, true);
                 $reserved[strtolower($target)] = true;
-                $targets[(string) $path] = $target;
+                $targets[$path] = $target;
             }
         }
         return $targets;
+    }
+
+    /**
+     * Collapse every run of two or more dots to a single dot, so no path
+     * segment contains `..`.
+     */
+    private static function collapseDotRuns(string $path): string
+    {
+        return preg_replace('/\.{2,}/', '.', $path) ?? $path;
     }
 
     /**
