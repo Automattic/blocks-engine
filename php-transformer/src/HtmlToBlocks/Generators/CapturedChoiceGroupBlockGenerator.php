@@ -73,8 +73,10 @@ JS;
         } );
         if ( ! state ) {
             element.removeAttribute( 'data-blocks-engine-choice-selection' );
+            element.removeAttribute( 'data-blocks-engine-choice-selected-index' );
             return;
         }
+        element.setAttribute( 'data-blocks-engine-choice-selected-index', String( state.selectedIndex ) );
         var choice = ( data.choices || [] )[ state.selectedIndex ] || {};
         element.setAttribute( 'data-blocks-engine-choice-selection', JSON.stringify( { observed_choice_key: choice.observed_choice_key || ( 'choice-' + state.selectedIndex ), source_value: Object.prototype.hasOwnProperty.call( choice, 'source_value' ) ? choice.source_value : null, selected_index: state.selectedIndex } ) );
     }
