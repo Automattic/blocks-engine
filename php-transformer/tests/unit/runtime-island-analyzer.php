@@ -125,14 +125,15 @@ foreach (array('div > span', '*', 'div:hover', '', 'div p') as $bad) {
 // Attribute-selector matching drives data-attribute preservation, but never for
 // canvas, form, script, or form controls.
 $dataAttr = $makeAnalyzer(array('[data-widget]'));
-$assert($dataAttr->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<div data-widget="1"></div>')), 'data-attribute-target-preserved');
+$assert($dataAttr->retainsDataAttributeRuntimeTargetInShell($elementFrom('<div data-widget="1"></div>')) && ! $dataAttr->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<div data-widget="1"></div>')), 'empty data-attribute mount point keeps its hook in a layout shell');
+$assert($dataAttr->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<ul data-widget="1"></ul>')), 'data-attribute-target-preserved');
 $assert(! $dataAttr->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<canvas data-widget="1"></canvas>')), 'canvas-excluded-from-data-attribute-preservation');
 $assert(! $dataAttr->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<form data-widget="1"></form>')), 'form-excluded-from-data-attribute-preservation');
 $assert(! $dataAttr->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<input data-widget="1">')), 'form-control-excluded-from-data-attribute-preservation');
 $compoundTarget = $makeAnalyzer(array('[data-x-stage][data-x-trigger]'));
 $assert(
     ! $compoundTarget->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<button type="button" data-x-trigger>Open menu</button>'))
-        && $compoundTarget->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<div data-x-stage data-x-trigger></div>')),
+        && $compoundTarget->retainsDataAttributeRuntimeTargetInShell($elementFrom('<div data-x-stage data-x-trigger></div>')),
     'compound data selectors require every simple selector before preserving a runtime target'
 );
 

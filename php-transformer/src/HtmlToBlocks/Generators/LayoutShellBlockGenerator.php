@@ -179,8 +179,20 @@ final class LayoutShellBlockGenerator
         return 'Layout shell (' + ( wrappers || [] ).length + ' wrappers)';
     }
     function savedContent( wrappers ) { return wrappedContent( wrappers, createElement( InnerBlocks.Content ) ); }
+    // A script-toggled panel saves its source `hidden` state for the front end.
+    // The canvas shows it so its children stay reachable and editable; a hidden
+    // block cannot take focus, so Gutenberg would hand its selection to a parent.
+    function revealedWrappers( wrappers ) {
+        return wrappers.map( function( wrapper ) {
+            var attributes = wrapper.attributes || {};
+            if ( ! Object.prototype.hasOwnProperty.call( attributes, 'hidden' ) ) { return wrapper; }
+            var visible = Object.assign( {}, attributes );
+            delete visible.hidden;
+            return Object.assign( {}, wrapper, { attributes: visible } );
+        } );
+    }
     function edit( props ) {
-        var wrappers = props.attributes.wrappers || [];
+        var wrappers = revealedWrappers( props.attributes.wrappers || [] );
         // This marker identifies the one Gutenberg-owned layer inside the
         // authored wrapper chain; nested native blocks must retain their own
         // editor topology.
