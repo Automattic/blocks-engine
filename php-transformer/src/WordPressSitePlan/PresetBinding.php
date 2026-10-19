@@ -104,6 +104,8 @@ final class PresetBinding
 
     private const SPACING_SIDES = array('top', 'right', 'bottom', 'left');
 
+    /** Element-token marker: the element's start-tag attributes are listed as `attr:` tokens. */
+    private const KNOWN_ATTRIBUTES = 'attrs:known';
     private const STATE_PSEUDO = '/:(?:hover|focus-visible|focus-within|focus|active)\b/i';
 
     /**
@@ -162,7 +164,7 @@ final class PresetBinding
     private array $importantRules = array();
     /** @var array<string,list<array{tokens:list<string>|null,negated:list<string>,fragment:string}>> `[style*=…]` selectors per family; null tokens reach any element. */
     private array $styleTextRules = array();
-    /** @var array<string,array<string,true>> Tokens of elements an interaction-state rule restyles, per family; `*` is any element. */
+    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>}>> Subjects of interaction-state rules, per family. */
     private array $stateTokens = array();
     /** @var array<string,array<string,string>> Authored class list => property => the one observation every element agreed on, or `!`. */
     private array $classStyles = array();
@@ -584,7 +586,7 @@ final class PresetBinding
         [$tagStart, $tagEnd, $html] = $tag;
         $classes = (string) self::attribute($html, 'class');
         $declarations = self::declarations((string) self::attribute($html, 'style'));
-        $tokens = $this->tagTokens($html, $classes . ' ' . (is_string($attributes->className ?? null) ? $attributes->className : ''));
+        $tokens = $this->tagTokens($html, $classes . ' ' . (is_string($attributes->className ?? null) ? $attributes->className : ''), true);
         $supports = self::CLASS_SUPPORTS[$name] ?? array();
         $isLink = in_array($name, self::LINK_BLOCKS, true);
         $addClasses = $dropClasses = array();
@@ -965,7 +967,7 @@ final class PresetBinding
         foreach ($addedClasses as $class) $finalClasses['class:' . $class] = true;
         foreach (self::families($property) as $family) {
             $reason = 'state_variant';
-            if (!$statesRendered && (isset($this->stateTokens[$family]['*']) || array() !== array_intersect_key($this->stateTokens[$family] ?? array(), $tokens))) return false;
+            if (!$statesRendered && $this->stateMatches($family, $tokens)) return false;
             $reason = 'style_selector';
             foreach ($this->styleTextRules[$family] ?? array() as $rule) {
                 if (null !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
@@ -1002,7 +1004,7 @@ final class PresetBinding
         $field = 'text' === $key ? 'color' : 'background';
         if (!isset($element[$field]) || $this->system->colorSlug($element[$field]) !== $slug) return false;
         $stated = false;
-        foreach (self::families($property) as $family) $stated = $stated || isset($this->stateTokens[$family]['*']) || array() !== array_intersect_key($this->stateTokens[$family] ?? array(), $tokens);
+        foreach (self::families($property) as $family) $stated = $stated || $this->stateMatches($family, $tokens);
         if ($stated && !isset($element['hover_' . $field])) return false;
         return $this->safe($property, $tokens, array(), false, false, $reason, true);
     }
@@ -1101,13 +1103,37 @@ final class PresetBinding
         }
     }
 
+    /**
+     * Whether a state-rule subject can match an element with these tokens:
+     * the subject is universal or shares a token with the element, and, when
+     * the element's own start tag is known, it carries every attribute the
+     * subject requires (`[type="checkbox"]`). `class` and `style` are not
+     * checked, since binding rewrites them.
+     *
+     * @param array<string,true> $tokens
+     */
+    private function stateMatches(string $family, array $tokens): bool
+    {
+        foreach ($this->stateTokens[$family] ?? array() as $subject) {
+            if (array() !== array_intersect_key(array_flip($subject['negated']), $tokens)) continue;
+            if (array() !== $subject['tokens'] && array() === array_intersect_key(array_flip($subject['tokens']), $tokens)) continue;
+            if (isset($tokens[self::KNOWN_ATTRIBUTES])) {
+                foreach ($subject['attributes'] as [$name, $value]) {
+                    if (in_array($name, array('class', 'style'), true)) continue;
+                    if (!isset($tokens['attr:' . $name . (null === $value ? '' : '=' . $value)])) continue 2;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
     private function indexState(string $prelude, string $family): void
     {
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
             $subject = self::subjectTokens((string) preg_replace(self::STATE_PSEUDO, '', $selector));
             if (null === $subject) continue;
-            if (array() === $subject['tokens']) $this->stateTokens[$family]['*'] = true;
-            foreach ($subject['tokens'] as $token) $this->stateTokens[$family][$token] = true;
+            $this->stateTokens[$family][] = $subject + array('attributes' => self::subjectAttributes($selector));
         }
     }
 
@@ -1168,14 +1194,38 @@ final class PresetBinding
         return array('tokens' => $tokens, 'negated' => $negated);
     }
 
+    /**
+     * Attributes a selector's subject compound requires by presence or exact
+     * value, lowercased, outside functional pseudo-classes. Other operators
+     * (`^=`, `*=`, …) are not listed, so they never rule an element out.
+     *
+     * @return list<array{0:string,1:string|null}>
+     */
+    private static function subjectAttributes(string $selector): array
+    {
+        $compound = (string) preg_replace('/:[\w-]+(\((?:[^()]++|(?1))*\))/', '', self::subjectCompound($selector));
+        $attributes = array();
+        if (preg_match_all('/\[\s*([\w-]+)\s*(?:=\s*(?:"([^"]*)"|\'([^\']*)\'|([\w-]+))\s*(?:[is]\s*)?)?\]/i', $compound, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) $attributes[] = array(strtolower($match[1]), isset($match[2]) ? strtolower(stripslashes($match[2] . ($match[3] ?? '') . ($match[4] ?? ''))) : null);
+        }
+        return $attributes;
+    }
+
     /** @return array<string,true> */
-    private function tagTokens(string $html, string $classes): array
+    private function tagTokens(string $html, string $classes, bool $startTagKnown = false): array
     {
         $tokens = array();
         if (1 === preg_match('/^<([a-z][a-z0-9-]*)/i', $html, $match)) $tokens['tag:' . strtolower($match[1])] = true;
         foreach (preg_split('/\s+/', trim($classes)) ?: array() as $class) if ('' !== $class) $tokens['class:' . $class] = true;
         $id = self::attribute($html, 'id');
         if (null !== $id && '' !== $id) $tokens['id:' . $id] = true;
+        // Attributes come from the element's own start tag only, and only
+        // when that tag is the authored one and parses completely.
+        $attributes = $startTagKnown && 1 === preg_match('/^<[a-z][a-z0-9-]*((?:\s+[^\s"\'>\/=]+="[^"]*")*)\s*\/?>/i', $html, $match) ? self::tagAttributes($match[1]) : null;
+        if (null !== $attributes) {
+            $tokens[self::KNOWN_ATTRIBUTES] = true;
+            foreach ($attributes as $name => $value) $tokens['attr:' . $name] = $tokens['attr:' . $name . '=' . strtolower($value)] = true;
+        }
         return $tokens;
     }
 
