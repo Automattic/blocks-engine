@@ -138,4 +138,34 @@ $assert(1 === preg_match('/:is\(:where\(\.data-blocks-engine-capture-mobile-docu
 $assert(!str_contains(preg_replace('/:where\(\.data-blocks-engine-capture-mobile-document[^)]*\)|\.data-blocks-engine-capture-mobile-document/', '', $mobileChrome) ?? '', ':where(:has(> #SITE_FOOTER)'), 'The mobile wrapper arm never matches the desktop copy of the footer.');
 $assert(str_contains((new ReflectionMethod(WordPressSitePlan::class, 'reanchoredDetachedContextSelector'))->invoke(null, '.data-blocks-engine-capture-mobile-document > #masterPage #SITE_FOOTER', array('class' => array(), 'id' => array('masterPage' => true)), array('SITE_FOOTER')), '.data-blocks-engine-capture-mobile-document > #masterPage #SITE_FOOTER'), 'A variant root joined by a child combinator is not a scope prefix, so the selector is left as written.');
 
+// Issue #3054: a shared header logo carries a base and a responsive width
+// utility; route B's content also uses the responsive one. Whatever projection
+// does, on every route the enqueued stylesheets in order must still put the
+// responsive rule after the base rule, so the logo is 3rem wide at >=640px.
+$cascadeCss = '.w-9{width:2.25rem}.h-9{height:2.25rem}@media (min-width:640px){.sm\:w-12{width:3rem}.sm\:h-12{height:3rem}}.logo{background:#123}';
+$cascadeHeader = '<header><a href="index.html"><div class="logo w-9 h-9 sm:w-12 sm:h-12"></div>Brand</a><nav><a href="index.html">Home</a><a href="b.html">B</a></nav></header>';
+$cascadeDocument = static fn (string $main): string => '<!doctype html><html><head><style>' . $cascadeCss . '</style></head><body>' . $cascadeHeader . '<main>' . $main . '</main></body></html>';
+$cascadePlan = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => $cascadeDocument('<h1>Home</h1><p>Body A</p>'),
+        'b.html' => $cascadeDocument('<div class="sm:w-12"></div><p>Body B</p>'),
+    ),
+))->toWordPressSitePlanView()['wordpress_site_plan'];
+$assert(array() !== array_filter($cascadePlan['template_parts'] ?? array(), static fn (array $part): bool => 'shared_shell' === ($part['placement']['kind'] ?? null) && str_contains((string) ($part['canonical_block_markup'] ?? ''), 'sm:w-12')), 'The header with the logo is a shared template part.');
+foreach (array('index.html', 'b.html') as $route) {
+    $enqueued = array();
+    foreach ($cascadePlan['assets'] ?? array() as $asset) {
+        if ('css' !== ($asset['kind'] ?? null)) continue;
+        foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
+            if ($route === ($instance['source_path'] ?? null)) $enqueued[(int) $instance['order']] = (string) ($asset['content'] ?? '');
+        }
+    }
+    ksort($enqueued);
+    $effective = implode("\n", $enqueued);
+    $base = strrpos($effective, '.w-9{');
+    $responsive = strrpos($effective, '.sm\:w-12{');
+    $assert(false !== $base && false !== $responsive && $responsive > $base, 'On ' . $route . ' the responsive logo width follows its base width in enqueue order: ' . json_encode($enqueued));
+}
+
 echo "Shared chrome authored rules contract passed.\n";

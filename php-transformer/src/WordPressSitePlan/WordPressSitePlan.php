@@ -1241,19 +1241,37 @@ PHP;
      */
     private static function authoredChromeHooks(string $markup): array
     {
-        $classes = array();
-        $ids = array();
-        preg_match_all('/\sclass="([^"]*)"/', $markup, $classAttrs);
-        foreach ($classAttrs[1] as $list) $classes[] = html_entity_decode($list, ENT_QUOTES | ENT_HTML5);
-        preg_match_all('/\sid="([^"]+)"/', $markup, $idAttrs);
-        foreach ($idAttrs[1] as $id) $ids[] = html_entity_decode($id, ENT_QUOTES | ENT_HTML5);
+        $hooks = array('class' => array(), 'id' => array());
+        foreach (self::authoredChromeElementHooks($markup) as $element) {
+            $hooks['class'] += $element['class'];
+            $hooks['id'] += $element['id'];
+        }
+        return $hooks;
+    }
+
+    /**
+     * authoredChromeHooks() grouped by the element (HTML start tag or block
+     * comment) that carries them.
+     *
+     * @return list<array{class:array<string,true>,id:array<string,true>}>
+     */
+    private static function authoredChromeElementHooks(string $markup): array
+    {
+        $elements = array();
+        preg_match_all('/<[a-zA-Z][^\s>\/]*((?:[^>"]|"[^"]*")*)>/', $markup, $tags);
+        foreach ($tags[1] as $attributes) {
+            $classes = preg_match('/\sclass="([^"]*)"/', $attributes, $class) ? preg_split('/\s+/', html_entity_decode($class[1], ENT_QUOTES | ENT_HTML5)) : array();
+            $ids = preg_match('/\sid="([^"]+)"/', $attributes, $id) ? array(html_entity_decode($id[1], ENT_QUOTES | ENT_HTML5)) : array();
+            if (array() !== $classes || array() !== $ids) $elements[] = self::selectorHooks($classes ?: array(), $ids);
+        }
         preg_match_all('/<!--\s*wp:[a-z0-9\/-]+\s+(\{.*?\})\s*\/?-->/s', $markup, $comments);
         foreach ($comments[1] as $json) {
             $attrs = json_decode($json, true);
-            if (is_string($attrs['className'] ?? null)) $classes[] = $attrs['className'];
-            if (is_string($attrs['anchor'] ?? null)) $ids[] = $attrs['anchor'];
+            $classes = is_string($attrs['className'] ?? null) ? (preg_split('/\s+/', $attrs['className']) ?: array()) : array();
+            $ids = is_string($attrs['anchor'] ?? null) ? array($attrs['anchor']) : array();
+            if (array() !== $classes || array() !== $ids) $elements[] = self::selectorHooks($classes, $ids);
         }
-        return self::selectorHooks(preg_split('/\s+/', implode(' ', $classes)) ?: array(), $ids);
+        return $elements;
     }
 
     /**
@@ -1794,6 +1812,13 @@ PHP;
      * stylesheet can contain both those projected rules and route-owned rules;
      * promoting the whole payload changes the cascade on unrelated pages.
      *
+     * Cascade rule: the shared-chrome asset is enqueued after the route
+     * stylesheet, so an element's competing rules must not be split across the
+     * two. A chrome element that carries any hook whose rules stay on the route
+     * (one route content also uses, or one no lifted selector can name) keeps
+     * all of its authored hooks on the route, so its rules stay in one
+     * stylesheet in source order on every route.
+     *
      * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $parts
      * @param list<array<string,string>> $collisions Receives one row per projection given a suffixed target.
@@ -1805,6 +1830,7 @@ PHP;
         $authored = array('class' => array(), 'id' => array());
         $context = array('class' => array(), 'id' => array());
         $detachedRoots = array();
+        $chromeElements = array();
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
             // A one-page inline part still lives under its authored page layout.
@@ -1819,7 +1845,11 @@ PHP;
             if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) if (!str_starts_with((string) EngineMarker::markerKind($class), 'source-')) $classes[$class] = true;
             // The chrome's own authored hooks: rules written for them styled it
             // on every page, so they follow it into the shared part.
-            foreach (self::authoredChromeHooks($markup) as $kind => $names) $authored[$kind] += $names;
+            foreach (self::authoredChromeElementHooks($markup) as $element) {
+                $authored['class'] += $element['class'];
+                $authored['id'] += $element['id'];
+                $chromeElements[] = $element;
+            }
             $ancestors = self::selectorHooks((array) ($part['ancestor_context']['classes'] ?? array()), (array) ($part['ancestor_context']['ids'] ?? array()));
             $context['class'] += $ancestors['class'];
             $context['id'] += $ancestors['id'];
@@ -1829,11 +1859,35 @@ PHP;
         }
         // Hooks that route content also uses belong to that content too; rules
         // for them stay with the route instead of becoming global chrome rules.
+        $routeHooks = array('class' => array(), 'id' => array());
         foreach ($pages as $page) {
             foreach (self::authoredChromeHooks(self::withoutLandmarks((string) ($page['canonical_block_markup'] ?? ''))) as $kind => $names) {
-                $authored[$kind] = array_diff_key($authored[$kind], $names);
+                $routeHooks[$kind] += $names;
             }
         }
+        // Rules for a hook no lifted selector can name (an escaped class) stay
+        // with the route as well.
+        foreach ($authored as $kind => $names) {
+            foreach (array_keys($names) as $name) {
+                $only = array('class' => array(), 'id' => array());
+                $only[$kind][$name] = true;
+                if (!self::selectorTargetsAuthoredChrome(('id' === $kind ? '#' : '.') . CssIdent::escape((string) $name), $only, array('class' => array(), 'id' => array()))) $routeHooks[$kind][$name] = true;
+            }
+        }
+        // Keep each chrome element's rules in one stylesheet: an element with any
+        // route-kept hook keeps all of its hooks on the route (to a fixed point).
+        do {
+            $grown = false;
+            foreach ($chromeElements as $element) {
+                if (array() === array_intersect_key($element['class'], $routeHooks['class']) && array() === array_intersect_key($element['id'], $routeHooks['id'])) continue;
+                foreach (array('class', 'id') as $kind) {
+                    if (array() === array_diff_key($element[$kind], $routeHooks[$kind])) continue;
+                    $routeHooks[$kind] += $element[$kind];
+                    $grown = true;
+                }
+            }
+        } while ($grown);
+        foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
         if (array() === $classes && array() === $authored['class'] && array() === $authored['id']) return $assets;
         $classMatcher = self::generatedClassMatcher($classes);
         $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher) || self::selectorTargetsAuthoredChrome($selector, $authored, $context);
