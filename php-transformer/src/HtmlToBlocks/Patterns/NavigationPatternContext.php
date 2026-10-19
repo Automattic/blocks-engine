@@ -338,7 +338,11 @@ final class NavigationPatternContext
         if (!$this->session instanceof HtmlTransformerSession) return array();
         $boxes = array();
         for ($node = $anchor->parentNode; $node instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
-            if (!in_array(strtolower($node->tagName), array('div', 'span'), true)) return array();
+            $tag = strtolower($node->tagName);
+            // A `<label>` holding the link is an inline box like a span; Core's
+            // anchor cannot sit inside a label, so it keeps its paint as one.
+            if ('label' === $tag) $tag = 'span';
+            if (!in_array($tag, array('div', 'span'), true)) return array();
             $children = array();
             foreach ($node->childNodes as $child) {
                 if ($child instanceof DOMElement) $children[] = $child;
@@ -346,7 +350,7 @@ final class NavigationPatternContext
             }
             if (1 !== count($children)) return array();
             $marker = $this->navigationSubjectMarker($node, 'box');
-            $boxes[] = array('tag' => strtolower($node->tagName), 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node))));
+            $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node))));
         }
         $node = $anchor->parentNode;
         foreach ($boxes as $box) {
