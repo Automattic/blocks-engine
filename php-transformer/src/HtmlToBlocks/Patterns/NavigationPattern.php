@@ -39,6 +39,14 @@ final class NavigationPattern implements PatternRecognizerInterface
     private const SIDEBAR_NAVIGATION_CARRIER_CLASS = 'blocks-engine-sidebar-navigation-carrier';
 
     /**
+     * Wrappers a menu item may place between its `li` and its one anchor.
+     * They hold the link without changing its destination, so the item stays
+     * one navigation link whether or not a builder adds them: a `<label>`
+     * used as a dropdown toggle target reads the same as a `<span>` or `<div>`.
+     */
+    private const ANCHOR_CARRIER_TAGS = array( 'span', 'label', 'div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' );
+
+    /**
      * Element tags that, when they appear inside a repeated link item but
      * outside its single anchor, mark the item as a content card rather than
      * a menu item: meta timestamps, media artwork, and interactive embeds a
@@ -2601,6 +2609,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ('' !== trim($anchor->getAttribute('id'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['id'] = $anchor->getAttribute('id');
             if ('' !== trim($item->getAttribute('style'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['itemStyle'] = $item->getAttribute('style');
             $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item);
+            // A wrapper box renders on every route too, so it drops route state like the anchor.
+            if ($isCurrentNavigationItem) foreach ($boxes as $index => $box) $boxes[$index]['className'] = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $box['className']))['className'] ?? '');
             if (array() !== $boxes) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['boxes'] = $boxes;
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' ' . $navigationContext->navigationItemSubjectMarker($item));
         }
@@ -3224,7 +3234,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            if ( in_array(strtolower($child->tagName), array( 'span', 'div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true) ) {
+            if ( in_array(strtolower($child->tagName), self::ANCHOR_CARRIER_TAGS, true) ) {
                 $anchor = $this->primaryNavigationAnchor($child);
                 if ( $anchor instanceof DOMElement ) {
                     $anchors[] = $anchor;
@@ -3957,7 +3967,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            if ( in_array(strtolower($child->tagName), array( 'span', 'div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true) || $this->hasSubmenuSignal($child) ) {
+            if ( in_array(strtolower($child->tagName), self::ANCHOR_CARRIER_TAGS, true) || $this->hasSubmenuSignal($child) ) {
                 $this->collectAnchorsExcluding($child, $anchors, $excluded);
             }
         }
