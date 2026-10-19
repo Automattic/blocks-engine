@@ -31,4 +31,7 @@ interface ElementPresentationResolver
 
     /** Return a class that restates responsive text size outside author layers. */
     public function responsiveTypographyClassName(DOMElement $element): string;
+
+    /** Everything the source stylesheet declares for one property, conditions included. */
+    public function declaredPresentation(DOMElement $element, string $property): DeclaredPresentation;
 }

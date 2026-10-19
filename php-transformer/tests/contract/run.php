@@ -6069,6 +6069,44 @@ $assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+
 $assert(1 === preg_match('/button\[aria-selected="true"\]\{[^}]*background-color:#497969[^}]*\}/', $pillCss), 'the selected source trigger look is carried onto the selected tab');
 $assert(1 !== preg_match('/button\{[^}]*background-color:#497969/', $pillCss), 'the selected look is not applied to every tab');
 
+// #3055: the source marks the selected trigger only by a class toggled by JS,
+// and its row scrolls sideways instead of wrapping.
+$classMarkedMember = static function (int $index, string $label, string $text): array {
+    $html = '<p>' . $text . '</p>';
+    return array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(' . ($index + 1) . ')', 'tag' => 'button', 'label' => $label, 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $html, 'htmlBytes' => strlen($html), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 3, 'index' => $index));
+};
+$classMarkedSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Class Marked Tabs Site', 'slug' => 'captured-class-marked-tabs-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<html><head><style>.row{display:flex;gap:8px;overflow-x:auto}.btn{padding:8px 16px;border:1px solid #ddd;background:#fff;color:#111;white-space:nowrap;flex-shrink:0}.btn.on{background:#123;color:#fff;border-color:#123}</style></head><body><main><div class="row" role="tablist"><button class="btn on" data-tab="a">01. First option</button><button class="btn" data-tab="b">02. Second option</button><button class="btn" data-tab="c">03. Third option</button></div><div id="a">Panel A</div><div id="b" hidden>Panel B</div><div id="c" hidden>Panel C</div></main></body></html>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(
+                    $classMarkedMember(0, '01. First option', 'Panel A'),
+                    $classMarkedMember(1, '02. Second option', 'Panel B'),
+                    $classMarkedMember(2, '03. Third option', 'Panel C'),
+                ),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$classMarkedMarkup = (string) ($classMarkedSelectableSet['serialized_blocks'] ?? '');
+$classMarkedCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $classMarkedSelectableSet['assets'] ?? array()));
+$assert(1 === substr_count($classMarkedMarkup, '<!-- wp:tab-list') && 3 === substr_count($classMarkedMarkup, '<!-- wp:tab-panel '), 'a class-marked tab row still becomes native core/tabs');
+$classMarkedButtons = preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\{([^}]*)\}/', $classMarkedCss, $classMarkedButtonMatch) ? $classMarkedButtonMatch[1] : '';
+$assert(1 === preg_match('/(?:^|;)background(?:-color)?:#fff(?:;|$)/', $classMarkedButtons) && 1 === preg_match('/(?:^|;)color:#111(?:;|$)/', $classMarkedButtons) && str_contains($classMarkedButtons, '#ddd') && ! str_contains($classMarkedButtons, '#123'), 'class-marked inactive tabs paint the unselected source look (#fff, #111, #ddd)', $classMarkedCss);
+$classMarkedActive = preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\[aria-selected="true"\]\{([^}]*)\}/', $classMarkedCss, $classMarkedActiveMatch) ? $classMarkedActiveMatch[1] : '';
+$assert(1 === preg_match('/(?:^|;)background(?:-color)?:#123(?:;|$)/', $classMarkedActive) && 1 === preg_match('/(?:^|;)color:#fff(?:;|$)/', $classMarkedActive) && 1 === preg_match('/(?:^|;)border-color:#123(?:;|$)/', $classMarkedActive), 'the trigger visible at rest paints the selected source look (#123)', $classMarkedCss);
+$assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\[aria-selected="true"\]::before\{display:none\}/', $classMarkedCss), 'core\'s selected-tab underline is hidden when the source selected trigger draws none', $classMarkedCss);
+$assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+\{[^}]*flex-wrap:nowrap[^}]*\}/', $classMarkedCss), 'a horizontal source row that scrolled instead of wrapping keeps flex-wrap:nowrap', $classMarkedCss);
+
 $keyedSelectableSet = $compiler->compile(array(
     'site' => array('name' => 'Captured Keyed Tabs Site', 'slug' => 'captured-keyed-tabs-site'),
     'entrypoint' => 'website/index.html',
