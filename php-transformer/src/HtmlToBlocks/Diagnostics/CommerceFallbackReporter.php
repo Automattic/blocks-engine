@@ -15,7 +15,8 @@ use DOMNode;
  * Additive commerce diagnostics for recognized product grids and cart controls.
  *
  * Layout block output is unchanged. This only appends
- * `html_product_grid_fallback` / `html_commerce_controls_fallback` findings so a
+ * `html_product_grid_fallback` / `html_commerce_controls_fallback` /
+ * `html_cart_view_fallback` findings so a
  * shop provider can materialize products or bind cart runtime. Evidence stays
  * generic (schema.org / structural triad) — never a shop-provider name.
  */
@@ -173,6 +174,68 @@ final class CommerceFallbackReporter
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
         }
+    }
+
+    /**
+     * Surface each cart view — a script-owned region holding the order summary
+     * (amount rows, a total and a checkout control) and the line items the
+     * script renders into it — so a shop provider can put its own cart where
+     * the source's client-side cart was. The layout blocks are unchanged.
+     *
+     * The binding anchors on the cart view's script scope: the outermost
+     * runtime DOM target around the summary, below the page landmarks. That is
+     * the element the source script looks up before rendering, so a provider
+     * that replaces it also retires the source's cart rendering instead of
+     * leaving it to draw a second, empty cart beside the provider's. A summary
+     * outside any runtime scope anchors on itself.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    public function appendCartViewFallbacks(DOMElement $body, array &$fallbacks): void
+    {
+        $scopes = array();
+        foreach ( $this->recognizer->cartSummaries($body) as $summary ) {
+            if ( count($scopes) >= self::MAX_CANDIDATES ) {
+                break;
+            }
+            $scope = $this->cartViewScope($summary);
+            $id = spl_object_id($scope);
+            if ( isset($scopes[$id]) ) {
+                continue;
+            }
+            $scopes[$id] = true;
+            $runtimeSelectors = $this->runtimeIslands->runtimeDomSelectorsForElement($scope);
+            $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
+                'type'              => 'html',
+                'reason'            => 'cart_view_requires_commerce_runtime',
+                'diagnostic_code'   => 'html_cart_view_fallback',
+                'kind'              => 'html_cart_view_fallback',
+                'message'           => 'A cart view (order summary with totals and a checkout control) was detected; its line items and totals come from a client-side cart, so a shop provider must supply the cart in its place.',
+                'source_format'     => 'html',
+                'tag'               => strtolower($scope->tagName),
+                'selector'          => SourceDom::elementSelector($scope),
+                'summary_selector'  => SourceDom::elementSelector($summary),
+                'runtime_selectors' => $runtimeSelectors,
+                'context'           => $this->sourceContext($scope),
+                'binding'           => $this->blockBinding(array(), 'commerce_cart', $runtimeSelectors, $scope),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
+        }
+    }
+
+    /** The outermost runtime DOM target around `$summary` below the page landmarks, else the summary. */
+    private function cartViewScope(DOMElement $summary): DOMElement
+    {
+        $scope = $summary;
+        for ( $node = $summary; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( in_array(strtolower($node->tagName), array( 'body', 'main', 'header', 'footer', 'nav' ), true) ) {
+                break;
+            }
+            if ( array() !== $this->runtimeIslands->runtimeDomSelectorsForElement($node) ) {
+                $scope = $node;
+            }
+        }
+
+        return $scope;
     }
 
     /**

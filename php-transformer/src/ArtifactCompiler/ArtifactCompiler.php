@@ -1041,6 +1041,7 @@ final class ArtifactCompiler
 
         $products = array();
         $forms = array();
+        $carts = array();
         foreach ( $fallbacks as $fallback ) {
             if ( ! is_array($fallback) ) continue;
             $code = (string) ($fallback['diagnostic_code'] ?? $fallback['kind'] ?? '');
@@ -1086,6 +1087,13 @@ final class ArtifactCompiler
                     }
                     $products[$productSlug] = $row;
                 }
+            } elseif ( 'html_cart_view_fallback' === $code ) {
+                // A cart view is provider-bindable only through its page-owned
+                // anchor; without one a provider cannot locate it in the page.
+                $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+                $binding = $fallback['binding'] ?? null;
+                if ( '' === $selector || ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? null) || ! is_string($binding['search_block_markup'] ?? null) || '' === trim($binding['search_block_markup']) ) continue;
+                $carts[$sourcePath . "\n" . $selector] = array('source_path' => $sourcePath, 'selector' => $selector, 'bindings' => array(array_merge($binding, array('source_path' => $sourcePath))));
             } elseif ( 'html_form_fallback' === $code && is_array($fallback['controls'] ?? null) ) {
                 $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
                 // Only a finding carrying data-entry metadata describes a form a
@@ -1194,12 +1202,19 @@ final class ArtifactCompiler
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
             foreach ( array('description', 'image') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
-        ksort($products, SORT_STRING); ksort($forms, SORT_STRING);
+        ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($carts, SORT_STRING);
         $collections = array(
-            'shop' => array('type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
-            'form' => array('type' => 'forms', 'aliases' => array('form', 'forms'), 'entities' => array_values($forms), 'schema' => 'generic/forms/v1'),
+            array('capability' => 'shop', 'type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
+            // A cart holds the store's products, so a cart view is declared only
+            // beside a products collection: on its own it would ask a provider
+            // to install a store with nothing to sell.
+            array('capability' => 'shop', 'type' => 'carts', 'aliases' => array('cart', 'carts'), 'entities' => array_values($carts), 'schema' => 'generic/carts/v1', 'requires' => array('product', 'products')),
+            array('capability' => 'form', 'type' => 'forms', 'aliases' => array('form', 'forms'), 'entities' => array_values($forms), 'schema' => 'generic/forms/v1'),
         );
-        foreach ( $collections as $capability => $collection ) {
+        foreach ( $collections as $collection ) {
+            $capability = $collection['capability'];
+            $requires = $collection['requires'] ?? array();
+            if ( array() !== $requires && array() === array_filter($requires, static fn (string $type): bool => isset($keys['entity_collection:' . $type])) ) continue;
             $entityKey = 'entity_collection:' . $collection['type'];
             foreach ( $collection['aliases'] as $alias ) if ( isset($keys['entity_collection:' . $alias]) ) { $entityKey = 'entity_collection:' . $alias; break; }
             if ( array() !== $collection['entities'] && ! isset($keys[$entityKey]) ) {

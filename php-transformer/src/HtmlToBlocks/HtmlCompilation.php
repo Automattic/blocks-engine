@@ -1678,6 +1678,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $this->commerceReporter->appendProductGridFallbacks($body, $fallbacks, $blocks);
         $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks);
+        $this->commerceReporter->appendCartViewFallbacks($body, $fallbacks);
         $serializedBlocks = $this->runtime->serializeBlocks(self::withoutDefaultCommentAttributes($blocks));
         $this->finalizeFallbackBindings($fallbacks, $blocks, $serializedBlocks);
         $reusableComponentRecognition = $this->reusableComponents()->report($this->materializedAssets()->assets());

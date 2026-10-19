@@ -123,7 +123,7 @@ final class CommerceStructureRecognizer
         $isSchemaProduct = $this->isSchemaProductCard($card);
         $image = $this->productImage($card);
 
-        if ( '' === $name || array() === $prices ) {
+        if ( '' === $name || array() === $prices || $this->isCartSummary($card) ) {
             return null;
         }
 
@@ -397,6 +397,97 @@ final class CommerceStructureRecognizer
     private function hasCartControl(DOMElement $card): bool
     {
         return null !== $this->cartControlElement($card);
+    }
+
+    /**
+     * The order summaries of cart views inside `$root`, in document order.
+     *
+     * A cart view's order summary is the innermost element that holds a
+     * checkout control together with at least two amount rows (subtotal,
+     * shipping, total) and a total label. It is detected from structure and
+     * generic commerce vocabulary on the control and row text, class, id and
+     * `data-*` attribute names — never a shop-provider name or fixture class.
+     *
+     * @return array<int, DOMElement>
+     */
+    public function cartSummaries(DOMElement $root): array
+    {
+        $summaries = array();
+        foreach ( $root->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement || ! $this->isCheckoutControl($element) ) {
+                continue;
+            }
+            for ( $node = $element->parentNode; $node instanceof DOMElement && $node !== $root->parentNode; $node = $node->parentNode ) {
+                if ( $this->hasCartTotals($node) ) {
+                    $summaries[spl_object_id($node)] = $node;
+                    break;
+                }
+            }
+        }
+
+        return array_values($summaries);
+    }
+
+    /**
+     * Whether `$element` is, or contains, a cart view's order summary. A grid
+     * child that reads as an order summary is never a product card: its heading
+     * names the summary and its amounts are cart totals, not a product price.
+     */
+    public function isCartSummary(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->isCheckoutControl($descendant) ) {
+                return $this->hasCartTotals($element);
+            }
+        }
+
+        return false;
+    }
+
+    private function isCheckoutControl(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( ! in_array($tagName, array( 'button', 'a', 'input' ), true) && 'button' !== strtolower(SourceDom::attr($element, 'role')) ) {
+            return false;
+        }
+
+        return $this->classifier->hasTokenBoundary($this->vocabulary($element), 'checkout');
+    }
+
+    /** At least two amount leaves and one total label: subtotal/shipping/total rows. */
+    private function hasCartTotals(DOMElement $element): bool
+    {
+        $amounts = 0;
+        $hasTotal = false;
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement || SourceDom::childElementCount($descendant) > 0 ) {
+                continue;
+            }
+            if ( $this->looksLikePriceText($this->collapsedText($descendant)) ) {
+                ++$amounts;
+            }
+            $vocabulary = $this->vocabulary($descendant);
+            if ( $this->classifier->hasTokenBoundary($vocabulary, 'total') || $this->classifier->hasTokenBoundary($vocabulary, 'subtotal') ) {
+                $hasTotal = true;
+            }
+        }
+
+        return $hasTotal && $amounts >= 2;
+    }
+
+    /** Text, class, id, aria-label and `data-*` attribute names, tokenized on non-alphanumerics. */
+    private function vocabulary(DOMElement $element): string
+    {
+        $dataNames = array_map(static fn (string $name): string => substr($name, 5), array_keys($this->safeDataAttributes($element)));
+
+        return strtolower((string) preg_replace('/[^a-z0-9]+/i', ' ', implode(' ', array(
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'id'),
+            SourceDom::attr($element, 'aria-label'),
+            SourceDom::attr($element, 'value'),
+            implode(' ', $dataNames),
+            $this->collapsedText($element),
+        ))));
     }
 
     /**
