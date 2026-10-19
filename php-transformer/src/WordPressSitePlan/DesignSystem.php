@@ -24,16 +24,18 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   only to a token whose value is that exact 8-bit colour (colorSlug()),
  *   so an import paints 1:1 until a site owner edits the palette.
  *
- *   Grouping only ranks: opaque colours within CIE76 ΔE*ab 2.3 (one
- *   just-noticeable difference) form a family, and each family within
- *   ΔE*ab 5 of a heavier one joins the nearest, however much it is used,
- *   so a near-duplicate neutral (`#1f2937` beside `#1e293b`) does not
- *   outrank a distinct colour for a slot. Every family's heaviest colour
- *   takes a token first (roles, then `accent-N`); every other painted
- *   shade then keeps a token of its own exact value (`accent-N`, heaviest
- *   first) rather than being folded into its family's token, since
- *   binding it there would repaint it. At most 12 colours are kept: a
- *   painted colour past the bound keeps its literal everywhere and is
+ *   Grouping only names roles and breaks ties: opaque colours within
+ *   CIE76 ΔE*ab 2.3 (one just-noticeable difference) form a family, and
+ *   each family within ΔE*ab 5 of a heavier one joins the nearest, however
+ *   much it is used, so a near-duplicate neutral (`#1f2937` beside
+ *   `#1e293b`) does not compete with a distinct colour for a role. Roles
+ *   take each family's heaviest colour; every other painted colour then
+ *   takes a token of its own exact value (`accent-N`) by its own painted
+ *   weight, heaviest first, whatever family it ranks in (on a tie a
+ *   family's own colour first, then the heavier family). So a near shade
+ *   painted on many large surfaces keeps a token ahead of a distinct colour
+ *   painted on one tiny element. At most 12 colours are kept: the lightest
+ *   painted colours past the bound keep their literal everywhere and are
  *   reported under `literal_colors`, never bound to a near token.
  *
  *   Clustering, slot ranking and `accent-N` order use each colour's
@@ -66,7 +68,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   buttons) on `base`, else the most used text colour.
  * - `primary`, `secondary`: the most used call-to-action backgrounds, else
  *   the most used chromatic colours.
- * - `accent-1` … : every other colour, heaviest first.
+ * - `accent-1` … : every other painted colour by its own weight, heaviest
+ *   first.
  * - Font `body`: the root family every document renders, else the family
  *   of most non-heading text.
  * - Font `heading`: the family heading elements (`core/heading` blocks)
@@ -547,13 +550,6 @@ final class DesignSystem
             $index = array_search($role, $roles, true);
             if (false !== $index) $ordered[] = $index;
         }
-        $accent = 0;
-        foreach ($rank(array_map(static fn(array $cluster): int => $cluster['weight'], $clusters)) as $index) {
-            if (count($ordered) >= self::MAX_COLORS) break;
-            if (isset($roles[$index])) continue;
-            $roles[$index] = 'accent-' . (++$accent);
-            $ordered[] = $index;
-        }
         $token = static fn(string $slug, string $color, int $weight): array => array(
             'slug' => $slug,
             'name' => ucwords(str_replace('-', ' ', $slug)),
@@ -562,15 +558,20 @@ final class DesignSystem
             'weight' => $weight,
         );
         $palette = array_map(static fn(int $index): array => $token($roles[$index], $clusters[$index]['color'], $clusters[$index]['weight']), $ordered);
-        // Every other painted shade of a kept family gets a token of its
-        // own exact value while slots remain, heaviest first: binding it to
-        // its family's token would repaint it (see the class comment).
-        $shades = array();
-        foreach ($ordered as $index) foreach ($clusters[$index]['members'] as $member) if ($member !== $clusters[$index]['color']) $shades[] = $member;
-        usort($shades, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: strcmp($a, $b));
-        foreach ($shades as $shade) {
+        // Every other painted colour competes for the remaining slots on its
+        // own painted weight, heaviest first, whatever family it ranks in:
+        // a heavy near shade outranks a barely used distinct colour, and the
+        // lightest painted colours are the ones left literal. Grouping only
+        // breaks ties: a family's own colour before a near shade of another,
+        // then the heavier family, then the value.
+        $taken = array_flip(array_column($palette, 'color'));
+        $rest = array_keys(array_diff_key($prominence, $taken));
+        $isLead = static fn(string $color): int => $clusters[$memberOf[$color]]['color'] === $color ? 1 : 0;
+        usort($rest, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: ($isLead($b) <=> $isLead($a)) ?: ($clusters[$memberOf[$b]]['weight'] <=> $clusters[$memberOf[$a]]['weight']) ?: strcmp($a, $b));
+        $accent = 0;
+        foreach ($rest as $color) {
             if (count($palette) >= self::MAX_COLORS) break;
-            $palette[] = $token('accent-' . (++$accent), $shade, $prominence[$shade]);
+            $palette[] = $token('accent-' . (++$accent), $color, $prominence[$color]);
         }
         return $palette;
     }
@@ -639,8 +640,9 @@ final class DesignSystem
      * Merge each cluster into the nearest heavier kept cluster within
      * COLOR_CONSOLIDATION_DISTANCE, however much it is used, so a shade a
      * reader cannot tell from a heavier colour does not outrank a distinct
-     * colour for a slot. Merging only groups for ranking: a painted member
-     * still keeps a token of its own exact value (see palette()). Clusters
+     * colour for a role. Merging only groups for roles and ties: a painted
+     * member still competes for a token of its own exact value on its own
+     * weight (see palette()). Clusters
      * are visited heaviest first, so a cluster joins one that already holds
      * whatever merged into it; the heavier cluster keeps its colour.
      *

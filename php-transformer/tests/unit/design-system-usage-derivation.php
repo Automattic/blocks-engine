@@ -257,24 +257,48 @@ $assert(($shellMetrics['restyle_coverage'] ?? 0) >= 0.8, 'tailwind-shell: at lea
 $assert(($shellPlan['theme']['design_system'] ?? null) === ($reversedShell['theme']['design_system'] ?? null), 'tailwind-shell: route order does not change the design system');
 
 // Six greys each written two indistinguishable ways, all on long paragraphs,
-// and a cyan accent that only marks many small elements through a custom
-// property: the distinct colours take the twelve slots first, so the accent
-// keeps a token. A twin past the bound keeps its literal and is reported;
-// it never binds to the grey beside it.
+// a cyan accent that only marks many small elements through a custom
+// property, and an amber and a rose heading painted once each. Slots past
+// the roles go to painted colours by their own painted weight, whatever
+// family they rank in: the accent and the heavy grey twins keep tokens, and
+// the lightest painted colours (the two one-off headings among them) keep
+// their literal and are reported; a literal never binds to a near token.
 [$accentPlan, $accentTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/near-duplicate-neutrals-small-accent.php');
 $accentPalette = array_column($accentTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
 $cyan = (string) array_search('#22d3ee', $accentPalette, true);
-$assert(1 === preg_match($roleSlug, $cyan) && array() === array_intersect(array('#212121', '#424242', '#646464', '#858585', '#a6a6a6', '#cbcbcb'), $accentPalette), 'near-duplicate-neutrals-small-accent: the accent on many small elements keeps a token and no near-duplicate takes a slot (' . json_encode($accentPalette) . ')');
-$accentMarkup = implode('', array_column($accentPlan['pages'], 'canonical_block_markup'));
-$twinsKeepLiteral = array();
-foreach (array('g1', 'g2', 'g3', 'g4', 'g5', 'g6') as $grey) $twinsKeepLiteral[$grey] = 0 === preg_match('/"className":"' . $grey . 'b","textColor":"/', $accentMarkup);
-$assert(array() === array_filter($twinsKeepLiteral, static fn(bool $kept): bool => !$kept), 'near-duplicate-neutrals-small-accent: a twin with no token of its own keeps its literal colour (' . json_encode($twinsKeepLiteral) . ')');
 $accentSystem = $accentPlan['theme']['design_system'] ?? array();
 $accentLiterals = $accentSystem['literal_colors'] ?? array();
-sort($accentLiterals);
-$assert(array('#212121', '#424242', '#646464', '#858585', '#a6a6a6', '#cbcbcb') === $accentLiterals && 6 === ($accentSystem['metrics']['literal_color_count'] ?? null), 'near-duplicate-neutrals-small-accent: the twins the palette bound leaves literal are reported (' . json_encode($accentSystem['literal_colors'] ?? null) . ')');
+$assert(1 === preg_match($roleSlug, $cyan) && 12 === count($accentPalette) && array() === array_intersect($accentLiterals, $accentPalette), 'near-duplicate-neutrals-small-accent: the accent on many small elements keeps a token and the palette is full (' . json_encode($accentPalette) . ')');
+$assert(array() === array_diff(array('#b45309', '#be123c'), $accentLiterals) && 6 === count($accentLiterals) && 6 === ($accentSystem['metrics']['literal_color_count'] ?? null), 'near-duplicate-neutrals-small-accent: the lightest painted colours, including the one-off headings, are the ones left literal and reported (' . json_encode($accentLiterals) . ')');
+$accentMarkup = implode('', array_column($accentPlan['pages'], 'canonical_block_markup'));
+$classColors = array('g1' => '#1a1a1a', 'g1b' => '#212121', 'g2' => '#3a3a3a', 'g2b' => '#424242', 'g3' => '#5c5c5c', 'g3b' => '#646464', 'g4' => '#7d7d7d', 'g4b' => '#858585', 'g5' => '#9e9e9e', 'g5b' => '#a6a6a6', 'g6' => '#c4c4c4', 'g6b' => '#cbcbcb');
+$literalBindings = array();
+foreach ($classColors as $class => $hex) {
+    preg_match('/"className":"' . $class . '","textColor":"([a-z0-9-]+)"/', $accentMarkup, $bound);
+    $expected = in_array($hex, $accentLiterals, true) ? null : (string) array_search($hex, $accentPalette, true);
+    if (($bound[1] ?? null) !== $expected) $literalBindings[$class] = array('expected' => $expected, 'bound' => $bound[1] ?? null);
+}
+$assert(array() === $literalBindings, 'near-duplicate-neutrals-small-accent: each grey binds to the token of its exact value, and a grey with no token keeps its literal (' . json_encode($literalBindings) . ')');
 $accentCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($accentPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
 $assert(str_contains($accentCss, '--cyan:var(--wp--preset--color--' . $cyan . ',#22d3ee)') && 1 === preg_match('/\\.dot[^{]*\\{color:var\\(--wp--preset--color--' . $cyan . ',var\\(--cyan\\)\\)/', $accentCss), 'near-duplicate-neutrals-small-accent: the authored --cyan custom property reads the accent token, so every rule using it follows the palette');
+
+// A heavy near shade of `base` (white cards on a `#f7fafc` page) outranks
+// two distinct colours each painted on one tiny element: slots past the
+// roles go by each colour's own painted weight, so white keeps a token of
+// its exact value and the two barely used colours are the ones left literal.
+[$heavyPlan, $heavyTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/heavy-near-shade-tiny-accents.php');
+$heavyPalette = array_column($heavyTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+$heavySystem = $heavyPlan['theme']['design_system'] ?? array();
+$heavyLiterals = $heavySystem['literal_colors'] ?? array();
+sort($heavyLiterals);
+$assert('#f7fafc' === ($heavyPalette['base'] ?? null) && 12 === count($heavyPalette) && (CssColor::distance('#ffffff', '#f7fafc') ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE, 'heavy-near-shade-tiny-accents: the palette is full and white is a near shade of base (' . json_encode($heavyPalette) . ')');
+$assert(1 === preg_match($roleSlug, (string) array_search('#ffffff', $heavyPalette, true)), 'heavy-near-shade-tiny-accents: the heavily painted near shade of base keeps a token of its own exact value (' . json_encode($heavyPalette) . ')');
+$assert(array('#34d399', '#80a690') === $heavyLiterals && 2 === ($heavySystem['metrics']['literal_color_count'] ?? null), 'heavy-near-shade-tiny-accents: the colours painted on one tiny element each are the ones left literal (' . json_encode($heavySystem['literal_colors'] ?? null) . ')');
+$heavyMarkup = implode('', array_column($heavyPlan['pages'], 'canonical_block_markup'));
+preg_match_all('/<!-- wp:group (\{.*?\}) -->/', $heavyMarkup, $heavyGroups);
+$cardColors = array();
+foreach ($heavyGroups[1] as $json) if ('card' === (json_decode($json, true)['className'] ?? null)) $cardColors[] = $heavyPalette[(string) (json_decode($json, true)['backgroundColor'] ?? '')] ?? null;
+$assert(8 === count($cardColors) && array('#ffffff') === array_values(array_unique($cardColors)), 'heavy-near-shade-tiny-accents: every white card binds to the white token, never to base (' . json_encode($cardColors) . ')');
 
 // A blog index of many small system-font titles does not name the heading
 // role over the display h1/h2 every other route opens with: each route's
