@@ -107,7 +107,7 @@ final class CapturedDialogProjector
 
             $projection = $this->projectPage((string) $files[$index]['content'], $dialogStates, $path);
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
-            if (0 < $projection['projected_count'] || ! empty($projection['restored']) || array() !== $projection['retired_scripts']) {
+            if (0 < $projection['projected_count'] || array() !== $projection['retired_scripts']) {
                 $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $projection['html']);
                 $projection['script_bindings']?->rebind($files, $path);
                 $projected += $projection['projected_count'];
@@ -397,7 +397,7 @@ final class CapturedDialogProjector
         }
 
         $output = HtmlSerialization::documentHtml($document);
-        return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'restored' => $adoption['restored'], 'retired_scripts' => $retired, 'script_bindings' => is_string($output) ? $scriptBindings : null);
+        return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired, 'script_bindings' => is_string($output) ? $scriptBindings : null);
     }
 
     /** Consume viewport-scoped, observed image selection before the ordinary dialog adoption. */
@@ -491,13 +491,16 @@ final class CapturedDialogProjector
      * @param array{nodes:array<int, \DOMNode>, class:string, id:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool, self_positioned:bool} $fragment
      * @param array<int, DOMElement> $triggers
      * @param array<int, string> $triggerIds
+     * @param array{closed?:array{class:?string, style:?string}, opened?:array{class:?string, style:?string}, hidden?:bool} $resting
      */
-    private function appendProjectedDialog(DOMDocument $document, array $fragment, array $triggers, array $triggerIds, string $identity, bool $dropdown, ?DOMElement $sourcePlace = null, bool $scopedPanel = false): DOMElement
+    private function appendProjectedDialog(DOMDocument $document, array $fragment, array $triggers, array $triggerIds, string $identity, bool $dropdown, ?DOMElement $sourcePlace = null, bool $scopedPanel = false, array $resting = array()): DOMElement
     {
         $dialogId = 'blocks-engine-dialog-' . $identity;
         // A scoped nonmodal panel retains its source tag and mount slot. This
         // keeps type/child selectors and the source containing block intact.
-        $dialogElement = $document->createElement($scopedPanel ? 'div' : 'dialog');
+        // A panel adopted with its resting presentation is wrapped whole, so
+        // the wrapper is a box-less div rather than a dialog.
+        $dialogElement = $document->createElement($scopedPanel || array() !== $resting ? 'div' : 'dialog');
         if ($scopedPanel && $sourcePlace instanceof DOMElement) {
             $ids = (new DOMXPath($document))->query('//*[@id=' . $this->xpathLiteral($sourcePlace->getAttribute('id')) . ']');
             if ($ids && 1 === $ids->length) $dialogId = $sourcePlace->getAttribute('id');
@@ -527,6 +530,10 @@ final class CapturedDialogProjector
         if ($dropdown) {
             $dialogElement->setAttribute('data-blocks-engine-presentation', 'dropdown');
             $dialogElement->setAttribute('data-blocks-engine-placement', $sourcePlace instanceof DOMElement ? 'in-place' : ($fragment['self_positioned'] ? 'source' : 'under-header'));
+        }
+        if (array() !== $resting) {
+            $dialogElement->setAttribute('data-blocks-engine-resting', $resting['hidden'] ? 'hidden' : 'authored');
+            $dialogElement->setAttribute('data-blocks-engine-resting-state', json_encode(array('closed' => $resting['closed'], 'opened' => $resting['opened']), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
         }
         $ancestorState = $this->triggerAncestorState($triggers);
         if (array() !== $ancestorState) $dialogElement->setAttribute('data-blocks-engine-ancestor-state', json_encode($ancestorState, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
@@ -599,11 +606,10 @@ final class CapturedDialogProjector
         $xpath = new DOMXPath($document);
         $adopted = array();
         $count = 0;
-        $restored = false;
         $scopes = $this->documentScopes($document);
         $nativeScopedWiring = $this->canReplaceScopedDisclosure($document, $scopes);
         if (count($scopes) > self::MAX_STATES_PER_PAGE) {
-            return array('triggers' => array(), 'count' => 0, 'restored' => false);
+            return array('triggers' => array(), 'count' => 0);
         }
         foreach ($scopes as $scopeIndex => $scope) {
             $groups = array();
@@ -622,11 +628,6 @@ final class CapturedDialogProjector
                 $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
                 if (! $panel instanceof DOMElement || array() !== array_filter($triggers, static fn(DOMElement $trigger): bool => SourceDom::elementContains($panel, $trigger))) continue;
                 if (array() !== array_filter($triggers, fn(DOMElement $trigger): bool => $this->isCapturedNavigationOverlayTrigger($trigger))) continue;
-                if ($this->restoreVisibleRestingPanel($panel, $triggers)) {
-                    array_push($adopted, ...$triggers);
-                    $restored = true;
-                    continue;
-                }
                 // Sanitize the panel envelope, retaining its content wrapper:
                 // that wrapper can own a menu's hierarchy and presentation.
                 $html = (string) $document->saveHTML($panel);
@@ -642,7 +643,10 @@ final class CapturedDialogProjector
                         continue;
                     }
                 }
-                $fragment = $this->safeDialogFragment($html);
+                $resting = $this->restingPresentation($panel);
+                // A panel with a resting snapshot is adopted whole: the panel
+                // itself, at its resting presentation, is the dialog content.
+                $fragment = array() !== $resting ? $this->safeDialogFragment('<div>' . $this->restPanel($document, $panel, $resting) . '</div>') : $this->safeDialogFragment($html);
                 if (null === $fragment) continue;
                 $identity = substr(hash('sha256', $sourcePath . "\n" . $key . "\n" . $scopeIndex . "\n" . $html), 0, 16);
                 $triggerIds = array();
@@ -658,12 +662,14 @@ final class CapturedDialogProjector
                     $menu = $menu || 'menu' === strtolower(trim($trigger->getAttribute('aria-haspopup')));
                 }
                 // The producer marks an in-place dropdown panel with `data-blocks-engine-capture-dropdown`.
-                $dropdown = in_array(CaptureEvidence::DROPDOWN_CLASS, preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), true);
+                // A panel the source already rendered in place (an existing-panel
+                // snapshot) is a dropdown too, whatever it rests as.
+                $dropdown = array() !== $resting || in_array(CaptureEvidence::DROPDOWN_CLASS, preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), true);
                 // The producer placed a dropdown panel where the source rendered
                 // it (`data-blocks-engine-capture-observed-placement`); the dialog stays there.
-                $scopedPanel = $nativeScopedWiring && $scope->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && $dropdown;
-                $sourcePlace = ($dropdown && ($scopedPanel || $panel->hasAttribute(CaptureEvidence::OBSERVED_PLACEMENT))) || $this->isNativeGalleryPanel($panel) ? $panel : null;
-                $dialog = $this->appendProjectedDialog($document, $fragment, $triggers, $triggerIds, $identity, $dropdown, $sourcePlace, $scopedPanel);
+                $scopedPanel = array() === $resting && $nativeScopedWiring && $scope->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && $dropdown;
+                $sourcePlace = array() !== $resting || ($dropdown && ($scopedPanel || $panel->hasAttribute(CaptureEvidence::OBSERVED_PLACEMENT))) || $this->isNativeGalleryPanel($panel) ? $panel : null;
+                $dialog = $this->appendProjectedDialog($document, $fragment, $triggers, $triggerIds, $identity, $dropdown, $sourcePlace, $scopedPanel, $resting);
                 if ($scopedPanel) {
                     foreach ($triggers as $trigger) {
                         foreach (array(CaptureEvidence::DIALOG_PANEL_STATE, CaptureEvidence::DIALOG_ANCESTOR_STATE, CaptureEvidence::DISCLOSURE_LABEL) as $attribute) $trigger->removeAttribute($attribute);
@@ -688,7 +694,7 @@ final class CapturedDialogProjector
             }
         }
 
-        return array('triggers' => $adopted, 'count' => $count, 'restored' => $restored);
+        return array('triggers' => $adopted, 'count' => $count);
     }
 
     /** All generated bindings must have one local, bounded native endpoint.
@@ -775,28 +781,47 @@ final class CapturedDialogProjector
     }
 
     /**
-     * A source panel the producer reused for a toggle and recorded as visible at
-     * rest is shared by the responsive document: widths without the toggle show
-     * it in place, under authored CSS. Restore that resting panel and leave its
-     * toggle to the source runtime instead of moving it into a dialog.
+     * The presentation an existing source panel rests with and opens to, from
+     * the producer's snapshot (`data-blocks-engine-capture-existing-panel`).
+     * `resting.hidden` reflects only the `hidden` attribute: a panel hidden by
+     * a class or by authored CSS records `false` too, so it does not prove the
+     * panel shows at rest. Either way the source runtime that toggled it is
+     * gone after import, so the panel always becomes a dropdown its trigger
+     * opens; the snapshot only decides how it presents while closed. Without
+     * an opened snapshot, the exported panel (captured open) stands for it.
      *
-     * @param list<DOMElement> $triggers
+     * @return array{closed?:array{class:?string, style:?string}, opened?:array{class:?string, style:?string}, hidden?:bool}
      */
-    private function restoreVisibleRestingPanel(DOMElement $panel, array $triggers): bool
+    private function restingPresentation(DOMElement $panel): array
     {
         $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
         $resting = is_array($snapshot) ? ($snapshot['resting'] ?? null) : null;
-        if (! is_array($resting) || false !== ($resting['hidden'] ?? null)) return false;
-        $style = $resting['style'] ?? null;
-        if (is_string($style) && '' !== trim($style)) $panel->setAttribute('style', $style); else $panel->removeAttribute('style');
-        $classes = array_diff(preg_split('/\s+/', trim((string) ($resting['class'] ?? ''))) ?: array(), array(CaptureEvidence::DROPDOWN_CLASS, CaptureEvidence::DIALOG_CLASS, ''));
-        if (array() === $classes) $panel->removeAttribute('class'); else $panel->setAttribute('class', implode(' ', $classes));
-        foreach (array('hidden', CaptureEvidence::EXISTING_PANEL, CaptureEvidence::DIALOG_PANEL, CaptureEvidence::OBSERVED_PLACEMENT) as $attribute) $panel->removeAttribute($attribute);
-        foreach ($triggers as $trigger) {
-            foreach (array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL_STATE, CaptureEvidence::DIALOG_ANCESTOR_STATE, CaptureEvidence::DISCLOSURE_LABEL) as $attribute) $trigger->removeAttribute($attribute);
-        }
+        if (! is_array($resting)) return array();
+        $opened = is_array($snapshot['opened'] ?? null) ? $snapshot['opened'] : array('class' => $panel->getAttribute('class'), 'style' => $panel->getAttribute('style'));
+        $state = CapturedDialogBlockGenerator::restingState(array('closed' => $resting, 'opened' => $opened));
+        if (array() === $state) return array();
+        $state['hidden'] = true === ($resting['hidden'] ?? null);
 
-        return true;
+        return $state;
+    }
+
+    /**
+     * The panel's markup at its resting presentation, without capture-only
+     * attributes. The dialog wrapping it opens it to its opened presentation.
+     *
+     * @param array{closed:array{class:?string, style:?string}} $resting
+     */
+    private function restPanel(DOMDocument $document, DOMElement $panel, array $resting): string
+    {
+        $copy = $panel->cloneNode(true);
+        if (! $copy instanceof DOMElement) return '';
+        foreach (array('class', 'style') as $name) {
+            $value = $resting['closed'][$name] ?? null;
+            if (null === $value) $copy->removeAttribute($name); else $copy->setAttribute($name, $value);
+        }
+        foreach (array('hidden', CaptureEvidence::EXISTING_PANEL, CaptureEvidence::DIALOG_PANEL, CaptureEvidence::OBSERVED_PLACEMENT) as $attribute) $copy->removeAttribute($attribute);
+
+        return (string) $document->saveHTML($copy);
     }
 
     private function isNavigationDropdownTrigger(DOMElement $trigger): bool
