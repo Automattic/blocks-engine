@@ -19,13 +19,22 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  * broken by value, and each joins the first cluster within tolerance or
  * starts a new one. The heaviest member names the cluster's value.
  *
- * - Colours: opaque colours within CIE76 ΔE*ab 2.3 (one just-noticeable
- *   difference) merge. Then each cluster within ΔE*ab 5 of a heavier kept
- *   cluster merges into the nearest one, however much it is used, so a
- *   near-duplicate neutral (`#1f2937` beside `#1e293b`) does not take a
- *   palette slot; it binds to the token that absorbed it. The
- *   palette represents distinct colours, not every spelling of one. At
- *   most 12 colours are kept.
+ * - Colours: a preset binding never changes a painted colour. A block
+ *   attribute, a stylesheet declaration or an element style binds a colour
+ *   only to a token whose value is that exact 8-bit colour (colorSlug()),
+ *   so an import paints 1:1 until a site owner edits the palette.
+ *
+ *   Grouping only ranks: opaque colours within CIE76 ΔE*ab 2.3 (one
+ *   just-noticeable difference) form a family, and each family within
+ *   ΔE*ab 5 of a heavier one joins the nearest, however much it is used,
+ *   so a near-duplicate neutral (`#1f2937` beside `#1e293b`) does not
+ *   outrank a distinct colour for a slot. Every family's heaviest colour
+ *   takes a token first (roles, then `accent-N`); every other painted
+ *   shade then keeps a token of its own exact value (`accent-N`, heaviest
+ *   first) rather than being folded into its family's token, since
+ *   binding it there would repaint it. At most 12 colours are kept: a
+ *   painted colour past the bound keeps its literal everywhere and is
+ *   reported under `literal_colors`, never bound to a near token.
  *
  *   Clustering, slot ranking and `accent-N` order use each colour's
  *   prominence: the mean of its share of the document's area (text mass
@@ -37,16 +46,6 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   covers. A colour used through an authored custom property (`var()`)
  *   counts like a literal, since usage records the value each element
  *   renders. `base` and `contrast` are still chosen from area alone.
- *
- *   One rule decides both what the palette represents and what binds:
- *   every rendered colour the palette represents binds to its token, in
- *   block attributes, stylesheet bindings and element styles alike. A
- *   rendered colour within the JND of a token binds to it. A folded
- *   shade binds to the token that absorbed it, which renders it up to
- *   ΔE 5 off. That is the bound for an imperceptible change: below ΔE 5 an untrained
- *   observer only tells two colours apart side by side (Mokrzycki and
- *   Tatol). A shade further away would visibly change where it renders,
- *   so it is not folded: it keeps a token of its own.
  * - Font sizes: sizes within 0.5px merge. The 8 heaviest are kept and
  *   ordered by size.
  * - Spacing: positive absolute lengths merge only when they are the same
@@ -102,8 +101,8 @@ final class DesignSystem
     /** Float slack for lengths that are equal: binding never changes a rendered length. */
     private const EXACT_PX = 0.001;
     /**
-     * ΔE*ab within which a colour cluster merges into, and binds to, a
-     * heavier one: the imperceptible bound (see the class comment).
+     * ΔE*ab within which a colour family joins a heavier one for slot
+     * ranking (see the class comment). It never decides what binds.
      */
     public const COLOR_CONSOLIDATION_DISTANCE = 5.0;
     /** Weight of one heading by level, before its size: a page title above section and entry titles. */
@@ -127,13 +126,14 @@ final class DesignSystem
     private const GENERIC_FAMILIES = array('serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'math', 'emoji', 'fangsong');
 
     /**
-     * @param list<array{slug:string,name:string,color:string,role:string,weight:int,members:list<string>}> $colors
+     * @param list<array{slug:string,name:string,color:string,role:string,weight:int}> $colors
      * @param list<array{slug:string,name:string,size:string,px:float,weight:int}> $fontSizes
      * @param list<array{slug:string,name:string,fontFamily:string,key:string,role:string,weight:int}> $fontFamilies
      * @param list<array{slug:string,name:string,size:string,px:float,weight:int}> $spacing
      * @param array{content?:array{value:string,px:float},wide?:array{value:string,px:float}} $layout
      * @param array<string,mixed> $root Root values every document agrees on.
      * @param array<string,mixed> $elements Link and heading values every document agrees on.
+     * @param list<string> $literalColors Painted opaque colours the palette bound left without a token, heaviest first.
      */
     private function __construct(
         public readonly array $colors,
@@ -145,6 +145,7 @@ final class DesignSystem
         public readonly array $elements,
         public readonly float $rootPx,
         public readonly int $documentCount,
+        public readonly array $literalColors = array(),
     ) {
     }
 
@@ -222,24 +223,23 @@ final class DesignSystem
 
         $root = self::unanimousRoot($usageBySource);
         $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root);
+        $literalColors = array_keys(array_diff_key($prominence, array_flip(array_column($colors, 'color'))));
+        usort($literalColors, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: strcmp($a, $b));
         $fontSizes = self::fontSizes($sizeWeights, $bodySizeWeights, $rootFontPx);
         $fontFamilies = self::fontFamilies($familyWeights, $familyStacks, $headingFamilyWeights, $bodyFamilyWeights, self::familyKey((string) ($root['font_family'] ?? '')), self::unanimousHeadingFamily($usageBySource), $headingFamilyProminence);
         $spacing = self::spacing($spacingRows);
         $layout = self::layout($widthRows);
 
-        $system = new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource));
-        return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, $root, self::unanimousElements($usageBySource, $system), $system->rootPx, $system->documentCount);
+        $system = new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors);
+        return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, $root, self::unanimousElements($usageBySource, $system), $system->rootPx, $system->documentCount, $literalColors);
     }
 
     /**
-     * Slug of the palette colour a value binds to, or null. One rule binds
-     * every opaque colour the palette represents: a token's own colour and
-     * every member of its cluster, whether a rendered shade within the JND
-     * or one the token absorbed (see absorbed()). A colour the documents
-     * never rendered is not represented and keeps its literal. Block
-     * attributes, stylesheet bindings and element styles all bind through
-     * this method. Translucent colours never bind here; see
-     * translucentColor().
+     * Slug of the token whose value is exactly this colour, or null. The
+     * one colour binding rule: block attributes, stylesheet bindings and
+     * element styles all bind through this method, and only to a token
+     * that paints the same 8-bit colour, so binding never changes what
+     * renders. Translucent colours never bind here; see translucentColor().
      */
     public function colorSlug(string $value): ?string
     {
@@ -247,9 +247,6 @@ final class DesignSystem
         $hex = CssColor::hex($value);
         if (null === $hex) return null;
         foreach ($this->colors as $color) if ($hex === CssColor::hex($color['color'])) return $color['slug'];
-        foreach ($this->colors as $color) {
-            foreach ($color['members'] as $member) if ($hex === CssColor::hex($member)) return $color['slug'];
-        }
         return null;
     }
 
@@ -271,19 +268,6 @@ final class DesignSystem
         if (abs($color[3] * 100 - $percent) > 0.2) return null;
         $slug = $this->colorSlug(sprintf('#%02x%02x%02x', (int) round($color[0]), (int) round($color[1]), (int) round($color[2])));
         return null === $slug ? null : array('slug' => $slug, 'percent' => $percent);
-    }
-
-    /**
-     * Shades a token absorbed from other clusters, which bind to it.
-     *
-     * @param array{color:string,members:list<string>} $color
-     * @return list<string>
-     */
-    private static function absorbed(array $color): array
-    {
-        $absorbed = array_values(array_filter($color['members'], static fn(string $member): bool => (CssColor::distance($member, $color['color']) ?? 0.0) > self::COLOR_TOLERANCE));
-        sort($absorbed, SORT_STRING);
-        return $absorbed;
     }
 
     /**
@@ -322,7 +306,7 @@ final class DesignSystem
         if (!$owned['background']) unset($button['hover_background']);
         $elements = $this->elements;
         if (array() === $button) unset($elements['button']); else $elements['button'] = $button;
-        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount);
+        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors);
     }
 
     /** A palette colour's value by slug, or null. */
@@ -365,7 +349,8 @@ final class DesignSystem
             'schema' => self::SCHEMA,
             'document_count' => $this->documentCount,
             'tolerances' => array('color_delta_e76' => self::COLOR_TOLERANCE, 'color_consolidation_delta_e76' => self::COLOR_CONSOLIDATION_DISTANCE, 'font_size_px' => self::FONT_SIZE_TOLERANCE_PX, 'spacing_px' => self::SPACING_TOLERANCE_PX),
-            'palette' => array_map(static fn(array $color): array => array('slug' => $color['slug'], 'color' => $color['color'], 'role' => $color['role'], 'weight' => $color['weight'], 'absorbs' => self::absorbed($color)), $this->colors),
+            'palette' => array_map(static fn(array $color): array => array('slug' => $color['slug'], 'color' => $color['color'], 'role' => $color['role'], 'weight' => $color['weight']), $this->colors),
+            'literal_colors' => $this->literalColors,
             'font_sizes' => array_map(static fn(array $size): array => array('slug' => $size['slug'], 'size' => $size['size'], 'weight' => $size['weight']), $this->fontSizes),
             'font_families' => array_map(static fn(array $family): array => array('slug' => $family['slug'], 'name' => $family['name'], 'font_family' => $family['fontFamily'], 'weight' => $family['weight']), $this->fontFamilies),
             'spacing' => array_map(static fn(array $step): array => array('slug' => $step['slug'], 'size' => $step['size'], 'weight' => $step['weight']), $this->spacing),
@@ -398,6 +383,8 @@ final class DesignSystem
      *   here can still follow the palette through a bound stylesheet rule,
      *   which `restyle_coverage` measures.
      * - `palette_size`: colours in the palette.
+     * - `literal_color_count`: painted opaque colours past the palette
+     *   bound, which keep their literal (report `literal_colors`).
      * - `unused_font_families`: primary families (the first name of a
      *   `font-family` stack, unquoted) the source stylesheets declare that no
      *   rendered text uses as its primary, so the theme does not offer them.
@@ -488,6 +475,7 @@ final class DesignSystem
             'refused_value_count' => array_sum($refusals),
             'refusal_reasons' => $refusals,
             'palette_size' => count($this->colors),
+            'literal_color_count' => count($this->literalColors),
             'font_size_count' => count($this->fontSizes),
             'spacing_size_count' => count($this->spacing),
             'font_family_count' => count($this->fontFamilies),
@@ -506,7 +494,7 @@ final class DesignSystem
      * @param array<string,int> $cta
      * @param array<string,array<string,int>> $textOnBackground
      * @param array<string,string> $root Root values every document agrees on.
-     * @return list<array{slug:string,name:string,color:string,role:string,weight:int,members:list<string>}>
+     * @return list<array{slug:string,name:string,color:string,role:string,weight:int}>
      */
     private static function palette(array $prominence, array $text, array $backgrounds, array $cta, array $textOnBackground, array $root = array()): array
     {
@@ -566,14 +554,25 @@ final class DesignSystem
             $roles[$index] = 'accent-' . (++$accent);
             $ordered[] = $index;
         }
-        return array_map(static fn(int $index): array => array(
-            'slug' => $roles[$index],
-            'name' => ucwords(str_replace('-', ' ', $roles[$index])),
-            'color' => $clusters[$index]['color'],
-            'role' => preg_replace('/-\d+$/', '', $roles[$index]) ?? $roles[$index],
-            'weight' => $clusters[$index]['weight'],
-            'members' => $clusters[$index]['members'],
-        ), $ordered);
+        $token = static fn(string $slug, string $color, int $weight): array => array(
+            'slug' => $slug,
+            'name' => ucwords(str_replace('-', ' ', $slug)),
+            'color' => $color,
+            'role' => preg_replace('/-\d+$/', '', $slug) ?? $slug,
+            'weight' => $weight,
+        );
+        $palette = array_map(static fn(int $index): array => $token($roles[$index], $clusters[$index]['color'], $clusters[$index]['weight']), $ordered);
+        // Every other painted shade of a kept family gets a token of its
+        // own exact value while slots remain, heaviest first: binding it to
+        // its family's token would repaint it (see the class comment).
+        $shades = array();
+        foreach ($ordered as $index) foreach ($clusters[$index]['members'] as $member) if ($member !== $clusters[$index]['color']) $shades[] = $member;
+        usort($shades, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: strcmp($a, $b));
+        foreach ($shades as $shade) {
+            if (count($palette) >= self::MAX_COLORS) break;
+            $palette[] = $token('accent-' . (++$accent), $shade, $prominence[$shade]);
+        }
+        return $palette;
     }
 
     /**
@@ -638,10 +637,12 @@ final class DesignSystem
 
     /**
      * Merge each cluster into the nearest heavier kept cluster within
-     * COLOR_CONSOLIDATION_DISTANCE, however much it is used: a colour a
-     * reader cannot tell from a token is that token. Clusters are visited
-     * heaviest first, so a cluster joins one that already holds whatever
-     * merged into it; the heavier cluster keeps its colour.
+     * COLOR_CONSOLIDATION_DISTANCE, however much it is used, so a shade a
+     * reader cannot tell from a heavier colour does not outrank a distinct
+     * colour for a slot. Merging only groups for ranking: a painted member
+     * still keeps a token of its own exact value (see palette()). Clusters
+     * are visited heaviest first, so a cluster joins one that already holds
+     * whatever merged into it; the heavier cluster keeps its colour.
      *
      * @param list<array{color:string,weight:int,members:list<string>}> $clusters Heaviest first.
      * @return list<array{color:string,weight:int,members:list<string>}>
@@ -941,7 +942,7 @@ final class DesignSystem
         $token = static function (string $field, string $value) use ($system): ?string {
             if ('' === $value) return null;
             return match ($field) {
-                'color', 'hover_color', 'background', 'hover_background' => null !== ($slug = $system->colorSlug($value)) ? $value : null,
+                'color', 'hover_color', 'background', 'hover_background' => null !== $system->colorSlug($value) ? $value : null,
                 'font_family' => null !== $system->fontFamilySlug(explode("\n", $value, 2)[1] ?? '') && '' !== explode("\n", $value, 2)[0] ? explode("\n", $value, 2)[1] : null,
                 'font_size' => null !== $system->fontSizeSlug($value . 'px') ? $value . 'px' : null,
                 'font_weight' => 1 === preg_match('/^\d+$/', $value) ? $value : null,
