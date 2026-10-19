@@ -167,8 +167,11 @@ final class CapturedSelectableSetConverter implements ElementConverter
             $tabListSource = $tabList;
         }
         unset($tabListAttributes['anchor']);
+        // The member visible at rest; capture records it as the active index
+        // (absent means the first member).
+        $active = max(0, (int) SourceDom::attr($element, CapturedSelectableSetProjector::ACTIVE_TAB_ATTRIBUTE));
         if ($row instanceof DOMElement) {
-            $triggerClass = $this->triggerPresentationClass($row, $tabList);
+            $triggerClass = $this->triggerPresentationClass($row, $tabList, $active < count($panels) ? $active : 0, count($panels));
             if ('' !== $triggerClass) {
                 $tabListAttributes['className'] = trim((string) ($tabListAttributes['className'] ?? '') . ' ' . $triggerClass);
             }
@@ -185,7 +188,6 @@ final class CapturedSelectableSetConverter implements ElementConverter
         }
 
         $tabsAttributes = array();
-        $active = (int) SourceDom::attr($element, CapturedSelectableSetProjector::ACTIVE_TAB_ATTRIBUTE);
         if ($active > 0 && $active < count($panelBlocks)) {
             $tabsAttributes['activeTabIndex'] = $active;
         }
@@ -205,7 +207,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
      * trigger list's orientation and the trigger's box styling onto the
      * rendered tab-list, so a vertical stack of bordered rows stays one.
      */
-    private function triggerPresentationClass(DOMElement $row, DOMElement $tabList): string
+    private function triggerPresentationClass(DOMElement $row, DOMElement $tabList, int $selectedIndex, int $memberCount): string
     {
         $identity = trim(SourceDom::attr($tabList, self::TABLIST_ROW_ATTRIBUTE));
         $document = $tabList->ownerDocument;
@@ -248,13 +250,19 @@ final class CapturedSelectableSetConverter implements ElementConverter
         // keys on (aria-selected, data-state). Carry the unselected look to every
         // button and only the selected trigger's differences to the active one.
         $active = null;
-        $base = $triggers[0];
         foreach ($triggers as $trigger) {
             if ('true' === strtolower(trim(SourceDom::attr($trigger, 'aria-selected')))
                 || 'active' === strtolower(trim(SourceDom::attr($trigger, 'data-state')))) {
                 $active ??= $trigger;
             }
         }
+        // A source that marks selection only with classes (a JS toggle of
+        // `.on`) leaves no state attribute. The captured set still knows which
+        // member was visible at rest, so that member's trigger is the selected one.
+        if (null === $active && count($triggers) === $memberCount) {
+            $active = $triggers[$selectedIndex] ?? null;
+        }
+        $base = $triggers[0];
         foreach ($triggers as $trigger) {
             if (null === $active || ! $trigger->isSameNode($active)) {
                 $base = $trigger;
@@ -278,33 +286,109 @@ final class CapturedSelectableSetConverter implements ElementConverter
             $gap = trim((string) ($this->presentation->presentationDeclarations($items[1])['margin-top'] ?? ''));
         }
         $listRule = array();
+        $conditionalWrap = array();
         if ($vertical) {
             $listRule = array('flex-direction' => 'column', 'flex-wrap' => 'nowrap', 'align-items' => 'stretch');
             if ('' !== $gap && 1 === count($this->safeDeclarations(array('row-gap' => $gap)))) {
                 $listRule['row-gap'] = $gap;
             }
+        } elseif (str_contains($display, 'flex')) {
+            // Core's tab list wraps by default; a source row that scrolled
+            // sideways (`nowrap`, the flex initial value) must stay one row.
+            [$wrap, $conditionalWrap] = $this->rowFlexWrap($row, $rowDeclarations);
+            $listRule['flex-wrap'] = $wrap;
         }
         $listRule = array_merge($listRule, $listFlex);
         if (array() === $listRule && array() === $declarations && array() === $activeDeclarations) {
             return '';
         }
+        // Core marks the selected tab with a `::before` underline the source's
+        // selected trigger never drew; a carried trigger look replaces it.
+        $hideUnderline = $active instanceof DOMElement && ! $this->drawsUnderline($active);
         $body = static fn (array $rules): string => implode(';', array_map(static fn (string $property, string $value): string => $property . ':' . $value, array_keys($rules), $rules));
-        $className = 'blocks-engine-tab-list-' . substr(md5($body($listRule) . '|' . $body($declarations) . '|' . $body($activeDeclarations)), 0, 10);
+        $className = 'blocks-engine-tab-list-' . substr(md5($body($listRule) . '|' . serialize($conditionalWrap) . '|' . $body($declarations) . '|' . $body($activeDeclarations) . '|' . ($hideUnderline ? 'u' : '')), 0, 10);
         $css = array();
         if (array() !== $listRule) {
             $css[] = '.wp-block-tab-list.' . $className . '{' . $body($listRule) . '}';
+        }
+        foreach ($conditionalWrap as $condition => $value) {
+            $css[] = $condition . '{.wp-block-tab-list.' . $className . '{flex-wrap:' . $value . '}' . str_repeat('}', substr_count($condition, '{') + 1);
         }
         if (array() !== $declarations) {
             $css[] = '.wp-block-tab-list.' . $className . ' button{' . $body($declarations) . '}';
         }
         if (array() !== $activeDeclarations) {
-            // A pill-style selected state replaces core's underline marker.
             $css[] = '.wp-block-tab-list.' . $className . ' button[aria-selected="true"]{' . $body($activeDeclarations) . '}';
+        }
+        if ($hideUnderline) {
             $css[] = '.wp-block-tab-list.' . $className . ' button[aria-selected="true"]::before{display:none}';
         }
         ($this->registerRule)($className, implode("\n", $css));
 
         return $className;
+    }
+
+    /**
+     * The source row's `flex-wrap`: its resting value plus every viewport
+     * query that changes it. An inline declaration wins over all of them.
+     *
+     * @param array<string, string> $rowDeclarations
+     * @return array{0: string, 1: array<string, string>}
+     */
+    private function rowFlexWrap(DOMElement $row, array $rowDeclarations): array
+    {
+        $inline = strtolower(SourceDom::attr($row, 'style'));
+        if (1 === preg_match('/(?:^|;)\s*flex-(?:wrap|flow)\s*:/', $inline)) {
+            return array($this->wrapToken((string) ($rowDeclarations['flex-wrap'] ?? ''), (string) ($rowDeclarations['flex-flow'] ?? '')), array());
+        }
+        $wrap = $this->presentation->declaredPresentation($row, 'flex-wrap');
+        $flow = $this->presentation->declaredPresentation($row, 'flex-flow');
+        if ($wrap->isEmpty() && $flow->isEmpty()) {
+            $base = $this->wrapToken((string) ($rowDeclarations['flex-wrap'] ?? ''), (string) ($rowDeclarations['flex-flow'] ?? ''));
+        } else {
+            $base = $this->wrapToken($wrap->base(), $flow->base());
+        }
+        $conditional = array();
+        foreach ($flow->conditional() as $condition => $value) {
+            $conditional[$condition] = $this->wrapToken('', $value);
+        }
+        foreach ($wrap->conditional() as $condition => $value) {
+            $conditional[$condition] = $this->wrapToken($value, '');
+        }
+        $conditional = array_filter(
+            $conditional,
+            static fn (string $value, string $condition): bool => 1 === preg_match('/^@(?:media|supports|container)\b[^;<>}]*$/i', $condition),
+            ARRAY_FILTER_USE_BOTH
+        );
+
+        return array($base, $conditional);
+    }
+
+    /** Resolve `flex-wrap` (or the `flex-flow` shorthand) to its keyword; unset is `nowrap`. */
+    private function wrapToken(string $wrap, string $flow): string
+    {
+        foreach (array($wrap, $flow) as $value) {
+            foreach (preg_split('/\s+/', CssValueInspector::comparable($value)) ?: array() as $token) {
+                if (in_array($token, array('nowrap', 'wrap', 'wrap-reverse'), true)) {
+                    return $token;
+                }
+            }
+        }
+
+        return 'nowrap';
+    }
+
+    /** Does the source's selected trigger draw its own underline marker? */
+    private function drawsUnderline(DOMElement $trigger): bool
+    {
+        $declarations = $this->presentation->presentationDeclarations($trigger);
+        foreach (array('text-decoration', 'text-decoration-line') as $property) {
+            if (str_contains(strtolower((string) ($declarations[$property] ?? '')), 'underline')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Tests\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DeclaredPresentation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
@@ -34,4 +35,7 @@ final class ElementPresentationResolverFixture implements ElementPresentationRes
 
     public function responsiveTypographyClassName(DOMElement $element): string
     { return ''; }
+
+    public function declaredPresentation(DOMElement $element, string $property): DeclaredPresentation
+    { return DeclaredPresentation::none(); }
 }
