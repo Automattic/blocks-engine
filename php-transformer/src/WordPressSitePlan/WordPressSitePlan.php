@@ -517,9 +517,7 @@ PHP;
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
             $content = $this->presetBinding->bindStylesheet($asset['content']);
             if ($content === $asset['content']) continue;
-            $asset['content'] = $content;
-            $asset['bytes'] = strlen($content);
-            $asset['content_hash'] = self::contentHash($content);
+            $asset = self::withRewrittenTextContent($asset, $content);
         }
         unset($asset);
         $editorSplit = self::splitEditorCanvasStylesheets($assets);
@@ -1006,12 +1004,28 @@ PHP;
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
             $content = DocumentVariantIds::scopeIdSelectors($asset['content']);
             if ($content === $asset['content']) continue;
-            $asset['content'] = $content;
-            $asset['bytes'] = strlen($content);
-            $asset['content_hash'] = self::contentHash($content);
+            $asset = self::withRewrittenTextContent($asset, $content);
         }
         unset($asset);
         return $assets;
+    }
+
+    /**
+     * An asset whose text was rewritten in place. Its transport twin
+     * (`content_base64` and `transport_sha256`) described the bytes as
+     * delivered, so it is dropped rather than left to contradict the content.
+     *
+     * @param array<string,mixed> $asset
+     * @return array<string,mixed>
+     */
+    public static function withRewrittenTextContent(array $asset, string $content): array
+    {
+        $asset['content'] = $content;
+        $asset['bytes'] = strlen($content);
+        $asset['content_hash'] = self::contentHash($content);
+        if (array_key_exists('hash', $asset)) $asset['hash'] = self::contentHash($content);
+        unset($asset['content_base64'], $asset['transport_sha256']);
+        return $asset;
     }
 
     /** @param mixed $assets @return array<int,array<string,mixed>> */
@@ -1530,10 +1544,7 @@ PHP;
         $context['target_path'] = $context['path'];
         $context['reference_origin'] = (string) ($template['source_path'] ?? $template['path'] ?? '');
         $context['source_path'] = (string) ($template['source_path'] ?? $template['path'] ?? '') . '.shared-chrome-context';
-        $context['content'] = $rules;
-        $context['bytes'] = strlen($rules);
-        $context['hash'] = hash('sha256', $rules);
-        $context['content_hash'] = $context['hash'];
+        $context = self::withRewrittenTextContent($context, $rules);
         $context['scopes'] = array(array('kind' => 'global'));
         // The paint-order context is route-independent and paints after every
         // authored stylesheet; it is not an occurrence of its template's link.
@@ -1541,7 +1552,6 @@ PHP;
         unset($context['stylesheet_instances'], $context['stylesheet_parent'], $context['stylesheet_inline_order']);
         $context['token'] = 'asset-' . substr(hash('sha256', $context['target_path']), 0, 16);
         $context['reconciliation_identity'] = self::identity('asset', $context['source_path'], $context['target_path']);
-        unset($context['content_base64']);
         $assets[] = $context;
         return $assets;
     }
@@ -1943,23 +1953,16 @@ PHP;
             // Relative url() references still resolve against the stylesheet the
             // rules were projected from, not the synthetic shared-chrome identity.
             $sharedAsset['reference_origin'] = (string) ($asset['source_path'] ?? $asset['path'] ?? '');
-            $sharedAsset['content'] = $shared;
-            $sharedAsset['bytes'] = strlen($shared);
-            $sharedAsset['hash'] = hash('sha256', $shared);
-            $sharedAsset['content_hash'] = $sharedAsset['hash'];
+            $sharedAsset = self::withRewrittenTextContent($sharedAsset, $shared);
             $sharedAsset['scopes'] = array(array('kind' => 'global'));
             $sharedAsset['token'] = 'asset-' . substr(hash('sha256', $sharedAsset['target_path']), 0, 16);
             $sharedAsset['reconciliation_identity'] = self::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
             // Global chrome is not an occurrence of the stylesheet it was lifted
             // from; placeSharedStylesheetProjections() gives it a slot on every
             // route, next to whichever contributing stylesheet that route applies.
-            unset($sharedAsset['content_base64'], $sharedAsset['stylesheet_instances'], $sharedAsset['stylesheet_parent'], $sharedAsset['stylesheet_inline_order']);
+            unset($sharedAsset['stylesheet_instances'], $sharedAsset['stylesheet_parent'], $sharedAsset['stylesheet_inline_order']);
             $sharedAsset['_stylesheet_projection_origins'] = array(self::stylesheetProjectionOrigin($asset));
-            $asset['content'] = $route;
-            $asset['bytes'] = strlen($route);
-            $asset['hash'] = hash('sha256', $route);
-            $asset['content_hash'] = $asset['hash'];
-            unset($asset['content_base64']);
+            $asset = self::withRewrittenTextContent($asset, $route);
             $projected[] = $asset;
             // The target and token are content-addressed, and the scope is global,
             // so one emission covers every page. Keep it only when relative url()
@@ -2263,9 +2266,7 @@ PHP;
                 }
             );
             if ($content === $asset['content']) continue;
-            $asset['content'] = $content;
-            $asset['bytes'] = strlen($content);
-            $asset['content_hash'] = self::contentHash($content);
+            $asset = self::withRewrittenTextContent($asset, $content);
         }
         unset($asset);
         return $assets;
@@ -4967,11 +4968,7 @@ PHP;
             $editor['reference_origin'] = (string) ($asset['reference_origin'] ?? $asset['source_path']);
             $targets[strtolower($editorTarget)] = true;
             $asset['stylesheet_target'] = 'frontend';
-            $asset['content'] = $frontend;
-            $asset['bytes'] = strlen($frontend);
-            $asset['hash'] = hash('sha256', $frontend);
-            $asset['content_hash'] = self::contentHash($frontend);
-            unset($asset['content_base64']);
+            $asset = self::withRewrittenTextContent($asset, $frontend);
             $split[] = $asset;
             $added[] = $editor;
         }
