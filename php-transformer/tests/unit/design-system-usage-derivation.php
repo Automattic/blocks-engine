@@ -110,8 +110,8 @@ $system = DesignSystem::fromUsage(array(
     'a.html' => $usage(array($row('#222222', 100), $row('#232323', 40), $row('#e11d48', 10, 'link')), array(array('role' => 'root', 'color' => '#ffffff', 'authored' => null, 'count' => 1, 'weight' => 150), array('role' => 'root', 'color' => '#fefefe', 'authored' => null, 'count' => 1, 'weight' => 5))),
 ));
 $colors = array_column($system?->colors ?? array(), 'color', 'slug');
-$assert(array('base' => '#ffffff', 'contrast' => '#222222', 'primary' => '#e11d48') === $colors, 'near-duplicate colours within one just-noticeable difference merge into the heaviest member');
-$assert('contrast' === $system?->colorSlug('#222') && 'base' === $system?->colorSlug('rgb(255,255,255)') && null === $system?->colorSlug('#232323') && null === $system?->colorSlug('#fefefe') && null === $system?->colorSlug('rgba(34,34,34,.5)'), 'only a token\'s exact colour binds, so binding never changes what renders; merged shades and translucent colours keep their literal');
+$assert(array('base' => '#ffffff', 'contrast' => '#222222', 'primary' => '#e11d48', 'accent-1' => '#232323', 'accent-2' => '#fefefe') === $colors, 'near-duplicate colours within one just-noticeable difference rank under the heaviest member, and each painted shade keeps a token of its own after the distinct colours (' . json_encode($colors) . ')');
+$assert('contrast' === $system?->colorSlug('#222') && 'base' === $system?->colorSlug('rgb(255,255,255)') && 'accent-1' === $system?->colorSlug('#232323') && 'accent-2' === $system?->colorSlug('#fefefe') && null === $system?->colorSlug('#242424') && null === $system?->colorSlug('rgba(34,34,34,.5)'), 'a colour binds only to the token of its exact value: a near shade with no token of its own and translucent colours keep their literal');
 $many = array();
 for ($i = 0; $i < 20; $i++) $many[] = $row(sprintf('#%02x%02x%02x', 20 + $i * 11, 200 - $i * 9, ($i * 37) % 256), 20 - $i);
 $capped = DesignSystem::fromUsage(array('a.html' => $usage($many)));
@@ -179,8 +179,8 @@ foreach (array(
 ) as $why => $css) $assert($plain === (new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => $css)), $roseUsage))->bind($plain), "class-driven colour is not bound when $why");
 $assert(str_contains((new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => 'p.text-rose:not(.has-text-color){color:#e11d48!important}')), $roseUsage))->bind($plain), '"textColor"'), 'an !important rule that steps aside for preset colours does not block binding');
 
-// Low-weight colours fold into a heavier token within the imperceptible
-// bound (ΔE 5) and bind to it; a shade further away keeps a token of its own.
+// Low-weight colours group with a heavier colour within ΔE 5 for slot
+// ranking only; a painted shade still keeps a token of its own exact value.
 $consolidated = DesignSystem::consolidateColors(array(
     array('color' => '#050b18', 'weight' => 900, 'members' => array('#050b18')),
     array('color' => '#3b82f6', 'weight' => 60, 'members' => array('#3b82f6')),
@@ -189,15 +189,15 @@ $consolidated = DesignSystem::consolidateColors(array(
     array('color' => '#08101f', 'weight' => 15, 'members' => array('#08101f')),
     array('color' => '#e11d48', 'weight' => 10, 'members' => array('#e11d48')),
 ));
-$assert(array('#050b18' => 915, '#3b82f6' => 60, '#2563eb' => 40, '#0a1630' => 20, '#e11d48' => 10) === array_column($consolidated, 'weight', 'color'), 'a low-weight shade within ΔE 5 merges into the heavier token; a shade ΔE 12.9 away and heavier colours stay');
-$assert(array() === array_diff(array('#050b18', '#08101f'), $consolidated[0]['members']), 'the merged shade is a member of the heavier token');
+$assert(array('#050b18' => 915, '#3b82f6' => 60, '#2563eb' => 40, '#0a1630' => 20, '#e11d48' => 10) === array_column($consolidated, 'weight', 'color'), 'a low-weight shade within ΔE 5 ranks with the heavier colour; a shade ΔE 12.9 away and heavier colours rank on their own');
+$assert(array() === array_diff(array('#050b18', '#08101f'), $consolidated[0]['members']), 'the grouped shade is a member of the heavier colour\'s group');
 $heavyTwins = DesignSystem::consolidateColors(array(array('color' => '#333333', 'weight' => 500, 'members' => array('#333333')), array('color' => '#3b3b3b', 'weight' => 450, 'members' => array('#3b3b3b')), array('color' => '#2563eb', 'weight' => 400, 'members' => array('#2563eb'))));
-$assert(array('#333333' => 950, '#2563eb' => 400) === array_column($heavyTwins, 'weight', 'color'), 'a heavily used near-duplicate (ΔE 3.6) still folds into the heavier token: the palette holds distinct colours, not slots');
+$assert(array('#333333' => 950, '#2563eb' => 400) === array_column($heavyTwins, 'weight', 'color'), 'a heavily used near-duplicate (ΔE 3.6) still ranks with the heavier colour, so distinct colours take slots first');
 $foldedBackgrounds = array(array('role' => 'root', 'color' => '#050b18', 'authored' => '#050b18', 'count' => 1, 'weight' => 900), array('role' => 'section', 'color' => '#08101f', 'authored' => '#08101f', 'count' => 1, 'weight' => 20), array('role' => 'section', 'color' => '#0a1630', 'authored' => '#0a1630', 'count' => 1, 'weight' => 20));
 $paletteWith = DesignSystem::fromUsage(array('a.html' => $usage(array($row('#e5e7eb', 600)), $foldedBackgrounds)));
-$assert(array('#050b18', '#e5e7eb', '#0a1630') === array_column($paletteWith?->colors ?? array(), 'color'), 'the derived palette omits the folded shade and keeps the distant one (' . json_encode(array_column($paletteWith?->colors ?? array(), 'color')) . ')');
-$assert(null === $paletteWith?->colorSlug('#08101f') && 'base' === $paletteWith?->colorSlug('#050b18') && null !== $paletteWith?->colorSlug('#0a1630') && 'base' !== $paletteWith?->colorSlug('#0a1630'), 'a folded shade keeps its literal, since binding it would change what renders; a distant colour binds to its own token');
-$assert(array('#08101f') === ($paletteWith?->report()['palette'][0]['absorbs'] ?? null) && 5.0 === ($paletteWith?->report()['tolerances']['color_consolidation_delta_e76'] ?? null), 'the report names the shades a token absorbs and the imperceptible bound');
+$assert(array('#050b18', '#e5e7eb', '#0a1630', '#08101f') === array_column($paletteWith?->colors ?? array(), 'color'), 'the derived palette lists the distinct colours first, then the painted near shade with a token of its own (' . json_encode(array_column($paletteWith?->colors ?? array(), 'color')) . ')');
+$assert('base' === $paletteWith?->colorSlug('#050b18') && '#08101f' === $paletteWith?->color((string) $paletteWith?->colorSlug('#08101f')) && '#0a1630' === $paletteWith?->color((string) $paletteWith?->colorSlug('#0a1630')), 'each painted shade binds to the token of its exact value, never to the colour it ranks with');
+$assert(array() === ($paletteWith?->report()['literal_colors'] ?? null) && !array_key_exists('absorbs', $paletteWith?->report()['palette'][0] ?? array()) && 5.0 === ($paletteWith?->report()['tolerances']['color_consolidation_delta_e76'] ?? null), 'no token absorbs a painted shade, and the report names the ranking bound');
 $assert((CssColor::distance('#08101f', '#050b18') ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE && (CssColor::distance('#0a1630', '#050b18') ?? 0.0) > DesignSystem::COLOR_CONSOLIDATION_DISTANCE, 'the fixture shades sit on either side of the bound');
 
 // Without usage, projection keeps the legacy hashed presets.
@@ -257,23 +257,48 @@ $assert(($shellMetrics['restyle_coverage'] ?? 0) >= 0.8, 'tailwind-shell: at lea
 $assert(($shellPlan['theme']['design_system'] ?? null) === ($reversedShell['theme']['design_system'] ?? null), 'tailwind-shell: route order does not change the design system');
 
 // Six greys each written two indistinguishable ways, all on long paragraphs,
-// and a cyan accent that only marks many small elements through a custom
-// property: the palette holds the distinct colours, so the accent keeps a
-// token, and each twin keeps its literal colour.
+// a cyan accent that only marks many small elements through a custom
+// property, and an amber and a rose heading painted once each. Slots past
+// the roles go to painted colours by their own painted weight, whatever
+// family they rank in: the accent and the heavy grey twins keep tokens, and
+// the lightest painted colours (the two one-off headings among them) keep
+// their literal and are reported; a literal never binds to a near token.
 [$accentPlan, $accentTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/near-duplicate-neutrals-small-accent.php');
 $accentPalette = array_column($accentTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
 $cyan = (string) array_search('#22d3ee', $accentPalette, true);
-$assert(1 === preg_match($roleSlug, $cyan) && array() === array_intersect(array('#212121', '#424242', '#646464', '#858585', '#a6a6a6', '#cbcbcb'), $accentPalette), 'near-duplicate-neutrals-small-accent: the accent on many small elements keeps a token and no near-duplicate takes a slot (' . json_encode($accentPalette) . ')');
+$accentSystem = $accentPlan['theme']['design_system'] ?? array();
+$accentLiterals = $accentSystem['literal_colors'] ?? array();
+$assert(1 === preg_match($roleSlug, $cyan) && 12 === count($accentPalette) && array() === array_intersect($accentLiterals, $accentPalette), 'near-duplicate-neutrals-small-accent: the accent on many small elements keeps a token and the palette is full (' . json_encode($accentPalette) . ')');
+$assert(array() === array_diff(array('#b45309', '#be123c'), $accentLiterals) && 6 === count($accentLiterals) && 6 === ($accentSystem['metrics']['literal_color_count'] ?? null), 'near-duplicate-neutrals-small-accent: the lightest painted colours, including the one-off headings, are the ones left literal and reported (' . json_encode($accentLiterals) . ')');
 $accentMarkup = implode('', array_column($accentPlan['pages'], 'canonical_block_markup'));
-$twinsKeepLiteral = array();
-foreach (array('g1', 'g2', 'g3', 'g4', 'g5', 'g6') as $grey) {
-    // Binding never changes what renders: a twin keeps its own literal
-    // rather than taking the token of the grey it sits beside.
-    $twinsKeepLiteral[$grey] = 0 === preg_match('/"className":"' . $grey . 'b","textColor":"/', $accentMarkup);
+$classColors = array('g1' => '#1a1a1a', 'g1b' => '#212121', 'g2' => '#3a3a3a', 'g2b' => '#424242', 'g3' => '#5c5c5c', 'g3b' => '#646464', 'g4' => '#7d7d7d', 'g4b' => '#858585', 'g5' => '#9e9e9e', 'g5b' => '#a6a6a6', 'g6' => '#c4c4c4', 'g6b' => '#cbcbcb');
+$literalBindings = array();
+foreach ($classColors as $class => $hex) {
+    preg_match('/"className":"' . $class . '","textColor":"([a-z0-9-]+)"/', $accentMarkup, $bound);
+    $expected = in_array($hex, $accentLiterals, true) ? null : (string) array_search($hex, $accentPalette, true);
+    if (($bound[1] ?? null) !== $expected) $literalBindings[$class] = array('expected' => $expected, 'bound' => $bound[1] ?? null);
 }
-$assert(array() === array_filter($twinsKeepLiteral, static fn(bool $kept): bool => !$kept), 'near-duplicate-neutrals-small-accent: a near-duplicate that takes no slot keeps its literal colour');
+$assert(array() === $literalBindings, 'near-duplicate-neutrals-small-accent: each grey binds to the token of its exact value, and a grey with no token keeps its literal (' . json_encode($literalBindings) . ')');
 $accentCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($accentPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
 $assert(str_contains($accentCss, '--cyan:var(--wp--preset--color--' . $cyan . ',#22d3ee)') && 1 === preg_match('/\\.dot[^{]*\\{color:var\\(--wp--preset--color--' . $cyan . ',var\\(--cyan\\)\\)/', $accentCss), 'near-duplicate-neutrals-small-accent: the authored --cyan custom property reads the accent token, so every rule using it follows the palette');
+
+// A heavy near shade of `base` (white cards on a `#f7fafc` page) outranks
+// two distinct colours each painted on one tiny element: slots past the
+// roles go by each colour's own painted weight, so white keeps a token of
+// its exact value and the two barely used colours are the ones left literal.
+[$heavyPlan, $heavyTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/heavy-near-shade-tiny-accents.php');
+$heavyPalette = array_column($heavyTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+$heavySystem = $heavyPlan['theme']['design_system'] ?? array();
+$heavyLiterals = $heavySystem['literal_colors'] ?? array();
+sort($heavyLiterals);
+$assert('#f7fafc' === ($heavyPalette['base'] ?? null) && 12 === count($heavyPalette) && (CssColor::distance('#ffffff', '#f7fafc') ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE, 'heavy-near-shade-tiny-accents: the palette is full and white is a near shade of base (' . json_encode($heavyPalette) . ')');
+$assert(1 === preg_match($roleSlug, (string) array_search('#ffffff', $heavyPalette, true)), 'heavy-near-shade-tiny-accents: the heavily painted near shade of base keeps a token of its own exact value (' . json_encode($heavyPalette) . ')');
+$assert(array('#34d399', '#80a690') === $heavyLiterals && 2 === ($heavySystem['metrics']['literal_color_count'] ?? null), 'heavy-near-shade-tiny-accents: the colours painted on one tiny element each are the ones left literal (' . json_encode($heavySystem['literal_colors'] ?? null) . ')');
+$heavyMarkup = implode('', array_column($heavyPlan['pages'], 'canonical_block_markup'));
+preg_match_all('/<!-- wp:group (\{.*?\}) -->/', $heavyMarkup, $heavyGroups);
+$cardColors = array();
+foreach ($heavyGroups[1] as $json) if ('card' === (json_decode($json, true)['className'] ?? null)) $cardColors[] = $heavyPalette[(string) (json_decode($json, true)['backgroundColor'] ?? '')] ?? null;
+$assert(8 === count($cardColors) && array('#ffffff') === array_values(array_unique($cardColors)), 'heavy-near-shade-tiny-accents: every white card binds to the white token, never to base (' . json_encode($cardColors) . ')');
 
 // A blog index of many small system-font titles does not name the heading
 // role over the display h1/h2 every other route opens with: each route's
@@ -316,8 +341,8 @@ foreach ($plans as $fixture => [$plan, $theme]) {
     $assert(!isset($styles['color']['background']) || 'var:preset|color|base' === $styles['color']['background'], "$fixture: root background is the base role");
     $assert(!isset($styles['elements']['heading']['typography']['fontFamily']) || 'var:preset|font-family|heading' === $styles['elements']['heading']['typography']['fontFamily'], "$fixture: heading family is the heading role");
     $coverage = $plan['theme']['design_system']['metrics']['restyle_coverage'] ?? null;
-    // Exact binding keeps every rendered value; shades the palette merged
-    // keep their literal, which bounds coverage until they get own tokens.
+    // Exact binding keeps every rendered value; painted shades take tokens
+    // of their own, so only colours past the palette bound keep literals.
     $assert(is_float($coverage) && $coverage >= 0.7 && $coverage <= 1.0, "$fixture: at least 70% of rendered colours come from presets (" . json_encode($coverage) . ')');
 }
 
@@ -415,6 +440,98 @@ $assert(array() === $refusalsOf(array($inlineBinding->bind($inline('<mark style=
 $displayMetrics = $displayPlan['theme']['design_system']['metrics'] ?? array();
 $assert(PresetBinding::REFUSAL_REASONS === array_keys($displayMetrics['refusal_reasons'] ?? array()) && ($displayMetrics['refusal_reasons']['alpha'] ?? 0) > 0 && array_sum($displayMetrics['refusal_reasons']) === ($displayMetrics['refused_value_count'] ?? null), 'system-stack-display-headings: metrics break refusals down by every reason (' . json_encode($displayMetrics['refusal_reasons'] ?? null) . ')');
 $assert(1.0 === ($displayMetrics['restyle_coverage'] ?? null), 'system-stack-display-headings: every rendered colour follows the palette (' . json_encode($displayMetrics['restyle_coverage'] ?? null) . ')');
+
+// Issue #3043: a preset binding never changes a painted colour. Every colour
+// a binding produced, with the source value it replaced: stylesheet
+// declarations read `var(--wp--preset--color--slug,source)`, block colour
+// attributes replace the colour their class rendered ($sourceByClass), and
+// theme.json root and element styles replace the value every document
+// rendered ($sourceStyles, keyed by path).
+$colorBindings = static function (array $plan, array $theme, array $sourceByClass = array(), array $sourceStyles = array()): array {
+    $palette = array_column($theme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+    $bindings = array();
+    $resolve = static function (string $value): ?string {
+        // `var(--x, fallback)` renders its fallback when nothing sets --x.
+        for ($depth = 0; $depth < 5 && preg_match('/var\(\s*--[A-Za-z0-9_-]+\s*,\s*([^()]*)\)/', $value); $depth++) $value = (string) preg_replace('/var\(\s*--[A-Za-z0-9_-]+\s*,\s*([^()]*)\)/', '$1', $value);
+        return CssColor::hex(trim($value));
+    };
+    foreach ($plan['assets'] ?? array() as $asset) {
+        if ('css' !== ($asset['kind'] ?? null)) continue;
+        $css = (string) ($asset['content'] ?? '');
+        $offset = 0;
+        while (false !== ($at = strpos($css, 'var(--wp--preset--color--', $offset))) {
+            $depth = 0;
+            for ($end = $at; $end < strlen($css); $end++) {
+                if ('(' === $css[$end]) $depth++;
+                if (')' === $css[$end] && 0 === --$depth) break;
+            }
+            $inner = substr($css, $at + 4, $end - $at - 4);
+            [$property, $fallback] = array_pad(explode(',', $inner, 2), 2, '');
+            $slug = substr($property, strlen('--wp--preset--color--'));
+            $bindings[] = array('where' => 'stylesheet ' . substr($css, max(0, $at - 40), $end - $at + 41), 'preset' => $palette[$slug] ?? null, 'source' => $resolve($fallback));
+            $offset = $end;
+        }
+    }
+    $markups = array_column(array_merge($plan['pages'] ?? array(), $plan['template_parts'] ?? array(), $plan['templates'] ?? array()), 'canonical_block_markup');
+    foreach ($plan['menus'] ?? array() as $menu) $markups[] = (string) ($menu['block_markup'] ?? '');
+    foreach ($markups as $markup) {
+        preg_match_all('/<!-- wp:([a-z0-9\/-]+) (\{.*?\}) \/?-->/s', (string) $markup, $blocks, PREG_SET_ORDER);
+        foreach ($blocks as [, $name, $json]) {
+            $attributes = json_decode($json, true);
+            if (!is_array($attributes)) continue;
+            $classes = preg_split('/\s+/', (string) ($attributes['className'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: array();
+            foreach (array('textColor' => 'text', 'backgroundColor' => 'background') as $key => $property) {
+                if (!is_string($attributes[$key] ?? null)) continue;
+                $source = null;
+                foreach ($classes as $class) $source ??= $sourceByClass[$class][$property] ?? null;
+                $bindings[] = array('where' => "$name.$key " . implode(' ', $classes), 'preset' => $palette[$attributes[$key]] ?? null, 'source' => null === $source ? null : CssColor::hex($source));
+            }
+        }
+    }
+    $walk = static function (mixed $node, string $path) use (&$walk, &$bindings, $palette, $sourceStyles): void {
+        if (is_string($node) && str_starts_with($node, 'var:preset|color|')) $bindings[] = array('where' => 'theme.json ' . $path, 'preset' => $palette[substr($node, strlen('var:preset|color|'))] ?? null, 'source' => isset($sourceStyles[$path]) ? CssColor::hex($sourceStyles[$path]) : null);
+        if (is_array($node)) foreach ($node as $key => $child) $walk($child, '' === $path ? (string) $key : $path . '.' . $key);
+    };
+    $walk($theme['styles'] ?? array(), '');
+    return $bindings;
+};
+$repainted = static fn(array $bindings): array => array_values(array_filter($bindings, static fn(array $binding): bool => null === $binding['preset'] || $binding['preset'] !== $binding['source']));
+
+// (a) The reduced fixture: the `#ffffff` card and the `#f6f8fa` surfaces
+// both bind, each to a token whose value is its own colour.
+[$surfacePlan, $surfaceTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/painted-surface-shades.php');
+$surfacePalette = array_column($surfaceTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+$surfaceMarkup = implode('', array_column($surfacePlan['pages'] ?? array(), 'canonical_block_markup'));
+$boundTo = static function (string $class, string $markup): array {
+    preg_match_all('/<!-- wp:group (\{[^\n]*?\}) -->/', $markup, $groups);
+    $slugs = array();
+    foreach ($groups[1] as $json) {
+        $attributes = json_decode($json, true);
+        if ($class === ($attributes['className'] ?? null)) $slugs[] = $attributes['backgroundColor'] ?? null;
+    }
+    return $slugs;
+};
+$surfaceSlugs = $boundTo('bg-surface', $surfaceMarkup);
+$cardSlugs = $boundTo('bg-white', $surfaceMarkup);
+$assert(3 === count($surfaceSlugs) && array() === array_filter($surfaceSlugs, static fn(?string $slug): bool => '#f6f8fa' !== ($surfacePalette[(string) $slug] ?? null)) && array('#ffffff') === array_map(static fn(?string $slug): ?string => $surfacePalette[(string) $slug] ?? null, $cardSlugs), 'painted-surface-shades: the #ffffff card and every #f6f8fa section bind, each to a token whose value is its own exact colour (' . json_encode(array('surfaces' => $surfaceSlugs, 'card' => $cardSlugs, 'palette' => $surfacePalette)) . ')');
+// (b) No block or stylesheet colour differs from its source value.
+$surfaceBindings = $colorBindings($surfacePlan, $surfaceTheme, array('bg-surface' => array('background' => '#f6f8fa'), 'bg-white' => array('background' => '#ffffff')), array('color.text' => '#000000', 'color.background' => '#ffffff', 'elements.heading.color.text' => '#000000', 'elements.link.color.text' => '#000000'));
+$assert(array() !== $surfaceBindings && array() === $repainted($surfaceBindings), 'painted-surface-shades: every block and stylesheet colour binding reads a token equal to its source colour (' . json_encode($repainted($surfaceBindings)) . ')');
+$surfaceCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($surfacePlan['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
+$assert(1 === preg_match('/\.bg-surface\{background-color:var\(--wp--preset--color--([a-z0-9-]+),#f6f8fa\)/', $surfaceCss, $surfaceRule) && '#f6f8fa' === ($surfacePalette[$surfaceRule[1]] ?? null), 'painted-surface-shades: the stylesheet surface rule reads the surface\'s own token');
+$surfaceSystem = $surfacePlan['theme']['design_system'] ?? array();
+$surfaceMetrics = $surfaceSystem['metrics'] ?? array();
+$assert(array() === ($surfaceSystem['literal_colors'] ?? null) && 4 === ($surfaceMetrics['restyle_backgrounds'] ?? null) && 4 === ($surfaceMetrics['restyle_backgrounds_preset'] ?? null) && 0 === ($surfaceMetrics['literal_value_count'] ?? null), 'painted-surface-shades: every painted background follows the palette with no literal left (' . json_encode($surfaceMetrics) . ')');
+
+// (c) The navigation-anchor-subject fixture: the `#fafafa` header and every
+// other bound colour keep their source value, so the header paints 1:1.
+$anchorSource = require dirname(__DIR__) . '/fixtures/navigation-anchor-subject.php';
+[$anchorPlan, $anchorTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $anchorSource, 'other.html' => $anchorSource)));
+$anchorStyles = array('color.text' => '#17212b', 'elements.link.color.text' => '#17212b', 'elements.heading.color.text' => '#17212b', 'elements.button.color.text' => '#ffffff');
+$anchorBindings = $colorBindings($anchorPlan, $anchorTheme, array(), $anchorStyles);
+$anchorPalette = array_column($anchorTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+$assert(count($anchorBindings) >= 10 && array() === $repainted($anchorBindings), 'navigation-anchor-subject: every bound colour equals its source value (' . json_encode($repainted($anchorBindings)) . ')');
+$assert(1 === preg_match('/header\{padding:12px;background:var\(--wp--preset--color--([a-z0-9-]+),#fafafa\)/', implode('', array_column($anchorPlan['assets'] ?? array(), 'content')), $headerRule) && '#fafafa' === ($anchorPalette[$headerRule[1]] ?? null), 'navigation-anchor-subject: the #fafafa header keeps a token of its own, so it follows the palette without repainting');
 
 fwrite(STDOUT, "Design system usage derivation: {$passes} passed, {$failures} failed\n");
 exit($failures ? 1 : 0);
