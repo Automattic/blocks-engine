@@ -342,7 +342,7 @@ final class ConversionFindingContract
             'runtime_script'                => 'runtime_script_materialization',
             'runtime_interactive_behavior'  => 'runtime_interactive_behavior_restoration',
             'commerce_product_grid'         => 'materialize_commerce_products',
-            'commerce_controls'             => 'materialize_commerce_runtime',
+            'commerce_controls', 'commerce_cart' => 'materialize_commerce_runtime',
             'interactive_control'           => 'restore_interactive_behavior',
             'runtime_template', 'runtime_island', 'interactive_form' => 'preserve_runtime_island',
             'inert_template_metadata', 'static_script_metadata' => 'preserve_static_metadata',
