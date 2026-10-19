@@ -636,6 +636,7 @@
       "php tests/unit/captured-dialog-trigger-survives.php",
       "php tests/unit/accordion-toggle-presentation.php",
       "php tests/unit/accordion-heading-icon-wrapper.php",
+      "php tests/unit/accordion-item-level-control.php",
       "php tests/unit/disclosure-responsive-display.php",
       "php tests/unit/disclosure-panel-navigation.php",
       "php tests/unit/source-closed-panel-navigation.php",
