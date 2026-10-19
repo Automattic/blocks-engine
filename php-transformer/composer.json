@@ -167,6 +167,7 @@
       "php tests/contract/shell-frame-hoist.php",
       "php tests/contract/generic-page-shell-frame.php",
       "php tests/contract/capture-variant-plain-page-shell.php",
+      "php tests/contract/page-wide-main-footer-section.php",
       "php tests/contract/navigation-entity-label-identity.php",
       "php tests/contract/label-wrapped-navigation-shared-part.php",
       "php tests/contract/footer-content-bound-blocks.php",

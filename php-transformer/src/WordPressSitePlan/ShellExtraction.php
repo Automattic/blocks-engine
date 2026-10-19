@@ -770,19 +770,30 @@ final class ShellExtraction
     /** @return array<int,array<string,mixed>> */
     private function nestedLandmarkCandidates(string $markup, string $sourcePath, string $area): array
     {
-        $rows = array(); $stack = array();
+        // A <main> that also holds the page's header (its first eligible header
+        // landmark) wraps the whole page shell rather than a content region, so
+        // it does not disqualify header/footer candidates; article, aside and
+        // section ancestors still do.
+        $rows = array(); $stack = array(); $shellMains = null; $documentEnds = array();
+        foreach (self::topLevelBlockRanges($markup) as $range) $documentEnds[$range['offset']] = $range['offset'] + $range['length'];
         foreach (self::blockCommentTokens($markup) as $token) {
             $offset = $token['offset']; $closing = $token['closing']; $selfClosing = $token['self_closing'];
             if ($closing) {
                 $open = array_pop($stack);
                 if (!is_array($open) || empty($open['candidate'])) continue;
                 $length = $offset + strlen($token['token']) - $open['offset']; $candidateMarkup = substr($markup, $open['offset'], $length);
-                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'document_level' => empty($stack), 'wrapper_contract_shell' => !empty($open['wrapper_contract_shell']), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])) + (array() !== ($open['backdrop_ids'] ?? array()) ? array('backdrop_ids' => $open['backdrop_ids']) : array()));
+                // A section/div named footer is the route's footer only when no
+                // block follows it in its top-level document block.
+                if (!empty($open['named_footer']) && 1 === preg_match('/<!--\s*wp:/', substr($markup, $offset + strlen($token['token']), $open['document_end'] - $offset - strlen($token['token'])))) continue;
+                $rows[] = array('main_ancestors' => $open['main_ancestors'], 'area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'document_level' => empty($stack), 'wrapper_contract_shell' => !empty($open['wrapper_contract_shell']), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])) + (array() !== ($open['backdrop_ids'] ?? array()) ? array('backdrop_ids' => $open['backdrop_ids']) : array()));
                 continue;
             }
             $name = $token['name']; $attributes = $token['attributes']; $attrs = '' === $attributes ? array() : json_decode($attributes, true);
-            $disallowedAncestor = false;
-            foreach ($stack as $ancestor) if (in_array($ancestor['tag_name'] ?? null, array('main', 'article', 'section', 'aside'), true)) { $disallowedAncestor = true; break; }
+            $disallowedAncestor = false; $mainAncestors = array();
+            foreach ($stack as $ancestor) {
+                if ('main' === ($ancestor['tag_name'] ?? null)) $mainAncestors[] = $ancestor['offset'];
+                elseif (ShellLandmarkPolicy::isContentRegionTag((string) ($ancestor['tag_name'] ?? ''))) { $disallowedAncestor = true; break; }
+            }
             $tagName = is_array($attrs) ? ($attrs['tagName'] ?? null) : null;
             $role = is_array($attrs) && is_string($attrs['role'] ?? null) ? $attrs['role'] : '';
             $className = is_array($attrs) && is_string($attrs['className'] ?? null) ? $attrs['className'] : '';
@@ -803,9 +814,16 @@ final class ShellExtraction
             // Semantic shell landmarks can be direct document children when the
             // source has no layout wrapper. The footer still requires an
             // enclosing wrapper, and article-owned landmarks stay excluded.
-            $footerClass = $hasShellWrapperContract ? self::footerAreaFromClassName($className) : null;
-            $tagName = ShellLandmarkPolicy::landmarkKind((string) $tagName, $role) ?: ($footerClass ?? $tagName);
-            $candidate = ('header' === $area || 0 < count($stack)) && !$disallowedAncestor && $area === $tagName && (self::isShellLandmarkBlock($name) || ('footer' === $area && $hasShellWrapperContract && 'footer' === $footerClass));
+            // Without the wrapper contract, a section/div named footer by class
+            // or id is a footer candidate too, once it proves page-final.
+            $footerName = self::footerAreaFromName($className, $anchor);
+            $landmark = ShellLandmarkPolicy::landmarkKind((string) $tagName, $role);
+            $namedFooter = '' === $landmark && !$hasShellWrapperContract && 'footer' === $footerName && in_array($tagName ?? 'div', array('div', 'section'), true);
+            $footerClass = $hasShellWrapperContract ? $footerName : null;
+            $tagName = $landmark ?: ($footerClass ?? $tagName);
+            $kind = $namedFooter ? 'footer' : $tagName;
+            if (null === $shellMains && !$disallowedAncestor && 'header' === $landmark && self::isShellLandmarkBlock($name)) $shellMains = $mainAncestors;
+            $candidate = ('header' === $area || 0 < count($stack)) && !$disallowedAncestor && $area === $kind && (self::isShellLandmarkBlock($name) || ('footer' === $area && $hasShellWrapperContract && 'footer' === $footerClass));
             // Whether page content precedes the landmark inside its ancestors: a
             // block other than the enclosing openings started or ended before it.
             $preceded = false;
@@ -815,10 +833,11 @@ final class ShellExtraction
                 $preceded = preg_match_all('/<!--\s*wp:/', $between) > count($stack) || 0 < preg_match_all('/<!--\s*\/wp:/', $between);
                 if ($preceded) $backdropIds = self::backdropAncestorIds($markup, $stack, $offset);
             }
-            if (!$selfClosing) $stack[] = array('offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'anchor' => $anchor, 'class_name' => $className);
+            if (!$selfClosing) $stack[] = array('offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'named_footer' => $candidate && $namedFooter, 'document_end' => $stack[0]['document_end'] ?? $documentEnds[$offset] ?? strlen($markup), 'main_ancestors' => $mainAncestors, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'anchor' => $anchor, 'class_name' => $className);
         }
+        $rows = array_values(array_filter($rows, static fn(array $row): bool => array() === array_diff($row['main_ancestors'], $shellMains ?? array())));
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
-        foreach ($rows as $variant => &$row) $row['variant'] = $variant; unset($row);
+        foreach ($rows as $variant => &$row) { unset($row['main_ancestors']); $row['variant'] = $variant; } unset($row);
         return $rows;
     }
 
@@ -2315,9 +2334,10 @@ final class ShellExtraction
         return 'group' === $name || str_ends_with($name, '/scroll-state');
     }
 
-    private static function footerAreaFromClassName(string $className): ?string
+    /** An element named footer by one of its classes or by its id. */
+    private static function footerAreaFromName(string $className, string $anchor): ?string
     {
-        foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
+        foreach (preg_split('/\s+/', trim($className . ' ' . $anchor)) ?: array() as $class) {
             if (in_array(strtolower($class), array('footer', 'site-footer', 'widget-footer', 'colophon', 'site-info'), true)) return 'footer';
         }
         return null;
