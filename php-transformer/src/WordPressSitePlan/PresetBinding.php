@@ -739,23 +739,23 @@ final class PresetBinding
     public function bindStylesheet(string $css): string
     {
         $transformer = new CssStylesheetTransformer();
-        return $transformer->transformStyleRules($css, fn(string $prelude, string $body): string => $prelude . '{' . $this->bindRuleBody($transformer, $body) . '}');
+        return $transformer->transformStyleRules($css, fn(string $prelude, string $body): string => $prelude . '{' . $this->bindRuleBody($transformer, $body, self::rootSelector($prelude)) . '}');
     }
 
-    private function bindRuleBody(CssStylesheetTransformer $transformer, string $body): string
+    private function bindRuleBody(CssStylesheetTransformer $transformer, string $body, bool $rootSelector = false): string
     {
         $result = '';
         foreach ($transformer->splitStyleRuleBody($body) as $part) {
             if (!isset($part['declarations'])) {
                 $nested = '' === $part['at_rule'] || in_array($part['at_rule'], array('media', 'supports', 'container', 'layer', 'scope'), true);
-                $result .= $part['prelude'] . '{' . ($nested ? $this->bindRuleBody($transformer, $part['body']) : $part['body']) . '}';
+                $result .= $part['prelude'] . '{' . ($nested ? $this->bindRuleBody($transformer, $part['body'], $rootSelector) : $part['body']) . '}';
                 continue;
             }
             $declarations = $part['declarations'];
             $changed = false;
             $rewritten = array();
             foreach (CssValueSplitter::splitTopLevel($declarations, array(';')) as $declaration) {
-                $bound = $this->bindDeclaration($declaration);
+                $bound = $this->bindDeclaration($declaration, $rootSelector);
                 $changed = $changed || $bound !== $declaration;
                 $rewritten[] = $bound;
             }
@@ -765,7 +765,7 @@ final class PresetBinding
         return $result;
     }
 
-    private function bindDeclaration(string $declaration): string
+    private function bindDeclaration(string $declaration, bool $rootSelector = false): string
     {
         $parts = explode(':', $declaration, 2);
         if (2 !== count($parts)) return $declaration;
@@ -796,6 +796,9 @@ final class PresetBinding
             return $parts[0] . ':' . $mix . $important;
         }
         if (null === $slug) return $declaration;
+        // Root-relative units on the root element resolve against the initial
+        // font size, not the document's root, so such a preset would rescale it.
+        if ($rootSelector && 'font-size' === $kind && self::rootRelativePreset($this->system->fontSizes, $slug)) return $declaration;
         ++$this->bound;
         return $parts[0] . ':var(--wp--preset--' . ('color' === $kind ? 'color' : $kind) . '--' . $slug . ',' . $value . ')' . $important;
     }
@@ -816,6 +819,22 @@ final class PresetBinding
         if (null === $color) return null;
         $opaque = sprintf('#%02x%02x%02x', (int) round($color[0]), (int) round($color[1]), (int) round($color[2]));
         return 'color-mix(in srgb, var(--wp--preset--color--' . $translucent['slug'] . ',' . $opaque . ') ' . $translucent['percent'] . '%, transparent)';
+    }
+
+    /** Whether any selector in the list matches the root element itself (`html`, `:root`, optionally qualified). */
+    private static function rootSelector(string $selector): bool
+    {
+        foreach (CssValueSplitter::splitTopLevel($selector, array(',')) as $part) {
+            if (1 === preg_match('/^(?:html|:root)(?:\\[[^\\]]*\\]|::?[\\w-]+(?:\\([^)]*\\))?|[.#][\\w-]+)*$/i', trim($part))) return true;
+        }
+        return false;
+    }
+
+    /** @param list<array{slug:string,size:string}> $sizes */
+    private static function rootRelativePreset(array $sizes, string $slug): bool
+    {
+        foreach ($sizes as $size) if ($size['slug'] === $slug) return 1 === preg_match('/\\d(?:r?em|%)/i', $size['size']);
+        return false;
     }
 
     private function exactFontSizeSlug(string $value): ?string

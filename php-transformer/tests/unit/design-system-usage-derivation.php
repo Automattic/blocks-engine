@@ -221,6 +221,22 @@ $assert(!str_contains($sheet($opacity . '.text-opacity-50{--tw-text-opacity:.5}'
 $assert(!str_contains($sheet('.a{color:hsl(var(--x))}', array(array('kind' => 'css', 'content' => ':root{--x:347 77% 50%}.dark{--x:0 0% 7%}'))), '--wp--preset--color--'), 'a colour read from a custom property a scope redefines keeps the literal');
 $assert('.a{font-family:var(--wp--preset--font-family--body,Inter, sans-serif)}.b{font-family:Inter,Arial}' === $sheet('.a{font-family:Inter, sans-serif}.b{font-family:Inter,Arial}'), 'only the preset\'s own font stack binds, so fallbacks do not change');
 
+// A document whose root is 10px names its sizes in rem. A rule on the root
+// element itself resolves rem, em and % against the initial 16px, so binding
+// `html{font-size:10px}` to a `1rem` preset would scale every rem on the page
+// by 1.6. The root keeps its literal; descendants still bind.
+$tenPxUsage = $usage(array($row('#111111', 50, 'body', 10), $row('#111111', 30, 'body', 20)));
+$tenPxUsage['root_font_size_px'] = 10;
+$tenPxSystem = DesignSystem::fromUsage(array('a.html' => $tenPxUsage));
+$tenPxSlug = (string) $tenPxSystem?->fontSizeSlug('10px');
+$tenPxSheet = static fn(string $css): string => (new PresetBinding($tenPxSystem, array(array('kind' => 'css', 'content' => $css))))->bindStylesheet($css);
+$assert('' !== $tenPxSlug && in_array('1rem', array_column($tenPxSystem?->fontSizes ?? array(), 'size'), true), 'a 10px root names its 10px size as 1rem (' . json_encode($tenPxSystem?->fontSizes) . ')');
+$assert('html{font-size:10px}:root{font-size:10px}html[lang]:not(.x){font-size:10px}' === $tenPxSheet('html{font-size:10px}:root{font-size:10px}html[lang]:not(.x){font-size:10px}'), 'a root-element font size keeps its literal instead of a root-relative preset');
+$assert('html .x{font-size:var(--wp--preset--font-size--' . $tenPxSlug . ',10px)}' === $tenPxSheet('html .x{font-size:10px}'), 'a descendant of the root still binds to the rem preset');
+$assert('@media (min-width:40rem){html{font-size:10px}}' === $tenPxSheet('@media (min-width:40rem){html{font-size:10px}}'), 'a root font size inside a media query keeps its literal');
+$assert('html,.x{font-size:10px}' === $tenPxSheet('html,.x{font-size:10px}'), 'a selector list that includes the root keeps its literal');
+$assert(str_contains($sheet('html{font-size:1.5rem}'), '--wp--preset--font-size--large'), 'a root font size still binds to an absolute preset');
+
 // Contrast is the readable main text colour on base, never a low-contrast one.
 $contrastOf = static fn(array $text, array $root = array()): ?string => array_column(DesignSystem::fromUsage(array('a.html' => $usage($text, array(array('role' => 'root', 'color' => '#ffffff', 'authored' => null, 'count' => 1, 'weight' => 500)), $root)))?->colors ?? array(), 'color', 'role')['contrast'] ?? null;
 $assert('#333333' === $contrastOf(array($row('#cccccc', 300), $row('#333333', 120))), 'a heavier text colour below WCAG AA on base is not contrast');
