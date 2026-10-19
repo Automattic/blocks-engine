@@ -269,11 +269,11 @@ final class CapturedSelectableSetConverter implements ElementConverter
                 break;
             }
         }
-        $declarations = $this->safeDeclarations($this->presentation->presentationDeclarations($base));
+        $declarations = $this->safeDeclarations($this->triggerDeclarations($base));
         $activeDeclarations = array();
         if ($active instanceof DOMElement && ! $active->isSameNode($base)) {
             $activeDeclarations = array_diff_assoc(
-                $this->safeDeclarations($this->presentation->presentationDeclarations($active)),
+                $this->safeDeclarations($this->triggerDeclarations($active)),
                 $declarations
             );
         }
@@ -376,6 +376,43 @@ final class CapturedSelectableSetConverter implements ElementConverter
         }
 
         return 'nowrap';
+    }
+
+    /**
+     * Properties that size a trigger as a row item and keep its label on one
+     * line. The presentation cascade leaves them out as structural, but a tab
+     * button that loses them shrinks and wraps inside a scrolling row.
+     */
+    private const TRIGGER_ITEM_SIZING_PROPERTIES = array(
+        'white-space',
+        'white-space-collapse',
+        'text-wrap',
+        'text-wrap-mode',
+        'flex',
+        'flex-grow',
+        'flex-shrink',
+        'flex-basis',
+        'min-width',
+    );
+
+    /**
+     * The trigger's paint plus its source item sizing and text wrapping. The
+     * presentation value wins where both carry a property.
+     *
+     * @return array<string, string>
+     */
+    private function triggerDeclarations(DOMElement $trigger): array
+    {
+        $declarations = $this->presentation->presentationDeclarations($trigger);
+        $sizing = array_intersect_key(
+            $this->presentation->authorStructuralDeclarations($trigger),
+            array_flip(self::TRIGGER_ITEM_SIZING_PROPERTIES)
+        );
+        foreach ($sizing as $property => $value) {
+            $declarations[$property] ??= (string) $value;
+        }
+
+        return $declarations;
     }
 
     /** Does the source's selected trigger draw its own underline marker? */
