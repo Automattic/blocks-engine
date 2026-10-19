@@ -78,7 +78,7 @@ $twoPane = ( new HtmlTransformer() )->transform(
 $twoPaneMarkup = (string) ( $twoPane['serialized_blocks'] ?? '' );
 $assert(str_contains($twoPaneMarkup, 'data-blocks-engine-capture-viewport-entrance=') && ! str_contains($twoPaneMarkup, 'wp:media-text') && ! str_contains($twoPaneMarkup, 'wp:html'), 'a two-pane target keeps its attribute instead of becoming media-text: ' . $twoPaneMarkup);
 
-// A target that wraps interactive controls keeps the bounded island treatment.
+// A target that wraps an unaddressed control keeps its attribute.
 $island = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files'      => array( 'index.html' => $page(
@@ -87,19 +87,39 @@ $island = ( new ArtifactCompiler() )->compile(array(
 ))->toArray();
 $assert(str_contains((string) ( $island['serialized_blocks'] ?? '' ), 'data-blocks-engine-capture-viewport-entrance='), 'a target wrapping controls still keeps its attribute');
 
-// An empty script-populated mount point is not editable content and stays a runtime island.
+// An empty mount point a script fills keeps its hook on a shell, not a core/html island.
 $mount = ( new HtmlTransformer() )->transform(
     '<main><div class="slot" data-blocks-engine-capture-viewport-entrance="{}"></div></main>',
     array( 'runtime_dom_selectors' => array( '[data-blocks-engine-capture-viewport-entrance]' ) )
 )->toArray();
-$assert(str_contains((string) ( $mount['serialized_blocks'] ?? '' ), 'wp:html') && ! str_contains((string) ( $mount['serialized_blocks'] ?? '' ), '/layout-shell'), 'an empty script-populated container stays a runtime island');
+$mountMarkup = (string) ( $mount['serialized_blocks'] ?? '' );
+$assert(! str_contains($mountMarkup, 'wp:html') && str_contains($mountMarkup, '/layout-shell') && str_contains($mountMarkup, '<div class="slot" data-blocks-engine-capture-viewport-entrance="{}"></div>'), 'an empty script-populated container saves its exact mount point in a layout shell: ' . $mountMarkup);
 
-// A hidden script-toggled panel keeps its island treatment so its links stay in saved markup.
+// A hidden panel a script reveals keeps `hidden` on its shell; its content stays editable blocks.
 $panel = ( new HtmlTransformer() )->transform(
-    '<main><div class="panel" hidden data-blocks-engine-capture-viewport-entrance="{}"><nav><a href="#top">Top</a></nav></div></main>',
-    array( 'runtime_dom_selectors' => array( '[data-blocks-engine-capture-viewport-entrance]' ) )
+    '<main><div class="cart-empty" hidden data-cart-empty><h2>Your cart is empty</h2><p>Nothing here yet.</p><nav><a href="#top">Top</a></nav></div></main>',
+    array( 'runtime_dom_selectors' => array( '[data-cart-empty]' ) )
 )->toArray();
-$assert(str_contains((string) ( $panel['serialized_blocks'] ?? '' ), '<a href="#top">Top</a>') && ! str_contains((string) ( $panel['serialized_blocks'] ?? '' ), '/layout-shell'), 'a hidden script-toggled panel stays a runtime island');
+$panelMarkup = (string) ( $panel['serialized_blocks'] ?? '' );
+$panelNames = $names($panel['blocks'] ?? array());
+$assert(! in_array('core/html', $panelNames, true) && str_contains($panelMarkup, '<div class="cart-empty" data-cart-empty="" hidden="">'), 'a hidden script-toggled panel saves its hidden hook on a layout shell: ' . $panelMarkup);
+$assert(in_array('core/heading', $panelNames, true) && in_array('core/paragraph', $panelNames, true) && in_array('core/navigation-link', $panelNames, true), 'the hidden panel content stays editable blocks with its links: ' . json_encode($panelNames));
+
+// A filter group whose buttons the script finds by their own data hooks keeps every
+// button as a native authored button inside the shell.
+$filters = ( new HtmlTransformer() )->transform(
+    '<main><div class="cat-filters" data-cat-filters role="group"><button type="button" class="cat-btn active" data-cat="all">All</button><button type="button" class="cat-btn" data-cat="Indoor">Indoor</button></div></main>',
+    array( 'runtime_dom_selectors' => array( '[data-cat-filters]', '[data-cat]' ) )
+)->toArray();
+$filtersMarkup = (string) ( $filters['serialized_blocks'] ?? '' );
+$assert(! str_contains($filtersMarkup, 'wp:html') && str_contains($filtersMarkup, '<div class="cat-filters" data-cat-filters="" role="group">') && 2 === substr_count($filtersMarkup, '<!-- wp:custom/authored-button') && str_contains($filtersMarkup, 'data-cat="Indoor"'), 'a data-addressed control group stays a shell of native buttons that keep their hooks: ' . $filtersMarkup);
+
+// A control the script finds by class (whose state it rewrites) keeps the group one island.
+$classAddressed = ( new HtmlTransformer() )->transform(
+    '<main><div data-chip-group><button class="chip is-on">All</button><button class="chip">New</button></div></main>',
+    array( 'runtime_dom_selectors' => array( '[data-chip-group]', '.chip' ) )
+)->toArray();
+$assert(str_contains((string) ( $classAddressed['serialized_blocks'] ?? '' ), '<!-- wp:html --><div data-chip-group>'), 'a group of class-addressed controls stays one runtime island: ' . ( $classAddressed['serialized_blocks'] ?? '' ));
 
 if ( array() !== $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");

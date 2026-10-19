@@ -490,6 +490,28 @@ final class RuntimeIslandAnalyzer
         return $attributes;
     }
 
+    private function hasBlockLevelChildElement(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ! $this->context->isInlineContentElement(strtolower($child->tagName)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isAddressedOnlyByAttributes(DOMElement $element): bool
+    {
+        foreach ($this->runtimeDomSelectorsForElement($element) as $selector) {
+            if ( ! str_starts_with((string) $selector, '[') ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public function canRetainRuntimeDomContractNatively(DOMElement $element, string $blockName): bool
     {
         if ($blockName === $this->context->generatedBlockName('authored-button') && AuthoredButtonBlockGenerator::isRoleButton($element)) return true;
@@ -527,14 +549,15 @@ final class RuntimeIslandAnalyzer
         if ('core/group' === $blockName && ! in_array(strtolower($element->tagName), array('article', 'aside', 'footer', 'header', 'main', 'section'), true)) {
             return false;
         }
-        // Only a container of block-level children lowers to a group the shell can
-        // wrap; empty mount points and text-only wrappers become other blocks (or
-        // stay script-populated) and cannot carry the attribute. A hidden panel is
-        // script-toggled state, so it keeps the island treatment.
+        // The shell saves the source wrapper verbatim, so an empty mount point the
+        // script fills, a `hidden` panel the script reveals, and a container of
+        // controls the script binds all keep their exact DOM contract while their
+        // children stay editable blocks (a hidden shell shows itself in the editor
+        // while selected). A text-only wrapper lowers to a paragraph instead, which
+        // cannot carry the attribute.
         if ( $isLayoutShell && (
             ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true)
-            || $element->hasAttribute('hidden')
-            || ! $this->hasBlockLevelChildElement($element)
+            || ( ! $this->hasBlockLevelChildElement($element) && '' !== trim($element->textContent) )
         ) ) {
             return false;
         }
@@ -544,7 +567,17 @@ final class RuntimeIslandAnalyzer
         }
 
         foreach ($this->context->descendantElements($element) as $descendant) {
-            if (in_array(strtolower($descendant->tagName), array('button', 'input', 'select', 'textarea', 'canvas', 'form', 'template'), true)) {
+            $tagName = strtolower($descendant->tagName);
+            if (in_array($tagName, array('canvas', 'form', 'template'), true)) {
+                return false;
+            }
+            // Inside a shell, a control converts to a native block that saves the
+            // `data-*` hooks a script finds it by. A control the script finds any
+            // other way (its class or id, whose state the script rewrites) keeps
+            // the whole container as one island.
+            if (in_array($tagName, array('button', 'input', 'select', 'textarea'), true)
+                && ( ! $isLayoutShell || ( $this->isRuntimeDomTarget($descendant) && ! $this->isAddressedOnlyByAttributes($descendant) ) )
+            ) {
                 return false;
             }
         }
@@ -552,16 +585,6 @@ final class RuntimeIslandAnalyzer
         return true;
     }
 
-    private function hasBlockLevelChildElement(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && ! $this->context->isInlineContentElement(strtolower($child->tagName)) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
     /**
      * @param array<string, mixed> $options

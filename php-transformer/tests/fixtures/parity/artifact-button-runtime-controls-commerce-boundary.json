@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "artifact-button-runtime-controls-commerce-boundary",
-  "description": "Separates static CTA buttons from runtime-bound controls in an artifact with commerce-style JS product rendering: static source CTAs become native core/button, script-targeted controls are preserved as runtime islands, and JS-generated product add-to-cart controls are not guessed into native commerce blocks without a source product-card contract.",
+  "description": "Separates static CTA buttons from runtime-bound controls in an artifact with commerce-style JS product rendering: static source CTAs become native core/button, script-targeted controls are preserved as runtime islands, the empty script-filled product grid saves its mount hook on a native layout shell, and JS-generated product add-to-cart controls are not guessed into native commerce blocks without a source product-card contract.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/artifact-button-runtime-controls-commerce-boundary.json",
@@ -33,7 +33,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
     { "path": "source_reports.conversion_report.source_summary.page_count", "assert": "equals", "value": 1 },
-    { "path": "source_reports.conversion_report.source_summary.asset_count", "assert": "equals", "value": 1 },
+    { "path": "source_reports.conversion_report.source_summary.asset_count", "assert": "equals", "value": 3 },
     { "path": "source_reports.conversion_report.source_summary.route_count", "assert": "equals", "value": 1 },
     { "path": "source_reports.conversion_report.source_summary.navigation_link_count", "assert": "equals", "value": 0 },
     { "path": "source_reports.conversion_report.source_summary.menu_count", "assert": "equals", "value": 0 },
@@ -44,9 +44,10 @@
     { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "control" },
     { "path": "source_reports.runtime_islands.0.runtime_island_type", "assert": "equals", "value": "runtime_js" },
     { "path": "source_reports.runtime_islands.0.selector", "assert": "equals", "value": ".tile" },
-    { "path": "source_reports.runtime_islands.1.kind", "assert": "equals", "value": "dom" },
-    { "path": "source_reports.runtime_islands.1.runtime_island_type", "assert": "equals", "value": "runtime_js" },
+    { "path": "source_reports.runtime_islands.1", "assert": "equals", "value": null },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:custom/layout-shell {\"wrappers\":[{\"tagName\":\"div\",\"attributes\":{\"class\":\"product-grid\",\"data-shop-grid\":\"\"}}]} --><div class=\"product-grid\" data-shop-grid=\"\"></div><!-- /wp:custom/layout-shell -->" },
     { "path": "diagnostics.0.runtime_island_type", "assert": "equals", "value": "runtime_js" },
-    { "path": "diagnostics.1.runtime_island_type", "assert": "equals", "value": "runtime_js" }
+    { "path": "diagnostics.1.code", "assert": "equals", "value": "runtime_dom_contract_preserved" },
+    { "path": "diagnostics.1.selector", "assert": "equals", "value": "[data-shop-grid]" }
   ]
 }

@@ -1098,12 +1098,12 @@
             "retagged span>p [blocks-engine-synthetic-paragraph]": 2
         },
         "74-lumen-coffee": {
-            "added div [blocks-engine-control]": 10,
+            "added div [blocks-engine-control]": 12,
             "added figure [blocks-engine-synthetic-image-figure]": 2,
             "added img": 2,
             "added mark": 2,
             "added p": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 4,
+            "added p [blocks-engine-inline-layout-carrier]": 5,
             "added p [blocks-engine-synthetic-paragraph]": 3,
             "added small": 1,
             "removed button": 1,
@@ -1112,7 +1112,7 @@
             "removed svg": 2,
             "retagged div>p [blocks-engine-lowered-paragraph]": 4,
             "retagged span>mark": 3,
-            "retagged span>p [blocks-engine-synthetic-paragraph]": 1,
+            "retagged span>p [blocks-engine-synthetic-paragraph]": 2,
             "retagged svg>img": 1
         },
         "75-inkwell-books": {

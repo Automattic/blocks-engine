@@ -251,7 +251,7 @@ $boundIslands = $bound['source_reports']['runtime_islands'] ?? array();
 $boundProvenance = array_values(array_filter($bound['source_reports']['html']['source_provenance'] ?? array(), static fn (mixed $entry): bool => is_array($entry) && str_ends_with((string) ($entry['block_name'] ?? ''), '/authored-button')));
 $assert(str_contains($boundMarkup, 'wp:custom/authored-button') && str_contains($boundMarkup, 'data-lightbox="Foggy cliff portrait"') && ! preg_match('/<!-- wp:html[^>]*-->\s*<button[^>]*data-lightbox=/', $boundMarkup), 'functional binding is canonical authored-button metadata: ' . substr($boundMarkup, 0, 700));
 $assert('control' === ($boundIslands[0]['kind'] ?? '') && 'runtime_js' === ($boundIslands[0]['runtime_island_type'] ?? '') && '.tile' === ($boundIslands[0]['selector'] ?? '') && 'button' === ($boundIslands[0]['control']['tag'] ?? '') && 'button' === ($boundIslands[0]['control']['type'] ?? '') && array() !== ($boundIslands[0]['required_scripts'] ?? array()), 'runtime button records typed control semantics: ' . json_encode($boundIslands[0] ?? null));
-$assert('dom' === ($boundIslands[1]['kind'] ?? '') && '.product-grid' === ($boundIslands[1]['selector'] ?? ''), 'commerce placeholder remains a separate DOM island: ' . json_encode(array_column($boundIslands, 'kind')));
+$assert(! in_array('dom', array_column($boundIslands, 'kind'), true) && 1 === preg_match('~<!-- wp:custom/layout-shell [^>]*--><div class="product-grid" data-shop-grid=""></div><!-- /wp:custom/layout-shell -->~', $boundMarkup), 'the commerce placeholder is a separate layout shell that saves its mount hook: ' . json_encode(array_column($boundIslands, 'kind')) . ' ' . $boundMarkup);
 $assert(array() !== $boundProvenance && 'button' === ($boundProvenance[0]['tag'] ?? ''), 'authored runtime button keeps source provenance: ' . json_encode($boundProvenance));
 $assert('pass' === (( new BlockValidityValidator() )->validateBlocks($bound['blocks'] ?? array())['status'] ?? ''), 'authored runtime button remains Gutenberg-valid');
 $handler = ( new HtmlTransformer() )->transform(
@@ -262,6 +262,8 @@ $handlerMarkup = (string) ($handler['serialized_blocks'] ?? '');
 $handlerIslands = $handler['source_reports']['runtime_islands'] ?? array();
 $assert(! str_contains($handlerMarkup, 'authored-button') && ! str_contains($handlerMarkup, '<!-- wp:button') && str_contains($handlerMarkup, 'jsaction="click:providerToggle"'), 'unsafe inline-handler buttons stay source markup instead of a dead native button: ' . $handlerMarkup);
 $assert(2 === count($handlerIslands) && array( 'onclick', 'onclick' ) === array_map(static fn (array $island): string => (string) ($island['events'][0]['attribute'] ?? ''), $handlerIslands) && array( 'control', 'control' ) === array_map(static fn (array $island): string => (string) ($island['kind'] ?? ''), $handlerIslands), 'unsafe inline-handler buttons still record control evidence: ' . json_encode($handlerIslands));
+
+$assert(1 === preg_match('~data-blocks-engine-capture-dialog-panel="menu-panel-mobile"[^>]*><!-- wp:navigation \{[^}]*\} --><!-- wp:navigation-link \{"label":"Home","url":"#intro"~', $compiledMarkup) && ! preg_match('~<!-- wp:html -->[^!]*menu-panel-mobile~', $compiledMarkup), 'the hidden dialog panel saves its hooks on a shell around a native navigation block: ' . $compiledMarkup);
 
 file_put_contents(sys_get_temp_dir() . '/runtime-dialog-trigger-button.json', json_encode(array(
     'html' => $compiledMarkup,
