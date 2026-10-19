@@ -338,6 +338,7 @@
       "php tests/unit/background-image-extractor.php",
       "php tests/unit/empty-layout-background-carrier.php",
       "php tests/unit/empty-span-spacer-selector-carrier.php",
+      "php tests/unit/empty-definite-grid-cells.php",
       "php tests/unit/calc-sized-empty-inline-decoration.php",
       "php tests/unit/conditional-empty-visual-boundary.php",
       "php tests/unit/cover-block-factory.php",

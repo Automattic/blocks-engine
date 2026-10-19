@@ -6162,7 +6162,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->runtimeIslands->isRuntimeDomTarget($element)
                 || in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true)
                 || 'true' === strtolower($this->attr($element, 'aria-hidden'))
-                || $this->isEmptyVisualInlineCandidate($element);
+                || $this->isEmptyVisualInlineCandidate($element)
+                || $this->occupiesDefiniteGridCell($element);
         }
 
         // A bare role, tabindex, aria-* or data-* attribute is not a reason to
@@ -6180,11 +6181,60 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // Keep its source identity so the retained stylesheet can own when
             // it renders; do not flatten those facts into unconditional attrs.
             || $this->hasRenderableEmptyBoxAtAnyViewport($element)
+            || $this->occupiesDefiniteGridCell($element)
         ) {
             return true;
         }
 
         return $this->isEmptyVisualInlineCandidate($element);
+    }
+
+    /**
+     * An empty child of a grid whose rows and columns are both definite lengths
+     * is a grid item: it fills a sized cell (so author paint on it is visible)
+     * and it holds its place in auto-placement (so dropping it, even when it is
+     * transparent, moves every later sibling into the wrong cell).
+     */
+    private function occupiesDefiniteGridCell(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement || 0 !== $this->childElementCount($element) || '' !== trim($element->textContent ?? '') ) {
+            return false;
+        }
+        $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
+        if ( ! in_array(CssValueInspector::comparable((string) ($parentDeclarations['display'] ?? '')), array( 'grid', 'inline-grid' ), true) ) {
+            return false;
+        }
+        foreach ( array( 'grid-template-rows', 'grid-template-columns' ) as $property ) {
+            if ( ! $this->isDefiniteGridTrackList($this->styleResolver->resolveCssVariablesInValue((string) ($parentDeclarations[$property] ?? ''), $parent)) ) {
+                return false;
+            }
+        }
+        $declarations = array_merge(
+            $this->styleResolver->structuralPresentationDeclarations($element),
+            $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))
+        );
+        return ! in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'none', 'contents' ), true)
+            && ! in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true);
+    }
+
+    /** A track list made only of positive fixed lengths, optionally through repeat(<count>, ...). */
+    private function isDefiniteGridTrackList(string $tracks): bool
+    {
+        $tracks = strtolower(trim($tracks));
+        while ( 1 === preg_match('/repeat\(\s*\d+\s*,\s*([^()]*)\)/', $tracks, $match) ) {
+            $tracks = str_replace($match[0], $match[1], $tracks);
+        }
+        $sizes = preg_split('/\s+/', $tracks) ?: array();
+        if ( '' === $tracks || array() === $sizes ) {
+            return false;
+        }
+        foreach ( $sizes as $size ) {
+            if ( ! $this->sourceElementClassifier->isPositiveCssLength($size) ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public function retainsEmptyRichTextInline(DOMElement $sourceInline): bool
