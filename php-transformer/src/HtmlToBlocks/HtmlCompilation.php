@@ -4470,6 +4470,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return true;
         }
 
+        // An empty painted span outside RichText lowers to its own spacer
+        // block (InlineContentElementConverter), never to a `<mark>` carrier.
+        // Author selectors that name it must address that block, so it needs
+        // a semantic marker rather than a rich-text marker no block carries.
+        if ( 0 === $this->childElementCount($element)
+            && '' === trim($element->textContent ?? '')
+            && $this->shouldPreserveEmptyVisualElement($element)
+        ) {
+            return true;
+        }
+
         $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
         if ( ! $parent instanceof DOMElement || ! $this->wrapperCoalescer->isStructuralLayoutElement($parent) ) {
             return false;
