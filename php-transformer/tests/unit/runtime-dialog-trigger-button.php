@@ -263,6 +263,8 @@ $handlerIslands = $handler['source_reports']['runtime_islands'] ?? array();
 $assert(! str_contains($handlerMarkup, 'authored-button') && ! str_contains($handlerMarkup, '<!-- wp:button') && str_contains($handlerMarkup, 'jsaction="click:providerToggle"'), 'unsafe inline-handler buttons stay source markup instead of a dead native button: ' . $handlerMarkup);
 $assert(2 === count($handlerIslands) && array( 'onclick', 'onclick' ) === array_map(static fn (array $island): string => (string) ($island['events'][0]['attribute'] ?? ''), $handlerIslands) && array( 'control', 'control' ) === array_map(static fn (array $island): string => (string) ($island['kind'] ?? ''), $handlerIslands), 'unsafe inline-handler buttons still record control evidence: ' . json_encode($handlerIslands));
 
+$assert(1 === preg_match('~data-blocks-engine-capture-dialog-panel="menu-panel-mobile"[^>]*><!-- wp:navigation \{[^}]*\} --><!-- wp:navigation-link \{"label":"Home","url":"#intro"~', $compiledMarkup) && ! preg_match('~<!-- wp:html -->[^!]*menu-panel-mobile~', $compiledMarkup), 'the hidden dialog panel saves its hooks on a shell around a native navigation block: ' . $compiledMarkup);
+
 file_put_contents(sys_get_temp_dir() . '/runtime-dialog-trigger-button.json', json_encode(array(
     'html' => $compiledMarkup,
     'css' => $css,
