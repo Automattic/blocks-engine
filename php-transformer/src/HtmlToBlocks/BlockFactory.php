@@ -70,6 +70,15 @@ final class BlockFactory
      */
     private function normalizeAttrsForBlock(string $name, array $attrs): array
     {
+        // Normalize before both attribute storage and markup generation. The
+        // registered schema (or bundled core snapshot) identifies these values
+        // generically, including URL, alt, title, target and rel attributes.
+        foreach ( ($this->runtime()->blockMetadata($name)['attributes'] ?? array()) as $attribute => $schema ) {
+            if ( 'attribute' === ($schema['source'] ?? null) && is_string($attrs[$attribute] ?? null) ) {
+                $attrs[$attribute] = $this->runtime()->normalizeAttributeValue($attrs[$attribute]);
+            }
+        }
+
         $attrs = $this->normalizeClassNameAttr($attrs);
 
         $attrs = $this->runtime()->normalizeBlockSupportAttributes($name, $attrs)['attrs'];
