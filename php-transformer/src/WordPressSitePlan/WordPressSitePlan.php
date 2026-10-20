@@ -37,6 +37,8 @@ final class WordPressSitePlan
     public const NATIVE_QUERY_TEMPLATE_SLUGS = array('index', 'search', 'archive', '404');
     public const TOKEN_PREFIX = '{{wordpress-site-plan:asset:';
     public const NAVIGATION_TOKEN_PREFIX = '{{wordpress-site-plan:navigation:';
+    /** A `core/block` ref naming a declared `synced_patterns` entity. */
+    public const SYNCED_PATTERN_TOKEN_PREFIX = '{{wordpress-site-plan:pattern:';
     /** Blocks whose serialized `url` attribute names a route rather than an asset. */
     public const ROUTE_URL_BLOCKS = array('navigation-link', 'navigation-submenu', 'button', 'social-link');
     public const MAX_DOCUMENT_IDENTITY_DIAGNOSTICS = 50;
@@ -484,6 +486,11 @@ PHP;
           $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
           $pages = self::resolveFeaturedImageTargets($pages, $tokens);
           $assets = ListingQueryPresentation::project($assets, $this->listingQueryContainers);
+         // Content every panel of one tabs block repeats is declared once.
+         $syncedPatterns = SyncedPatternProjection::project($pages, $runtimeDeclarations, $runtimeEntityRecords);
+         $pages = $syncedPatterns['pages'];
+         $syncedPatterns = $syncedPatterns['patterns'];
+         if (array() !== $syncedPatterns) $assets = SyncedPatternProjection::editorStylesheets($assets);
          // Query Loop projection can shorten page markup after shell extraction.
          // Rebase retained runtime anchors on the final page before validation.
          $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $parts);
@@ -576,6 +583,10 @@ PHP;
             'reporting' => $this->reporting($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), $surfaces),
         );
         $plan['reference_semantics']['navigation_entities'] = NavigationEntityProjection::REFERENCE_CONTRACT;
+        if (array() !== $syncedPatterns) {
+            $plan['synced_patterns'] = $syncedPatterns;
+            $plan['reference_semantics']['synced_patterns'] = SyncedPatternProjection::REFERENCE_CONTRACT;
+        }
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
         return $plan;
@@ -673,6 +684,7 @@ PHP;
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
         self::assertRows($plan['menus'], 'menu', array('kind', 'source_path', 'target_slug', 'source_relation', 'order', 'items'), array('title', 'block_markup', 'token', 'reconciliation_identity'));
         NavigationEntityProjection::assertReferences($plan);
+        SyncedPatternProjection::assertReferences($plan);
         $assetTargets = array();
         $assetTokens = array();
         $assetIdentities = array();
@@ -706,6 +718,10 @@ PHP;
         foreach ($plan['menus'] as $menu) if (is_string($menu['block_markup'] ?? null)) {
             self::assertTokens($menu['block_markup'], $tokens);
             self::assertNoLocalBrowserReferences($menu['block_markup']);
+        }
+        foreach ($plan['synced_patterns'] ?? array() as $pattern) {
+            self::assertTokens($pattern['canonical_block_markup'], $tokens);
+            self::assertNoLocalBrowserReferences($pattern['canonical_block_markup'], $pattern['source_path']);
         }
         $partSlugs = array();
         $overrideTemplateSlugs = self::overrideTemplateSlugs($plan['template_parts'], array_column(array_filter($plan['templates'], static fn(array $template): bool => array_key_exists('shell_frame', $template)), 'slug'));
@@ -4718,6 +4734,10 @@ PHP;
             }
         }
         $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS;
+        foreach ($pages as $page) if (str_contains((string) ($page['canonical_block_markup'] ?? ''), self::SYNCED_PATTERN_TOKEN_PREFIX)) {
+            $editorCss .= SyncedPatternProjection::EDITOR_CONTAINER_CSS;
+            break;
+        }
         if ($hasListingQuery) {
             // Gutenberg's query-template editor can expose a core/post-meta key
             // before its post context resolves; the frontend binding remains live.

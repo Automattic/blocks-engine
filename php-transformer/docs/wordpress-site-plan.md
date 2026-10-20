@@ -226,6 +226,23 @@ template) keep one copy of repeated markup. They do so only when the kept copy
 renders the same menus as every dropped copy; otherwise the posts or the listing
 stay as captured, so no menu entity is left without a reference.
 
+Synced patterns follow the same token-and-entity model. `core/tabs` admits only a
+tab list and its panels, so content a captured selectable set leaves unchanged is
+repeated in every `core/tab-panel`. A block subtree whose serialized markup is
+identical at the same position in every panel of one tabs block (and is not the
+panel's whole content) is declared once in the optional `synced_patterns` group as
+`{identity, title, canonical_block_markup, source_path, provenance}`. Each panel
+references it as `<!-- wp:block {"ref":"{{wordpress-site-plan:pattern:pattern-<16hex>}}"} /-->`,
+where the token is `pattern-` plus the first 16 hex of `identity`
+(`SyncedPatternProjection`). The title is the subtree's first heading, else the tab
+list label, else `Shared content`; `provenance.occurrences` records each source
+document, panel count and in-panel block path. The group and
+`reference_semantics.synced_patterns` (`explicit_refs/v1`) are present only when a
+pattern is declared. `core/block` renders pattern content in place without a
+wrapper on the front end, so panel-ancestor author styles still apply; in the
+editor its wrapper takes no box and the editor restatement of child combinators
+tolerates it. Subtrees holding a runtime binding's block stay inline.
+
 Consumers persist declared entities and resolve their references to integer IDs.
 They do not rediscover menu equivalence. The plan validator checks declarations
 and reference ownership together; the resolver projects entity asset references

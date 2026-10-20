@@ -33,6 +33,8 @@ final class WordPressSitePlanResolver
         unset($template);
         foreach ($plan['menus'] as &$menu) if (is_string($menu['block_markup'] ?? null)) $menu['resolved_block_markup'] = self::resolvePayload($menu['block_markup'], $references);
         unset($menu);
+        if (isset($plan['synced_patterns'])) foreach ($plan['synced_patterns'] as &$pattern) $pattern['resolved_block_markup'] = self::resolvePayload($pattern['canonical_block_markup'], $references);
+        unset($pattern);
         // Provider bindings replace page or shared template part markup, so their
         // anchors must use the same destination projection as the document
         // materialized by consumers.
