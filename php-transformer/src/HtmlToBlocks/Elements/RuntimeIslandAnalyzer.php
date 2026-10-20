@@ -361,6 +361,7 @@ final class RuntimeIslandAnalyzer
     {
         return $this->isDataAttributeRuntimeTarget($element)
             && ! $this->retainsDataAttributeRuntimeTargetInShell($element)
+            && ! $this->retainsRuntimeTextLeafInRichText($element)
             // An image-only custom element host belongs to the media path, which
             // keeps a non-inert host verbatim as responsive media.
             && null === SourceDom::imageOnlyCustomElement($element);
@@ -499,6 +500,20 @@ final class RuntimeIslandAnalyzer
         }
 
         return false;
+    }
+
+    /**
+     * Inline text a script finds only by its `data-*` hooks and rewrites, such
+     * as a live result count. Paragraph rich text saves the element verbatim
+     * with those hooks, which nothing rewrites, so the script finds the same
+     * node in an editable block. Text addressed by class or id keeps its island.
+     */
+    public function retainsRuntimeTextLeafInRichText(DOMElement $element): bool
+    {
+        return $this->context->isInlineContentElement(strtolower($element->tagName))
+            && SourceDom::isStandaloneTextLeaf($element)
+            && $this->isRuntimeDomTarget($element)
+            && $this->isAddressedOnlyByAttributes($element);
     }
 
     private function isAddressedOnlyByAttributes(DOMElement $element): bool

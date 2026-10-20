@@ -13,6 +13,7 @@ use Closure;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
+use DOMText;
 
 /**
  * The engine's shared DOM reading vocabulary.
@@ -1032,6 +1033,29 @@ final class SourceDom
     /**
      * @return array<int, array<string, string>>
      */
+    /**
+     * Whether the element is a standalone run of text: it holds only text, and
+     * some of it, with no inline event handlers, and its parent holds no loose
+     * text beside it, so it stands alone as one block's content.
+     */
+    public static function isStandaloneTextLeaf(DOMElement $element): bool
+    {
+        if ( '' === trim($element->textContent) || array() !== self::eventMetadata($element) ) {
+            return false;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                return false;
+            }
+        }
+        foreach ( $element->parentNode?->childNodes ?? array() as $sibling ) {
+            if ( $sibling instanceof DOMText && '' !== trim($sibling->textContent) ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public static function eventMetadata(DOMElement $element): array
     {
         $events = array();
