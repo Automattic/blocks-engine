@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DesignSystem;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PresetBinding;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeJsonProjection;
@@ -40,7 +41,17 @@ foreach ($sourcePresetPlan['assets'] as $asset) {
     $assert(1 !== preg_match('/--wp--preset--[a-zA-Z0-9_-]+\\s*:/', $css), 'carried CSS never declares a generated preset');
     if (str_contains($css, '.card{') && !str_contains($css, 'editor-styles-wrapper')) $sharedPresetCss .= $css;
 }
-$assert(str_contains($sharedPresetCss, '--be--source--preset--color--accent-2:#F6CFF4'), 'shared capture CSS keeps the source palette in its own namespace');
+$assert(1 === preg_match('/--be--source--preset--color--accent-2:(?:#F6CFF4|var\(--wp--preset--color--[a-z0-9-]+,#F6CFF4\))/', $sharedPresetCss), 'shared capture CSS keeps the source palette in its own namespace, optionally bound to its own token');
+foreach (array('color', 'background-color', 'border-color', 'gradient-background', 'font-size', 'font-family') as $suffix) {
+    $class = 'has-accent-2-' . $suffix;
+    $marker = SourceClassIdentity::marker($class);
+    $assert('' !== $marker, 'core preset utility gets a source-only identity: ' . $suffix);
+}
+$sourceUtilityMarker = SourceClassIdentity::marker('has-accent-2-background-color');
+$assert(str_contains($sharedPresetCss, '.' . $sourceUtilityMarker), 'source preset utility selectors target source-only identities');
+foreach ($sourcePresetPlan['pages'] as $page) {
+    $assert(str_contains($page['canonical_block_markup'], $sourceUtilityMarker), 'authored preset utility keeps its source-only identity on both routes');
+}
 $assert(str_contains($sharedPresetCss, 'background-color:var(--wp--preset--color--accent-2,rgb(255,255,255))'), 'card CSS reads the generated preset, not the source preset');
 $assert(str_contains($sharedPresetCss, 'outline-color:var(--be--source--preset--color--accent-2)'), 'unbound source reads keep following the source palette');
 foreach (array('font-size--large:31px', 'spacing--40:19px', 'font-family--body:Georgia') as $preset) {
