@@ -345,6 +345,38 @@ $elementMarkup = implode('', array_column($elementPlan['pages'], 'canonical_bloc
 $assert(2 === preg_match_all('/<!-- wp:button \{(?![^}]*"color")(?![^}]*Color")[^>]*--><div [^>]*><a class="wp-block-button__link wp-element-button" style="(?![^"]*color)[^"]*"/', $elementMarkup), 'element-styles: buttons render through the element style without duplicate literal colours');
 $elementMetrics = $elementPlan['theme']['design_system']['metrics'] ?? array();
 $assert(0 === ($elementMetrics['refusal_reasons']['state_variant'] ?? null) && 1.0 === (float) ($elementMetrics['restyle_coverage'] ?? 0), 'element-styles: no state-variant refusals remain (' . json_encode($elementMetrics['refusal_reasons'] ?? null) . ')');
+// A unanimous heading colour is an element default only when it reads on
+// the theme's root background. Every H1 here sits in a dark section that
+// sets `color:#fff` on a light page: white stays on the section, which each
+// H1 inherits, so the painted colour is unchanged. Dark H1s on the light
+// page (the control) keep their element colour.
+$darkHero = require dirname(__DIR__) . '/fixtures/design-system/dark-hero-headings.php';
+foreach (array('dark-hero-headings' => false, 'dark-hero-headings control' => true) as $label => $darkHeadings) {
+    [$heroPlan, $heroTheme] = $compile($darkHero($darkHeadings));
+    $heroPalette = array_column($heroTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+    $heroElements = $heroTheme['styles']['elements'] ?? array();
+    $assert('var:preset|color|base' === ($heroTheme['styles']['color']['background'] ?? null) && '#f6f8fa' === ($heroPalette['base'] ?? null), "$label: the root background is the light base (" . json_encode($heroTheme['styles']['color'] ?? null) . ')');
+    $blockColor = static function (array $attributes) use ($heroPalette): ?string {
+        if (isset($attributes['textColor'])) return $heroPalette[(string) $attributes['textColor']] ?? '?';
+        return isset($attributes['style']['color']['text']) ? CssColor::hex((string) $attributes['style']['color']['text']) : null;
+    };
+    $h1Colors = array();
+    foreach ($heroPlan['pages'] as $heroPage) {
+        if (!preg_match_all('/<!-- wp:group (\{(?:(?!-->)[^\n])*\}) --><section[^>]*>(?:(?!<!-- wp:).)*?<!-- wp:heading (\{[^\n]*?"level":1[^\n]*?\}) -->/s', (string) $heroPage['canonical_block_markup'], $heroMatches, PREG_SET_ORDER)) continue;
+        foreach ($heroMatches as $match) {
+            $heading = json_decode($match[2], true);
+            $h1Colors[] = $blockColor(is_array($heading) ? $heading : array()) ?? $blockColor((array) json_decode($match[1], true));
+        }
+    }
+    if ($darkHeadings) {
+        $assert('var:preset|color|' . array_search('#0b1f33', $heroPalette, true) === ($heroElements['h1']['color']['text'] ?? null), "$label: a unanimous H1 colour that reads on the root background stays an element style (" . json_encode($heroElements['h1'] ?? null) . ')');
+        $assert(array('#0b1f33', '#0b1f33', '#0b1f33') === $h1Colors, "$label: each H1 still renders its dark colour (" . json_encode($h1Colors) . ')');
+        continue;
+    }
+    $assert(!isset($heroElements['h1']['color']) && !isset($heroElements['heading']['color']), "$label: white, unreadable on the light root background, is not an h1 or heading element colour (" . json_encode($heroElements) . ')');
+    $assert(array('#ffffff', '#ffffff', '#ffffff') === $h1Colors, "$label: each H1 still renders #fff through its block or its section (" . json_encode($h1Colors) . ')');
+}
+
 // A size a breakpoint changes stays with the source: an element style
 // would override the responsive variant.
 [, $v4Theme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/tailwind-v4.php');

@@ -312,6 +312,43 @@ final class DesignSystem
         return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors);
     }
 
+    /**
+     * The system without the link and heading text colours (`color`,
+     * `hover_color` of `link`, `heading`, `h1`–`h6`) that do not read on
+     * the theme's root background: below the large-text WCAG ratio
+     * (LOW_CONTRAST_RATIO) against it. unanimousElements() finds a colour
+     * every element of a kind renders, which can hold only because every
+     * such element sits on a coloured band (each H1 in a dark hero that
+     * sets `color:#fff`). An element style reaches every element of its
+     * kind, including new content on the root background, so that colour
+     * stays where the source paints it: on the band, which the element
+     * inherits from, or on the element itself. Painted output is unchanged:
+     * binding never drops a link or heading literal for an element style
+     * (PresetBinding::rendersThroughElement() is buttons only). Buttons paint
+     * their own background and keep their colours.
+     *
+     * @param string|null $background The colour `styles.color.background`
+     *   resolves to (ThemeJsonProjection::rootBackground()); null when it
+     *   cannot be resolved, which keeps every colour.
+     */
+    public function withElementColorsReadableOn(?string $background): self
+    {
+        if (null === $background || null === CssColor::hex($background)) return $this;
+        $elements = $this->elements;
+        foreach ($elements as $element => $values) {
+            if ('link' !== $element && 'heading' !== $element && 1 !== preg_match('/^h[1-6]$/', $element)) continue;
+            foreach (array('color', 'hover_color') as $field) {
+                if (!isset($values[$field])) continue;
+                $ratio = CssColor::contrastRatio($values[$field], $background);
+                if (null !== $ratio && $ratio >= self::LOW_CONTRAST_RATIO) continue;
+                unset($values[$field]);
+            }
+            if (array() === $values) unset($elements[$element]); else $elements[$element] = $values;
+        }
+        if ($elements === $this->elements) return $this;
+        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors);
+    }
+
     /** A palette colour's value by slug, or null. */
     public function color(string $slug): ?string
     {
@@ -896,7 +933,10 @@ final class DesignSystem
      * counts only when every element of the kind has one hover rule giving
      * the same token. A property a media-conditional rule can change for any
      * element of the kind (a breakpoint size, a dark-mode colour) is left to
-     * the source: an element style would override the variant.
+     * the source: an element style would override the variant. A link or
+     * heading text colour must also read on the theme's root background,
+     * which only the theme.json projection knows; it applies that check
+     * through withElementColorsReadableOn().
      *
      * @param array<string,array<string,mixed>> $usageBySource
      * @return array<string,array<string,string>>
