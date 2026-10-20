@@ -28,18 +28,19 @@ $page = static fn(string $current, string $title, string $brand = 'Brand'): stri
 $titles = array('index' => 'Home', 'about' => 'About', 'contact' => 'Contact', 'alpha' => 'Alpha', 'beta' => 'Beta', 'gamma' => 'Gamma');
 $files = array();
 foreach ($titles as $slug => $title) $files[$slug . '.html'] = $page($slug, $title);
-// A genuinely different masthead stays page-owned.
+// A genuinely different masthead becomes that route's own header variant.
 $files['work.html'] = $page('work', 'Work', 'Other brand');
 
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($plan);
 $pages = array_column($plan['pages'], null, 'source_path');
-$headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null) && 'route_variant' !== ($part['provenance']['reason'] ?? null)));
+$workHeaders = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null) && 'route_variant' === ($part['provenance']['reason'] ?? null)));
 $footers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)));
 
 $assert(1 === count($headers) && 'extracted' === ($headers[0]['provenance']['decision'] ?? null), 'Mastheads that differ only in authored route state share one header template part: ' . json_encode(array_column($plan['diagnostics'], 'code')));
 $assert(1 === count($footers), 'The nested footer landmark is still shared alongside the unlabeled masthead.');
-// One menu serves the shared header; the page-owned masthead keeps its own.
+// One menu serves the shared header; the route's own masthead keeps its own.
 $shared = array_values(array_filter($plan['menus'], static fn(array $menu): bool => str_contains((string) $headers[0]['canonical_block_markup'], '{{wordpress-site-plan:navigation:' . $menu['token'] . '}}')));
 $assert(2 === count($plan['menus']) && 1 === count($shared), 'One navigation entity serves every shared route instead of one copy per page: ' . count($plan['menus']));
 $menuMarkup = (string) $shared[0]['block_markup'];
@@ -51,7 +52,8 @@ foreach ($titles as $slug => $title) {
     $assert(1 === substr_count($markup, '"slug":"header"') && !str_contains($markup, '<!-- wp:navigation ') && !str_contains($markup, 'Brand') && str_contains($markup, $title . ' body copy.'), "{$slug}.html binds the shared header and keeps its content: {$markup}");
 }
 $work = (string) ($pages['work.html']['canonical_block_markup'] ?? '');
-$assert(!str_contains($work, '"slug":"header"') && str_contains($work, 'Other brand') && str_contains($work, '<!-- wp:navigation '), 'A genuinely different masthead remains page-owned.');
+$assert(1 === count($workHeaders) && 'Header (Work)' === $workHeaders[0]['title'] && array('work.html') === ($workHeaders[0]['placement']['source_paths'] ?? null) && str_contains((string) $workHeaders[0]['canonical_block_markup'], 'Other brand'), 'A genuinely different masthead becomes its route\'s own header variant part: ' . json_encode(array_column($plan['template_parts'], 'title')));
+$assert(!str_contains($work, '"slug":"header"') && 1 === substr_count($work, '"slug":"' . $workHeaders[0]['slug'] . '"') && !str_contains($work, 'Other brand') && !str_contains($work, '<!-- wp:navigation ') && str_contains($work, 'Work body copy.'), 'The different masthead is referenced at its source position and leaves the page content: ' . $work);
 
 // Converted chrome: a nested menu is disclosed (`open`) only on the routes it
 // holds, and its authored current item renders without the anchor subject
