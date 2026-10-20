@@ -242,9 +242,13 @@ $candidateCache->clear();
 $assert(0 === $candidateCache->candidateRulesRetained, 'clearing the immutable revision cache resets retained candidate accounting');
 
 // Eviction is bound behaviour, not bound arithmetic, so it is proven at a
-// small capacity rather than by filling the production bound.
+// small capacity rather than by filling the production bound. The bound is in
+// bytes; each selector here is one row holding one result, so the bound is
+// sized to hold exactly eight such rows. Overflow evicts whole rows until the
+// cache is an eighth below its bound, so the ninth row costs two cold rows.
 $pressureBound = 8;
-$pressureCache = new CssSelectorMatchCache($pressureBound);
+$pressureRowBytes = CssSelectorMatchCache::ROW_OVERHEAD_BYTES + 16;
+$pressureCache = new CssSelectorMatchCache($pressureBound * $pressureRowBytes);
 $hotSelector = '.cache-0';
 for ( $index = 0; $index < $pressureBound; ++$index ) {
     $selector = '.cache-' . $index;
@@ -253,7 +257,7 @@ for ( $index = 0; $index < $pressureBound; ++$index ) {
 $pressureCache->matches($byId('target'), $hotSelector, CssSelectorMatcher::parse($hotSelector));
 $pressureCache->matches($byId('target'), '.cache-overflow', CssSelectorMatcher::parse('.cache-overflow'));
 $pressureCache->matches($byId('target'), $hotSelector, CssSelectorMatcher::parse($hotSelector));
-$assert($pressureBound + 1 === $pressureCache->matchExecutions && 2 === $pressureCache->matchHits && 1 === $pressureCache->matchEvictions && $pressureBound === $pressureCache->matchPeakEntries, 'hot selector results survive deterministic capacity pressure while the oldest cold result is evicted');
+$assert($pressureBound + 1 === $pressureCache->matchExecutions && 2 === $pressureCache->matchHits && 2 === $pressureCache->matchEvictions && 2 === $pressureCache->matchRowEvictions && $pressureBound === $pressureCache->matchPeakEntries && $pressureBound * $pressureRowBytes >= $pressureCache->matchBytes, 'hot selector results survive deterministic capacity pressure while the oldest cold result is evicted');
 
 $defaultBoundCache = new CssSelectorMatchCache();
 for ( $index = 0; $index <= $pressureBound; ++$index ) {
