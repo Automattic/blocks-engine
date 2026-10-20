@@ -170,17 +170,30 @@ final class AuthorSelectorProjectionState
 
     private array $navigationListBoxSubjects = array();
 
+    /** @var array<string, string> Source list path => native display of the list when shown. */
+    private array $navigationListShownDisplays = array();
+
+    /** Source list box properties that the native root renders after the list becomes display:contents. */
+    public const NAVIGATION_LIST_BOX_PROPERTIES = array('display', 'overflow', 'overflow-x', 'overflow-y', 'columns', 'column-count', 'column-width', 'column-gap', 'column-fill', 'column-rule', 'column-rule-color', 'column-rule-style', 'column-rule-width');
+
     /**
      * Target class for the native root that renders source list `$path`'s box.
      * A dedicated marker kind, so the root receives only the list's box rules
      * and never becomes a semantic carrier of the list or its landmark.
+     * `$shownDisplay` is the root's display wherever the source shows the list.
      */
-    public function installNavigationListBoxSubject(string $path): string
+    public function installNavigationListBoxSubject(string $path, string $shownDisplay): string
     {
         $marker = $this->allocatePathMarker('navigation-list-box', $path);
         $this->navigationListBoxSubjects[$path] = ':where(nav.wp-block-navigation.' . $marker . ')';
+        $this->navigationListShownDisplays[$path] = $shownDisplay;
 
         return $marker;
+    }
+
+    public function navigationListShownDisplay(string $path): string
+    {
+        return $this->navigationListShownDisplays[$path] ?? 'flex';
     }
 
     public function navigationListBoxSubject(string $path): string

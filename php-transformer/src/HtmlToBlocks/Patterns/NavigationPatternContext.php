@@ -75,12 +75,36 @@ final class NavigationPatternContext
     /** Marker for the native root that renders a source list's own box. */
     private function navigationListBoxMarker(?DOMElement $list): string
     {
-        if (null === $this->session || !$list instanceof DOMElement || !$this->styleResolver instanceof StyleResolver
-            || !array_filter(array('display', 'overflow', 'overflow-x', 'overflow-y'), fn(string $property): bool => !$this->styleResolver->declaredPresentation($list, $property)->isEmpty())) {
+        if (null === $this->session || !$list instanceof DOMElement || !$this->styleResolver instanceof StyleResolver) return '';
+        $columns = $this->declaresColumns($list);
+        if (!$columns && !array_filter(array('display', 'overflow', 'overflow-x', 'overflow-y'), fn(string $property): bool => !$this->styleResolver->declaredPresentation($list, $property)->isEmpty())) {
             return '';
         }
 
-        return $this->session->authorSelectorProjectionState()->installNavigationListBoxSubject($list->getNodePath() ?? '');
+        return $this->session->authorSelectorProjectionState()->installNavigationListBoxSubject($list->getNodePath() ?? '', $columns ? 'block' : 'flex');
+    }
+
+    /**
+     * Whether an author rule lays the source list's items out in columns.
+     * Columns apply only to a block container, so such a list keeps a block
+     * box where shown; any other shown list is the native root's flex row.
+     * Read from the author rules: the resting cascade models no column layout.
+     */
+    private function declaresColumns(DOMElement $list): bool
+    {
+        $styles = $this->session->authorStyleAnalysis();
+        foreach ($styles->styleRules() as $rule) {
+            $columns = array_filter(array_intersect_key($rule['declarations'] ?? array(), array_flip(array('columns', 'column-count', 'column-width'))),
+                static fn (string $value): bool => 1 !== preg_match('/^\s*auto(?:\s+auto)?\s*(?:!\s*important\s*)?$/i', $value));
+            if (array() === $columns) continue;
+            foreach ($rule['selectors'] ?? array() as $record) {
+                $parsed = $record['parsed'] ?? array();
+                if (!($parsed['supported'] ?? false)) continue;
+                $match = $styles->selectorMatchCache()->matches($list, $record['selector'], $parsed);
+                if (($match['supported'] ?? false) && ($match['matches'] ?? false)) return true;
+            }
+        }
+        return false;
     }
 
     private function sourceListHostIdentity(DOMElement $element): string

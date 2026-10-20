@@ -15,15 +15,17 @@ try {
                 measurements.push(await page.evaluate(() => ({
                     visible: [...document.querySelectorAll('a')].filter(a => a.getClientRects().length > 0).length,
                     scrollWidth: document.documentElement.scrollWidth,
+                    listHeight: Math.round((document.querySelector('nav.wp-block-navigation') || document.querySelector('ul')).getBoundingClientRect().height),
                     scroller: [...document.querySelectorAll('nav,ul')].some(e => getComputedStyle(e).overflowX === 'scroll' && e.scrollWidth > e.clientWidth),
                 })));
                 await page.close();
             }
             const [source,candidate] = measurements;
             assert.equal(candidate.visible, source.visible, `${name} ${width}: visibility`);
-            assert.equal(candidate.scrollWidth, width, `${name} ${width}: page overflow`);
+            assert.equal(candidate.scrollWidth, source.scrollWidth, `${name} ${width}: page width`);
+            if (name === 'columns') assert.ok(Math.abs(candidate.listHeight - source.listHeight) <= 2, `columns ${width}: list height ${candidate.listHeight} vs source ${source.listHeight}`);
             if (name === 'scroller') assert.equal(candidate.scroller, true, `${width}: internal scrolling`);
         }
     }
-    console.log('Navigation list box browser visibility and scrolling passed');
+    console.log('Navigation list box browser visibility, scrolling and columns passed');
 } finally {await browser.close();}
