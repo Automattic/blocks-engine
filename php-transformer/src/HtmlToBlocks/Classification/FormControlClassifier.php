@@ -25,11 +25,33 @@ final class FormControlClassifier
      */
     public const DATA_ENTRY_TAGS = array( 'input', 'select', 'textarea' );
 
-    /** The external label host emitted independently from its control. */
+    /**
+     * The external label host emitted independently from its control: a label
+     * that names a control by `for`, or a group by its id in `aria-labelledby`.
+     */
     public static function isExternalAssociatedLabel(DOMElement $element): bool
     {
-        return 'label' === strtolower($element->tagName) && '' !== $element->getAttribute('for')
+        return 'label' === strtolower($element->tagName)
+            && ('' !== $element->getAttribute('for') || self::namesLabelledElement($element))
             && array() === self::controlElements($element);
+    }
+
+    /** Whether another element in the document lists this element's id in `aria-labelledby`. */
+    private static function namesLabelledElement(DOMElement $element): bool
+    {
+        $id = trim($element->getAttribute('id'));
+        if ( '' === $id || null === $element->ownerDocument ) {
+            return false;
+        }
+        $xpath = new \DOMXPath($element->ownerDocument);
+        foreach ( $xpath->query('//*[@aria-labelledby]') ?: array() as $labelled ) {
+            if ( $labelled instanceof DOMElement && $labelled !== $element
+                && in_array($id, preg_split('/\s+/', trim($labelled->getAttribute('aria-labelledby'))) ?: array(), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static function isControlElement(DOMElement $element): bool
