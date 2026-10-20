@@ -100,6 +100,7 @@
       "php tests/contract/rewritten-asset-integrity.php",
       "php tests/contract/head-script-retirement.php",
       "php tests/contract/form-source-ownership.php",
+      "php tests/contract/wordpress-comment-form.php",
       "php tests/contract/external-metric-bindings.php",
       "php tests/contract/unresolved-navigation-links.php",
       "php tests/contract/source-protocol-link-declarations.php",
