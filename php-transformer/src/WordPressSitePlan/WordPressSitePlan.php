@@ -5234,6 +5234,9 @@ PHP;
                 if ( ! is_array($entity) || ! isset($entity['bindings']) || ! is_array($entity['bindings']) ) {
                     continue;
                 }
+                if (is_string($entity['source_path'] ?? null)) {
+                    $entity = self::mapItemTemplateMarkup($entity, fn(string $markup): string => $this->routeLinks($references->content($markup, $entity['source_path']), $entity['source_path'], $routes));
+                }
                 foreach ( $entity['bindings'] as &$binding ) {
                     if ( is_array($binding) && is_string($binding['search_block_markup'] ?? null) && is_string($binding['source_path'] ?? null) ) {
                         $sourceMarkup = $binding['search_block_markup'];
@@ -5420,6 +5423,27 @@ PHP;
         $qualify = static fn(array $match): string => isset($ids[$match[2]]) ? $match[0] : $match[1] . $route . '#' . $match[2] . $match[3];
         // HTML attributes, escaped attributes inside JSON block comments, and JSON url attributes.
         return preg_replace_callback('/(\b(?:href|data-[a-z0-9_-]*url)\s*=\s*\\\\?["\']|"url"\s*:\s*")#([A-Za-z][\w:.-]*)(\\\\?["\'])/i', $qualify, $content) ?? $content;
+    }
+
+    /**
+     * Apply `$map` to every block markup a collection item template carries:
+     * the template card and each item's slot values. A provider renders this
+     * markup in place of page content, so it takes the same reference
+     * projection as the page it came from.
+     *
+     * @param array<string,mixed> $entity
+     * @param callable(string):string $map
+     * @return array<string,mixed>
+     */
+    public static function mapItemTemplateMarkup(array $entity, callable $map): array
+    {
+        if (is_string($entity['item_template']['block_markup'] ?? null)) $entity['item_template']['block_markup'] = $map($entity['item_template']['block_markup']);
+        foreach (is_array($entity['items'] ?? null) ? $entity['items'] : array() as $itemIndex => $item) {
+            foreach (is_array($item['slots'] ?? null) ? $item['slots'] : array() as $slotId => $slot) {
+                if (is_string($slot['markup'] ?? null)) $entity['items'][$itemIndex]['slots'][$slotId]['markup'] = $map($slot['markup']);
+            }
+        }
+        return $entity;
     }
 
     /** @internal Exposed for ShellExtraction, which canonicalizes shell-candidate links through the same route table as page content. @param array<int,array<string,mixed>> $routes */
