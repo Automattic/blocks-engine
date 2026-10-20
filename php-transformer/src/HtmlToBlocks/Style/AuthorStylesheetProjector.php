@@ -1723,20 +1723,11 @@ final class AuthorStylesheetProjector
                 $hasNonProjected = true;
             }
             if ( $hasNonProjected ) {
-                // Control and semantic carriers also carry their kind's role
-                // class, so the authored arm stays off all of them through one
-                // constant class per kind instead of a list of per-element
-                // markers that differs on every page. RichText markers, whose
-                // carriers have no role class, stay enumerated.
-                $roleExcluded = EngineMarker::roleClasses(array_merge($controls, $semanticLeaves));
-                $exclusion = array();
-                foreach ( $roleExcluded as $roleClass ) {
-                    $exclusion[] = '.' . $roleClass;
-                }
-                $enumerated = array_diff($projectedMarkers, $controls, $semanticLeaves);
-                foreach ( $enumerated as $marker ) {
-                    $exclusion[] = '.' . $marker;
-                }
+                // Control, semantic and RichText carriers also carry their
+                // kind's role class, so the authored arm stays off all of them
+                // through one constant class per kind instead of a list of
+                // per-element markers that differs on every page.
+                $exclusion = array_map(static fn (string $roleClass): string => '.' . $roleClass, EngineMarker::roleClasses($projectedMarkers));
                 $rewritten[] = $this->rewriteSourceTagTypes(
                     $selector,
                     $parsed,
@@ -1771,7 +1762,15 @@ final class AuthorStylesheetProjector
             foreach ( null === $semanticSubject ? $semanticLeaves : $semanticSubject['rest'] as $marker ) {
                 $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);
             }
-            foreach ( $richTextLeaves as $marker ) {
+            // RichText arms take one shape too; a carrier the subject arm does
+            // not cover keeps its per-element attribute arm.
+            $richTextSubject = $semanticSubjectArms && array() !== $richTextLeaves
+                ? $this->contextFreeSubject('richtext', $parsed, $richTextLeaves, $context)
+                : null;
+            if ( null !== $richTextSubject ) {
+                $rewritten[] = $this->projectSemanticTarget($richTextSubject['target'], $selector, $parsed, $context);
+            }
+            foreach ( null === $richTextSubject ? $richTextLeaves : $richTextSubject['rest'] as $marker ) {
                 $rewritten[] = $this->projectRichTextSemanticSelector($selector, $parsed, $marker, $context);
             }
             if ( $inlineLayoutCarriers ) {
@@ -2503,14 +2502,14 @@ final class AuthorStylesheetProjector
      * routed markers it does not cover (which keep their own arms); null when
      * the target would reach a carrier the per-element arms do not.
      *
-     * Control and semantic carriers carry their source element's subject
-     * classes (tag and class tokens, EngineMarker::subjectTagClass()), which a
+     * Control, semantic and RichText carriers carry their source element's
+     * subject classes (tag and class tokens, EngineMarker::subjectTagClass()), which a
      * type, universal or class compound can test without any context. The
      * target therefore reaches every `$kind` carrier with subject classes whose
      * source the compound matches, on any page. It stands in for the
      * per-element arms of `$routedMarkers` only when every such carrier on this
-     * page is among them: none is routed elsewhere (a RichText, table or
-     * navigation subject, say). A routed marker without such a carrier (a
+     * page is among them: none is routed elsewhere (a table or navigation
+     * subject, or a control that is also a RichText run, say). A routed marker without such a carrier (a
      * presentation child that shares its control's marker, a carrier that
      * carries no subject classes) keeps its own arm. This page's cascade is
      * unchanged, and the arm text no longer depends on which other elements

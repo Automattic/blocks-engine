@@ -10,7 +10,10 @@ $assert = static function (bool $condition, string $message): void { if (! $cond
 
 // Every route shares one header and links the same author stylesheets. A
 // titled rel="stylesheet" is the document's preferred stylesheet set, so it
-// applies on every route; an alternate set and a disabled sheet do not.
+// applies on every route; an alternate set and a disabled sheet do not. The
+// rules name the chrome run in context (`header .login`), so they keep the
+// run's own marker arm that shared-chrome extraction lifts; a context-free
+// `.login` reaches it through the constant richtext subject arm instead.
 $page = static fn(string $title): string => '<!doctype html><html><head>'
     . '<link rel="stylesheet" title="theme" href="theme.css">'
     . '<link rel="alternate stylesheet" title="contrast" href="contrast.css">'
@@ -19,9 +22,9 @@ $page = static fn(string $title): string => '<!doctype html><html><head>'
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => $page('Home'),
     'about.html' => $page('About'),
-    'theme.css' => '.login{color:#c00}@media (max-width:600px){.login{display:none}}',
-    'contrast.css' => '.login{color:#ff0}',
-    'off.css' => '.login{color:#0f0}',
+    'theme.css' => 'header .login{color:#c00}@media (max-width:600px){header .login{display:none}}',
+    'contrast.css' => 'header .login{color:#ff0}',
+    'off.css' => 'header .login{color:#0f0}',
 )))->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($plan);
 

@@ -16,9 +16,10 @@ namespace Automattic\BlocksEngine\PhpTransformer\Support;
  * and attribute-state markers use a seed derived from the tag or the source
  * predicate they stand for.
  *
- * Control and semantic carriers also carry their kind's role class and the
- * subject classes of their source element (see subjectTagClass()). Neither is
- * a marker: both are the same on every page, so arms that only need "every
+ * Control, semantic and RichText carriers also carry their kind's role class
+ * and the subject classes of their source element (see subjectTagClass()). A
+ * RichText carrier states its marker in its style or data attribute, not as a
+ * class. Neither the role nor the subject classes are markers: both are the same on every page, so arms that only need "every
  * carrier of this kind" or "every carrier whose source matches this
  * context-free compound" name them instead of enumerating markers.
  *
@@ -80,7 +81,7 @@ final class EngineMarker
     }
 
     /** Marker kinds whose every carrier also carries the kind's role class. */
-    public const ROLE_KINDS = array('control', 'semantic');
+    public const ROLE_KINDS = array('control', 'richtext', 'semantic');
 
     /**
      * Shared role class every element carrying `$marker` inherits, e.g.
