@@ -190,6 +190,15 @@ final class FlowContainerElementConverter implements ElementConverter
             if ( null !== $navigation ) {
                 return $navigation;
             }
+            // A layout item holding one run of text and inline elements is one
+            // box in the source, exactly as it is in flow: its run stays one
+            // paragraph rather than splitting at each inline element.
+            if ( ! $this->context->isAuthorOwnedLayout($element) && 0 < SourceDom::childElementCount($element) ) {
+                $block = $this->context->paragraphBlockFromInlineContentWrapper($element);
+                if ( null !== $block ) {
+                    return ConversionOutcome::handled($block);
+                }
+            }
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
 
