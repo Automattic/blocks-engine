@@ -1779,6 +1779,7 @@ final class AuthorStylesheetProjector
             if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ITEM, $context) ) {
                 $itemSelector = $this->projectNavigationListItemSelector($selector, $parsed, $context);
                 if ( null !== $itemSelector ) {
+                    $context->bindings->recordNativeSelector($selector);
                     $rewritten[] = $itemSelector;
                     continue;
                 }
