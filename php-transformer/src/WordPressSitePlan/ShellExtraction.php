@@ -945,7 +945,17 @@ final class ShellExtraction
             }
             $responsive = (bool) array_filter($applicable, fn(array $page): bool => $this->retainsResponsiveVariantLandmark($page['canonical_block_markup'], $area));
             if ($partitionTypes && count($types) > 1 && $disjointType && !$responsive) {
+                // Types represented in the dominant cluster remain one population
+                // and retain the site's portable header/footer part slugs.
+                $dominantIndexes = array();
                 foreach ($types as $type => $indexes) {
+                    if (array() === array_intersect($indexes, $cluster['indexes'])) continue;
+                    array_push($dominantIndexes, ...$indexes);
+                    unset($types[$type]);
+                }
+                $types = array('' => $dominantIndexes) + $types;
+                foreach ($types as $type => $indexes) {
+                    $dominant = '' === $type;
                     $subset = array();
                     foreach ($indexes as $index) {
                         $subset[$index] = $pages[$index];
@@ -956,7 +966,7 @@ final class ShellExtraction
                     $runtimeDeclarations = $resolved['runtime_declarations'];
                     foreach ($resolved['parts'] as &$part) {
                         $oldSlug = $part['slug'];
-                        $baseSlug = $oldSlug . '-' . $type;
+                        $baseSlug = $dominant ? $oldSlug : $oldSlug . '-' . $type;
                         $slug = $baseSlug;
                         for ($suffix = 2; isset($reservedSlugs[$slug]); ++$suffix) $slug = $baseSlug . '-' . $suffix;
                         $renames[$oldSlug] = $slug;
@@ -967,11 +977,14 @@ final class ShellExtraction
                         $part['document_metadata']['source_context']['source_path'] = $part['source_path'];
                         $part['reconciliation_identity'] = WordPressSitePlan::identity('template-part', $part['source_path'], 'parts/' . $slug . '.html');
                         if (in_array($part['placement']['kind'], array('shared_shell', 'entry_shell'), true)) {
-                            $allowed = array('post' === $type ? 'single' : 'page');
+                            $allowed = $dominant
+                                ? array_merge(WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS, array_values(array_unique(array_map(static fn(array $page): string => 'post' === $page['post_type'] ? 'single' : 'page', $subset))))
+                                : array('post' === $type ? 'single' : 'page');
                             if (array_filter($subset, static fn(array $page): bool => !empty($page['entrypoint']))) $allowed[] = 'front-page';
                             if (array() !== array_intersect($indexes, $cluster['indexes'])) $allowed = array_merge($allowed, WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS);
                             $part['placement']['template_slugs'] = array_values(array_intersect($part['placement']['template_slugs'] ?? array(), $allowed));
-                            $part['placement']['post_type'] = $type;
+                            $populationTypes = array_values(array_unique(array_column($subset, 'post_type')));
+                            if (1 === count($populationTypes)) $part['placement']['post_type'] = $populationTypes[0];
                         }
                         // Composition declarations are materialized before shell binding
                         // hoists; update only the newly hoisted part owner.
