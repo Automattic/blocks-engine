@@ -149,6 +149,7 @@
       "php tests/contract/shared-chrome-authored-rules.php",
       "php tests/contract/shared-chrome-dead-richtext-markers.php",
       "php tests/contract/page-stylesheet-dead-richtext-markers.php",
+      "php tests/contract/richtext-subject-arm-scaling.php",
       "php tests/contract/frontend-stylesheet-without-editor-rules.php",
       "php tests/contract/shared-author-stylesheet-scaling.php",
       "php tests/contract/context-seeded-markers.php",

@@ -59,7 +59,7 @@ $carrierRule = static function (array $out, string $class): string {
 
 // A span whose author rule reads its inline custom properties.
 $span = $transform('<main><div class="box"><div class="rt" style="--accent: rgb(255, 255, 255); --rt-unused: 1px;"><p class="text" style="--text-font-size: 40px;"><span class="text" style="--text-font-family: &quot;Lustria&quot;; --text-color: var(--accent); --text-transform: uppercase; --span-unused: 2px;">Celebrate with us</span></p></div></div></main>');
-$assert(1 === preg_match('/<mark class="text"[^>]*>/', $span['serialized'], $mark), 'span: lowered to a RichText mark carrier', substr($span['serialized'], 0, 600));
+$assert(1 === preg_match('/<mark class="text(?: blocks-engine-[a-z0-9-]+)*"[^>]*>/', $span['serialized'], $mark), 'span: lowered to a RichText mark carrier', substr($span['serialized'], 0, 600));
 $markStyle = html_entity_decode($mark[0] ?? '', ENT_QUOTES);
 $assert(str_contains($markStyle, 'font-family:var(--text-font-family'), 'span: carrier keeps the author rule reading the font family', $markStyle);
 $assert(str_contains($markStyle, '--text-font-family:"Lustria"'), 'span: carrier defines the font family the rule reads', $markStyle);

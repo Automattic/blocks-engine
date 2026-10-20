@@ -73,7 +73,7 @@ $ordinaryHook = $transform(
 );
 $ordinarySerialized = (string) ($ordinaryHook['serialized_blocks'] ?? '');
 $assert(
-    1 === preg_match('/<mark class="callout"[^>]*>hello<\/mark>/i', $ordinarySerialized),
+    1 === preg_match('/<mark class="callout(?: blocks-engine-[^"]*)?"[^>]*>hello<\/mark>/i', $ordinarySerialized),
     'an ordinary styling-hook span with no pseudo-element tag dependency still lowers to a <mark> carrier'
 );
 

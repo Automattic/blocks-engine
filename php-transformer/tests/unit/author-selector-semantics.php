@@ -637,7 +637,7 @@ $assert(2 === preg_match_all('/<p class="[^"]*\bblocks-engine-synthetic-paragrap
 $richTextPill = $transform('<style>p .pill{padding:2px 8px;border:1px solid #999}</style><p>Read <span class="pill">more</span>.</p>');
 $richTextPillMarkup = (string) ($richTextPill['serialized_blocks'] ?? '');
 $richTextPillCss = $css($richTextPill);
-$assert(str_contains($richTextPillMarkup, '<mark class="pill"') && str_contains($richTextPillMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($richTextPillCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($richTextPill['source_reports']['wp_block_validity']['status'] ?? ''), 'RichText-contained selector hooks survive through valid mark formatting and projected CSS');
+$assert(str_contains($richTextPillMarkup, '<mark class="pill blocks-engine-role-richtext ') && str_contains($richTextPillMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($richTextPillCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($richTextPill['source_reports']['wp_block_validity']['status'] ?? ''), 'RichText-contained selector hooks survive through valid mark formatting and projected CSS');
 
 $standaloneInlineLeaves = $transform('<strong class="metric-value">+150</strong><span class="metric-label">Properties</span>');
 $standaloneInlineLeavesMarkup = (string) ($standaloneInlineLeaves['serialized_blocks'] ?? '');
@@ -710,16 +710,16 @@ $assert(
 
 $markStaticLonghand = $transform('<style>.hl{background-color:gold}</style><p><span class="hl">Static longhand</span></p>');
 $markStaticLonghandMarkup = (string) ($markStaticLonghand['serialized_blocks'] ?? '');
-$assert(str_contains($markStaticLonghandMarkup, '<mark class="hl"') && str_contains($markStaticLonghandMarkup, 'background-color:gold') && ! str_contains($markStaticLonghandMarkup, 'background-color:transparent'), 'authored static longhand background survives RichText mark projection');
+$assert(str_contains($markStaticLonghandMarkup, '<mark class="hl blocks-engine-role-richtext ') && str_contains($markStaticLonghandMarkup, 'background-color:gold') && ! str_contains($markStaticLonghandMarkup, 'background-color:transparent'), 'authored static longhand background survives RichText mark projection');
 
 $markStaticShorthand = $transform('<style>.hl{background:gold}</style><p><span class="hl">Static shorthand</span></p>');
 $markStaticShorthandMarkup = (string) ($markStaticShorthand['serialized_blocks'] ?? '');
-$assert(str_contains($markStaticShorthandMarkup, '<mark class="hl"') && str_contains($markStaticShorthandMarkup, 'background:gold') && ! str_contains($markStaticShorthandMarkup, 'background-color:transparent'), 'authored static shorthand background survives RichText mark projection');
+$assert(str_contains($markStaticShorthandMarkup, '<mark class="hl blocks-engine-role-richtext ') && str_contains($markStaticShorthandMarkup, 'background:gold') && ! str_contains($markStaticShorthandMarkup, 'background-color:transparent'), 'authored static shorthand background survives RichText mark projection');
 
 $markConditionalLonghand = $transform('<style>@media(min-width:1px){.hl{background-color:gold}}</style><p><span class="hl">Conditional longhand</span></p>');
 $markConditionalLonghandMarkup = (string) ($markConditionalLonghand['serialized_blocks'] ?? '');
 $markConditionalLonghandCss = $css($markConditionalLonghand);
-$assert(str_contains($markConditionalLonghandMarkup, '<mark class="hl"') && str_contains($markConditionalLonghandCss, '@media(min-width:1px)') && str_contains($markConditionalLonghandCss, 'background-color:gold') && ! str_contains($markConditionalLonghandMarkup, 'background-color:transparent'), 'authored conditional longhand background survives RichText mark projection');
+$assert(str_contains($markConditionalLonghandMarkup, '<mark class="hl blocks-engine-role-richtext ') && str_contains($markConditionalLonghandCss, '@media(min-width:1px)') && str_contains($markConditionalLonghandCss, 'background-color:gold') && ! str_contains($markConditionalLonghandMarkup, 'background-color:transparent'), 'authored conditional longhand background survives RichText mark projection');
 
 $markInlineLonghand = $transform('<p><span class="hl" style="background-color:gold">Inline longhand</span></p>');
 $markInlineLonghandMarkup = (string) ($markInlineLonghand['serialized_blocks'] ?? '');
@@ -735,7 +735,7 @@ $assert(str_contains($standaloneBadgeMarkup, '<mark style="') && str_contains($s
 
 $inlineStat = $transform('<style>.stat-num{font-size:4rem}.stat-num .suffix{font-size:2rem;color:#6040cc}</style><div class="stat-num"><span data-count="43">43</span><span class="suffix">%</span></div>');
 $inlineStatMarkup = (string) ($inlineStat['serialized_blocks'] ?? '');
-$assert(1 === substr_count($inlineStatMarkup, '<!-- wp:paragraph') && str_contains($inlineStatMarkup, '>43</span><mark class="suffix"') && str_contains($inlineStatMarkup, 'font-size:2rem') && str_contains($inlineStatMarkup, '>%</mark>'), 'non-structural inline metrics and suffixes remain in one styled RichText line');
+$assert(1 === substr_count($inlineStatMarkup, '<!-- wp:paragraph') && str_contains($inlineStatMarkup, '>43</span><mark class="suffix blocks-engine-role-richtext ') && str_contains($inlineStatMarkup, 'font-size:2rem') && str_contains($inlineStatMarkup, '>%</mark>'), 'non-structural inline metrics and suffixes remain in one styled RichText line');
 
 $gradientText = $transform('<style>:root{--hero:linear-gradient(90deg,#26f,#f56)}h1 .grad{background:var(--hero);background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent}</style><h1>Open <span class="grad">forever</span></h1>');
 $gradientTextMarkup = (string) ($gradientText['serialized_blocks'] ?? '');
@@ -768,13 +768,13 @@ $assert(str_contains($gridRichTextMarkup, '<!-- wp:group {"className":"artifact-
 $selectorIdentity = $transform('<style>.roster-card .stamp{color:#6040cc}.roster-card .stamp:hover{color:#123456}.roster-card a.view{display:inline-flex;align-items:center;gap:6px}.roster-card a.view:hover{color:#123456}</style><div class="roster-card"><p><span class="stamp" id="release-stamp" data-kind="release">New</span></p><a class="view" id="view-release" data-kind="release-link" href="/release" target="_blank" rel="noopener">View release</a><a href="/plain">Plain link</a></div>');
 $selectorIdentityMarkup = (string) ($selectorIdentity['serialized_blocks'] ?? '');
 $selectorIdentityCss = $css($selectorIdentity);
-$assert(str_contains($selectorIdentityMarkup, '<mark class="stamp" id="release-stamp" data-kind="release"') && str_contains($selectorIdentityMarkup, '--blocks-engine-richtext-marker:') && str_contains($selectorIdentityCss, ':hover{color:#123456}') && 'pass' === ($selectorIdentity['source_reports']['wp_block_validity']['status'] ?? ''), 'selector-addressable RichText spans retain safe class, id, and data identity on their valid mark carrier through pseudo-state projection');
+$assert(1 === preg_match('/<mark class="stamp blocks-engine-role-richtext[^"]*" id="release-stamp" data-kind="release"/', $selectorIdentityMarkup) && str_contains($selectorIdentityMarkup, '--blocks-engine-richtext-marker:') && str_contains($selectorIdentityCss, ':hover{color:#123456}') && 'pass' === ($selectorIdentity['source_reports']['wp_block_validity']['status'] ?? ''), 'selector-addressable RichText spans retain safe class, id, and data identity on their valid mark carrier through pseudo-state projection');
 $assert(str_contains($selectorIdentityMarkup, '<a class="view" id="view-release" data-kind="release-link" href="/release" target="_blank" rel="noopener">View release</a>') && str_contains($selectorIdentityMarkup, '<p class="blocks-engine-synthetic-paragraph">') && ! str_contains($selectorIdentityMarkup, '<p class="view') && ! str_contains($selectorIdentityMarkup, '<p id="view-release"') && str_contains($selectorIdentityCss, '.roster-card a.view{display:inline-flex;align-items:center;gap:6px}') && str_contains($selectorIdentityCss, '.roster-card a.view:hover{color:#123456}'), 'non-button anchor class, id, and data identity belong only to the inner link while its synthetic paragraph retains independent presentation');
 
 $linkedRichTextMarker = ( new HtmlTransformer() )->transform('<style>.shell .label{font-size:25px;color:#222}</style><div class="shell"><a href="/"><span class="label">Brand</span></a></div>')->toArray();
 $linkedRichTextMarkerMarkup = (string) ($linkedRichTextMarker['serialized_blocks'] ?? '');
 $linkedRichTextMarkerCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $linkedRichTextMarker['assets'] ?? array()));
-$assert(str_contains($linkedRichTextMarkerMarkup, '<a href="/"><mark class="label" style="--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($linkedRichTextMarkerCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($linkedRichTextMarker['source_reports']['wp_block_validity']['status'] ?? ''), 'selector-addressed spans nested in non-button links retain valid RichText marker carriers');
+$assert(1 === preg_match('/<a href="\/"><mark class="label blocks-engine-role-richtext[^"]*" style="--blocks-engine-richtext-marker:blocks-engine-richtext-/', $linkedRichTextMarkerMarkup) && str_contains($linkedRichTextMarkerCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($linkedRichTextMarker['source_reports']['wp_block_validity']['status'] ?? ''), 'selector-addressed spans nested in non-button links retain valid RichText marker carriers');
 
 $resetRoleButton = ( new HtmlTransformer() )->transform('<style>a{background:0 0;border:0}.label{font-size:25px}</style><a role="button"><span class="label">Contact</span></a>')->toArray();
 $resetRoleButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $resetRoleButton['assets'] ?? array()));
