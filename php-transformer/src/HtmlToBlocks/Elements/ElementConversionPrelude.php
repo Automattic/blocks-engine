@@ -82,6 +82,17 @@ final class ElementConversionPrelude
      */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported): ConversionOutcome
     {
+        if (WordPressCommentForm::isReplyHeading($element)) return ConversionOutcome::handled(null);
+        if (WordPressCommentForm::matches($element)) {
+            // This is a dynamic destination-site primitive. Source post IDs,
+            // nonces, and form values must never become block attributes.
+            $form = $this->createBlock->createBlock('core/post-comments-form');
+            $comments = $this->createBlock->createBlock('core/comments', array(), array($form));
+            $comments['innerHTML'] = '<div class="wp-block-comments"></div>';
+            $comments['innerContent'] = array('<div class="wp-block-comments">', null, '</div>');
+            return ConversionOutcome::handled($comments);
+        }
+
         $collection = $this->capturedCollection?->convert($element, $tagName, $fallbacks);
         if ($collection?->handled) return $collection;
         $listbox = $this->capturedListbox->convert($element, $tagName, $fallbacks);
