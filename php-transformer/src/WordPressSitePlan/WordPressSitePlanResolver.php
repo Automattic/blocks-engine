@@ -38,7 +38,7 @@ final class WordPressSitePlanResolver
         // Provider bindings replace page or shared template part markup, so their
         // anchors must use the same destination projection as the document
         // materialized by consumers.
-        $bindingDocuments = array_merge($plan['pages'], $plan['template_parts']);
+        $bindingDocuments = array_merge($plan['pages'], $plan['template_parts'], $plan['synced_patterns'] ?? array());
         $plan['runtime_declarations'] = self::resolveEntityBindings($plan['runtime_declarations'], $bindingDocuments, $references);
         $plan['runtime_entity_resolution'] = self::resolveManifestEntities($plan['runtime_declarations'], $plan['runtime_entity_records'], $bindingDocuments, $references);
         foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) { $write['canonical_payload'] = $write['payload']['data']; $write['canonical_payload_hash'] = WordPressSitePlan::contentHash($write['canonical_payload']); $write['payload']['data'] = self::resolveWritePayload($write['canonical_payload'], $plan['reference_tokens'], $themeUri, $write['target_path']); $write['payload_hash'] = WordPressSitePlan::contentHash($write['payload']['data']); }

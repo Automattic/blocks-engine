@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
-use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use InvalidArgumentException;
 
 /**
@@ -21,6 +20,10 @@ final class SyncedPatternProjection
 {
     public const REFERENCE_CONTRACT = 'explicit_refs/v1';
     public const SOURCE_RELATION = 'tab_panels_invariant_content';
+    /** Pattern documents own the runtime bindings inside them, as shared template parts do. */
+    public const SOURCE_PATH_PREFIX = 'wordpress-site-plan/synced-patterns/';
+    /** Single text blocks stay in their panel. */
+    private const TEXT_BLOCKS = array('paragraph', 'heading', 'list', 'list-item');
     /** The block editor's core/block wrapper, a layer saved markup does not have. */
     public const EDITOR_CONTAINER_CLASS = 'block-library-block__reusable-block-container';
     /**
@@ -34,32 +37,31 @@ final class SyncedPatternProjection
     private const EDITOR_SHELL_LAYER_CLASS = 'blocks-engine-layout-shell-editor-inner-blocks';
 
     /**
+     * Each edited page keeps `_synced_pattern_source` (its markup before
+     * projection and the replaced ranges) so canonicalEntityBindings() can
+     * move the runtime bindings inside a pattern onto the pattern document.
+     *
      * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $assets Stylesheets that decide which content a panel hides.
      * @return array{pages:array<int,array<string,mixed>>,patterns:list<array<string,mixed>>}
      */
-    public static function project(array $pages, array $declarations = array(), array $records = array()): array
+    public static function project(array $pages, array $assets = array()): array
     {
-        $searches = self::bindingSearches($declarations, $records);
+        $hiding = self::hidingClasses($assets);
         $clusters = array();
         foreach ($pages as $index => $page) {
             $markup = (string) ($page['canonical_block_markup'] ?? '');
             if (!str_contains($markup, 'wp:tab-panel')) continue;
-            $source = (string) ($page['source_path'] ?? '');
-            $protected = array();
-            foreach ($searches[$source] ?? array() as $search) {
-                for ($cursor = 0; false !== ($found = strpos($markup, $search, $cursor)); $cursor = $found + 1) $protected[] = array('offset' => $found, 'length' => strlen($search));
-            }
             foreach (self::tabsBlocks(self::tree($markup)) as $tabs) {
-                $panels = $tabs['panels'];
                 $shared = array();
-                self::sharedSubtrees(array_map(static fn(array $panel): array => $panel['children'], $panels), $markup, '', true, $shared);
+                self::sharedSubtrees(array_map(static fn(array $panel): array => $panel['children'], $tabs['panels']), $markup, '', true, $hiding, $shared);
                 foreach ($shared as $match) {
-                    foreach ($match['nodes'] as $node) if (self::overlaps($node, $protected)) continue 2;
-                    $inner = substr($markup, $match['nodes'][0]['offset'], $match['nodes'][0]['length']);
+                    $first = $match['nodes'][0];
+                    $inner = substr($markup, $first['offset'], $first['length']);
                     $clusters[WordPressSitePlan::contentHash($inner)][] = array(
-                        'index' => $index, 'source_path' => $source, 'markup' => $inner,
-                        'nodes' => $match['nodes'], 'block_path' => $match['path'],
-                        'label' => $tabs['label'], 'panel_count' => count($panels),
+                        'index' => $index, 'source_path' => (string) ($page['source_path'] ?? ''), 'markup' => $inner,
+                        'nodes' => $match['nodes'], 'block_path' => $match['path'], 'panel_count' => count($tabs['panels']),
+                        'title' => self::title($inner, substr($markup, $tabs['panels'][0]['offset'], $first['offset'] - $tabs['panels'][0]['offset']), $tabs['label']),
                     );
                 }
             }
@@ -71,27 +73,110 @@ final class SyncedPatternProjection
         foreach ($clusters as $contentHash => $occurrences) {
             $canonical = $occurrences[0];
             $identity = WordPressSitePlan::identity('synced_pattern', $canonical['source_path'], $contentHash);
+            $sourcePath = self::SOURCE_PATH_PREFIX . self::token($identity);
             $reference = '<!-- wp:block ' . json_encode(array('ref' => WordPressSitePlan::SYNCED_PATTERN_TOKEN_PREFIX . self::token($identity) . '}}'), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . ' /-->';
             $patterns[] = array(
                 'identity' => $identity,
-                'title' => self::title($canonical['markup'], $canonical['label']),
+                'title' => $canonical['title'],
                 'canonical_block_markup' => $canonical['markup'],
-                'source_path' => $canonical['source_path'],
+                'source_path' => $sourcePath,
                 'provenance' => array(
                     'source_relation' => self::SOURCE_RELATION,
                     'occurrences' => array_map(static fn(array $occurrence): array => array('source_path' => $occurrence['source_path'], 'panel_count' => $occurrence['panel_count'], 'block_path' => $occurrence['block_path']), $occurrences),
                 ),
             );
-            foreach ($occurrences as $occurrence) foreach ($occurrence['nodes'] as $node) $edits[$occurrence['index']][] = $node + array('markup' => $reference);
+            // One copy, the first panel's, becomes the pattern; the others are duplicates.
+            foreach ($occurrences as $occurrenceIndex => $occurrence) foreach ($occurrence['nodes'] as $panelIndex => $node) {
+                $edits[$occurrence['index']][] = array('offset' => $node['offset'], 'length' => $node['length'], 'reference' => $reference, 'source_path' => $sourcePath, 'canonical' => 0 === $occurrenceIndex && 0 === $panelIndex);
+            }
         }
         foreach ($edits as $index => $nodeEdits) {
-            usort($nodeEdits, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
-            $markup = (string) $pages[$index]['canonical_block_markup'];
-            foreach ($nodeEdits as $edit) $markup = substr($markup, 0, $edit['offset']) . $edit['markup'] . substr($markup, $edit['offset'] + $edit['length']);
+            usort($nodeEdits, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
+            $source = (string) $pages[$index]['canonical_block_markup'];
+            $markup = $source;
+            foreach (array_reverse($nodeEdits) as $edit) $markup = substr($markup, 0, $edit['offset']) . $edit['reference'] . substr($markup, $edit['offset'] + $edit['length']);
             $pages[$index]['canonical_block_markup'] = $markup;
             $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
+            $pages[$index]['_synced_pattern_source'] = array('markup' => $source, 'moves' => array_map(static fn(array $edit): array => array('offset' => $edit['offset'], 'length' => $edit['length'], 'reference_length' => strlen($edit['reference']), 'source_path' => $edit['source_path'], 'canonical' => $edit['canonical']), $nodeEdits));
         }
         return array('pages' => $pages, 'patterns' => $patterns);
+    }
+
+    /**
+     * Where a block range of a page's pre-projection markup lands: inside a
+     * pattern (relative to the pattern document), or on the page with every
+     * earlier or enclosed replacement applied. `duplicate` marks a range in a
+     * copy that is not the pattern's own; its claim names the pattern block.
+     *
+     * @param array{markup:string,moves:list<array<string,mixed>>} $source
+     * @param array{offset:int,length:int} $range
+     * @return array{source_path:?string,markup:string,range:array{offset:int,length:int},duplicate:bool,claim:?string}
+     */
+    public static function rebase(array $source, string $markup, array $range): array
+    {
+        $shift = 0;
+        $length = $range['length'];
+        foreach ($source['moves'] as $move) {
+            if ($range['offset'] >= $move['offset'] && $range['offset'] + $range['length'] <= $move['offset'] + $move['length']) {
+                $relative = $range['offset'] - $move['offset'];
+                return array('source_path' => $move['source_path'], 'markup' => substr($source['markup'], $move['offset'], $move['length']), 'range' => array('offset' => $relative, 'length' => $range['length']), 'duplicate' => !$move['canonical'], 'claim' => $move['source_path'] . "\n" . $relative);
+            }
+            $delta = $move['length'] - $move['reference_length'];
+            if ($move['offset'] + $move['length'] <= $range['offset']) $shift += $delta;
+            elseif ($move['offset'] >= $range['offset'] && $move['offset'] + $move['length'] <= $range['offset'] + $range['length']) $length -= $delta;
+        }
+        return array('source_path' => null, 'markup' => $markup, 'range' => array('offset' => $range['offset'] - $shift, 'length' => $length), 'duplicate' => false, 'claim' => null);
+    }
+
+    /**
+     * Drop the bindings rebase() marked as duplicates, and the entities left
+     * with none. The kept entity moves to the pattern document and lists the
+     * fallback identities it replaces, as shared template part hoists do.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @return array<int,array<string,mixed>>
+     */
+    public static function collapseDuplicateBindings(array $declarations): array
+    {
+        $replaced = array();
+        foreach ($declarations as &$declaration) {
+            if (!is_array($declaration['payload']['entities'] ?? null)) continue;
+            foreach ($declaration['payload']['entities'] as $entityIndex => &$entity) {
+                if (!is_array($entity['bindings'] ?? null)) continue;
+                $claims = array_values(array_filter(array_map(static fn(mixed $binding): ?string => is_array($binding) ? ($binding['_synced_pattern_duplicate'] ?? null) : null, $entity['bindings'])));
+                if (array() === $claims) continue;
+                $entity['bindings'] = array_values(array_filter($entity['bindings'], static fn(mixed $binding): bool => !is_array($binding) || !isset($binding['_synced_pattern_duplicate'])));
+                if (array() !== $entity['bindings']) continue;
+                if (is_string($entity['fallback_identity'] ?? null) && '' !== $entity['fallback_identity']) $replaced[$claims[0]][] = $entity['fallback_identity'];
+                unset($declaration['payload']['entities'][$entityIndex]);
+            }
+            unset($entity);
+            $declaration['payload']['entities'] = array_values($declaration['payload']['entities']);
+        }
+        unset($declaration);
+        foreach ($declarations as &$declaration) {
+            if (!is_array($declaration['payload']['entities'] ?? null)) continue;
+            foreach ($declaration['payload']['entities'] as &$entity) {
+                if (!is_array($entity) || !is_array($entity['bindings'] ?? null)) continue;
+                $claim = null;
+                foreach ($entity['bindings'] as &$binding) {
+                    if (!is_array($binding) || !isset($binding['_synced_pattern_claim'])) continue;
+                    $claim = $binding['_synced_pattern_claim'];
+                    unset($binding['_synced_pattern_claim']);
+                }
+                unset($binding);
+                if (null === $claim) continue;
+                $sources = array_unique(array_column($entity['bindings'], 'source_path'));
+                if (1 === count($sources) && isset($entity['source_path'])) $entity['source_path'] = $sources[0];
+                $identities = array_merge(is_string($entity['fallback_identity'] ?? null) ? array($entity['fallback_identity']) : array(), $entity['replaced_fallback_identities'] ?? array(), $replaced[$claim] ?? array());
+                $identities = array_values(array_unique($identities));
+                sort($identities, SORT_STRING);
+                if (1 < count($identities)) $entity['replaced_fallback_identities'] = $identities;
+            }
+            unset($entity);
+        }
+        unset($declaration);
+        return $declarations;
     }
 
     /**
@@ -122,12 +207,15 @@ final class SyncedPatternProjection
     /**
      * Walk the panels' children in step. A position whose markup is equal in
      * every panel is shared; positions that differ but keep one block type and
-     * child count are compared one level down.
+     * child count are compared one level down. Only maximal subtrees that
+     * render in every panel qualify: content a panel hides (display:none) and
+     * single text blocks stay inline.
      *
      * @param list<list<array<string,mixed>>> $lists Sibling lists, one per panel.
+     * @param list<string> $hiding Classes a stylesheet sets to display:none.
      * @param list<array{path:string,nodes:list<array<string,mixed>>}> $shared
      */
-    private static function sharedSubtrees(array $lists, string $markup, string $path, bool $panelRoot, array &$shared): void
+    private static function sharedSubtrees(array $lists, string $markup, string $path, bool $panelRoot, array $hiding, array &$shared): void
     {
         $count = count($lists[0]);
         foreach ($lists as $list) if (count($list) !== $count) return;
@@ -137,17 +225,69 @@ final class SyncedPatternProjection
             $first = substr($markup, $nodes[0]['offset'], $nodes[0]['length']);
             $equal = true;
             foreach ($nodes as $node) if (substr($markup, $node['offset'], $node['length']) !== $first) { $equal = false; break; }
+            // The whole panel content is not shared content: the set would not switch.
+            if ($equal && $panelRoot && 1 === $count) return;
+            foreach ($nodes as $node) if (self::hidden($node, $markup, $hiding)) continue 2;
             if ($equal) {
-                // The whole panel content is not shared content: the set would not switch.
-                if ($panelRoot && 1 === $count) return;
-                if ('block' === $nodes[0]['name'] || str_contains($first, WordPressSitePlan::SYNCED_PATTERN_TOKEN_PREFIX)) continue;
+                if (in_array($nodes[0]['name'], self::TEXT_BLOCKS, true) || 'block' === $nodes[0]['name'] || str_contains($first, WordPressSitePlan::SYNCED_PATTERN_TOKEN_PREFIX)) continue;
                 $shared[] = array('path' => $blockPath, 'nodes' => $nodes);
                 continue;
             }
             $name = $nodes[0]['name'];
             foreach ($nodes as $node) if ($node['name'] !== $name || array() === $node['children'] || 'tabs' === $name) continue 2;
-            self::sharedSubtrees(array_map(static fn(array $node): array => $node['children'], $nodes), $markup, $blockPath, false, $shared);
+            self::sharedSubtrees(array_map(static fn(array $node): array => $node['children'], $nodes), $markup, $blockPath, false, $hiding, $shared);
         }
+    }
+
+    /**
+     * Whether the block's own leading element(s) are hidden: a `hidden`
+     * attribute, an inline `display:none`, or a class a stylesheet hides at
+     * any viewport.
+     *
+     * @param list<string> $hiding
+     */
+    private static function hidden(array $node, string $markup, array $hiding): bool
+    {
+        $end = strpos($markup, '-->', $node['offset']);
+        if (false === $end || !preg_match('/\G(?:\s*<[a-z][^>]*>)+/i', $markup, $tags, 0, $end + 3)) return false;
+        preg_match_all('/<[a-z][a-z0-9-]*([^>]*)>/i', $tags[0], $elements);
+        foreach ($elements[1] as $attributes) {
+            preg_match_all('/([^\s=>\/]+)(?:\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+))?/', $attributes, $pairs, PREG_SET_ORDER);
+            foreach ($pairs as $pair) {
+                $name = strtolower($pair[1]);
+                $value = html_entity_decode(trim($pair[2] ?? '', '"\''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                if ('hidden' === $name || ('style' === $name && preg_match('/(?:^|;)\s*display\s*:\s*none\b/i', $value))
+                    || ('class' === $name && array() !== array_intersect(preg_split('/\s+/', $value) ?: array(), $hiding))) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Classes in the subject of some stylesheet rule that sets display:none,
+     * whatever its context or media query: a superset of what can hide.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @return list<string>
+     */
+    private static function hidingClasses(array $assets): array
+    {
+        $classes = array();
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            preg_match_all('/([^{}]+)\{([^{}]*)\}/', (string) preg_replace('~/\*.*?\*/~s', '', $asset['content']), $rules, PREG_SET_ORDER);
+            foreach ($rules as $rule) {
+                if (!preg_match('/(?:^|;)\s*display\s*:\s*none\s*(?:!important\s*)?(?:;|$)/i', trim($rule[2]))) continue;
+                foreach (explode(',', $rule[1]) as $selector) {
+                    // The subject compound's classes, outside any :not()/:where() argument.
+                    do $selector = (string) preg_replace('/\([^()]*\)/', '', $selector, -1, $stripped); while ($stripped > 0);
+                    $compounds = preg_split('/[\s>+~]+/', trim($selector)) ?: array();
+                    if (str_contains($selector, '::') || !preg_match_all('/\.((?:\\\\.|[\w-])+)/', (string) end($compounds), $subject)) continue;
+                    foreach ($subject[1] as $class) $classes[] = (string) preg_replace('/\\\\(.)/', '$1', $class);
+                }
+            }
+        }
+        return array_values(array_unique($classes));
     }
 
     /**
@@ -196,39 +336,20 @@ final class SyncedPatternProjection
         return $build(-1);
     }
 
-    private static function title(string $markup, string $label): string
-    {
-        if (preg_match('/<h[1-6]\b[^>]*>(.*?)<\/h[1-6]>/is', $markup, $heading)) {
-            $text = trim((string) preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($heading[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
-            if ('' !== $text) return $text;
-        }
-        return '' !== $label ? $label : 'Shared content';
-    }
-
-    private static function overlaps(array $node, array $ranges): bool
-    {
-        foreach ($ranges as $range) if ($node['offset'] < $range['offset'] + $range['length'] && $range['offset'] < $node['offset'] + $node['length']) return true;
-        return false;
-    }
-
     /**
-     * Every block a runtime binding searches for. A shared subtree holding any
-     * occurrence keeps it inline, so binding occurrences never renumber.
-     *
-     * @return array<string,list<string>>
+     * The subtree's first heading, else the nearest heading before it in its
+     * panel, else the tab list label.
      */
-    private static function bindingSearches(array $declarations, array $records): array
+    private static function title(string $markup, string $before, string $label): string
     {
-        $searches = array();
-        foreach ($declarations as $declaration) {
-            $payload = $declaration['payload'] ?? array();
-            $entities = RuntimeEntityManifest::SCHEMA === ($payload['schema'] ?? null)
-                ? RuntimeEntityManifest::resolve($payload, $records) : ($payload['entities'] ?? array());
-            foreach ($entities as $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $binding) {
-                if (is_string($binding['source_path'] ?? null) && is_string($binding['search_block_markup'] ?? null) && '' !== $binding['search_block_markup']) $searches[$binding['source_path']][] = $binding['search_block_markup'];
+        foreach (array(array($markup, false), array($before, true)) as [$source, $last]) {
+            if (!preg_match_all('/<h[1-6]\b[^>]*>(.*?)<\/h[1-6]>/is', $source, $headings)) continue;
+            foreach ($last ? array_reverse($headings[1]) : $headings[1] as $heading) {
+                $text = trim((string) preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($heading), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+                if ('' !== $text) return $text;
             }
         }
-        return $searches;
+        return '' !== $label ? $label : 'Shared content';
     }
 
     /** Validate pattern declarations and document references as one contract. */
@@ -243,7 +364,7 @@ final class SyncedPatternProjection
         foreach ($declared ? $plan['synced_patterns'] : array() as $pattern) {
             if (!is_array($pattern) || array('identity', 'title', 'canonical_block_markup', 'source_path', 'provenance') !== array_keys(array_diff_key($pattern, array('resolved_block_markup' => true)))
                 || !is_string($pattern['identity']) || !preg_match('/^[a-f0-9]{64}$/', $pattern['identity']) || isset($entities[self::token($pattern['identity'])])
-                || !is_string($pattern['title']) || '' === trim($pattern['title']) || !is_string($pattern['source_path']) || '' === $pattern['source_path']
+                || !is_string($pattern['title']) || '' === trim($pattern['title']) || self::SOURCE_PATH_PREFIX . self::token($pattern['identity']) !== $pattern['source_path']
                 || !is_string($pattern['canonical_block_markup']) || array() === WordPressSitePlan::blockRanges($pattern['canonical_block_markup'])
                 || str_contains($pattern['canonical_block_markup'], WordPressSitePlan::SYNCED_PATTERN_TOKEN_PREFIX)
                 || !is_array($pattern['provenance']) || self::SOURCE_RELATION !== ($pattern['provenance']['source_relation'] ?? null)) {

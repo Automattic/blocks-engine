@@ -487,16 +487,17 @@ PHP;
           $pages = self::resolveFeaturedImageTargets($pages, $tokens);
           $assets = ListingQueryPresentation::project($assets, $this->listingQueryContainers);
          // Content every panel of one tabs block repeats is declared once.
-         $syncedPatterns = SyncedPatternProjection::project($pages, $runtimeDeclarations, $runtimeEntityRecords);
+         $syncedPatterns = SyncedPatternProjection::project($pages, $assets);
          $pages = $syncedPatterns['pages'];
          $syncedPatterns = $syncedPatterns['patterns'];
          if (array() !== $syncedPatterns) $assets = SyncedPatternProjection::editorStylesheets($assets);
-         // Query Loop projection can shorten page markup after shell extraction.
-         // Rebase retained runtime anchors on the final page before validation.
+         // Query Loop projection can shorten page markup after shell extraction,
+         // and synced patterns take shared panel content (and its bindings) out
+         // of the page. Rebase retained runtime anchors on the final documents.
          $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $parts);
          $pages = self::attachWholePageCandidates($pages, $runtimeDeclarations, $runtimeEntityRecords);
-         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
-         self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
+         foreach ($pages as &$page) unset($page['_projected_source_block_markup'], $page['_synced_pattern_source']); unset($page);
+         self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns), $assets);
          $projectedTaxonomyEntities = array();
          foreach ($taxonomyProjection['entities'] as $taxonomyEntity) {
              foreach ($pages as $page) if (($page['source_path'] ?? null) === ($taxonomyEntity['archive']['source_path'] ?? null)) {
@@ -678,7 +679,7 @@ PHP;
         foreach ($plan['runtime_declarations'] as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) RuntimeEntityManifest::resolve($declaration['payload'], $records);
         $runtimeRecords = RuntimeDeclarations::normalizeRecords($plan['runtime_records'] ?? array());
         if ($runtimeRecords !== ($plan['runtime_records'] ?? array())) throw new InvalidArgumentException('WordPress site plan runtime records are not canonically normalized.');
-        self::assertEntityBindingsAnchored(RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $plan['pages'], $plan['template_parts'], $plan['assets']);
+        self::assertEntityBindingsAnchored(RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $plan['pages'], array_merge($plan['template_parts'], $plan['synced_patterns'] ?? array()), $plan['assets']);
         if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
@@ -5177,6 +5178,11 @@ PHP;
 
         $markupBySource = array_column($pages, 'canonical_block_markup', 'source_path');
         $sourceMarkupBySource = array_column($pages, '_projected_source_block_markup', 'source_path');
+        // A page that synced patterns took content from is matched on its markup
+        // before that projection; each resolved block is then rebased below.
+        $patternSources = array_column($pages, '_synced_pattern_source', 'source_path');
+        $projectedMarkupBySource = $markupBySource;
+        foreach ($patternSources as $source => $patternSource) $markupBySource[$source] = $patternSource['markup'];
         $groups = array();
         // A binding whose block is not emitted has nothing to bind: the block
         // stays static. These are dropped below and reported, not thrown.
@@ -5262,18 +5268,31 @@ PHP;
             foreach ($resolved as $resolvedEntry) {
                 [$identity, $range] = $resolvedEntry;
                 if (!is_array($range)) throw new InvalidArgumentException('A runtime entity binding no longer identifies an emitted canonical block.');
-                $canonical = substr($markup, $range['offset'], $range['length']);
-                $blockIndex = array_search($range, self::blockRanges($markup), true);
-                if (!is_string($canonical) || '' === $canonical || !is_int($blockIndex)) throw new InvalidArgumentException('A runtime entity binding resolved to empty canonical block markup.');
                 $binding = &$declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']];
+                $documentMarkup = $markup;
+                $landing = isset($patternSources[$identity['source']]) ? SyncedPatternProjection::rebase($patternSources[$identity['source']], $projectedMarkupBySource[$identity['source']], $range) : null;
+                if (null !== $landing) {
+                    // A copy of pattern content: the pattern document's own binding replaces it.
+                    if ($landing['duplicate']) { $binding['_synced_pattern_duplicate'] = $landing['claim']; unset($binding); continue; }
+                    $documentMarkup = $landing['markup'];
+                    $range = $landing['range'];
+                }
+                $canonical = substr($documentMarkup, $range['offset'], $range['length']);
+                $blockIndex = array_search($range, self::blockRanges($documentMarkup), true);
+                if (!is_string($canonical) || '' === $canonical || !is_int($blockIndex)) throw new InvalidArgumentException('A runtime entity binding resolved to empty canonical block markup.');
                 $binding['search_block_markup'] = $canonical;
-                $binding['occurrence'] = self::occurrenceAtOffset($markup, $canonical, $range['offset']);
+                $binding['occurrence'] = self::occurrenceAtOffset($documentMarkup, $canonical, $range['offset']);
                 $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $range['offset'], 'length' => $range['length']);
+                if (is_string($landing['source_path'] ?? null)) {
+                    $binding['source_path'] = $landing['source_path'];
+                    $binding['projected_anchor'] = self::projectedBindingAnchor($binding);
+                    $binding['_synced_pattern_claim'] = $landing['claim'];
+                }
                 unset($binding);
             }
         }
 
-        $declarations = $this->withoutUnanchoredBindings($declarations, $unanchored);
+        $declarations = SyncedPatternProjection::collapseDuplicateBindings($this->withoutUnanchoredBindings($declarations, $unanchored));
 
         // Rewriting binding markup changes the payload, so drop the derived
         // hashes and re-normalize to recompute canonical identity and content
