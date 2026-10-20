@@ -171,7 +171,11 @@ final class InlineContentElementConverter implements ElementConverter
             : null;
         $attrs = array('content' => $content);
         if (null === $sourceElement) $attrs = array_merge($this->sourceAttributes->syntheticInlineParagraphAttributes($element), $attrs);
-        return ConversionOutcome::handled($this->context->createBlock('core/paragraph', $attrs, array(), $sourceElement));
+        $paragraph = $this->context->createBlock('core/paragraph', $attrs, array(), $sourceElement);
+        // A synthetic paragraph registers no source, but still stands for this
+        // one element: a finding may bind it by the element's selector.
+        if (null === $sourceElement && is_array($paragraph)) $paragraph['_source_anchor_selector'] = SourceDom::elementSelector($element);
+        return ConversionOutcome::handled($paragraph);
     }
 
     /** @param array<int, array<string, mixed>> $children @return array<string, mixed> */

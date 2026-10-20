@@ -138,6 +138,7 @@ final class CommerceStructureRecognizer
             'sale_price'       => $prices['sale_price'] ?? null,
             'description'      => $this->productDescriptionText($card, $name),
             'image'            => $image,
+            'category'         => $this->productCategoryText($card),
             'has_cart_control' => $hasCart,
             'source_selector'  => SourceDom::elementSelector($card),
         ), static fn (mixed $value, string $key): bool => in_array($key, array( 'sale_price', 'description', 'image' ), true) || ( null !== $value && '' !== $value ), ARRAY_FILTER_USE_BOTH);
@@ -596,6 +597,29 @@ final class CommerceStructureRecognizer
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement && in_array(strtolower(SourceDom::attr($descendant, 'itemprop')), $itemprops, true) ) {
                 return $descendant;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The card's category label: the schema.org `category` property, or a
+     * short leaf whose class or id names a category.
+     */
+    private function productCategoryText(DOMElement $card): ?string
+    {
+        $schema = $this->firstDescendantWithItemprop($card, array( 'category' ));
+        $candidates = null !== $schema ? array( $schema ) : array();
+        foreach ( $card->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && SourceDom::childElementCount($element) === 0 && $this->classifier->hasCommerceToken($element, array( 'category', 'cat', 'collection' )) ) {
+                $candidates[] = $element;
+            }
+        }
+        foreach ( $candidates as $element ) {
+            $text = '' !== SourceDom::attr($element, 'content') ? trim(SourceDom::attr($element, 'content')) : $this->collapsedText($element);
+            if ( '' !== $text && mb_strlen($text) <= 60 ) {
+                return $text;
             }
         }
 

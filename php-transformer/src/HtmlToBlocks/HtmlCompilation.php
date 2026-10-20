@@ -7664,6 +7664,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $provenanceIndexes = array(); $index = 0;
         $this->bindingProvenanceIndexes($blocks, $provenanceIndexes, $index);
         $anchorIndexes = $this->bindingAnchorSelectorIndexes($provenanceIndexes);
+        $index = 0;
+        $this->sourceAnchorSelectorIndexes($blocks, $anchorIndexes, $index);
         $ranges = $this->serializedBlockRanges($markup);
         $finalize = function (array &$binding) use ($markup, $provenanceIndexes, $anchorIndexes, $ranges): void {
             $provenanceId = $binding['_binding_provenance_id'] ?? null;
@@ -7687,6 +7689,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         };
         foreach ( $fallbacks as &$fallback ) {
             if (is_array($fallback['binding'] ?? null)) $finalize($fallback['binding']);
+            if (is_array($fallback['listing'] ?? null)) {
+                // A listing control a provider cannot locate is dropped; the
+                // listing itself needs its region and at least one control.
+                $finalize($fallback['listing']['binding']);
+                $controls = array();
+                foreach ($fallback['listing']['controls'] as $control) {
+                    $finalize($control['binding']);
+
+                    if (array() !== $control['binding']) $controls[] = $control;
+                }
+                $fallback['listing']['controls'] = $controls;
+                if (array() === $fallback['listing']['binding'] || array() === $controls) unset($fallback['listing']);
+            }
             if (is_array($fallback['products'] ?? null)) {
                 $cardMarkups = array();
                 foreach ($fallback['products'] as $product) {
@@ -7770,6 +7785,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $anchorIndexes[$selector] = $blockIndex;
         }
         return $anchorIndexes;
+    }
+
+    /**
+     * Adds anchor-only block identities (`_source_anchor_selector`) for
+     * selectors no provenance source already claims.
+     *
+     * @param array<int,array<string,mixed>> $blocks
+     * @param array<string,int|null> $anchorIndexes
+     */
+    private function sourceAnchorSelectorIndexes(array $blocks, array &$anchorIndexes, int &$index): void
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) continue;
+            $selector = $block['_source_anchor_selector'] ?? null;
+            if ( is_string($selector) && '' !== $selector && ! array_key_exists($selector, $anchorIndexes) ) $anchorIndexes[$selector] = $index;
+            ++$index;
+            $this->sourceAnchorSelectorIndexes(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $anchorIndexes, $index);
+        }
     }
 
     /** @return array<int,array{offset:int,length:int}> */

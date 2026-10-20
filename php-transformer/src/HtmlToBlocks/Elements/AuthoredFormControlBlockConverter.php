@@ -163,6 +163,9 @@ final class AuthoredFormControlBlockConverter
             'innerBlocks' => array(),
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
+            // Anchor-only identity: lets a finding bind this control's block
+            // without registering it as a provenance source.
+            '_source_anchor_selector' => SourceDom::elementSelector($select),
         );
 
         // Preserve the established structural address while source identity and
@@ -296,6 +299,7 @@ final class AuthoredFormControlBlockConverter
             'innerBlocks' => array(),
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
+            '_source_anchor_selector' => SourceDom::elementSelector($input),
         );
     }
 
