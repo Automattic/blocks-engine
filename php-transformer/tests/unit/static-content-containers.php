@@ -34,7 +34,7 @@ foreach (array(
     'descendant event handler' => '<content><div><p onclick="activate()">Runtime text</p></div></content>',
     'legacy shadow distribution' => '<content select=".selected"><div><p>Fallback content</p></div></content>',
     'nonstructural child' => '<content><span>Inline label</span></content>',
-    'unsupported descendant' => '<content><div><h1>Heading</h1><progress value="1" max="2">Progress</progress></div></content>',
+    'unsupported descendant' => '<content><div><h1>Heading</h1><output>Result</output></div></content>',
     'script descendant' => '<content><div><script>alert(1)</script><h1>Heading</h1></div></content>',
     'embed descendant' => '<content><div><embed src="https://example.test/plugin"><h1>Heading</h1></div></content>',
 ) as $label => $source) {

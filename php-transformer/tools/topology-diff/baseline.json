@@ -1241,7 +1241,6 @@
             "added p [blocks-engine-synthetic-paragraph]": 4,
             "removed a": 1,
             "removed form": 1,
-            "removed meter": 1,
             "removed ul": 1,
             "removed-wrapper span": 1,
             "retagged span>mark": 1
@@ -1263,7 +1262,6 @@
             "added thead": 1,
             "added tr": 4,
             "removed a": 1,
-            "removed meter": 3,
             "removed nav": 1,
             "removed span": 9,
             "removed svg": 11,

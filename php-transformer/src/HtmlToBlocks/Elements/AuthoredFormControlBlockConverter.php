@@ -259,8 +259,12 @@ final class AuthoredFormControlBlockConverter
         $registry = ($this->generatedBlocks)();
         $registry->register(AuthoredInputBlockGenerator::class, $generator->definition($registry->namespace()));
         $isImage = 'image' === FormControlClassifier::controlType($input);
+        $indicator = in_array(strtolower($input->tagName), array('progress', 'meter'), true);
         $attrs = array_filter(array(
-            'type' => FormControlClassifier::controlType($input),
+            'tagName' => $indicator ? strtolower($input->tagName) : '',
+            'fallbackText' => $indicator ? $input->textContent : '',
+            'indicatorAttributes' => $indicator ? SourceAttribute::staticAttributes(SourceDom::htmlAttributes($input), array('id', 'class', 'style', 'value', 'min', 'max', 'aria-label')) : array(),
+            'type' => $indicator ? '' : FormControlClassifier::controlType($input),
             'id' => SourceDom::attr($input, 'id'),
             'name' => SourceDom::attr($input, 'name'),
             'form' => SourceDom::attr($input, 'form'),
@@ -271,6 +275,9 @@ final class AuthoredFormControlBlockConverter
             'style' => SourceDom::attr($input, 'style'),
             'min' => SourceDom::attr($input, 'min'),
             'max' => SourceDom::attr($input, 'max'),
+            'low' => $indicator ? SourceDom::attr($input, 'low') : '',
+            'high' => $indicator ? SourceDom::attr($input, 'high') : '',
+            'optimum' => $indicator ? SourceDom::attr($input, 'optimum') : '',
             'step' => SourceDom::attr($input, 'step'),
             // An image submit is painted by its picture; without it the control has no face.
             'src' => $isImage ? SourceDom::attr($input, 'src') : '',
