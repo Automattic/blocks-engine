@@ -125,6 +125,12 @@ final class ButtonPatternContext
         );
     }
 
+    /** Inner markup as button RichText {@see StyleResolver::richTextSerializationSource()}. */
+    public function richTextInnerHtml(DOMElement $element): string
+    {
+        return SourceDom::innerHtml($this->styleResolver?->richTextSerializationSource($element) ?? $element);
+    }
+
     public function richText(DOMElement $element): string
     {
         return $this->richTextMaterializer?->content($element) ?? SourceDom::innerHtml($element);
