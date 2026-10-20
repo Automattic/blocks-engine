@@ -29,6 +29,7 @@ $files['about/index.html'] = $document('AboutPage', '<main><h1>About us</h1></ma
 $files['contact/index.html'] = $document('ContactPage', '<main><h1>Contact</h1></main>');
 $files['category/business/index.html'] = $document('CollectionPage', '<main><h1>Business</h1><a href="/essay/">Essay</a></main>');
 $files['category/business/page/2/index.html'] = $document('CollectionPage', '<main><h1>Business, page two</h1></main>');
+$files['collections/strips/index.html'] = $document('CollectionPage', '<main><h1>Strips</h1><a href="/essay/">Essay</a></main>');
 $files['go/essay/index.html'] = '<html><head><meta http-equiv="refresh" content="0;url=/essay/"></head><body></body></html>';
 $files['news/index.html'] = '<script type="application/ld+json">{"@type":"NewsArticle"}</script><main><h1>News</h1><p>News body.</p></main>';
 $plan = $build($files);
@@ -51,6 +52,11 @@ $assert(!isset($pages['category/business/page/2/index.html']), 'Archive paginati
 // A collection used as the entry page remains a page, with positive evidence.
 $collectionPlan = $build(array('index.html' => $document('CollectionPage', '<main><h1>Collection</h1></main>')));
 $assert(array('schema' => 'blocks-engine/content-decision/v1', 'state' => 'inferred', 'post_type' => 'page', 'evidence' => array(array('source' => 'json-ld:CollectionPage'))) === $collectionPlan['pages'][0]['content_decision'], 'CollectionPage carries an inferred page decision when materialized');
+// A collection on a route no WordPress query resolves to an archive template
+// keeps its route as a page instead of becoming an unreachable template.
+$assert('page' === ($pages['collections/strips/index.html']['post_type'] ?? null), 'Collection outside a taxonomy route stays a routed page');
+$assert(array('schema' => 'blocks-engine/content-decision/v1', 'state' => 'inferred', 'post_type' => 'page', 'evidence' => array(array('source' => 'json-ld:CollectionPage'))) === $pages['collections/strips/index.html']['content_decision'], 'Routed collection carries its inferred page decision');
+$assert(array() === array_filter($plan['templates'], static fn(array $template): bool => 'collections/strips/index.html' === ($template['source_path'] ?? null)), 'Routed collection does not become an archive template');
 $templates = array_column($plan['templates'], null, 'slug');
 $assert(isset($templates['category-business']), 'Collection retains its archive presentation');
 $assert(isset($templates['single']), 'Posts retain a shared single template');

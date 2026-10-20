@@ -2775,8 +2775,12 @@ PHP;
         }
         foreach ($documents as $index => &$document) {
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
-            if (in_array('CollectionPage', $structuredTypes[$index], true) && !preg_match('~/page/[1-9][0-9]*$~', $routes[$index]) && !isset($metadata['template_surface']) && empty($document['entrypoint'])) {
-                $slug = 1 === preg_match('~^/(category|tag|author)/([^/]+)$~', $routes[$index], $match) ? $match[1] . '-' . $match[2] : 'archive-' . substr(hash('sha256', $routes[$index]), 0, 12);
+            // A collection becomes an archive template only on a route WordPress
+            // resolves to that template (category, tag, author). Any other
+            // collection route has no query that selects a custom archive
+            // template, so it stays a page that owns its route and content.
+            if (in_array('CollectionPage', $structuredTypes[$index], true) && 1 === preg_match('~^/(category|tag|author)/([^/]+)$~', $routes[$index], $match) && !isset($metadata['template_surface']) && empty($document['entrypoint'])) {
+                $slug = $match[1] . '-' . $match[2];
                 $metadata['template_surface'] = array('schema' => 'blocks-engine/template-surface/v1', 'role' => 'archive', 'slug' => $slug, 'logical_surface_id' => 'archive:' . $slug, 'responsive_variant_id' => 'default', 'declaration_provenance' => array('schema' => 'blocks-engine/template-surface-provenance/v1', 'kind' => 'schema_org', 'source_path' => $document['source_path']));
             }
             $frontmatter = is_array($metadata['frontmatter'] ?? null) ? $metadata['frontmatter'] : array();
