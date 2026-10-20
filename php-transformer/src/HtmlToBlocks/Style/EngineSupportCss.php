@@ -166,7 +166,12 @@ final class EngineSupportCss
             $parts[] = ':root :where(.wp-block-image)>a{object-fit:inherit;object-position:inherit;border-radius:inherit}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS) ) {
-            $parts[] = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '{display:inline-block}';
+            // This figure has no source box. Remove its layout box so image
+            // percentages keep the source containing block, rather than a
+            // cyclic shrink-to-fit basis. Keep the image itself inline too.
+            $inlineFigure = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS;
+            $parts[] = $inlineFigure . '{display:contents}'
+                . $inlineFigure . ' img{display:inline}';
         }
         if ( str_contains($serializedBlocks, self::BACKGROUND_IMAGE_CLASS) ) {
             // The source painted this image as a background, where the element's
