@@ -212,7 +212,7 @@ $identitySelectors = array_column($identityCache->styleRuleCandidates($identityS
 $assert(array( '.second' ) === $identitySelectors, 'candidate-rule cache does not alias a distinct element with a recycled wrapper ID');
 
 $largeUniversalRules = array();
-for ( $index = 0; $index < 2048; ++$index ) {
+for ( $index = 0; $index < intdiv(CssSelectorMatchCache::MAX_CANDIDATE_RULES, 2); ++$index ) {
     $largeUniversalRules[] = array( 'order' => $index, 'rule' => array( 'selector' => '*' ) );
 }
 $largeCandidateIndex = array(
@@ -225,9 +225,9 @@ $largeCandidateIndex = array(
 $candidateCache->styleRuleCandidates($byId('one'), 'large', $largeCandidateIndex);
 $candidateCache->styleRuleCandidates($byId('two'), 'large', $largeCandidateIndex);
 $candidateCache->styleRuleCandidates($byId('target'), 'large', $largeCandidateIndex);
-$assert(4096 === $candidateCache->candidateRulesRetained, 'candidate cache retains rule references up to the bound after pressure');
+$assert(CssSelectorMatchCache::MAX_CANDIDATE_RULES === $candidateCache->candidateRulesRetained, 'candidate cache retains rule references up to the bound after pressure');
 $oversizedUniversalRules = array();
-for ( $index = 0; $index < 4097; ++$index ) {
+for ( $index = 0; $index <= CssSelectorMatchCache::MAX_CANDIDATE_RULES; ++$index ) {
     $oversizedUniversalRules[] = array( 'order' => $index, 'rule' => array( 'selector' => '*' ) );
 }
 $candidateCache->styleRuleCandidates($byId('control'), 'oversized', array(
@@ -237,7 +237,7 @@ $candidateCache->styleRuleCandidates($byId('control'), 'oversized', array(
     'tags' => array(),
     'total' => count($oversizedUniversalRules),
 ));
-$assert(4096 === $candidateCache->candidateRulesRetained, 'a single oversized candidate list is returned without retention');
+$assert(CssSelectorMatchCache::MAX_CANDIDATE_RULES === $candidateCache->candidateRulesRetained, 'a single oversized candidate list is returned without retention');
 $candidateCache->clear();
 $assert(0 === $candidateCache->candidateRulesRetained, 'clearing the immutable revision cache resets retained candidate accounting');
 
@@ -274,7 +274,10 @@ $candidatePressureDom->loadHTML('<!doctype html><div id="candidate-pressure"></d
 $candidatePressureRoot = $candidatePressureDom->getElementById('candidate-pressure');
 $candidatePressureElements = array();
 for ( $index = 0; $index <= CssSelectorMatchCache::MAX_CANDIDATE_LISTS; ++$index ) {
+    // Candidate lists are shared by selector signature, so each element
+    // needs its own signature to occupy its own list.
     $element = $candidatePressureDom->createElement('i');
+    $element->setAttribute('class', 'pressure-' . $index);
     $candidatePressureRoot->appendChild($element);
     $candidatePressureElements[] = $element;
 }
@@ -286,7 +289,7 @@ for ( $index = 0; $index < CssSelectorMatchCache::MAX_CANDIDATE_LISTS; ++$index 
 $candidatePressureCache->styleRuleCandidates($candidatePressureElements[0], 'pressure', $emptyCandidateIndex);
 $candidatePressureCache->styleRuleCandidates($candidatePressureElements[CssSelectorMatchCache::MAX_CANDIDATE_LISTS], 'pressure', $emptyCandidateIndex);
 $candidatePressureCache->styleRuleCandidates($candidatePressureElements[0], 'pressure', $emptyCandidateIndex);
-$assert(4097 === $candidatePressureCache->candidateRuleMisses && 2 === $candidatePressureCache->candidateRuleHits && 1 === $candidatePressureCache->candidateRuleEvictions && CssSelectorMatchCache::MAX_CANDIDATE_LISTS === $candidatePressureCache->candidateRulePeakEntries && 0 === $candidatePressureCache->candidateRulePeakRetained, 'zero-rule candidate lists remain bounded and hot lists survive capacity pressure');
+$assert(CssSelectorMatchCache::MAX_CANDIDATE_LISTS + 1 === $candidatePressureCache->candidateRuleMisses && 2 === $candidatePressureCache->candidateRuleHits && 1 === $candidatePressureCache->candidateRuleEvictions && CssSelectorMatchCache::MAX_CANDIDATE_LISTS === $candidatePressureCache->candidateRulePeakEntries && 0 === $candidatePressureCache->candidateRulePeakRetained, 'zero-rule candidate lists remain bounded and hot lists survive capacity pressure');
 
 $lazyClassCache = new CssSelectorMatchCache();
 $attributeOnly = $candidatePressureDom->createElement('div');
