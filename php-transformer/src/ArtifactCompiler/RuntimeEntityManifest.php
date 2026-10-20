@@ -79,7 +79,7 @@ final class RuntimeEntityManifest
         } catch (InvalidArgumentException $error) {
             if (!str_contains($error->getMessage(), 'references exceed')) throw $error;
         }
-        $result['diagnostics'][] = self::droppedDeclarationDiagnostic($type, $schema, count($kept), $sourcePath);
+        $result['diagnostics'][] = self::droppedDeclarationDiagnostic('entity_collection:' . $type, $sourcePath, 'runtime_declaration_manifest_exceeds_byte_limit', sprintf('even its record manifest exceeds the %d-byte runtime declaration payload limit', RuntimeDeclarations::MAX_PAYLOAD_BYTES), array('entity_count' => count($kept), 'limit_bytes' => RuntimeDeclarations::MAX_PAYLOAD_BYTES), $schema);
         return $result;
     }
 
@@ -108,21 +108,28 @@ final class RuntimeEntityManifest
         ), static fn (mixed $value): bool => null !== $value);
     }
 
-    /** @return array<string,mixed> */
-    private static function droppedDeclarationDiagnostic(string $type, string $schema, int $entityCount, string $sourcePath): array
+    /**
+     * The `runtime_declaration_dropped` finding: one declaration left out of the
+     * plan, so the blocks it bound stay static. Collection budgeting here and
+     * site-plan composition (RuntimeDeclarations::factor()) both report it.
+     *
+     * @param array<string,int> $metrics
+     * @return array<string,mixed>
+     */
+    public static function droppedDeclarationDiagnostic(string $declarationKey, string $sourcePath, string $reasonCode, string $because, array $metrics, ?string $entitySchema = null, string $source = self::class): array
     {
-        return array(
+        return array_filter(array(
             'code' => 'runtime_declaration_dropped',
             'severity' => 'warning',
-            'message' => substr(sprintf('The generated %s entity collection was dropped with its dependency and bindings, so its blocks stay static, because even its record manifest exceeds the %d-byte runtime declaration payload limit.', $type, RuntimeDeclarations::MAX_PAYLOAD_BYTES), 0, 256),
-            'source' => self::class,
+            'message' => mb_strcut(sprintf('The runtime declaration %s was dropped with the declarations that depend on it and its bindings, so its blocks stay static, because %s.', $declarationKey, $because), 0, 256, 'UTF-8'),
+            'source' => $source,
             'unit' => 'declaration',
             'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
-            'declaration_key' => 'entity_collection:' . $type,
-            'entity_schema' => $schema,
-            'reason_code' => 'runtime_declaration_manifest_exceeds_byte_limit',
-            'metrics' => array('entity_count' => $entityCount, 'limit_bytes' => RuntimeDeclarations::MAX_PAYLOAD_BYTES),
-        );
+            'declaration_key' => $declarationKey,
+            'entity_schema' => $entitySchema,
+            'reason_code' => $reasonCode,
+            'metrics' => $metrics,
+        ), static fn (mixed $value): bool => null !== $value);
     }
 
     /**
@@ -199,6 +206,8 @@ final class RuntimeEntityManifest
         unset($declaration);
         foreach ($declarations as &$declaration) unset($declaration['payload_hash'], $declaration['content_hash']);
         unset($declaration);
-        return array('declarations' => RuntimeDeclarations::normalizeList($declarations), 'records' => self::normalizeRecords(array_values($projectedRecords)));
+        // Projection is composition: canonical bindings can grow an inline payload
+        // past its limit, which site-plan factoring then shards or drops.
+        return array('declarations' => RuntimeDeclarations::normalizeForComposition($declarations), 'records' => self::normalizeRecords(array_values($projectedRecords)));
     }
 }

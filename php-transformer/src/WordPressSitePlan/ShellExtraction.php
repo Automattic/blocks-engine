@@ -547,7 +547,7 @@ final class ShellExtraction
                 }
                 $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, array('keep' => array(), 'drop' => $drops), '');
                 foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
-                $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
+                $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
             }
             $diagnostics[] = array('code' => 'wordpress_site_plan_shell_inline_extracted', 'severity' => 'info', 'message' => "Extracted nested responsive {$area} variants at their authored page positions.", 'area' => $area, 'variant_count' => $variantCount, 'page_count' => count($applicable), 'source_paths' => $sourcePaths);
         }
