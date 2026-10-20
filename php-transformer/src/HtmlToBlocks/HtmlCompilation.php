@@ -4189,8 +4189,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // Source comments (framework text-split markers such as React's
         // `<!-- -->`) are not RichText content: the editor shows each one as a
         // chip. The text-run boundaries they make still shape the text.
-        if ( in_array($name, array( 'core/paragraph', 'core/heading' ), true) && str_contains((string) ($attrs['content'] ?? ''), '<!--') ) {
-            $attrs['content'] = CommentTextRunBoundaries::apply((string) $attrs['content']);
+        $richTextAttribute = match ($name) {
+            'core/paragraph', 'core/heading' => 'content',
+            'core/button' => 'text',
+            default => null,
+        };
+        if ( null !== $richTextAttribute && isset($attrs[$richTextAttribute]) ) {
+            $attrs[$richTextAttribute] = CommentTextRunBoundaries::apply((string) $attrs[$richTextAttribute]);
         }
         // Set by cssOwnedGroupAttributes() when the container is a CSS-owned
         // layout element whose direct-child topology changed during
