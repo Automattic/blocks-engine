@@ -39,7 +39,7 @@ final class BlockMaterializer
             if ( array() !== $runtimeAttributes ) {
                 $attrs['metadata'][self::RUNTIME_ATTRIBUTES_KEY] = $runtimeAttributes;
             }
-            $provenanceId = $provenance->registerSource($sourceFacts->sourceEntry, $sourceFacts->startsHidden);
+            $provenanceId = $provenance->registerSource($sourceFacts->sourceEntry, $sourceFacts->startsHidden, $sourceFacts->wrapperHiddenAtCollapsedViewport);
         }
 
         $block = $this->blockFactory->create($name, $attrs, $innerBlocks);
