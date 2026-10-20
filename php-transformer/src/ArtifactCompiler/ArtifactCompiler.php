@@ -350,10 +350,7 @@ final class ArtifactCompiler
             if (is_array($fallback)) unset($fallback['_collection_binding_declined']);
             return $fallback;
         }, $allFallbacks);
-        // Replay authored selectors, not their generated element/editor transport.
-        // Replaying the projected stream crosses each transport alternative with
-        // navigation structure and weighs its already shimmed specificity again.
-        $wordpressCompatAssets = $this->wordpressCompatAssetsForDocuments($normalized['files']);
+        $authoredFiles = $normalized['files'];
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''));
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
@@ -370,6 +367,7 @@ final class ArtifactCompiler
             if ($content !== $file['content']) $file = $this->projectedStylesheetFile($file, $file['path'], $content);
         }
         unset($file);
+        $wordpressCompatAssets = $this->wordpressCompatAssetsForDocuments($normalized['files'], $authoredFiles);
         $normalized['files'] = $this->chunkProjectedStylesheets($normalized['files']);
         foreach ($normalized['files'] as $file) {
             if ($entryPath === ($file['path'] ?? null) && is_string($file['content'] ?? null)) {
@@ -2087,16 +2085,44 @@ final class ArtifactCompiler
     }
 
     /**
-     * Replay the authored occurrence stream used by source analysis, before
-     * selector projection. Generated per-element and editor alternatives are
+     * Replay the pre-projection authored occurrence stream, excluding native
+     * item subjects already carried by projection. Generated editor alternatives are
      * transport, not additional source navigation rules. File transport order
      * is not CSS order.
      *
      * @param array<int, array<string, mixed>> $files
+     * @param array<int, array<string, mixed>> $authoredFiles
      * @return array<int, array<string, mixed>>
      */
-    private function wordpressCompatAssetsForDocuments(array $files): array
+    private function wordpressCompatAssetsForDocuments(array $files, array $authoredFiles): array
     {
+        // Replay authored rules, not generated element/editor alternatives.
+        // A source list-item subject replaced by a native item projection already
+        // carries its geometry in the author sheet and must not be replayed.
+        // Apply the same selection to route-owned deltas.
+        $authoredByPath = array_column($authoredFiles, null, 'path');
+        $projectedByPath = array_column($files, null, 'path');
+        $transformer = new CssStylesheetTransformer();
+        foreach ($files as &$file) {
+            if ('css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) continue;
+            $source = $authoredByPath[$file['path']]['content'] ?? $authoredByPath[$file['metadata']['page_stylesheet_of'] ?? '']['content'] ?? $file['content'];
+            $projectedContent = $file['content'];
+            if (isset($file['metadata']['page_stylesheet_of'])) {
+                $projectedContent .= $projectedByPath[$file['metadata']['page_stylesheet_of']]['content'] ?? '';
+            }
+            $projected = preg_replace('#/\*.*?\*/|\s+#s', '', $projectedContent) ?? $projectedContent;
+            $file['content'] = $transformer->transformStyleRules($source, static function (string $prelude, string $body) use ($projected): string {
+                $remaining = array_filter(CssStylesheetTransformer::splitSelectorList($prelude) ?? array(), static function (string $selector) use ($projected): bool {
+                    $selector = preg_replace('#/\*.*?\*/#s', '', trim($selector)) ?? $selector;
+                    $native = preg_replace('/(?<=^|[\s>+~])li(?=[.#:\[]|$)/', '.wp-block-navigation-item', $selector);
+                    if ($native === $selector || null === $native) return true;
+                    $native = preg_replace('/\s+/', '', $native);
+                    return !str_contains($projected, $native . ':not(blocks-engine-specificity-');
+                });
+                return array() === $remaining ? '' : implode(',', $remaining) . '{' . $body . '}';
+            });
+        }
+        unset($file);
         $assets = array();
         $scripts = $this->allScriptContents($files);
         foreach ($files as $document) {
@@ -2112,7 +2138,11 @@ final class ArtifactCompiler
                 $media = trim((string) ($stylesheet['media'] ?? ''));
                 $parts[] = '' === $media ? $content : '@media ' . $media . '{' . $content . '}';
             }
-            $asset = $this->wordpressCompat->asset($documentFiles, implode("\n", $parts), $scripts);
+            foreach ($files as $file) {
+                if (!isset($file['metadata']['page_stylesheet_of']) || $this->fileOwnership($file) !== $ownership) continue;
+                $parts[] = $this->compatibilityStylesheetContent($file['content'], $file['path'], $documentFiles);
+            }
+            $asset = $this->wordpressCompat->asset($documentFiles, $transformer->concatenateWithoutRedundantRules($parts), $scripts);
             if (null === $asset) continue;
             // Content-identical replay can still have different route ownership.
             // Keep the existing page-asset contract instead of promoting a

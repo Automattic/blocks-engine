@@ -80,3 +80,22 @@ foreach (array(array(1, 2), array(3, 2), array(3, 8)) as [$pages, $items]) {
     $assert('height:20px' === ($matched['card'] ?? '') && 'opacity:.8' === ($matched['menu'] ?? ''), 'Card and list structure replay retain declarations.');
     $assert(!isset($matched['unrelated']), 'Replay does not style unrelated images.');
 }
+
+// A route-owned source delta is not linked from the HTML. It still contributes
+// authored replay, without replaying its generated per-element alternatives.
+$authored = array(
+    array('path' => 'index.html', 'kind' => 'html', 'content' => '<html><head><link rel="stylesheet" href="site.css"></head><body><nav class="menu"><a href="/one">One</a></nav></body></html>', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'index.html'))),
+    array('path' => 'other.html', 'kind' => 'html', 'content' => '<html><head><link rel="stylesheet" href="site.css"></head><body><nav class="menu"><a href="/two">Two</a></nav></body></html>', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'other.html'))),
+    array('path' => 'site.css', 'kind' => 'css', 'content' => '.menu a{color:red}'),
+    array('path' => 'route.css', 'kind' => 'css', 'content' => '@media(min-width:700px){nav .item a > img{width:37px}}', 'metadata' => array('page_stylesheet_of' => 'site.css', 'compilation' => array('scope' => 'page', 'id' => 'other.html'))),
+);
+$projected = $authored;
+$projected[3]['content'] = '@media(min-width:700px){nav .item a > img,:where(.blocks-engine-media-text-image-page-1),:where(.blocks-engine-media-text-image-page-2){width:37px}}';
+$method = new ReflectionMethod(ArtifactCompiler::class, 'wordpressCompatAssetsForDocuments');
+$assets = $method->invoke(new ArtifactCompiler(), $projected, $authored);
+$byOwner = array();
+foreach ($assets as $asset) $byOwner[$asset['compilation']['id']] = $asset['content'];
+$assert(!str_contains($byOwner['index.html'], '37px'), 'A page-only delta must not leak to another route.');
+$assert(str_contains($byOwner['other.html'], '@media(min-width:700px)') && str_contains($byOwner['other.html'], 'width:37px'), 'A navigation rule found only in the page delta retains conditional compat replay.');
+$assert(!str_contains($byOwner['other.html'], 'blocks-engine-media-text-image-page-'), 'Page delta replay uses authored rules, not generated alternatives.');
+$assert(1 === substr_count($byOwner['other.html'], 'width:37px') && strlen($byOwner['other.html']) < 1600, 'Page delta replay stays bounded by its one authored rule.');
