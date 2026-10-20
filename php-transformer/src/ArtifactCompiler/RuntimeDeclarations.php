@@ -297,7 +297,11 @@ final class RuntimeDeclarations
 
     /**
      * The bounded public form of composed declarations. Entity lists over the
-     * payload limit are sharded into content-addressed records. Whatever still
+     * payload limit are sharded into content-addressed records; only a payload
+     * that is exactly `{schema, entities}` with an inline entity list is
+     * sharded, so materialize() restores it byte for byte. A payload already
+     * in a bounded record form (an entity manifest of `runtime_entity_records`
+     * references, or a payload carrying other keys) stays as it is. Whatever still
      * exceeds a byte limit is dropped with the declarations that depend on it,
      * one `runtime_declaration_dropped` finding each, so its blocks stay
      * static: first each declaration over the payload limit, then the largest
@@ -316,7 +320,7 @@ final class RuntimeDeclarations
         $records = array();
         foreach ($declarations as $index => &$declaration) {
             $payload = $declaration['payload'] ?? null;
-            if (!is_array($payload) || !is_array($payload['entities'] ?? null) || !array_is_list($payload['entities'])) continue;
+            if (!self::shardable($payload)) continue;
             $chunks = array(); $chunk = array();
             foreach ($payload['entities'] as $entity) { $candidate = array_merge($chunk, array($entity)); if (strlen(self::canonicalJson(array('schema' => $payload['schema'], 'entities' => $candidate))) > self::MAX_PAYLOAD_BYTES) { if (array() === $chunk) throw new InvalidArgumentException("Runtime declaration {$index} contains an entity that exceeds the byte limit."); $chunks[] = $chunk; $chunk = array($entity); } else $chunk = $candidate; }
             if (array() !== $chunk) $chunks[] = $chunk;
@@ -329,6 +333,20 @@ final class RuntimeDeclarations
         foreach ($bounded['declarations'] as $declaration) if (self::RECORD_MANIFEST_SCHEMA === ($declaration['payload']['schema'] ?? null)) foreach ($declaration['payload']['records'] as $reference) $referenced[$reference['id'] ?? ''] = true;
         $records = array_intersect_key($records, $referenced);
         return array('declarations' => self::normalizeList($bounded['declarations']), 'records' => self::normalizeRecords(array_values($records)), 'diagnostics' => $bounded['diagnostics']);
+    }
+
+    /**
+     * Whether factor() may shard the payload into runtime records. materialize()
+     * rebuilds exactly `{schema, entities}`, so only that shape round-trips. An
+     * entity manifest (`blocks-engine/runtime-entity-manifest/v1`) is already
+     * the bounded record form: its `entities` are record references and its
+     * `entity_schema` names what they resolve to.
+     */
+    private static function shardable(mixed $payload): bool
+    {
+        if (!is_array($payload) || !is_string($payload['schema'] ?? null) || RuntimeEntityManifest::SCHEMA === $payload['schema'] || self::RECORD_MANIFEST_SCHEMA === $payload['schema']) return false;
+        $keys = array_keys($payload); sort($keys, SORT_STRING);
+        return array('entities', 'schema') === $keys && is_array($payload['entities']) && array_is_list($payload['entities']);
     }
 
     /**
