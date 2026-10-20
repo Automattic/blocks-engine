@@ -464,6 +464,9 @@ final class ThemeJsonProjection
         if (isset($system->root['background'])) $styles['color']['background'] ??= $color($system->root['background']);
         if (isset($system->root['color'])) $styles['color']['text'] ??= $color($system->root['color']);
         if (isset($system->root['font_family'])) $styles['typography']['fontFamily'] ??= $family($system->root['font_family']);
+        // A link or heading colour becomes an element default only when it
+        // reads on the background just chosen for the theme root.
+        $system = $system->withElementColorsReadableOn(self::rootBackground($styles, $system));
         $size = fn(string $value): string => null !== ($slug = $system->fontSizeSlug($value)) ? 'var:preset|font-size|' . $slug : $value;
         $paths = array(
             'color' => array(array('color', 'text'), $color),
@@ -506,6 +509,23 @@ final class ThemeJsonProjection
         $theme['settings'] = $settings;
         $theme['styles'] = $styles;
         return $theme;
+    }
+
+    /**
+     * The colour the projected `styles.color.background` paints: its preset's
+     * value or its literal colour, or the user agent's white canvas when the
+     * theme states none (as DesignUsageCollector measures it). Null when the
+     * value is not an opaque colour this can resolve.
+     *
+     * @param array<string,mixed> $styles
+     */
+    private static function rootBackground(array $styles, DesignSystem $system): ?string
+    {
+        $value = $styles['color']['background'] ?? null;
+        if (null === $value) return '#ffffff';
+        if (!is_string($value)) return null;
+        if (1 === preg_match('/^var:preset\|color\|([A-Za-z0-9_-]+)$/', $value, $match)) $value = (string) $system->color($match[1]);
+        return CssColor::opaque($value) ? CssColor::hex($value) : null;
     }
 
     /**
