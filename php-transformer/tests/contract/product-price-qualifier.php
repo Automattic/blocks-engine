@@ -12,6 +12,10 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
  * element is the leaf that carries the amount, because its only child is a
  * qualifier rather than another price. A wrapper around separate regular and
  * sale amounts still yields the individual amounts, not its joined text.
+ *
+ * A block-level price element whose qualifier has its own look becomes a
+ * group of blocks while a plain price stays one block. The grid still repeats
+ * from one item template: the price is one slot every card fills whole.
  */
 
 $assert = static function (bool $condition, string $message): void {
@@ -44,5 +48,20 @@ $assert(str_contains($price('Gamma Rug'), '30') && ! str_contains($price('Gamma 
 $grids = current(array_filter($plan['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'product_grids' === ($declaration['type'] ?? null))) ?: array();
 $items = $grids['payload']['entities'][0]['items'] ?? array();
 $assert(4 === count($items), 'The grid declares all four cards as items: ' . count($items));
+
+// A block-level price with a styled qualifier is drawn as several blocks;
+// plain prices stay one.
+$styled = '<!doctype html><html><head><title>Shop</title><link rel="stylesheet" href="shop.css"></head><body><main><h1>Shop</h1><div class="grid">'
+    . $card('Alpha Lamp', '<div class="price">$10.00</div>')
+    . $card('Beta Chair', '<div class="price"><small>from </small>$<!-- -->40.00</div>')
+    . $card('Gamma Rug', '<div class="price">$24.00</div>')
+    . '</div></main></body></html>';
+$css = '.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.price{font-weight:800;font-size:1.2rem}.price small{font-weight:500;font-size:.75rem;color:#777}';
+$styledPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'shop.html', 'files' => array('shop.html' => $styled, 'shop.css' => $css)))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+$styledGrid = (current(array_filter($styledPlan['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'product_grids' === ($declaration['type'] ?? null))) ?: array())['payload']['entities'][0] ?? array();
+$assert(3 === count($styledGrid['items'] ?? array()), 'A grid with a styled "from" price still declares every card: ' . count($styledGrid['items'] ?? array()));
+$priceSlot = current(array_filter($styledGrid['item_template']['slots'] ?? array(), static fn (array $slot): bool => str_contains((string) json_encode(array_column($styledGrid['items'], 'slots')), '"' . $slot['id'] . '"') && str_contains((string) preg_replace('/\s+/', '', (string) ($styledGrid['items'][1]['slots'][$slot['id']]['text'] ?? '')), '$40.00'))) ?: array();
+$betaPrice = (string) preg_replace('/\s+/', '', (string) ($styledGrid['items'][1]['slots'][$priceSlot['id'] ?? '']['text'] ?? ''));
+$assert('from$40.00' === $betaPrice && '$10.00' === trim((string) ($styledGrid['items'][0]['slots'][$priceSlot['id'] ?? '']['text'] ?? '')), 'One slot carries each card\'s whole price, its qualifier included: ' . json_encode($styledGrid['item_template']['slots'] ?? array()));
 
 echo "product-price-qualifier: ok\n";

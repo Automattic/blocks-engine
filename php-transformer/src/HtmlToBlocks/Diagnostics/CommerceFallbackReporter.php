@@ -240,6 +240,19 @@ final class CommerceFallbackReporter
             }
             $cards[] = $leaves;
         }
+        // A price one card draws as one block and another as several (a
+        // "from " qualifier beside the amount) is one slot: every card reads
+        // that block whole.
+        $atomicPaths = $this->priceGroupPaths($cards, $products);
+        if ( array() !== $atomicPaths ) {
+            foreach ( $cardMarkups as $index => $markup ) {
+                $control = 'commerce_controls' === ($products[$index]['binding']['role'] ?? null) && is_string($products[$index]['binding']['search_block_markup'] ?? null) ? $products[$index]['binding']['search_block_markup'] : '';
+                $cards[$index] = $this->leafBlocks($markup, $control, $atomicPaths);
+                if ( array() === $cards[$index] ) {
+                    return array();
+                }
+            }
+        }
         $templateIndex = 0;
         foreach ( $cards as $index => $leaves ) {
             if ( count($leaves) > count($cards[$templateIndex]) ) {
@@ -333,7 +346,72 @@ final class CommerceFallbackReporter
      *
      * @return array<string, array{block_name:string, markup:string, inner:string, text:string, class_name:string}>
      */
-    private function leafBlocks(string $markup, string $atomicMarkup = ''): array
+    /**
+     * The shallowest price paths that are one block in some cards and a group
+     * of blocks in others ("from " beside the amount, say).
+     *
+     * A path qualifies only when, in every card, the text under it is short
+     * and holds that card's own price, so cards of different shapes stay apart.
+     *
+     * @param list<array<string,array<string,string>>> $cards
+     * @param list<array<string,mixed>> $products
+     * @return array<string,true>
+     */
+    private function priceGroupPaths(array $cards, array $products): array
+    {
+        $compact = static fn (string $text): string => (string) preg_replace('/\s+/u', '', $text);
+        $candidates = array();
+        foreach ( $cards as $leaves ) {
+            foreach ( array_keys($leaves) as $path ) {
+                $path = (string) $path;
+                foreach ( $cards as $other ) {
+                    foreach ( array_keys($other) as $otherPath ) {
+                        if ( str_starts_with((string) $otherPath, $path . '.') ) {
+                            $candidates[$path] = true;
+                            break 2;
+                        }
+                    }
+                }
+            }
+        }
+        $paths = array();
+        foreach ( array_keys($candidates) as $path ) {
+            $path = (string) $path;
+            $holdsPrice = true;
+            foreach ( $cards as $index => $leaves ) {
+                $price = $compact(is_string($products[$index]['price'] ?? null) ? $products[$index]['price'] : '');
+                $text = '';
+                foreach ( $leaves as $leafPath => $leaf ) {
+                    if ( (string) $leafPath === $path || str_starts_with((string) $leafPath, $path . '.') ) {
+                        $text .= $leaf['text'];
+                    }
+                }
+                // Short, like the price slot: the amount and its qualifier.
+                if ( '' === $price || ! str_contains($compact($text), $price) || mb_strlen($compact($text)) > 3 * mb_strlen($price) + 8 ) {
+                    $holdsPrice = false;
+                    break;
+                }
+            }
+            if ( $holdsPrice ) {
+                $paths[$path] = true;
+            }
+        }
+        foreach ( array_keys($paths) as $path ) {
+            foreach ( array_keys($paths) as $other ) {
+                if ( str_starts_with((string) $path, $other . '.') ) {
+                    unset($paths[$path]);
+                    break;
+                }
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
+     * @param array<string,true> $atomicPaths Paths read as one leaf block.
+     */
+    private function leafBlocks(string $markup, string $atomicMarkup = '', array $atomicPaths = array()): array
     {
         $parsed = array_values(array_filter($this->runtime->parseBlocks($markup), static fn (mixed $block): bool => is_array($block) && is_string($block['blockName'] ?? null)));
         if ( 1 !== count($parsed) ) {
@@ -360,17 +438,18 @@ final class CommerceFallbackReporter
         }
         $leaves = array();
         $order = 0;
-        $walk = function (array $block, string $path) use (&$walk, &$leaves, &$order, $ranges, $atomicMarkup): void {
+        $walk = function (array $block, string $path) use (&$walk, &$leaves, &$order, $ranges, $atomicMarkup, $atomicPaths): void {
             $blockMarkup = $ranges[$order] ?? '';
             ++$order;
             $children = array_values(array_filter($block['innerBlocks'] ?? array(), static fn (mixed $child): bool => is_array($child) && is_string($child['blockName'] ?? null)));
-            if ( '' !== $atomicMarkup && $blockMarkup === $atomicMarkup ) {
+            if ( ( '' !== $atomicMarkup && $blockMarkup === $atomicMarkup ) || ( array() !== $children && '' !== $path && isset($atomicPaths[$path]) ) ) {
                 // Skip the descendants' ranges so later blocks stay aligned.
                 $order += substr_count($blockMarkup, '<!-- wp:') - 1;
                 $children = array();
             }
             if ( array() === $children ) {
-                $inner = is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '';
+                // A block read whole keeps its descendants' text.
+                $inner = is_string($block['innerHTML'] ?? null) && '' === $blockMarkup ? $block['innerHTML'] : (string) preg_replace('/<!--\s*\/?wp:.*?-->/s', '', (string) $blockMarkup);
                 $leaves[$path] = array(
                     'block_name' => (string) $block['blockName'],
                     'markup'     => is_string($blockMarkup) ? $blockMarkup : '',
