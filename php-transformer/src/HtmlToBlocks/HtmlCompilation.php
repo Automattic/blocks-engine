@@ -1667,7 +1667,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
         $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
         $this->collectGeneratedComponentCandidates($body);
-        $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
+        $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates(), $this->transformationProvenance()->sourceCollapsedWrapperHiddenStates());
         $blocks = $this->compressProjectedGroupChains($blocks);
         $fallbacks = array_merge($fallbacks, $this->transformationEvidence()->responsiveImageFallbacks());
         $this->reconcileNativeListItemFallbacks($fallbacks, $blocks);
@@ -1985,7 +1985,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $shellFallbacks = array();
             $converted = $this->convertElement($child, $shellFallbacks, true);
             $converted = null === $converted ? array() : (isset($converted['blockName']) ? array($converted) : $converted);
-            $converted = $this->navigationBlockNormalizer->normalize($converted, $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
+            $converted = $this->navigationBlockNormalizer->normalize($converted, $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates(), $this->transformationProvenance()->sourceCollapsedWrapperHiddenStates());
             if ( 1 === count($converted) && 'core/group' !== ($converted[0]['blockName'] ?? null) && $area === ($converted[0]['attrs']['tagName'] ?? null) ) {
                 // A landmark block of its own (a scroll-state carrier) is the box.
                 $markup = $this->runtime->serializeBlocks($converted);
@@ -4278,7 +4278,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->structureSignals($sourceElement, $attrs),
                 array() === $innerBlocks && 'core/group' === $name
                     ? $this->emptyVisualTopologyEvidence($sourceElement)
-                    : array()
+                    : array(),
+                'core/navigation' === $name && $this->sourceWrapperHiddenAtCollapsedViewport($sourceElement)
             );
         }
 
@@ -4423,6 +4424,32 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * navigation block and renders wherever its resolved `overlayMenu`
      * intent puts it, duplicating the primary menu in the document flow.
      */
+    /**
+     * Whether a wrapper around the element hides it at the collapsed (mobile)
+     * reference viewport. The element itself is excluded: a navigation becomes
+     * core/navigation, whose own overlay replaces the source's collapsed
+     * state, while a wrapper stays a group that keeps hiding it.
+     */
+    private function sourceWrapperHiddenAtCollapsedViewport(DOMElement $element): bool
+    {
+        for (
+            $candidate = $element->parentNode;
+            $candidate instanceof DOMElement && 'body' !== strtolower($candidate->tagName);
+            $candidate = $candidate->parentNode
+        ) {
+            if ( SourceDom::documentVariantRoot($candidate) === $candidate ) {
+                return false;
+            }
+            $declarations = $this->styleResolver->collapsedViewportDeclarations($candidate, array( 'display', 'visibility' ));
+            if ( 'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? ''))
+                || in_array(CssValueInspector::comparable((string) ($declarations['visibility'] ?? '')), array( 'hidden', 'collapse' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function sourceElementOrAncestorStartsHidden(DOMElement $element): bool
     {
         for (

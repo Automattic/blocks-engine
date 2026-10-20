@@ -80,12 +80,38 @@ final class NavigationBlockNormalizer
      * @param array<int, array<string, mixed>> $blocks
      * @param array<int, array<string, mixed>> $sourceProvenance
      * @param array<int, bool> $sourceBaseHiddenStates
+     * @param array<int, bool> $sourceCollapsedWrapperHiddenStates
      * @return array<int, array<string, mixed>>
      */
-    public function normalize(array $blocks, array $sourceProvenance, array $sourceBaseHiddenStates): array
+    public function normalize(array $blocks, array $sourceProvenance, array $sourceBaseHiddenStates, array $sourceCollapsedWrapperHiddenStates = array()): array
     {
         $seen = array();
+        $this->sourceCollapsedWrapperHiddenStates = $sourceCollapsedWrapperHiddenStates;
         return $this->normalizeRecursive($blocks, $seen, $sourceProvenance, $sourceBaseHiddenStates, false);
+    }
+
+    /** @var array<int, bool> */
+    private array $sourceCollapsedWrapperHiddenStates = array();
+
+    /**
+     * A wrapper that hides the kept copy at the collapsed viewport stays a
+     * group around core/navigation, so that copy cannot serve the collapsed
+     * viewport. A duplicate whose wrappers stay visible there is that
+     * viewport's only menu, not a redundant copy.
+     *
+     * @param array<string, mixed> $kept
+     * @param array<string, mixed> $duplicate
+     */
+    private function servesViewportKeptCopyCannot(array $kept, array $duplicate): bool
+    {
+        return $this->wrapperHiddenAtCollapsedViewport($kept) && ! $this->wrapperHiddenAtCollapsedViewport($duplicate);
+    }
+
+    /** @param array<string, mixed> $block */
+    private function wrapperHiddenAtCollapsedViewport(array $block): bool
+    {
+        $provenanceId = $block['_source_provenance_id'] ?? null;
+        return is_int($provenanceId) && true === ($this->sourceCollapsedWrapperHiddenStates[$provenanceId] ?? false);
     }
 
     private function directItemAnchor(DOMElement $item): ?DOMElement
@@ -155,11 +181,12 @@ final class NavigationBlockNormalizer
                 $signature = $this->signature($block);
                 if ( ! $preserveDisclosureNavigation && '' !== $signature && isset($seen[$signature])
                     && ( $this->isMobileDuplicate($block, $sourceProvenance) || $this->startsHidden($block, $sourceBaseHiddenStates) )
+                    && ! $this->servesViewportKeptCopyCannot($seen[$signature], $block)
                 ) {
                     continue;
                 }
-                if ( '' !== $signature ) {
-                    $seen[$signature] = true;
+                if ( '' !== $signature && ! isset($seen[$signature]) ) {
+                    $seen[$signature] = array( '_source_provenance_id' => $block['_source_provenance_id'] ?? null );
                 }
             }
 
