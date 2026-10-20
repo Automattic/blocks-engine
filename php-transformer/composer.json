@@ -195,6 +195,7 @@
       "php tests/contract/product-grid-single-card.php",
       "php tests/contract/projected-binding-anchor-size.php",
       "php tests/contract/empty-runtime-paragraph-shell.php",
+      "php tests/contract/unsized-svg-fills-container.php",
       "php tests/contract/header-link-cluster-navigation.php",
       "php tests/contract/empty-visual-figure.php",
       "php tests/contract/layout-geometry-proof.php",

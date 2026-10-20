@@ -313,6 +313,16 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
         $preserveInlineGeometry = ! $isFlexOrGridItem && ( '' === $sourceDisplay || in_array($sourceDisplay, array( 'inline', 'inline-block' ), true) );
         $preserveBlockDisplay = ! $richTextImage && 'block' === $sourceDisplay;
+        // A block-level SVG with a viewBox but no width or height of its own has
+        // an aspect ratio and no intrinsic size, so CSS gives it its containing
+        // block's width. The materialized asset carries a viewBox-sized width,
+        // which an image would render at instead, so the image fills the same
+        // width and keeps the viewBox ratio.
+        $fillsContainingBlockWidth = $preserveBlockDisplay
+            && $this->fillsContainingBlockWidth($element, $html, $presentation, $parentPresentation);
+        if ( $fillsContainingBlockWidth ) {
+            $dimensions = array();
+        }
         $geometryClass = '';
         if ( $preserveInlineGeometry || $preserveBlockDisplay ) {
             $imageDisplay = $preserveBlockDisplay ? 'block' : ('' === $sourceDisplay ? 'inline' : $sourceDisplay);
@@ -322,7 +332,9 @@ final class SvgMaterializer implements SvgElementMaterializer
                     $mediaBox .= ';' . $property . ':' . trim((string) $presentation[$property]);
                 }
             }
-            if ( array() === $dimensions ) {
+            if ( $fillsContainingBlockWidth ) {
+                $mediaBox .= ';width:100%;height:auto';
+            } elseif ( array() === $dimensions ) {
                 $mediaBox .= $this->unsizedMediaAxisDeclarations($presentation);
             }
             $carriedProperties = $this->carriedCustomPropertyDeclarations($element, $mediaBox);
@@ -732,6 +744,43 @@ final class SvgMaterializer implements SvgElementMaterializer
      *
      * @param array<string, string> $presentation
      */
+    /**
+     * Whether a block-level source SVG sizes to its containing block's width:
+     * it has a viewBox (an aspect ratio), no width, height, or height limit
+     * from its attributes or CSS, and its parent is a block box in normal
+     * flow, whose width is definite.
+     *
+     * @param array<string, string> $presentation
+     * @param array<string, string> $parentPresentation
+     */
+    private function fillsContainingBlockWidth(DOMElement $element, string $html, array $presentation, array $parentPresentation): bool
+    {
+        if ( '' !== trim(SourceDom::attr($element, 'width')) || '' !== trim(SourceDom::attr($element, 'height')) ) {
+            return false;
+        }
+        if ( $this->cssDefinesMediaSize($element) ) {
+            return false;
+        }
+        // A height limit transfers through the aspect ratio only to an auto
+        // width, so a limited SVG keeps the auto width.
+        foreach ( array( 'width', 'height', 'aspect-ratio', 'min-height', 'max-height' ) as $property ) {
+            $value = strtolower(trim((string) ($presentation[$property] ?? '')));
+            if ( '' !== $value && 'auto' !== $value ) {
+                return false;
+            }
+        }
+        if ( 1 !== preg_match('/\sviewBox\s*=\s*(["\'])\s*[-\d.]+[\s,]+[-\d.]+[\s,]+[\d.]*[1-9][\d.]*[\s,]+[\d.]*[1-9][\d.]*\s*\1/i', $html) ) {
+            return false;
+        }
+        $parentDisplay = CssValueInspector::comparable((string) ($parentPresentation['display'] ?? ''));
+        $parentPosition = strtolower(trim((string) ($parentPresentation['position'] ?? '')));
+        $parentFloat = strtolower(trim((string) ($parentPresentation['float'] ?? '')));
+
+        return in_array($parentDisplay, array( '', 'block', 'flow-root', 'list-item' ), true)
+            && ! in_array($parentPosition, array( 'absolute', 'fixed' ), true)
+            && in_array($parentFloat, array( '', 'none' ), true);
+    }
+
     private function unsizedMediaAxisDeclarations(array $presentation): string
     {
         $declarations = '';
