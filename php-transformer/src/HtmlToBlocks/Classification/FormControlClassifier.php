@@ -165,6 +165,9 @@ final class FormControlClassifier
         if ( self::isUnreachableTextTrap($control) ) {
             return true;
         }
+        if ( self::isHoneypotControl($control) ) {
+            return true;
+        }
         $insideNativeForm = false;
         for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
             if ( in_array(strtolower($parent->tagName), array( 'template', 'script', 'style', 'noscript' ), true) ) {
@@ -201,6 +204,88 @@ final class FormControlClassifier
 
         return 'textarea' === $tag || ( 'input' === $tag
             && in_array(self::controlType($control), array( 'text', 'email', 'url', 'tel', 'search', 'number' ), true) );
+    }
+
+    /**
+     * A decoy field bots fill and no reader sees: `aria-hidden="true"`, out of
+     * the tab order, and hidden or moved off-screen by inline style — all
+     * three together on the control itself, or all three together on the label
+     * that wraps it. A field carrying only some of the signals stays authored
+     * (see `isUnreachableTextTrap()` for the aria-hidden-plus-untabbable
+     * free-text trap that needs no style). Form providers bring their own
+     * spam protection, so a honeypot is left out of form extraction entirely:
+     * no field, and no unrepresented label text.
+     */
+    public static function isHoneypotControl(DOMElement $control): bool
+    {
+        return self::hasHoneypotSignals($control) || null !== self::honeypotSignalLabel($control);
+    }
+
+    /**
+     * The labels that wrap a control whose honeypot signals sit on the label
+     * itself: each label's entire copy is that honeypot's decoy copy, so none
+     * of it is reader-facing form context.
+     *
+     * @return array<int, DOMElement>
+     */
+    public static function honeypotLabels(DOMElement $form): array
+    {
+        $labels = array();
+        foreach ( $form->getElementsByTagName('*') as $control ) {
+            if ( ! $control instanceof DOMElement || ! self::isControlElement($control) ) {
+                continue;
+            }
+            $label = self::honeypotSignalLabel($control);
+            if ( null === $label ) {
+                continue;
+            }
+            foreach ( $labels as $seen ) {
+                if ( $seen->isSameNode($label) ) {
+                    continue 2;
+                }
+            }
+            $labels[] = $label;
+        }
+
+        return $labels;
+    }
+
+    /** The control's wrapping label when that label, not the control, carries the honeypot signals. */
+    private static function honeypotSignalLabel(DOMElement $control): ?DOMElement
+    {
+        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'label' === strtolower($parent->tagName) ) {
+                return self::hasHoneypotSignals($parent) ? $parent : null;
+            }
+            if ( in_array(strtolower($parent->tagName), array( 'form', 'fieldset' ), true) ) {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The three honeypot signals on one element: hidden from assistive
+     * technology, removed from the tab order, and hidden or moved off-screen
+     * by its inline style (`display:none`, `visibility:hidden`, or an
+     * absolute box shifted 999px or further out by `left`/`top`).
+     */
+    private static function hasHoneypotSignals(DOMElement $element): bool
+    {
+        if ( 'true' !== strtolower(trim($element->getAttribute('aria-hidden')))
+            || '-1' !== trim($element->getAttribute('tabindex')) ) {
+            return false;
+        }
+        $declarations = array_column(
+            CssRuleAnalyzer::declarations($element->getAttribute('style'), array( 'display', 'visibility', 'position', 'left', 'top' )),
+            'value',
+            'name'
+        );
+
+        return 'none' === CssValueInspector::comparable((string) ( $declarations['display'] ?? '' ))
+            || 'hidden' === CssValueInspector::comparable((string) ( $declarations['visibility'] ?? '' ))
+            || CssValueInspector::isMovedOffscreenBox($declarations);
     }
 
     /**

@@ -137,6 +137,10 @@ final class FormControlMetadataBuilder
 
         // Copy a control already owns — its label, its field description — is
         // carried by the control manifest, so it must not also surface here.
+        // A honeypot's wrapping label is claimed too: the control it labels is
+        // not authored (see `FormControlClassifier::isHoneypotControl()`), its
+        // copy is the decoy bots are meant to fill, and nothing inside it — or
+        // in a wrapper holding nothing else — is context a reader sees.
         $claimedLabels = array();
         $claimedTexts = array();
         foreach ( $form->getElementsByTagName('*') as $node ) {
@@ -158,6 +162,9 @@ final class FormControlMetadataBuilder
             if ( '' !== $description['description'] ) {
                 $claimedTexts[] = $description['description'];
             }
+        }
+        foreach ( FormControlClassifier::honeypotLabels($form) as $honeypotLabel ) {
+            $claimedLabels[] = $honeypotLabel;
         }
 
         $recorded = array();
