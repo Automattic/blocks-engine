@@ -35,7 +35,7 @@ foreach (require dirname(__DIR__) . '/fixtures/navigation-list-box-properties.ph
             // Only facts that actually select the rendering box count, not
             // declarations stranded on Core's display:contents container.
             if (!(CssSelectorMatcher::matches($nav, CssSelectorMatcher::parse($selectors))['matches'] ?? false)) return;
-            foreach (array('display', 'overflow-x') as $property) {
+            foreach (array('display', 'overflow-x', 'column-count') as $property) {
                 if (preg_match('/(?:^|;)\s*' . $property . '\s*:\s*([^;!}]+)/', $body, $m)) $facts[] = array($property, trim($m[1]), $conditions);
             }
         });
@@ -48,6 +48,9 @@ foreach (require dirname(__DIR__) . '/fixtures/navigation-list-box-properties.ph
         $assert($none && $flex && max($none) < max($flex), 'responsive override follows base declaration');
     } elseif ('inline-rows' === $name) {
         $assert(!array_filter($facts, static fn(array $f): bool => 'display' === $f[0] && !in_array($f[1], array('flex', 'none'), true)), 'shown list keeps the native flex row instead of the source block display');
+    } elseif ('columns' === $name) {
+        $assert((bool) array_filter($facts, static fn(array $f): bool => 'column-count' === $f[0] && '3' === $f[1] && array() === $f[2]), 'multi-column rendering box receives column-count');
+        $assert((bool) array_filter($facts, static fn(array $f): bool => 'display' === $f[0] && 'block' === $f[1] && array() === $f[2]), 'multi-column list stays a block, the box columns apply to');
     } else {
         $assert((bool) array_filter($facts, static fn(array $f): bool => 'overflow-x' === $f[0] && 'scroll' === $f[1] && array() === $f[2]), 'scroller rendering box receives overflow-x:scroll');
     }

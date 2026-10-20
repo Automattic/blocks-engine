@@ -9,6 +9,7 @@ $flatten = static function(array $blocks) use (&$flatten): array {
     foreach ($blocks as $block) { $out[] = $block; array_push($out, ...$flatten($block['innerBlocks'] ?? array())); }
     return $out;
 };
+libxml_use_internal_errors(true);
 $out = array();
 foreach (require dirname(__DIR__) . '/fixtures/navigation-list-box-properties.php' as $name => $source) {
     $result = (new HtmlTransformer())->transform($source)->toArray();
@@ -28,7 +29,9 @@ foreach (require dirname(__DIR__) . '/fixtures/navigation-list-box-properties.ph
     $parent->replaceChild($replacement, $list);
     $replacement->appendChild($list);
     $style = $dom->createElement('style');
-    $style->appendChild($dom->createTextNode('.wp-block-navigation{display:flex}.wp-block-navigation-item{flex-shrink:0}' . $css));
+    // Core's navigation row wraps unless the block's flex layout says nowrap.
+    $wrap = 'nowrap' === ($nav['attrs']['layout']['flexWrap'] ?? '') ? 'nowrap' : 'wrap';
+    $style->appendChild($dom->createTextNode('.wp-block-navigation{display:flex;flex-wrap:' . $wrap . '}.wp-block-navigation-item{display:flex;flex-shrink:0}' . $css));
     $dom->getElementsByTagName('head')->item(0)->appendChild($style);
     foreach ($dom->getElementsByTagName('li') as $item) $item->setAttribute('class', 'wp-block-navigation-item');
     $out[$name] = array('source' => $source, 'candidate' => $dom->saveHTML());

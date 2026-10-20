@@ -3319,23 +3319,18 @@ final class AuthorStylesheetProjector
     }
 
     /**
-     * The source list's row becomes display:contents. Its display and overflow
-     * therefore belong to the native root that now renders that list's box.
-     * Emit at the author rule's position so conditions, importance and cascade
-     * remain authored rather than being frozen into resolved base styles.
+     * The source list's row becomes display:contents. Its display, overflow
+     * and multi-column layout therefore belong to the native root that now
+     * renders that list's box. Emit at the author rule's position so
+     * conditions, importance and cascade remain authored rather than being
+     * frozen into resolved base styles.
      */
     private function navigationListBoxRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
-        $box = array_intersect_key($declarations, array_flip(array('display', 'overflow', 'overflow-x', 'overflow-y')));
-        // Only visibility transfers from the list's display: a shown list is
-        // already represented by the native root's own flex row, so any
-        // non-none value restores that native display instead of replacing it.
-        if (is_string($box['display'] ?? null)) {
-            $importance = preg_match('/!\s*important\s*$/i', $box['display']) ? ' !important' : '';
-            if ('none' !== strtolower(trim(preg_replace('/!\s*important\s*$/i', '', $box['display']) ?? ''))) $box['display'] = 'flex' . $importance;
-        }
+        $box = array_intersect_key($declarations, array_flip(AuthorSelectorProjectionState::NAVIGATION_LIST_BOX_PROPERTIES));
         if (array() === $box) return '';
-        $selectors = array();
+        // Display => projected selectors: one rule may reach lists whose shown box differs.
+        $groups = array();
         foreach (CssValueSplitter::splitTopLevel($prelude, array(',')) as $selector) {
             $selector = trim($selector);
             $parsed = $context->sourceStyles->parsedSelector($selector);
@@ -3346,10 +3341,28 @@ final class AuthorStylesheetProjector
                 $target = $context->selectorProjections->navigationListBoxSubject($path);
                 if ('' === $target) continue;
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-                $selectors[] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+                $display = $this->navigationListBoxDisplay($box['display'] ?? null, $context->selectorProjections->navigationListShownDisplay($path));
+                $groups[$display][] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
             }
         }
-        return array() === $selectors ? '' : implode(',', array_unique($selectors)) . '{' . $this->styleResolver->cssDeclarationString($box) . '}';
+        $rules = '';
+        foreach ($groups as $display => $selectors) {
+            $rules .= implode(',', array_unique($selectors)) . '{' . $this->styleResolver->cssDeclarationString('' === $display ? $box : array('display' => $display) + $box) . '}';
+        }
+        return $rules;
+    }
+
+    /**
+     * The root's display for an authored list display. Hiding transfers; any
+     * shown value becomes the list's native shown box (a flex row, or a block
+     * for a list laid out in columns), keeping the authored importance.
+     */
+    private function navigationListBoxDisplay(?string $display, string $shownDisplay): string
+    {
+        if (!is_string($display)) return '';
+        $importance = preg_match('/!\s*important\s*$/i', $display) ? ' !important' : '';
+        if ('none' === strtolower(trim(preg_replace('/!\s*important\s*$/i', '', $display) ?? ''))) return $display;
+        return $shownDisplay . $importance;
     }
 
     /**
