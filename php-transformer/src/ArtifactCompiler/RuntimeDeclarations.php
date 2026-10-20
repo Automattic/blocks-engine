@@ -296,47 +296,64 @@ final class RuntimeDeclarations
     }
 
     /**
-     * The bounded public form of composed declarations. Entity lists over the
-     * payload limit are sharded into content-addressed records; only a payload
-     * that is exactly `{schema, entities}` with an inline entity list is
-     * sharded, so materialize() restores it byte for byte. A payload already
-     * in a bounded record form (an entity manifest of `runtime_entity_records`
-     * references, or a payload carrying other keys) stays as it is. Whatever still
+     * The bounded public form of composed declarations. An entity list over the
+     * payload limit, then the largest others while the set exceeds the
+     * aggregate limit, is moved into the plan's `runtime_entity_records` store as a
+     * `blocks-engine/runtime-entity-manifest/v1` payload: the same
+     * content-addressed form compilation gives an oversized collection, which
+     * resolution expands into `runtime_entity_resolution` with its bindings
+     * projected onto the resolved documents, so every materializer consumes
+     * it. Only a payload that is exactly `{schema, entities}` with an inline
+     * entity list is moved, so RuntimeEntityManifest::project() restores it
+     * byte for byte. A payload already in a bounded record form (an entity
+     * manifest, or a payload carrying other keys) stays as it is. Whatever still
      * exceeds a byte limit is dropped with the declarations that depend on it,
      * one `runtime_declaration_dropped` finding each, so its blocks stay
      * static: first each declaration over the payload limit, then the largest
      * declarations until the set fits the aggregate limit. A declaration that
      * integrity depends on is never dropped; the limit it exceeds fails closed.
      *
+     * `records` (the `runtime_records` store) stays empty here: resolution
+     * projects bindings only for inline and entity-manifest entities, so a
+     * record-reference payload would leave its anchors on the canonical
+     * documents while consumers and validation read the resolved ones.
+     *
      * @param array<int,array<string,mixed>> $declarations
-     * @return array{declarations:array<int,array<string,mixed>>,records:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
+     * @return array{declarations:array<int,array<string,mixed>>,records:array<int,array<string,mixed>>,entity_records:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
      */
     public static function factor(array $declarations): array
     {
-        try { return array('declarations' => self::normalizeList($declarations), 'records' => array(), 'diagnostics' => array()); }
+        try { return array('declarations' => self::normalizeList($declarations), 'records' => array(), 'entity_records' => array(), 'diagnostics' => array()); }
         catch (InvalidArgumentException $error) { if (!str_contains($error->getMessage(), 'payload exceeds the byte limit') && !str_contains($error->getMessage(), 'aggregate canonical byte limit')) throw $error; }
         $declarations = array_values($declarations);
         $integrity = array_map(static fn (mixed $declaration): bool => is_array($declaration) && self::bearsIntegrity($declaration), $declarations);
         $records = array();
-        foreach ($declarations as $index => &$declaration) {
-            $payload = $declaration['payload'] ?? null;
-            if (!self::shardable($payload)) continue;
-            $chunks = array(); $chunk = array();
-            foreach ($payload['entities'] as $entity) { $candidate = array_merge($chunk, array($entity)); if (strlen(self::canonicalJson(array('schema' => $payload['schema'], 'entities' => $candidate))) > self::MAX_PAYLOAD_BYTES) { if (array() === $chunk) throw new InvalidArgumentException("Runtime declaration {$index} contains an entity that exceeds the byte limit."); $chunks[] = $chunk; $chunk = array($entity); } else $chunk = $candidate; }
-            if (array() !== $chunk) $chunks[] = $chunk;
-            $references = array(); foreach ($chunks as $chunk) { $recordPayload = array('schema' => $payload['schema'], 'entities' => $chunk); $encoded = self::canonicalJson($recordPayload); $hash = self::hash($recordPayload); $id = 'runtime-record-' . $hash; $records[$id] = array('schema' => self::RECORD_SCHEMA, 'id' => $id, 'content_hash' => $hash, 'bytes' => strlen($encoded), 'payload' => $recordPayload); $references[] = array('id' => $id, 'content_hash' => $hash, 'bytes' => strlen($encoded)); }
-            $declaration['payload'] = array('schema' => self::RECORD_MANIFEST_SCHEMA, 'record_schema' => $payload['schema'], 'records' => $references); unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
+        $sizes = array();
+        foreach ($declarations as $index => $declaration) if (is_array($declaration) && self::shardable($declaration['payload'] ?? null)) { $unhashed = $declaration; unset($unhashed['reconciliation_identity'], $unhashed['payload_hash'], $unhashed['content_hash']); $sizes[$index] = self::measure($unhashed); }
+        arsort($sizes, SORT_NUMERIC);
+        $total = static function () use (&$declarations): int { $bytes = 0; foreach ($declarations as $declaration) if (is_array($declaration) && self::measure($declaration['payload'] ?? null) <= self::MAX_PAYLOAD_BYTES) { unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); $bytes += self::measure($declaration); } return $bytes; };
+        // Move the entity lists over the payload limit, then the largest others
+        // until the set fits the aggregate limit; the rest stay inline.
+        foreach ($sizes as $index => $bytes) {
+            if (self::measure($declarations[$index]['payload']) <= self::MAX_PAYLOAD_BYTES && $total() <= self::MAX_TOTAL_DECLARATION_BYTES) continue;
+            $payload = $declarations[$index]['payload'];
+            // An entity no record can carry leaves the list inline, for the
+            // byte limits below to drop (or, if integrity depends on it, reject).
+            try { $manifest = RuntimeEntityManifest::fromEntities($payload['schema'], $payload['entities']); }
+            catch (InvalidArgumentException $error) { if (!str_contains($error->getMessage(), 'exceed')) throw $error; continue; }
+            foreach ($manifest['records'] as $record) $records[$record['content_hash']] = $record;
+            $declarations[$index]['payload'] = $manifest['payload'];
+            unset($declarations[$index]['reconciliation_identity'], $declarations[$index]['payload_hash'], $declarations[$index]['content_hash']);
         }
-        unset($declaration);
         $bounded = self::withinByteLimits($declarations, $integrity);
         $referenced = array();
-        foreach ($bounded['declarations'] as $declaration) if (self::RECORD_MANIFEST_SCHEMA === ($declaration['payload']['schema'] ?? null)) foreach ($declaration['payload']['records'] as $reference) $referenced[$reference['id'] ?? ''] = true;
+        foreach ($bounded['declarations'] as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) foreach ($declaration['payload']['entities'] as $reference) $referenced[is_array($reference) ? (string) ($reference['content_hash'] ?? '') : ''] = true;
         $records = array_intersect_key($records, $referenced);
-        return array('declarations' => self::normalizeList($bounded['declarations']), 'records' => self::normalizeRecords(array_values($records)), 'diagnostics' => $bounded['diagnostics']);
+        return array('declarations' => self::normalizeList($bounded['declarations']), 'records' => array(), 'entity_records' => RuntimeEntityManifest::normalizeRecords(array_values($records)), 'diagnostics' => $bounded['diagnostics']);
     }
 
     /**
-     * Whether factor() may shard the payload into runtime records. materialize()
+     * Whether factor() may move the payload into entity records. Projection
      * rebuilds exactly `{schema, entities}`, so only that shape round-trips. An
      * entity manifest (`blocks-engine/runtime-entity-manifest/v1`) is already
      * the bounded record form: its `entities` are record references and its

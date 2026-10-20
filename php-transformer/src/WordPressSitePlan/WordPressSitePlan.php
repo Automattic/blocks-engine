@@ -553,6 +553,9 @@ PHP;
         $runtimeDeclarations = $factoredRuntimeDeclarations['declarations'];
         $runtimeRecords = $factoredRuntimeDeclarations['records'];
         $droppedDeclarations = $factoredRuntimeDeclarations['diagnostics'];
+        // Entity lists factoring moved out of their declarations join the
+        // compiled entity manifests' content-addressed store.
+        if (array() !== $factoredRuntimeDeclarations['entity_records']) $runtimeEntityRecords = RuntimeEntityManifest::normalizeRecords(array_values(array_column(array_merge($runtimeEntityRecords, $factoredRuntimeDeclarations['entity_records']), null, 'content_hash')));
         if (array() !== $droppedDeclarations) {
             $runtimeEntityRecords = self::referencedEntityRecords(RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords), $runtimeEntityRecords);
             $pages = self::attachWholePageCandidates(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $pages), RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords), $runtimeEntityRecords);
@@ -602,6 +605,29 @@ PHP;
         $referenced = array();
         foreach ($declarations as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) foreach ($declaration['payload']['entities'] ?? array() as $reference) if (is_string($reference['content_hash'] ?? null)) $referenced[$reference['content_hash']] = true;
         return array_values(array_filter($records, static fn (mixed $record): bool => is_array($record) && isset($referenced[$record['content_hash'] ?? ''])));
+    }
+
+    /**
+     * Declarations with every entity whose bindings the plan's documents must
+     * anchor. Record references are materialized. A manifest's entities are its
+     * resolved records; once the plan is resolved, their anchors are the ones
+     * resolution projected onto the resolved documents.
+     *
+     * @param array<string,mixed> $plan @param array<int,array<string,mixed>> $runtimeRecords @param array<int,array<string,mixed>> $entityRecords
+     * @return array<int,array<string,mixed>>
+     */
+    private static function anchoredEntityDeclarations(array $plan, array $runtimeRecords, array $entityRecords): array
+    {
+        $resolved = isset($plan['resolution']) && is_array($plan['runtime_entity_resolution'] ?? null) ? array_column($plan['runtime_entity_resolution'], 'entities', 'reconciliation_identity') : array();
+        $declarations = RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords);
+        foreach ($declarations as &$declaration) {
+            if (RuntimeEntityManifest::SCHEMA !== ($declaration['payload']['schema'] ?? null)) continue;
+            $entities = isset($plan['resolution']) ? ($resolved[$declaration['reconciliation_identity']] ?? null) : RuntimeEntityManifest::resolve($declaration['payload'], $entityRecords);
+            if (!is_array($entities)) throw new InvalidArgumentException('A resolved WordPress site plan does not resolve every runtime entity manifest.');
+            $declaration['payload'] = array('schema' => $declaration['payload']['entity_schema'], 'entities' => $entities);
+        }
+        unset($declaration);
+        return $declarations;
     }
 
     /**
@@ -690,7 +716,7 @@ PHP;
         foreach ($plan['runtime_declarations'] as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) RuntimeEntityManifest::resolve($declaration['payload'], $records);
         $runtimeRecords = RuntimeDeclarations::normalizeRecords($plan['runtime_records'] ?? array());
         if ($runtimeRecords !== ($plan['runtime_records'] ?? array())) throw new InvalidArgumentException('WordPress site plan runtime records are not canonically normalized.');
-        self::assertEntityBindingsAnchored(RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $plan['pages'], $plan['template_parts'], $plan['assets']);
+        self::assertEntityBindingsAnchored(self::anchoredEntityDeclarations($plan, $runtimeRecords, $records), $plan['pages'], $plan['template_parts'], $plan['assets']);
         if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));

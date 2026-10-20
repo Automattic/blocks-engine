@@ -197,12 +197,12 @@ $siteDeclaration = array(array('kind' => 'entity_collection', 'type' => 'forms',
 $throws(static fn() => RuntimeDeclarations::normalizeList($siteDeclaration), 'The projected 74-page forms collection reproduces the pre-factoring 5 MiB rejection.');
 $composingDeclarations = RuntimeDeclarations::normalizeForComposition($siteDeclaration);
 $siteFactor = RuntimeDeclarations::factor($composingDeclarations);
-$assert(count($siteFactor['records']) > 1 && RuntimeDeclarations::canonicalJson($siteEntities) === RuntimeDeclarations::canonicalJson(RuntimeDeclarations::materialize($siteFactor['declarations'], $siteFactor['records'])[0]['payload']['entities']), 'Composition retains all 74 entity bindings in bounded records without changing their content or order.');
+$assert(array() === $siteFactor['records'] && RuntimeEntityManifest::SCHEMA === ($siteFactor['declarations'][0]['payload']['schema'] ?? null) && 74 === count($siteFactor['entity_records']) && RuntimeDeclarations::canonicalJson($siteEntities) === RuntimeDeclarations::canonicalJson(RuntimeEntityManifest::resolve($siteFactor['declarations'][0]['payload'], $siteFactor['entity_records'])), 'Composition retains all 74 entity bindings as a content-addressed entity manifest without changing their content or order.');
 $assert(strlen(RuntimeDeclarations::canonicalJson($siteFactor['declarations'][0]['payload'])) <= RuntimeDeclarations::MAX_PAYLOAD_BYTES, 'The published declaration remains within the public 5 MiB payload limit.');
 $tamperedRuntimeRecord = $largeFormsPlan;
 $tamperedRuntimeRecord['runtime_declarations'] = $siteFactor['declarations'];
-$tamperedRuntimeRecord['runtime_records'] = $siteFactor['records'];
-$throws(static fn() => WordPressSitePlan::assertValid($tamperedRuntimeRecord), 'Plan validation resolves factored bindings and rejects anchors missing from published pages.');
+$tamperedRuntimeRecord['runtime_entity_records'] = $siteFactor['entity_records'];
+$throws(static fn() => WordPressSitePlan::assertValid($tamperedRuntimeRecord), 'Plan validation resolves factored manifest bindings and rejects anchors missing from published pages.');
 $rootAssetPath = "website/external/Happy Women's Day.jpg";
 $rootAssetUrl = "/external/Happy%20Women's%20Day.jpg";
 $rootAssetArtifact = array('entrypoint' => 'website/index.html', 'files' => array(

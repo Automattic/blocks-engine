@@ -57,7 +57,10 @@ and `WordPressSitePlanResolver::resolve()`.
   `runtime_declaration_dropped` warning (unit `declaration`). At compiler
   intake the aggregate declaration bound stays fail-closed.
 - Composition applies the declaration byte limits once, when the plan is
-  assembled: entity lists over 5 MiB are sharded into `runtime_records`, then a
+  assembled: an entity list over 5 MiB, then the largest others while the set
+  exceeds the aggregate limit, becomes an entity manifest whose records join
+  `runtime_entity_records` (the form resolution expands, with bindings
+  anchored on the resolved documents), then a
   declaration whose payload still exceeds 5 MiB is dropped, and while the set
   exceeds the aggregate limit the largest declaration is dropped. A dropped
   declaration takes the declarations required only for it, and those it is

@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 /**
  * Every generated runtime entity collection fits the canonical declaration
@@ -210,5 +211,45 @@ try {
 } catch (InvalidArgumentException $error) {
     $assert(str_contains($error->getMessage(), 'payload exceeds the byte limit'), 'The integrity-bearing declaration fails closed with the existing error: ' . $error->getMessage());
 }
+
+// (d) An entity list that factoring moves out of its declaration keeps
+// bindings the resolved plan can anchor. Resolution rewrites asset tokens, so
+// it re-projects anchors onto the resolved documents only for the entity forms
+// it expands: inline lists and entity manifests. The listing's block carries
+// an asset token, and another precedes it on the page.
+$png = base64_encode("\x89PNG\r\n\x1a\n" . str_repeat("\0", 32));
+$copy = rtrim(str_repeat('Listing copy. ', 150));
+$listingBlock = '<!-- wp:group {"className":"listing"} --><div class="wp-block-group listing"><!-- wp:image {"className":"blocks-engine-synthetic-image-figure"} --><figure class="wp-block-image blocks-engine-synthetic-image-figure"><img src="item.png" alt="Item"/></figure><!-- /wp:image --><!-- wp:paragraph --><p>' . $copy . '</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
+$listingSite = $compile(
+    array(
+        'index.html' => '<main><img src="logo.png" alt="Logo"><h1>Shop</h1><div class="listing"><img src="item.png" alt="Item"><p>' . $copy . '</p></div></main>',
+        'logo.png' => array('path' => 'logo.png', 'content_base64' => $png, 'mime_type' => 'image/png'),
+        'item.png' => array('path' => 'item.png', 'content_base64' => $png, 'mime_type' => 'image/png'),
+    ),
+    array('runtime_declarations' => array(array('kind' => 'entity_collection', 'type' => 'products', 'source_path' => 'data/products.json', 'payload' => array('schema' => 'generic/products/v1', 'entities' => array(array('id' => 'listing', 'bindings' => array(array('schema' => 'generic/block-binding/v1', 'role' => 'listing', 'source_path' => 'index.html', 'search_block_markup' => $listingBlock, 'occurrence' => 1))))))))
+);
+$listingInput = $listingSite;
+unset($listingInput['source_reports']['conversion_report'], $listingInput['source_reports']['wordpress_site_plan']);
+// A configuration that fits alone, beside which the inline list exceeds the
+// aggregate limit but its entity manifest does not.
+$catalogProbe = RuntimeDeclarations::normalizeForComposition(array($blob('catalog', 0)))[0];
+unset($catalogProbe['reconciliation_identity'], $catalogProbe['payload_hash'], $catalogProbe['content_hash']);
+$listingDeclarations = $listingInput['source_reports']['compiled_site']['runtime_declarations'];
+$listingDeclarations[] = $blob('catalog', RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES - strlen(RuntimeDeclarations::canonicalJson($catalogProbe)) - 1024);
+$listingInput['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeForComposition($listingDeclarations);
+$listingPlan = (new WordPressSitePlan())->fromCompilerResult($listingInput);
+$listing = $declaration($listingPlan, 'products');
+try {
+    $resolvedListing = (new WordPressSitePlanResolver())->resolve($listingPlan, array('theme_uri' => 'https://example.test/wp-content/themes/imported-theme'));
+} catch (InvalidArgumentException $error) {
+    $assert(false, 'A plan whose entity list was factored resolves with its bindings anchored: ' . $error->getMessage());
+}
+$assert(array() === $findings($listingPlan['diagnostics'], 'runtime_declaration_dropped') && is_array($listing) && RuntimeEntityManifest::SCHEMA === $listing['payload']['schema'] && array() === ($listingPlan['runtime_records'] ?? array()), 'An entity list over the aggregate limit is factored into an entity manifest, not dropped: ' . json_encode($listing['payload']['schema'] ?? null));
+$listingBinding = $entities($listingPlan, $listing)[0]['bindings'][0] ?? array();
+$assert(str_contains($listingBinding['search_block_markup'] ?? '', WordPressSitePlan::TOKEN_PREFIX), 'The factored binding anchors a token-bearing canonical block.');
+$resolution = array_column($resolvedListing['runtime_entity_resolution'], null, 'reconciliation_identity')[$listing['reconciliation_identity']] ?? array();
+$resolvedBinding = $resolution['entities'][0]['bindings'][0] ?? array();
+$resolvedPage = $resolvedListing['pages'][0]['resolved_block_markup'];
+$assert(is_string($resolvedBinding['search_block_markup'] ?? null) && !str_contains($resolvedBinding['search_block_markup'], WordPressSitePlan::TOKEN_PREFIX) && WordPressSitePlan::bindingPosition($resolvedBinding['position'] ?? null, $resolvedPage, $resolvedBinding['search_block_markup']), 'Resolution anchors the factored binding on the resolved page: ' . json_encode($resolvedBinding['position'] ?? null));
 
 echo "runtime entity budget contract passed\n";

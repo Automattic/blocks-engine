@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/throw-classification/v1",
   "description": "Every throw new and throwing-helper call in src/, keyed by file and Class(normalized message) or helper(normalized arguments), with its occurrence count. Enforced by tests/contract/throw-classification.php; see docs/contracts/throw-classification.md. LogicException and its project subclasses are integrity by construction and are not listed.",
-  "representability_pending_max": 10,
+  "representability_pending_max": 9,
   "sites": {
     "src/ArtifactCompiler/ArtifactCompiler.php": {
       "InvalidArgumentException('Caller runtime declarations cannot provide compiler-reserved script supersession proofs.')": {"class": "integrity", "count": 1},
@@ -45,7 +45,6 @@
       "InvalidArgumentException(\"Runtime declaration {$index} asset transformation inputs must be bounded lists.\")": {"class": "integrity", "count": 1},
       "InvalidArgumentException(\"Runtime declaration {$index} asset transformation is invalid.\")": {"class": "integrity", "count": 1},
       "InvalidArgumentException(\"Runtime declaration {$index} asset transformation requires declared local CSS and font inputs.\")": {"class": "integrity", "count": 1},
-      "InvalidArgumentException(\"Runtime declaration {$index} contains an entity that exceeds the byte limit.\")": {"class": "representability", "count": 1, "unit": "item", "finding": "runtime_entity_dropped", "pending": true},
       "InvalidArgumentException(\"Runtime declaration {$index} entity collections require a typed entities payload.\")": {"class": "integrity", "count": 3},
       "InvalidArgumentException(\"Runtime declaration {$index} entity manifest is invalid.\")": {"class": "integrity", "count": 1},
       "InvalidArgumentException(\"Runtime declaration {$index} external metric JSON pointer exceeds its depth limit.\")": {"class": "integrity", "count": 1},
@@ -428,6 +427,7 @@
       "InvalidArgumentException('A page-owned compiled asset must resolve to a canonical page.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('A provider script supersession proof does not match its source inline-script asset and document metadata.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('A provider script supersession proof is malformed or detached from its bound form.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('A resolved WordPress site plan does not resolve every runtime entity manifest.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.')": {"class": "integrity", "count": 2},
       "InvalidArgumentException('A runtime entity binding has an invalid emitted block position.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('A runtime entity binding lacks an exact emitted block anchor.')": {"class": "integrity", "count": 1},
