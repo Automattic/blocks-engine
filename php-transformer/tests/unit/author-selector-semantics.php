@@ -360,7 +360,7 @@ $assert(
 
 $zeroWidthControl = $transform('<style>.skip{position:absolute;left:50%;width:0;height:0;padding:0 24px}</style><button class="skip">Skip</button>');
 $zeroWidthControlCss = $css($zeroWidthControl);
-$assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link){height:0;padding:0 24px}'), 'control width and positioning stay on the native wrapper while block size and padding remain on the button link');
+$assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0;height:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link){padding:0 24px}'), 'control dimensions and positioning stay on the native wrapper while inner paint remains on the button link');
 
 $heroLayers = $transform('<style>.hero{position:relative;min-height:46rem}.hero-image,.hero-overlay{position:absolute;inset:0}.hero-copy{position:relative}</style><section class="hero"><img class="hero-image" src="hero.jpg" alt="Hero"><div class="hero-overlay"></div><div class="hero-copy"><h1>Visible hero copy</h1></div></section>');
 $heroLayersCss = $css($heroLayers);

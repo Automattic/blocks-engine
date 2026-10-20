@@ -4820,6 +4820,7 @@ final class StyleResolver implements ElementPresentationResolver
     private function cascadeRelevantDeclarations(array $declarations): array
     {
         static $cascadeProperties = array(
+            'box-sizing' => true,
             'color' => true,
             // Anchor carriers must resolve authored decoration even when the
             // general presentation demand filter skips an ordinary text link.
