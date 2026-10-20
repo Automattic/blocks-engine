@@ -1068,7 +1068,7 @@ final class ArtifactCompiler
                     $image = is_string($product['image'] ?? null) ? $product['image'] : (is_array($product['image'] ?? null) && is_string($product['image']['src'] ?? null) ? $product['image']['src'] : '');
                     if ( '' !== trim($image) ) $row['image'] = $image;
                     if ( is_string($product['category'] ?? null) && '' !== trim($product['category']) ) $row['category'] = trim($product['category']);
-                    if ( is_array($product['facets'] ?? null) && array() !== $product['facets'] ) $row['facets'] = $product['facets'];
+                    if ( is_array($product['attributes'] ?? null) && array() !== $product['attributes'] ) $row['attributes'] = $product['attributes'];
                     $sourceSelector = is_string($product['source_selector'] ?? null) ? trim($product['source_selector']) : '';
                     $selectors = array_values(array_unique(array_filter(array($sourceSelector, $container), static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
                     if ( array() !== $selectors ) $row['source_selectors'] = $selectors;
@@ -1082,6 +1082,8 @@ final class ArtifactCompiler
                         $row['bindings'] = array(array_merge($product['binding'], array('source_path' => $sourcePath)));
                     }
                     if ( isset($products[$productSlug]) ) {
+                        // The same product on another page may be the one its filters describe.
+                        foreach ( array('category', 'attributes') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
                         if ( ! isset($row['bindings'][0]) ) {
                             continue;
                         }

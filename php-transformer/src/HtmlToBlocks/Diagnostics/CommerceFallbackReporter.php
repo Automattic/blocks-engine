@@ -144,7 +144,8 @@ final class CommerceFallbackReporter
      * The controls that facet, bound, sort, or count this grid's products, and
      * the region that holds them with the grid, each anchored on its own
      * emitted block. Facet values land on the products they describe: a
-     * category facet as the product's `category`, every facet under `facets`.
+     * category facet as the product's `category`, any other facet as one of
+     * its `attributes`.
      *
      * @param list<array<string,mixed>> $products
      * @return array<string,mixed>
@@ -185,10 +186,13 @@ final class CommerceFallbackReporter
                     continue;
                 }
                 $value = $values[$control['key']];
-                $products[$index]['facets'][$control['key']] = $value;
-                if ( 'category' === $control['role'] && ! isset($products[$index]['category']) ) {
-                    $products[$index]['category'] = (string) ($labels[$value] ?? $value);
+                $valueLabel = (string) ($labels[$value] ?? $value);
+                if ( 'category' === $control['role'] ) {
+                    // The filter's option names the category as shoppers pick it.
+                    $products[$index]['category'] = $valueLabel;
+                    continue;
                 }
+                $products[$index]['attributes'][] = array('key' => $control['key'], 'label' => $control['label'], 'value' => $value, 'value_label' => $valueLabel);
             }
         }
 

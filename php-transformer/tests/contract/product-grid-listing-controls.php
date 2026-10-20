@@ -17,8 +17,10 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
  *
  * A `generic/product-listings/v1` entity declares them beside the grid: its
  * first binding is the region holding the grid and its controls, then one
- * binding per control, named by the control's id. Each product carries its facet values and its category, from a
- * category facet, a category-labelled card leaf, or schema.org `category`.
+ * binding per control, named by the control's id. Each product carries its
+ * category, from a category facet, a category-labelled card leaf, or
+ * schema.org `category`, and every other facet as an attribute with its
+ * labels, even when another page shows the same product first.
  * Option groups that do not describe the cards are not controls.
  */
 
@@ -80,15 +82,22 @@ $assert(array('default', 'price_asc', 'price_desc') === array_column($controls['
 $assert('4 items' === $controls['result_count']['label'], 'The count is the text whose number is the card count.');
 
 $products = array_column($declaration($plan, 'products')['payload']['entities'] ?? array(), null, 'slug');
-$assert('Seating' === ($products['delta-stool']['category'] ?? null) && array('finish' => 'gloss', 'type' => 'Seating') == ($products['delta-stool']['facets'] ?? null), 'Each product carries its category and facet values: ' . json_encode($products['delta-stool'] ?? null));
+$assert('Seating' === ($products['delta-stool']['category'] ?? null), 'A category facet names the product category: ' . json_encode($products['delta-stool'] ?? null));
+$assert(array(array('key' => 'finish', 'label' => 'Finish', 'value' => 'gloss', 'value_label' => 'Gloss')) == ($products['delta-stool']['attributes'] ?? null), 'Any other facet is a product attribute with its labels: ' . json_encode($products['delta-stool']['attributes'] ?? null));
 
 // Without filter controls the category still comes from the card label, and
 // a grid with no controls declares no listing.
 $bare = '<!doctype html><html><head><title>Shop</title></head><body><main><h1>Shop</h1><div class="grid" data-grid>' . $cards . '</div></main><script src="app.js"></script></body></html>';
 $barePlan = $compile(array('shop.html' => $bare, 'app.js' => $script))['source_reports']['wordpress_site_plan'] ?? array();
 $bareProducts = array_column($declaration($barePlan, 'products')['payload']['entities'] ?? array(), null, 'slug');
-$assert('Lighting' === ($bareProducts['alpha-lamp']['category'] ?? null) && ! isset($bareProducts['alpha-lamp']['facets']), 'The card category label names the category on its own.');
+$assert('Lighting' === ($bareProducts['alpha-lamp']['category'] ?? null) && ! isset($bareProducts['alpha-lamp']['attributes']), 'The card category label names the category on its own.');
 $assert(null !== $declaration($barePlan, 'product_grids') && null === $declaration($barePlan, 'product_listings'), 'A grid with no controls declares no listing.');
+
+// A home page that shows the same products first, without filters, does not
+// hide the attributes the shop page's filters describe.
+$bothPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $bare, 'shop.html' => $shop, 'app.js' => $script)))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+$bothProducts = array_column($declaration($bothPlan, 'products')['payload']['entities'] ?? array(), null, 'slug');
+$assert('gloss' === ($bothProducts['delta-stool']['attributes'][0]['value'] ?? null) && 'Seating' === ($bothProducts['delta-stool']['category'] ?? null), 'Attributes survive the same product shown first elsewhere: ' . json_encode($bothProducts['delta-stool'] ?? null));
 
 // schema.org `category` names the leaf of a category path.
 $jsonLd = '<script type="application/ld+json">' . json_encode(array('@context' => 'https://schema.org', '@type' => 'Product', 'name' => 'Omega Desk', 'category' => 'Furniture > Desks', 'offers' => array('@type' => 'Offer', 'price' => '120.00'))) . '</script>';
