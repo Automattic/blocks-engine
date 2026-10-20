@@ -350,6 +350,10 @@ final class ArtifactCompiler
             if (is_array($fallback)) unset($fallback['_collection_binding_declined']);
             return $fallback;
         }, $allFallbacks);
+        // Replay authored selectors, not their generated element/editor transport.
+        // Replaying the projected stream crosses each transport alternative with
+        // navigation structure and weighs its already shimmed specificity again.
+        $wordpressCompatAssets = $this->wordpressCompatAssetsForDocuments($normalized['files']);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''));
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
@@ -366,7 +370,6 @@ final class ArtifactCompiler
             if ($content !== $file['content']) $file = $this->projectedStylesheetFile($file, $file['path'], $content);
         }
         unset($file);
-        $wordpressCompatAssets = $this->wordpressCompatAssetsForDocuments($normalized['files']);
         $normalized['files'] = $this->chunkProjectedStylesheets($normalized['files']);
         foreach ($normalized['files'] as $file) {
             if ($entryPath === ($file['path'] ?? null) && is_string($file['content'] ?? null)) {
@@ -2084,10 +2087,10 @@ final class ArtifactCompiler
     }
 
     /**
-     * Replay the same occurrence stream used by source analysis, after selector
-     * projection and before chunking. File transport order is not CSS order.
-     * A page's delta belongs immediately after its source stylesheet, not after
-     * another linked stylesheet or another page's cascade.
+     * Replay the authored occurrence stream used by source analysis, before
+     * selector projection. Generated per-element and editor alternatives are
+     * transport, not additional source navigation rules. File transport order
+     * is not CSS order.
      *
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
@@ -2106,12 +2109,6 @@ final class ArtifactCompiler
             $parts = array();
             foreach ($this->stylesheetAssetsForSource($document['content'], $sourcePath, $documentFiles) as $stylesheet) {
                 $content = $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $documentFiles);
-                foreach ($files as $file) {
-                    if (($file['metadata']['page_stylesheet_of'] ?? null) === $stylesheet['path']
-                        && $this->fileOwnership($file) === $ownership) {
-                        $content .= "\n" . $file['content'];
-                    }
-                }
                 $media = trim((string) ($stylesheet['media'] ?? ''));
                 $parts[] = '' === $media ? $content : '@media ' . $media . '{' . $content . '}';
             }

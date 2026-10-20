@@ -392,6 +392,7 @@
       "php tests/unit/navigation-projection-specificity.php",
       "php tests/unit/wordpress-compat-specificity-shims.php",
       "php tests/unit/wordpress-compat-anchor-boundary.php",
+      "php tests/unit/wordpress-compat-nav-anchor-replay-growth.php",
       "php tests/unit/print-media-custom-property-scope.php",
       "php tests/unit/wordpress-body-class-collision.php",
       "php tests/unit/css-rule-analyzer.php",

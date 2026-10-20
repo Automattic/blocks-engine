@@ -1,0 +1,82 @@
+<?php
+declare(strict_types=1);
+
+require dirname(__DIR__, 2) . '/vendor/autoload.php';
+
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+
+// Only these three source rules trigger replay. The flex pair lowers to
+// media-text (with per-image markers); the presentation table lowers to cells.
+// Vary route links so staged workers cannot reuse an identical page receipt.
+
+$assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
+$compile = static function (int $pages, int $items): array {
+    $css = 'nav .item a > img{width:24px}.list .card a img{height:20px}.menu li a > img{opacity:.8}';
+    $files = array(array('path' => 'site.css', 'content' => $css, 'metadata' => array('compilation' => array('scope' => 'shared'))));
+    for ($page = 0; $page < $pages; ++$page) {
+        $nav = $cards = $menu = '';
+        for ($item = 0; $item < $items; ++$item) {
+            $image = '<a href="/target-' . $page . '-' . $item . '"><img src="icon.svg" width="240" height="200" alt="Icon"></a>';
+            $nav .= '<div class="item">' . $image . '</div>';
+            $cards .= '<div class="card" style="display:flex"><figure>' . $image . '</figure><div><h2>Card text</h2></div></div>';
+            $menu .= '<li>' . $image . '</li>';
+        }
+        $files[] = array('path' => 0 === $page ? 'index.html' : 'page-' . $page . '.html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="site.css"></head><body><nav>' . $nav . '</nav><main><div class="list">' . $cards . '</div><table role="presentation"><tr><td><ul class="menu">' . $menu . '</ul></td><td><p>Cell text</p></td></tr></table></main></body></html>');
+    }
+    $files[] = array('path' => 'icon.svg', 'content' => '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="20"><path d="M0 0h24v20H0z"/></svg>');
+    $artifact = array('entrypoints' => array('index.html'), 'files' => $files);
+    $compiler = new ArtifactCompiler();
+    $shared = $compiler->prepareShared($artifact);
+    $receipts = array();
+    foreach ($shared['analysis']['page_ids'] as $id) $receipts[] = $compiler->compilePage($artifact, $shared, $id);
+    return $compiler->compose($shared, $receipts)->toArray();
+};
+$baseline = null;
+foreach (array(array(1, 2), array(3, 2), array(3, 8)) as [$pages, $items]) {
+    $result = $compile($pages, $items);
+    $stats = array();
+    $replay = '';
+    foreach ($result['assets'] as $asset) {
+        if ('wordpress-compat' !== ($asset['source'] ?? '')) continue;
+        $css = $asset['content'];
+        $replay = $css;
+        $alternatives = 0;
+        (new CssStylesheetTransformer())->transform($css, static function (string $prelude, string $body) use (&$alternatives): string {
+            $alternatives += count(CssStylesheetTransformer::splitSelectorList($prelude) ?? array());
+            return $prelude;
+        });
+        $stats[] = array(strlen($css), $alternatives);
+    }
+    echo $pages . ' pages x ' . $items . ' items: ' . json_encode($stats) . "\n";
+    $assert(count($stats) === $pages, 'Each page has a compat receipt.');
+    foreach ($stats as [$bytes, $alternatives]) {
+        $assert($bytes < 2000 && $alternatives <= 6, 'Three source rules have bounded replay, not generated transport cross products.');
+        $baseline ??= array($bytes, $alternatives);
+        $assert($baseline === array($bytes, $alternatives), 'Replay size is independent of pages and elements.');
+    }
+    $plan = $result['source_reports']['wordpress_site_plan'];
+    $sharedReplay = array_values(array_filter($plan['assets'], static fn (array $asset): bool => 'wordpress-compat' === ($asset['source'] ?? '')));
+    $assert(1 === count($sharedReplay) && $pages === count($sharedReplay[0]['scopes']), 'Identical replay is one resource retaining all route scopes.');
+    $assert(str_contains(json_encode($plan), 'blocks-engine-media-text-image-'), 'Fixture actually produces per-image transport markers.');
+
+    // Core runtime navigation shapes: fused and descendant wrappers, plus the
+    // source-list container. Match the replay against both layouts, including
+    // a non-navigation negative control. Authored declarations must survive.
+    $dom = new DOMDocument();
+    $dom->loadHTML('<html><body><nav><div class="item wp-block-navigation"><a class="wp-block-navigation-item__content"><img id="direct"></a></div><div class="item"><div class="wp-block-navigation"><a class="wp-block-navigation-item__content"><img id="descendant"></a></div></div></nav><div class="list"><div class="card wp-block-navigation"><a class="wp-block-navigation-item__content"><img id="card"></a></div></div><nav class="menu wp-block-navigation"><ul class="wp-block-navigation__container"><li class="wp-block-navigation-item"><a class="wp-block-navigation-item__content"><img id="menu"></a></li></ul></nav><img id="unrelated"></body></html>');
+    $matched = array();
+    (new CssStylesheetTransformer())->transform($replay, static function (string $prelude, string $body) use ($dom, &$matched): string {
+        foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+            $parsed = CssSelectorMatcher::parse(trim($selector));
+            foreach ($dom->getElementsByTagName('img') as $image) {
+                if (CssSelectorMatcher::matches($image, $parsed)['matches']) $matched[$image->getAttribute('id')] = trim($body);
+            }
+        }
+        return $prelude;
+    });
+    $assert('width:24px' === ($matched['direct'] ?? '') && 'width:24px' === ($matched['descendant'] ?? ''), 'Both navigation anchor shapes retain the replayed width.');
+    $assert('height:20px' === ($matched['card'] ?? '') && 'opacity:.8' === ($matched['menu'] ?? ''), 'Card and list structure replay retain declarations.');
+    $assert(!isset($matched['unrelated']), 'Replay does not style unrelated images.');
+}
