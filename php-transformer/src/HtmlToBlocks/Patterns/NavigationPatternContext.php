@@ -64,8 +64,16 @@ final class NavigationPatternContext
     }
 
     /** Source list identity also survives when its landmark owns another block. */
-    public function navigationListHostIdentity(DOMElement $element): string
+    public function navigationListHostIdentity(DOMElement $element, ?DOMElement $list = null): string
     {
+        if (null !== $this->session && $list instanceof DOMElement && $this->styleResolver instanceof StyleResolver
+            && array_filter(array('display', 'overflow', 'overflow-x', 'overflow-y'), fn(string $property): bool => !$this->styleResolver->declaredPresentation($list, $property)->isEmpty())) {
+            $projections = $this->session->authorSelectorProjectionState();
+            $path = $element->getNodePath() ?? '';
+            $marker = $projections->ensureSemanticMarker($path);
+            $projections->installNavigationListBoxSubject($list->getNodePath() ?? '', ':where(nav.wp-block-navigation.' . $marker . ')');
+            return implode(' ', $projections->semanticCarrierClasses($marker, $path));
+        }
         if (null === $this->session || !in_array(strtolower($element->tagName), array('ul', 'ol'), true)) return '';
         $styles = $this->session->authorStyleAnalysis();
         foreach ($styles->styleRules() as $rule) {

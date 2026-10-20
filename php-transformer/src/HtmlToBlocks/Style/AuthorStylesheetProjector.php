@@ -153,7 +153,8 @@ final class AuthorStylesheetProjector
             ? ''
             : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
         $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context) . $this->separatorBorderRule($prelude, $declarations, $context);
-        $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context);
+        $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context)
+            . $this->navigationListBoxRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
 
@@ -3315,6 +3316,33 @@ final class AuthorStylesheetProjector
         return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
             $start => array( 'end' => $end, 'value' => $subject ),
         ));
+    }
+
+    /**
+     * The source list's row becomes display:contents. Its display and overflow
+     * therefore belong to the native root that now renders that list's box.
+     * Emit at the author rule's position so conditions, importance and cascade
+     * remain authored rather than being frozen into resolved base styles.
+     */
+    private function navigationListBoxRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        $box = array_intersect_key($declarations, array_flip(array('display', 'overflow', 'overflow-x', 'overflow-y')));
+        if (array() === $box) return '';
+        $selectors = array();
+        foreach (CssValueSplitter::splitTopLevel($prelude, array(',')) as $selector) {
+            $selector = trim($selector);
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if (!$parsed['supported']) continue;
+            foreach ($this->matchingSourceElements($selector, $parsed, $context) as $element) {
+                $path = $element->getNodePath() ?? '';
+                // Overlay lists still own an inner UL, not the opener's root.
+                $target = $context->selectorProjections->navigationListBoxSubject($path);
+                if ('' === $target) continue;
+                $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+                $selectors[] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+            }
+        }
+        return array() === $selectors ? '' : implode(',', array_unique($selectors)) . '{' . $this->styleResolver->cssDeclarationString($box) . '}';
     }
 
     /**

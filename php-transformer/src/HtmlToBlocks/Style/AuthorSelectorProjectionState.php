@@ -168,6 +168,18 @@ final class AuthorSelectorProjectionState
     /** @var array<string, string> Source subject path => its exact native CSS target. */
     private array $navigationSubjects = array();
 
+    private array $navigationListBoxSubjects = array();
+
+    public function installNavigationListBoxSubject(string $path, string $selector): void
+    {
+        $this->navigationListBoxSubjects[$path] = $selector;
+    }
+
+    public function navigationListBoxSubject(string $path): string
+    {
+        return $this->navigationListBoxSubjects[$path] ?? '';
+    }
+
     public function installNavigationSubject(string $path, string $selector): void
     {
         $this->navigationSubjects[$path] ??= $selector;
