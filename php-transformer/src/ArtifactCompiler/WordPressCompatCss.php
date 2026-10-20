@@ -9,6 +9,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EditorShellBoundary;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 
 /**
  * WordPress runtime compatibility CSS projected from authored stylesheets.
@@ -50,10 +52,11 @@ final class WordPressCompatCss
     public function projectNavigationStylesheet(string $css, array $files, bool $importedLayer = false): string
     {
         $this->prepareSpecificityContext($css, $files);
-        return (new CssStylesheetTransformer())->transform($css, function (string $prelude, string $body, array $ancestors) use ($importedLayer): string {
+        return (new CssStylesheetTransformer())->transform($css, function (string $prelude, string $body, array $ancestors) use ($importedLayer): string|array {
             if (!$importedLayer && !array_filter($ancestors, static fn(string $ancestor): bool => 1 === preg_match('/^@layer\b/i', trim($ancestor)))) return $prelude;
-            $selectors = $this->navigationProjectedSelectors($prelude, $body);
-            return array() === $selectors ? $prelude : rtrim($prelude) . ', ' . implode(', ', $selectors);
+            ['selectors' => $selectors, 'editor' => $editor] = $this->navigationProjectedSelectors($prelude, $body);
+            if (array() === $selectors) return $prelude;
+            return array(array('prelude' => rtrim($prelude) . ', ' . implode(', ', $selectors), 'body' => $body), ...$editor);
         });
     }
 
@@ -169,33 +172,48 @@ final class WordPressCompatCss
                 }
                 continue;
             }
-            $mappedSelectors = $this->navigationProjectedSelectors($selectorList, $body);
+            ['selectors' => $mappedSelectors, 'editor' => $editor] = $this->navigationProjectedSelectors($selectorList, $body);
             if ( array() !== $mappedSelectors ) {
-                $rules[] = implode(', ', $mappedSelectors) . ' { ' . $body . ' }';
+                $rules[] = implode(', ', $mappedSelectors) . ' { ' . $body . ' }' . implode('', array_map(array(EditorShellBoundary::class, 'css'), $editor));
             }
         }
 
         return $rules;
     }
 
-    /** @return list<string> */
+    /**
+     * Replayed selectors, and for each replay that crosses a layout-shell
+     * boundary its one editor-canvas rule (EditorShellBoundary). An editor
+     * rule the projector already wrote for an authored selector is not
+     * replayed again: its replay comes from the authored selector here.
+     *
+     * @return array{selectors: list<string>, editor: list<array{prelude: string, body: string}>}
+     */
     private function navigationProjectedSelectors(string $selectorList, string $body): array
     {
-        if (str_contains(strtolower($body), 'url(')) return array();
-        $mappedSelectors = array();
+        $none = array('selectors' => array(), 'editor' => array());
+        if (str_contains(strtolower($body), 'url(') || (str_contains($selectorList, EditorShellBoundary::EDITOR_SCOPE) && str_contains($body, '{'))) return $none;
+        $mapped = array();
         foreach ($this->splitSelectorList($selectorList) as $selector) {
+            $targets = array();
             if (preg_match('/(?:^|;)\s*display\s*:/i', $body)) {
                 $container = $this->mapNavigationContainerSelector($selector);
-                if (null !== $container) {
-                    $container = $this->preserveNavigationSpecificity($selector, $container);
-                    if (null !== $container) $mappedSelectors[$container] = true;
-                }
+                if (null !== $container) $targets[] = $container;
             }
-            $targets = $this->mapNavigationStructureSelector($selector, $body);
-            if (array() === $targets) $targets = $this->mapNavigationAnchorSelector($selector);
-            foreach ($targets as $mappedSelector) $mappedSelectors[$this->withServedRouteCurrentState($mappedSelector)] = true;
+            $structure = $this->mapNavigationStructureSelector($selector, $body);
+            $replays = array_merge($targets, array() === $structure ? $this->mapNavigationAnchorSelector($selector) : $structure);
+            foreach ($replays as $index => $target) {
+                $weighed = $this->navigationSourceWeight($selector, $index < count($targets) ? $target : $this->withServedRouteCurrentState($target));
+                // A replay of an editor-only rule is already editor-scoped.
+                if (null !== $weighed && !array_key_exists($weighed['selector'], $mapped)) $mapped[$weighed['selector']] = str_contains($selector, '.editor-styles-wrapper') ? null : $weighed;
+            }
         }
-        return array_keys($mappedSelectors);
+        $editor = array();
+        foreach ($mapped as $weighed) {
+            $rule = null === $weighed ? null : EditorShellBoundary::rule($weighed['target'], $body, true, ':root ', $weighed['tail']);
+            if (null !== $rule) $editor[] = $rule;
+        }
+        return array('selectors' => array_keys($mapped), 'editor' => $editor);
     }
 
     /**
@@ -459,7 +477,7 @@ final class WordPressCompatCss
             $selectors[$descendantWrapper] = true;
         }
 
-        return $this->navigationSelectorsAtSourceWeight($selector, array_keys($selectors));
+        return array_keys($selectors);
     }
 
     /**
@@ -513,7 +531,7 @@ final class WordPressCompatCss
         $selectors = array();
         if ( '' === $prefix ) {
             $selectors[$scope . $runtimeTail] = true;
-            return $this->navigationSelectorsAtSourceWeight($selector, array_keys($selectors));
+            return array_keys($selectors);
         }
 
         $selectors[$prefix . ' ' . $scope . $runtimeTail] = true;
@@ -527,16 +545,17 @@ final class WordPressCompatCss
             $selectors[substr($prefix, 0, $offset) . $fused . $runtimeTail] = true;
         }
 
-        return $this->navigationSelectorsAtSourceWeight($selector, array_keys($selectors));
+        return array_keys($selectors);
     }
 
-    /** @param list<string> $targets @return list<string> */
-    private function navigationSelectorsAtSourceWeight(string $source, array $targets): array
-    {
-        return array_values(array_filter(array_map(fn(string $target): ?string => $this->preserveNavigationSpecificity($source, $target), $targets)));
-    }
-
-    private function preserveNavigationSpecificity(string $source, string $target): ?string
+    /**
+     * A replay target weighed by its source selector: the flat selector, and
+     * the zero-weight target with the tail (shims, state, pseudo-element)
+     * that restores the source weight on its subject.
+     *
+     * @return array{selector: string, target: string, tail: string}|null
+     */
+    private function navigationSourceWeight(string $source, string $target): ?array
     {
         $pseudo = CssSelectorMatcher::pseudoElementHost($source);
         $parsed = CssSelectorMatcher::parse(null === $pseudo ? $source : $pseudo['selector']);
@@ -551,12 +570,13 @@ final class WordPressCompatCss
         }
         // One common native scope beats Core's block defaults. All families use
         // the same scope; generated transport never adds to authored ranking.
-        return ':root :where(' . $target . ')' . CssSpecificityProjection::shims(
+        $tail = CssSpecificityProjection::shims(
             $parsed,
             $this->specificityShims[0],
             $this->specificityShims[1],
             $this->specificityShims[2]
         ) . $state . $suffix;
+        return array('selector' => ':root :where(' . $target . ')' . $tail, 'target' => $target, 'tail' => $tail);
     }
 
     private function selectorWithoutComments(string $selector): string
@@ -609,6 +629,9 @@ final class WordPressCompatCss
         if ( str_contains($compound, '.wp-block-navigation') ) {
             return $selector;
         }
+        if ( ! $this->fusesWithNavigation($compound) ) {
+            return null;
+        }
 
         $pseudoOffset = false;
         if ( preg_match('/:{1,2}/', $compound, $pseudoMatch, PREG_OFFSET_CAPTURE) ) {
@@ -621,6 +644,28 @@ final class WordPressCompatCss
         $mappedPrefix = substr($prefix, 0, (int) $match[1][1]) . $mappedCompound . (string) ($match[2][0] ?? '');
 
         return $mappedPrefix . substr($selector, $anchorStart);
+    }
+
+    /**
+     * Whether core/navigation's `<nav>` root could also match the compound.
+     * A compound that names another element (`figure`, even weightless) or
+     * the editor's layout-shell layer never does, so fusing the navigation
+     * class onto it would only emit an arm no element matches.
+     */
+    private function fusesWithNavigation(string $compound): bool
+    {
+        if ( str_contains($compound, EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS) ) {
+            return false;
+        }
+        // Negations do not require their arguments, specificity shims included.
+        $required = (string) preg_replace('/:not\((?:[^()]|\([^()]*\))*\)/i', '', $compound);
+        preg_match_all('/(?:^|:(?:where|is)\(|,)\s*([A-Za-z][A-Za-z0-9-]*)/', $required, $types);
+        foreach ( $types[1] as $type ) {
+            if ( 'nav' !== strtolower($type) ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function insertNavigationDescendantWrapper(string $selector, string $prefix): ?string
