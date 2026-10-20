@@ -7688,6 +7688,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         foreach ( $fallbacks as &$fallback ) {
             if (is_array($fallback['binding'] ?? null)) $finalize($fallback['binding']);
             if (is_array($fallback['products'] ?? null)) {
+                $cardMarkups = array();
+                foreach ($fallback['products'] as $product) {
+                    $cardIndex = is_int($product['_card_provenance_id'] ?? null) ? ($provenanceIndexes[$product['_card_provenance_id']] ?? null) : null;
+                    $cardRange = is_int($cardIndex) ? ($ranges[$cardIndex] ?? null) : null;
+                    $cardMarkups[] = is_array($cardRange) ? substr($markup, $cardRange['offset'], $cardRange['length']) : '';
+                }
                 foreach ($fallback['products'] as &$product) {
                     if (is_array($product['binding'] ?? null)) {
                         // A `commerce_collection` anchor that fails to resolve
@@ -7704,8 +7710,22 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                             $fallback['_collection_binding_declined'] = true;
                         }
                     }
+                    unset($product['_card_provenance_id']);
                 }
                 unset($product);
+                // The grid binding is only useful with an item template a
+                // provider can repeat in its place, and vice versa.
+                $template = is_array($fallback['binding'] ?? null) && array() !== $fallback['binding'] && ! in_array('', $cardMarkups, true)
+                    ? $this->commerceReporter->itemTemplate($cardMarkups, $fallback['products'])
+                    : array();
+                if ( array() === $template ) {
+                    unset($fallback['binding']);
+                } else {
+                    $fallback['item_template'] = $template['item_template'];
+                    foreach ($template['items'] as $productIndex => $slotValues) {
+                        $fallback['products'][$productIndex]['template_slots'] = $slotValues;
+                    }
+                }
             }
         }
         unset($fallback);

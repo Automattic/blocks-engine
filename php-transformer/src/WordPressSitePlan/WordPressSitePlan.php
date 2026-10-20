@@ -5166,7 +5166,9 @@ PHP;
             // Cluster same-position bindings so that legitimate sharing is one
             // claim consuming one canonical range, while two DIFFERENT claims
             // (any role, or a non-collection role repeating a position) still
-            // fail closed exactly as before.
+            // fail closed exactly as before. A `commerce_product_grid` binding
+            // names that same whole-grid region for a provider product loop,
+            // so it joins the grid's shared claim.
             $clusters = array();
             foreach ($bindings as $identity) {
                 $key = is_int($identity['source_offset']) ? 'offset:' . $identity['source_offset'] : 'occurrence:' . $identity['source_occurrence'];
@@ -5174,7 +5176,7 @@ PHP;
             }
             $claims = array();
             foreach ($clusters as $members) {
-                if (1 < count($members) && array() !== array_filter($members, static fn(array $member): bool => 'commerce_collection' !== $member['role'])) throw new InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.');
+                if (1 < count($members) && array() !== array_filter($members, static fn(array $member): bool => ! in_array($member['role'], array('commerce_collection', 'commerce_product_grid'), true))) throw new InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.');
                 $claims[] = $members;
             }
             $markup = $bindings[0]['markup']; $search = $bindings[0]['search'];
