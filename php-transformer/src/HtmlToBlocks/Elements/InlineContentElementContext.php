@@ -28,6 +28,7 @@ final class InlineContentElementContext
      * @param Closure(DOMElement): bool $shouldPreserveEmptyVisualElement
      * @param Closure(DOMElement): array<string, mixed> $emptyVisualSpacerBlock
      * @param (Closure(DOMElement): void)|null $rememberNativeDisclosureRoot
+     * @param (Closure(DOMElement): bool)|null $retainsRuntimeTextLeafInRichText
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier,
@@ -47,13 +48,15 @@ final class InlineContentElementContext
         private readonly Closure $isStructuralListItem,
         private readonly Closure $shouldPreserveEmptyVisualElement,
         private readonly Closure $emptyVisualSpacerBlock,
-        private readonly ?Closure $rememberNativeDisclosureRoot = null
+        private readonly ?Closure $rememberNativeDisclosureRoot = null,
+        private readonly ?Closure $retainsRuntimeTextLeafInRichText = null
     ) {
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks @param array<int, class-string> $patterns @return array<string, mixed>|null */
     public function recognizePatterns(DOMElement $element, array &$fallbacks, array $patterns): ?array { return ($this->recognizePatterns)($element, $fallbacks, $patterns); }
     public function isRuntimeDomTarget(DOMElement $element): bool { return ($this->isRuntimeDomTarget)($element); }
+    public function retainsRuntimeTextLeafInRichText(DOMElement $element): bool { return null !== $this->retainsRuntimeTextLeafInRichText && ($this->retainsRuntimeTextLeafInRichText)($element); }
     /** @return array<string, mixed> */
     public function htmlPreservationBlock(DOMElement $element): array { return ($this->htmlPreservationBlock)($element); }
     /** @return array<string, mixed>|null */

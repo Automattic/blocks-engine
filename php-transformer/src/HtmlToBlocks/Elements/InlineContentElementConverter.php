@@ -71,6 +71,11 @@ final class InlineContentElementConverter implements ElementConverter
             if ( AuthoredButtonBlockGenerator::canRetainRoleButton($element) ) {
                 return ConversionOutcome::unhandled();
             }
+            // Inline text a script finds by its hooks is saved verbatim in
+            // paragraph rich text (RuntimeIslandAnalyzer::retainsRuntimeTextLeafInRichText()).
+            if ( $this->context->retainsRuntimeTextLeafInRichText($element) ) {
+                return ConversionOutcome::handled($this->sourceElementParagraph($element, SourceDom::outerHtml($element)));
+            }
             return ConversionOutcome::handled($this->context->htmlPreservationBlock($element));
         }
 
@@ -163,6 +168,16 @@ final class InlineContentElementConverter implements ElementConverter
             return ConversionOutcome::handled(null);
         }
 
+        return ConversionOutcome::handled($this->sourceElementParagraph($element, $content));
+    }
+
+    /**
+     * A paragraph whose rich text is the element's own markup.
+     *
+     * @return array<string, mixed>
+     */
+    private function sourceElementParagraph(DOMElement $element, string $content): array
+    {
         $listItem = $this->context->ancestorElement($element, 'li');
         $sourceElement = $this->context->richTextContentHasStructuralHtml($content)
             || 0 < $element->getElementsByTagName('svg')->length
@@ -175,7 +190,7 @@ final class InlineContentElementConverter implements ElementConverter
         // A synthetic paragraph registers no source, but still stands for this
         // one element: a finding may bind it by the element's selector.
         if (null === $sourceElement && is_array($paragraph)) $paragraph['_source_anchor_selector'] = SourceDom::elementSelector($element);
-        return ConversionOutcome::handled($paragraph);
+        return $paragraph;
     }
 
     /** @param array<int, array<string, mixed>> $children @return array<string, mixed> */
