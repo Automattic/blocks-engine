@@ -342,11 +342,6 @@ final class CommerceFallbackReporter
     }
 
     /**
-     * Leaf blocks of one card keyed by their dotted inner-block path.
-     *
-     * @return array<string, array{block_name:string, markup:string, inner:string, text:string, class_name:string}>
-     */
-    /**
      * The shallowest price paths that are one block in some cards and a group
      * of blocks in others ("from " beside the amount, say).
      *
@@ -409,7 +404,10 @@ final class CommerceFallbackReporter
     }
 
     /**
+     * Leaf blocks of one card keyed by their dotted inner-block path.
+     *
      * @param array<string,true> $atomicPaths Paths read as one leaf block.
+     * @return array<string, array{block_name:string, markup:string, inner:string, text:string, class_name:string}>
      */
     private function leafBlocks(string $markup, string $atomicMarkup = '', array $atomicPaths = array()): array
     {
