@@ -1041,6 +1041,7 @@ final class ArtifactCompiler
 
         $products = array();
         $forms = array();
+        $orderLookups = array();
         $carts = array();
         $productGrids = array(); $productListings = array();
         foreach ( $fallbacks as $fallback ) {
@@ -1159,6 +1160,31 @@ final class ArtifactCompiler
                 $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => $rawControls);
                 if ( array() !== $choiceGroups ) $form['choice_groups'] = $choiceGroups;
                 foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null) && preg_match('/^[a-f0-9]{64}$/', $fallback[$identityKey])) $form[$identityKey] = $fallback[$identityKey];
+                // An order-lookup form (order number + the email used at checkout
+                // + a submit) is a shop surface: a form provider can never answer
+                // it, while a shop provider owns order tracking. Recognized forms
+                // are pulled out of the detected-forms path here — the path that
+                // would otherwise declare them in `forms` — and declared beside
+                // the other shop collections below, reusing the finding's
+                // finalized form anchor under the `order_lookup` role. The
+                // `html_form_fallback` finding itself keeps carrying the
+                // extracted controls with its fallback identity, so a consumer
+                // can reconcile the form against its materialization. A form
+                // without a page-owned anchor stays on the generic path, which
+                // declines it loudly instead of silently.
+                $orderLookupBinding = is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ? $fallback['binding'] : null;
+                $orderLookup = array() === $choiceGroups ? OrderLookupFormRecognizer::recognize($rawControls) : null;
+                if ( null !== $orderLookup && null !== $orderLookupBinding ) {
+                    // The entity carries the same source form evidence and fallback
+                    // identity a `forms` entity would, so a consumer reconciles
+                    // it against the `html_form_fallback` finding unchanged.
+                    $orderLookups[$sourcePath . "\n" . $selector] = array_filter($form + array(
+                        'fields' => $orderLookup['fields'],
+                        'submit_label' => '' !== $orderLookup['submit_label'] ? $orderLookup['submit_label'] : null,
+                        'bindings' => array(array_merge($orderLookupBinding, array('role' => 'order_lookup', 'source_path' => $sourcePath))),
+                    ), static fn (mixed $value): bool => null !== $value && array() !== $value);
+                    continue;
+                }
                 // The control topology is the provider's map of where each flat
                 // control sits, and consumers enforce the same producer contract
                 // against this entity's control list. A topology that fails it
@@ -1233,7 +1259,7 @@ final class ArtifactCompiler
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
             foreach ( array('description', 'image', 'category') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
-        ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
+        ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($orderLookups, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
         $collections = array(
             array('capability' => 'shop', 'type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
             // A cart holds the store's products, so a cart view is declared only
@@ -1246,6 +1272,11 @@ final class ArtifactCompiler
             // The filters, sort, and count around a grid narrow or order that
             // grid, so they are declared only beside the grids.
             array('capability' => 'shop', 'type' => 'product_listings', 'aliases' => array('product_listing', 'product_listings'), 'entities' => array_values($productListings), 'schema' => 'generic/product-listings/v1', 'requires' => array('product_grid', 'product_grids')),
+            // An order lookup asks the store for one past order by its number
+            // and the buyer's email, so like carts it is declared for the shop
+            // capability: a form provider could not answer it. The same form is
+            // never also declared in `forms`.
+            array('capability' => 'shop', 'type' => 'order_lookups', 'aliases' => array('order_lookup', 'order_lookups'), 'entities' => array_values($orderLookups), 'schema' => 'generic/order-lookups/v1'),
             array('capability' => 'form', 'type' => 'forms', 'aliases' => array('form', 'forms'), 'entities' => array_values($forms), 'schema' => 'generic/forms/v1'),
         );
         foreach ( $collections as $collection ) {
