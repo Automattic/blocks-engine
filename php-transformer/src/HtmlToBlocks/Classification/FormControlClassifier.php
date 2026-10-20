@@ -299,6 +299,12 @@ final class FormControlClassifier
 
     public static function hasSubmitSemantics(DOMElement $control): bool
     {
+        // A control with an ARIA choice role selects state; a caption such as
+        // "Subscribe & Save" on a purchase option is not submit intent.
+        if ( self::hasAriaChoiceRole($control) ) {
+            return false;
+        }
+
         $values = array( $control->textContent ?? '' );
         foreach ( array( 'value', 'class', 'id', 'name', 'aria-label', 'data-hook', 'data-field-type', 'data-testid' ) as $attribute ) {
             $values[] = $control->hasAttribute($attribute) ? $control->getAttribute($attribute) : '';
@@ -332,6 +338,11 @@ final class FormControlClassifier
         }
 
         return self::hasSubmitSemantics($control);
+    }
+
+    private static function hasAriaChoiceRole(DOMElement $control): bool
+    {
+        return in_array(strtolower(trim($control->getAttribute('role'))), array( 'radio', 'checkbox', 'switch', 'option', 'tab', 'menuitemradio', 'menuitemcheckbox' ), true);
     }
 
     public static function isPseudoFormDataEntryControl(DOMElement $control): bool
