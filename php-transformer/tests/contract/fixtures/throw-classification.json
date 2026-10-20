@@ -393,9 +393,8 @@
       "InvalidArgumentException('Document head must declare a unique viewport.')": {"class": "integrity", "count": 1, "finding": "document_head_duplicate_viewport", "test": "tests/contract/document-head-runtime.php"},
       "InvalidArgumentException('Document head script cannot close its raw-text element.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Document head script must declare inline or external source semantics.')": {"class": "integrity", "count": 1},
-      "InvalidArgumentException('Document head style lacks a canonical CSS payload.')": {"class": "integrity", "count": 1},
-      "InvalidArgumentException('Document head style must bind a canonical stylesheet write.')": {"class": "integrity", "count": 1},
-      "InvalidArgumentException('Document head stylesheet cannot close its raw-text element.')": {"class": "integrity", "count": 1}
+      "InvalidArgumentException('Document head style lacks a canonical CSS write.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Document head style must bind a canonical stylesheet write.')": {"class": "integrity", "count": 1}
     },
     "src/WordPressSitePlan/DocumentRootContext.php": {
       "InvalidArgumentException('Document root context must be an attribute map.')": {"class": "integrity", "count": 1},
