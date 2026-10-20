@@ -606,6 +606,7 @@
       "php tests/unit/form-entity-in-form-context.php",
       "php tests/unit/form-field-description.php",
       "php tests/unit/form-listbox-option-context.php",
+      "php tests/unit/form-honeypot-field.php",
       "php tests/unit/form-control-topology-legend.php",
       "php tests/unit/form-control-topology-nested-controls.php",
       "php tests/unit/form-declaration-control-topology-contract.php",
