@@ -78,6 +78,12 @@ $assert(array( 'removed i' => 1 ) === $removed['kinds'], 'a source element with 
 $dynamic = $kinds('<nav class="n"><a href="/">A</a></nav>', '<!-- wp:navigation {"ref":3} /--><!-- wp:site-title /--><!-- wp:group --><div class="wp-block-group"></div><!-- /wp:group -->');
 $assert(2 === $dynamic['dynamic_blocks'], 'dynamic blocks without saved markup are counted', (string) $dynamic['dynamic_blocks']);
 
+$boundary = $kinds(
+    '<div class="brand"><span>Tumble <b>&middot;</b> Lab</span></div>',
+    '<div class="wp-block-group brand"><mark>Tumble<b>&middot;</b>Lab</mark></div>'
+);
+$assert(array( 'retagged span>mark' => 1 ) === $boundary['kinds'] && 3 === $boundary['matched'], 'text identity ignores whitespace at text-run boundaries, which flex and grid layout never paint', $show($boundary));
+
 $assert('blocks-engine-synthetic-image-figure' === ElementTreeDiff::marker(( static function (): DOMElement {
     $d = new DOMDocument();
     $d->loadHTML('<figure class="wp-block-image blocks-engine-synthetic-image-figure-0123456789ab-0"></figure>', LIBXML_NOERROR);
