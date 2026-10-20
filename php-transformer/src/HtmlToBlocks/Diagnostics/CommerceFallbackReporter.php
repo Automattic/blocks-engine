@@ -55,11 +55,14 @@ final class CommerceFallbackReporter
      * Detection composes the existing commerce-recognition primitives
      * (grid_like / repeated card children / price + name tokens) with schema.org
      * microdata (`itemtype` Product / `itemprop` name|price|Offer). A product card
-     * is a repeated sibling (>= 2 under a grid_like or list container) that either
-     * declares schema.org Product/Offer structure OR carries the full structural
-     * triad: a name (heading or name token), a currency-formatted price, and an
-     * add-to-cart/buy control. Detection reads only structural/semantic signals
-     * and schema.org vocabulary — never fixture names or specific class strings.
+     * is a child of a grid_like or list container that either declares schema.org
+     * Product/Offer structure OR carries the full structural triad: a name
+     * (heading or name token), a currency-formatted price, and an
+     * add-to-cart/buy control. A lone card is only a grid on its own strong
+     * evidence (schema.org or a cart control); image-only qualification needs
+     * repetition (see `MIN_IMAGE_ONLY_QUALIFIED_CARDS`). Detection reads only
+     * structural/semantic signals and schema.org vocabulary — never fixture
+     * names or specific class strings.
      *
      * @param array<int, array<string, mixed>> $fallbacks
      * @param array<int, array<string, mixed>> $blocks
@@ -91,17 +94,23 @@ final class CommerceFallbackReporter
             }
 
             $products = $this->productCardsForContainer($element, $blocks);
-            if ( count($products) < 2 ) {
-                continue;
-            }
 
             // A card only reaches here via schema.org evidence, a cart control,
             // or the weaker image-corroborated catalog path (see
-            // `CommerceStructureRecognizer::productCardData()`). When every
-            // qualifying card in this grid used only the weaker path, require
-            // more repetition before trusting it as commerce, since a small
-            // pricing/plan comparison is a far more common false positive at
-            // low repetition than a real product catalog is.
+            // `CommerceStructureRecognizer::productCardData()`). A grid needs
+            // repeated cards, but a lone card is commerce on its own evidence:
+            // schema.org Product/Offer structure or a cart control
+            // (`_catalog_image_only` is false for exactly those cards). A lone
+            // image-only card keeps the repetition thresholds below.
+            $stronglyQualified = array_filter($products, static fn (array $product): bool => true !== ($product['_catalog_image_only'] ?? false));
+            if ( count($products) < 2 && array() === $stronglyQualified ) {
+                continue;
+            }
+
+            // When every qualifying card in this grid used only the weaker
+            // path, require more repetition before trusting it as commerce,
+            // since a small pricing/plan comparison is a far more common false
+            // positive at low repetition than a real product catalog is.
             $imageOnlyQualified = array_filter($products, static fn (array $product): bool => true === ($product['_catalog_image_only'] ?? false));
             if ( count($imageOnlyQualified) === count($products) && count($products) < self::MIN_IMAGE_ONLY_QUALIFIED_CARDS ) {
                 continue;
@@ -214,7 +223,9 @@ final class CommerceFallbackReporter
      * markup differs between cards, or that shows a recognized product field:
      * `name`, `price`, `description`, `image`, or the `add_to_cart` control.
      * Any other varying leaf is a generic `field`. Leaves that are identical in
-     * every card stay template literals.
+     * every card stay template literals. A single card builds a template too:
+     * only its product-field leaves become slots, and every other leaf stays a
+     * literal because there is no second card a leaf could vary against.
      *
      * Returns `array()` when the cards do not share one shape, else
      * `{ item_template: {schema, block_markup, slots}, items: list<slot values> }`
@@ -226,7 +237,7 @@ final class CommerceFallbackReporter
      */
     public function itemTemplate(array $cardMarkups, array $products): array
     {
-        if ( count($cardMarkups) < 2 || count($cardMarkups) !== count($products) ) {
+        if ( count($cardMarkups) < 1 || count($cardMarkups) !== count($products) ) {
             return array();
         }
         $cards = array();
@@ -610,9 +621,22 @@ final class CommerceFallbackReporter
             if ( ! is_array($block) ) {
                 continue;
             }
-            $provenanceId = $block['_source_provenance_id'] ?? null;
-            if ( is_int($provenanceId) && $selector === ($this->provenance->source($provenanceId)['selector'] ?? null) ) {
-                return $block;
+            // A coalesced wrapper chain (a render-neutral div around one block
+            // child, folded into one layout-shell block) carries the plural ids
+            // of every source element it wraps, so an element folded into such
+            // a block still anchors on it — the same lookup the compilation's
+            // binding-provenance index does at finalization. The matched id is
+            // written back as the block's singular provenance id (on the
+            // returned copy, never the tree) so the callers'
+            // `_source_provenance_id` reads keep working for both shapes.
+            $provenanceIds = is_array($block['_source_provenance_ids'] ?? null)
+                ? $block['_source_provenance_ids']
+                : array($block['_source_provenance_id'] ?? null);
+            foreach ( array_filter($provenanceIds, 'is_int') as $provenanceId ) {
+                if ( $selector === ($this->provenance->source($provenanceId)['selector'] ?? null) ) {
+                    $block['_source_provenance_id'] = $provenanceId;
+                    return $block;
+                }
             }
             $nested = $this->blockForSourceSelector(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $selector);
             if ( null !== $nested ) {
