@@ -274,13 +274,13 @@ final class DocumentHeadContext
         foreach ($tokens as $token) $paths[WordPressSitePlan::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
         $code = <<<'PHP'
 add_filter( 'template_include', static function ( $template ) use ( $blocks_engine_document_heads, $blocks_engine_head_assets ) {
-    $id = is_singular() ? get_queried_object_id() : 0;
+    $id = (int) apply_filters( 'blocks_engine_document_id', is_singular() ? get_queried_object_id() : 0 );
     $identity = $id ? get_post_meta( $id, '_blocks_engine_reconciliation_identity', true ) : '';
     $queried_term = function_exists( 'get_queried_object' ) ? get_queried_object() : null;
     foreach ( $blocks_engine_document_heads as $row ) {
         if ( isset( $row['taxonomy'], $row['term_slug'] ) ) {
             if ( ! is_object( $queried_term ) || ( $queried_term->taxonomy ?? '' ) !== $row['taxonomy'] || ( $queried_term->slug ?? '' ) !== $row['term_slug'] ) continue;
-        } elseif ( '' !== $identity ? $identity !== $row['identity'] : !( ( $row['front_page'] && is_front_page() ) || ( is_page() && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) continue;
+        } elseif ( '' !== $identity ? $identity !== $row['identity'] : !( ( $row['front_page'] && is_front_page() ) || ( 0 !== $id && 'page' === get_post_type( $id ) && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) continue;
         if ( $row['viewport'] ) remove_action( 'wp_head', '_block_template_viewport_meta_tag', 0 );
         add_action( 'wp_enqueue_scripts', static function () use ( $row ): void {
             foreach ( array_merge( $row['styles'], $row['after'] ) as $handle ) wp_dequeue_style( $handle );

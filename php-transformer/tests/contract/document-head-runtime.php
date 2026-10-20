@@ -182,6 +182,8 @@ function is_singular(): bool { return true; }
 function is_front_page(): bool { return true; }
 function is_page(): bool { return true; }
 function get_queried_object_id(): int { return 42; }
+function get_post_type($id = 0): string|false { return 42 === (int) $id ? 'page' : false; }
+function apply_filters($hook, $value) { return $value; }
 function get_post_meta($id, $key, $single): string { return $GLOBALS['plan']['pages'][0]['reconciliation_identity']; }
 function get_theme_file_uri($path): string { return 'https://example.test/theme/' . $path; }
 function get_page_uri($id): string { return ''; }

@@ -52,10 +52,10 @@ final class DocumentRootContext
         if (array() === $rows) return '';
         $code = <<<'PHP'
 $blocks_engine_document_attributes = static function ( string $element ) use ( &$blocks_engine_document_roots ): array {
-    $id = is_singular() ? get_queried_object_id() : 0;
+    $id = (int) apply_filters( 'blocks_engine_document_id', is_singular() ? get_queried_object_id() : 0 );
     $identity = $id ? get_post_meta( $id, '_blocks_engine_reconciliation_identity', true ) : '';
     foreach ( $blocks_engine_document_roots as $row ) {
-        if ( '' !== $identity ? $identity === $row['identity'] : ( ( $row['front_page'] && is_front_page() ) || ( is_page() && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) return $row[ 'body' === $element ? 'body_attributes' : 'attributes' ];
+        if ( '' !== $identity ? $identity === $row['identity'] : ( ( $row['front_page'] && is_front_page() ) || ( 0 !== $id && 'page' === get_post_type( $id ) && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) return $row[ 'body' === $element ? 'body_attributes' : 'attributes' ];
     }
     return array();
 };
