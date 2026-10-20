@@ -2545,7 +2545,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     || isset($this->sharedStylesheetPaths[$asset['source_path'] ?? '']),
                 (string) $asset['path'],
                 true,
-                (string) ($asset['media'] ?? '')
+                (string) ($asset['media'] ?? ''),
+                $nativeSelectors
             );
             $hash = hash('sha256', $content);
             $projections[] = array(
@@ -2558,6 +2559,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 'media'       => $asset['media'],
                 'type'        => $asset['type'] ?? '',
                 'attribute_state_markers' => $this->authorSelectorProjections()->attributeNegationMarkers(),
+                'native_selectors' => $nativeSelectors,
             );
         }
         return $projections;
@@ -2600,7 +2602,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * reads the asset as `@media <media>{...}`, so projection is told the same
      * outer condition for rules that compare against analyzed declarations.
      */
-    private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true, string $media = ''): string
+    private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true, string $media = '', ?array &$nativeSelectors = null): string
     {
         $bindings = new ProjectedSelectorBindings();
         $media = trim($media);
@@ -2616,6 +2618,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             '' === $media ? array() : array( '@media ' . $media )
         );
+        $nativeSelectors = $bindings->nativeSelectors();
         if ( $recordBindings ) {
             foreach ( $bindings->all() as $binding ) {
                 $this->projectedSelectorBindings[] = array(

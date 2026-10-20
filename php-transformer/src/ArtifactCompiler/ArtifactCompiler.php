@@ -350,6 +350,7 @@ final class ArtifactCompiler
             if (is_array($fallback)) unset($fallback['_collection_binding_declined']);
             return $fallback;
         }, $allFallbacks);
+        $authoredFiles = $normalized['files'];
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''));
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
@@ -366,7 +367,7 @@ final class ArtifactCompiler
             if ($content !== $file['content']) $file = $this->projectedStylesheetFile($file, $file['path'], $content);
         }
         unset($file);
-        $wordpressCompatAssets = $this->wordpressCompatAssetsForDocuments($normalized['files']);
+        $wordpressCompatAssets = $this->wordpressCompatAssetsForDocuments($normalized['files'], $authoredFiles);
         $normalized['files'] = $this->chunkProjectedStylesheets($normalized['files']);
         foreach ($normalized['files'] as $file) {
             if ($entryPath === ($file['path'] ?? null) && is_string($file['content'] ?? null)) {
@@ -2115,16 +2116,36 @@ final class ArtifactCompiler
     }
 
     /**
-     * Replay the same occurrence stream used by source analysis, after selector
-     * projection and before chunking. File transport order is not CSS order.
-     * A page's delta belongs immediately after its source stylesheet, not after
-     * another linked stylesheet or another page's cascade.
+     * Replay the pre-projection authored occurrence stream, excluding native
+     * item subjects already carried by projection. Generated editor alternatives are
+     * transport, not additional source navigation rules. File transport order
+     * is not CSS order.
      *
      * @param array<int, array<string, mixed>> $files
+     * @param array<int, array<string, mixed>> $authoredFiles
      * @return array<int, array<string, mixed>>
      */
-    private function wordpressCompatAssetsForDocuments(array $files): array
+    private function wordpressCompatAssetsForDocuments(array $files, array $authoredFiles): array
     {
+        // Replay authored rules, not generated element/editor alternatives.
+        // A source list-item subject replaced by a native item projection already
+        // carries its geometry in the author sheet and must not be replayed.
+        // Apply the same selection to route-owned deltas.
+        $authoredByPath = array_column($authoredFiles, null, 'path');
+        $transformer = new CssStylesheetTransformer();
+        foreach ($files as &$file) {
+            if ('css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) continue;
+            $source = $authoredByPath[$file['path']]['content'] ?? $authoredByPath[$file['metadata']['page_stylesheet_of'] ?? '']['content'] ?? $file['content'];
+            $native = array_fill_keys($file['metadata']['native_selectors'] ?? array(), true);
+            $file['content'] = $transformer->transformStyleRules($source, static function (string $prelude, string $body) use ($native): string {
+                $remaining = array_filter(CssStylesheetTransformer::splitSelectorList($prelude) ?? array(), static function (string $selector) use ($native): bool {
+                    $selector = preg_replace('#/\*.*?\*/#s', '', trim($selector)) ?? $selector;
+                    return !isset($native[trim($selector)]);
+                });
+                return array() === $remaining ? '' : implode(',', $remaining) . '{' . $body . '}';
+            });
+        }
+        unset($file);
         $assets = array();
         $scripts = $this->allScriptContents($files);
         foreach ($files as $document) {
@@ -2135,18 +2156,21 @@ final class ArtifactCompiler
             $ownership = $this->fileOwnership($document);
             $documentFiles = $files;
             $parts = array();
-            foreach ($this->stylesheetAssetsForSource($document['content'], $sourcePath, $documentFiles) as $stylesheet) {
-                $content = $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $documentFiles);
-                foreach ($files as $file) {
-                    if (($file['metadata']['page_stylesheet_of'] ?? null) === $stylesheet['path']
-                        && $this->fileOwnership($file) === $ownership) {
-                        $content .= "\n" . $file['content'];
-                    }
+            $stylesheets = $this->stylesheetAssetsForSource($document['content'], $sourcePath, $documentFiles);
+            foreach ($stylesheets as $stylesheet) {
+                $unit = array($this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $documentFiles));
+                $deltas = array_filter($files, fn(array $file): bool =>
+                    ($file['metadata']['page_stylesheet_of'] ?? null) === $stylesheet['path'] && $this->fileOwnership($file) === $ownership
+                );
+                usort($deltas, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
+                foreach ($deltas as $delta) {
+                    $unit[] = $this->compatibilityStylesheetContent($delta['content'], $delta['path'], $documentFiles);
                 }
+                $content = implode("\n", $unit);
                 $media = trim((string) ($stylesheet['media'] ?? ''));
                 $parts[] = '' === $media ? $content : '@media ' . $media . '{' . $content . '}';
             }
-            $asset = $this->wordpressCompat->asset($documentFiles, implode("\n", $parts), $scripts);
+            $asset = $this->wordpressCompat->asset($documentFiles, $transformer->concatenateWithoutRedundantRules($parts), $scripts);
             if (null === $asset) continue;
             // Content-identical replay can still have different route ownership.
             // Keep the existing page-asset contract instead of promoting a
@@ -2440,6 +2464,12 @@ final class ArtifactCompiler
         };
         $projections = array_map($reconcileAttributeStateMarkers, $projections);
         $primaryProjections = array_map($reconcileAttributeStateMarkers, $primaryProjections);
+        $nativeByContent = array();
+        foreach ($projections as $projection) {
+            foreach ($projection['native_selectors'] ?? array() as $selector) {
+                $nativeByContent[$projection['path']][$projection['content']][$selector] = true;
+            }
+        }
         $primaryByPath = array();
         foreach ( $primaryProjections as $projection ) {
             if ( is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null) ) {
@@ -2537,7 +2567,13 @@ final class ArtifactCompiler
             // contain a generic selector that still matches the lowered block
             // (e.g. a grid's default two-column rule), while the page projection
             // carries the source's later attribute-specific responsive winner.
-            $output[] = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $transformer->concatenateWithoutRedundantRules($sharedStylesheets) ))));
+            $native = array();
+            foreach (array_merge(array_keys($sharedByPath[$path] ?? array()), $authoritativeContent) as $content) {
+                $native += $nativeByContent[$path][$content] ?? array();
+            }
+            $projectedFile = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $transformer->concatenateWithoutRedundantRules($sharedStylesheets) ))));
+            $projectedFile['metadata']['native_selectors'] = array_keys($native);
+            $output[] = $projectedFile;
             foreach ( $pages as $owner => $pageStylesheets ) {
                 $delta = $transformer->rulesAbsentFrom($pageStylesheets, $sharedStylesheets, true);
                 if ( '' === trim($delta) ) {
@@ -2546,6 +2582,11 @@ final class ArtifactCompiler
                 $pageFile = $this->projectedStylesheetFile($file, $this->pageStylesheetPath($path, (string) $owner, $reserved), implode('', $preambles) . $delta);
                 $pageFile['metadata']['compilation'] = array( 'scope' => 'page', 'id' => (string) $owner );
                 $pageFile['metadata']['page_stylesheet_of'] = $path;
+                $pageNative = $native;
+                foreach ($pageStylesheets as $content) {
+                    $pageNative += $nativeByContent[$path][$content] ?? array();
+                }
+                $pageFile['metadata']['native_selectors'] = array_keys($pageNative);
                 $output[] = $pageFile;
             }
         }
