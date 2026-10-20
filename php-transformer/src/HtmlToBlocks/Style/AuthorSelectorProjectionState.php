@@ -336,6 +336,32 @@ final class AuthorSelectorProjectionState
     }
 
     /**
+     * `$html` with each RichText carrier in it (a `<mark>` stating its marker
+     * in its style, a `<span>` in its data attribute) given its
+     * richTextCarrierClasses(). Idempotent.
+     */
+    public function withRichTextCarrierClasses(string $html): string
+    {
+        if ( ! str_contains($html, 'blocks-engine-richtext-marker') ) {
+            return $html;
+        }
+        return preg_replace_callback('/<(mark|span)\b([^>]*)>/i', function (array $tag): string {
+            $form = 'mark' === strtolower($tag[1])
+                ? '/\sstyle="[^"]*--blocks-engine-richtext-marker:\s*(blocks-engine-richtext-[a-f0-9]+-\d+)/i'
+                : '/\sdata-blocks-engine-richtext-marker="(blocks-engine-richtext-[a-f0-9]+-\d+)"/i';
+            $classes = 1 === preg_match($form, $tag[2], $marker) ? $this->richTextCarrierClasses($marker[1]) : array();
+            if ( array() === $classes ) {
+                return $tag[0];
+            }
+            if ( 1 !== preg_match('/\sclass="([^"]*)"/i', $tag[2], $class) ) {
+                return '<' . $tag[1] . ' class="' . implode(' ', $classes) . '"' . $tag[2] . '>';
+            }
+            $tokens = array_filter(preg_split('/\s+/', trim($class[1])) ?: array(), static fn (string $token): bool => '' !== $token);
+            return '<' . $tag[1] . str_replace($class[0], ' class="' . implode(' ', array_unique(array_merge($tokens, $classes))) . '"', $tag[2]) . '>';
+        }, $html) ?? $html;
+    }
+
+    /**
      * Record which RichText markers reach the subject arm: those whose every
      * occurrence in the serialized blocks is a `<mark>` or `<span>` carrier
      * holding the role and subject classes richTextCarrierClasses() gave it.
@@ -345,6 +371,9 @@ final class AuthorSelectorProjectionState
     public function confirmRichTextCarriers(string $markup): void
     {
         $this->confirmedRichTextCarriers = array();
+        // A carrier restated in a block attribute (a navigation link label)
+        // is JSON-escaped in the block comment.
+        $markup = str_replace(array( '\\u003c', '\\u003e', '\\u0022' ), array( '<', '>', '"' ), $markup);
         foreach ( $this->subjectCarriers['richtext'] ?? array() as $marker => $carrier ) {
             $marker = (string) $marker;
             if ( null === $carrier || isset($this->withheldSubjectCarriers['richtext'][$marker]) ) {

@@ -73,6 +73,47 @@ foreach (array(2, 4, 8) as $runs) {
 }
 $assert(1 === count(array_unique($sizes)), 'Author stylesheet bytes stay constant as runs grow: ' . json_encode($sizes));
 
+// Carriers in every form reach the subject arm: span carriers that keep their
+// data attribute (a navigation link label), marks inside links, and marks a
+// standalone span becomes. The universal reset and the utility rules then
+// name no carrier marker, and their bytes do not grow with the page.
+$formSizes = array();
+foreach (array(2, 4, 8) as $runs) {
+    $html = '<style>*{margin:0}.text-white{color:#fff}.icon{font-size:18px}</style><header><nav>';
+    for ($i = 0; $i < $runs; $i++) {
+        $html .= '<a href="/p' . $i . '"><span class="icon">i</span> Link ' . $i . '</a>';
+    }
+    $html .= '</nav></header><main>';
+    for ($i = 0; $i < $runs; $i++) {
+        $html .= '<p>Read <a href="/c' . $i . '"><span class="icon text-white">*</span> more ' . $i . '</a>.</p><div><span class="block text-white">Label ' . $i . '</span></div>';
+    }
+    $result = (new HtmlTransformer())->transform($html . '</main>')->toArray();
+    $front = $css($result, 'author-css');
+    $formSizes[$runs] = strlen($front);
+    $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? ''), 'Carrier classes keep every block valid (' . $runs . ' runs).');
+    foreach (array('*{', '.text-white', '.icon') as $rule) {
+        $assert(1 === preg_match('/(?:^|\})(' . preg_quote($rule === '*{' ? '*' : $rule, '/') . '[^{}]*)\{/', $front, $selectors) && 0 === preg_match('/blocks-engine-richtext-[a-f0-9]+-\d/', $selectors[1]), 'The ' . $rule . ' rule names no carrier marker (' . $runs . ' runs).', $front);
+    }
+
+    // Navigation link labels are stored JSON-escaped in the block comment.
+    $markup = str_replace(array('\\u003c', '\\u003e', '\\u0022'), array('<', '>', '"'), (string) ($result['serialized_blocks'] ?? ''));
+    preg_match_all('/<(?:span|mark)\b[^>]*blocks-engine-richtext-marker[^>]*>/', $markup, $tags);
+    $assert(3 * $runs === count($tags[0]), 'Each run is one carrier per form (' . $runs . ' runs).', $markup);
+    $spans = 0;
+    foreach ($tags[0] as $tag) {
+        $document = new DOMDocument();
+        $document->loadHTML('<!doctype html><html><body>' . $tag . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+        $carrier = $document->getElementsByTagName('body')->item(0)?->firstChild;
+        $assert($carrier instanceof DOMElement, 'Each carrier parses.', $tag);
+        $spans += 'span' === $carrier->tagName ? 1 : 0;
+        $classes = preg_split('/\s+/', (string) $carrier->getAttribute('class')) ?: array();
+        $assert(in_array('blocks-engine-role-richtext', $classes, true) && in_array('blocks-engine-subject', $classes, true), 'Every carrier states its role and subject.', $tag);
+        $assert(str_contains(implode(';', $paint($carrier, $front)), 'margin:0'), 'The universal reset still reaches every carrier.', $tag);
+    }
+    $assert($runs === $spans, 'Navigation link labels keep their span carriers (' . $runs . ' runs).', $markup);
+}
+$assert(1 === count(array_unique($formSizes)), 'Author stylesheet bytes stay constant as carriers of every form grow: ' . json_encode($formSizes));
+
 // The same holds across shell boundaries: every route's copy of a shared
 // header seeds its own carrier, yet the author stylesheets (site and shared
 // chrome, for visitors and the editor) stay one size.

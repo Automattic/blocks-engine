@@ -55,7 +55,7 @@ $assert(
 // on the untouched span (RichTextMarkerSelector's carrier list matches
 // either shape), so `.hamburger span { … }` keeps resolving too.
 $assert(
-    1 === preg_match('/<span data-blocks-engine-richtext-marker="[^"]+"><\/span>/i', $serialized),
+    1 === preg_match('/<span (?:class="blocks-engine-role-richtext [^"]*" )?data-blocks-engine-richtext-marker="[^"]+"><\/span>/i', $serialized),
     'the preserved span still carries its RichText marker attribute so the non-pseudo companion rule keeps matching via the span[data-…] carrier form'
 );
 

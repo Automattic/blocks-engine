@@ -2122,7 +2122,7 @@ $flexAnchorButtonCss = implode("\n", array_map(static fn (array $asset): string 
 $assert(str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'product-row'), 'styled anchor button uses a generated control marker instead of its source anchor class');
 $assert(! str_contains($flexAnchorButtonMarkup, 'wp-block-button product-row') && ! str_contains($flexAnchorButtonMarkup, 'wp-element-button product-row'), 'styled anchor button keeps source anchor classes out of canonical core/button markup');
 $assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link){display:flex!important;align-items:center!important;gap:1rem!important') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor root and descendant selectors project through the generated marker with priority over core button defaults');
-$assert(str_contains($flexAnchorButtonMarkup, 'class="product-row__name"'), 'styled anchor button preserves descendant classes in its RichText content');
+$assert(1 === preg_match('/class="product-row__name[ "]/', $flexAnchorButtonMarkup), 'styled anchor button preserves descendant classes in its RichText content');
 $assert('pass' === ($flexAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled anchor button remains editor-valid with marker-projected source selectors');
 
 $flexChainButton = ( new HtmlTransformer() )->transform(
@@ -3445,14 +3445,14 @@ $styledLogo = ( new HtmlTransformer() )->transform(
     '<style>#wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><a class="logo" href="/"><span id="wordmark">Brand Name</span></a>'
 )->toArray();
 $styledLogoSerialized = (string) ($styledLogo['serialized_blocks'] ?? '');
-$assert(str_contains($styledLogoSerialized, '<mark style="') && str_contains($styledLogoSerialized, 'Brand Name</mark>'), 'selector-addressed logo labels retain a valid RichText semantic marker instead of flattening to plain text');
+$assert(1 === preg_match('/<mark (?:class="[^"]*" )?style="/', $styledLogoSerialized) && str_contains($styledLogoSerialized, 'Brand Name</mark>'), 'selector-addressed logo labels retain a valid RichText semantic marker instead of flattening to plain text');
 $assert('pass' === ($styledLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'selector-addressed logo label markers remain editor-valid');
 
 $nestedStyledLogo = ( new HtmlTransformer() )->transform(
     '<style>.header #wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><div class="header"><div class="logo"><span><a href="/"><span id="wordmark">Nested Brand</span></a></span></div></div>'
 )->toArray();
 $nestedStyledLogoSerialized = (string) ($nestedStyledLogo['serialized_blocks'] ?? '');
-$assert(str_contains($nestedStyledLogoSerialized, '<a href="/"><mark style="') && str_contains($nestedStyledLogoSerialized, 'Nested Brand</mark></a>'), 'nested logo chrome unwraps presentational containers while preserving the styled semantic label and link');
+$assert(1 === preg_match('/<a href="\/"><mark (?:class="[^"]*" )?style="/', $nestedStyledLogoSerialized) && str_contains($nestedStyledLogoSerialized, 'Nested Brand</mark></a>'), 'nested logo chrome unwraps presentational containers while preserving the styled semantic label and link');
 $assert(str_contains($nestedStyledLogoSerialized, '"margin":{"top":"0","right":"0","bottom":"0","left":"0"}'), 'div-based logos neutralize core paragraph margins that the source element did not have');
 $explicitLogoMargin = ( new HtmlTransformer() )->transform('<div class="logo" style="margin-bottom:4px"><a href="/">Brand</a></div>')->toArray();
 $explicitLogoMarginSerialized = (string) ($explicitLogoMargin['serialized_blocks'] ?? '');

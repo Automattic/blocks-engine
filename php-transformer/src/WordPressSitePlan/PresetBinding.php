@@ -451,10 +451,11 @@ final class PresetBinding
      * whose whole content is one authored `<mark>` or `<span>` that sets its
      * own inline colour. The carrier's colour renders nowhere, so the two
      * are one element: the authored element, with the carrier's other
-     * declarations (its marker and inherited text properties) added. A
-     * carrier that paints a background, has classes or declares a property
-     * that is not inherited text styling, or an element that has its own
-     * marker or redeclares one of the carrier's properties, is not collapsed.
+     * declarations (its marker and inherited text properties) and its role
+     * and subject classes added. A carrier that paints a background, has
+     * other classes or declares a property that is not inherited text
+     * styling, or an element that has its own marker or redeclares one of
+     * the carrier's properties, is not collapsed.
      *
      * @return array{0:int,1:string,2:array<string,string>,3:string,4:int}|null End offset of the carrier, the element's tag name and merged attributes, its content and where that starts.
      */
@@ -462,7 +463,12 @@ final class PresetBinding
     {
         if (1 !== preg_match('/\G<mark\b([^>]*)>/i', $html, $outer, 0, $offset)) return null;
         $outerValues = self::tagAttributes($outer[1]);
-        if (null === $outerValues || array('style') !== array_keys($outerValues) || !str_contains($outerValues['style'], '--blocks-engine-richtext-marker:')) return null;
+        if (null === $outerValues || array() !== array_diff(array_keys($outerValues), array('style', 'class')) || !str_contains((string) ($outerValues['style'] ?? ''), '--blocks-engine-richtext-marker:')) return null;
+        // The carrier's role and subject classes go with its marker.
+        $carrierClasses = array_values(array_filter(preg_split('/\s+/', trim((string) ($outerValues['class'] ?? ''))) ?: array(), static fn(string $class): bool => '' !== $class));
+        foreach ($carrierClasses as $class) {
+            if ('blocks-engine-role-richtext' !== $class && 'blocks-engine-subject' !== $class && !str_starts_with($class, 'blocks-engine-subject-')) return null;
+        }
         if (1 !== preg_match('/\G<(mark|span)\b([^>]*)>/i', $html, $inner, 0, $offset + $length)) return null;
         $name = strtolower($inner[1]);
         $values = self::tagAttributes($inner[2]);
@@ -480,6 +486,7 @@ final class PresetBinding
             $moved[] = array($property, $value);
         }
         $values['style'] = self::declarationText(array_merge($declarations, $moved));
+        if (array() !== $carrierClasses) $values['class'] = trim((string) ($values['class'] ?? '') . ' ' . implode(' ', $carrierClasses));
         return array($outerClose[0] + $outerClose[1], $name, $values, substr($html, $contentStart, $innerClose[0] - $contentStart), $contentStart);
     }
 

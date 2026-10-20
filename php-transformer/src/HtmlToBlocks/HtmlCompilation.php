@@ -4292,6 +4292,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $innerBlocks = $this->withPropagatedWrapperTextAlignment($innerBlocks, $sourceElement);
         }
 
+        // Every RichText carrier a block stores passes through here, so this is
+        // where each one gets its role and subject classes; the saved markup
+        // is built from these attributes and so carries them too.
+        $attrs = $this->withRichTextCarrierClasses($attrs);
+
         return $this->blockMaterializer->materialize(
             $name,
             $attrs,
@@ -4299,6 +4304,22 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $sourceMaterializationFacts,
             $this->transformationProvenance()
         );
+    }
+
+    /**
+     * @param array<mixed> $attrs
+     * @return array<mixed>
+     */
+    private function withRichTextCarrierClasses(array $attrs): array
+    {
+        foreach ( $attrs as $key => $value ) {
+            if ( is_string($value) ) {
+                $attrs[$key] = $this->authorSelectorProjections()->withRichTextCarrierClasses($value);
+            } elseif ( is_array($value) ) {
+                $attrs[$key] = $this->withRichTextCarrierClasses($value);
+            }
+        }
+        return $attrs;
     }
 
     /**
@@ -5671,12 +5692,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $mark->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
         if ( ! $sourceTagWasMark ) {
             $mark->setAttribute('role', 'none');
-        }
-        // The carrier's role and subject classes let a context-free author rule
-        // reach every carrier through one arm instead of one per marker.
-        $carrierClasses = '' === $marker ? array() : $this->authorSelectorProjections()->richTextCarrierClasses($marker);
-        if ( array() !== $carrierClasses ) {
-            $mark->setAttribute('class', $this->mergeClassNames($mark->getAttribute('class'), ...$carrierClasses));
         }
         while ( null !== $element->firstChild ) {
             $mark->appendChild($element->firstChild);
