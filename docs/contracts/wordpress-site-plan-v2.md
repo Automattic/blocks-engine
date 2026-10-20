@@ -142,6 +142,23 @@ and `WordPressSitePlanResolver::resolve()`.
   Asset resolution projects each entity's `resolved_block_markup` while leaving
   navigation IDs to the destination materializer. Provider-owned block anchors
   retain their inline navigation rather than being invalidated by factoring.
+- Synced pattern references follow the navigation model. A maximal block
+  subtree identical at the same position in every `core/tab-panel` of one
+  `core/tabs` block, rendered in every panel (no `display:none` subtree), and not
+  the whole panel content or a single paragraph, heading or list block, is
+  declared once in `synced_patterns` as
+  `{identity, title, canonical_block_markup, source_path, provenance}`, and each
+  panel holds `<!-- wp:block {"ref":"{{wordpress-site-plan:pattern:pattern-<16hex>}}"} /-->`,
+  the token being `pattern-` plus the first 16 hex of `identity`. `source_path` is
+  `wordpress-site-plan/synced-patterns/<token>`; runtime entity bindings inside
+  the pattern name it, with `occurrence` and `position` on the pattern markup,
+  and consumers apply them to the pattern document as they do to template
+  parts. The per-panel copies of such a binding collapse to that one. The group and
+  `reference_semantics.synced_patterns` (`explicit_refs/v1`) are additive and
+  present only when a pattern is declared. Consumers persist each entity as a
+  synced `wp_block` and replace this exact token with its ID. Unknown, unbound or
+  non-`core/block` references and duplicate declarations are rejected. Asset
+  resolution adds each entity's `resolved_block_markup`.
 - `source.source_documents` is additive source evidence. Each row records a
   compiled document path, payload hash, and producer provenance. Template-surface
   variants must exactly match a catalog row. This evidence supports structural

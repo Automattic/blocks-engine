@@ -198,7 +198,7 @@ final class NavigationEntityProjection
             $entities[$token] = false;
             $identities[$menu['reconciliation_identity']] = true;
         }
-        foreach (array('pages', 'template_parts', 'templates') as $group) foreach ($plan[$group] as $document) self::assertMarkupReferences($document['canonical_block_markup'], $entities);
+        foreach (array('pages', 'template_parts', 'templates', 'synced_patterns') as $group) foreach ($plan[$group] ?? array() as $document) self::assertMarkupReferences((string) ($document['canonical_block_markup'] ?? ''), $entities);
         foreach ($plan['writes'] as $write) if ('utf8' === ($write['payload']['encoding'] ?? null)) self::assertMarkupReferences($write['payload']['data'], $entities);
         if (array() !== $entities && (self::REFERENCE_CONTRACT !== ($plan['reference_semantics']['navigation_entities'] ?? null) || in_array(false, $entities, true))) {
             throw new InvalidArgumentException('WordPress site plan navigation entities require explicit owned references.');
