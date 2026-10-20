@@ -251,23 +251,26 @@ final class CommerceFallbackReporter
             }
             $cards[] = $leaves;
         }
+        $templateIndex = 0;
+        foreach ( $cards as $index => $leaves ) {
+            if ( count($leaves) > count($cards[$templateIndex]) ) {
+                $templateIndex = $index;
+            }
+        }
+        // A card missing one of the template's rows has its later rows one
+        // place earlier; read each card in the template's positions.
+        foreach ( $cards as $index => $leaves ) {
+            if ( $index !== $templateIndex ) {
+                $cards[$index] = $this->alignedLeaves($leaves, $cards[$templateIndex]);
+            }
+        }
         // A price one card draws as one block and another as several (a
         // "from " qualifier beside the amount) is one slot: every card reads
         // that block whole.
         $atomicPaths = $this->priceGroupPaths($cards, $products);
         if ( array() !== $atomicPaths ) {
-            foreach ( $cardMarkups as $index => $markup ) {
-                $control = 'commerce_controls' === ($products[$index]['binding']['role'] ?? null) && is_string($products[$index]['binding']['search_block_markup'] ?? null) ? $products[$index]['binding']['search_block_markup'] : '';
-                $cards[$index] = $this->leafBlocks($markup, $control, $atomicPaths);
-                if ( array() === $cards[$index] ) {
-                    return array();
-                }
-            }
-        }
-        $templateIndex = 0;
-        foreach ( $cards as $index => $leaves ) {
-            if ( count($leaves) > count($cards[$templateIndex]) ) {
-                $templateIndex = $index;
+            foreach ( $cards as $index => $leaves ) {
+                $cards[$index] = $this->mergedLeaves($leaves, $atomicPaths);
             }
         }
         $templatePaths = array_map('strval', array_keys($cards[$templateIndex]));
@@ -415,12 +418,160 @@ final class CommerceFallbackReporter
     }
 
     /**
+     * One leaf block's record.
+     *
+     * @param list<array{block_name:string, markup:string, class_name:string, signature:string}> $ancestors
+     * @return array{block_name:string, markup:string, inner:string, text:string, class_name:string, ancestors:list<array{block_name:string, markup:string, class_name:string, signature:string}>}
+     */
+    private function leaf(string $markup, string $innerHtml, string $blockName, string $className, array $ancestors): array
+    {
+        // A block read whole keeps its descendants' text.
+        $inner = '' === $markup ? $innerHtml : (string) preg_replace('/<!--\s*\/?wp:.*?-->/s', '', $markup);
+
+        return array(
+            'block_name' => $blockName,
+            'markup'     => $markup,
+            'inner'      => $inner,
+            'text'       => trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($inner), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? ''),
+            'class_name' => $className,
+            'ancestors'  => $ancestors,
+        );
+    }
+
+    /**
+     * One card's leaves with each given path read as one leaf: the block at
+     * that path, whole, in place of the leaves under it.
+     *
+     * @param array<string, array<string,mixed>> $leaves
+     * @param array<string,true> $paths
+     * @return array<string, array<string,mixed>>
+     */
+    private function mergedLeaves(array $leaves, array $paths): array
+    {
+        $merged = array();
+        foreach ( $leaves as $path => $leaf ) {
+            $path = (string) $path;
+            foreach ( array_keys($paths) as $atomicPath ) {
+                $atomicPath = (string) $atomicPath;
+                if ( ! str_starts_with($path, $atomicPath . '.') ) {
+                    continue;
+                }
+                if ( ! isset($merged[$atomicPath]) ) {
+                    // The leaf's ancestors list the card first, so the block at
+                    // a path of n steps is its (n + 1)-th ancestor.
+                    $block = $leaf['ancestors'][count(explode('.', $atomicPath))];
+                    $merged[$atomicPath] = $this->leaf($block['markup'], '', $block['block_name'], $block['class_name'], array_slice($leaf['ancestors'], 0, count(explode('.', $atomicPath)) + 1));
+                }
+                continue 2;
+            }
+            $merged[$path] = $leaf;
+        }
+
+        return $merged;
+    }
+
+    /**
+     * One card's leaves re-keyed to the template card's paths.
+     *
+     * Where the card has fewer children than the template at some block, its
+     * children are matched to the template's in order by block name and
+     * source classes, so a row only the template has leaves a gap instead of
+     * shifting every later row onto the wrong slot. Children that cannot all
+     * be matched that way keep their positions.
+     *
+     * @param array<string, array<string,mixed>> $leaves
+     * @param array<string, array<string,mixed>> $template
+     * @return array<string, array<string,mixed>>
+     */
+    private function alignedLeaves(array $leaves, array $template): array
+    {
+        // Each block's children by index, with their signatures.
+        $children = static function (array $cardLeaves): array {
+            $tree = array();
+            foreach ( $cardLeaves as $path => $leaf ) {
+                $prefix = '';
+                foreach ( explode('.', (string) $path) as $depth => $step ) {
+                    $tree[$prefix][(int) $step] = $leaf['ancestors'][$depth + 1]['signature'] ?? '';
+                    $prefix = '' === $prefix ? $step : $prefix . '.' . $step;
+                }
+            }
+            foreach ( $tree as $prefix => $kids ) {
+                ksort($kids);
+                $tree[$prefix] = $kids;
+            }
+
+            return $tree;
+        };
+        $join = static fn (string $prefix, int $index): string => '' === $prefix ? (string) $index : $prefix . '.' . $index;
+        $cardTree = $children($leaves);
+        $templateTree = $children($template);
+        $map = array( '' => '' );
+        $queue = array( '' );
+        while ( array() !== $queue ) {
+            $prefix = (string) array_shift($queue);
+            $own = $cardTree[$prefix] ?? array();
+            $theirs = $templateTree[$map[$prefix]] ?? array();
+            $pairs = count($own) < count($theirs) ? $this->matchedSiblings($own, $theirs) : null;
+            foreach ( array_keys($own) as $ownIndex ) {
+                $path = $join($prefix, $ownIndex);
+                $map[$path] = $join($map[$prefix], $pairs[$ownIndex] ?? $ownIndex);
+                if ( isset($cardTree[$path]) ) {
+                    $queue[] = $path;
+                }
+            }
+        }
+        $aligned = array();
+        foreach ( $leaves as $path => $leaf ) {
+            $aligned[$map[(string) $path]] = $leaf;
+        }
+
+        return $aligned;
+    }
+
+    /**
+     * Each of a shorter child list's indexes paired, in order, with the
+     * template child of the same signature; null unless every child pairs.
+     *
+     * @param array<int,string> $own
+     * @param array<int,string> $theirs
+     * @return array<int,int>|null
+     */
+    private function matchedSiblings(array $own, array $theirs): ?array
+    {
+        $a = array_keys($own);
+        $b = array_keys($theirs);
+        $lengths = array_fill(0, count($a) + 1, array_fill(0, count($b) + 1, 0));
+        for ( $i = count($a) - 1; $i >= 0; --$i ) {
+            for ( $j = count($b) - 1; $j >= 0; --$j ) {
+                $lengths[$i][$j] = $own[$a[$i]] === $theirs[$b[$j]] ? $lengths[$i + 1][$j + 1] + 1 : max($lengths[$i + 1][$j], $lengths[$i][$j + 1]);
+            }
+        }
+        if ( $lengths[0][0] !== count($a) ) {
+            return null;
+        }
+        $pairs = array();
+        for ( $i = 0, $j = 0; $i < count($a) && $j < count($b); ) {
+            if ( $own[$a[$i]] === $theirs[$b[$j]] && $lengths[$i][$j] === $lengths[$i + 1][$j + 1] + 1 ) {
+                $pairs[$a[$i]] = $b[$j];
+                ++$i;
+                ++$j;
+            } else {
+                ++$j;
+            }
+        }
+
+        return $pairs;
+    }
+
+    /**
      * Leaf blocks of one card keyed by their dotted inner-block path.
      *
-     * @param array<string,true> $atomicPaths Paths read as one leaf block.
-     * @return array<string, array{block_name:string, markup:string, inner:string, text:string, class_name:string}>
+     * Each leaf also lists the blocks on its path, card first, so a caller
+     * can match rows across cards or read an ancestor block whole.
+     *
+     * @return array<string, array{block_name:string, markup:string, inner:string, text:string, class_name:string, ancestors:list<array{block_name:string, markup:string, class_name:string, signature:string}>}>
      */
-    private function leafBlocks(string $markup, string $atomicMarkup = '', array $atomicPaths = array()): array
+    private function leafBlocks(string $markup, string $atomicMarkup = ''): array
     {
         $parsed = array_values(array_filter($this->runtime->parseBlocks($markup), static fn (mixed $block): bool => is_array($block) && is_string($block['blockName'] ?? null)));
         if ( 1 !== count($parsed) ) {
@@ -447,32 +598,32 @@ final class CommerceFallbackReporter
         }
         $leaves = array();
         $order = 0;
-        $walk = function (array $block, string $path) use (&$walk, &$leaves, &$order, $ranges, $atomicMarkup, $atomicPaths): void {
+        $walk = function (array $block, string $path, array $ancestors) use (&$walk, &$leaves, &$order, $ranges, $atomicMarkup): void {
             $blockMarkup = $ranges[$order] ?? '';
             ++$order;
+            $className = is_string($block['attrs']['className'] ?? null) ? $block['attrs']['className'] : '';
+            $ancestors[] = array(
+                'block_name' => (string) $block['blockName'],
+                'markup'     => is_string($blockMarkup) ? $blockMarkup : '',
+                'class_name' => $className,
+                // Its name and the source classes it carries, without generated ones.
+                'signature'  => (string) $block['blockName'] . ' ' . implode(' ', array_values(array_filter(preg_split('/\s+/', $className) ?: array(), static fn (string $class): bool => '' !== $class && 1 !== preg_match('/^(?:be|blocks-engine|wp|has|is)-/', $class)))),
+            );
             $children = array_values(array_filter($block['innerBlocks'] ?? array(), static fn (mixed $child): bool => is_array($child) && is_string($child['blockName'] ?? null)));
-            if ( ( '' !== $atomicMarkup && $blockMarkup === $atomicMarkup ) || ( array() !== $children && '' !== $path && isset($atomicPaths[$path]) ) ) {
+            if ( '' !== $atomicMarkup && $blockMarkup === $atomicMarkup ) {
                 // Skip the descendants' ranges so later blocks stay aligned.
                 $order += substr_count($blockMarkup, '<!-- wp:') - 1;
                 $children = array();
             }
             if ( array() === $children ) {
-                // A block read whole keeps its descendants' text.
-                $inner = is_string($block['innerHTML'] ?? null) && '' === $blockMarkup ? $block['innerHTML'] : (string) preg_replace('/<!--\s*\/?wp:.*?-->/s', '', (string) $blockMarkup);
-                $leaves[$path] = array(
-                    'block_name' => (string) $block['blockName'],
-                    'markup'     => is_string($blockMarkup) ? $blockMarkup : '',
-                    'inner'      => is_string($blockMarkup) ? (string) preg_replace('/<!--\\s*\\/?wp:.*?-->/s', '', $blockMarkup) : $inner,
-                    'text'       => trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($inner), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? ''),
-                    'class_name' => is_string($block['attrs']['className'] ?? null) ? $block['attrs']['className'] : '',
-                );
+                $leaves[$path] = $this->leaf(is_string($blockMarkup) ? $blockMarkup : '', is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '', (string) $block['blockName'], $className, $ancestors);
                 return;
             }
             foreach ( $children as $index => $child ) {
-                $walk($child, '' === $path ? (string) $index : $path . '.' . $index);
+                $walk($child, '' === $path ? (string) $index : $path . '.' . $index, $ancestors);
             }
         };
-        $walk($parsed[0], '');
+        $walk($parsed[0], '', array());
 
         return array() === array_filter(array_column($leaves, 'markup'), static fn (string $leafMarkup): bool => '' === $leafMarkup) ? $leaves : array();
     }

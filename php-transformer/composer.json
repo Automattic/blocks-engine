@@ -186,6 +186,7 @@
       "php tests/contract/order-lookup-form.php",
       "php tests/contract/product-grid-item-template.php",
       "php tests/contract/product-grid-item-template-assets.php",
+      "php tests/contract/product-grid-optional-row.php",
       "php tests/contract/product-grid-listing-controls.php",
       "php tests/contract/product-price-qualifier.php",
       "php tests/contract/aria-labelledby-label-element.php",
