@@ -188,6 +188,7 @@
       "php tests/contract/core-code-save-supports.php",
       "php tests/contract/core-code-literal-markup-text.php",
       "php tests/contract/selector-match-cache-signature.php",
+      "php tests/contract/selector-match-cache-compact.php",
       "@test:unit"
     ],
     "test:unit": [
