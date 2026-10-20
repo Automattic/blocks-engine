@@ -184,6 +184,7 @@
       "php tests/contract/cart-view-binding.php",
       "php tests/contract/order-lookup-form.php",
       "php tests/contract/product-grid-item-template.php",
+      "php tests/contract/product-grid-item-template-assets.php",
       "php tests/contract/product-grid-listing-controls.php",
       "php tests/contract/aria-labelledby-label-element.php",
       "php tests/contract/script-rewritten-text-leaf-paragraph.php",

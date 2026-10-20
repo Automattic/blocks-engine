@@ -89,6 +89,8 @@ final class WordPressSitePlanResolver
             if (!is_array($declaration['payload']['entities'] ?? null)) continue;
             foreach ($declaration['payload']['entities'] as $entityIndex => $entity) {
                 if (!is_array($entity['bindings'] ?? null)) continue;
+                $entity = WordPressSitePlan::mapItemTemplateMarkup($entity, static fn(string $markup): string => self::resolvePayload($markup, $references));
+                $declarations[$declarationIndex]['payload']['entities'][$entityIndex] = $entity;
                 foreach ($entity['bindings'] as $bindingIndex => $binding) {
                     if (!is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? null) || !is_string($binding['source_path'] ?? null) || !is_string($binding['search_block_markup'] ?? null) || !is_int($binding['occurrence'] ?? null)) continue;
                     $page = $pagesBySource[$binding['source_path']] ?? null;
