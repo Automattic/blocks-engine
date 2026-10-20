@@ -103,9 +103,11 @@ final class CapturedDialogBlockGenerator
             'restingState' => array('type' => 'object', 'default' => array()),
         );
         $editor = <<<'JS'
-( function( blocks, blockEditor, element ) {
+( function( blocks, blockEditor, element, data ) {
     var createElement = element.createElement;
     var InnerBlocks = blockEditor.InnerBlocks;
+    var useBlockProps = blockEditor.useBlockProps;
+    var useSelect = data.useSelect;
     function styleObject( value ) { if ( ! value ) return undefined; return String( value ).split( ';' ).reduce( function( output, declaration ) { var separator = declaration.indexOf( ':' ); if ( separator < 1 ) return output; var name = declaration.slice( 0, separator ).trim(); var property = name.indexOf( '--' ) === 0 ? name : name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); output[ property ] = declaration.slice( separator + 1 ).trim(); return output; }, {} ); }
     function dialogProps( attrs ) {
         return { id: attrs.dialogId || undefined, className: attrs.className || undefined, style: styleObject( attrs.sourceStyle ), '__DIALOG_ANCESTOR_UNVERIFIED__': attrs.ancestorUnverified || undefined, 'data-blocks-engine-presentation': attrs.presentation || undefined, 'data-blocks-engine-placement': attrs.placement || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-closers': ( attrs.closerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-gallery-selection': attrs.gallerySelection && attrs.gallerySelection.length ? JSON.stringify( attrs.gallerySelection ) : undefined, 'data-blocks-engine-ancestor-state': attrs.ancestorState && attrs.ancestorState.length ? JSON.stringify( attrs.ancestorState ) : undefined, 'data-blocks-engine-resting': attrs.resting || undefined, 'data-blocks-engine-resting-state': attrs.restingState && attrs.restingState.closed ? JSON.stringify( attrs.restingState ) : undefined };
@@ -113,10 +115,20 @@ final class CapturedDialogBlockGenerator
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
         supports: { html: false, customClassName: false },
-        edit: function( props ) { return createElement( 'div', { className: 'blocks-engine-captured-dialog-editor' }, createElement( 'strong', null, props.attributes.ariaLabel || 'Dialog' ), createElement( InnerBlocks ) ); },
+        // List View and the toolbar name the dialog by its accessible label;
+        // without one the editor falls back to the block title.
+        __experimentalLabel: function( attributes ) { return attributes.ariaLabel || undefined; },
+        // At rest the dialog takes no canvas space. Its inner blocks stay
+        // mounted (so List View still lists them) and show while the dialog
+        // or anything inside it is selected.
+        edit: function( props ) {
+            var clientId = props.clientId;
+            var editing = useSelect( function( select ) { var store = select( 'core/block-editor' ); return store.isBlockSelected( clientId ) || store.hasSelectedInnerBlock( clientId, true ); }, [ clientId ] ) || !! props.isSelected;
+            return createElement( 'div', useBlockProps( { className: 'blocks-engine-captured-dialog-editor' } ), createElement( 'div', editing ? null : { hidden: true, style: { display: 'none' } }, createElement( InnerBlocks ) ) );
+        },
         save: function( props ) { return createElement( props.attributes.tagName === 'div' && props.attributes.presentation === 'dropdown' ? 'div' : 'dialog', dialogProps( props.attributes ), props.attributes.addCloseButton ? createElement( 'button', { type: 'button', 'data-blocks-engine-dialog-close': 'true', 'aria-label': 'Close' }, 'Close' ) : null, createElement( InnerBlocks.Content ) ); }
     } );
-} )( window.wp.blocks, window.wp.blockEditor, window.wp.element );
+} )( window.wp.blocks, window.wp.blockEditor, window.wp.element, window.wp.data );
 JS;
         $view = <<<'JS'
 ( function() {
@@ -375,7 +387,7 @@ JS;
                 'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__', '__DIALOG_ANCESTOR_UNVERIFIED__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED), $editor),
             ),
             'view_js' => str_replace('__ANCESTOR_ATTRIBUTE_PATTERN__', self::ANCESTOR_ATTRIBUTE_PATTERN, $view),
-            'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element')),
+            'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element', 'wp-data')),
         );
     }
 }
