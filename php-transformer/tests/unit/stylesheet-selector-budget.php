@@ -83,8 +83,9 @@ foreach ($result['source_reports']['wordpress_site_plan']['writes'] ?? array() a
     }
 }
 preg_match_all("/wp_enqueue_style\\( '[^']+', get_theme_file_uri\\( '([^']+)' \\)/", $bootstrap, $enqueued);
+$siteEnqueues = array_values(array_filter($enqueued[1], static fn (string $path): bool => str_starts_with($path, 'assets/website/')));
 $assert(
-    array('assets/website/assets/site.css', 'assets/website/assets/site.css') === array_values(array_filter($enqueued[1], static fn (string $path): bool => str_starts_with($path, 'assets/website/'))),
+    array('assets/website/assets/site.css') === array_values(array_unique($siteEnqueues)) && array() === array_filter($siteEnqueues, static fn (string $path): bool => str_contains($path, 'chunk-')),
     'chunked stylesheets load only through their source-ordered loader, never as separately enqueued chunks'
 );
 

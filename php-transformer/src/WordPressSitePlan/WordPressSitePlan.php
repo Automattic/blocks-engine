@@ -1184,6 +1184,19 @@ PHP;
                     $asset['scopes'] = array(array('kind' => 'global'));
                     continue;
                 }
+                // A stylesheet every canonical source document links is
+                // site-wide author CSS: WordPress-native views (404, search,
+                // archives) render the shared chrome it dresses, so they load
+                // it through the route-flag fallback in source order, ahead of
+                // the shared-chrome projections lifted from it. Route
+                // documents keep their per-occurrence instance enqueues, and a
+                // stylesheet only some documents link stays route-only.
+                // Generated synthetic route pages capture nothing, so they do
+                // not hold a site-wide stylesheet back.
+                if (count($referencedPages) === count(array_filter($pagesBySource, static fn(array $page): bool => empty($page['synthetic'])))) {
+                    $asset['scopes'] = array(array('kind' => 'global'));
+                    continue;
+                }
                 $asset['scopes'] = array_values(array_map(static fn(array $page): array => array('kind' => 'post' === $page['post_type'] ? 'post' : 'page', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'), 'reconciliation_identity' => $page['reconciliation_identity'], 'front_page' => '/' === $page['route']['path']), $referencedPages));
                 continue;
             }
