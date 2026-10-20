@@ -1042,7 +1042,7 @@ final class ArtifactCompiler
         $products = array();
         $forms = array();
         $carts = array();
-        $productGrids = array();
+        $productGrids = array(); $productListings = array();
         foreach ( $fallbacks as $fallback ) {
             if ( ! is_array($fallback) ) continue;
             $code = (string) ($fallback['diagnostic_code'] ?? $fallback['kind'] ?? '');
@@ -1067,6 +1067,8 @@ final class ArtifactCompiler
                     if ( is_scalar($product['description'] ?? null) && '' !== trim((string) $product['description']) ) $row['description'] = (string) $product['description'];
                     $image = is_string($product['image'] ?? null) ? $product['image'] : (is_array($product['image'] ?? null) && is_string($product['image']['src'] ?? null) ? $product['image']['src'] : '');
                     if ( '' !== trim($image) ) $row['image'] = $image;
+                    if ( is_string($product['category'] ?? null) && '' !== trim($product['category']) ) $row['category'] = trim($product['category']);
+                    if ( is_array($product['attributes'] ?? null) && array() !== $product['attributes'] ) $row['attributes'] = $product['attributes'];
                     $sourceSelector = is_string($product['source_selector'] ?? null) ? trim($product['source_selector']) : '';
                     $selectors = array_values(array_unique(array_filter(array($sourceSelector, $container), static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
                     if ( array() !== $selectors ) $row['source_selectors'] = $selectors;
@@ -1080,6 +1082,8 @@ final class ArtifactCompiler
                         $row['bindings'] = array(array_merge($product['binding'], array('source_path' => $sourcePath)));
                     }
                     if ( isset($products[$productSlug]) ) {
+                        // The same product on another page may be the one its filters describe.
+                        foreach ( array('category', 'attributes') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
                         if ( ! isset($row['bindings'][0]) ) {
                             continue;
                         }
@@ -1098,6 +1102,21 @@ final class ArtifactCompiler
                 $gridBinding = $fallback['binding'] ?? null;
                 if ( '' !== $container && is_array($fallback['item_template'] ?? null) && array() !== $gridItems && is_array($gridBinding) && 'generic/block-binding/v1' === ($gridBinding['schema'] ?? null) && is_string($gridBinding['search_block_markup'] ?? null) && '' !== trim($gridBinding['search_block_markup']) ) {
                     $productGrids[$sourcePath . "\n" . $container] = array('source_path' => $sourcePath, 'selector' => $container, 'item_template' => $fallback['item_template'], 'items' => $gridItems, 'bindings' => array(array_merge($gridBinding, array('source_path' => $sourcePath))));
+                    // The controls that facet, bound, sort, or count this grid:
+                    // the region holding them with the grid is the first
+                    // binding, then one binding per control naming its id.
+                    $listing = $fallback['listing'] ?? null;
+                    if ( is_array($listing) && is_string($listing['selector'] ?? null) && is_array($listing['binding'] ?? null) && is_array($listing['controls'] ?? null) && array() !== $listing['controls'] ) {
+                        $controls = array();
+                        $bindings = array(array_merge($listing['binding'], array('source_path' => $sourcePath)));
+                        foreach ( $listing['controls'] as $control ) {
+                            $id = $control['kind'] . (isset($control['key']) ? ':' . $control['key'] : (isset($control['field']) ? ':' . $control['field'] : ''));
+                            $bindings[] = array_merge($control['binding'], array('source_path' => $sourcePath, 'control' => $id));
+                            unset($control['binding']);
+                            $controls[] = array('id' => $id) + $control;
+                        }
+                        $productListings[$sourcePath . "\n" . $listing['selector']] = array('source_path' => $sourcePath, 'selector' => $listing['selector'], 'grid_selector' => $container, 'controls' => $controls, 'bindings' => $bindings);
+                    }
                 }
             } elseif ( 'html_cart_view_fallback' === $code ) {
                 // A cart view is provider-bindable only through its page-owned
@@ -1212,9 +1231,9 @@ final class ArtifactCompiler
         }
         foreach ( SchemaProductEvidence::rows($files, $slug, $price) as $productSlug => $row ) {
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
-            foreach ( array('description', 'image') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+            foreach ( array('description', 'image', 'category') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
-        ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING);
+        ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
         $collections = array(
             array('capability' => 'shop', 'type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
             // A cart holds the store's products, so a cart view is declared only
@@ -1224,6 +1243,9 @@ final class ArtifactCompiler
             // Grids repeat the store's products, so like carts they are
             // declared only beside a products collection.
             array('capability' => 'shop', 'type' => 'product_grids', 'aliases' => array('product_grid', 'product_grids'), 'entities' => array_values($productGrids), 'schema' => 'generic/product-grids/v1', 'requires' => array('product', 'products')),
+            // The filters, sort, and count around a grid narrow or order that
+            // grid, so they are declared only beside the grids.
+            array('capability' => 'shop', 'type' => 'product_listings', 'aliases' => array('product_listing', 'product_listings'), 'entities' => array_values($productListings), 'schema' => 'generic/product-listings/v1', 'requires' => array('product_grid', 'product_grids')),
             array('capability' => 'form', 'type' => 'forms', 'aliases' => array('form', 'forms'), 'entities' => array_values($forms), 'schema' => 'generic/forms/v1'),
         );
         foreach ( $collections as $collection ) {
