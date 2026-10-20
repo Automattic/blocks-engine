@@ -566,7 +566,7 @@ foreach ($multiPageWordPressAssets as $planAsset) {
 }
 $multiPageScopeSources = array_map(static fn (array $scope): string => (string) ($scope['source_path'] ?? ''), $multiPagePlanSharedScopes);
 $multiPageHasPageCopy = array() !== array_map(static fn (array $asset): string => (string) $asset['path'], array_values(array_filter($multiPage['assets'] ?? array(), static fn (array $asset): bool => 1 === preg_match('#^shared\.page-[a-f0-9]{12}\.css$#', (string) ($asset['path'] ?? '')))));
-$assert(array('index.html', 'about.html') === $multiPageScopeSources && ! $multiPageHasPageCopy, 'an identically projected shared stylesheet is emitted once and scoped to both consuming pages, with no per-page copy');
+$assert(array(array('kind' => 'global')) === $multiPagePlanSharedScopes && ! $multiPageHasPageCopy, 'an identically projected shared stylesheet linked by every page is emitted once, site-wide across its consuming pages, with no per-page copy');
 $assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
 
 // A source grid's attribute-specific desktop winner must remain later than a
@@ -664,7 +664,7 @@ $sharedShellPlanAssets = $sharedShellResponsive['source_reports']['wordpress_sit
 $sharedShellPageStyles = array_values(array_filter($sharedShellPlanAssets, static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && 'shared.css' !== ($asset['source_path'] ?? '') && 'global' !== (($asset['scopes'][0]['kind'] ?? null))));
 $sharedShellPageCss = implode("\n", array_column($sharedShellPageStyles, 'content'));
 $sharedShellSharedAsset = array_values(array_filter($sharedShellPlanAssets, static fn (array $asset): bool => 'shared.css' === ($asset['source_path'] ?? '')))[0] ?? array();
-$assert(2 === count($sharedShellSharedAsset['scopes'] ?? array()) && ! str_contains($sharedShellPageCss, 'site-chrome'), 'shared stylesheet remains scoped to its two consuming pages without absorbing route CSS');
+$assert(array(array('kind' => 'global')) === ($sharedShellSharedAsset['scopes'] ?? array()) && ! str_contains($sharedShellPageCss, 'site-chrome'), 'a stylesheet linked by its two consuming pages is site-wide without absorbing route CSS');
 $assert(str_contains($sharedShellPageCss, 'home-grid') && str_contains($sharedShellPageCss, 'about-grid'), 'route-owned responsive styles remain in page-scoped assets after shared-shell extraction');
 $sharedShellHome = new DOMDocument();
 $sharedShellHome->loadHTML('<html><body><div class="home-grid"><div>One</div><div>Two</div></div></body></html>');
