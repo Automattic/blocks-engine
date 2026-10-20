@@ -268,6 +268,7 @@
       "php tests/unit/capture-runtime-attribute-parity.php",
       "php tests/unit/captured-dialog-text-trigger.php",
       "php tests/unit/captured-selectable-set-projector.php",
+      "php tests/unit/captured-selectable-set-dead-member-content.php",
       "php tests/unit/captured-collection-filter.php",
       "php tests/unit/captured-choice-group-projector.php",
       "php tests/unit/captured-choice-group-state-presentation.php",

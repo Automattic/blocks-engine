@@ -131,6 +131,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
             return null;
         }
 
+        $this->pruneDeadMemberContent($panels);
         $panelBlocks = array();
         foreach ($panels as $index => $panel) {
             $children = ($this->convertChildren)($panel, $fallbacks);
@@ -200,6 +201,82 @@ final class CapturedSelectableSetConverter implements ElementConverter
             $this->createBlock->createBlock('core/tab-list', $tabListAttributes, array(), $tabListSource),
             $this->createBlock->createBlock('core/tab-panels', array(), $panelBlocks),
         ));
+    }
+
+    /**
+     * Each panel is a capture of the whole shared region in one member's
+     * state, so a region that holds every member's content and shows only the
+     * selected one leaves the others in each panel, hidden. An element is dead
+     * in a panel when its cascade hides it there at every viewport while the
+     * same element (same position, tag, id and text) renders in another panel.
+     * Hidden in every panel is ordinary hidden UI and stays. All decisions are
+     * made before anything is removed.
+     *
+     * @param list<DOMElement> $panels
+     */
+    private function pruneDeadMemberContent(array $panels): void
+    {
+        $hidden = array();
+        $isHidden = function (DOMElement $element) use (&$hidden): bool {
+            return $hidden[spl_object_id($element)] ??= $this->presentation->isDisplayNoneAtEveryViewport($element);
+        };
+        $maps = array();
+        foreach ($panels as $index => $panel) {
+            $maps[$index] = array();
+            $this->indexByPath($panel, '', $maps[$index]);
+        }
+        $signature = static fn (DOMElement $element): string => strtolower($element->tagName) . '#' . $element->getAttribute('id') . '|' . trim((string) preg_replace('/\s+/', ' ', $element->textContent ?? ''));
+        $rendered = function (int $index, string $path) use ($maps, $isHidden): bool {
+            // The element and every ancestor inside its panel must render.
+            for ($at = $path; '' !== $at; $at = (string) substr($at, 0, (int) strrpos($at, '/'))) {
+                if (! isset($maps[$index][$at]) || $isHidden($maps[$index][$at])) {
+                    return false;
+                }
+            }
+
+            return true;
+        };
+        $dead = array();
+        foreach ($maps as $index => $map) {
+            $skipUnder = null;
+            foreach ($map as $path => $element) {
+                if (null !== $skipUnder && str_starts_with($path, $skipUnder . '/')) {
+                    continue;
+                }
+                $skipUnder = null;
+                if (! $isHidden($element)) {
+                    continue;
+                }
+                $skipUnder = $path;
+                foreach ($maps as $other => $otherMap) {
+                    $counterpart = $otherMap[$path] ?? null;
+                    if ($other !== $index && $counterpart instanceof DOMElement
+                        && $signature($counterpart) === $signature($element)
+                        && $rendered($other, $path)
+                    ) {
+                        $dead[] = $element;
+                        break;
+                    }
+                }
+            }
+        }
+        foreach ($dead as $element) {
+            $element->parentNode?->removeChild($element);
+        }
+    }
+
+    /** @param array<string, DOMElement> $map Element descendants keyed by element-child index path, in document order. */
+    private function indexByPath(DOMElement $parent, string $prefix, array &$map): void
+    {
+        $position = 0;
+        foreach ($parent->childNodes as $child) {
+            if (! $child instanceof DOMElement) {
+                continue;
+            }
+            $path = $prefix . '/' . $position++;
+            $map[$path] = $child;
+            $this->indexByPath($child, $path, $map);
+        }
     }
 
     /**

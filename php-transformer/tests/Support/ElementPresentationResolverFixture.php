@@ -38,4 +38,7 @@ final class ElementPresentationResolverFixture implements ElementPresentationRes
 
     public function declaredPresentation(DOMElement $element, string $property): DeclaredPresentation
     { return DeclaredPresentation::none(); }
+
+    public function isDisplayNoneAtEveryViewport(DOMElement $element): bool
+    { return false; }
 }
