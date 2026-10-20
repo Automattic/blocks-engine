@@ -3683,7 +3683,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         // it. `isSourceNavigationChromeAnchor()` in the parity reporter reads
         // exactly these two tokens as chrome on the source side; rescuing them
         // here would leave the two sides counting different menus.
-        if ( preg_match('/(?:^|[^a-z0-9])(?:separator|divider)(?:[^a-z0-9]|$)/', $tokens) ) {
+        if ( preg_match('/(?:^|[^a-z0-9])(?:separator|divider)(?:[^a-z0-9]|$)/', $tokens)
+            && ! preg_match('/[\p{L}\p{N}]/u', (string) $element->textContent) ) {
             return true;
         }
 
