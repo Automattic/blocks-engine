@@ -25,6 +25,27 @@ $compile = static function (array $artifact): array {
     foreach ($plan['writes'] ?? array() as $write) if ('theme.json' === $write['target_path']) $theme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
     return array($plan, $theme, $result['source_reports']['editability_report'] ?? array());
 };
+// A late shared WordPress capture stylesheet cannot redefine generated presets.
+[$sourcePresetPlan, $sourcePresetTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/source-wordpress-presets.php');
+$sourcePalette = array_column($sourcePresetTheme['settings']['color']['palette'], 'color', 'slug');
+$assert('#ffffff' === ($sourcePalette['accent-2'] ?? null), 'shared WordPress fixture binds white to accent-2');
+$assert(2 === count($sourcePresetPlan['pages']), 'WordPress preset collision fixture retains both routes');
+foreach ($sourcePresetPlan['pages'] as $page) {
+    $assert(str_contains($page['canonical_block_markup'], '"backgroundColor":"accent-2"'), 'each white card binds to the generated accent-2');
+}
+$sharedPresetCss = '';
+foreach ($sourcePresetPlan['assets'] as $asset) {
+    if ('css' !== ($asset['kind'] ?? null)) continue;
+    $css = $asset['content'] ?? '';
+    $assert(1 !== preg_match('/--wp--preset--[a-zA-Z0-9_-]+\\s*:/', $css), 'carried CSS never declares a generated preset');
+    if (str_contains($css, '.card{') && !str_contains($css, 'editor-styles-wrapper')) $sharedPresetCss .= $css;
+}
+$assert(str_contains($sharedPresetCss, '--be--source--preset--color--accent-2:#F6CFF4'), 'shared capture CSS keeps the source palette in its own namespace');
+$assert(str_contains($sharedPresetCss, 'background-color:var(--wp--preset--color--accent-2,rgb(255,255,255))'), 'card CSS reads the generated preset, not the source preset');
+$assert(str_contains($sharedPresetCss, 'outline-color:var(--be--source--preset--color--accent-2)'), 'unbound source reads keep following the source palette');
+foreach (array('font-size--large:31px', 'spacing--40:19px', 'font-family--body:Georgia') as $preset) {
+    $assert(str_contains($sharedPresetCss, '--be--source--preset--' . $preset), 'non-colour source presets are isolated too: ' . $preset);
+}
 $roleSlug = '/^(?:base|contrast|primary|secondary|accent-\d+)$/';
 $sizeSlug = '/^(?:medium|(?:x{0,5}-)?small|(?:x{0,5}-)?large)$/';
 
@@ -215,6 +236,12 @@ $assert('.a{color:#00ff00;border-color:#111111;font-size:23px}' === $sheet('.a{c
 $assert('.a{font-size:var(--wp--preset--font-size--large,1.5rem)}' === $sheet('.a{font-size:1.5rem}'), 'a font size equal to a preset length binds');
 $assert('.a{font-size:24.4px}' === $sheet('.a{font-size:24.4px}'), 'a font size within tolerance but not equal stays, so no layout moves');
 $assert(':root{--brand:var(--wp--preset--color--' . $slug . ',#e11d48)}' === $sheet(':root{--brand:#e11d48}'), 'a custom property that is a token colour binds, so every utility reading it follows');
+$sourceRead = $sheet(':root{--wp--preset--color--accent-2:#e11d48}.a{color:var(--wp--preset--color--accent-2)}');
+$assert(str_contains($sourceRead, '--be--source--preset--color--accent-2:var(--wp--preset--color--' . $slug . ',#e11d48)'), 'a source preset definition matching a token follows it under a source-owned name');
+$assert(str_contains($sourceRead, '.a{color:var(--wp--preset--color--' . $slug . ',var(--be--source--preset--color--accent-2))}'), 'a resolved source preset read binds to the generated token with a source-owned fallback');
+$quotedPreset = '.a{content:"--wp--preset--color--accent-2";/* --wp--preset--color--accent-2 */outline-color:var(--wp--preset--color--accent-2)}';
+$assert(str_contains($sheet($quotedPreset), 'content:"--wp--preset--color--accent-2"') && str_contains($sheet($quotedPreset), 'outline-color:var(--be--source--preset--color--accent-2)'), 'source projection leaves quoted content alone while rewriting variable reads');
+$assert(str_contains($sheet('@media(min-width:1px){.a{--wp--preset--spacing--40:3px;padding:var(--wp--preset--spacing--40)}}'), '--be--source--preset--spacing--40:3px;padding:var(--be--source--preset--spacing--40)'), 'conditional source definitions and reads share the source namespace');
 $opacity = '.text-x{--tw-text-opacity:1;color:rgb(225 29 72 / var(--tw-text-opacity, 1))}';
 $assert(str_contains($sheet($opacity), 'color:var(--wp--preset--color--' . $slug . ',rgb(225 29 72 / var(--tw-text-opacity, 1)))'), 'a Tailwind opacity variable every rule sets to its fallback resolves');
 $assert(!str_contains($sheet($opacity . '.text-opacity-50{--tw-text-opacity:.5}'), '--wp--preset--color--'), 'an opacity variable another rule sets differently keeps the literal');
