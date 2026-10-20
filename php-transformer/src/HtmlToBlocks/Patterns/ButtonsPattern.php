@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -70,6 +71,13 @@ final class ButtonsPattern
 
         $text = $this->buttonText($anchor, SourceDom::innerHtml($anchor), $buttons);
         if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
+            // The companion's RichText element replaces the anchor's single
+            // wrapper child, so its content is that wrapper's label.
+            $wrapper = $this->accessibleLinkContentWrapper($anchor);
+            $wrapperText = $wrapper instanceof DOMElement ? $this->buttonText($wrapper, SourceDom::innerHtml($wrapper), $buttons) : '';
+            if ( '' !== $wrapperText ) {
+                return $buttons->accessibleNameCompanion($anchor, $wrapperText, $wrapper);
+            }
             return $buttons->accessibleNameCompanion($anchor, $text);
         }
 
@@ -376,6 +384,37 @@ final class ButtonsPattern
     private function plainText(string $html): string
     {
         return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+    }
+
+    /**
+     * The anchor's only child when it is a span or div wrapping the whole
+     * label with attributes the accessible-link RichText element can carry.
+     */
+    private function accessibleLinkContentWrapper(DOMElement $anchor): ?DOMElement
+    {
+        $wrapper = null;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( null !== $wrapper ) {
+                    return null;
+                }
+                $wrapper = $child;
+            } elseif ( $child instanceof \DOMText || $child instanceof \DOMCdataSection ) {
+                if ( '' !== trim($child->textContent) ) {
+                    return null;
+                }
+            }
+        }
+        if ( ! $wrapper instanceof DOMElement || ! in_array(strtolower($wrapper->tagName), array( 'span', 'div' ), true) || ! $wrapper->hasAttributes() ) {
+            return null;
+        }
+        foreach ( $wrapper->attributes ?? array() as $attribute ) {
+            if ( ! AccessibleLinkBlockGenerator::isContentAttributeName(strtolower($attribute->name)) ) {
+                return null;
+            }
+        }
+
+        return $wrapper;
     }
 
     private function hasMateriallyDifferentAccessibleLabel(DOMElement $anchor, string $text): bool

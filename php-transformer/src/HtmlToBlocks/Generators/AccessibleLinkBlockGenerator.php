@@ -8,6 +8,9 @@ final class AccessibleLinkBlockGenerator
 {
     public const LOCAL_NAME = 'accessible-link';
 
+    /** @var list<string> */
+    private const CONTENT_TAG_NAMES = array( 'span', 'div' );
+
     /** @return array<string, mixed> */
     public function blockJson(string $namespace): array
     {
@@ -23,6 +26,8 @@ final class AccessibleLinkBlockGenerator
                 'accessibleLabel' => array( 'type' => 'string', 'default' => '' ),
                 'content' => array( 'type' => 'string', 'default' => '' ),
                 'contentMode' => array( 'type' => 'string', 'default' => 'rich-text' ),
+                'contentTagName' => array( 'type' => 'string', 'default' => 'span' ),
+                'contentAttributes' => array( 'type' => 'object', 'default' => array() ),
                 'className' => array( 'type' => 'string', 'default' => '' ),
                 'style' => array( 'type' => 'string', 'default' => '' ),
                 'id' => array( 'type' => 'string', 'default' => '' ),
@@ -49,10 +54,12 @@ final class AccessibleLinkBlockGenerator
     var attributes = __BLOCK_ATTRIBUTES__;
     function escapeAttribute( value ) { return String( value || '' ).replace( /&/g, '&amp;' ).replace( /"/g, '&quot;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' ); }
     function linkProps( attrs ) { return Object.assign( {}, attrs.sourceAttributes || {}, { href: attrs.href || undefined, 'aria-label': attrs.accessibleLabel || undefined, className: attrs.className || undefined, style: attrs.style || undefined, id: attrs.id || undefined, target: attrs.linkTarget || undefined, rel: attrs.rel || undefined } ); }
+    function contentTag( attrs ) { return -1 !== [ 'span', 'div' ].indexOf( attrs.contentTagName ) ? attrs.contentTagName : 'span'; }
+    function contentProps( attrs ) { var props = {}; Object.keys( attrs.contentAttributes || {} ).forEach( function( name ) { props[ 'class' === name ? 'className' : name ] = attrs.contentAttributes[ name ]; } ); return props; }
     function markup( attrs ) { var output = '<a'; Object.keys( attrs.sourceAttributes || {} ).sort().forEach( function( name ) { output += ' ' + name + '="' + escapeAttribute( attrs.sourceAttributes[ name ] ) + '"'; } ); [ [ 'href', 'href' ], [ 'accessibleLabel', 'aria-label' ], [ 'className', 'class' ], [ 'style', 'style' ], [ 'id', 'id' ], [ 'linkTarget', 'target' ], [ 'rel', 'rel' ] ].forEach( function( item ) { if ( attrs[ item[ 0 ] ] ) output += ' ' + item[ 1 ] + '="' + escapeAttribute( attrs[ item[ 0 ] ] ) + '"'; } ); return output + '>' + ( 'raw-source' === attrs.contentMode ? ( attrs.content || '' ) : '<span>' + ( attrs.content || '' ) + '</span>' ) + '</a>'; }
     function settings( props ) { var attrs = props.attributes; return createElement( InspectorControls, {}, createElement( PanelBody, { title: 'Link settings' }, createElement( TextControl, { label: 'URL', value: attrs.href || '', onChange: function( value ) { props.setAttributes( { href: value } ); } } ), createElement( TextControl, { label: 'Accessible label', value: attrs.accessibleLabel || '', onChange: function( value ) { props.setAttributes( { accessibleLabel: value } ); } } ) ) ); }
-    function edit( props ) { var content = 'raw-source' === props.attributes.contentMode ? createElement( RawHTML, null, props.attributes.content || '' ) : createElement( RichText, { tagName: 'span', value: props.attributes.content || '', onChange: function( value ) { props.setAttributes( { content: value } ); } } ); return createElement( 'a', useBlockProps( linkProps( props.attributes ) ), settings( props ), content ); }
-    function save( props ) { if ( 'raw-source' === props.attributes.contentMode ) return createElement( RawHTML, null, markup( props.attributes ) ); return createElement( 'a', linkProps( props.attributes ), createElement( RichText.Content, { tagName: 'span', value: props.attributes.content || '' } ) ); }
+    function edit( props ) { var content = 'raw-source' === props.attributes.contentMode ? createElement( RawHTML, null, props.attributes.content || '' ) : createElement( RichText, Object.assign( contentProps( props.attributes ), { tagName: contentTag( props.attributes ), value: props.attributes.content || '', onChange: function( value ) { props.setAttributes( { content: value } ); } } ) ); return createElement( 'a', useBlockProps( linkProps( props.attributes ) ), settings( props ), content ); }
+    function save( props ) { if ( 'raw-source' === props.attributes.contentMode ) return createElement( RawHTML, null, markup( props.attributes ) ); return createElement( 'a', linkProps( props.attributes ), createElement( RichText.Content, Object.assign( contentProps( props.attributes ), { tagName: contentTag( props.attributes ), value: props.attributes.content || '' } ) ) ); }
     blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
@@ -76,7 +83,51 @@ JS;
             }
         }
 
-        return $markup . '>' . ('raw-source' === ($attrs['contentMode'] ?? '') ? (string) ($attrs['content'] ?? '') : '<span>' . (string) ($attrs['content'] ?? '') . '</span>') . '</a>';
+        if ( 'raw-source' === ($attrs['contentMode'] ?? '') ) {
+            return $markup . '>' . (string) ($attrs['content'] ?? '') . '</a>';
+        }
+
+        // The RichText element stands in for the source's single wrapper
+        // child, so it keeps that wrapper's tag and selector attributes.
+        $tag = self::contentTagName((string) ($attrs['contentTagName'] ?? ''));
+        $wrapper = '<' . $tag;
+        $contentAttributes = is_array($attrs['contentAttributes'] ?? null) ? $attrs['contentAttributes'] : array();
+        foreach ( self::contentAttributeNames($contentAttributes) as $name ) {
+            $wrapper .= ' ' . $name . '="' . $escape($contentAttributes[$name]) . '"';
+        }
+
+        return $markup . '>' . $wrapper . '>' . (string) ($attrs['content'] ?? '') . '</' . $tag . '></a>';
+    }
+
+    /** The RichText element tags a source wrapper may keep inside the link. */
+    public static function contentTagName(string $tag): string
+    {
+        $tag = strtolower($tag);
+        return in_array($tag, self::CONTENT_TAG_NAMES, true) ? $tag : 'span';
+    }
+
+    /**
+     * Whether a source attribute can ride on the RichText element: the class,
+     * id and role, and data-/aria- attributes, which render unchanged as React
+     * props. Inline style and handlers cannot.
+     */
+    public static function isContentAttributeName(string $name): bool
+    {
+        return in_array($name, array( 'class', 'id', 'role' ), true)
+            || 1 === preg_match('/^(?:data|aria)-[a-z0-9_.-]+$/', $name);
+    }
+
+    /**
+     * @param array<array-key, mixed> $attributes
+     * @return list<string>
+     */
+    private static function contentAttributeNames(array $attributes): array
+    {
+        $names = array_values(array_filter(array_map('strval', array_keys($attributes)), static fn (string $name): bool => self::isContentAttributeName($name)));
+        // Class first, then the rest in a stable order.
+        usort($names, static fn (string $a, string $b): int => ('class' === $b) <=> ('class' === $a) ?: strcmp($a, $b));
+
+        return $names;
     }
 
     /** @return array<string, mixed> */
