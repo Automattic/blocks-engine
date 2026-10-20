@@ -296,6 +296,7 @@
       "php tests/unit/staged-transport.php",
       "php tests/unit/wordpress-site-plan-composer.php",
       "php tests/unit/numeric-post-route-parent.php",
+      "php tests/unit/structured-content-classification.php",
       "php tests/unit/navigation-entities-after-repeated-chrome.php",
       "php tests/unit/wordpress-site-plan-stylesheet-order.php",
       "php tests/unit/wordpress-site-plan-frame-template-bindings.php",

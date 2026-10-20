@@ -288,6 +288,9 @@ PHP;
         if ( array() === $compiled ) {
             throw new InvalidArgumentException('WordPress site plan requires a compiled-site report.');
         }
+        // Redirect captures have no content identity to materialize. Remove
+        // only proven empty redirects before validating compiled block bodies.
+        $compiled['pages'] = array_values(array_filter($compiled['pages'] ?? array(), static fn(mixed $document): bool => !is_array($document) || !self::emptyRedirectDocument($document)));
         $identityFailures = self::compiledSiteIdentityFailures($compiled);
         if ( array() !== $identityFailures ) {
             throw new DocumentIdentityException($identityFailures);
@@ -303,6 +306,8 @@ PHP;
             $this->assets($compiled['assets'] ?? null),
             static fn(array $asset): bool => !isset($runtimeScriptOwnership['assets'][(string) ($asset['source_path'] ?? '')]) || isset($documentScriptAssets[(string) ($asset['source_path'] ?? '')])
         ));
+        $retainedSources = array_fill_keys(array_column($documents, 'source_path'), true);
+        $assets = array_values(array_filter($assets, static fn(array $asset): bool => 'page' !== ($asset['compilation']['scope'] ?? null) || isset($retainedSources[$asset['compilation']['id'] ?? ''])));
         $assets = $this->applyDeclaredAssetTransformations($assets, $runtimeDeclarations);
         // The design system comes from what every document renders, before
         // any document is projected: routeLinks() binds literal block values
@@ -377,6 +382,20 @@ PHP;
             }
             unset($asset);
         }
+        // Taxonomy membership must see numbered captures before they are
+        // suppressed. They are views of a listing, never standalone content.
+        $paginationSources = array();
+        $compiledBySource = array_column($documents, null, 'source_path');
+        foreach ($pages as $page) {
+            $route = $routeBySource[$page['source_path']] ?? '';
+            // Leave legacy taxonomy ambiguity recovery to its existing proof;
+            // explicit CollectionPage evidence does not need that heuristic.
+            $collection = in_array('CollectionPage', self::structuredPageTypes($compiledBySource[$page['source_path']] ?? array()), true);
+            if (empty($page['entrypoint']) && preg_match('~/page/[1-9][0-9]*$~', $route) && ($collection || !preg_match('~/(?:category|tag)/~', $route))) $paginationSources[$page['source_path']] = true;
+        }
+        $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($paginationSources[$page['source_path']])));
+        $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($paginationSources[$document['source_path']])));
+        $assets = array_values(array_filter($assets, static fn(array $asset): bool => 'page' !== ($asset['compilation']['scope'] ?? null) || !isset($paginationSources[$asset['compilation']['id'] ?? ''])));
         $runtimeEntityRecords = $compiled['runtime_entity_records'] ?? array();
         $eventDiagnostics = array();
         $runtimeDeclarations = EventDeclarations::add($documents, $routeMap, $runtimeDeclarations, $runtimeEntityRecords, $eventDiagnostics);
@@ -405,6 +424,11 @@ PHP;
         // so assign occurrences only after that shared projection is complete.
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages);
         $pages = $this->pageHierarchy($pages, $routeMap);
+        $surfaceSources = array_fill_keys(array_column($surfaces, 'source_path'), true);
+        foreach ($assets as &$asset) {
+            if ('page' === ($asset['compilation']['scope'] ?? null) && isset($surfaceSources[$asset['compilation']['id'] ?? ''])) $asset['compilation'] = array('scope' => 'shared');
+        }
+        unset($asset);
         $assets = $this->scopeAssets($assets, $pages);
         $projector = new ThemeJsonProjection();
         $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
@@ -888,6 +912,7 @@ PHP;
                 );
                 continue;
             }
+            if ('page' === $documentKind && self::emptyRedirectDocument($document)) continue;
             if ( ! is_string($document['block_markup'] ?? null) || '' === trim($document['block_markup']) ) {
                 $failures[] = array(
                     'source_path' => $document['source_path'],
@@ -2699,17 +2724,20 @@ PHP;
         $entryRoot = self::entryRootFromDocuments($documents);
         $routes = array();
         $evidenceByIndex = array();
+        $structuredTypes = array();
         foreach ($documents as $index => $document) {
             if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site document is invalid.');
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
             $path = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path'] ? $metadata['route_path'] : self::pageRoutePath((string) $document['source_path'], $entryRoot);
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
+            $structuredTypes[$index] = self::structuredPageTypes($document);
             $evidenceByIndex[$index] = $this->publicationEvidence($document);
+            if (!array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $structuredTypes[$index]) && array_intersect(array('WebPage', 'AboutPage', 'ContactPage', 'CollectionPage'), $structuredTypes[$index])) $evidenceByIndex[$index] = array();
         }
         $indexByRoute = array_flip($routes);
         foreach ($evidenceByIndex as $index => $evidence) {
             $parentIndex = $indexByRoute[self::parentRoutePath($routes[$index])] ?? null;
-            $evidenceByIndex[$index] = self::withoutUnsupportedArticleMarkers($evidence, $documents[$index], $routes[$index], null === $parentIndex ? null : $documents[$parentIndex]);
+            $evidenceByIndex[$index] = array_intersect(array('BlogPosting', 'NewsArticle'), $structuredTypes[$index]) ? $evidence : self::withoutUnsupportedArticleMarkers($evidence, $documents[$index], $routes[$index], null === $parentIndex ? null : $documents[$parentIndex]);
         }
         $datedByParent = array();
         foreach ($evidenceByIndex as $index => $evidence) {
@@ -2724,6 +2752,10 @@ PHP;
         }
         foreach ($documents as $index => &$document) {
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
+            if (in_array('CollectionPage', $structuredTypes[$index], true) && !preg_match('~/page/[1-9][0-9]*$~', $routes[$index]) && !isset($metadata['template_surface']) && empty($document['entrypoint'])) {
+                $slug = 1 === preg_match('~^/(category|tag|author)/([^/]+)$~', $routes[$index], $match) ? $match[1] . '-' . $match[2] : 'archive-' . substr(hash('sha256', $routes[$index]), 0, 12);
+                $metadata['template_surface'] = array('schema' => 'blocks-engine/template-surface/v1', 'role' => 'archive', 'slug' => $slug, 'logical_surface_id' => 'archive:' . $slug, 'responsive_variant_id' => 'default', 'declaration_provenance' => array('schema' => 'blocks-engine/template-surface-provenance/v1', 'kind' => 'schema_org', 'source_path' => $document['source_path']));
+            }
             $frontmatter = is_array($metadata['frontmatter'] ?? null) ? $metadata['frontmatter'] : array();
             $explicit = null;
             $provenance = null;
@@ -2844,7 +2876,7 @@ PHP;
     {
         $identifier = static fn(mixed $value): bool => is_string($value) && 0 < strlen($value) && strlen($value) <= 128 && 1 === preg_match('/^[a-z0-9][a-z0-9._:-]*$/', $value);
         $provenance = $surface['declaration_provenance'] ?? null;
-        return 'blocks-engine/template-surface/v1' === ($surface['schema'] ?? null) && in_array($surface['role'] ?? null, array('404', 'archive', 'attachment', 'author', 'category', 'date', 'home', 'search', 'single', 'tag', 'taxonomy'), true) && $identifier($surface['slug'] ?? null) && ($surface['logical_surface_id'] ?? null) === $surface['role'] . ':' . $surface['slug'] && $identifier($surface['responsive_variant_id'] ?? null) && is_array($provenance) && 'blocks-engine/template-surface-provenance/v1' === ($provenance['schema'] ?? null) && in_array($provenance['kind'] ?? null, array('artifact_metadata', 'html_attributes'), true) && $sourcePath === ($provenance['source_path'] ?? null);
+        return 'blocks-engine/template-surface/v1' === ($surface['schema'] ?? null) && in_array($surface['role'] ?? null, array('404', 'archive', 'attachment', 'author', 'category', 'date', 'home', 'search', 'single', 'tag', 'taxonomy'), true) && $identifier($surface['slug'] ?? null) && ($surface['logical_surface_id'] ?? null) === $surface['role'] . ':' . $surface['slug'] && $identifier($surface['responsive_variant_id'] ?? null) && is_array($provenance) && 'blocks-engine/template-surface-provenance/v1' === ($provenance['schema'] ?? null) && in_array($provenance['kind'] ?? null, array('artifact_metadata', 'html_attributes', 'schema_org'), true) && $sourcePath === ($provenance['source_path'] ?? null);
     }
     /** @param array<string,mixed> $surface */
     private static function validTemplateSurface(array $surface, mixed $sourcePath, array $sourceCatalog): bool
@@ -2870,6 +2902,34 @@ PHP;
         }
         $paths = array_keys($catalog); $sorted = $paths; sort($sorted, SORT_STRING); if ($paths !== $sorted) throw new InvalidArgumentException('WordPress site plan source document catalog must be sorted.');
         return $catalog;
+    }
+    /** @param array<string,mixed> $document */
+    private static function emptyRedirectDocument(array $document): bool
+    {
+        if (!empty($document['entrypoint']) || !is_string($document['html'] ?? null)) return false;
+        $html = $document['html'];
+        $redirect = false;
+        foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) {
+            if ('meta' === ($node['name'] ?? null) && 'refresh' === strtolower((string) ($node['attributes']['http-equiv'] ?? ''))) $redirect = true;
+        }
+        $body = preg_replace('~<(head|script|style)\\b[^>]*>.*?</\\1>~is', '', $html) ?? $html;
+        return $redirect && '' === trim(strip_tags($body)) && !preg_match('~<(?:img|video|audio|iframe|svg|canvas|form)\\b~i', $body);
+    }
+    /** @param array<string,mixed> $document @return list<string> */
+    private static function structuredPageTypes(array $document): array
+    {
+        $types = array();
+        $collect = static function (mixed $value) use (&$collect, &$types): void {
+            if (!is_array($value)) return;
+            foreach ((array) ($value['@type'] ?? array()) as $type) {
+                if (is_string($type)) $types[] = (string) preg_replace('~^https?://schema\\.org/~', '', $type);
+            }
+            foreach ($value as $child) if (is_array($child)) $collect($child);
+        };
+        foreach (HtmlMarkupParser::htmlMarkupNodes((string) ($document['html'] ?? '')) as $node) {
+            if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) $collect(json_decode($node['content'], true));
+        }
+        return array_values(array_unique($types));
     }
     /** @param array<string,mixed> $document @return array<int,array<string,string>> */
     private function publicationEvidence(array $document): array
@@ -2981,7 +3041,7 @@ PHP;
     private function jsonLdPublicationEvidence(mixed $value, callable $timestamp): array
     {
         if (!is_array($value)) return array(); $rows = array();
-        if (isset($value['@type'])) { $types = is_array($value['@type']) ? $value['@type'] : array($value['@type']); if (array_intersect(array('Article', 'BlogPosting'), $types)) { $row = array('source' => 'json-ld:' . (in_array('BlogPosting', $types, true) ? 'BlogPosting' : 'Article')); if (is_string($value['datePublished'] ?? null) && null !== ($date = $timestamp($value['datePublished']))) $row['publication_timestamp'] = $date; $rows[] = $row; } }
+        if (isset($value['@type'])) { $types = array_map(static fn(mixed $type): mixed => is_string($type) ? preg_replace('~^https?://schema\\.org/~', '', $type) : $type, is_array($value['@type']) ? $value['@type'] : array($value['@type'])); if (array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $types)) { $row = array('source' => 'json-ld:' . (in_array('BlogPosting', $types, true) ? 'BlogPosting' : (in_array('NewsArticle', $types, true) ? 'NewsArticle' : 'Article'))); if (is_string($value['datePublished'] ?? null) && null !== ($date = $timestamp($value['datePublished']))) $row['publication_timestamp'] = $date; $rows[] = $row; } }
         foreach ($value as $child) if (is_array($child)) $rows = array_merge($rows, $this->jsonLdPublicationEvidence($child, $timestamp));
         return $rows;
     }
