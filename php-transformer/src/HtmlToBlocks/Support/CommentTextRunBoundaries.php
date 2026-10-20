@@ -13,9 +13,10 @@ use DOMText;
  * Removes source comments from RichText content while keeping the text-run
  * boundaries they made.
  *
- * Frameworks split one visible string into several text nodes with empty
- * comments (React writes `"<!-- -->{text}<!-- -->"`). Browsers shape each text
- * node on its own, so kerning never crosses that boundary. Joining the runs
+ * Empty comments are discarded without introducing a carrier. Frameworks
+ * also split visible strings with whitespace comments (React writes
+ * `"<!-- -->{text}<!-- -->"`). Browsers shape each text node on its own, so
+ * kerning never crosses that boundary. Joining the runs
  * into one text node shapes the pairs at the seams differently and moves the
  * glyphs that follow.
  *
@@ -83,7 +84,9 @@ final class CommentTextRunBoundaries
         $segments = array( array() );
         foreach ( $run as $node ) {
             if ( $node instanceof DOMComment ) {
-                $segments[] = array();
+                if ( '' !== $node->data ) {
+                    $segments[] = array();
+                }
                 $node->parentNode?->removeChild($node);
                 continue;
             }

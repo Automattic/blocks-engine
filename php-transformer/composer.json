@@ -245,6 +245,7 @@
       "php tests/unit/empty-paragraph-editor-parity.php",
       "php tests/unit/comment-text-run-boundaries.php",
       "php tests/unit/label-comment-text-run-boundaries.php",
+      "php tests/unit/empty-comment-richtext.php",
       "php tests/unit/important-display-author-layout.php",
       "php tests/unit/author-layout-single-item-wrapper.php",
       "php tests/unit/synthetic-figure-author-rules.php",
