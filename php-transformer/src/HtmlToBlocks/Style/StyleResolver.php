@@ -3978,6 +3978,39 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether the element's own resolved author cascade is `display:none` at
+     * every viewport its `display` rules distinguish, the reference one
+     * included. A `hidden md:block` element is visible at some width and so
+     * is not hidden here.
+     */
+    public function isDisplayNoneAtEveryViewport(DOMElement $element): bool
+    {
+        $widths = array( self::DESKTOP_REFERENCE_WIDTH );
+        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
+            if ( ! isset($rule['declarations']['display']) ) {
+                continue;
+            }
+            foreach ( $rule['conditions'] ?? array() as $condition ) {
+                if ( 1 !== preg_match('/^@media\b/i', trim((string) $condition)) || ! preg_match_all('/(\d*\.?\d+)\s*(px|r?em)\b/i', (string) $condition, $matches, PREG_SET_ORDER) ) {
+                    continue;
+                }
+                foreach ( $matches as $match ) {
+                    $px = (float) $match[1] * ( 'px' === strtolower($match[2]) ? 1.0 : 16.0 );
+                    array_push($widths, $px, max(1.0, $px - 1.0), $px + 1.0);
+                }
+            }
+        }
+        foreach ( array_unique($widths, SORT_REGULAR) as $width ) {
+            $display = (string) ( $this->cssDeclarations($this->resolvedCascadeStyle($element, 'static-conditional', (float) $width))['display'] ?? '' );
+            if ( 'none' !== CssValueInspector::comparable($display) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Resolve an element's authored resting cascade over one rule collection.
      *
      * The two callers above were the same thirty-five lines twice over, differing
@@ -3986,16 +4019,16 @@ final class StyleResolver implements ElementPresentationResolver
      * sentence that names its collection.
      *
      * Rules a media query conditions are skipped unless they apply at the
-     * reference viewport. That test is a no-op for the static collection, whose
+     * given viewport (the reference one by default). That test is a no-op for the static collection, whose
      * rules carry no conditions by construction, so it does not need to be a
      * parameter.
      */
-    private function resolvedCascadeStyle(DOMElement $element, string $collection): string
+    private function resolvedCascadeStyle(DOMElement $element, string $collection, float $viewportWidth = self::DESKTOP_REFERENCE_WIDTH): string
     {
         $cascade = array();
         $sequence = 0;
         foreach ( $this->matchingStyleRules($element, $collection) as $rule ) {
-            if ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtReferenceViewport($rule['conditions']) ) {
+            if ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) ) {
                 continue;
             }
 
