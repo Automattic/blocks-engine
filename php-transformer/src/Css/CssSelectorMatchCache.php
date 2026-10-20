@@ -21,9 +21,23 @@ final class CssSelectorMatchCache
      */
     public const MAX_MATCHES = 131072;
 
-    public const MAX_CANDIDATE_RULES = 4096;
+    /**
+     * Candidate lists are keyed by the element's selector signature (see
+     * styleRuleCandidates()), so the number of lists a document needs is its
+     * number of distinct signatures per collection, not its element count. A
+     * large site-builder page measured 7,497 elements but 1,115 signatures,
+     * and a 9,649-element homepage 2,253; a resolver asks for several
+     * collections per element. The list bound leaves room for a few thousand
+     * signatures in each of the hot collections at once.
+     *
+     * Retained lists hold the index's own rule arrays, which PHP shares by
+     * reference count, so a retained entry costs one array slot. The entry
+     * bound caps that at a few megabytes while fitting thousands of lists of
+     * the 50 or so candidates a typical element collects.
+     */
+    public const MAX_CANDIDATE_RULES = 262144;
 
-    public const MAX_CANDIDATE_LISTS = 4096;
+    public const MAX_CANDIDATE_LISTS = 16384;
 
     /** @var array<string, list<string>> */
     private array $classTokens = array();
@@ -39,6 +53,18 @@ final class CssSelectorMatchCache
 
     /** @var array<string, list<array<string, mixed>>> */
     private array $ruleCandidates = array();
+
+    /** @var array<string, string> Element key to interned candidate signature key. */
+    private array $candidateSignatures = array();
+
+    /** @var array<string, string> Element key to interned subject signature key, or the element key when unshareable. */
+    private array $subjectSignatures = array();
+
+    /** @var array<string, int> Serialized signature to its interned number. */
+    private array $signatureIds = array();
+
+    /** @var array<string, bool> Selector text to whether its result depends only on the subject. */
+    private array $subjectOnlySelectors = array();
 
     /** @var WeakMap<DOMElement, int> */
     private WeakMap $detachedElementKeys;
@@ -90,6 +116,16 @@ final class CssSelectorMatchCache
     public int $candidateRulePeakEntries = 0;
 
     public int $candidateRulePeakRetained = 0;
+
+    public int $candidateSignatureBuilds = 0;
+
+    /** Lists keyed by element because two distinct entries tie in cascade order. */
+    public int $candidateElementKeyedLists = 0;
+
+    public int $subjectSignatureBuilds = 0;
+
+    /** Match lookups keyed by subject signature rather than element. */
+    public int $subjectMatchLookups = 0;
 
     public int $connectedElementKeyBuilds = 0;
 
@@ -155,7 +191,7 @@ final class CssSelectorMatchCache
     /** @param array<string, mixed> $selector @return array{supported: bool, matches: bool} */
     public function matches(DOMElement $element, string $selectorText, array $selector, bool $accountForPseudoStateSuffix = false): array
     {
-        $key = $this->elementKey($element) . "\0" . $selectorText . "\0" . ($accountForPseudoStateSuffix ? '1' : '0');
+        $key = $this->matchSubjectKey($element, $selectorText, $selector) . "\0" . $selectorText . "\0" . ($accountForPseudoStateSuffix ? '1' : '0');
         if ( isset($this->matches[$key]) ) {
             ++$this->matchHits;
             $match = $this->matches[$key];
@@ -187,7 +223,10 @@ final class CssSelectorMatchCache
      */
     public function styleRuleCandidates(DOMElement $element, string $collection, array $index): array
     {
-        $key = $collection . "\0" . $this->elementKey($element);
+        $key = $collection . "\0" . $this->candidateSignature($element);
+        if ( ! isset($this->ruleCandidates[$key]) && isset($this->ruleCandidates[$elementListKey = $collection . "\0" . $this->elementKey($element)]) ) {
+            $key = $elementListKey;
+        }
         if ( isset($this->ruleCandidates[$key]) ) {
             ++$this->candidateRuleHits;
             $rules = $this->ruleCandidates[$key];
@@ -216,6 +255,13 @@ final class CssSelectorMatchCache
         }
 
         uasort($candidates, static fn (array $left, array $right): int => $left['order'] <=> $right['order'] ?: (($left['sequence'] ?? $left['order']) <=> ($right['sequence'] ?? $right['order'])));
+        if ( ! $this->candidateOrderIsSignatureExact($candidates) ) {
+            // Two distinct entries share a cascade position, so their relative
+            // order follows the element's own class and attribute order, which
+            // the signature sorts away. Keep this list to this element.
+            $key = $collection . "\0" . $this->elementKey($element);
+            ++$this->candidateElementKeyedLists;
+        }
         $rules = array_column($candidates, 'rule');
         $this->candidateRuleChecks += count($rules);
         $this->candidateRulesSkipped += $index['total'] - count($rules);
@@ -249,6 +295,9 @@ final class CssSelectorMatchCache
         $this->matches = array();
         $this->ruleCandidates = array();
         $this->candidateRulesRetained = 0;
+        $this->candidateSignatures = array();
+        $this->subjectSignatures = array();
+        $this->signatureIds = array();
         $this->detachedElementKeys = new WeakMap();
         $this->connectedElementKeys = new WeakMap();
         $this->connectedDocumentKeys = new WeakMap();
@@ -257,6 +306,96 @@ final class CssSelectorMatchCache
         $this->nextConnectedElementKey = 0;
         $this->nextConnectedDocumentKey = 0;
         $this->nextDetachedElementKey = 0;
+    }
+
+    /**
+     * The inputs styleRuleCandidates() reads: tag, id, class tokens (with
+     * multiplicity, since a repeated token merges its bucket twice; editor
+     * anchor ids derive from them) and selector-readable attribute names.
+     * Elements with equal signatures collect equal candidate lists.
+     */
+    private function candidateSignature(DOMElement $element): string
+    {
+        $elementKey = $this->elementKey($element);
+        if ( isset($this->candidateSignatures[$elementKey]) ) {
+            return $this->candidateSignatures[$elementKey];
+        }
+
+        ++$this->candidateSignatureBuilds;
+        $classes = $this->classTokens($element);
+        sort($classes, SORT_STRING);
+        $names = $this->attributeNames($element);
+        sort($names, SORT_STRING);
+        $signature = serialize(array( strtolower($element->tagName), $this->attribute($element, 'id'), $classes, $names ));
+        return $this->candidateSignatures[$elementKey] = 'candidates:' . $this->signatureId($signature);
+    }
+
+    /**
+     * Whether the sorted candidates are fully ordered by cascade position.
+     * Repeated entries are the same rule, so only distinct entries that tie
+     * make the order depend on how the element's buckets were merged.
+     *
+     * @param array<array-key, array<string, mixed>> $candidates Sorted candidates.
+     */
+    private function candidateOrderIsSignatureExact(array $candidates): bool
+    {
+        $previous = null;
+        foreach ( $candidates as $candidate ) {
+            if (
+                null !== $previous
+                && $previous['order'] === $candidate['order']
+                && ($previous['sequence'] ?? $previous['order']) === ($candidate['sequence'] ?? $candidate['order'])
+                && $previous['rule'] !== $candidate['rule']
+            ) {
+                return false;
+            }
+            $previous = $candidate;
+        }
+        return true;
+    }
+
+    /**
+     * A selector that reads only its subject's tag name and attributes gives
+     * the same result on every element with the same tag name and attributes,
+     * so its result is keyed by that full signature. Every other selector
+     * reads the element's position and keeps the element key.
+     *
+     * @param array<string, mixed> $selector
+     */
+    private function matchSubjectKey(DOMElement $element, string $selectorText, array $selector): string
+    {
+        $subjectOnly = $this->subjectOnlySelectors[$selectorText] ??= CssSelectorMatcher::dependsOnlyOnSubject($selector);
+        if ( ! $subjectOnly || ! ($selector['supported'] ?? false) ) {
+            return $this->elementKey($element);
+        }
+        ++$this->subjectMatchLookups;
+        $elementKey = $this->elementKey($element);
+        if ( isset($this->subjectSignatures[$elementKey]) ) {
+            return $this->subjectSignatures[$elementKey];
+        }
+
+        ++$this->subjectSignatureBuilds;
+        // Attribute reads go through hasAttribute()/getAttribute() by
+        // qualified name. Namespaced nodes can answer those for names they do
+        // not list as plain attributes, so they keep their element key.
+        if ( null !== $element->namespaceURI ) {
+            return $this->subjectSignatures[$elementKey] = $elementKey;
+        }
+        $attributes = array();
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            if ( null !== $attribute->namespaceURI || array_key_exists($attribute->nodeName, $attributes) ) {
+                return $this->subjectSignatures[$elementKey] = $elementKey;
+            }
+            $attributes[$attribute->nodeName] = $attribute->value;
+        }
+        ksort($attributes, SORT_STRING);
+        $signature = serialize(array( strtolower($element->tagName), $attributes ));
+        return $this->subjectSignatures[$elementKey] = 'subject:' . $this->signatureId($signature);
+    }
+
+    private function signatureId(string $signature): int
+    {
+        return $this->signatureIds[$signature] ??= count($this->signatureIds) + 1;
     }
 
     private function elementKey(DOMElement $element): string

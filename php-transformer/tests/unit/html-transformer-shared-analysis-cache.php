@@ -158,7 +158,9 @@ $sourceSelectorCache = new HtmlTransformerAnalysisCache();
 $sourceSelectorHtml = '<style>.card{display:grid;color:red}.card.primary{gap:1rem}.card[data-kind="primary"]{padding:1rem}</style><section class="card primary" data-kind="primary"><p>Repeated source selector matching</p></section>';
 $sourceSelectorResult = (new HtmlTransformer(analysisCache: $sourceSelectorCache))->transform($sourceSelectorHtml)->toArray();
 $assert(6 === $sourceSelectorCache->sourceSelectorMatchExecutions && 4 === $sourceSelectorCache->sourceSelectorMatchHits, 'Indexed general style resolution executes six matcher calls and reuses four repeated element-selector results.');
-$assert(5 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 11 === $sourceSelectorCache->sourceSelectorClassTokenHits && 12 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
+// Candidate lists are keyed by each element's selector signature, which
+// reads its cached class tokens once more per element (Automattic/blocks-engine#3102).
+$assert(5 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 16 === $sourceSelectorCache->sourceSelectorClassTokenHits && 12 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
 $assert(4 === $sourceSelectorCache->sourceStructuralDeclarationBuilds && 8 === $sourceSelectorCache->sourceStructuralDeclarationHits, 'Structural declaration resolution builds each source state once and reuses repeated element results.');
 // style_rule_candidate_cache_hits is one higher than before native grid
 // child placement (Automattic/blocks-engine#2139 step 1): resolving whether
@@ -215,30 +217,27 @@ $assert(
     && $pressureResult['diagnostics'] === $pressureIsolatedResult['diagnostics'],
     'Selector cache pressure preserves canonical blocks, serialized output, and diagnostics.'
 );
+// Every `<p class="pressure">` has the same tag and attributes, so the
+// subject-only `.pressure` result and each collection's candidate list are
+// shared by signature (Automattic/blocks-engine#3102): the 4,099 selector
+// lookups execute twice (the root and one paragraph) and the 12,303 candidate
+// lookups build one list per collection and signature, without evicting.
 $assert(
-    4098 === ($pressureMetrics['selector_match_cache_misses'] ?? null)
-    && 1 === ($pressureMetrics['selector_match_cache_hits'] ?? null)
+    2 === ($pressureMetrics['selector_match_cache_misses'] ?? null)
+    && 4097 === ($pressureMetrics['selector_match_cache_hits'] ?? null)
     && 0 === ($pressureMetrics['selector_match_cache_evictions'] ?? null)
-    && 4098 === ($pressureMetrics['selector_match_cache_peak_entries'] ?? null)
+    && 2 === ($pressureMetrics['selector_match_cache_peak_entries'] ?? null)
     && 4099 === $pressureCache->sourceStructuralDeclarationBuilds
     && 8201 === $pressureCache->sourceStructuralDeclarationHits,
     'Read-only conversion retains selector and structural declaration results across repeated passes.'
 );
-// The candidate-cache misses/hits/evictions are each one higher than before
-// native grid child placement (Automattic/blocks-engine#2139 step 1): the
-// same single extra parent static-rule-candidate lookup as above, resolving
-// once whether the root `<main>` is a core grid container for its first
-// `<p>` child, then reused (a cache hit) by every further child from the
-// memoized parent result.
-// Conditional-only margin discovery adds one root conditional-candidate miss
-// and eviction; both capacity limits remain unchanged.
 $assert(
-    12299 === ($pressureMetrics['style_rule_candidate_cache_misses'] ?? null)
-    && 4 === ($pressureMetrics['style_rule_candidate_cache_hits'] ?? null)
-    && 8203 === ($pressureMetrics['style_rule_candidate_cache_evictions'] ?? null)
-    && 4096 === ($pressureMetrics['style_rule_candidate_cache_peak_entries'] ?? null)
-    && 4096 === ($pressureMetrics['style_rule_candidate_cache_peak_rule_references'] ?? null),
-    'Repeated hot candidate lists remain bounded while the transform exceeds both candidate-list and rule-reference capacities.'
+    8 === ($pressureMetrics['style_rule_candidate_cache_misses'] ?? null)
+    && 12295 === ($pressureMetrics['style_rule_candidate_cache_hits'] ?? null)
+    && 0 === ($pressureMetrics['style_rule_candidate_cache_evictions'] ?? null)
+    && 8 === ($pressureMetrics['style_rule_candidate_cache_peak_entries'] ?? null)
+    && 2 === ($pressureMetrics['style_rule_candidate_cache_peak_rule_references'] ?? null),
+    'Repeated equal-signature elements share one candidate list per collection instead of exceeding the candidate bounds.'
 );
 
 fwrite(STDOUT, sprintf("HTML transformer shared analysis cache passed: 54 pages, %.1fms, style builds=%d hits=%d evictions=%d entries=%d bytes=%d; author builds=%d hits=%d evictions=%d entries=%d bytes=%d; byte budget style builds=%d evictions=%d retained=%d evicted=%d author builds=%d evictions=%d retained=%d evicted=%d\n", $elapsedMs, $cache->styleBuilds, $cache->styleHits, $cache->styleEvictions, count($cache->styles), $cache->styleBytes, $cache->authorSelectorBuilds, $cache->authorSelectorHits, $cache->authorSelectorEvictions, count($cache->authorSelectorAnalyses), $cache->authorSelectorBytes, $byteBudgetCache->styleBuilds, $byteBudgetCache->styleEvictions, $byteBudgetCache->styleBytes, $byteBudgetCache->styleEvictedBytes, $byteBudgetCache->authorSelectorBuilds, $byteBudgetCache->authorSelectorEvictions, $byteBudgetCache->authorSelectorBytes, $byteBudgetCache->authorSelectorEvictedBytes));

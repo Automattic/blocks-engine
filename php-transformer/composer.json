@@ -185,6 +185,7 @@
       "php tests/contract/layout-geometry-proof.php",
       "php tests/contract/core-code-save-supports.php",
       "php tests/contract/core-code-literal-markup-text.php",
+      "php tests/contract/selector-match-cache-signature.php",
       "@test:unit"
     ],
     "test:unit": [
