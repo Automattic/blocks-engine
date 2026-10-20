@@ -3327,6 +3327,13 @@ final class AuthorStylesheetProjector
     private function navigationListBoxRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
         $box = array_intersect_key($declarations, array_flip(array('display', 'overflow', 'overflow-x', 'overflow-y')));
+        // Only visibility transfers from the list's display: a shown list is
+        // already represented by the native root's own flex row, so any
+        // non-none value restores that native display instead of replacing it.
+        if (is_string($box['display'] ?? null)) {
+            $importance = preg_match('/!\s*important\s*$/i', $box['display']) ? ' !important' : '';
+            if ('none' !== strtolower(trim(preg_replace('/!\s*important\s*$/i', '', $box['display']) ?? ''))) $box['display'] = 'flex' . $importance;
+        }
         if (array() === $box) return '';
         $selectors = array();
         foreach (CssValueSplitter::splitTopLevel($prelude, array(',')) as $selector) {

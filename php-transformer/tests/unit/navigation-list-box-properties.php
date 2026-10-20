@@ -46,6 +46,8 @@ foreach (require dirname(__DIR__) . '/fixtures/navigation-list-box-properties.ph
         $assert(array() !== $none, 'narrow rendering box receives display:none outside media');
         $assert(array() !== $flex, 'desktop rendering box receives display:flex inside source media');
         $assert($none && $flex && max($none) < max($flex), 'responsive override follows base declaration');
+    } elseif ('inline-rows' === $name) {
+        $assert(!array_filter($facts, static fn(array $f): bool => 'display' === $f[0] && !in_array($f[1], array('flex', 'none'), true)), 'shown list keeps the native flex row instead of the source block display');
     } else {
         $assert((bool) array_filter($facts, static fn(array $f): bool => 'overflow-x' === $f[0] && 'scroll' === $f[1] && array() === $f[2]), 'scroller rendering box receives overflow-x:scroll');
     }
