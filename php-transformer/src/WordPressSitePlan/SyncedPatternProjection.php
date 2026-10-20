@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EditorInnerBlocksLayer;
 use InvalidArgumentException;
 
 /**
@@ -32,9 +33,6 @@ final class SyncedPatternProjection
      * its layout participation inside the panel.
      */
     public const EDITOR_CONTAINER_CSS = ':root .editor-styles-wrapper .wp-block-tab-panel .' . self::EDITOR_CONTAINER_CLASS . '{display:contents}';
-
-    /** The editor layer EditorShellBoundary restatements already tolerate (the HtmlToBlocks layout-shell inner-blocks class). */
-    private const EDITOR_SHELL_LAYER_CLASS = 'blocks-engine-layout-shell-editor-inner-blocks';
 
     /**
      * Each edited page keeps `_synced_pattern_source` (its markup before
@@ -180,8 +178,10 @@ final class SyncedPatternProjection
     }
 
     /**
-     * Editor rules that tolerate a layout-shell layer at each authored child
-     * combinator (EditorShellBoundary) also tolerate the core/block wrapper,
+     * Editor rules that tolerate the editor-only inner-blocks layer
+     * (EditorInnerBlocksLayer, emitted by the translation layer's
+     * EditorShellBoundary) at each authored child combinator also tolerate
+     * the core/block wrapper,
      * so panel-ancestor child combinators still reach the pattern content in
      * the editor. These rules never match the front end.
      *
@@ -190,10 +190,12 @@ final class SyncedPatternProjection
      */
     public static function editorStylesheets(array $assets): array
     {
-        $layer = ':where(.' . self::EDITOR_SHELL_LAYER_CLASS . ')>';
+        // The editor-only layer every restated `parent>child` step already tolerates, widened by the core/block wrapper.
+        $layer = EditorInnerBlocksLayer::compound() . '>';
+        $widened = EditorInnerBlocksLayer::compound('.' . self::EDITOR_CONTAINER_CLASS) . '>';
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference']) || !str_contains($asset['content'], $layer)) continue;
-            $asset = WordPressSitePlan::withRewrittenTextContent($asset, str_replace($layer, ':where(.' . self::EDITOR_SHELL_LAYER_CLASS . ',.' . self::EDITOR_CONTAINER_CLASS . ')>', $asset['content']));
+            $asset = WordPressSitePlan::withRewrittenTextContent($asset, str_replace($layer, $widened, $asset['content']));
         }
         unset($asset);
         return $assets;
