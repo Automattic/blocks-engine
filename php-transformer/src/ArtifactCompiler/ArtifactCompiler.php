@@ -5191,7 +5191,9 @@ final class ArtifactCompiler
                 if (isset($components[$identity])) $component['occurrences'] = (int) ($components[$identity]['occurrences'] ?? 1) + (int) ($component['occurrences'] ?? 1);
                 $components[$identity] = $component;
             }
-            foreach ($fact['classes'] as $class => $count) $classes[$class] = (int) ($classes[$class] ?? 0) + (int) $count;
+            // PHP stores an all-digit class token as an int array key; read it
+            // back as the string the source authored. See blocks-engine#3098.
+            foreach ($fact['classes'] as $classKey => $count) { $class = (string) $classKey; $classes[$class] = (int) ($classes[$class] ?? 0) + (int) $count; }
         }
         return array('components' => array_values($components), 'classes' => $classes);
     }
@@ -5201,7 +5203,10 @@ final class ArtifactCompiler
     {
         $components = $facts['components'];
 
-        foreach ( $facts['classes'] as $class => $count ) {
+        foreach ( $facts['classes'] as $classKey => $count ) {
+            // PHP stores an all-digit class token as an int array key; read it
+            // back as the string the source authored. See blocks-engine#3098.
+            $class = (string) $classKey;
             if ( $count < 2 && ! preg_match('/(?:card|grid|hero|nav|header|footer|feature|testimonial|pricing|product|gallery|section)/', $class) ) {
                 continue;
             }
