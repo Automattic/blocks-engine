@@ -903,7 +903,7 @@ final class ShellExtraction
     }
 
     /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
-    public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array(), array $runtimeEntityRecords = array()): array
+    public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), bool $partitionTypes = true): array
     {
         $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
         $parts = array(); $diagnostics = array(); $unremovable = array();
@@ -934,6 +934,86 @@ final class ShellExtraction
             $identity = array_key_first($clusters);
             $cluster = null === $identity ? null : $clusters[$identity];
             $runnerUp = array_values($clusters)[1] ?? null;
+            // A cluster cannot establish a fallback for a type it never contains.
+            // Resolve those disjoint populations independently, including ties
+            // between equally sized page and post shells.
+            $types = array();
+            foreach ($applicable as $index => $page) $types[$page['post_type']][] = $index;
+            $disjointType = false;
+            foreach ($types as $indexes) {
+                if (is_array($cluster) && array() === array_intersect($indexes, $cluster['indexes'])) $disjointType = true;
+            }
+            $responsive = (bool) array_filter($applicable, fn(array $page): bool => $this->retainsResponsiveVariantLandmark($page['canonical_block_markup'], $area));
+            if ($partitionTypes && count($types) > 1 && $disjointType && !$responsive) {
+                // Types represented in the dominant cluster remain one population
+                // and retain the site's portable header/footer part slugs.
+                $dominantIndexes = array();
+                foreach ($types as $type => $indexes) {
+                    if (array() === array_intersect($indexes, $cluster['indexes'])) continue;
+                    array_push($dominantIndexes, ...$indexes);
+                    unset($types[$type]);
+                }
+                $types = array('' => $dominantIndexes) + $types;
+                foreach ($types as $type => $indexes) {
+                    $dominant = '' === $type;
+                    $subset = array();
+                    foreach ($indexes as $index) {
+                        $subset[$index] = $pages[$index];
+                        $subset[$index]['shell_candidates'] = array_values(array_filter($pages[$index]['shell_candidates'] ?? array(), static fn(array $candidate): bool => $area === $candidate['area']));
+                    }
+                    $resolved = $this->sharedShells($subset, $reservedSlugs, $runtimeDeclarations, $runtimeEntityRecords, false);
+                    $renames = array();
+                    $runtimeDeclarations = $resolved['runtime_declarations'];
+                    foreach ($resolved['parts'] as &$part) {
+                        $oldSlug = $part['slug'];
+                        $baseSlug = $dominant ? $oldSlug : $oldSlug . '-' . $type;
+                        $slug = $baseSlug;
+                        for ($suffix = 2; isset($reservedSlugs[$slug]); ++$suffix) $slug = $baseSlug . '-' . $suffix;
+                        $renames[$oldSlug] = $slug;
+                        $oldSource = $part['source_path'];
+                        $part['slug'] = $slug;
+                        $part['source_path'] = 'wordpress-site-plan/shared/' . $slug . '#' . $area;
+                        $part['placement']['source_path'] = 'wordpress-site-plan/shared/' . $slug;
+                        $part['document_metadata']['source_context']['source_path'] = $part['source_path'];
+                        $part['reconciliation_identity'] = WordPressSitePlan::identity('template-part', $part['source_path'], 'parts/' . $slug . '.html');
+                        if (in_array($part['placement']['kind'], array('shared_shell', 'entry_shell'), true)) {
+                            $allowed = $dominant
+                                ? array_merge(WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS, array_values(array_unique(array_map(static fn(array $page): string => 'post' === $page['post_type'] ? 'single' : 'page', $subset))))
+                                : array('post' === $type ? 'single' : 'page');
+                            if (array_filter($subset, static fn(array $page): bool => !empty($page['entrypoint']))) $allowed[] = 'front-page';
+                            if (array() !== array_intersect($indexes, $cluster['indexes'])) $allowed = array_merge($allowed, WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS);
+                            $part['placement']['template_slugs'] = array_values(array_intersect($part['placement']['template_slugs'] ?? array(), $allowed));
+                            $populationTypes = array_values(array_unique(array_column($subset, 'post_type')));
+                            if (1 === count($populationTypes)) $part['placement']['post_type'] = $populationTypes[0];
+                        }
+                        // Composition declarations are materialized before shell binding
+                        // hoists; update only the newly hoisted part owner.
+                        foreach ($runtimeDeclarations as &$declaration) {
+                            if (!isset($declaration['payload']['entities'])) continue;
+                            foreach ($declaration['payload']['entities'] as &$entity) {
+                                if (($entity['source_path'] ?? null) === $oldSource) $entity['source_path'] = $part['source_path'];
+                                if (!isset($entity['bindings'])) continue;
+                                foreach ($entity['bindings'] as &$binding) if (($binding['source_path'] ?? null) === $oldSource) $binding['source_path'] = $part['source_path'];
+                                unset($binding);
+                            }
+                            unset($entity);
+                            unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
+                        }
+                        unset($declaration);
+                    }
+                    unset($part);
+                    foreach ($resolved['pages'] as $index => $page) {
+                        $page['shell_candidates'] = array_values(array_filter($pages[$index]['shell_candidates'] ?? array(), static fn(array $candidate): bool => $area !== $candidate['area']));
+                        foreach ($renames as $oldSlug => $slug) $page['canonical_block_markup'] = str_replace('"slug":"' . $oldSlug . '"', '"slug":"' . $slug . '"', $page['canonical_block_markup']);
+                        $page['content_hash'] = WordPressSitePlan::contentHash($page['canonical_block_markup']);
+                        $pages[$index] = $page;
+                    }
+                    array_push($parts, ...$resolved['parts']);
+                    array_push($diagnostics, ...$resolved['diagnostics']);
+                    $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
+                }
+                continue;
+            }
             // A multi-route capture can carry chrome on the entry page only
             // (single-page apps whose legal pages render bare). When no other
             // route has any candidate for this area, nothing disagrees with
@@ -1205,7 +1285,10 @@ final class ShellExtraction
             // landmark repeats on more routes than any of them (that landmark
             // is the site's single shell; the edges only differ around it).
             $firstBlocks = array_map(static fn(array $group): string => $edges[$group['indexes'][0]][0]['identity'], $groups);
-            if (isset($groups[1]) && count(array_unique($firstBlocks)) === count($groups) && max(array_map(static fn(array $group): int => count($group['indexes']), $groups)) >= $largestCluster) {
+            $typeIndexes = array();
+            foreach ($applicable as $index => $page) $typeIndexes[$page['post_type']][] = $index;
+            $disjointTypes = count($typeIndexes) > 1 && (bool) array_filter($typeIndexes, static fn(array $indexes): bool => isset($groups[0]) && array() === array_intersect($indexes, $groups[0]['indexes']));
+            if (!$disjointTypes && isset($groups[1]) && count(array_unique($firstBlocks)) === count($groups) && max(array_map(static fn(array $group): int => count($group['indexes']), $groups)) >= $largestCluster) {
                 $variants = $this->edgeVariantParts($pages, $edges, $groups, $area, $reservedSlugs, $runtimeDeclarations);
                 $pages = $variants['pages'];
                 array_push($parts, ...$variants['parts']);
