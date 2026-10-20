@@ -2725,6 +2725,7 @@ PHP;
         $routes = array();
         $evidenceByIndex = array();
         $structuredTypes = array();
+        $pageEvidenceByIndex = array();
         foreach ($documents as $index => $document) {
             if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site document is invalid.');
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
@@ -2732,7 +2733,11 @@ PHP;
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
             $structuredTypes[$index] = self::structuredPageTypes($document);
             $evidenceByIndex[$index] = $this->publicationEvidence($document);
-            if (!array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $structuredTypes[$index]) && array_intersect(array('WebPage', 'AboutPage', 'ContactPage', 'CollectionPage'), $structuredTypes[$index])) $evidenceByIndex[$index] = array();
+            $pageTypes = array_intersect(array('WebPage', 'AboutPage', 'ContactPage', 'CollectionPage'), $structuredTypes[$index]);
+            if (!array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $structuredTypes[$index]) && $pageTypes) {
+                $evidenceByIndex[$index] = array();
+                $pageEvidenceByIndex[$index] = array_values(array_map(static fn(string $type): array => array('source' => 'json-ld:' . $type), $pageTypes));
+            }
         }
         $indexByRoute = array_flip($routes);
         foreach ($evidenceByIndex as $index => $evidence) {
@@ -2804,7 +2809,11 @@ PHP;
                     $evidence[] = array('source' => 'listing:parent');
                 }
             }
-            $postType = $explicit ?? ((!empty($document['entrypoint']) || array() === $evidence) ? 'page' : 'post');
+            // Page evidence must not participate in publication/listing inference.
+            // Attach it after that inference so consumers can honour the page decision.
+            $pageEvidence = $pageEvidenceByIndex[$index] ?? array();
+            if (array() !== $pageEvidence) $evidence = $pageEvidence;
+            $postType = $explicit ?? ((!empty($document['entrypoint']) || array() !== $pageEvidence || array() === $evidence) ? 'page' : 'post');
             $surface = $this->templateSurface($metadata['template_surface'] ?? null, (string) ($document['source_path'] ?? ''));
             if (null !== $surface) {
                 $document['template_surface'] = $surface;
@@ -5856,6 +5865,11 @@ PHP;
         if (!is_array($decision) || 'blocks-engine/content-decision/v1' !== ($decision['schema'] ?? null) || !in_array($decision['state'] ?? null, array('declared', 'inferred', 'defaulted'), true) || !is_string($decision['post_type'] ?? null) || $decision['post_type'] !== $document['post_type'] || !is_array($decision['evidence'] ?? null) || count($decision['evidence']) > 16) throw new InvalidArgumentException('WordPress site plan content decision is invalid.');
         $provenance = $decision['provenance'] ?? null;
         if (('declared' === $decision['state'] && (!is_string($provenance) || !preg_match('/^(?:frontmatter|metadata):[a-z_]+$/', $provenance))) || ('declared' !== $decision['state'] && null !== $provenance) || ('defaulted' === $decision['state'] && array() !== $decision['evidence']) || ('inferred' === $decision['state'] && array() === $decision['evidence'])) throw new InvalidArgumentException('WordPress site plan content decision provenance is invalid.');
+        // Inferred decisions may describe pages as well as posts. Structured
+        // page types are classification evidence, not publication timestamps.
+        foreach ($decision['evidence'] as $evidence) {
+            if (is_array($evidence) && in_array($evidence['source'] ?? null, array('json-ld:WebPage', 'json-ld:AboutPage', 'json-ld:ContactPage', 'json-ld:CollectionPage'), true) && ('inferred' === $decision['state'] && 'page' !== $decision['post_type'] || array_key_exists('publication_timestamp', $evidence))) throw new InvalidArgumentException('WordPress site plan structured page evidence is invalid.');
+        }
         $timestamps = array(); foreach ($decision['evidence'] as $evidence) { if (!is_array($evidence) || array_diff(array_keys($evidence), array('source', 'publication_timestamp')) || !is_string($evidence['source'] ?? null) || '' === $evidence['source'] || strlen($evidence['source']) > 128) throw new InvalidArgumentException('WordPress site plan content decision evidence is invalid.'); if (isset($evidence['publication_timestamp'])) { if (!self::utcTimestamp($evidence['publication_timestamp'])) throw new InvalidArgumentException('WordPress site plan content decision timestamp is invalid.'); $timestamps[] = $evidence['publication_timestamp']; } }
         if (isset($document['publication_timestamp']) && (!self::utcTimestamp($document['publication_timestamp']) || !in_array($document['publication_timestamp'], $timestamps, true))) throw new InvalidArgumentException('WordPress site plan publication timestamp is invalid.');
     }
