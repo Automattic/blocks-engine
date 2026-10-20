@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ListingControlsRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMElement;
@@ -111,6 +112,7 @@ final class CommerceFallbackReporter
             unset($product);
 
             $coveredPaths[] = $path;
+            $listing = $this->listingControls($element, $products);
 
             $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
                 'type'              => 'html',
@@ -132,9 +134,74 @@ final class CommerceFallbackReporter
                 // repeats is built from the cards' final block markup in
                 // `itemTemplate()` once the page is serialized.
                 'binding'           => $this->blockBinding(array(), 'commerce_product_grid', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element),
+                'listing'           => $listing,
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
         }
+    }
+
+    /**
+     * The controls that facet, bound, sort, or count this grid's products, and
+     * the region that holds them with the grid, each anchored on its own
+     * emitted block. Facet values land on the products they describe: a
+     * category facet as the product's `category`, any other facet as one of
+     * its `attributes`.
+     *
+     * @param list<array<string,mixed>> $products
+     * @return array<string,mixed>
+     */
+    private function listingControls(DOMElement $grid, array &$products): array
+    {
+        $cards = array();
+        foreach ( $grid->childNodes as $child ) {
+            if ( $child instanceof DOMElement && null !== $this->recognizer->productCardData($child) ) {
+                $cards[] = $child;
+            }
+        }
+        if ( count($cards) !== count($products) ) {
+            return array();
+        }
+        $prices = array_map(static function (array $product): ?float {
+            $digits = preg_replace('/[^0-9.]/', '', str_replace(',', '', (string) ($product['price'] ?? '')));
+            return is_string($digits) && is_numeric($digits) ? (float) $digits : null;
+        }, $products);
+        $recognized = (new ListingControlsRecognizer())->recognize($grid, $cards, $prices);
+        if ( null === $recognized ) {
+            return array();
+        }
+
+        $controls = array();
+        foreach ( $recognized['controls'] as $control ) {
+            $element = $control['element'];
+            unset($control['element']);
+            $control['selector'] = SourceDom::elementSelector($element);
+            $control['binding'] = $this->blockBinding(array(), 'commerce_listing_control', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element);
+            $controls[] = $control;
+            if ( 'facet' !== $control['kind'] ) {
+                continue;
+            }
+            $labels = array_column($control['options'], 'label', 'value');
+            foreach ( $recognized['card_facets'] as $index => $values ) {
+                if ( ! isset($values[$control['key']]) ) {
+                    continue;
+                }
+                $value = $values[$control['key']];
+                $valueLabel = (string) ($labels[$value] ?? $value);
+                if ( 'category' === $control['role'] ) {
+                    // The filter's option names the category as shoppers pick it.
+                    $products[$index]['category'] = $valueLabel;
+                    continue;
+                }
+                $products[$index]['attributes'][] = array('key' => $control['key'], 'label' => $control['label'], 'value' => $value, 'value_label' => $valueLabel);
+            }
+        }
+
+        return array(
+            'schema'   => 'generic/listing-controls/v1',
+            'selector' => SourceDom::elementSelector($recognized['region']),
+            'binding'  => $this->blockBinding(array(), 'commerce_listing', array(), $recognized['region']),
+            'controls' => $controls,
+        );
     }
 
     /**

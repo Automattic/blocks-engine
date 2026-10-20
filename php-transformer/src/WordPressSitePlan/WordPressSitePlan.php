@@ -4696,7 +4696,8 @@ PHP;
             $lines[] = "        \$url = is_string( \$block['attrs']['url'] ?? null ) ? trim( (string) \$block['attrs']['url'] ) : '';";
             $lines[] = "        if ( '' !== \$url && '/' === \$url[0] && ( 1 === strlen( \$url ) || '/' !== \$url[1] ) ) {";
             $lines[] = "            \$target = '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' );";
-            $lines[] = "            \$served = is_front_page() ? '/' : ( is_page() ? '/' . trim( (string) get_page_uri( get_queried_object_id() ), '/' ) : null );";
+            $lines[] = "            \$document = " . self::DOCUMENT_ID_EXPRESSION . ";";
+            $lines[] = "            \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
             $lines[] = "            \$current = null !== \$served && \$target === \$served;";
             $lines[] = "        }";
             $lines[] = "    }";
@@ -5072,13 +5073,23 @@ PHP;
         return false;
     }
 
+    /**
+     * The post the current request renders as a document: the queried post on
+     * a singular view. A provider that renders an imported page's design on
+     * another view (an archive of its own content type, for instance) names
+     * that page through the `blocks_engine_document_id` filter, and the page's
+     * route styles, document attributes, head, and current-navigation state
+     * follow it there.
+     */
+    public const DOCUMENT_ID_EXPRESSION = "(int) apply_filters( 'blocks_engine_document_id', is_singular() ? get_queried_object_id() : 0 )";
+
     /** @param array<string,mixed> $scope */
     private static function bootstrapScopeCondition(array $scope): string
     {
         if ('global' === ($scope['kind'] ?? null)) return 'true';
         if (!empty($scope['front_page'])) return 'is_front_page()';
         if ('post' === ($scope['kind'] ?? null)) return "is_singular( 'post' ) && " . var_export($scope['reconciliation_identity'], true) . " === get_post_meta( get_queried_object_id(), '_blocks_engine_reconciliation_identity', true )";
-        return "is_page() && ( '' !== ( \$blocks_engine_page_identity = get_post_meta( get_queried_object_id(), '_blocks_engine_reconciliation_identity', true ) ) ? " . var_export($scope['reconciliation_identity'], true) . " === \$blocks_engine_page_identity : " . var_export($scope['route_path'], true) . " === trim( get_page_uri( get_queried_object_id() ), '/' ) )";
+        return "0 !== ( \$blocks_engine_page_id = " . self::DOCUMENT_ID_EXPRESSION . " ) && 'page' === get_post_type( \$blocks_engine_page_id ) && ( '' !== ( \$blocks_engine_page_identity = get_post_meta( \$blocks_engine_page_id, '_blocks_engine_reconciliation_identity', true ) ) ? " . var_export($scope['reconciliation_identity'], true) . " === \$blocks_engine_page_identity : " . var_export($scope['route_path'], true) . " === trim( get_page_uri( \$blocks_engine_page_id ), '/' ) )";
     }
     private static function assertAssetScopes(mixed $scopes): void
     {

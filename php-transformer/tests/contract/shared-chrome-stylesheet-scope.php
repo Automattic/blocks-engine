@@ -123,7 +123,7 @@ $published = $enqueues($plan);
 $frontCondition = 'is_front_page()';
 // Page routes match reconciliation identity first, with the canonical route
 // path as fallback; locate each block by that route comparison.
-$routeCondition = static fn(string $route): string => (string) (array_values(array_filter(array_keys($published['routes']), static fn(string $condition): bool => str_contains($condition, "'" . $route . "' === trim( get_page_uri( get_queried_object_id() ), '/' )")))[0] ?? $route);
+$routeCondition = static fn(string $route): string => (string) (array_values(array_filter(array_keys($published['routes']), static fn(string $condition): bool => str_contains($condition, "'" . $route . "' === trim( get_page_uri( \$blocks_engine_page_id ), '/' )")))[0] ?? $route);
 $aboutCondition = $routeCondition('guides/about');
 $teamCondition = $routeCondition('guides/team');
 foreach (array($frontCondition, $aboutCondition, $teamCondition) as $condition) {

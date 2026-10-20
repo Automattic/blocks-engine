@@ -76,6 +76,13 @@ final class SchemaProductEvidence
             $description = trim(strip_tags(html_entity_decode($product['description'], ENT_QUOTES | ENT_HTML5, 'UTF-8')));
             if ('' !== $description) $fields['description'] = $description;
         }
+        $category = $product['category'] ?? null;
+        if (is_array($category)) $category = $category['name'] ?? null;
+        if (is_string($category) && '' !== trim($category)) {
+            // schema.org allows a `>`- or `/`-delimited path; the leaf names the product's category.
+            $leaf = trim((string) preg_replace('~^.*[>/]~', '', html_entity_decode($category, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+            if ('' !== $leaf) $fields['category'] = $leaf;
+        }
         $image = $product['image'] ?? null;
         if (is_array($image) && array_is_list($image)) $image = $image[0] ?? null;
         if (is_array($image)) $image = $image['contentUrl'] ?? $image['url'] ?? null;

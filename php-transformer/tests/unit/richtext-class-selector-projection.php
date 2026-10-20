@@ -25,7 +25,9 @@ foreach ( $result['assets'] ?? array() as $asset ) {
     }
 }
 
-$hasMarkerProjection = str_contains($css, 'data-blocks-engine-richtext-marker="blocks-engine-richtext-');
+// A context-free subject reaches the carriers through the richtext role and
+// subject classes instead of one marker arm per carrier.
+$hasMarkerProjection = str_contains($css, ':where(.blocks-engine-role-richtext.blocks-engine-subject.');
 $hasClassProjection  = str_contains($css, '.av:not(:where(');
 
 if ( ! $hasMarkerProjection || ! $hasClassProjection ) {

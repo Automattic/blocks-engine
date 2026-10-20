@@ -2264,6 +2264,16 @@ final class NavigationPattern implements PatternRecognizerInterface
                 return array();
             }
 
+            $wrappedList = $this->toggleWrappedList($item);
+            if ( null !== $wrappedList ) {
+                $wrappedBlocks = $this->navigationBlocksFromList($wrappedList, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $collected);
+                if ( array() === $wrappedBlocks ) {
+                    return array();
+                }
+                array_push($blocks, ...$wrappedBlocks);
+                continue;
+            }
+
             $block = $this->navigationBlockFromItem($item, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $collected);
             if ( null === $block ) {
                 return array();
@@ -3622,7 +3632,18 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function isMenuToggleControl(DOMElement $element): bool
     {
-        if ( 'button' !== strtolower($element->tagName) ) {
+        // A CSS-only menu toggle is a checkbox and the label that targets it.
+        // Neither carries a destination; together they only open the menu.
+        $tagName = strtolower($element->tagName);
+        if ( 'input' === $tagName ) {
+            return $this->isLabelledCheckboxToggle($element);
+        }
+        if ( 'label' === $tagName ) {
+            $target = '' !== trim($this->attr($element, 'for')) ? $element->ownerDocument?->getElementById(trim($this->attr($element, 'for'))) : null;
+            return $target instanceof DOMElement && $this->isLabelledCheckboxToggle($target);
+        }
+
+        if ( 'button' !== $tagName ) {
             return false;
         }
 
@@ -3642,6 +3663,50 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return false;
+    }
+
+    private function isLabelledCheckboxToggle(DOMElement $input): bool
+    {
+        $id = trim($this->attr($input, 'id'));
+        if ( 'input' !== strtolower($input->tagName) || 'checkbox' !== strtolower($this->attr($input, 'type')) || '' === $id ) {
+            return false;
+        }
+        foreach ( $input->ownerDocument?->getElementsByTagName('label') ?? array() as $label ) {
+            if ( $label instanceof DOMElement && $id === trim($this->attr($label, 'for')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A list item with no link of its own that only wraps menu-toggle chrome
+     * and one nested list is the toggle's container, not a menu item: the
+     * nested list is the menu.
+     */
+    private function toggleWrappedList(DOMElement $item): ?DOMElement
+    {
+        $list = null;
+        $hasToggle = false;
+        foreach ( $item->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+            if ( $this->isMenuToggleControl($child) ) {
+                $hasToggle = true;
+                continue;
+            }
+            if ( null !== $list || ! in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                return null;
+            }
+            $list = $child;
+        }
+
+        return $hasToggle ? $list : null;
     }
 
     private function containsDialogCloseTarget(DOMElement $element): bool
@@ -3683,7 +3748,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         // it. `isSourceNavigationChromeAnchor()` in the parity reporter reads
         // exactly these two tokens as chrome on the source side; rescuing them
         // here would leave the two sides counting different menus.
-        if ( preg_match('/(?:^|[^a-z0-9])(?:separator|divider)(?:[^a-z0-9]|$)/', $tokens) ) {
+        if ( preg_match('/(?:^|[^a-z0-9])(?:separator|divider)(?:[^a-z0-9]|$)/', $tokens)
+            && ! preg_match('/[\p{L}\p{N}]/u', (string) $element->textContent) ) {
             return true;
         }
 

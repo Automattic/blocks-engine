@@ -291,17 +291,10 @@ final class AuthorStylesheetProjector
 
     /**
      * The editor canvas renders a layout shell's inner blocks inside one
-     * Gutenberg-owned layer (EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS)
-     * that the saved front-end markup does not have. An authored child
-     * combinator whose two sides land on opposite sides of that layer — a
-     * source wrapper folded into the shell and the root of a block nested
-     * inside it — matches on the front end and silently stops matching in
-     * the editor, so authored cascade decisions such as font-size
-     * inheritance revert to engine projections. Emit editor-scoped variants
-     * whose child combinators reach through the marked layer. The layer
-     * class never exists in saved markup and the editor-styles-wrapper
-     * prefix never matches the front end, so every variant is inert outside
-     * the editor canvas.
+     * Gutenberg-owned layer that the saved front-end markup does not have, so
+     * an authored child combinator across it stops matching there. Emit one
+     * editor-scoped rule per selector that tolerates the layer at each
+     * boundary (EditorShellBoundary); it never matches the front end.
      */
     private function editorShellChildCombinatorVariants(string $css): string
     {
@@ -310,164 +303,14 @@ final class AuthorStylesheetProjector
         }
         return ( new CssStylesheetTransformer() )->transformStyleRules(
             $css,
-            function (string $prelude, string $body): string {
-                $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-                if ( null === $selectors ) {
-                    return '';
+            static function (string $prelude, string $body): string {
+                $rules = '';
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $rules .= EditorShellBoundary::css(EditorShellBoundary::rule($selector, $body));
                 }
-                $variants = array();
-                foreach ( $selectors as $selector ) {
-                    foreach ( $this->shellLayerCombinatorVariants(trim($selector)) as $variant ) {
-                        // The editor scope adds no specificity: the variant
-                        // follows its source rule, so it must tie with every
-                        // rule the source rule ties with, such as a later
-                        // `.col-lg-6` that overrides `.row > *`.
-                        $variants[] = ':where(:root .editor-styles-wrapper) ' . $variant;
-                    }
-                }
-                return array() === $variants ? '' : implode(',', $variants) . '{' . $body . '}';
+                return $rules;
             }
         );
-    }
-
-    /** @return list<string> */
-    private function shellLayerCombinatorVariants(string $selector): array
-    {
-        if ( str_contains($selector, EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS) ) {
-            return array();
-        }
-        $combinators = $this->shellCrossingCombinatorOffsets($selector);
-        if ( null === $combinators || array() === $combinators ) {
-            return array();
-        }
-        // One authored selector rarely crosses more than a couple of shell
-        // boundaries, so relax every subset while the count stays small;
-        // past that, single-combinator relaxations keep the emission bounded.
-        $subsets = 3 >= count($combinators)
-            ? $this->combinatorSubsets($combinators)
-            : array_map(static fn (int $offset): array => array($offset), $combinators);
-        $variants = array();
-        foreach ( $subsets as $subset ) {
-            $variants[] = $this->selectorRelaxingChildCombinators($selector, $subset);
-        }
-        return array_values(array_unique($variants));
-    }
-
-    /**
-     * Top-level `>` combinator offsets that could cross the shell layer, or
-     * null when the selector is malformed CSS. Combinators whose child side
-     * addresses native block internals (core/button RichText bridges) are
-     * engine-generated relationships inside one block; the shell layer can
-     * never sit between them.
-     *
-     * @return list<int>|null
-     */
-    private function shellCrossingCombinatorOffsets(string $selector): ?array
-    {
-        $offsets = $this->childCombinatorOffsets($selector);
-        if ( null === $offsets ) {
-            return null;
-        }
-        $length = strlen($selector);
-        return array_values(array_filter(
-            $offsets,
-            static function (int $offset) use ($selector, $length): bool {
-                // A template part hosts its blocks directly, never a layout shell layer.
-                if ( str_ends_with(rtrim(substr($selector, 0, $offset)), ':where(.wp-block-template-part)') ) {
-                    return false;
-                }
-                $state = CssSyntaxScanner::state();
-                $index = $offset + 1;
-                while ( $index < $length && CssSyntaxScanner::isCssWhitespace($selector[ $index ] ) ) {
-                    ++$index;
-                }
-                $compound = '';
-                for ( ; $index < $length; ++$index ) {
-                    $topLevel = CssSyntaxScanner::isTopLevel($state);
-                    $next = CssSyntaxScanner::consume($selector, $index, $state);
-                    if ( null === $next ) {
-                        return true;
-                    }
-                    if ( $topLevel && $next === $index + 1 && in_array($selector[ $index ], array( '>', '+', '~' ), true) ) {
-                        break;
-                    }
-                    if ( $topLevel && $next === $index + 1 && ',' === $selector[ $index ] ) {
-                        break;
-                    }
-                    $compound .= $selector[ $index ];
-                    $index = $next - 1;
-                }
-                return ! str_starts_with(ltrim($compound), ':where(.wp-block-');
-            }
-        ));
-    }
-
-    /**
-     * Top-level `>` combinator offsets, or null when the selector is
-     * malformed CSS. Combinators inside functions, attribute selectors,
-     * strings, or comments never qualify.
-     *
-     * @return list<int>|null
-     */
-    private function childCombinatorOffsets(string $selector): ?array
-    {
-        $state = CssSyntaxScanner::state();
-        $length = strlen($selector);
-        $offsets = array();
-        for ( $index = 0; $index < $length; ++$index ) {
-            $next = CssSyntaxScanner::consume($selector, $index, $state);
-            if ( null === $next ) {
-                return null;
-            }
-            if ( CssSyntaxScanner::isTopLevel($state) && $next === $index + 1 && '>' === $selector[ $index ] ) {
-                $offsets[] = $index;
-            }
-            $index = $next - 1;
-        }
-        return CssSyntaxScanner::isComplete($state) ? $offsets : null;
-    }
-
-    /**
-     * @param list<int> $offsets
-     * @return list<list<int>>
-     */
-    private function combinatorSubsets(array $offsets): array
-    {
-        $subsets = array();
-        $count = count($offsets);
-        for ( $mask = 1; $mask < ( 1 << $count ); ++$mask ) {
-            $subset = array();
-            foreach ( $offsets as $index => $offset ) {
-                if ( $mask & ( 1 << $index ) ) {
-                    $subset[] = $offset;
-                }
-            }
-            $subsets[] = $subset;
-        }
-        return $subsets;
-    }
-
-    /**
-     * @param list<int> $offsets
-     */
-    private function selectorRelaxingChildCombinators(string $selector, array $offsets): string
-    {
-        // The layer is the direct child of the block element that hosts it
-        // and the direct parent of each nested block root, so a relaxed
-        // combinator stays a child step on both sides. A descendant step
-        // would let `a > b` reach every block nested at any depth below `a`.
-        $insertion = ' > :where(.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ') >';
-        $relaxed = '';
-        $cursor = 0;
-        foreach ( $offsets as $offset ) {
-            $combinator = $offset;
-            while ( $combinator > $cursor && CssSyntaxScanner::isCssWhitespace($selector[ $combinator - 1 ]) ) {
-                --$combinator;
-            }
-            $relaxed .= substr($selector, $cursor, $combinator - $cursor) . $insertion;
-            $cursor = $offset + 1;
-        }
-        return $relaxed . substr($selector, $cursor);
     }
 
     /**
@@ -1880,20 +1723,11 @@ final class AuthorStylesheetProjector
                 $hasNonProjected = true;
             }
             if ( $hasNonProjected ) {
-                // Control and semantic carriers also carry their kind's role
-                // class, so the authored arm stays off all of them through one
-                // constant class per kind instead of a list of per-element
-                // markers that differs on every page. RichText markers, whose
-                // carriers have no role class, stay enumerated.
-                $roleExcluded = EngineMarker::roleClasses(array_merge($controls, $semanticLeaves));
-                $exclusion = array();
-                foreach ( $roleExcluded as $roleClass ) {
-                    $exclusion[] = '.' . $roleClass;
-                }
-                $enumerated = array_diff($projectedMarkers, $controls, $semanticLeaves);
-                foreach ( $enumerated as $marker ) {
-                    $exclusion[] = '.' . $marker;
-                }
+                // Control, semantic and RichText carriers also carry their
+                // kind's role class, so the authored arm stays off all of them
+                // through one constant class per kind instead of a list of
+                // per-element markers that differs on every page.
+                $exclusion = array_map(static fn (string $roleClass): string => '.' . $roleClass, EngineMarker::roleClasses($projectedMarkers));
                 $rewritten[] = $this->rewriteSourceTagTypes(
                     $selector,
                     $parsed,
@@ -1928,7 +1762,15 @@ final class AuthorStylesheetProjector
             foreach ( null === $semanticSubject ? $semanticLeaves : $semanticSubject['rest'] as $marker ) {
                 $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);
             }
-            foreach ( $richTextLeaves as $marker ) {
+            // RichText arms take one shape too; a carrier the subject arm does
+            // not cover keeps its per-element attribute arm.
+            $richTextSubject = $semanticSubjectArms && array() !== $richTextLeaves
+                ? $this->contextFreeSubject('richtext', $parsed, $richTextLeaves, $context)
+                : null;
+            if ( null !== $richTextSubject ) {
+                $rewritten[] = $this->projectSemanticTarget($richTextSubject['target'], $selector, $parsed, $context);
+            }
+            foreach ( null === $richTextSubject ? $richTextLeaves : $richTextSubject['rest'] as $marker ) {
                 $rewritten[] = $this->projectRichTextSemanticSelector($selector, $parsed, $marker, $context);
             }
             if ( $inlineLayoutCarriers ) {
@@ -2660,14 +2502,14 @@ final class AuthorStylesheetProjector
      * routed markers it does not cover (which keep their own arms); null when
      * the target would reach a carrier the per-element arms do not.
      *
-     * Control and semantic carriers carry their source element's subject
-     * classes (tag and class tokens, EngineMarker::subjectTagClass()), which a
+     * Control, semantic and RichText carriers carry their source element's
+     * subject classes (tag and class tokens, EngineMarker::subjectTagClass()), which a
      * type, universal or class compound can test without any context. The
      * target therefore reaches every `$kind` carrier with subject classes whose
      * source the compound matches, on any page. It stands in for the
      * per-element arms of `$routedMarkers` only when every such carrier on this
-     * page is among them: none is routed elsewhere (a RichText, table or
-     * navigation subject, say). A routed marker without such a carrier (a
+     * page is among them: none is routed elsewhere (a table or navigation
+     * subject, or a control that is also a RichText run, say). A routed marker without such a carrier (a
      * presentation child that shares its control's marker, a carrier that
      * carries no subject classes) keeps its own arm. This page's cascade is
      * unchanged, and the arm text no longer depends on which other elements

@@ -1041,8 +1041,9 @@ final class ArtifactCompiler
 
         $products = array();
         $forms = array();
+        $orderLookups = array();
         $carts = array();
-        $productGrids = array();
+        $productGrids = array(); $productListings = array();
         foreach ( $fallbacks as $fallback ) {
             if ( ! is_array($fallback) ) continue;
             $code = (string) ($fallback['diagnostic_code'] ?? $fallback['kind'] ?? '');
@@ -1067,6 +1068,8 @@ final class ArtifactCompiler
                     if ( is_scalar($product['description'] ?? null) && '' !== trim((string) $product['description']) ) $row['description'] = (string) $product['description'];
                     $image = is_string($product['image'] ?? null) ? $product['image'] : (is_array($product['image'] ?? null) && is_string($product['image']['src'] ?? null) ? $product['image']['src'] : '');
                     if ( '' !== trim($image) ) $row['image'] = $image;
+                    if ( is_string($product['category'] ?? null) && '' !== trim($product['category']) ) $row['category'] = trim($product['category']);
+                    if ( is_array($product['attributes'] ?? null) && array() !== $product['attributes'] ) $row['attributes'] = $product['attributes'];
                     $sourceSelector = is_string($product['source_selector'] ?? null) ? trim($product['source_selector']) : '';
                     $selectors = array_values(array_unique(array_filter(array($sourceSelector, $container), static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
                     if ( array() !== $selectors ) $row['source_selectors'] = $selectors;
@@ -1080,6 +1083,8 @@ final class ArtifactCompiler
                         $row['bindings'] = array(array_merge($product['binding'], array('source_path' => $sourcePath)));
                     }
                     if ( isset($products[$productSlug]) ) {
+                        // The same product on another page may be the one its filters describe.
+                        foreach ( array('category', 'attributes') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
                         if ( ! isset($row['bindings'][0]) ) {
                             continue;
                         }
@@ -1098,6 +1103,21 @@ final class ArtifactCompiler
                 $gridBinding = $fallback['binding'] ?? null;
                 if ( '' !== $container && is_array($fallback['item_template'] ?? null) && array() !== $gridItems && is_array($gridBinding) && 'generic/block-binding/v1' === ($gridBinding['schema'] ?? null) && is_string($gridBinding['search_block_markup'] ?? null) && '' !== trim($gridBinding['search_block_markup']) ) {
                     $productGrids[$sourcePath . "\n" . $container] = array('source_path' => $sourcePath, 'selector' => $container, 'item_template' => $fallback['item_template'], 'items' => $gridItems, 'bindings' => array(array_merge($gridBinding, array('source_path' => $sourcePath))));
+                    // The controls that facet, bound, sort, or count this grid:
+                    // the region holding them with the grid is the first
+                    // binding, then one binding per control naming its id.
+                    $listing = $fallback['listing'] ?? null;
+                    if ( is_array($listing) && is_string($listing['selector'] ?? null) && is_array($listing['binding'] ?? null) && is_array($listing['controls'] ?? null) && array() !== $listing['controls'] ) {
+                        $controls = array();
+                        $bindings = array(array_merge($listing['binding'], array('source_path' => $sourcePath)));
+                        foreach ( $listing['controls'] as $control ) {
+                            $id = $control['kind'] . (isset($control['key']) ? ':' . $control['key'] : (isset($control['field']) ? ':' . $control['field'] : ''));
+                            $bindings[] = array_merge($control['binding'], array('source_path' => $sourcePath, 'control' => $id));
+                            unset($control['binding']);
+                            $controls[] = array('id' => $id) + $control;
+                        }
+                        $productListings[$sourcePath . "\n" . $listing['selector']] = array('source_path' => $sourcePath, 'selector' => $listing['selector'], 'grid_selector' => $container, 'controls' => $controls, 'bindings' => $bindings);
+                    }
                 }
             } elseif ( 'html_cart_view_fallback' === $code ) {
                 // A cart view is provider-bindable only through its page-owned
@@ -1140,6 +1160,31 @@ final class ArtifactCompiler
                 $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => $rawControls);
                 if ( array() !== $choiceGroups ) $form['choice_groups'] = $choiceGroups;
                 foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null) && preg_match('/^[a-f0-9]{64}$/', $fallback[$identityKey])) $form[$identityKey] = $fallback[$identityKey];
+                // An order-lookup form (order number + the email used at checkout
+                // + a submit) is a shop surface: a form provider can never answer
+                // it, while a shop provider owns order tracking. Recognized forms
+                // are pulled out of the detected-forms path here — the path that
+                // would otherwise declare them in `forms` — and declared beside
+                // the other shop collections below, reusing the finding's
+                // finalized form anchor under the `order_lookup` role. The
+                // `html_form_fallback` finding itself keeps carrying the
+                // extracted controls with its fallback identity, so a consumer
+                // can reconcile the form against its materialization. A form
+                // without a page-owned anchor stays on the generic path, which
+                // declines it loudly instead of silently.
+                $orderLookupBinding = is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ? $fallback['binding'] : null;
+                $orderLookup = array() === $choiceGroups ? OrderLookupFormRecognizer::recognize($rawControls) : null;
+                if ( null !== $orderLookup && null !== $orderLookupBinding ) {
+                    // The entity carries the same source form evidence and fallback
+                    // identity a `forms` entity would, so a consumer reconciles
+                    // it against the `html_form_fallback` finding unchanged.
+                    $orderLookups[$sourcePath . "\n" . $selector] = array_filter($form + array(
+                        'fields' => $orderLookup['fields'],
+                        'submit_label' => '' !== $orderLookup['submit_label'] ? $orderLookup['submit_label'] : null,
+                        'bindings' => array(array_merge($orderLookupBinding, array('role' => 'order_lookup', 'source_path' => $sourcePath))),
+                    ), static fn (mixed $value): bool => null !== $value && array() !== $value);
+                    continue;
+                }
                 // The control topology is the provider's map of where each flat
                 // control sits, and consumers enforce the same producer contract
                 // against this entity's control list. A topology that fails it
@@ -1212,9 +1257,9 @@ final class ArtifactCompiler
         }
         foreach ( SchemaProductEvidence::rows($files, $slug, $price) as $productSlug => $row ) {
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
-            foreach ( array('description', 'image') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+            foreach ( array('description', 'image', 'category') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
-        ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING);
+        ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($orderLookups, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
         $collections = array(
             array('capability' => 'shop', 'type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
             // A cart holds the store's products, so a cart view is declared only
@@ -1224,6 +1269,14 @@ final class ArtifactCompiler
             // Grids repeat the store's products, so like carts they are
             // declared only beside a products collection.
             array('capability' => 'shop', 'type' => 'product_grids', 'aliases' => array('product_grid', 'product_grids'), 'entities' => array_values($productGrids), 'schema' => 'generic/product-grids/v1', 'requires' => array('product', 'products')),
+            // The filters, sort, and count around a grid narrow or order that
+            // grid, so they are declared only beside the grids.
+            array('capability' => 'shop', 'type' => 'product_listings', 'aliases' => array('product_listing', 'product_listings'), 'entities' => array_values($productListings), 'schema' => 'generic/product-listings/v1', 'requires' => array('product_grid', 'product_grids')),
+            // An order lookup asks the store for one past order by its number
+            // and the buyer's email, so like carts it is declared for the shop
+            // capability: a form provider could not answer it. The same form is
+            // never also declared in `forms`.
+            array('capability' => 'shop', 'type' => 'order_lookups', 'aliases' => array('order_lookup', 'order_lookups'), 'entities' => array_values($orderLookups), 'schema' => 'generic/order-lookups/v1'),
             array('capability' => 'form', 'type' => 'forms', 'aliases' => array('form', 'forms'), 'entities' => array_values($forms), 'schema' => 'generic/forms/v1'),
         );
         foreach ( $collections as $collection ) {
@@ -5169,7 +5222,9 @@ final class ArtifactCompiler
                 if (isset($components[$identity])) $component['occurrences'] = (int) ($components[$identity]['occurrences'] ?? 1) + (int) ($component['occurrences'] ?? 1);
                 $components[$identity] = $component;
             }
-            foreach ($fact['classes'] as $class => $count) $classes[$class] = (int) ($classes[$class] ?? 0) + (int) $count;
+            // PHP stores an all-digit class token as an int array key; read it
+            // back as the string the source authored. See blocks-engine#3098.
+            foreach ($fact['classes'] as $classKey => $count) { $class = (string) $classKey; $classes[$class] = (int) ($classes[$class] ?? 0) + (int) $count; }
         }
         return array('components' => array_values($components), 'classes' => $classes);
     }
@@ -5179,7 +5234,10 @@ final class ArtifactCompiler
     {
         $components = $facts['components'];
 
-        foreach ( $facts['classes'] as $class => $count ) {
+        foreach ( $facts['classes'] as $classKey => $count ) {
+            // PHP stores an all-digit class token as an int array key; read it
+            // back as the string the source authored. See blocks-engine#3098.
+            $class = (string) $classKey;
             if ( $count < 2 && ! preg_match('/(?:card|grid|hero|nav|header|footer|feature|testimonial|pricing|product|gallery|section)/', $class) ) {
                 continue;
             }

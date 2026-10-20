@@ -43,4 +43,18 @@ $dataEntry = (new HtmlTransformer())->transform('<main><section>' . $options
     . '<label>Email<input type="email" name="email"></label><button type="button" class="send-results">Send</button></section></main>')->toArray();
 $assert(array() !== $formFallbacks($dataEntry), 'a group with a free-text field still routes to the form provider');
 
+// Reduced commerce page from issue #3090: choice-role buttons use submit-like
+// captions but are choices, not submission evidence.
+$reduced = '<main><h1>Blue Widget</h1><section><div role="radiogroup" aria-label="Purchase options">'
+    . '<button type="button" role="radio">One-time purchase</button>'
+    . '<button type="button" role="radio">Subscribe &amp; Save</button></div>'
+    . '<button class="add">Add to Cart</button><label>Gift wrap<input type="checkbox"></label></section></main>';
+$reducedResult = (new HtmlTransformer())->transform($reduced)->toArray();
+$assert(array() === $formFallbacks($reducedResult), 'ARIA choice controls are not pseudo-form submit evidence');
+$assert(array() === $reducedResult['fallbacks'], 'reduced commerce page emits no fallback finding');
+
+// Ordinary action captions remain valid pseudo-form submit evidence.
+$positive = (new HtmlTransformer())->transform('<main><section><label>Email<input type="email" name="email"></label><button type="button">Subscribe</button></section></main>')->toArray();
+$assert(array() !== $formFallbacks($positive), 'plain Subscribe button still pairs with labelled email input');
+
 echo "Choice-only control group tests passed ({$count} assertions)\n";

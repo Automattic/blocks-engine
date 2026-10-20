@@ -22,6 +22,7 @@ final class SourceBlockMaterializationFacts
         public readonly bool $startsHidden,
         public readonly array $sourceAttributes,
         public readonly array $structureSignals,
-        public readonly array $visualTopologyEvidence
+        public readonly array $visualTopologyEvidence,
+        public readonly bool $wrapperHiddenAtCollapsedViewport = false
     ) {}
 }

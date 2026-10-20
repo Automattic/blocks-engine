@@ -155,4 +155,55 @@ foreach (array('header' => 'Harbor ', 'footer' => 'Visit ') as $area => $text) {
     $assert(array('light' => $label, 'dark' => $label . ' (Events)') === array('light' => $titles['light'] ?? null, 'dark' => $titles['dark'] ?? null), "The main {$area} variant is titled {$label} and the other after its first route: " . json_encode($titles));
 }
 
+// Once an area is settled by extracted parts, a route left with its own
+// header/footer landmark gets it as a route-variant part instead of keeping
+// site chrome in its post content. Three routes share a header and footer;
+// the entrypoint has the same nav in a header with different classes and a
+// longer footer, so the landmark clusters exclude it as non_equivalent.
+$soleNav = '<nav><a href="index.html">Home</a><a href="about.html">About</a><a href="visit.html">Visit</a><a href="events.html">Events</a></nav>';
+$solePage = static function (string $title, bool $home) use ($soleNav): string {
+    $header = '<header class="masthead' . ($home ? ' masthead--overlay' : '') . '"><a class="brand" href="index.html">Harbor</a>' . $soleNav . '</header>';
+    $footer = $home
+        ? '<footer class="colophon colophon--wide"><p>Harbor, 1 Shore Road</p><a href="about.html">About us</a><a href="visit.html">Plan a visit</a><p>Open daily.</p></footer>'
+        : '<footer class="colophon"><p>Harbor, 1 Shore Road</p><a href="about.html">About</a><a href="visit.html">Visit</a></footer>';
+    return '<!doctype html><html><head><title>' . $title . '</title><style>.masthead{display:flex}.masthead--overlay{position:absolute;background:transparent}.colophon{background:#eee}</style></head><body>'
+        . $header . '<main><h1>' . $title . '</h1><p>' . $title . ' body copy.</p></main>' . $footer . '</body></html>';
+};
+$solePlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $solePage('Home', true), 'about.html' => $solePage('About', false), 'visit.html' => $solePage('Visit', false), 'events.html' => $solePage('Events', false),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+WordPressSitePlan::assertValid($solePlan);
+$soleParts = array_column($solePlan['template_parts'], null, 'slug');
+$soleTemplates = array_column($solePlan['templates'], 'canonical_block_markup', 'slug');
+foreach (array_column($solePlan['pages'], null, 'source_path') as $source => $row) {
+    $markup = (string) $row['canonical_block_markup'];
+    $slug = pathinfo($source, PATHINFO_FILENAME);
+    $template = (string) ($soleTemplates['index' === $slug ? 'front-page' : 'page-' . $slug] ?? $soleTemplates['page'] ?? '');
+    $assert(!preg_match('/"tagName":"(?:header|footer)"/', $markup) && str_contains($markup, 'body copy.'), "{$source} keeps its content and no header/footer landmark group: {$markup}");
+    preg_match_all('/wp:template-part \{"slug":"([^"]+)"/', $template, $referenced);
+    $areas = array_map(static fn(string $partSlug): ?string => $soleParts[$partSlug]['area'] ?? null, $referenced[1]);
+    sort($areas);
+    $assert(array('footer', 'header') === $areas, "{$source} renders through a template referencing one header part and one footer part: {$template}");
+}
+foreach (array('header', 'footer') as $area) {
+    $variant = array_values(array_filter($soleParts, static fn(array $part): bool => $area === $part['area'] && array('index.html') === ($part['placement']['source_paths'] ?? null)));
+    $assert(1 === count($variant) && ucfirst($area) . ' (Home)' === $variant[0]['title'] && 'route_variant' === ($variant[0]['provenance']['reason'] ?? null), "The home {$area} is its own route-variant part: " . json_encode(array_column($solePlan['template_parts'], 'title', 'slug')));
+}
+$assert(str_contains((string) $soleTemplates['front-page'], 'wp:post-content') && str_contains((string) $soleParts[array_key_first(array_filter($soleParts, static fn(array $part): bool => 'Footer (Home)' === $part['title']))]['canonical_block_markup'], 'Open daily.'), 'The front page keeps its post content and its own footer copy.');
+
+// When repeated edge designs settle the area as variants, the entrypoint's
+// own edge chrome is one more variant; its hero beside the chrome stays
+// page content.
+$soleVariantPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => str_replace('</div><main>', '</div><section class="hero"><h2>Big hero</h2><p>Welcome aboard.</p></section><main>', $titledPage('home', 'Home')),
+    'about.html' => $titledPage('light', 'About'), 'contact.html' => $titledPage('light', 'Contact'),
+    'visit.html' => $titledPage('dark', 'Visit'), 'events.html' => $titledPage('dark', 'Events'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+WordPressSitePlan::assertValid($soleVariantPlan);
+$soleVariantHome = (string) array_column($soleVariantPlan['pages'], null, 'source_path')['index.html']['canonical_block_markup'];
+$soleVariantFront = (string) (array_column($soleVariantPlan['templates'], 'canonical_block_markup', 'slug')['front-page'] ?? '');
+$assert(!str_contains($soleVariantHome, 'Harbor home') && !str_contains($soleVariantHome, 'Visit home') && str_contains($soleVariantHome, 'Big hero'), "The home edge chrome leaves the page and its hero stays: {$soleVariantHome}");
+$assert(2 === substr_count($soleVariantHome . $soleVariantFront, '<!-- wp:template-part'), "The front page renders its own header and footer variants: {$soleVariantFront}");
+$assert(array('Footer (Home)', 'Header (Home)') === array_values(array_intersect(array('Footer (Home)', 'Header (Home)'), array_column($soleVariantPlan['template_parts'], 'title'))), 'The home variants are named after the route: ' . json_encode(array_column($soleVariantPlan['template_parts'], 'title')));
+
 fwrite(STDOUT, "Route edge shared shell contract passed.\n");

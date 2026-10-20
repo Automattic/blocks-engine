@@ -1667,7 +1667,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
         $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
         $this->collectGeneratedComponentCandidates($body);
-        $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
+        $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates(), $this->transformationProvenance()->sourceCollapsedWrapperHiddenStates());
         $blocks = $this->compressProjectedGroupChains($blocks);
         $fallbacks = array_merge($fallbacks, $this->transformationEvidence()->responsiveImageFallbacks());
         $this->reconcileNativeListItemFallbacks($fallbacks, $blocks);
@@ -1684,6 +1684,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $reusableComponentRecognition = $this->reusableComponents()->report($this->materializedAssets()->assets());
         $sourceProvenance = $this->transformationProvenance()->resolveBlockPaths($blocks);
         $responsiveCounterpartContracts = (new ResponsiveCorrespondence())->declare($blocks, $sourceProvenance);
+        $this->authorSelectorProjections()->confirmRichTextCarriers($serializedBlocks);
         $authorStylesheetProjections = $this->authorStylesheetProjections();
         $runtimeScriptProjections = $this->runtimeScriptProjections();
         $this->materializeAuthorStylesheet(
@@ -1985,7 +1986,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $shellFallbacks = array();
             $converted = $this->convertElement($child, $shellFallbacks, true);
             $converted = null === $converted ? array() : (isset($converted['blockName']) ? array($converted) : $converted);
-            $converted = $this->navigationBlockNormalizer->normalize($converted, $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
+            $converted = $this->navigationBlockNormalizer->normalize($converted, $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates(), $this->transformationProvenance()->sourceCollapsedWrapperHiddenStates());
             if ( 1 === count($converted) && 'core/group' !== ($converted[0]['blockName'] ?? null) && $area === ($converted[0]['attrs']['tagName'] ?? null) ) {
                 // A landmark block of its own (a scroll-state carrier) is the box.
                 $markup = $this->runtime->serializeBlocks($converted);
@@ -4198,7 +4199,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $preserveInlineLayoutLeaf ) {
             $attrs = $this->hoistContentWrappingSpans($name, $attrs);
         }
-        if ( 'core/paragraph' === $name && ! $preserveInlineLayoutLeaf && ! $sourceElement instanceof DOMElement && str_contains((string) ($attrs['content'] ?? ''), 'class=') ) {
+        // A RichText carrier whose only classes are its role and subject
+        // classes carries no authored class.
+        if ( 'core/paragraph' === $name && ! $preserveInlineLayoutLeaf && ! $sourceElement instanceof DOMElement
+            && str_contains((string) preg_replace('/\sclass="(?:\s*blocks-engine-(?:role-richtext|subject)[a-z0-9-]*)+\s*"/', '', (string) ($attrs['content'] ?? '')), 'class=')
+        ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
         }
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) ) {
@@ -4278,13 +4283,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->structureSignals($sourceElement, $attrs),
                 array() === $innerBlocks && 'core/group' === $name
                     ? $this->emptyVisualTopologyEvidence($sourceElement)
-                    : array()
+                    : array(),
+                'core/navigation' === $name && $this->sourceWrapperHiddenAtCollapsedViewport($sourceElement)
             );
         }
 
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/group', 'core/quote' ), true) ) {
             $innerBlocks = $this->withPropagatedWrapperTextAlignment($innerBlocks, $sourceElement);
         }
+
+        // Every RichText carrier a block stores passes through here, so this is
+        // where each one gets its role and subject classes; the saved markup
+        // is built from these attributes and so carries them too.
+        $attrs = $this->withRichTextCarrierClasses($attrs);
 
         return $this->blockMaterializer->materialize(
             $name,
@@ -4293,6 +4304,22 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $sourceMaterializationFacts,
             $this->transformationProvenance()
         );
+    }
+
+    /**
+     * @param array<mixed> $attrs
+     * @return array<mixed>
+     */
+    private function withRichTextCarrierClasses(array $attrs): array
+    {
+        foreach ( $attrs as $key => $value ) {
+            if ( is_string($value) ) {
+                $attrs[$key] = $this->authorSelectorProjections()->withRichTextCarrierClasses($value);
+            } elseif ( is_array($value) ) {
+                $attrs[$key] = $this->withRichTextCarrierClasses($value);
+            }
+        }
+        return $attrs;
     }
 
     /**
@@ -4423,6 +4450,32 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * navigation block and renders wherever its resolved `overlayMenu`
      * intent puts it, duplicating the primary menu in the document flow.
      */
+    /**
+     * Whether a wrapper around the element hides it at the collapsed (mobile)
+     * reference viewport. The element itself is excluded: a navigation becomes
+     * core/navigation, whose own overlay replaces the source's collapsed
+     * state, while a wrapper stays a group that keeps hiding it.
+     */
+    private function sourceWrapperHiddenAtCollapsedViewport(DOMElement $element): bool
+    {
+        for (
+            $candidate = $element->parentNode;
+            $candidate instanceof DOMElement && 'body' !== strtolower($candidate->tagName);
+            $candidate = $candidate->parentNode
+        ) {
+            if ( SourceDom::documentVariantRoot($candidate) === $candidate ) {
+                return false;
+            }
+            $declarations = $this->styleResolver->collapsedViewportDeclarations($candidate, array( 'display', 'visibility' ));
+            if ( 'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? ''))
+                || in_array(CssValueInspector::comparable((string) ($declarations['visibility'] ?? '')), array( 'hidden', 'collapse' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function sourceElementOrAncestorStartsHidden(DOMElement $element): bool
     {
         for (
@@ -7664,6 +7717,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $provenanceIndexes = array(); $index = 0;
         $this->bindingProvenanceIndexes($blocks, $provenanceIndexes, $index);
         $anchorIndexes = $this->bindingAnchorSelectorIndexes($provenanceIndexes);
+        $index = 0;
+        $this->sourceAnchorSelectorIndexes($blocks, $anchorIndexes, $index);
         $ranges = $this->serializedBlockRanges($markup);
         $finalize = function (array &$binding) use ($markup, $provenanceIndexes, $anchorIndexes, $ranges): void {
             $provenanceId = $binding['_binding_provenance_id'] ?? null;
@@ -7687,6 +7742,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         };
         foreach ( $fallbacks as &$fallback ) {
             if (is_array($fallback['binding'] ?? null)) $finalize($fallback['binding']);
+            if (is_array($fallback['listing'] ?? null)) {
+                // A listing control a provider cannot locate is dropped; the
+                // listing itself needs its region and at least one control.
+                $finalize($fallback['listing']['binding']);
+                $controls = array();
+                foreach ($fallback['listing']['controls'] as $control) {
+                    $finalize($control['binding']);
+
+                    if (array() !== $control['binding']) $controls[] = $control;
+                }
+                $fallback['listing']['controls'] = $controls;
+                if (array() === $fallback['listing']['binding'] || array() === $controls) unset($fallback['listing']);
+            }
             if (is_array($fallback['products'] ?? null)) {
                 $cardMarkups = array();
                 foreach ($fallback['products'] as $product) {
@@ -7770,6 +7838,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $anchorIndexes[$selector] = $blockIndex;
         }
         return $anchorIndexes;
+    }
+
+    /**
+     * Adds anchor-only block identities (`_source_anchor_selector`) for
+     * selectors no provenance source already claims.
+     *
+     * @param array<int,array<string,mixed>> $blocks
+     * @param array<string,int|null> $anchorIndexes
+     */
+    private function sourceAnchorSelectorIndexes(array $blocks, array &$anchorIndexes, int &$index): void
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) continue;
+            $selector = $block['_source_anchor_selector'] ?? null;
+            if ( is_string($selector) && '' !== $selector && ! array_key_exists($selector, $anchorIndexes) ) $anchorIndexes[$selector] = $index;
+            ++$index;
+            $this->sourceAnchorSelectorIndexes(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $anchorIndexes, $index);
+        }
     }
 
     /** @return array<int,array{offset:int,length:int}> */

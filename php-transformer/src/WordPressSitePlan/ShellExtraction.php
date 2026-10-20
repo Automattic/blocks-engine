@@ -1141,6 +1141,16 @@ final class ShellExtraction
             $container = isset($first['legacy_container_opening']) ? array('opening' => $first['legacy_container_opening'], 'closing' => $first['legacy_container_closing']) : null;
             $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineShell ? array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $cluster['indexes'])) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $inlineShell ? null : $container, 'template_wrappers' => !$singlePage && !$inlineShell ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : (!empty($first['route_edge']) ? 'route_edge' : 'canonical'), $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
+            // The area is settled by the extracted part, so a route excluded
+            // for its own landmark design gets that design as a variant part
+            // instead of keeping site chrome in its content.
+            $leftover = array_keys(array_filter($excluded, static fn(string $reason): bool => 'non_equivalent' === $reason));
+            if (array() !== $leftover) {
+                $variants = $this->routeLandmarkVariantParts($pages, $leftover, $area, $reservedSlugs, $runtimeDeclarations, 1, true);
+                $pages = $variants['pages'];
+                array_push($parts, ...$variants['parts']);
+                array_push($diagnostics, ...$variants['diagnostics']);
+            }
         }
         foreach ($pages as &$page) unset($page['shell_candidates']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
@@ -1200,6 +1210,16 @@ final class ShellExtraction
                 $pages = $variants['pages'];
                 array_push($parts, ...$variants['parts']);
                 array_push($diagnostics, ...$variants['diagnostics']);
+                // Variants settle the area; a route left with its own edge
+                // chrome becomes one more variant rather than page content.
+                $grouped = array_merge(...array_column($groups, 'indexes'));
+                $leftover = array_values(array_diff(array_keys($edges), $grouped));
+                if (array() !== $leftover) {
+                    $variants = $this->routeLandmarkVariantParts($pages, $leftover, $area, $reservedSlugs, $runtimeDeclarations, count($variants['parts']));
+                    $pages = $variants['pages'];
+                    array_push($parts, ...$variants['parts']);
+                    array_push($diagnostics, ...$variants['diagnostics']);
+                }
                 continue;
             }
             $group = $groups[0] ?? null;
@@ -1260,13 +1280,16 @@ final class ShellExtraction
      * @param array<int,array<string,mixed>> $runtimeDeclarations
      * @return array{pages:array<int,array<string,mixed>>,parts:list<array<string,mixed>>,diagnostics:list<array<string,mixed>>}
      */
-    private function edgeVariantParts(array $pages, array $edges, array $groups, string $area, array $reservedSlugs, array $runtimeDeclarations): array
+    private function edgeVariantParts(array $pages, array $edges, array $groups, string $area, array $reservedSlugs, array $runtimeDeclarations, ?int $settled = null): array
     {
         $parts = array(); $diagnostics = array();
         // The variant most routes use is the area's own part; each other one
-        // is named after the first route that uses it.
+        // is named after the first route that uses it. When the area is
+        // already settled by other parts ($settled of them), every group
+        // here is a route variant.
         $mainGroup = null;
-        foreach ($groups as $key => $group) if (null === $mainGroup || count($group['indexes']) > count($groups[$mainGroup]['indexes'])) $mainGroup = $key;
+        if (null === $settled) foreach ($groups as $key => $group) if (null === $mainGroup || count($group['indexes']) > count($groups[$mainGroup]['indexes'])) $mainGroup = $key;
+        $settled ??= 0;
         foreach ($groups as $groupKey => $group) {
             $identity = hash('sha256', implode("\0", array_column(array_slice($edges[$group['indexes'][0]], 0, $group['length']), 'identity')));
             $slug = $area . '-' . substr($identity, 0, 12);
@@ -1285,14 +1308,73 @@ final class ShellExtraction
                 $pages[$index]['canonical_block_markup'] = substr($page, 0, $ranges[$index]['offset']) . $reference . substr($page, $ranges[$index]['offset'] + $ranges[$index]['length']);
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($pages[$index]['canonical_block_markup']);
             }
-            $title = $groupKey === $mainGroup ? ucfirst($area) : self::routeVariantTitle($area, $pages[$first], count($parts) + 1);
+            $title = $groupKey === $mainGroup ? ucfirst($area) : self::routeVariantTitle($area, $pages[$first], $settled + count($parts) + 1);
             $sourcePath = 'wordpress-site-plan/shared/' . $slug;
             $sources = array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $group['indexes']));
             $candidates = array_map(static fn(int $index): array => array(array('source_path' => $pages[$index]['source_path'], 'identity_markup' => 'route-edge:' . $identity)), $group['indexes']);
-            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $slug, 'title' => $title, 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => $sources, 'variant' => count($parts) + 1), 'canonical_block_markup' => $markup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'route_variant', $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $slug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($markup));
-            $diagnostics[] = array('code' => 'wordpress_site_plan_shell_route_variant_extracted', 'severity' => 'info', 'message' => "Extracted a repeated route-specific {$area} as an editable template part.", 'area' => $area, 'slug' => $slug, 'page_count' => count($sources), 'source_paths' => $sources);
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $slug, 'title' => $title, 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => $sources, 'variant' => $settled + count($parts) + 1), 'canonical_block_markup' => $markup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'route_variant', $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $slug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($markup));
+            $diagnostics[] = array('code' => 'wordpress_site_plan_shell_route_variant_extracted', 'severity' => 'info', 'message' => count($sources) > 1 ? "Extracted a repeated route-specific {$area} as an editable template part." : "Extracted a single route's own {$area} as an editable route-variant template part.", 'area' => $area, 'slug' => $slug, 'page_count' => count($sources), 'source_paths' => $sources);
         }
         return compact('pages', 'parts', 'diagnostics');
+    }
+
+    /**
+     * Route-variant parts for routes left with their own edge chrome once the
+     * area is settled by extracted parts. The chrome is the area's landmark
+     * at the page edge: the route's landmark candidate (with the blocks
+     * between it and the page edge), or an edge block that is itself the
+     * area landmark or carries chrome. Out-of-flow or link-only chrome
+     * next to it (a navigation drawer)
+     * travels with it; a hero or other page content beside it stays in the
+     * page. Routes sharing the same edge share one part, and a runtime-bound
+     * edge stays page-owned (edgeVariantParts). A landmark only counts when it
+     * carries navigation or links. With $requireLandmark (a route the
+     * landmark clusters excluded) only such a landmark candidate qualifies.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param list<int> $indexes
+     * @param array<string,true> $reservedSlugs
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @return array{pages:array<int,array<string,mixed>>,parts:list<array<string,mixed>>,diagnostics:list<array<string,mixed>>}
+     */
+    private function routeLandmarkVariantParts(array $pages, array $indexes, string $area, array $reservedSlugs, array $runtimeDeclarations, int $settled = 1, bool $requireLandmark = false): array
+    {
+        $edges = array(); $groups = array();
+        foreach ($indexes as $index) {
+            $page = $pages[$index];
+            if (!empty($page['synthetic'])) continue;
+            $markup = (string) $page['canonical_block_markup'];
+            $edge = $this->routeEdge($markup, $page, $area, $runtimeDeclarations);
+            if (array() === $edge) continue;
+            $at = -1;
+            foreach ($page['shell_candidates'] ?? array() as $candidate) {
+                // A landmark without navigation or links (a page-title
+                // header) is the page's own content, not the area's chrome.
+                if ($area !== ($candidate['area'] ?? null) || !empty($candidate['route_edge']) || !self::linksChrome((string) ($candidate['markup'] ?? ''))) continue;
+                $position = $this->edgeLandmarkIndex($markup, $edge, (string) ($candidate['markup'] ?? ''));
+                if (null !== $position) $at = max($at, $position);
+            }
+            if (-1 === $at) {
+                if ($requireLandmark) continue;
+                $block = substr($markup, $edge[0]['offset'], $edge[0]['length']);
+                // Without a landmark candidate the edge block must be chrome
+                // itself: the area landmark, navigation, or links without a
+                // heading of their own (a hero or call to action is content).
+                $landmark = 1 === preg_match('/^<!--\s*wp:[a-z][a-z0-9-\/]*\s+\{[^}]*"tagName":"' . $area . '"/', $block) || str_contains($block, '<!-- wp:navigation ');
+                if (!$landmark && (!self::carriesChrome($block) || str_contains($block, '<!-- wp:heading'))) continue;
+                $at = 0;
+            }
+            $length = $at + 1;
+            while ($length < count($edge) && (self::isOutOfFlowChrome($block = substr($markup, $edge[$length]['offset'], $edge[$length]['length'])) || self::isLinkOnlyChrome($block))) ++$length;
+            $range = self::edgeRange($edge, $length);
+            if (!self::carriesChrome(substr($markup, $range['offset'], $range['length']))) continue;
+            $edges[$index] = $edge;
+            $key = implode("\0", array_column(array_slice($edge, 0, $length), 'identity'));
+            $groups[$key] ??= array('indexes' => array(), 'length' => $length);
+            $groups[$key]['indexes'][] = $index;
+        }
+        if (array() === $groups) return array('pages' => $pages, 'parts' => array(), 'diagnostics' => array());
+        return $this->edgeVariantParts($pages, $edges, array_values($groups), $area, $reservedSlugs, $runtimeDeclarations, $settled);
     }
 
     /**
@@ -1459,6 +1541,25 @@ final class ShellExtraction
         return 0;
     }
 
+    /**
+     * A block of links and nothing else, such as a mobile navigation drawer
+     * next to the landmark: no heading, media or text outside its links.
+     */
+    private static function isLinkOnlyChrome(string $block): bool
+    {
+        if (str_contains($block, '<!-- wp:heading') || preg_match('/<(?:img|picture|video|audio|iframe|canvas|object|embed|h[1-6])\b/i', $block)) return false;
+        if (preg_match_all('/<a\b[^>]*\bhref=/i', $block) < 2) return false;
+        $html = preg_replace(array('/<!--.*?-->/s', '/<a\b.*?<\/a>/is'), '', $block) ?? '';
+        return '' === trim(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    }
+
+    /** Navigation or links, whatever the landmark around them. */
+    private static function linksChrome(string $markup): bool
+    {
+        if (str_contains($markup, '<!-- wp:navigation ') || preg_match('/"tagName":"nav"/', $markup) || preg_match('/<nav\b/i', $markup)) return true;
+        return preg_match_all('/<a\b[^>]*\bhref=/i', $markup) >= 2;
+    }
+
     /** Chrome carries navigation, a header/footer/nav landmark or links. */
     private static function carriesChrome(string $markup): bool
     {
@@ -1510,8 +1611,16 @@ final class ShellExtraction
         // rules are site-wide chrome rules, so any page of that shape can use it.
         // A page with another structure, or none, gets a route template.
         $inner = array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null) && empty($page['entrypoint']) && empty($page['synthetic']));
+        // A frame around a route's own variant of an area the generic page
+        // template already binds as a shared part is that route's alone.
+        $boundAreas = array();
+        foreach ($parts as $part) if ('shared_shell' === ($part['placement']['kind'] ?? null) && in_array('page', $part['placement']['template_slugs'] ?? array(), true)) $boundAreas[(string) ($part['area'] ?? '')] = true;
         $groups = array();
-        foreach (array_intersect_key($split, $inner) as $index => $frame) $groups[self::frameIdentity($frame)][] = $index;
+        foreach (array_intersect_key($split, $inner) as $index => $frame) {
+            preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
+            foreach ($slugs[1] as $slug) if (isset($areas[$slug], $boundAreas[$areas[$slug]])) continue 2;
+            $groups[self::frameIdentity($frame)][] = $index;
+        }
         $generic = null;
         foreach ($groups as $indexes) if (null === $generic || count($indexes) > count($generic)) $generic = $indexes;
         $genericSource = null !== $generic ? (string) $pages[$generic[0]]['source_path'] : null;
