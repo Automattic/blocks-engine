@@ -55,6 +55,15 @@ final class SvgElementConverter implements ElementConverter
             return ConversionOutcome::handled(null);
         }
 
+        // Empty artwork may still occupy an authored inline media box. Keep
+        // its baseline and dimensions instead of collapsing the container.
+        if ( ! $element->hasChildNodes() && $element->hasAttribute('width') && $element->hasAttribute('height') ) {
+            $html = $this->context->sanitizeMarkup($element);
+            if ( $this->context->isSafeContent($html) ) {
+                return ConversionOutcome::handled($this->context->createBlock('core/html', array('content' => $html), array(), $element));
+            }
+        }
+
         if ( $this->materializer->isSafeDecorativeSvgElement($element) ) {
             $isDecorativeChrome = $this->context->isVisualLayerElement($element);
             if ( ! $isDecorativeChrome && $this->context->hasDrawableContent($element) ) {

@@ -635,15 +635,19 @@ final class SourceElementClassifier
     /**
      * Whether a control's subtree is a RichText-legal button label.
      *
-     * core/button stores its label as phrasing RichText. A single flow wrapper
-     * around that label — a heading used for CTA type, a layout div around an
-     * icon — is still a label. Sibling flow containers that each hold visible
-     * text, or more than one text-bearing flow element (heading, paragraph),
-     * are not: flattening them concatenates distinct blocks into one uneditable
-     * text run.
+     * core/button stores its label as phrasing RichText. Anchors containing
+     * flow elements must remain linked containers, even with a single heading.
+     * Native controls retain their separate label handling, but multiple
+     * text-bearing flow elements cannot be concatenated into one text run.
      */
     public function isRichTextButtonLabel(DOMElement $element): bool
     {
+        // Anchors wrapping flow content are linked containers, not RichText
+        // labels. Even one heading must retain its semantics and CSS hooks.
+        if ( 'a' === strtolower($element->tagName) && $this->hasBlockLevelDescendant($element) ) {
+            return false;
+        }
+
         if ( $this->hasSiblingFlowTextContainers($element) ) {
             return false;
         }
@@ -667,7 +671,7 @@ final class SourceElementClassifier
      * erased on lowering. A phrasing-only subtree (an icon plus its label) is
      * unaffected and stays on the native control path.
      */
-    private function hasBlockLevelDescendant(DOMElement $element): bool
+    public function hasBlockLevelDescendant(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement && $this->isBlockLevelFlowElement($descendant) ) {

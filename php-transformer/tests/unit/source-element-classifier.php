@@ -187,8 +187,8 @@ $assert(
     'a single layout wrapper around phrasing is still a RichText label'
 );
 $assert(
-    $classifier->isRichTextButtonLabel($element('<a class="primary-button" href="/book"><h3>Reserve now</h3><span aria-hidden="true"></span></a>')),
-    'a heading used as the sole visible CTA label is still a RichText label'
+    ! $classifier->isRichTextButtonLabel($element('<a class="primary-button" href="/book"><h3>Reserve now</h3><span aria-hidden="true"></span></a>')),
+    'even a sole heading remains block content, not a RichText button label'
 );
 $assert(
     $classifier->isRichTextButtonLabel($element(

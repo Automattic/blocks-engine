@@ -162,7 +162,7 @@ final class ButtonsPattern
         if ( $wrappedAnchor instanceof DOMElement && $this->wrappedButtonRequiresPreservation($wrappedAnchor) ) {
             return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($wrappedAnchor) ), array(), $wrappedAnchor);
         }
-        if ( null !== $wrappedAnchor && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element)) ) {
+        if ( null !== $wrappedAnchor && $this->sourceElements->isRichTextButtonLabel($wrappedAnchor) && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element)) ) {
             return $context->createBlock('core/buttons', $this->buttonWrapperAttributes($element, $context, $buttons), array( $this->buttonBlockFromAnchor($wrappedAnchor, $context, $buttons, $element) ), $element);
         }
 

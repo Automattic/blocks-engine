@@ -117,8 +117,8 @@ $ctaLabel = ( new HtmlTransformer() )->transform(
 $ctaNames = $blockNames($ctaLabel['blocks'] ?? array());
 $ctaMarkup = (string) ( $ctaLabel['serialized_blocks'] ?? '' );
 $assert(
-    in_array('core/button', $ctaNames, true) && ! in_array('core/heading', $ctaNames, true),
-    'a heading used as the sole visible CTA label still lowers to core/button',
+    ! in_array('core/button', $ctaNames, true) && in_array('core/heading', $ctaNames, true),
+    'a heading used as the sole visible CTA label retains heading semantics',
     $ctaMarkup
 );
 
