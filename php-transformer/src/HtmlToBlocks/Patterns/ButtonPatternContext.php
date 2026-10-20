@@ -151,9 +151,24 @@ final class ButtonPatternContext
         return $this->runtimeIslands?->isRuntimeDomTarget($element) ?? false;
     }
 
-    public function accessibleNameCompanion(DOMElement $anchor, string $content): PatternRecognitionResult
+    /**
+     * `$wrapper` is the anchor's single wrapper child whose label `$content`
+     * holds; the block's RichText element renders as that wrapper.
+     */
+    public function accessibleNameCompanion(DOMElement $anchor, string $content, ?DOMElement $wrapper = null): PatternRecognitionResult
     {
-        $this->session?->authorSelectorProjectionState()->markRetainedSourcePath($anchor->getNodePath() ?? '');
+        // The link keeps the anchor and the descendants its content renders
+        // with their source identity, so author rules keep addressing them
+        // as written instead of through a paragraph carrier it never emits.
+        $projections = $this->session?->authorSelectorProjectionState();
+        $projections?->markRetainedSourcePath($anchor->getNodePath() ?? '');
+        foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
+            $projections?->markRetainedSourcePath($descendant->getNodePath() ?? '');
+        }
+        $contentMode = 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : 'rich-text';
+        if ( 'raw-source' === $contentMode ) {
+            $wrapper = null;
+        }
         $registry = $this->session?->generatedBlockRegistry()
             ?? throw new \LogicException('Generated block registry has not been prepared for this transform.');
         $generator = new AccessibleLinkBlockGenerator();
@@ -163,14 +178,16 @@ final class ButtonPatternContext
             'href' => SourceDom::attr($anchor, 'href'),
             'accessibleLabel' => SourceDom::attr($anchor, 'aria-label'),
             'content' => $content,
-            'contentMode' => 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : 'rich-text',
+            'contentMode' => $contentMode,
+            'contentTagName' => $wrapper instanceof DOMElement && 'span' !== strtolower($wrapper->tagName) ? AccessibleLinkBlockGenerator::contentTagName($wrapper->tagName) : '',
+            'contentAttributes' => $wrapper instanceof DOMElement ? $this->accessibleLinkContentAttributes($wrapper) : array(),
             'className' => SourceDom::attr($anchor, 'class'),
             'style' => SourceDom::attr($anchor, 'style'),
             'id' => SourceDom::attr($anchor, 'id'),
             'linkTarget' => SourceDom::attr($anchor, 'target'),
             'rel' => SourceDom::attr($anchor, 'rel'),
             'sourceAttributes' => $this->accessibleLinkSourceAttributes($anchor),
-        ), static fn (mixed $value): bool => '' !== $value);
+        ), static fn (mixed $value, string $key): bool => '' !== $value && ( ! is_array($value) || array() !== $value || 'sourceAttributes' === $key ), ARRAY_FILTER_USE_BOTH);
         $markup = $generator->markup($attrs);
 
         return new PatternRecognitionResult(array(
@@ -180,6 +197,21 @@ final class ButtonPatternContext
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         ));
+    }
+
+    /** @return array<string, string> */
+    private function accessibleLinkContentAttributes(DOMElement $wrapper): array
+    {
+        $attributes = array();
+        foreach ( $wrapper->attributes ?? array() as $attribute ) {
+            $name = strtolower($attribute->name);
+            if ( AccessibleLinkBlockGenerator::isContentAttributeName($name) ) {
+                $attributes[$name] = $attribute->value;
+            }
+        }
+        ksort($attributes);
+
+        return $attributes;
     }
 
     /** @return array<string, string> */
