@@ -168,6 +168,26 @@ final class AuthorSelectorProjectionState
     /** @var array<string, string> Source subject path => its exact native CSS target. */
     private array $navigationSubjects = array();
 
+    private array $navigationListBoxSubjects = array();
+
+    /**
+     * Target class for the native root that renders source list `$path`'s box.
+     * A dedicated marker kind, so the root receives only the list's box rules
+     * and never becomes a semantic carrier of the list or its landmark.
+     */
+    public function installNavigationListBoxSubject(string $path): string
+    {
+        $marker = $this->allocatePathMarker('navigation-list-box', $path);
+        $this->navigationListBoxSubjects[$path] = ':where(nav.wp-block-navigation.' . $marker . ')';
+
+        return $marker;
+    }
+
+    public function navigationListBoxSubject(string $path): string
+    {
+        return $this->navigationListBoxSubjects[$path] ?? '';
+    }
+
     public function installNavigationSubject(string $path, string $selector): void
     {
         $this->navigationSubjects[$path] ??= $selector;

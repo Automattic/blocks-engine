@@ -344,7 +344,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $navigationSource, $navigationContext);
-        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($navigationSource) ?? '');
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($navigationSource, 'never' === ($navigationAttrs['overlayMenu'] ?? '') ? $listSource : null) ?? '');
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $navigationSource);
         // WordPress copies the emitted block's classes onto its inner list. Key
         // the container reset on the source's own classes; a class-less source

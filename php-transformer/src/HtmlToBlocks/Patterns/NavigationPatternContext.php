@@ -64,7 +64,26 @@ final class NavigationPatternContext
     }
 
     /** Source list identity also survives when its landmark owns another block. */
-    public function navigationListHostIdentity(DOMElement $element): string
+    public function navigationListHostIdentity(DOMElement $element, ?DOMElement $list = null): string
+    {
+        $boxMarker = $this->navigationListBoxMarker($list);
+        $identity = $this->sourceListHostIdentity($element);
+
+        return trim($identity . ' ' . $boxMarker);
+    }
+
+    /** Marker for the native root that renders a source list's own box. */
+    private function navigationListBoxMarker(?DOMElement $list): string
+    {
+        if (null === $this->session || !$list instanceof DOMElement || !$this->styleResolver instanceof StyleResolver
+            || !array_filter(array('display', 'overflow', 'overflow-x', 'overflow-y'), fn(string $property): bool => !$this->styleResolver->declaredPresentation($list, $property)->isEmpty())) {
+            return '';
+        }
+
+        return $this->session->authorSelectorProjectionState()->installNavigationListBoxSubject($list->getNodePath() ?? '');
+    }
+
+    private function sourceListHostIdentity(DOMElement $element): string
     {
         if (null === $this->session || !in_array(strtolower($element->tagName), array('ul', 'ol'), true)) return '';
         $styles = $this->session->authorStyleAnalysis();
