@@ -667,6 +667,26 @@ final class Runtime
         return $this->canEscapeHtml() ? esc_html($text) : htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
+    /**
+     * Gutenberg's escapeAttribute leaves entity references intact. Decode those
+     * references before storing markup-sourced values so save() can round-trip
+     * them. Nested CMS encoding may require more than one pass; unknown entities
+     * remain unchanged. Do not apply this to RichText or comment-only values.
+     */
+    public function normalizeAttributeValue(string $text): string
+    {
+        do {
+            $previous = $text;
+            $text = preg_replace_callback(
+                '/&(?:[a-zA-Z][a-zA-Z0-9]*|#[0-9]+|#x[0-9a-fA-F]+);/',
+                static fn (array $match): string => html_entity_decode($match[0], ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+                $text
+            ) ?? $text;
+        } while ( $text !== $previous );
+
+        return $text;
+    }
+
     public function escapeAttribute(string $text): string
     {
         return $this->canEscapeAttribute() ? esc_attr($text) : htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
