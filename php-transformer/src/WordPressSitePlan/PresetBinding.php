@@ -763,6 +763,9 @@ final class PresetBinding
             $rewritten = array();
             foreach (CssValueSplitter::splitTopLevel($declarations, array(';')) as $declaration) {
                 $bound = $this->bindDeclaration($declaration, $rootSelector);
+                // Only source bytes are projected. Newly emitted preset reads
+                // must keep WordPress's namespace so Global Styles owns them.
+                $bound = $bound === $declaration ? self::sourcePresets($declaration) : $bound;
                 $changed = $changed || $bound !== $declaration;
                 $rewritten[] = $bound;
             }
@@ -770,6 +773,17 @@ final class PresetBinding
             $result .= $changed ? implode(';', $rewritten) . (str_ends_with(rtrim($declarations), ';') ? ';' : '') : $declarations;
         }
         return $result;
+    }
+
+    /** Keep source preset definitions and unbound reads out of core's namespace. */
+    private static function sourcePresets(string $css): string
+    {
+        return (string) preg_replace_callback(
+            '~/\*.*?\*/|"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|--wp--preset--[a-zA-Z0-9_-]+~s',
+            static fn(array $match): string => str_starts_with($match[0], '--wp--preset--')
+                ? '--be--source--preset--' . substr($match[0], strlen('--wp--preset--')) : $match[0],
+            $css
+        );
     }
 
     private function bindDeclaration(string $declaration, bool $rootSelector = false): string
@@ -783,7 +797,7 @@ final class PresetBinding
             $important = '!important';
             $value = trim(substr($value, 0, -strlen($match[0])));
         }
-        if ('' === $value || str_contains($value, '--wp--preset--')) return $declaration;
+        if ('' === $value) return $declaration;
         $kind = match (true) {
             in_array($property, array('color', 'background-color', 'background'), true), str_starts_with($property, '--') => 'color',
             'font-size' === $property => 'font-size',
@@ -800,14 +814,14 @@ final class PresetBinding
             $mix = $this->translucentMix($value);
             if (null === $mix) return $declaration;
             ++$this->bound;
-            return $parts[0] . ':' . $mix . $important;
+            return self::sourcePresets($parts[0]) . ':' . $mix . $important;
         }
         if (null === $slug) return $declaration;
         // Root-relative units on the root element resolve against the initial
         // font size, not the document's root, so such a preset would rescale it.
         if ($rootSelector && 'font-size' === $kind && self::rootRelativePreset($this->system->fontSizes, $slug)) return $declaration;
         ++$this->bound;
-        return $parts[0] . ':var(--wp--preset--' . ('color' === $kind ? 'color' : $kind) . '--' . $slug . ',' . $value . ')' . $important;
+        return self::sourcePresets($parts[0]) . ':var(--wp--preset--' . ('color' === $kind ? 'color' : $kind) . '--' . $slug . ',' . self::sourcePresets($value) . ')' . $important;
     }
 
     /**
