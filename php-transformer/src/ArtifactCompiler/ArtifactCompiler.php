@@ -48,7 +48,7 @@ final class ArtifactCompiler
 {
     use StagedTransport;
 
-    private const MAX_PLAN_DIGEST_DEPTH = 512;
+    public const MAX_PLAN_DIGEST_DEPTH = 512;
 
     public const INPUT_SCHEMA = 'blocks-engine/php-transformer/site-artifact/v1';
     // Plans are a published v1 transport contract. Receipts are additive: v2
