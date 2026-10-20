@@ -547,9 +547,18 @@ PHP;
         $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->duplicateViewportDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $eventDiagnostics);
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
+        // Declarations still over a byte limit are dropped here with their
+        // bindings, so their blocks stay static and each drop is a finding.
         $factoredRuntimeDeclarations = RuntimeDeclarations::factor($runtimeDeclarations);
         $runtimeDeclarations = $factoredRuntimeDeclarations['declarations'];
         $runtimeRecords = $factoredRuntimeDeclarations['records'];
+        $droppedDeclarations = $factoredRuntimeDeclarations['diagnostics'];
+        if (array() !== $droppedDeclarations) {
+            $runtimeEntityRecords = self::referencedEntityRecords(RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords), $runtimeEntityRecords);
+            $pages = self::attachWholePageCandidates(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $pages), RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords), $runtimeEntityRecords);
+            $unitFindings = array_merge($unitFindings, $droppedDeclarations);
+            $recoveryDiagnostics = array_merge($recoveryDiagnostics, $droppedDeclarations);
+        }
         $plan = array(
             'schema' => self::SCHEMA,
             'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance'], 'source_documents' => $this->sourceDocumentCatalog($compiled['pages'] ?? array())),
@@ -579,6 +588,20 @@ PHP;
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
         return $plan;
+    }
+
+    /**
+     * Entity records still referenced once factoring dropped declarations.
+     * Records only a dropped manifest referenced leave the plan with it.
+     *
+     * @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $records
+     * @return array<int,array<string,mixed>>
+     */
+    private static function referencedEntityRecords(array $declarations, array $records): array
+    {
+        $referenced = array();
+        foreach ($declarations as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) foreach ($declaration['payload']['entities'] ?? array() as $reference) if (is_string($reference['content_hash'] ?? null)) $referenced[$reference['content_hash']] = true;
+        return array_values(array_filter($records, static fn (mixed $record): bool => is_array($record) && isset($referenced[$record['content_hash'] ?? ''])));
     }
 
     /**
@@ -729,7 +752,7 @@ PHP;
             $pagesBySource[$page['source_path']] = $page;
         }
         self::assertTaxonomyEntities($plan['taxonomy_entities'], $pagesBySource);
-        $expectedCandidatePages = self::attachWholePageCandidates(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), $plan['runtime_declarations'], $records);
+        $expectedCandidatePages = self::attachWholePageCandidates(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $records);
         foreach ($plan['pages'] as $index => $page) if (($expectedCandidatePages[$index]['whole_page_candidates'] ?? null) !== ($page['whole_page_candidates'] ?? null)) throw new InvalidArgumentException('Whole-page candidates are stale, duplicated, or detached from their canonical source pages.');
         foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
             $page = $pagesBySource[$scope['source_path']] ?? null;

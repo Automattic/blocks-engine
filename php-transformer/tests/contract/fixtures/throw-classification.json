@@ -119,7 +119,7 @@
       "InvalidArgumentException(\"Runtime declaration {$index} string metric formatting must not group, add decimals, or append a suffix.\")": {"class": "integrity", "count": 1},
       "InvalidArgumentException(\"Runtime declaration {$index} sum aggregation requires nonnegative integer extraction.\")": {"class": "integrity", "count": 1},
       "InvalidArgumentException(\"Runtime declaration {$index} uses the retired provider-specific external metric shape.\")": {"class": "integrity", "count": 1},
-      "InvalidArgumentException(\"Runtime declarations exceed the aggregate canonical byte limit of \".self::MAX_TOTAL_DECLARATION_BYTES.\" at declaration {$index}.\")": {"class": "operational", "count": 1},
+      "InvalidArgumentException(\"Runtime declarations exceed the aggregate canonical byte limit of \".self::MAX_TOTAL_DECLARATION_BYTES.\" at declaration {$index}.\")": {"class": "representability", "count": 1, "unit": "item", "finding": "runtime_declaration_dropped", "test": "tests/contract/runtime-entity-budget.php"},
       "InvalidArgumentException(\"Runtime record {$index} has a stale identity or content hash.\")": {"class": "integrity", "count": 1},
       "InvalidArgumentException(\"Runtime record {$index} is invalid.\")": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Asset publication provenance must exactly match normalized artifact file metadata.')": {"class": "integrity", "count": 1},

@@ -16,7 +16,9 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
  * records. One entity no declaration can carry is dropped with its bindings
  * (`runtime_entity_dropped`), and a collection whose manifest still exceeds
  * the per-declaration limit is dropped (`runtime_declaration_dropped`).
- * Limits over the whole declaration set stay fail-closed.
+ * At intake, limits over the whole declaration set stay fail-closed. Site-plan
+ * composition drops what still exceeds a limit (`runtime_declaration_dropped`)
+ * unless integrity depends on it.
  */
 
 $assert = static function (bool $condition, string $message): void {
@@ -133,6 +135,80 @@ try {
     $assert(false, 'A collection over the aggregate declaration bound fails closed.');
 } catch (InvalidArgumentException $error) {
     $assert(str_contains($error->getMessage(), 'aggregate canonical byte limit'), 'The aggregate declaration bound fails closed: ' . $error->getMessage());
+}
+
+// 6. Site-plan composition degrades declarations still over a byte limit
+// after entity lists are sharded into records. Each dropped declaration is a
+// `runtime_declaration_dropped` finding and its blocks stay static. A
+// declaration that integrity depends on is never dropped and fails closed.
+$siteFixture = $compile(array('index.html' => '<main><h1>Catalog home</h1><p>Static catalog copy.</p></main>', 'gathering.html' => '<main><h1>Community gathering</h1></main>'));
+$siteInput = $siteFixture;
+unset($siteInput['source_reports']['conversion_report'], $siteInput['source_reports']['wordpress_site_plan']);
+$gathering = array_column($siteFixture['source_reports']['wordpress_site_plan']['pages'], null, 'source_path')['gathering.html'];
+$staticMarkup = array_column($siteFixture['source_reports']['wordpress_site_plan']['pages'], 'canonical_block_markup', 'source_path');
+$eventRow = array('id' => 'event-1', 'source_path' => 'gathering.html', 'source_route' => $gathering['route']['path'], 'whole_page_candidate' => 'blocks-engine/whole-page-candidate/v1');
+$events = array('kind' => 'entity_collection', 'type' => 'events', 'source_path' => 'data/events.json', 'payload' => array('schema' => 'generic/events/v1', 'entities' => array($eventRow)));
+$blob = static fn (string $type, int $bytes): array => array('kind' => 'configuration', 'type' => $type, 'source_path' => 'data/' . $type . '.json', 'payload' => array('schema' => 'example/configuration/v1', 'blob' => str_repeat('c', $bytes)));
+$composePlan = static function (array $declarations) use ($siteInput): array {
+    $input = $siteInput;
+    $input['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeForComposition($declarations);
+    return (new WordPressSitePlan())->fromCompilerResult($input);
+};
+$keys = static fn (array $plan): array => array_map(static fn (array $row): string => $row['kind'] . ':' . ($row['type'] ?? $row['capability']), $plan['runtime_declarations']);
+$assertStatic = static function (array $plan) use ($assert, $staticMarkup): void {
+    foreach ($plan['pages'] as $page) $assert(($staticMarkup[$page['source_path']] ?? null) === $page['canonical_block_markup'], 'A dropped declaration leaves its page static: ' . $page['source_path']);
+};
+
+// (a) One non-entity declaration over the per-declaration payload limit is
+// dropped with the dependency that exists only for it. The event collection
+// keeps its whole-page candidate.
+$oversizedBytes = RuntimeDeclarations::MAX_PAYLOAD_BYTES + 4096;
+$catalogDependency = array('kind' => 'dependency', 'capability' => 'catalog', 'source_path' => 'runtime/catalog.json', 'required_for' => array('configuration:catalog'));
+$oversizedPlan = $composePlan(array($events, $blob('catalog', $oversizedBytes), $catalogDependency));
+WordPressSitePlan::assertValid($oversizedPlan);
+$assert(array('entity_collection:events') === $keys($oversizedPlan), 'The oversized declaration and its dependency leave the plan: ' . json_encode($keys($oversizedPlan)));
+$dropped = $findings($oversizedPlan['diagnostics'], 'runtime_declaration_dropped');
+$assert(2 === count($dropped), 'Each dropped declaration is one finding: ' . json_encode($dropped));
+$byKey = array_column($dropped, null, 'declaration_key');
+$catalogFinding = $byKey['configuration:catalog'] ?? array();
+$assert('warning' === ($catalogFinding['severity'] ?? null) && 'declaration' === $catalogFinding['unit'] && 'data/catalog.json' === $catalogFinding['source_path'] && 'runtime_declaration_exceeds_byte_limit' === $catalogFinding['reason_code'] && $catalogFinding['metrics']['bytes'] > RuntimeDeclarations::MAX_PAYLOAD_BYTES && RuntimeDeclarations::MAX_PAYLOAD_BYTES === $catalogFinding['metrics']['limit_bytes'], 'The oversized declaration finding names its key, source, bytes and limit: ' . json_encode($catalogFinding));
+$assert('runtime_declaration_requirement_dropped' === ($byKey['dependency:catalog']['reason_code'] ?? null) && 'runtime/catalog.json' === $byKey['dependency:catalog']['source_path'], 'The dependency required only for it is dropped with it: ' . json_encode($byKey['dependency:catalog'] ?? null));
+$assert('success_with_warnings' === $oversizedPlan['quality']['status'] && in_array('runtime_declaration_dropped', $oversizedPlan['reporting']['diagnostic_codes'] ?? array(), true), 'The drops are recovery findings on the plan.');
+$assert('event-1' === (array_column($oversizedPlan['pages'], null, 'source_path')['gathering.html']['whole_page_candidates'][0]['entity_id'] ?? null), 'The kept collection keeps its whole-page candidate.');
+$assertStatic($oversizedPlan);
+// A collection that requires the oversized declaration is dropped with it, so
+// its whole-page candidate leaves the page and the page stays static.
+$requiredCatalog = array_merge($blob('catalog', $oversizedBytes), array('required_for' => array('entity_collection:events')));
+$cascadePlan = $composePlan(array($events, $requiredCatalog));
+WordPressSitePlan::assertValid($cascadePlan);
+$cascadeDropped = array_column($findings($cascadePlan['diagnostics'], 'runtime_declaration_dropped'), 'reason_code', 'declaration_key');
+$assert(array() === $cascadePlan['runtime_declarations'] && array('configuration:catalog' => 'runtime_declaration_exceeds_byte_limit', 'entity_collection:events' => 'runtime_declaration_requirement_dropped') == $cascadeDropped, 'The collection that requires the oversized declaration is dropped with it: ' . json_encode($cascadeDropped));
+$assert(!isset(array_column($cascadePlan['pages'], null, 'source_path')['gathering.html']['whole_page_candidates']), 'The dropped collection leaves no whole-page candidate behind.');
+$assertStatic($cascadePlan);
+
+// (b) Declarations that each fit but together exceed the aggregate limit:
+// the largest is dropped until the set fits, one finding each.
+$third = intdiv(RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES, 3);
+$aggregatePlan = $composePlan(array($events, $blob('alpha', $third), $blob('beta', $third + 2048), $blob('gamma', $third + 4096), $blob('delta', $third + 1024)));
+WordPressSitePlan::assertValid($aggregatePlan);
+$kept = $keys($aggregatePlan); sort($kept);
+$assert(array('configuration:alpha', 'configuration:delta', 'entity_collection:events') === $kept, 'The largest declarations are dropped until the set fits: ' . json_encode($kept));
+$aggregateDropped = $findings($aggregatePlan['diagnostics'], 'runtime_declaration_dropped');
+$assert(array('configuration:gamma', 'configuration:beta') === array_column($aggregateDropped, 'declaration_key') || array('configuration:beta', 'configuration:gamma') === array_column($aggregateDropped, 'declaration_key'), 'One finding per declaration dropped for the aggregate limit: ' . json_encode($aggregateDropped));
+foreach ($aggregateDropped as $finding) $assert('runtime_declaration_exceeds_aggregate_byte_limit' === $finding['reason_code'] && RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES === $finding['metrics']['limit_bytes'] && $finding['metrics']['bytes'] > $third, 'The aggregate finding measures the dropped declaration: ' . json_encode($finding));
+$assertStatic($aggregatePlan);
+
+// (c) A dependency that a form's script supersession proof requires is
+// integrity-bearing: dropping it would drop that form, so its oversized
+// payload keeps failing closed with the existing error.
+$supersedingForms = array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => array('schema' => 'generic/forms/v1', 'entities' => array(array('id' => 'contact', 'superseded_scripts' => array(array('source_path' => 'index.html', 'selector' => 'script:nth-of-type(1)'))))));
+$formDependency = array_merge($blob('unused', 0), array('kind' => 'dependency', 'capability' => 'form', 'source_path' => 'runtime/form.json', 'required_for' => array('entity_collection:forms'), 'payload' => array('schema' => 'example/form-runtime/v1', 'blob' => str_repeat('f', $oversizedBytes))));
+unset($formDependency['type']);
+try {
+    RuntimeDeclarations::factor(RuntimeDeclarations::normalizeForComposition(array($supersedingForms, $formDependency)));
+    $assert(false, 'An integrity-bearing declaration over the payload limit fails closed.');
+} catch (InvalidArgumentException $error) {
+    $assert(str_contains($error->getMessage(), 'payload exceeds the byte limit'), 'The integrity-bearing declaration fails closed with the existing error: ' . $error->getMessage());
 }
 
 echo "runtime entity budget contract passed\n";

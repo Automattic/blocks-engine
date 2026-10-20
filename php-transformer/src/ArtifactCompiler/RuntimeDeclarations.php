@@ -39,8 +39,13 @@ final class RuntimeDeclarations
         return self::normalizeList($raw);
     }
 
-    /** @return array<int,array<string,mixed>> */
-    public static function normalizeList(mixed $raw): array
+    /**
+     * Composition passes `$enforceByteLimits = false`: declarations are still
+     * being edited then, and site-plan factoring applies the byte limits once.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function normalizeList(mixed $raw, bool $enforceByteLimits = true): array
     {
         if (!is_array($raw) || !array_is_list($raw) || count($raw) > self::MAX_DECLARATIONS) throw new InvalidArgumentException('Runtime declarations must be a bounded ordered collection.');
 
@@ -71,7 +76,7 @@ final class RuntimeDeclarations
                 if (!is_array($declaration['payload']) || !is_string($declaration['payload']['schema'] ?? null) || '' === trim($declaration['payload']['schema']) || trim($declaration['payload']['schema']) !== $declaration['payload']['schema'] || strlen($declaration['payload']['schema']) > 255) throw new InvalidArgumentException("Runtime declaration {$index} payload requires a bounded nonblank schema.");
                 $payload = self::canonical($declaration['payload']);
                 try { $encoded = self::canonicalJson($payload); } catch (InvalidArgumentException) { throw new InvalidArgumentException("Runtime declaration {$index} payload is not serializable."); }
-                if (strlen($encoded) > self::MAX_PAYLOAD_BYTES) throw new InvalidArgumentException("Runtime declaration {$index} payload exceeds the byte limit.");
+                if ($enforceByteLimits && strlen($encoded) > self::MAX_PAYLOAD_BYTES) throw new InvalidArgumentException("Runtime declaration {$index} payload exceeds the byte limit.");
                 $normalized['payload'] = $payload;
                 $manifest = RuntimeEntityManifest::SCHEMA === ($payload['schema'] ?? null);
                 if ($manifest && (!is_string($payload['entity_schema'] ?? null) || !is_array($payload['entities'] ?? null) || !array_is_list($payload['entities']))) throw new InvalidArgumentException("Runtime declaration {$index} entity manifest is invalid.");
@@ -97,7 +102,7 @@ final class RuntimeDeclarations
                 $normalized = array_merge($normalized, self::assetPublication($declaration, $index));
             }
             $totalBytes += strlen(self::canonicalJson($normalized));
-            if ($totalBytes > self::MAX_TOTAL_DECLARATION_BYTES) throw new InvalidArgumentException("Runtime declarations exceed the aggregate canonical byte limit of " . self::MAX_TOTAL_DECLARATION_BYTES . " at declaration {$index}.");
+            if ($enforceByteLimits && $totalBytes > self::MAX_TOTAL_DECLARATION_BYTES) throw new InvalidArgumentException("Runtime declarations exceed the aggregate canonical byte limit of " . self::MAX_TOTAL_DECLARATION_BYTES . " at declaration {$index}.");
             $normalized['payload_hash'] = self::hash($normalized['payload'] ?? null);
             $mutable = $normalized;
             unset($mutable['reconciliation_identity'], $mutable['payload_hash']);
@@ -290,11 +295,24 @@ final class RuntimeDeclarations
         if ($declarations !== self::normalizeList($declarations)) throw new InvalidArgumentException('Runtime declarations are not canonically normalized or have stale hashes.');
     }
 
-    /** @param array<int,array<string,mixed>> $declarations @return array{declarations:array<int,array<string,mixed>>,records:array<int,array<string,mixed>>} */
+    /**
+     * The bounded public form of composed declarations. Entity lists over the
+     * payload limit are sharded into content-addressed records. Whatever still
+     * exceeds a byte limit is dropped with the declarations that depend on it,
+     * one `runtime_declaration_dropped` finding each, so its blocks stay
+     * static: first each declaration over the payload limit, then the largest
+     * declarations until the set fits the aggregate limit. A declaration that
+     * integrity depends on is never dropped; the limit it exceeds fails closed.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @return array{declarations:array<int,array<string,mixed>>,records:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
+     */
     public static function factor(array $declarations): array
     {
-        try { return array('declarations' => self::normalizeList($declarations), 'records' => array()); }
+        try { return array('declarations' => self::normalizeList($declarations), 'records' => array(), 'diagnostics' => array()); }
         catch (InvalidArgumentException $error) { if (!str_contains($error->getMessage(), 'payload exceeds the byte limit') && !str_contains($error->getMessage(), 'aggregate canonical byte limit')) throw $error; }
+        $declarations = array_values($declarations);
+        $integrity = array_map(static fn (mixed $declaration): bool => is_array($declaration) && self::bearsIntegrity($declaration), $declarations);
         $records = array();
         foreach ($declarations as $index => &$declaration) {
             $payload = $declaration['payload'] ?? null;
@@ -305,21 +323,154 @@ final class RuntimeDeclarations
             $references = array(); foreach ($chunks as $chunk) { $recordPayload = array('schema' => $payload['schema'], 'entities' => $chunk); $encoded = self::canonicalJson($recordPayload); $hash = self::hash($recordPayload); $id = 'runtime-record-' . $hash; $records[$id] = array('schema' => self::RECORD_SCHEMA, 'id' => $id, 'content_hash' => $hash, 'bytes' => strlen($encoded), 'payload' => $recordPayload); $references[] = array('id' => $id, 'content_hash' => $hash, 'bytes' => strlen($encoded)); }
             $declaration['payload'] = array('schema' => self::RECORD_MANIFEST_SCHEMA, 'record_schema' => $payload['schema'], 'records' => $references); unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
         }
-        unset($declaration); ksort($records, SORT_STRING); return array('declarations' => self::normalizeList($declarations), 'records' => array_values($records));
+        unset($declaration);
+        $bounded = self::withinByteLimits($declarations, $integrity);
+        $referenced = array();
+        foreach ($bounded['declarations'] as $declaration) if (self::RECORD_MANIFEST_SCHEMA === ($declaration['payload']['schema'] ?? null)) foreach ($declaration['payload']['records'] as $reference) $referenced[$reference['id'] ?? ''] = true;
+        $records = array_intersect_key($records, $referenced);
+        return array('declarations' => self::normalizeList($bounded['declarations']), 'records' => self::normalizeRecords(array_values($records)), 'diagnostics' => $bounded['diagnostics']);
+    }
+
+    /**
+     * Drop what still exceeds a byte limit after sharding. Returns the kept
+     * declarations, whose `required_for` no longer names a dropped one, and a
+     * finding per dropped declaration. What cannot be dropped is left for
+     * normalizeList() to reject.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,bool> $integrity
+     * @return array{declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
+     */
+    private static function withinByteLimits(array $declarations, array $integrity): array
+    {
+        $keys = array();
+        foreach ($declarations as $index => $declaration) $keys[$index] = is_array($declaration) ? (string) ($declaration['kind'] ?? '') . ':' . (string) ($declaration['type'] ?? $declaration['capability'] ?? '') : '';
+        $dropped = array();
+        $drop = static function (int $index, string $reasonCode, string $because, int $bytes, int $limit) use (&$dropped, $declarations, $keys, $integrity): bool {
+            $closure = self::dropClosure($declarations, $keys, $dropped, $index);
+            foreach ($closure as $member) if ($integrity[$member] ?? true) return false;
+            foreach ($closure as $member) {
+                $root = $member === $index;
+                $dropped[$member] = RuntimeEntityManifest::droppedDeclarationDiagnostic(
+                    $keys[$member],
+                    (string) $declarations[$member]['source_path'],
+                    $root ? $reasonCode : 'runtime_declaration_requirement_dropped',
+                    $root ? $because : 'it is bound to the dropped runtime declaration ' . $keys[$index],
+                    array('bytes' => $root ? $bytes : self::measure($declarations[$member]), 'limit_bytes' => $limit),
+                    null,
+                    self::class
+                );
+            }
+            return true;
+        };
+        foreach ($declarations as $index => $declaration) {
+            if (isset($dropped[$index]) || !is_array($declaration) || !is_array($declaration['payload'] ?? null)) continue;
+            $bytes = self::measure($declaration['payload']);
+            if ($bytes > self::MAX_PAYLOAD_BYTES) $drop($index, 'runtime_declaration_exceeds_byte_limit', sprintf('its canonical payload is %d bytes, over the %d-byte runtime declaration payload limit', $bytes, self::MAX_PAYLOAD_BYTES), $bytes, self::MAX_PAYLOAD_BYTES);
+        }
+        while (true) {
+            $kept = self::keptDeclarations($declarations, $keys, $dropped);
+            try { self::normalizeList($kept); break; }
+            catch (InvalidArgumentException $error) { if (!str_contains($error->getMessage(), 'aggregate canonical byte limit')) break; }
+            $sizes = array();
+            foreach ($declarations as $index => $declaration) if (!isset($dropped[$index]) && is_array($declaration)) {
+                $unhashed = $declaration; unset($unhashed['payload_hash'], $unhashed['content_hash']);
+                $sizes[$index] = self::measure($unhashed);
+            }
+            arsort($sizes, SORT_NUMERIC);
+            $total = array_sum($sizes);
+            $fitted = false;
+            foreach ($sizes as $index => $bytes) if ($drop($index, 'runtime_declaration_exceeds_aggregate_byte_limit', sprintf('it is the largest droppable declaration (%d bytes) of a set of %d bytes, over the %d-byte aggregate runtime declaration limit', $bytes, $total, self::MAX_TOTAL_DECLARATION_BYTES), $bytes, self::MAX_TOTAL_DECLARATION_BYTES)) { $fitted = true; break; }
+            if (!$fitted) break;
+        }
+        ksort($dropped, SORT_NUMERIC);
+        return array('declarations' => self::keptDeclarations($declarations, $keys, $dropped), 'diagnostics' => array_values($dropped));
+    }
+
+    /**
+     * The declaration and everything bound to it: what its `required_for`
+     * names, and what is required only for declarations being dropped.
+     *
+     * @param array<int,array<string,mixed>> $declarations @param array<int,string> $keys @param array<int,mixed> $dropped
+     * @return array<int,int>
+     */
+    private static function dropClosure(array $declarations, array $keys, array $dropped, int $index): array
+    {
+        $closure = array($index => true);
+        do {
+            $grew = false;
+            $gone = array();
+            foreach ($keys as $member => $key) if (isset($closure[$member]) || isset($dropped[$member])) $gone[$key] = true;
+            $requiredFor = array();
+            foreach (array_keys($closure) as $member) foreach (self::requiredFor($declarations[$member]) as $key) $requiredFor[$key] = true;
+            foreach ($declarations as $member => $declaration) {
+                if (isset($closure[$member]) || isset($dropped[$member])) continue;
+                $own = self::requiredFor($declaration);
+                if (!isset($requiredFor[$keys[$member]]) && (array() === $own || array() !== array_diff($own, array_keys($gone)))) continue;
+                $closure[$member] = true;
+                $grew = true;
+            }
+        } while ($grew);
+        return array_keys($closure);
+    }
+
+    /** @param array<int,array<string,mixed>> $declarations @param array<int,string> $keys @param array<int,mixed> $dropped @return array<int,array<string,mixed>> */
+    private static function keptDeclarations(array $declarations, array $keys, array $dropped): array
+    {
+        $gone = array();
+        foreach (array_keys($dropped) as $index) $gone[$keys[$index]] = true;
+        $kept = array();
+        foreach ($declarations as $index => $declaration) {
+            if (isset($dropped[$index])) continue;
+            if (array() !== $gone && is_array($declaration) && array() !== self::requiredFor($declaration)) {
+                $declaration['required_for'] = array_values(array_filter($declaration['required_for'], static fn (mixed $key): bool => !is_string($key) || !isset($gone[$key])));
+                if (array() === $declaration['required_for']) unset($declaration['required_for']);
+                unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
+            }
+            $kept[] = $declaration;
+        }
+        return $kept;
+    }
+
+    /** @return array<int,string> */
+    private static function requiredFor(mixed $declaration): array
+    {
+        $required = is_array($declaration) && is_array($declaration['required_for'] ?? null) ? $declaration['required_for'] : array();
+        return array_values(array_filter($required, 'is_string'));
+    }
+
+    /**
+     * Whether integrity checks depend on the declaration, so it is never
+     * dropped: published asset bytes, theme preference ownership, and form
+     * bindings that prove a source script was superseded.
+     *
+     * @param array<string,mixed> $declaration
+     */
+    private static function bearsIntegrity(array $declaration): bool
+    {
+        if (in_array($declaration['kind'] ?? null, array('asset_publication', ThemePreferenceOwnership::DECLARATION_KIND), true)) return true;
+        $entities = is_array($declaration['payload'] ?? null) && is_array($declaration['payload']['entities'] ?? null) ? $declaration['payload']['entities'] : array();
+        foreach ($entities as $entity) if (is_array($entity) && !empty($entity['superseded_scripts'])) return true;
+        return false;
+    }
+
+    /** Canonical byte length, or 0 when the value is not representable; normalizeList() rejects that. */
+    private static function measure(mixed $value): int
+    {
+        try { return strlen(self::canonicalJson($value)); } catch (InvalidArgumentException) { return 0; }
     }
 
     /**
      * Validate declarations while composition is still editing entity bindings.
-     * The bounded record representation is temporary: shell extraction must see
-     * every entity, including those whose combined payload exceeds 5 MiB.
+     * Byte limits wait for factor(): shell extraction must see every entity,
+     * including those whose combined payload exceeds 5 MiB.
      *
      * @param array<int,array<string,mixed>> $declarations
      * @return array<int,array<string,mixed>>
      */
     public static function normalizeForComposition(array $declarations): array
     {
-        $factored = self::factor($declarations);
-        return self::materialize($factored['declarations'], $factored['records']);
+        return self::normalizeList($declarations, false);
     }
 
     /** @param array<int,array<string,mixed>> $records @return array<int,array<string,mixed>> */
