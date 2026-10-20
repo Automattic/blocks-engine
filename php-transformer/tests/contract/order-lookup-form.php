@@ -75,6 +75,7 @@ $assert(null !== $orderLookups && 'generic/order-lookups/v1' === ($orderLookups[
 $entities = $orderLookups['payload']['entities'] ?? array();
 $assert(1 === count($entities), 'Exactly one order lookup is declared: ' . json_encode(array_column($entities, 'selector')));
 $entity = $entities[0];
+$sortedControls = static function (mixed $controls): mixed { if (!is_array($controls)) return $controls; foreach ($controls as &$control) if (is_array($control)) ksort($control); return $controls; };
 $assert('support.html' === ($entity['source_path'] ?? null) && 'main:nth-of-type(1) > form:nth-of-type(1)' === ($entity['selector'] ?? null), 'The order lookup names the form page and selector: ' . json_encode(array('source_path' => $entity['source_path'] ?? null, 'selector' => $entity['selector'] ?? null)));
 $assert(array('label' => 'Order #', 'placeholder' => '#1234') === ($entity['fields']['order'] ?? null), 'The order field carries its label and placeholder: ' . json_encode($entity['fields']['order'] ?? null));
 $assert(array('label' => 'Email used at checkout') === ($entity['fields']['email'] ?? null), 'The email field carries its label and no placeholder: ' . json_encode($entity['fields']['email'] ?? null));

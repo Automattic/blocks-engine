@@ -1139,30 +1139,6 @@ final class ArtifactCompiler
                 $choiceGroups = array_values(array_filter(is_array($fallback['choice_groups'] ?? null) ? $fallback['choice_groups'] : array(), 'is_array'));
                 if ( array() !== $choiceGroups ) $declarable = true;
                 if ( true === ($fallback['control_topology']['truncated'] ?? false) ) { if ( $declarable ) $diagnostics[] = $this->declinedFormDeclarationDiagnostic($fallback, $sourcePath, $selector, 'control_topology_truncated', 'its bounded control topology was truncated, so the control graph is incomplete'); continue; }
-                // An order-lookup form (order number + the email used at checkout
-                // + a submit) is a shop surface: a form provider can never answer
-                // it, while a shop provider owns order tracking. Recognized forms
-                // are pulled out of the detected-forms path here — the path that
-                // would otherwise declare them in `forms` — and declared beside
-                // the other shop collections below, reusing the finding's
-                // finalized form anchor under the `order_lookup` role. The
-                // `html_form_fallback` finding itself keeps carrying the
-                // extracted controls with its fallback identity, so a consumer
-                // can reconcile the form against its materialization. A form
-                // without a page-owned anchor stays on the generic path, which
-                // declines it loudly instead of silently.
-                $orderLookupBinding = is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ? $fallback['binding'] : null;
-                $orderLookup = array() === $choiceGroups ? OrderLookupFormRecognizer::recognize($fallback['controls']) : null;
-                if ( null !== $orderLookup && null !== $orderLookupBinding ) {
-                    $orderLookups[$sourcePath . "\n" . $selector] = array_filter(array(
-                        'source_path' => $sourcePath,
-                        'selector' => $selector,
-                        'fields' => $orderLookup['fields'],
-                        'submit_label' => '' !== $orderLookup['submit_label'] ? $orderLookup['submit_label'] : null,
-                        'bindings' => array(array_merge($orderLookupBinding, array('role' => 'order_lookup', 'source_path' => $sourcePath))),
-                    ), static fn (mixed $value): bool => null !== $value && array() !== $value);
-                    continue;
-                }
                 // A control's own field-description candidates that could not be
                 // safely attributed to it (see `FormControlMetadataBuilder`) are an
                 // internal marker, not published schema: collect them for a
@@ -1184,6 +1160,31 @@ final class ArtifactCompiler
                 $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => $rawControls);
                 if ( array() !== $choiceGroups ) $form['choice_groups'] = $choiceGroups;
                 foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null) && preg_match('/^[a-f0-9]{64}$/', $fallback[$identityKey])) $form[$identityKey] = $fallback[$identityKey];
+                // An order-lookup form (order number + the email used at checkout
+                // + a submit) is a shop surface: a form provider can never answer
+                // it, while a shop provider owns order tracking. Recognized forms
+                // are pulled out of the detected-forms path here — the path that
+                // would otherwise declare them in `forms` — and declared beside
+                // the other shop collections below, reusing the finding's
+                // finalized form anchor under the `order_lookup` role. The
+                // `html_form_fallback` finding itself keeps carrying the
+                // extracted controls with its fallback identity, so a consumer
+                // can reconcile the form against its materialization. A form
+                // without a page-owned anchor stays on the generic path, which
+                // declines it loudly instead of silently.
+                $orderLookupBinding = is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ? $fallback['binding'] : null;
+                $orderLookup = array() === $choiceGroups ? OrderLookupFormRecognizer::recognize($rawControls) : null;
+                if ( null !== $orderLookup && null !== $orderLookupBinding ) {
+                    // The entity carries the same source form evidence and fallback
+                    // identity a `forms` entity would, so a consumer reconciles
+                    // it against the `html_form_fallback` finding unchanged.
+                    $orderLookups[$sourcePath . "\n" . $selector] = array_filter($form + array(
+                        'fields' => $orderLookup['fields'],
+                        'submit_label' => '' !== $orderLookup['submit_label'] ? $orderLookup['submit_label'] : null,
+                        'bindings' => array(array_merge($orderLookupBinding, array('role' => 'order_lookup', 'source_path' => $sourcePath))),
+                    ), static fn (mixed $value): bool => null !== $value && array() !== $value);
+                    continue;
+                }
                 // The control topology is the provider's map of where each flat
                 // control sits, and consumers enforce the same producer contract
                 // against this entity's control list. A topology that fails it
