@@ -139,7 +139,9 @@ final class SourceElementClassifier
         $definitionSvgs = array();
         $ambiguousIds = array();
         foreach ( $candidates as $svg ) {
-            if ( 'svg' !== strtolower($svg->tagName) ) {
+            // Definitions-only carriers stay inline through SvgMaterializer;
+            // their consumers can remain native editable blocks.
+            if ( 'svg' !== strtolower($svg->tagName) || SourceDom::isDefinitionsOnlySvg($svg) ) {
                 continue;
             }
             foreach ( $svg->getElementsByTagName('*') as $definition ) {

@@ -216,7 +216,8 @@ $assert(! str_contains($emptyContent, '<picture><img alt="Logo.png"></picture>')
 $labeledWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><div><wow-image><img src="profile.png" alt="Profile"></wow-image><span>Profile</span></div></a>')->toArray();
 $assert('custom/responsive-media' !== ($labeledWrapper['blocks'][0]['blockName'] ?? null), 'a linked image wrapper with authored label content is not collapsed into responsive media');
 
-$maskedVideoSource = '<div class="masked-video"><svg viewBox="0 0 600 120"><defs><clipPath id="clip-masked-video"><text x="0" y="0">LET&apos;S TALK</text></clipPath></defs></svg><div class="fill-layers-wrapper" style="clip-path:url(&quot;#clip-masked-video&quot;)"><video src="footer.mp4" autoplay muted loop></video></div></div>';
+// Artwork-bearing SVG dependencies still require the shared media boundary.
+$maskedVideoSource = '<div class="masked-video"><svg viewBox="0 0 600 120"><rect width="600" height="120"/><defs><clipPath id="clip-masked-video"><text x="0" y="0">LET&apos;S TALK</text></clipPath></defs></svg><div class="fill-layers-wrapper" style="clip-path:url(&quot;#clip-masked-video&quot;)"><video src="footer.mp4" autoplay muted loop></video></div></div>';
 $maskedVideo = ( new HtmlTransformer() )->transform($maskedVideoSource)->toArray();
 $maskedVideoBlock = $maskedVideo['blocks'][0] ?? array();
 $maskedVideoContent = (string) ($maskedVideoBlock['attrs']['content'] ?? '');
@@ -224,7 +225,7 @@ $assert('custom/responsive-media' === ($maskedVideoBlock['blockName'] ?? null), 
 $assert(str_contains($maskedVideoContent, '<clippath id="clip-masked-video">') && str_contains($maskedVideoContent, '<video src="footer.mp4" autoplay muted loop>'), 'the captured boundary preserves the SVG definition and media consumer');
 $assert(! str_contains((string) ($maskedVideo['serialized_blocks'] ?? ''), '<!-- wp:html') && 'pass' === ($maskedVideo['source_reports']['wp_block_validity']['status'] ?? null), 'the dependent composition remains valid generated-block markup');
 
-$nestedMask = ( new HtmlTransformer() )->transform('<div><div><svg><defs><clipPath id="nested-mask"><rect width="10" height="10"></rect></clipPath></defs></svg></div><video src="nested.mp4" style="clip-path:url(#nested-mask)"></video></div>')->toArray();
+$nestedMask = ( new HtmlTransformer() )->transform('<div><div><svg><rect width="10" height="10"/><defs><clipPath id="nested-mask"><rect width="10" height="10"></rect></clipPath></defs></svg></div><video src="nested.mp4" style="clip-path:url(#nested-mask)"></video></div>')->toArray();
 $assert('custom/responsive-media' === ($nestedMask['blocks'][0]['blockName'] ?? null), 'a nested definition is discovered within the bounded component');
 
 $localMask = ( new HtmlTransformer() )->transform('<div><svg><defs><clipPath id="local-mask"><rect width="10" height="10"></rect></clipPath></defs><g clip-path="url(#local-mask)"></g></svg><video src="plain.mp4"></video></div>')->toArray();

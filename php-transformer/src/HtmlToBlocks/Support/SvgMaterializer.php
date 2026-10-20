@@ -40,7 +40,8 @@ final class SvgMaterializer implements SvgElementMaterializer
         // Only preserve when there is actual artwork to keep. An SVG whose only
         // content is unsafe (e.g. a lone <script>) has nothing left to render
         // once sanitized, so it defers to the bounded fallback diagnostic.
-        if ( ! SourceDom::svgHasDrawableContent($element) ) {
+        $definitionsOnly = SourceDom::isDefinitionsOnlySvg($element);
+        if ( ! $definitionsOnly && ! SourceDom::svgHasDrawableContent($element) ) {
             return null;
         }
 
@@ -58,6 +59,13 @@ final class SvgMaterializer implements SvgElementMaterializer
         // the bounded fallback metadata path rather than emit unsafe markup.
         if ( ! SourceDom::isSafeSvgContent($html) ) {
             return null;
+        }
+
+        // Definitions have no independent image to render. Externalizing them
+        // severs page-local fragment consumers, even when CSS supplies the URL.
+        // Keep their authored box (including zero dimensions) in the document.
+        if ($definitionsOnly) {
+            return $this->context->svgArtworkBlock($element, $this->restoreSvgCasing($html));
         }
 
         $html = $this->materializeSanitizedSvgMarkup($html, $element);
