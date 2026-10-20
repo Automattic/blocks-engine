@@ -41,8 +41,8 @@ try {
     second: window.secondHeadState,
     secondViewport: window.viewportAtSecondScript,
     tags: [...document.head.children].map(element => element.tagName.toLowerCase()),
-    scope: document.querySelector('style[data-document-scope]')?.dataset.documentScope,
-    styleMedia: document.querySelector('style[data-document-scope]')?.media,
+    scope: document.querySelector('link[data-document-scope]')?.dataset.documentScope,
+    styleMedia: document.querySelector('link[data-document-scope]')?.media,
     linkMedia: document.querySelector('link[data-source-media]')?.media,
     authoredMedia: document.querySelector('link[data-source-media]')?.dataset.sourceMedia,
   }));
@@ -52,7 +52,7 @@ try {
   assert.equal(state.secondViewport, state.viewport);
   assert.deepEqual(state.first, { bodyAbsent: true, styleAbsent: true });
   assert.deepEqual(state.second, { bodyAbsent: true, stylePresent: true, linkPresent: true });
-  assert.deepEqual(state.tags, ['meta', 'meta', 'script', 'style', 'style', 'link', 'script']);
+  assert.deepEqual(state.tags, ['meta', 'meta', 'script', 'link', 'link', 'link', 'script']);
   assert.equal(state.scope, 'phone');
   assert.equal(state.styleMedia, 'not all');
   assert.equal(state.linkMedia, 'not all');
