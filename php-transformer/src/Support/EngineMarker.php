@@ -41,6 +41,7 @@ final class EngineMarker
         'navigation-anchor',
         'navigation-item',
         'navigation-box',
+        'navigation-list-box',
         'navigation-artwork',
         'richtext',
         'root-child',
