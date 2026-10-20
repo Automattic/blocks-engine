@@ -29,9 +29,17 @@ final class PresentationResolutionCache
         $this->elementKeys = new WeakMap();
     }
 
+    private int $nextElementKey = 0;
+
+    /**
+     * PHP reuses spl_object_id() as soon as a DOM wrapper is released, so an
+     * id-based key handed a temporary clone at the same path (a captured
+     * state swapped into the source tree) the results of the node it
+     * replaced. Each wrapper gets a token that is never reissued.
+     */
     public function elementKey(DOMElement $element): string
     {
         return $this->elementKeys[$element]
-            ??= spl_object_id($element) . ':' . $element->getNodePath();
+            ??= ++$this->nextElementKey . ':' . $element->getNodePath();
     }
 }

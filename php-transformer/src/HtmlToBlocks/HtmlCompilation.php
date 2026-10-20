@@ -1684,6 +1684,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $reusableComponentRecognition = $this->reusableComponents()->report($this->materializedAssets()->assets());
         $sourceProvenance = $this->transformationProvenance()->resolveBlockPaths($blocks);
         $responsiveCounterpartContracts = (new ResponsiveCorrespondence())->declare($blocks, $sourceProvenance);
+        $this->authorSelectorProjections()->confirmRichTextCarriers($serializedBlocks);
         $authorStylesheetProjections = $this->authorStylesheetProjections();
         $runtimeScriptProjections = $this->runtimeScriptProjections();
         $this->materializeAuthorStylesheet(
@@ -4198,7 +4199,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $preserveInlineLayoutLeaf ) {
             $attrs = $this->hoistContentWrappingSpans($name, $attrs);
         }
-        if ( 'core/paragraph' === $name && ! $preserveInlineLayoutLeaf && ! $sourceElement instanceof DOMElement && str_contains((string) ($attrs['content'] ?? ''), 'class=') ) {
+        // A RichText carrier whose only classes are its role and subject
+        // classes carries no authored class.
+        if ( 'core/paragraph' === $name && ! $preserveInlineLayoutLeaf && ! $sourceElement instanceof DOMElement
+            && str_contains((string) preg_replace('/\sclass="(?:\s*blocks-engine-(?:role-richtext|subject)[a-z0-9-]*)+\s*"/', '', (string) ($attrs['content'] ?? '')), 'class=')
+        ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
         }
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) ) {
@@ -4287,6 +4292,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $innerBlocks = $this->withPropagatedWrapperTextAlignment($innerBlocks, $sourceElement);
         }
 
+        // Every RichText carrier a block stores passes through here, so this is
+        // where each one gets its role and subject classes; the saved markup
+        // is built from these attributes and so carries them too.
+        $attrs = $this->withRichTextCarrierClasses($attrs);
+
         return $this->blockMaterializer->materialize(
             $name,
             $attrs,
@@ -4294,6 +4304,22 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $sourceMaterializationFacts,
             $this->transformationProvenance()
         );
+    }
+
+    /**
+     * @param array<mixed> $attrs
+     * @return array<mixed>
+     */
+    private function withRichTextCarrierClasses(array $attrs): array
+    {
+        foreach ( $attrs as $key => $value ) {
+            if ( is_string($value) ) {
+                $attrs[$key] = $this->authorSelectorProjections()->withRichTextCarrierClasses($value);
+            } elseif ( is_array($value) ) {
+                $attrs[$key] = $this->withRichTextCarrierClasses($value);
+            }
+        }
+        return $attrs;
     }
 
     /**

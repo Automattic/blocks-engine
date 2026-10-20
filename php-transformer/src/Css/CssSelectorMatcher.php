@@ -263,6 +263,70 @@ final class CssSelectorMatcher
     }
 
     /**
+     * Whether a parsed selector's result depends only on the subject element's
+     * own tag name and attributes.
+     *
+     * That holds for one compound without combinators whose negations and
+     * selector-list arguments are themselves such compounds. Structural
+     * pseudo-classes (`:nth-*`, `:first-child`, `:last-child`, `:root`) read the
+     * element's position, and a combinator reads its neighbours, so either
+     * keeps the result tied to the element. A compound carrying any part this
+     * method does not recognise is treated as positional: a selector match
+     * cache may share a subject-only result between elements with equal
+     * attributes, and only a proven-local selector is safe to share.
+     *
+     * @param array<string, mixed> $selector Result of parse().
+     */
+    public static function dependsOnlyOnSubject(array $selector): bool
+    {
+        if ( ! ($selector['supported'] ?? false) ) {
+            return false;
+        }
+        return self::isSubjectOnlyComplex($selector['compounds'] ?? array(), $selector['combinators'] ?? array());
+    }
+
+    /** @param mixed $compounds @param mixed $combinators */
+    private static function isSubjectOnlyComplex($compounds, $combinators): bool
+    {
+        return is_array($compounds) && 1 === count($compounds) && array() === $combinators
+            && is_array($compounds[0] ?? null) && self::isSubjectOnlyCompound($compounds[0]);
+    }
+
+    /** @param array<string, mixed> $compound */
+    private static function isSubjectOnlyCompound(array $compound): bool
+    {
+        static $known = array(
+            'type' => true, 'universal' => true, 'classes' => true, 'ids' => true, 'attributes' => true,
+            'not' => true, 'any' => true, 'nth_child' => true, 'nth_type' => true, 'first_child' => true,
+            'last_child' => true, 'root' => true, 'resting_state_negations' => true,
+            'zero_specificity' => true, 'forced_zero_specificity' => true,
+        );
+        foreach ( $compound as $key => $value ) {
+            if ( ! isset($known[ $key ]) ) {
+                return false;
+            }
+        }
+        if ( null !== ($compound['nth_child'] ?? null) || null !== ($compound['nth_type'] ?? null)
+            || ! empty($compound['first_child']) || ! empty($compound['last_child']) || ! empty($compound['root'])
+        ) {
+            return false;
+        }
+        foreach ( $compound['not'] ?? array() as $negated ) {
+            if ( ! is_array($negated) || ! self::isSubjectOnlyComplex($negated['compounds'] ?? null, $negated['combinators'] ?? null) ) {
+                return false;
+            }
+        }
+        foreach ( $compound['any'] ?? array() as $group ) {
+            foreach ( (is_array($group) ? ($group['alternatives'] ?? null) : null) ?? array(null) as $alternative ) {
+                if ( ! is_array($alternative) || ! self::isSubjectOnlyComplex($alternative['compounds'] ?? null, $alternative['combinators'] ?? null) ) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
      * A selector that is nothing but `:where(...)` is its argument, scored zero.
      *
      * `parseCompound()` reads an `:is()`/`:where()` argument as a single

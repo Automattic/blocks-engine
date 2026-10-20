@@ -105,4 +105,45 @@ $schemaPlan = $compile(array('shop.html' => '<!doctype html><html><head><title>D
 $schemaProducts = array_column($declaration($schemaPlan, 'products')['payload']['entities'] ?? array(), null, 'slug');
 $assert('Desks' === ($schemaProducts['omega-desk']['category'] ?? null), 'A schema.org category path names its leaf: ' . json_encode($schemaProducts));
 
+// A catalog page that repeats one category-group shape (heading, count,
+// grid) under one wrapper: a grid whose own count label does not match its
+// card count must not claim the sibling group's count, or the two listings
+// would bind the same count block and the plan would be ambiguous.
+$catalogGroup = static fn (string $heading, string $count, array $cards): string => '<div class="group"><div class="head"><h3>' . $heading . '</h3><span class="count">' . $count . '</span></div><div class="grid">' . implode('', $cards) . '</div></div>';
+$catalogCards = array(
+    $card('Epsilon Lamp', 'Lighting', 'matte', '18.00'),
+    $card('Zeta Lamp', 'Lighting', 'gloss', '24.00'),
+    $card('Eta Chair', 'Seating', 'matte', '40.00'),
+    $card('Theta Lamp', 'Lighting', 'matte', '21.00'),
+    $card('Iota Lamp', 'Lighting', 'gloss', '27.00'),
+    $card('Kappa Chair', 'Seating', 'matte', '44.00'),
+);
+$catalog = '<!doctype html><html><head><title>Catalog</title></head><body><main><section><div class="catalog">'
+    . $catalogGroup('Strips', '3 products', array_slice($catalogCards, 0, 3))
+    . $catalogGroup('Merch', '6 products', array_slice($catalogCards, 3))
+    . '</div></section></main></body></html>';
+
+$catalogResult = $compile(array('catalog.html' => $catalog));
+$assert('failed' !== $catalogResult['status'] && ! isset($catalogResult['source_reports']['wordpress_site_plan_diagnostics']), 'The catalog composes cleanly: ' . json_encode($catalogResult['source_reports']['wordpress_site_plan_diagnostics'] ?? array()));
+$catalogPlan = $catalogResult['source_reports']['wordpress_site_plan'] ?? array();
+
+// The repeated shape puts each group at a fixed position, so the source
+// selectors tell the two groups' grids and counts apart.
+$catalogPrefix = 'main:nth-of-type(1) > section:nth-of-type(1) > div:nth-of-type(1) > ';
+$gridA = $catalogPrefix . 'div:nth-of-type(1) > div:nth-of-type(2)';
+$gridB = $catalogPrefix . 'div:nth-of-type(2) > div:nth-of-type(2)';
+$countA = $catalogPrefix . 'div:nth-of-type(1) > div:nth-of-type(1) > span:nth-of-type(1)';
+
+$catalogGrids = array_column($declaration($catalogPlan, 'product_grids')['payload']['entities'] ?? array(), null, 'selector');
+$assert(isset($catalogGrids[$gridA], $catalogGrids[$gridB]), 'Both category groups are recognized as product grids: ' . json_encode(array_keys($catalogGrids)));
+
+$listingsByGrid = array_column($declaration($catalogPlan, 'product_listings')['payload']['entities'] ?? array(), null, 'grid_selector');
+$countControls = array_values(array_filter($listingsByGrid[$gridA]['controls'] ?? array(), static fn (array $control): bool => 'result_count' === ($control['id'] ?? null)));
+$assert(1 === count($countControls) && $countA === ($countControls[0]['selector'] ?? null) && '3 products' === ($countControls[0]['label'] ?? null), 'Group A\'s listing counts its own cards, not the sibling group\'s: ' . json_encode($listingsByGrid[$gridA]['controls'] ?? array()));
+$countBindings = array_values(array_filter($listingsByGrid[$gridA]['bindings'] ?? array(), static fn (array $binding): bool => 'result_count' === ($binding['control'] ?? null)));
+$countBinding = $countBindings[0] ?? array();
+$countAnchor = (string) ($countBinding['projected_anchor']['source_block_markup'] ?? $countBinding['search_block_markup'] ?? '');
+$assert(1 === count($countBindings) && str_contains($countAnchor, '3 products') && ! str_contains($countAnchor, '6 products'), 'The result_count binding anchors on group A\'s own count block: ' . json_encode($countBinding));
+$assert(! isset($listingsByGrid[$gridB]), 'Group B, whose count label does not match its card count, declares no listing that could bind group A\'s count.');
+
 echo "product-grid-listing-controls: ok\n";
