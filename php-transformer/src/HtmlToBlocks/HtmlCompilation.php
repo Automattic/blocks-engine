@@ -12300,16 +12300,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * @return array<string, mixed>
      */
     /**
-     * Whether a synthesized image figure stands in for inline content that the
-     * parent aligns. Only an alignment that acts on inline content matters: a
-     * block image is already positioned by its own box, and shrink-wrapping it
-     * would strip the width its margins resolve against.
+     * Whether a synthesized image figure must be transparent to inline flow
+     * and percentage sizing. A block source image keeps its ordinary figure;
+     * its own box, rather than inline alignment, determines its placement.
      */
     private function syntheticImageFigureFollowsInlineFlow(DOMElement $element): bool
     {
         $display = $this->resolvedDeclaration($element, 'display');
         if ( '' !== $display && ! in_array($display, array( 'inline', 'inline-block' ), true) ) {
             return false;
+        }
+
+        // An inline source wrapper is transparent to percentage sizing. Do
+        // not introduce a figure containing block when lowering its image.
+        $parent = $element->parentNode;
+        if ($parent instanceof DOMElement
+            && $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
+            && in_array($this->resolvedDeclaration($parent, 'display'), array('', 'inline'), true)) {
+            return true;
         }
 
         $table = $this->ancestorElement($element, 'table');
