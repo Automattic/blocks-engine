@@ -57,7 +57,7 @@ $assert(
     'plain styled spans repurposed as <mark> carriers for RichText persistence get role="none" so assistive tech does not announce ordinary styled text as highlighted/marked content it never was'
 );
 $assert(
-    str_contains($socialLinkSerialized, 'text-ink-soft" style="color:#888') && str_contains($socialLinkSerialized, 'text-ink" style="color:#111'),
+    1 === preg_match('/text-ink-soft(?: blocks-engine-[^"]*)?" style="color:#888/', $socialLinkSerialized) && 1 === preg_match('/text-ink(?: blocks-engine-[^"]*)?" style="color:#111/', $socialLinkSerialized),
     'the visual styling that motivated the <mark> carrier is still faithfully preserved on the element'
 );
 $socialLinkValidity = ( new BlockValidityValidator() )->validateBlocks($socialLink['blocks'] ?? array());
@@ -89,7 +89,7 @@ $ordinaryHook = $transform(
 );
 $ordinarySerialized = (string) ($ordinaryHook['serialized_blocks'] ?? '');
 $assert(
-    1 === preg_match('/<mark class="callout"[^>]*role="none"[^>]*>hello<\/mark>/i', $ordinarySerialized),
+    1 === preg_match('/<mark class="callout(?: blocks-engine-[^"]*)?"[^>]*role="none"[^>]*>hello<\/mark>/i', $ordinarySerialized),
     'an ordinary styling-hook span with no pseudo-element tag dependency still lowers to a <mark role="none"> carrier'
 );
 

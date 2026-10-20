@@ -22,7 +22,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<mark class=\"accent\" style=\"display:block;color:#b8893a;--blocks-engine-richtext-marker:blocks-engine-richtext-#-0\" role=\"none\">Roasters</mark>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<mark class=\"accent blocks-engine-role-richtext blocks-engine-subject blocks-engine-subject-tag-span blocks-engine-subject-class-a3a7f053ae2e\" style=\"display:block;color:#b8893a;--blocks-engine-richtext-marker:blocks-engine-richtext-#-0\" role=\"none\">Roasters</mark>" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }

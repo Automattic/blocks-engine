@@ -21,6 +21,9 @@ use DOMElement;
  * - `result_count`: a short text whose number is the card count.
  *
  * The region is the nearest common ancestor of the listing and its controls.
+ * A candidate is claimed only when it does not sit in a sibling branch that
+ * holds another listing of the same shape — on a page that repeats one
+ * category-group shape, each group's controls are its own.
  * Everything here is provider-neutral evidence: what each control does to
  * the cards and which card carries which value.
  */
@@ -115,7 +118,7 @@ final class ListingControlsRecognizer
                     $label = $this->text($option);
                     $options[] = array('value' => $option->hasAttribute('value') ? SourceDom::attr($option, 'value') : $label, 'label' => $label);
                 }
-                if ( count($options) >= 2 ) {
+                if ( count($options) >= 2 && ! $this->inSiblingListingBranch($listing, $element) ) {
                     $groups[] = array('shape' => 'select', 'element' => $element, 'options' => $options);
                 }
                 continue;
@@ -126,7 +129,7 @@ final class ListingControlsRecognizer
                 continue;
             }
             $buttons = $this->dataKeyedButtons($element);
-            if ( null !== $buttons ) {
+            if ( null !== $buttons && ! $this->inSiblingListingBranch($listing, $element) ) {
                 $groups[] = array('shape' => 'buttons', 'element' => $element, 'options' => $buttons);
             }
         }
@@ -137,6 +140,9 @@ final class ListingControlsRecognizer
             $container = $members[0]['element'];
             foreach ( $members as $member ) {
                 $container = $this->commonAncestor($container, $member['element']);
+            }
+            if ( $this->inSiblingListingBranch($listing, $container) ) {
+                continue;
             }
             $groups[] = array('shape' => 'radios', 'element' => $container, 'options' => array_column($members, 'option'));
         }
@@ -238,6 +244,44 @@ final class ListingControlsRecognizer
         );
     }
 
+    /**
+     * Whether a candidate control sits in a sibling branch that holds another
+     * listing of the same shape, making it that listing's control. The scope
+     * widens past the listing's own ancestors, so on a page that repeats one
+     * category-group shape (heading, count, grid), every group's controls are
+     * in range; without this check a grid whose own count label does not match
+     * its card count would take the first matching label anywhere in scope —
+     * one inside a sibling group's branch — and two listings would bind the
+     * same block, which the site plan rejects as ambiguous. Take the common
+     * ancestor of the listing and the candidate, then the child of that
+     * ancestor on the candidate's side: when that branch holds an element with
+     * the same tag name and class attribute as the listing — a peer listing —
+     * the candidate is not this listing's.
+     */
+    private function inSiblingListingBranch(DOMElement $listing, DOMElement $candidate): bool
+    {
+        $ancestor = $this->commonAncestor($listing, $candidate);
+        if ( $ancestor === $listing || $ancestor === $candidate ) {
+            return false;
+        }
+        $branch = $candidate;
+        while ( $branch->parentNode instanceof DOMElement && $branch->parentNode !== $ancestor ) {
+            $branch = $branch->parentNode;
+        }
+        if ( ! $branch instanceof DOMElement ) {
+            return false;
+        }
+        $tag = strtolower($listing->tagName);
+        $class = $listing->getAttribute('class');
+        foreach ( $branch->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && $element !== $listing && strtolower($element->tagName) === $tag && $element->getAttribute('class') === $class ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @param array{value: string, label: string} $option */
     private function isResetOption(array $option): bool
     {
@@ -296,7 +340,7 @@ final class ListingControlsRecognizer
             return null;
         }
         foreach ( $scope->getElementsByTagName('input') as $input ) {
-            if ( ! $input instanceof DOMElement || 'range' !== strtolower(SourceDom::attr($input, 'type')) || $this->contains($listing, $input) ) {
+            if ( ! $input instanceof DOMElement || 'range' !== strtolower(SourceDom::attr($input, 'type')) || $this->contains($listing, $input) || $this->inSiblingListingBranch($listing, $input) ) {
                 continue;
             }
             $min = SourceDom::attr($input, 'min');
@@ -324,7 +368,7 @@ final class ListingControlsRecognizer
     private function resultCount(DOMElement $scope, DOMElement $listing, int $cardCount): ?array
     {
         foreach ( $scope->getElementsByTagName('*') as $element ) {
-            if ( ! $element instanceof DOMElement || SourceDom::childElementCount($element) > 0 || $this->contains($listing, $element) || in_array(strtolower($element->tagName), array( 'option', 'button', 'label', 'script', 'style' ), true) ) {
+            if ( ! $element instanceof DOMElement || SourceDom::childElementCount($element) > 0 || $this->contains($listing, $element) || in_array(strtolower($element->tagName), array( 'option', 'button', 'label', 'script', 'style' ), true) || $this->inSiblingListingBranch($listing, $element) ) {
                 continue;
             }
             if ( preg_match('/^(\d+)\s+\p{L}+(?:\s+\p{L}+)?$/u', $this->text($element), $match) && (int) $match[1] === $cardCount ) {

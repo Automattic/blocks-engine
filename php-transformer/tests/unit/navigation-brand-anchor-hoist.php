@@ -103,8 +103,8 @@ $assert(
 );
 $assert(
     str_contains($unlistedMarkup, '<div class="wp-block-group mark"')
-        && str_contains($unlistedMarkup, '<span class="name"')
-        && str_contains($unlistedMarkup, '<span class="place"'),
+        && 1 === preg_match('/<span class="name[ "]/', $unlistedMarkup)
+        && 1 === preg_match('/<span class="place[ "]/', $unlistedMarkup),
     'unlisted brand class: the branding lockup keeps its class identity so its authored layout still applies',
     $unlistedMarkup
 );

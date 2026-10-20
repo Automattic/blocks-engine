@@ -18,7 +18,10 @@ $assert = static function (bool $condition, string $message): void {
 // context-seeded rich-text marker, and the shared stylesheet projects into one
 // variant per route. Only one copy of the header is emitted, as the shared
 // part, so every other copy's marker is named by CSS and carried by nothing.
-$css = '.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.cta{border:1px solid}'
+// The hidden-label rule names the label in context (`header .sr-only`): a
+// context-free `.sr-only` reaches every copy through the constant richtext
+// subject arm and names no marker at all.
+$css = 'header .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.cta{border:1px solid}'
     . '.home{padding:2em}.post{padding:1em}.legal{padding:0}.note{margin:0}';
 $nav = static fn (string $current): string => implode('', array_map(
     static fn (string $slug, string $label): string => '<a href="' . $slug . '.html"' . ($slug === $current ? ' aria-current="page"' : '') . '>' . $label . '</a>',
@@ -62,7 +65,7 @@ $assert(2 === count($chrome), 'Route copies of the header no longer each ship th
 // The marked header label keeps its hidden-text rule, and `.sr-only` still
 // reaches any other element carrying the class.
 $assert(str_contains($chromeCss, 'span[data-blocks-engine-richtext-marker="' . $headerMarkers[0] . '"]'), 'The live header marker keeps its projected rule.');
-$assert(1 === preg_match('/(?:^|}|,)\.sr-only\{position:absolute/', $chromeCss), 'A rule whose only marker was dead keeps its plain class selector.');
+$assert(1 === preg_match('/(?:^|}|,)header \.sr-only\{position:absolute/', $chromeCss), 'A rule whose only marker was dead keeps its plain class selector.');
 $assert(str_contains($chromeCss, '.cta{border:1px solid}'), 'Authored chrome rules are unchanged.');
 
 // Pruning keeps what each selector matches and its specificity.

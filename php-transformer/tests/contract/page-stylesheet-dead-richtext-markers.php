@@ -14,8 +14,10 @@ $assert = static function (bool $condition, string $message): void {
 // Every page carries the same header, whose call to action hides part of its
 // label. Each route's copy of the header gets its own context-seeded rich-text
 // marker, but only one copy is emitted, as the shared part. A universal reset
-// keeps each route's own stylesheet naming its copy's marker (to exclude it),
-// so every other copy's marker is named by page CSS and carried by nothing.
+// used to keep each route's own stylesheet naming its copy's marker (to
+// exclude it), so every other copy's marker was named by page CSS and carried
+// by nothing. The reset now excludes RichText carriers through their role
+// class, so no page stylesheet names a marker at all.
 $css = '*{margin:0}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.cta{border:1px solid}'
     . '.home{padding:2em}.post{padding:1em}.legal{padding:0}.note{margin:0}';
 $nav = static fn (string $current): string => implode('', array_map(
@@ -48,7 +50,7 @@ $assert(1 === count($live), 'The shared header carries the one live rich-text ma
 
 $stylesheets = array_values(array_filter($plan['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null)));
 $pageSheets = array_values(array_filter($stylesheets, static fn (array $asset): bool => !str_contains((string) $asset['target_path'], 'shared-chrome-') && str_starts_with(basename((string) $asset['target_path']), 'site.')));
-$assert(count($pageSheets) >= 4, 'Each route keeps its own projection of the site stylesheet, for visitors and the editor.');
+$assert(2 === count($pageSheets), 'Every route shares one projection of the site stylesheet, for visitors and the editor.');
 foreach ($stylesheets as $asset) {
     $dead = array_diff($markers((string) $asset['content']), $live);
     $assert(array() === $dead, $asset['target_path'] . ' names no rich-text marker absent from the emitted plan: ' . implode(', ', $dead));
@@ -56,10 +58,9 @@ foreach ($stylesheets as $asset) {
     $assert(hash('sha256', (string) $asset['content']) === $asset['content_hash'], 'Asset hash matches its content: ' . $asset['target_path']);
 }
 
-// Pruning drops only dead arms: the reset still reaches every element but the
-// live hidden label, and the authored rules are unchanged.
+// The reset still reaches every element, and the authored rules are unchanged.
 $all = implode("\n", array_map(static fn (array $asset): string => (string) $asset['content'], $stylesheets));
-$assert(str_contains($all, '*:not(:where(.' . $live[0] . ')):not(.blocks-engine-specificity-class-site-0){margin:0}'), 'The reset still excludes the live hidden label.');
+$assert(str_contains($all, '*:not(:where(.blocks-engine-role-richtext)):not(.blocks-engine-specificity-class-site-0),:where(.blocks-engine-role-richtext.blocks-engine-subject):not(.blocks-engine-specificity-class-site-0){margin:0}'), 'The reset excludes the hidden label through the richtext role class and reaches it through the subject arm.');
 $assert(str_contains($all, '.cta{border:1px solid}'), 'Authored chrome rules are unchanged.');
 foreach (array('padding:2em', 'padding:1em') as $body) {
     $assert(str_contains($all, $body), 'The route rule `' . $body . '` is kept.');

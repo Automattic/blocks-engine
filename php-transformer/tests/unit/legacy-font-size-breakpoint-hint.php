@@ -46,7 +46,7 @@ $transform = static function (string $important): array {
 
 foreach ( array( 'important' => ' !important', 'normal' => '' ) as $label => $important ) {
     [ $blocks, $css, $result ] = $transform($important);
-    preg_match('/<mark style="([^"]*)"[^>]*>Studio title<\/mark>/', $blocks, $mark);
+    preg_match('/<mark (?:class="[^"]*" )?style="([^"]*)"[^>]*>Studio title<\/mark>/', $blocks, $mark);
     preg_match('/--blocks-engine-richtext-marker:(blocks-engine-richtext-[a-z0-9-]+)/', $mark[1] ?? '', $marker);
     $marker = $marker[1] ?? '';
     $author = implode("\n", array_filter($css, static fn (string $key): bool => str_starts_with($key, 'author-css:'), ARRAY_FILTER_USE_KEY));
