@@ -2133,13 +2133,25 @@ final class ArtifactCompiler
             $ownership = $this->fileOwnership($document);
             $documentFiles = $files;
             $parts = array();
-            foreach ($this->stylesheetAssetsForSource($document['content'], $sourcePath, $documentFiles) as $stylesheet) {
+            $stylesheets = $this->stylesheetAssetsForSource($document['content'], $sourcePath, $documentFiles);
+            foreach ($stylesheets as $stylesheet) {
                 $content = $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $documentFiles);
                 $media = trim((string) ($stylesheet['media'] ?? ''));
                 $parts[] = '' === $media ? $content : '@media ' . $media . '{' . $content . '}';
             }
-            foreach ($files as $file) {
-                if (!isset($file['metadata']['page_stylesheet_of']) || $this->fileOwnership($file) !== $ownership) continue;
+            $pageDeltas = array_values(array_filter($files, fn(array $file): bool =>
+                isset($file['metadata']['page_stylesheet_of']) && $this->fileOwnership($file) === $ownership
+            ));
+            // Deltas inherit the authored cascade position of their parent,
+            // never the transport file-map order. Repeated parents use their
+            // last occurrence; unlinked parents have a stable path fallback.
+            $stylesheetOrder = array_flip(array_column($stylesheets, 'path'));
+            usort($pageDeltas, static fn(array $left, array $right): int =>
+                ($stylesheetOrder[$left['metadata']['page_stylesheet_of']] ?? PHP_INT_MAX)
+                    <=> ($stylesheetOrder[$right['metadata']['page_stylesheet_of']] ?? PHP_INT_MAX)
+                ?: strcmp($left['path'], $right['path'])
+            );
+            foreach ($pageDeltas as $file) {
                 $parts[] = $this->compatibilityStylesheetContent($file['content'], $file['path'], $documentFiles);
             }
             $asset = $this->wordpressCompat->asset($documentFiles, $transformer->concatenateWithoutRedundantRules($parts), $scripts);
