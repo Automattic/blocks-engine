@@ -5234,7 +5234,11 @@ PHP;
      */
     public static function projectedBindingAnchor(array $binding): array
     {
-        return array_filter(array('schema' => 'blocks-engine/projected-binding-anchor/v1', 'source_block_markup' => $binding['search_block_markup'] ?? null, 'source_occurrence' => $binding['occurrence'] ?? null, 'source_position' => $binding['position'] ?? null), static fn(mixed $value): bool => null !== $value);
+        // The anchor identifies the binding's source block by digest and length:
+        // the markup itself already travels as the binding's
+        // `search_block_markup`, and reprojection only tests exact equality.
+        $sourceMarkup = is_string($binding['search_block_markup'] ?? null) ? $binding['search_block_markup'] : null;
+        return array_filter(array('schema' => 'blocks-engine/projected-binding-anchor/v2', 'source_block_hash' => null === $sourceMarkup ? null : hash('sha256', $sourceMarkup), 'source_block_length' => null === $sourceMarkup ? null : strlen($sourceMarkup), 'source_occurrence' => $binding['occurrence'] ?? null, 'source_position' => $binding['position'] ?? null), static fn(mixed $value): bool => null !== $value);
     }
 
     private function canonicalInlineEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array()): array
@@ -5330,15 +5334,16 @@ PHP;
             foreach ($remainingClaims as $members) {
                 $identity = $members[0];
                 $anchor = $declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['projected_anchor'] ?? null;
-                if (!is_array($anchor) || 'blocks-engine/projected-binding-anchor/v1' !== ($anchor['schema'] ?? null) || !is_string($anchor['source_block_markup'] ?? null)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
+                if (!is_array($anchor) || 'blocks-engine/projected-binding-anchor/v2' !== ($anchor['schema'] ?? null) || !is_string($anchor['source_block_hash'] ?? null) || !is_int($anchor['source_block_length'] ?? null)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
+                $isAnchorSource = static fn(string $markup, array $range): bool => $anchor['source_block_length'] === $range['length'] && hash_equals($anchor['source_block_hash'], hash('sha256', substr($markup, $range['offset'], $range['length'])));
                 $sourceMarkup = $sourceMarkupBySource[$identity['source']] ?? null;
                 if (!is_string($sourceMarkup)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
                 $sourceRanges = self::blockRanges($sourceMarkup); $canonicalRanges = self::blockRanges($markup);
-                $sourceMatches = array_values(array_filter($sourceRanges, static fn(array $range): bool => $anchor['source_block_markup'] === substr($sourceMarkup, $range['offset'], $range['length'])));
+                $sourceMatches = array_values(array_filter($sourceRanges, static fn(array $range): bool => $isAnchorSource($sourceMarkup, $range)));
                 if (isset($anchor['source_occurrence_count']) && $anchor['source_occurrence_count'] !== count($sourceMatches)) throw new InvalidArgumentException('A runtime entity binding source anchor is ambiguous after reprojection.');
-                $candidates = array(); foreach ($sourceRanges as $index => $sourceRange) { $canonicalRange = $canonicalRanges[$index] ?? null; if ($anchor['source_block_markup'] === substr($sourceMarkup, $sourceRange['offset'], $sourceRange['length']) && $anchor['source_occurrence'] === self::occurrenceAtOffset($sourceMarkup, $anchor['source_block_markup'], $sourceRange['offset']) && is_array($canonicalRange) && $search === substr($markup, $canonicalRange['offset'], $canonicalRange['length']) && !isset($claimedOffsets[$canonicalRange['offset']])) $candidates[] = array('source' => $sourceRange, 'canonical' => $canonicalRange); }
+                $candidates = array(); foreach ($sourceRanges as $index => $sourceRange) { $canonicalRange = $canonicalRanges[$index] ?? null; if ($isAnchorSource($sourceMarkup, $sourceRange) && $anchor['source_occurrence'] === self::occurrenceAtOffset($sourceMarkup, substr($sourceMarkup, $sourceRange['offset'], $sourceRange['length']), $sourceRange['offset']) && is_array($canonicalRange) && $search === substr($markup, $canonicalRange['offset'], $canonicalRange['length']) && !isset($claimedOffsets[$canonicalRange['offset']])) $candidates[] = array('source' => $sourceRange, 'canonical' => $canonicalRange); }
                 if (array() === $candidates) {
-                    $sourceMatches = array_values(array_filter(self::blockRanges($sourceMarkup), static fn(array $range): bool => $anchor['source_block_markup'] === substr($sourceMarkup, $range['offset'], $range['length'])));
+                    $sourceMatches = array_values(array_filter(self::blockRanges($sourceMarkup), static fn(array $range): bool => $isAnchorSource($sourceMarkup, $range)));
                     $canonicalMatches = array_values(array_filter(self::blockRanges($markup), static fn(array $range): bool => $search === substr($markup, $range['offset'], $range['length'])));
                     $unclaimedCanonical = array_values(array_filter($canonicalMatches, static fn(array $range): bool => !isset($claimedOffsets[$range['offset']])));
                     if (1 === count($sourceMatches) && 1 === count($unclaimedCanonical)) {
