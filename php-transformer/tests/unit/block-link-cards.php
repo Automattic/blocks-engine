@@ -33,7 +33,7 @@ foreach (array('span', 'strong') as $tag) {
     $label = (new HtmlTransformer())->transform('<a class="primary-button" href="/go" style="padding:12px;background:#123"><' . $tag . ' style="display:block">Reserve now</' . $tag . '></a>')->toArray();
     if (!str_contains($label['serialized_blocks'], '<!-- wp:button ')) throw new RuntimeException('Block-styled phrasing labels must stay native buttons.');
 }
-foreach (array('<h3>Title</h3>', '<div><h4>Title</h4></div>', '<div><p>Body</p></div>') as $content) {
+foreach (array('<h3>Title</h3><div></div>', '<div><h4>Title</h4></div>', '<div><p>Body</p></div>') as $content) {
     $card = (new HtmlTransformer())->transform('<a href="/go" style="padding:12px;background:#123">' . $content . '</a>')->toArray();
     if (str_contains($card['serialized_blocks'], '<!-- wp:button ')) throw new RuntimeException('Semantic flow content must not become a button label.');
     if (!str_contains($card['serialized_blocks'], 'href="/go"')) throw new RuntimeException('Flow-content links must remain navigable.');

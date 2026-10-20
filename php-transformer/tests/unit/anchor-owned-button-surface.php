@@ -30,10 +30,31 @@ $assert(null === $typed, 'a paragraph label remains block content rather than in
 $assert(str_contains($typedLabel['serialized_blocks'], '>Contact</p>'), 'the paragraph remains editable');
 $assert(str_contains($typedLabel['serialized_blocks'], 'href="/contact"'), 'the container keeps its destination');
 
+// A heading tag alone is not a card: own chrome plus one direct label is
+// the historical native-button case. Wrapped/branching content is not.
+foreach (array('background:#135e96', 'border:1px solid #135e96') as $paint) {
+    $single = $transform('<a class="primary-button" href="/book" style="padding:10px 16px;' . $paint . '"><h3>Reserve now</h3><span aria-hidden="true"></span></a>');
+    $native = $findButton($single['blocks']);
+    $assert(null !== $native && '/book' === ($native['attrs']['url'] ?? ''), 'own painted single heading label remains a native button');
+}
+foreach (array(
+    '<h3>Title</h3>',
+    '<div><h3>Title</h3></div>',
+    '<div><h3>Title</h3><div><svg width="24" height="24"></svg></div></div>',
+    '<h3>Title</h3><p>Details</p>',
+    '<h3>Title</h3><img src="https://example.com/icon.png" alt="">',
+    '<h3>Title</h3><div></div>',
+) as $index => $content) {
+    $style = 0 === $index ? '' : ' style="padding:12px;background:#135e96"';
+    $card = $transform('<a href="/card"' . $style . '>' . $content . '</a>');
+    $assert(null === $findButton($card['blocks']), 'unpainted or structural card content is not a button: ' . $index);
+    $assert(str_contains($card['serialized_blocks'], '<h3') && str_contains($card['serialized_blocks'], 'href="/card"'), 'linked card retains heading and destination: ' . $index);
+}
+
 $childOwned = $transform('<style>.surface{display:flex;padding:12px;border-radius:6px;background:#123456;color:white}</style><a href="/contact"><span class="surface">Contact</span></a>');
 $child = $findButton($childOwned['blocks']);
 $assert('#123456' === ($child['attrs']['style']['color']['background'] ?? ''), 'a genuinely child-owned surface still provides its paint');
 $assert('12px' === ($child['attrs']['style']['spacing']['padding']['top'] ?? ''), 'a genuinely child-owned surface still provides its sizing');
 
 if ($failures) { fwrite(STDERR, implode("\n", $failures) . "\n"); exit(1); }
-echo "Anchor-owned button surface passed: 10 assertions\n";
+echo "Anchor-owned button surface passed\n";

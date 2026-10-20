@@ -636,16 +636,36 @@ final class SourceElementClassifier
      * Whether a control's subtree is a RichText-legal button label.
      *
      * core/button stores its label as phrasing RichText. Anchors containing
-     * flow elements must remain linked containers, even with a single heading.
+     * flow elements remain linked containers unless the anchor paints its own
+     * control surface and has just one direct text label.
      * Native controls retain their separate label handling, but multiple
      * text-bearing flow elements cannot be concatenated into one text run.
      */
-    public function isRichTextButtonLabel(DOMElement $element): bool
+    public function isRichTextButtonLabel(DOMElement $element, bool $hasOwnButtonSurface = false): bool
     {
-        // Anchors wrapping flow content are linked containers, not RichText
-        // labels. Even one heading must retain its semantics and CSS hooks.
         if ( 'a' === strtolower($element->tagName) && $this->hasBlockLevelDescendant($element) ) {
-            return false;
+            // A painted control may use a flow element solely for its label.
+            // Do not extend this exception to a card body wrapping that label,
+            // or to a label accompanied by media or another structural child.
+            if ( ! $hasOwnButtonSurface ) {
+                return false;
+            }
+            $labels = 0;
+            foreach ( $this->significantButtonLabelChildren($element) as $child ) {
+                if ( ! $child instanceof DOMElement ) {
+                    return false;
+                }
+                if ( $this->isTextBearingFlowElement($child) && ! $this->hasBlockContentChildren($child) && '' !== $this->visibleTextContent($child) ) {
+                    ++$labels;
+                    continue;
+                }
+                if ( $this->isBlockLevelFlowElement($child) || '' !== $this->visibleTextContent($child) || $this->hasDirectMediaChild($child) || $this->hasBlockLevelDescendant($child) || in_array(strtolower($child->tagName), array('img', 'picture', 'svg', 'video', 'audio'), true) ) {
+                    return false;
+                }
+            }
+            if ( 1 !== $labels ) {
+                return false;
+            }
         }
 
         if ( $this->hasSiblingFlowTextContainers($element) ) {
