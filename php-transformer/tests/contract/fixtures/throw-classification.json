@@ -485,6 +485,7 @@
       "InvalidArgumentException('WordPress site plan binary write cannot carry a resolution projection.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('WordPress site plan contains an undeclared reference token.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('WordPress site plan content decision evidence is invalid.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('WordPress site plan structured page evidence is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('WordPress site plan content decision is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('WordPress site plan content decision provenance is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('WordPress site plan content decision timestamp is invalid.')": {"class": "integrity", "count": 1},
