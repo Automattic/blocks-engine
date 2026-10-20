@@ -15,6 +15,9 @@ declare(strict_types=1);
  * engine's projected typography and the canvas renders the wrong size. The
  * projector must emit an editor-scoped variant whose child combinator
  * reaches through the marked layer, without touching front-end matching.
+ *
+ * The variant is one nested rule whose every crossing step tolerates the
+ * layer (`&>x,&>:where(.layer)>x`); see EditorShellBoundary.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -47,6 +50,7 @@ $cssFor = static function (array $result): string {
 $transform = static fn (string $html): array => ( new HtmlTransformer() )->transform($html)->toArray();
 
 $layer = EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS;
+$step = static fn (string $child): string => '&>' . $child . ',&>:where(.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ')>' . $child;
 
 $scaledHeadline = $transform(
     '<style>.sqs-html-content .scaled-text-container > .scaled-text h1{font-size:inherit !important}</style>'
@@ -62,7 +66,7 @@ $assert(
 $assert(
     str_contains(
         $scaledCss,
-        ':where(:root .editor-styles-wrapper) .sqs-html-content .scaled-text-container > :where(.' . $layer . ') > .scaled-text h1{font-size:inherit !important}'
+        ':where(:root .editor-styles-wrapper) .sqs-html-content .scaled-text-container{' . $step('.scaled-text h1') . '{font-size:inherit !important}}'
     ),
     'the editor variant reaches through the layout shell inner-blocks layer',
     $scaledCss
@@ -78,9 +82,8 @@ $multiEdge = $transform(
 );
 $multiCss = $cssFor($multiEdge);
 $assert(
-    str_contains($multiCss, ':where(:root .editor-styles-wrapper) .wrap > :where(.' . $layer . ') > .box > .label')
-        && str_contains($multiCss, ':where(:root .editor-styles-wrapper) .wrap > .box > :where(.' . $layer . ') > .label'),
-    'each child combinator of a multi-edge selector gets its own relaxation',
+    str_contains($multiCss, ':where(:root .editor-styles-wrapper) .wrap{' . $step('.box') . '{' . $step('.label') . '{color:red}}}'),
+    'each child combinator of a multi-edge selector tolerates the layer once, in one rule',
     $multiCss
 );
 
@@ -88,7 +91,7 @@ $assert(
 // before it would let `.wrap > .box > .label` reach a `.label` block nested at
 // any depth under `.box`, so a body-text rule could restyle nested headings.
 $assert(
-    1 !== preg_match('/[^>\s]\s+:where\(\.' . preg_quote($layer, '/') . '\)/', $multiCss . $scaledCss),
+    1 !== preg_match('/[^>\s]\s*:where\(\.' . preg_quote($layer, '/') . '\)/', $multiCss . $scaledCss),
     'a relaxed combinator stays a child step into the layer',
     $multiCss
 );
@@ -98,7 +101,7 @@ $mediaVariant = $transform(
 );
 $mediaCss = $cssFor($mediaVariant);
 $assert(
-    str_contains($mediaCss, '@media (min-width:768px){.wrap > .box{color:red}:where(:root .editor-styles-wrapper) .wrap > :where(.' . $layer . ') > .box{color:red}}'),
+    str_contains($mediaCss, '@media (min-width:768px){.wrap > .box{color:red}:where(:root .editor-styles-wrapper) .wrap{' . $step('.box') . '{color:red}}}'),
     'the variant stays inside the authored media condition',
     $mediaCss
 );
@@ -118,7 +121,7 @@ $attributeSafe = $transform(
 );
 $attributeCss = $cssFor($attributeSafe);
 $assert(
-    str_contains($attributeCss, ':where(:root .editor-styles-wrapper) .wrap > :where(.' . $layer . ') > .box::after{content:"a>b"}'),
+    str_contains($attributeCss, ':where(:root .editor-styles-wrapper) .wrap{' . $step('.box::after') . '{content:"a>b"}}'),
     'quoted combinator characters inside declaration values are left alone',
     $attributeCss
 );
@@ -130,7 +133,7 @@ $frontEndCss = $cssFor($frontEndInert);
 $assert(
     str_contains(
         $frontEndCss,
-        '.wrap > .box{color:red}:where(:root .editor-styles-wrapper) .wrap > :where(.' . $layer . ') > .box{color:red}'
+        '.wrap > .box{color:red}:where(:root .editor-styles-wrapper) .wrap{' . $step('.box') . '{color:red}}'
     ),
     'the original rule keeps a plain front-end selector and the variant is editor-scoped',
     $frontEndCss
@@ -142,10 +145,12 @@ $assert(
 $gridCss = $cssFor($transform(
     '<style>.row > *{width:100%}.col-6{width:50%}</style><div class="row"><div class="col-6"><p>A</p></div><div class="col-6"><p>B</p></div></div>'
 ));
+// `&` weighs what its parent does, so the nested rule weighs its prelude
+// plus the step it nests.
 $variantSelector = null;
-( new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer() )->visitStyleRules($gridCss, static function (string $prelude) use (&$variantSelector, $layer): void {
-    if ( null === $variantSelector && str_contains($prelude, $layer) && str_contains($prelude, '.row') ) {
-        $variantSelector = trim($prelude);
+( new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer() )->visitStyleRules($gridCss, static function (string $prelude, string $body) use (&$variantSelector, $layer): void {
+    if ( null === $variantSelector && str_contains($body, $layer) && str_contains($prelude, '.row') && 1 === preg_match('/^,?&>:where\(\.' . preg_quote($layer, '/') . '\)>([^{,]+)\{/', substr($body, strpos($body, ',')), $step) ) {
+        $variantSelector = trim($prelude) . ' > :where(.' . $layer . ') > ' . $step[1];
     }
 });
 $specificity = static fn (string $selector): array => \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::specificityCounts(\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::parse($selector));
