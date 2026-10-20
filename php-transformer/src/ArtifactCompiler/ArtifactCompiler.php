@@ -1042,6 +1042,7 @@ final class ArtifactCompiler
         $products = array();
         $forms = array();
         $carts = array();
+        $productGrids = array();
         foreach ( $fallbacks as $fallback ) {
             if ( ! is_array($fallback) ) continue;
             $code = (string) ($fallback['diagnostic_code'] ?? $fallback['kind'] ?? '');
@@ -1051,8 +1052,12 @@ final class ArtifactCompiler
                 if ( true === ($fallback['_collection_binding_declined'] ?? false) ) {
                     $diagnostics[] = $this->declinedProductGridBindingDiagnostic($fallback, $sourcePath, $container);
                 }
+                $gridItems = array();
                 foreach ( is_array($fallback['products'] ?? null) ? $fallback['products'] : array() as $product ) {
                     if ( ! is_array($product) ) continue;
+                    if ( is_array($product['template_slots'] ?? null) && is_scalar($product['name'] ?? null) && '' !== trim((string) $product['name']) ) {
+                        $gridItems[] = array('product' => $slug(is_scalar($product['slug'] ?? null) ? (string) $product['slug'] : trim((string) $product['name'])), 'slots' => $product['template_slots']);
+                    }
                     $name = is_scalar($product['name'] ?? null) ? trim((string) $product['name']) : '';
                     $productSlug = $slug(is_scalar($product['slug'] ?? null) ? (string) $product['slug'] : $name);
                     $regularPrice = $price($product['price'] ?? null);
@@ -1086,6 +1091,13 @@ final class ArtifactCompiler
                         continue;
                     }
                     $products[$productSlug] = $row;
+                }
+                // A grid a provider can replace with its own product loop: the
+                // grid-scope anchor plus the card as an item template and each
+                // product's value for every template slot.
+                $gridBinding = $fallback['binding'] ?? null;
+                if ( '' !== $container && is_array($fallback['item_template'] ?? null) && array() !== $gridItems && is_array($gridBinding) && 'generic/block-binding/v1' === ($gridBinding['schema'] ?? null) && is_string($gridBinding['search_block_markup'] ?? null) && '' !== trim($gridBinding['search_block_markup']) ) {
+                    $productGrids[$sourcePath . "\n" . $container] = array('source_path' => $sourcePath, 'selector' => $container, 'item_template' => $fallback['item_template'], 'items' => $gridItems, 'bindings' => array(array_merge($gridBinding, array('source_path' => $sourcePath))));
                 }
             } elseif ( 'html_cart_view_fallback' === $code ) {
                 // A cart view is provider-bindable only through its page-owned
@@ -1202,13 +1214,16 @@ final class ArtifactCompiler
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
             foreach ( array('description', 'image') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
-        ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($carts, SORT_STRING);
+        ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING);
         $collections = array(
             array('capability' => 'shop', 'type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
             // A cart holds the store's products, so a cart view is declared only
             // beside a products collection: on its own it would ask a provider
             // to install a store with nothing to sell.
             array('capability' => 'shop', 'type' => 'carts', 'aliases' => array('cart', 'carts'), 'entities' => array_values($carts), 'schema' => 'generic/carts/v1', 'requires' => array('product', 'products')),
+            // Grids repeat the store's products, so like carts they are
+            // declared only beside a products collection.
+            array('capability' => 'shop', 'type' => 'product_grids', 'aliases' => array('product_grid', 'product_grids'), 'entities' => array_values($productGrids), 'schema' => 'generic/product-grids/v1', 'requires' => array('product', 'products')),
             array('capability' => 'form', 'type' => 'forms', 'aliases' => array('form', 'forms'), 'entities' => array_values($forms), 'schema' => 'generic/forms/v1'),
         );
         foreach ( $collections as $collection ) {

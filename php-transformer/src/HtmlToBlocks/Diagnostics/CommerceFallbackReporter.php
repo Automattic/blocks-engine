@@ -125,9 +125,234 @@ final class CommerceFallbackReporter
                 'context'           => $this->sourceContext($element),
                 'products'          => $products,
                 'product_count'     => count($products),
+                // The whole grid as one provider-replaceable region. Its
+                // runtime selectors are the hooks a source script uses to
+                // redraw the cards, so a provider that renders its own product
+                // loop here retires that redraw. The item template that loop
+                // repeats is built from the cards' final block markup in
+                // `itemTemplate()` once the page is serialized.
+                'binding'           => $this->blockBinding(array(), 'commerce_product_grid', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
         }
+    }
+
+    /**
+     * Describe one product card as a provider-neutral item template.
+     *
+     * `$cardMarkups[i]` is the final serialized block markup of the card that
+     * shows `$products[i]`. The template is the card with the most leaf blocks;
+     * every other card must fit inside it (a card may leave a container empty,
+     * which makes the slots below it optional). A slot is a leaf block whose
+     * markup differs between cards, or that shows a recognized product field:
+     * `name`, `price`, `description`, `image`, or the `add_to_cart` control.
+     * Any other varying leaf is a generic `field`. Leaves that are identical in
+     * every card stay template literals.
+     *
+     * Returns `array()` when the cards do not share one shape, else
+     * `{ item_template: {schema, block_markup, slots}, items: list<slot values> }`
+     * with `items` aligned to `$products`.
+     *
+     * @param list<string> $cardMarkups
+     * @param list<array<string,mixed>> $products
+     * @return array<string,mixed>
+     */
+    public function itemTemplate(array $cardMarkups, array $products): array
+    {
+        if ( count($cardMarkups) < 2 || count($cardMarkups) !== count($products) ) {
+            return array();
+        }
+        $cards = array();
+        foreach ( $cardMarkups as $index => $markup ) {
+            // A card's own add-to-cart control is one slot even when it is a
+            // wrapper block (buttons > button).
+            $control = 'commerce_controls' === ($products[$index]['binding']['role'] ?? null) && is_string($products[$index]['binding']['search_block_markup'] ?? null) ? $products[$index]['binding']['search_block_markup'] : '';
+            $leaves = $this->leafBlocks($markup, $control);
+            if ( array() === $leaves ) {
+                return array();
+            }
+            $cards[] = $leaves;
+        }
+        $templateIndex = 0;
+        foreach ( $cards as $index => $leaves ) {
+            if ( count($leaves) > count($cards[$templateIndex]) ) {
+                $templateIndex = $index;
+            }
+        }
+        $templatePaths = array_map('strval', array_keys($cards[$templateIndex]));
+        foreach ( $cards as $leaves ) {
+            foreach ( array_keys($leaves) as $path ) {
+                $path = (string) $path;
+                if ( in_array($path, $templatePaths, true) ) {
+                    continue;
+                }
+                // A leaf the template lacks is only acceptable as an empty
+                // container whose children the template does have.
+                $isEmptyContainer = '' === trim(strip_tags($leaves[$path]['inner'])) && array() !== array_filter($templatePaths, static fn (string $templatePath): bool => str_starts_with($templatePath, $path . '.'));
+                if ( ! $isEmptyContainer ) {
+                    return array();
+                }
+            }
+        }
+
+        $slots = array();
+        $items = array_fill(0, count($cards), array());
+        // A role that fits more than one leaf names none of them.
+        $roleCounts = array();
+        foreach ( $templatePaths as $path ) {
+            $values = array();
+            foreach ( $cards as $index => $leaves ) {
+                if ( isset($leaves[$path]) ) {
+                    $values[$index] = $leaves[$path];
+                }
+            }
+            $role = $this->slotRole($values, $products);
+            if ( null !== $role ) {
+                $roleCounts[$role] = ($roleCounts[$role] ?? 0) + 1;
+            }
+        }
+        foreach ( $templatePaths as $path ) {
+            $path = (string) $path;
+            $values = array();
+            foreach ( $cards as $index => $leaves ) {
+                if ( isset($leaves[$path]) ) {
+                    $values[$index] = $leaves[$path];
+                }
+            }
+            $role = $this->slotRole($values, $products);
+            $roleTaken = null !== $role && isset($roleCounts[$role]) && 1 < $roleCounts[$role];
+            $role = $roleTaken ? null : $role;
+            $varies = count(array_unique(array_column($values, 'markup'))) > 1 || count($values) < count($cards);
+            if ( null === $role && ! $varies ) {
+                continue;
+            }
+            $id = 'slot-' . ( count($slots) + 1 );
+            $classVaries = count(array_unique(array_column($values, 'class_name'))) > 1;
+            $slots[] = array_filter(array(
+                'id'                  => $id,
+                'path'                => array_map('intval', explode('.', $path)),
+                'block_name'          => $cards[$templateIndex][$path]['block_name'],
+                'role'                => $role ?? 'field',
+                'optional'            => count($values) < count($cards),
+                'varies_class_name'   => $classVaries,
+            ), static fn (mixed $value): bool => false !== $value);
+            // A product field slot is filled from the provider's own product
+            // data, so only generic fields and images carry their markup.
+            $keepsMarkup = in_array($role ?? 'field', array( 'field', 'image' ), true);
+            foreach ( $values as $index => $value ) {
+                $items[$index][$id] = array_filter(array(
+                    'text'       => $value['text'],
+                    'markup'     => $keepsMarkup ? $value['markup'] : '',
+                    'class_name' => $classVaries ? $value['class_name'] : '',
+                ), static fn (string $field): bool => '' !== $field);
+            }
+        }
+        if ( array() === $slots ) {
+            return array();
+        }
+
+        return array(
+            'item_template' => array(
+                'schema'       => 'generic/collection-item-template/v1',
+                'block_markup' => $cardMarkups[$templateIndex],
+                'slots'        => $slots,
+            ),
+            'items'         => $items,
+        );
+    }
+
+    /**
+     * Leaf blocks of one card keyed by their dotted inner-block path.
+     *
+     * @return array<string, array{block_name:string, markup:string, inner:string, text:string, class_name:string}>
+     */
+    private function leafBlocks(string $markup, string $atomicMarkup = ''): array
+    {
+        $parsed = array_values(array_filter($this->runtime->parseBlocks($markup), static fn (mixed $block): bool => is_array($block) && is_string($block['blockName'] ?? null)));
+        if ( 1 !== count($parsed) ) {
+            return array();
+        }
+        // Parsed blocks and comment-delimited ranges are both in document
+        // order, so the n-th block visited is the n-th range.
+        $ranges = array();
+        $stack = array();
+        if ( preg_match_all('/<!--\s*(\/?)wp:.*?-->/s', $markup, $matches, PREG_OFFSET_CAPTURE) ) {
+            foreach ( $matches[0] as $match ) {
+                if ( str_starts_with($match[0], '<!-- /wp:') ) {
+                    $open = array_pop($stack);
+                    if ( null !== $open ) {
+                        $ranges[$open] = substr($markup, $ranges[$open], $match[1] + strlen($match[0]) - $ranges[$open]);
+                    }
+                } elseif ( str_ends_with(rtrim($match[0]), '/-->') ) {
+                    $ranges[] = $match[0];
+                } else {
+                    $stack[] = count($ranges);
+                    $ranges[] = $match[1];
+                }
+            }
+        }
+        $leaves = array();
+        $order = 0;
+        $walk = function (array $block, string $path) use (&$walk, &$leaves, &$order, $ranges, $atomicMarkup): void {
+            $blockMarkup = $ranges[$order] ?? '';
+            ++$order;
+            $children = array_values(array_filter($block['innerBlocks'] ?? array(), static fn (mixed $child): bool => is_array($child) && is_string($child['blockName'] ?? null)));
+            if ( '' !== $atomicMarkup && $blockMarkup === $atomicMarkup ) {
+                // Skip the descendants' ranges so later blocks stay aligned.
+                $order += substr_count($blockMarkup, '<!-- wp:') - 1;
+                $children = array();
+            }
+            if ( array() === $children ) {
+                $inner = is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '';
+                $leaves[$path] = array(
+                    'block_name' => (string) $block['blockName'],
+                    'markup'     => is_string($blockMarkup) ? $blockMarkup : '',
+                    'inner'      => is_string($blockMarkup) ? (string) preg_replace('/<!--\\s*\\/?wp:.*?-->/s', '', $blockMarkup) : $inner,
+                    'text'       => trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($inner), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? ''),
+                    'class_name' => is_string($block['attrs']['className'] ?? null) ? $block['attrs']['className'] : '',
+                );
+                return;
+            }
+            foreach ( $children as $index => $child ) {
+                $walk($child, '' === $path ? (string) $index : $path . '.' . $index);
+            }
+        };
+        $walk($parsed[0], '');
+
+        return array() === array_filter(array_column($leaves, 'markup'), static fn (string $leafMarkup): bool => '' === $leafMarkup) ? $leaves : array();
+    }
+
+    /**
+     * The product field one template leaf shows in every card that has it.
+     *
+     * @param array<int, array{markup:string, inner:string, text:string}> $values
+     * @param list<array<string,mixed>> $products
+     */
+    private function slotRole(array $values, array $products): ?string
+    {
+        $tests = array(
+            'add_to_cart' => static fn (array $value, array $product): bool => is_string($product['binding']['search_block_markup'] ?? null) && 'commerce_controls' === ($product['binding']['role'] ?? null) && $value['markup'] === $product['binding']['search_block_markup'],
+            'name'        => static fn (array $value, array $product): bool => is_string($product['name'] ?? null) && '' !== $product['name'] && $value['text'] === $product['name'],
+            // A sale card shows both prices in one leaf, so the price leaf is
+            // the short leaf that contains the regular price.
+            'price'       => static fn (array $value, array $product): bool => is_string($product['price'] ?? null) && '' !== trim($product['price']) && str_contains($value['text'], trim($product['price'])) && mb_strlen($value['text']) <= 3 * mb_strlen(trim($product['price'])) + 8,
+            'description' => static fn (array $value, array $product): bool => is_string($product['description'] ?? null) && '' !== $product['description'] && $value['text'] === trim($product['description']),
+            'image'       => static fn (array $value, array $product): bool => is_string($product['image']['src'] ?? null) && '' !== basename((string) parse_url($product['image']['src'], PHP_URL_PATH)) && str_contains($value['inner'], basename((string) parse_url($product['image']['src'], PHP_URL_PATH))),
+        );
+        foreach ( $tests as $role => $test ) {
+            $matches = true;
+            foreach ( $values as $index => $value ) {
+                if ( ! $test($value, $products[$index] ?? array()) ) {
+                    $matches = false;
+                    break;
+                }
+            }
+            if ( $matches && array() !== $values ) {
+                return $role;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -267,6 +492,12 @@ final class CommerceFallbackReporter
                 // (`appendProductGridFallbacks()`) before this reaches a
                 // published finding; never part of the diagnostic contract.
                 $product['_catalog_image_only'] = ! $this->recognizer->isSchemaProductCard($child) && null === $this->recognizer->cartControlElement($child);
+                $card = $this->blockForSourceSelector($blocks, SourceDom::elementSelector($child));
+                if ( is_int($card['_source_provenance_id'] ?? null) ) {
+                    // Internal marker consumed by fallback-binding
+                    // finalization to build the grid's item template.
+                    $product['_card_provenance_id'] = $card['_source_provenance_id'];
+                }
                 $binding = $this->commerceBindingForCard($child, $blocks);
                 if ( array() === $binding ) {
                     $collectionBinding ??= $this->blockBinding(array(), 'commerce_collection', array(), $container);
