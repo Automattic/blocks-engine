@@ -3327,15 +3327,17 @@ PHP;
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Page not found</h1><!-- /wp:heading -->' . "\n" . '<!-- wp:search {"label":"Search","showLabel":false,"buttonText":"Search"} /-->' . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
              } else {
                  $content = ('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->';
-                 // The page keeps only its own content. The app wrapper and the
-                 // shared header and footer around it live in this template.
-                 if (isset($frames[$templateSlug]) && array() !== $frames[$templateSlug]['shells']) $content = $frames[$templateSlug]['opening'] . '<!-- wp:post-content {"className":"' . self::FRAME_CONTENT_CLASS . '"} /-->' . $frames[$templateSlug]['closing'];
                  if ('single' === $templateSlug && !$hasCapturedPosts) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
              }
             if ($hasCommentForm && ('single' === $templateSlug || str_starts_with($templateSlug, 'single-'))) {
                 $content .= "\n" . '<!-- wp:comments --><div class="wp-block-comments"><!-- wp:post-comments-form /--></div><!-- /wp:comments -->';
+            }
+            // Keep each lifecycle's native content inside the shared app frame.
+            if (isset($frames[$templateSlug]) && array() !== $frames[$templateSlug]['shells']) {
+                if ('<!-- wp:post-content /-->' === $content) $content = '<!-- wp:post-content {"className":"' . self::FRAME_CONTENT_CLASS . '"} /-->';
+                $content = $frames[$templateSlug]['opening'] . $content . $frames[$templateSlug]['closing'];
             }
             if (is_array($container) && is_string($container['opening'] ?? null) && is_string($container['closing'] ?? null)) return $container['opening'] . $before . $content . "\n" . $container['closing'] . $after;
             return $before . $content . "\n" . $after;
