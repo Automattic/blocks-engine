@@ -19,6 +19,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\WordPressCompatCss;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EditorShellBoundary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 
 $failures = 0;
@@ -161,7 +162,7 @@ foreach ( range(2, 6) as $k ) {
 }
 $assert(1 === count(array_unique($growth)), 'each further boundary adds the same editor bytes', json_encode($editorBytes));
 // Before, k boundaries emitted 2^k - 1 editor arms (k <= 3), each restating the whole chain.
-$assert($editorBytes[3] < 3 * $frontBytes[3] + 3 * strlen(':where(.' . $layer . ')') + 64, 'three boundaries cost one tolerant step each, not seven restated chains', json_encode(array( $editorBytes, $frontBytes )));
+$assert($editorBytes[3] < 3 * $frontBytes[3] + 3 * strlen(EditorShellBoundary::layer()) + 64, 'three boundaries cost one tolerant step each, not seven restated chains', json_encode(array( $editorBytes, $frontBytes )));
 
 // The editor rule does not depend on how many runs of the structure a page has.
 $runCss = array();

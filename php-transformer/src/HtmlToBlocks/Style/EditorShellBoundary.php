@@ -4,13 +4,16 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+use Automattic\BlocksEngine\PhpTransformer\Support\EditorInnerBlocksLayer;
 
 /**
  * Editor-canvas restatement of a selector across layout-shell layers.
  *
- * The editor renders a layout shell's inner blocks inside one Gutenberg-owned
- * layer (EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS) that saved
- * markup does not have. An authored child combinator whose sides land on
+ * The editor renders a block's inner blocks inside an editor-only layer that
+ * saved markup does not have: a layout shell's own
+ * EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS div, or any other
+ * Gutenberg inner-blocks list that is not itself a block wrapper (see
+ * EditorInnerBlocksLayer). An authored child combinator whose sides land on
  * opposite sides of that layer matches on the front end and not in the
  * editor. Every such combinator may or may not cross a layer, so the editor
  * rule makes each one optional on its own.
@@ -18,7 +21,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
  * Restating every placement as its own selector multiplies a selector by
  * 2^k for k boundaries. A nested rule states each boundary once instead:
  *
- *     :where(:root .editor-styles-wrapper) a{&>b,&>:where(.layer)>b{…}}
+ *     :where(:root .editor-styles-wrapper) a{&>b,&>:where(<layers>)>b{…}}
  *
  * `&` is the parent rule's selector list, so each level adds one tolerant
  * step and the rule grows linearly with k. `&` weighs what its parent
@@ -29,6 +32,16 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 final class EditorShellBoundary
 {
     public const EDITOR_SCOPE = ':where(:root .editor-styles-wrapper)';
+
+    /**
+     * The layer as a weightless compound, `:where(<layers>)`, optionally
+     * extended by further layer selectors. Every translation-side consumer
+     * that restates a `parent>child` step through the layer builds it here.
+     */
+    public static function layer(string ...$extra): string
+    {
+        return EditorInnerBlocksLayer::compound(...$extra);
+    }
 
     /**
      * The editor rule for `$selector`, or null when no child combinator of
@@ -52,7 +65,7 @@ final class EditorShellBoundary
         $rule = $body;
         foreach ( array_reverse($segments, true) as $index => $segment ) {
             $segment = ( $weightless ? self::weightless($segment) : $segment ) . ( $index === $last ? $tail : '' );
-            $rule = '&>' . $segment . ',&>:where(.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ')>' . $segment . '{' . $rule . '}';
+            $rule = '&>' . $segment . ',&>' . self::layer() . '>' . $segment . '{' . $rule . '}';
         }
 
         return array( 'prelude' => $prelude, 'body' => $rule );

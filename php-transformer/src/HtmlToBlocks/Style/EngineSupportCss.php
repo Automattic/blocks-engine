@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmit
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
+use Automattic\BlocksEngine\PhpTransformer\Support\EditorInnerBlocksLayer;
 
 /**
  * Marker-class engine-support CSS gated on serialized block markup.
@@ -42,7 +43,7 @@ final class EngineSupportCss
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
-    public const LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS = 'blocks-engine-layout-shell-editor-inner-blocks';
+    public const LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS = EditorInnerBlocksLayer::LAYOUT_SHELL_CLASS;
 
     /**
      * @return list<string>
