@@ -191,7 +191,7 @@ final class ButtonLinkDispatcher
     {
         return $this->context->createBlock(
             'core/paragraph',
-            array_merge($this->nonButtonAnchorWrapperAttributes($element), array( 'content' => SourceDom::outerHtml($element) )),
+            array_merge($this->nonButtonAnchorWrapperAttributes($element), array( 'content' => $this->context->richTextOuterHtml($element) )),
             array(),
             $element
         );

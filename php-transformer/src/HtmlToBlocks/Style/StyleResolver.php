@@ -782,6 +782,21 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * The element to serialize as RichText: a clone without the boundary
+     * whitespace its flex and grid containers (at the reference viewport)
+     * never paint, or the element itself when there is none.
+     * {@see SourceDom::withoutBlockifiedBoundaryWhitespace()}
+     */
+    public function richTextSerializationSource(DOMElement $element): DOMElement
+    {
+        return SourceDom::withoutBlockifiedBoundaryWhitespace($element, function (DOMElement $container): bool {
+            $display = CssValueInspector::comparable($this->referenceViewportAuthorDeclarations($container, array( 'display' ))['display'] ?? '');
+
+            return 1 === preg_match('/(?<![\w-])(?:inline-)?(?:flex|grid)(?![\w-])/', $display);
+        });
+    }
+
+    /**
      * Which cascade a table cell's authored padding and border come from.
      *
      * Core's `.wp-block-table td, th { padding; border }` is unlayered, so it

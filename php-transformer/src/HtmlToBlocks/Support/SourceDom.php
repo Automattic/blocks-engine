@@ -111,6 +111,71 @@ final class SourceDom
         return $html;
     }
 
+    /**
+     * The element, or a detached clone of it without the whitespace that its
+     * flex and grid containers never paint.
+     *
+     * A flex or grid container blockifies its children: each contiguous text
+     * run becomes an anonymous item, and white space at the start and end of
+     * an item is not rendered. RichText edits under `white-space: pre-wrap`,
+     * so a serialized boundary space would be painted in the editor only.
+     * Applies to the element itself and to each descendant container;
+     * inline-layout content keeps its whitespace.
+     *
+     * @param callable(DOMElement): bool $blockifiesChildren
+     */
+    public static function withoutBlockifiedBoundaryWhitespace(DOMElement $element, callable $blockifiesChildren): DOMElement
+    {
+        $sources = array( $element );
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            $sources[] = $descendant;
+        }
+        $clone = null;
+        foreach ( $sources as $index => $source ) {
+            $trims = array();
+            foreach ( $source->childNodes as $position => $child ) {
+                if ( ! $child instanceof DOMText || $child instanceof \DOMCdataSection ) {
+                    continue;
+                }
+                $text = $child->data;
+                if ( ! self::adjacentTextRun($child, 'previousSibling') ) {
+                    $text = ltrim($text, " \t\n\r\f");
+                }
+                if ( ! self::adjacentTextRun($child, 'nextSibling') ) {
+                    $text = rtrim($text, " \t\n\r\f");
+                }
+                if ( $text !== $child->data ) {
+                    $trims[$position] = $text;
+                }
+            }
+            if ( array() === $trims || ! $blockifiesChildren($source) ) {
+                continue;
+            }
+            $clone ??= $element->cloneNode(true);
+            $target = 0 === $index ? $clone : $clone->getElementsByTagName('*')->item($index - 1);
+            foreach ( $trims as $position => $text ) {
+                $node = $target?->childNodes->item($position);
+                if ( $node instanceof DOMText ) {
+                    $node->data = $text;
+                }
+            }
+        }
+
+        return $clone instanceof DOMElement ? $clone : $element;
+    }
+
+    /** Whether a text node continues into a sibling text node (comments are transparent). */
+    private static function adjacentTextRun(DOMText $text, string $direction): bool
+    {
+        for ( $node = $text->{$direction}; $node instanceof DOMNode; $node = $node->{$direction} ) {
+            if ( XML_COMMENT_NODE !== $node->nodeType ) {
+                return $node instanceof DOMText;
+            }
+        }
+
+        return false;
+    }
+
     public static function outerHtml(DOMElement $element): string
     {
         $element = self::canonicalizedSerializationClone($element);
