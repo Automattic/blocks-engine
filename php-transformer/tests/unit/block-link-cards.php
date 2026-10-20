@@ -28,4 +28,14 @@ foreach (range(1, 3) as $index) {
 }
 $phrasing = (new HtmlTransformer())->transform('<a href="/go" style="padding:12px;background:#123;color:white">Go <svg width="24" height="24"><path d="M0 0h24v24H0z"/></svg></a>')->toArray();
 if (!str_contains($phrasing['serialized_blocks'], '<!-- wp:button ')) throw new RuntimeException('Phrasing-only styled links still become native buttons.');
+// CSS display does not change a phrasing label into semantic flow content.
+foreach (array('span', 'strong') as $tag) {
+    $label = (new HtmlTransformer())->transform('<a class="primary-button" href="/go" style="padding:12px;background:#123"><' . $tag . ' style="display:block">Reserve now</' . $tag . '></a>')->toArray();
+    if (!str_contains($label['serialized_blocks'], '<!-- wp:button ')) throw new RuntimeException('Block-styled phrasing labels must stay native buttons.');
+}
+foreach (array('<h3>Title</h3>', '<div><h4>Title</h4></div>', '<div><p>Body</p></div>') as $content) {
+    $card = (new HtmlTransformer())->transform('<a href="/go" style="padding:12px;background:#123">' . $content . '</a>')->toArray();
+    if (str_contains($card['serialized_blocks'], '<!-- wp:button ')) throw new RuntimeException('Semantic flow content must not become a button label.');
+    if (!str_contains($card['serialized_blocks'], 'href="/go"')) throw new RuntimeException('Flow-content links must remain navigable.');
+}
 echo "Block link cards: editable heading/link semantics and phrasing button passed\n";

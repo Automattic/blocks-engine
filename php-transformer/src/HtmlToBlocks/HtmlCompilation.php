@@ -3135,9 +3135,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function normalizeExplicitPlaintextElements(string $html): string
     {
-        return preg_replace_callback(
+        $html = preg_replace_callback(
             '/<plaintext\b([^>]*)>(.*?)<\/plaintext\s*>/is',
             static fn (array $matches): string => '<pre' . $matches[1] . '>' . str_replace('<', '&lt;', $matches[2]) . '</pre>',
+            $html
+        ) ?? $html;
+
+        // A real (unclosed) plaintext element consumes everything to EOF,
+        // including entities and apparent closing body/html tags. Normalize it
+        // before serializing and reparsing the document body: libxml's saved
+        // </plaintext> would otherwise become extra visible text on that pass.
+        return preg_replace_callback(
+            '/<plaintext\b([^>]*)>(.*)\z/is',
+            static fn (array $matches): string => '<pre' . $matches[1] . '>' . htmlspecialchars($matches[2], ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</pre>',
             $html
         ) ?? $html;
     }

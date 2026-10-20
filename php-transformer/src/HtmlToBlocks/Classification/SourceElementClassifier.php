@@ -674,7 +674,13 @@ final class SourceElementClassifier
     public function hasBlockLevelDescendant(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->isBlockLevelFlowElement($descendant) ) {
+            // A generic wrapper around a phrasing-only label does not make
+            // that label block content. In particular, stacked logo spans and
+            // button labels keep their existing native lowering. Semantic flow
+            // descendants inside such wrappers (p, headings, etc.) still count.
+            if ( $descendant instanceof DOMElement
+                && 'div' !== strtolower($descendant->tagName)
+                && $this->isBlockLevelFlowElement($descendant) ) {
                 return true;
             }
         }
