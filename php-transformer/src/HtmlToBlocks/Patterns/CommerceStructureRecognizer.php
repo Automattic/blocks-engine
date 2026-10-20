@@ -309,6 +309,17 @@ final class CommerceStructureRecognizer
      *
      * @return array{price: string, sale_price?: string}
      */
+    private function hasPriceDescendant(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && '' !== $this->collapsedText($descendant) && $this->isPriceElement($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function productPriceTexts(DOMElement $card): array
     {
         $regular = '';
@@ -331,8 +342,11 @@ final class CommerceStructureRecognizer
                 continue;
             }
             // Only consider leaf-ish price elements so a wrapper's concatenated
-            // text does not shadow the individual regular/sale amounts.
-            if ( SourceDom::childElementCount($descendant) > 0 ) {
+            // text does not shadow the individual regular/sale amounts. A price
+            // whose only children are qualifiers rather than amounts (e.g.
+            // `<small>from </small>$60.00` on a variable product) is still the
+            // leaf that carries the amount.
+            if ( SourceDom::childElementCount($descendant) > 0 && $this->hasPriceDescendant($descendant) ) {
                 continue;
             }
 
