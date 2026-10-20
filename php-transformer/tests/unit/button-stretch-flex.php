@@ -66,8 +66,8 @@ if ( ! preg_match('/height:100%!important/', $competeCss) ) {
     fwrite(STDERR, "FAIL: stretching height:100% must still fill inner carriers\n" . $competeCss . "\n");
     exit(1);
 }
-if ( preg_match('/wp-block-button__link\)\{height:auto!important/', $competeCss) ) {
-    fwrite(STDERR, "FAIL: unconditioned height:auto must not force inner carriers to auto\n" . $competeCss . "\n");
+if ( strrpos($competeCss, 'height:auto!important') > strrpos($competeCss, 'height:100%!important') ) {
+    fwrite(STDERR, "FAIL: the winning stretching height must follow the base auto height\n" . $competeCss . "\n");
     exit(1);
 }
 

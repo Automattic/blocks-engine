@@ -1115,6 +1115,12 @@ final class AuthorStylesheetProjector
         if ( ! in_array($property, array( 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' ), true) ) {
             return false;
         }
+        // Block-axis sizing belongs to the padded control. A border-box height
+        // cannot shrink below padding + border; applying it to padding-free
+        // wrappers instead loses that floor and shifts following content.
+        if ( in_array($property, array( 'height', 'min-height', 'max-height' ), true) ) {
+            return true;
+        }
         $value = strtolower(CssValueInspector::withoutImportant($value));
         return in_array($value, array( 'min-content', 'max-content', 'fit-content', 'content' ), true);
     }
