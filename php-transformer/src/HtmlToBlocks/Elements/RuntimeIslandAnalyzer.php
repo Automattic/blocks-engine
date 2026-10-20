@@ -570,8 +570,12 @@ final class RuntimeIslandAnalyzer
         // children stay editable blocks (a hidden shell shows itself in the editor
         // while selected). A text-only wrapper lowers to a paragraph instead, which
         // cannot carry the attribute.
+        // An empty paragraph is the same mount point: a status line the script
+        // reveals and writes once a form is sent. With nothing inside, the shell
+        // saves it exactly as the source wrote it.
+        $emptyParagraph = 'p' === strtolower($element->tagName) && ! $element->hasChildNodes();
         if ( $isLayoutShell && (
-            ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true)
+            ( ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) && ! $emptyParagraph )
             || ( ! $this->hasBlockLevelChildElement($element) && '' !== trim($element->textContent) )
         ) ) {
             return false;
