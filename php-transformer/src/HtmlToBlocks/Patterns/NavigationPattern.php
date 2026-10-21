@@ -3112,12 +3112,12 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function navigationListSource(DOMElement $element): ?DOMElement
     {
         if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
-            return $element;
+            return $this->toggleWrappedMenuList($element);
         }
 
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
-                return $child;
+                return $this->toggleWrappedMenuList($child);
             }
 
             if ( $child instanceof DOMElement && $this->isNavigationWrapperElement($child) ) {
@@ -3129,6 +3129,31 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return null;
+    }
+
+    /**
+     * The list that holds the menu items. A list whose only item wraps a
+     * menu toggle and one nested list ({@see toggleWrappedList()}) is the
+     * toggle's container: its items lower from the nested list, so that list's
+     * classes and author rules are the ones core's item container carries.
+     */
+    private function toggleWrappedMenuList(DOMElement $list): DOMElement
+    {
+        $items = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $items[] = $child;
+            } elseif ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return $list;
+            }
+        }
+        if ( 1 !== count($items) || 'li' !== strtolower($items[0]->tagName) ) {
+            return $list;
+        }
+
+        $wrapped = $this->toggleWrappedList($items[0]);
+
+        return $wrapped instanceof DOMElement ? $this->toggleWrappedMenuList($wrapped) : $list;
     }
 
     private function hasNestedListLayout(DOMElement $element): bool
