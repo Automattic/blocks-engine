@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
@@ -38,6 +39,12 @@ final class AuthorStylesheetProjector
      * the toggle shared with source elements that survive conversion.
      */
     private const NAVIGATION_TOGGLE_CHROME_EXCLUSION = ':not(:where(.wp-block-navigation__responsive-container-open,.wp-block-navigation__responsive-container-open *,.wp-block-navigation__responsive-container-close,.wp-block-navigation__responsive-container-close *))';
+
+    /**
+     * State pseudo-classes a static source match cannot evaluate. They do not
+     * change which element a compound names, only when it applies.
+     */
+    private const STATE_PSEUDO_CLASS_PATTERN = '/:(?:hover|focus-visible|focus-within|focus|active|visited|any-link|link|disabled|enabled|target)(?![\w(-])/i';
 
     public function __construct(
         private readonly StyleResolver $styleResolver,
@@ -1525,6 +1532,10 @@ final class AuthorStylesheetProjector
                 $rewritten[] = trim($selector);
                 continue;
             }
+            // Arms for retained control descendants reached through the
+            // control's own source identity. The selector's other
+            // projections still follow.
+            array_push($rewritten, ...$this->projectRetainedControlRootSelector($selector, $context));
             $socialAnchor = SocialAnchorSelectorProjector::project($selector, $context);
             if (null !== $socialAnchor) {
                 $rewritten[] = $socialAnchor;
@@ -1992,6 +2003,112 @@ final class AuthorStylesheetProjector
             $projected[] = $prefix . $this->projectControlSelector($leafSelector, $leafParsed, $marker, $context, $wrapper);
         }
         return array_values(array_unique($projected));
+    }
+
+    /**
+     * A control block (core/button) that keeps its source descendants inside
+     * the emitted link renders them with their source identity, but the link
+     * itself is core's `wp-block-button__link`: the anchor's own classes and id
+     * are gone. A rule that reaches a retained descendant through the anchor
+     * (`#comp .root .icon`, `.root:hover .icon`) keeps its authored subject and
+     * ancestry, and the compound naming the anchor moves onto the emitted link
+     * through the control marker, with that compound's specificity and its
+     * state pseudo-classes. The authored selector is still projected as usual.
+     *
+     * @return list<string>
+     */
+    private function projectRetainedControlRootSelector(string $selector, AuthorStylesheetProjectionContext $context): array
+    {
+        if ( ! $context->selectorProjections->hasRetainedSourcePaths() ) {
+            return array();
+        }
+        $selector = trim($selector);
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        $last = count($tokens['compounds'] ?? array()) - 1;
+        if ( ! ($tokens['supported'] ?? false) || $last < 1 ) {
+            return array();
+        }
+
+        // Each compound's resting form: state pseudo-classes are not
+        // structure, so they are matched away and restored on the projection.
+        $resting = array();
+        $states = array();
+        foreach ( $tokens['compounds'] as $index => $compound ) {
+            $states[$index] = preg_match_all(self::STATE_PSEUDO_CLASS_PATTERN, $compound, $matches) > 0 ? implode('', $matches[0]) : '';
+            $resting[$index] = trim((string) preg_replace(self::STATE_PSEUDO_CLASS_PATTERN, '', $compound));
+            if ( '' === $resting[$index] ) {
+                $resting[$index] = '*';
+            }
+        }
+        $join = static function (int $end) use ($resting, $tokens): string {
+            $joined = $resting[0];
+            for ( $index = 1; $index <= $end; ++$index ) {
+                $combinator = trim((string) ($tokens['combinators'][$index - 1] ?? ' '));
+                $joined .= ('' === $combinator ? ' ' : ' ' . $combinator . ' ') . $resting[$index];
+            }
+            return $joined;
+        };
+        $match = function (string $candidate) use ($context): array {
+            $parsed = $context->sourceStyles->parsedSelector($candidate);
+            return is_array($parsed) && ($parsed['supported'] ?? false) ? $this->matchingSourceElements($candidate, $parsed, $context) : array();
+        };
+
+        $subjects = array_values(array_filter(
+            $match($join($last)),
+            static fn (DOMElement $element): bool => $context->selectorProjections->isRetainedSourcePath($element->getNodePath() ?? '')
+        ));
+        if ( array() === $subjects ) {
+            return array();
+        }
+
+        for ( $index = 0; $index < $last; ++$index ) {
+            $markers = array();
+            foreach ( $match($join($index)) as $root ) {
+                $marker = $context->selectorProjections->controlMarker($root->getNodePath() ?? '');
+                if ( '' === $marker || $context->selectorProjections->isRetainedSourcePath($root->getNodePath() ?? '') ) {
+                    continue;
+                }
+                foreach ( $subjects as $subject ) {
+                    for ( $node = $subject->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+                        if ( $node === $root ) {
+                            $markers[$marker] = true;
+                            continue 3;
+                        }
+                    }
+                }
+            }
+            if ( array() === $markers ) {
+                continue;
+            }
+
+            $span = $tokens['compound_spans'][$index];
+            $parsedRoot = $context->sourceStyles->parsedSelector($resting[$index]);
+            $shims = is_array($parsedRoot) && ($parsedRoot['supported'] ?? false) ? $this->selectorSpecificityShims($parsedRoot, $context) : '';
+            // Ancestors outside the control keep their projected tag markers;
+            // the retained descendants keep their authored tags.
+            $replacements = array();
+            for ( $outer = 0; $outer < $index; ++$outer ) {
+                $parsedOuter = $context->sourceStyles->parsedSelector($tokens['compounds'][$outer]);
+                foreach ( is_array($parsedOuter) && ($parsedOuter['supported'] ?? false) ? $parsedOuter['type_spans'] : array() as $typeSpan ) {
+                    $tagMarker = $context->selectorProjections->tagMarker((string) $typeSpan['name']);
+                    if ( '' !== $tagMarker ) {
+                        $start = (int) $tokens['compound_spans'][$outer]['start'] + (int) $typeSpan['start'];
+                        $replacements[$start] = array( 'end' => $start + (int) $typeSpan['end'] - (int) $typeSpan['start'], 'value' => ':where(.' . $tagMarker . ')' . $this->typeSpecificityShim($context) );
+                    }
+                }
+            }
+            $projected = array();
+            foreach ( array_keys($markers) as $marker ) {
+                $replacements[(int) $span['start']] = array(
+                    'end' => (int) $span['end'],
+                    'value' => ':where(.' . $marker . ')' . $shims . $this->buttonLinkTarget($context) . $states[$index],
+                );
+                $projected[] = $this->projectSourceClassSelector($selector, $context, $replacements);
+            }
+            return array_values(array_unique($projected));
+        }
+
+        return array();
     }
 
     /** @return list<string> */

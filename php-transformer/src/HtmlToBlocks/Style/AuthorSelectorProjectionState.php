@@ -644,6 +644,11 @@ final class AuthorSelectorProjectionState
         return isset($this->retainedSourcePaths[$path]);
     }
 
+    public function hasRetainedSourcePaths(): bool
+    {
+        return array() !== $this->retainedSourcePaths;
+    }
+
     /**
      * Record a source element core/navigation renders in one of the
      * NAVIGATION_* roles. `$rendersSourceSiblings` seeds item provenance;

@@ -183,7 +183,14 @@ final class ButtonsPattern
     /** @return array<string, mixed> */
     private function buttonBlockFromAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons, ?DOMElement $presentationElement = null): array
     {
-        $presentationElement ??= $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
+        $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
+        $retainsDescendants = $this->rendersSourceDescendants($anchor, $text);
+        if ( $retainsDescendants ) {
+            $buttons->retainSourceDescendants($anchor);
+        }
+        // A wrapper child the label renders inside the link is retained
+        // descendant markup, not the control surface: the anchor is.
+        $presentationElement ??= $retainsDescendants || $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
             ? $anchor
             : ($this->buttonSurfaceElement($anchor) ?? $anchor);
         $resolvedPresentation = trim($buttons->resolvedStyle($presentationElement));
@@ -194,7 +201,6 @@ final class ButtonsPattern
         if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
-        $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
         $attrs = array_replace_recursive($attrs, $this->buttonLabelTextAttributes($anchor, $buttons));
 
         return $context->createBlock('core/button', array_filter(array_merge($attrs, array(
@@ -443,11 +449,167 @@ final class ButtonsPattern
     private function unwrapPresentationalSpan(string $html): string
     {
         $html = $this->semanticMarkerSpansAsMarks($html);
-        while ( preg_match('/^<span\b[^>]*>(.*)<\/span>$/is', $html, $matches) === 1 && $this->spanWrapsEntireContent($matches[1]) ) {
-            $html = trim($matches[1]);
+        $wrapped = $html;
+        $identified = null;
+        while ( preg_match('/^(<span\b[^>]*>)(.*)<\/span>$/is', $html, $matches) === 1 && $this->spanWrapsEntireContent($matches[2]) ) {
+            // A bare span among the wrappers is not restorable: RichText drops it.
+            $identified = (null === $identified || $identified) && $this->hasSourceIdentity($matches[1]);
+            $html = trim($matches[2]);
+        }
+
+        // A label that still holds source elements of its own (a label run
+        // beside an icon) is retained descendant markup, not a single text
+        // run. Its source wrapper (a flex container, say) is part of that
+        // markup: author rules lay the retained elements out through it, and
+        // it carries attributes RichText keeps as an element. That holds
+        // whether those elements stay plain authored markup or became RichText
+        // marker carriers: either way they are separate items the wrapper
+        // lays out, not one run the wrapper merely styles.
+        if ( true === $identified && ($this->hasRetainedSourceElement($html) || $this->isSourceItemSequence($html)) ) {
+            return $wrapped;
         }
 
         return $html;
+    }
+
+    /**
+     * Whether the markup is a sequence of sibling source elements with no
+     * bare text between them (a label span beside an icon span), at least one
+     * of which keeps a source identity (an authored class or a RichText
+     * marker). A wrapper around such a sequence is its layout container.
+     */
+    private function isSourceItemSequence(string $html): bool
+    {
+        if ( ! str_contains($html, '<') ) {
+            return false;
+        }
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if ( ! $body instanceof DOMElement ) {
+            return false;
+        }
+
+        $items = 0;
+        $identified = false;
+        foreach ( $body->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                ++$items;
+                $identified = $identified
+                    || $child->hasAttribute('data-blocks-engine-richtext-marker')
+                    || str_contains($child->getAttribute('style'), '--blocks-engine-richtext-marker:')
+                    || $this->hasAuthoredClass($child->getAttribute('class'));
+                continue;
+            }
+            if ( XML_COMMENT_NODE !== $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+        }
+
+        return $items > 1 && $identified;
+    }
+
+    /** Whether the markup is a source-identified wrapper around a source item sequence. */
+    private function isSourceItemWrapper(string $html): bool
+    {
+        $identified = null;
+        $wrapped = false;
+        while ( preg_match('/^(<span\b[^>]*>)(.*)<\/span>$/is', $html, $matches) === 1 && $this->spanWrapsEntireContent($matches[2]) ) {
+            $identified = (null === $identified || $identified) && $this->hasSourceIdentity($matches[1]);
+            $html = trim($matches[2]);
+            $wrapped = true;
+        }
+
+        return $wrapped && true === $identified && $this->isSourceItemSequence($html);
+    }
+
+    /**
+     * Whether the markup holds an element carrying an authored class: one
+     * that is neither an engine marker nor a generated geometry class.
+     */
+    private function hasSourceIdentity(string $html): bool
+    {
+        if ( preg_match_all('/<[a-z][a-z0-9]*\b[^>]*\bclass\s*=\s*(["\'])(.*?)\1/is', $html, $matches) < 1 ) {
+            return false;
+        }
+        foreach ( $matches[2] as $classes ) {
+            if ( $this->hasAuthoredClass($classes) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether a class list holds a class that is neither an engine marker nor generated geometry. */
+    private function hasAuthoredClass(string $classes): bool
+    {
+        foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
+            if ( '' !== $class && ! str_starts_with($class, 'blocks-engine-') && ! str_starts_with($class, 'be-') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the markup holds a source element kept as authored markup
+     * rather than as a RichText carrier: one carrying an authored class but
+     * no RichText marker, so only author rules as written can reach it.
+     *
+     * @return array<string, true> The authored classes such elements carry.
+     */
+    private function retainedSourceElementClasses(string $html): array
+    {
+        if ( preg_match_all('/<[a-z][a-z0-9]*\b[^>]*>/is', $html, $tags) < 1 ) {
+            return array();
+        }
+        $classes = array();
+        foreach ( $tags[0] as $tag ) {
+            if ( str_contains($tag, 'blocks-engine-richtext-marker') || 1 !== preg_match('/\bclass\s*=\s*(["\'])(.*?)\1/is', $tag, $class) ) {
+                continue;
+            }
+            foreach ( preg_split('/\s+/', trim(html_entity_decode($class[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?: array() as $token ) {
+                if ( '' !== $token && ! str_starts_with($token, 'blocks-engine-') && ! str_starts_with($token, 'be-') ) {
+                    $classes[$token] = true;
+                }
+            }
+        }
+
+        return $classes;
+    }
+
+    private function hasRetainedSourceElement(string $html): bool
+    {
+        return array() !== $this->retainedSourceElementClasses($html);
+    }
+
+    /**
+     * Whether the emitted label keeps any of the anchor's descendants as
+     * authored markup inside the link (an icon beside the label run).
+     */
+    private function rendersSourceDescendants(DOMElement $anchor, string $html): bool
+    {
+        if ( $this->isSourceItemWrapper($html) ) {
+            return true;
+        }
+        $emitted = $this->retainedSourceElementClasses($html);
+        if ( array() === $emitted ) {
+            return false;
+        }
+        foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
+            foreach ( preg_split('/\s+/', trim($descendant->getAttribute('class'))) ?: array() as $class ) {
+                if ( '' !== $class && isset($emitted[$class]) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function semanticMarkerSpansAsMarks(string $html): string

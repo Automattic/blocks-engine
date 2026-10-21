@@ -158,6 +158,20 @@ final class ButtonPatternContext
     }
 
     /**
+     * The control renders the anchor's descendants with their source identity
+     * (classes, nesting), so author rules keep addressing them as written.
+     * Rules that reach them through the anchor itself are projected onto the
+     * emitted control element by the author selector projection.
+     */
+    public function retainSourceDescendants(DOMElement $anchor): void
+    {
+        $projections = $this->session?->authorSelectorProjectionState();
+        foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
+            $projections?->markRetainedSourcePath($descendant->getNodePath() ?? '');
+        }
+    }
+
+    /**
      * `$wrapper` is the anchor's single wrapper child whose label `$content`
      * holds; the block's RichText element renders as that wrapper.
      */
@@ -166,11 +180,8 @@ final class ButtonPatternContext
         // The link keeps the anchor and the descendants its content renders
         // with their source identity, so author rules keep addressing them
         // as written instead of through a paragraph carrier it never emits.
-        $projections = $this->session?->authorSelectorProjectionState();
-        $projections?->markRetainedSourcePath($anchor->getNodePath() ?? '');
-        foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
-            $projections?->markRetainedSourcePath($descendant->getNodePath() ?? '');
-        }
+        $this->session?->authorSelectorProjectionState()->markRetainedSourcePath($anchor->getNodePath() ?? '');
+        $this->retainSourceDescendants($anchor);
         $contentMode = 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : 'rich-text';
         if ( 'raw-source' === $contentMode ) {
             $wrapper = null;
