@@ -1080,6 +1080,32 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Carry a replaced counter's viewport visibility without removing its live
+     * announcements from the accessibility tree. The marker belongs to its owner.
+     */
+    public function liveRegionVisibilityClassName(DOMElement $element): string
+    {
+        $display = $this->declaredPresentation($element, 'display');
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        $rules = array('' => $inline['display'] ?? $display->base());
+        if (!isset($inline['display'])) $rules += $display->conditional();
+        if (array('' => '') === $rules) return '';
+
+        $marker = $this->context->layoutGeometry()->allocateCarrier('live-region-visibility' . serialize($rules));
+        $stylesheet = '';
+        foreach ($rules as $conditions => $value) {
+            $hidden = 'none' === CssValueInspector::comparable($value);
+            $css = '.' . $marker . '>[aria-live]{' . ($hidden
+                ? 'position:absolute!important;width:1px!important;height:1px!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important'
+                : 'position:static!important;width:auto!important;height:auto!important;margin:0!important;overflow:visible!important;clip:auto!important;white-space:normal!important') . '}';
+            if ('' !== $conditions) $css = $conditions . '{' . $css . str_repeat('}', substr_count($conditions, '{') + 1);
+            $stylesheet .= $css;
+        }
+        $this->context->layoutGeometry()->registerRule($marker, $stylesheet);
+        return $marker;
+    }
+
+    /**
      * Everything the source stylesheet declares for one property on one element.
      *
      * Carriers used to walk the candidate rules themselves and resolve straight

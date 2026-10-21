@@ -77,6 +77,7 @@ final class AuthoredCarouselBlockGenerator
             'autoplayInterval' => array('type' => 'number', 'default' => 0),
             'showDots' => array('type' => 'boolean', 'default' => false),
             'showStatus' => array('type' => 'boolean', 'default' => false),
+            'statusFormat' => array('type' => 'string', 'default' => ''),
             'fullBleed' => array('type' => 'boolean', 'default' => false),
             'thumbnails' => array('type' => 'array', 'default' => array()),
             'thumbnailPosition' => array('type' => 'string', 'default' => 'right'),
@@ -124,6 +125,7 @@ final class AuthoredCarouselBlockGenerator
         var carouselClasses = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle );
         if ( 'src-swap' === presentation ) carouselClasses = 'blocks-engine-authored-carousel--src-swap';
         var props = { className: carouselClasses + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        if ( attributes.statusFormat ) { var context = JSON.parse( props[ 'data-wp-context' ] ); context.statusFormat = attributes.statusFormat; props[ 'data-wp-context' ] = JSON.stringify( context ); }
         Object.keys( attributes.sourceIdentityAttributes || {} ).forEach( function( name ) { props[ name ] = attributes.sourceIdentityAttributes[ name ]; } );
         if ( attributes.sourceControlArtwork ) { props.className += ' blocks-engine-authored-carousel--source-control-artwork'; }
         if ( attributes.showStatus ) { props.className += ' blocks-engine-authored-carousel--show-status'; }
@@ -382,7 +384,9 @@ store( 'blocks-engine/carousel', {
         },
         get statusText() {
             const context = getContext();
-            return 'Slide ' + ( context.index + 1 ) + ' of ' + context.count;
+            return context.statusFormat
+                ? context.statusFormat.replace( '{index}', context.index + 1 ).replace( '{count}', context.count )
+                : 'Slide ' + ( context.index + 1 ) + ' of ' + context.count;
         },
         get playing() {
             return true === getContext().playing;
@@ -497,7 +501,7 @@ JS;
         // scrollable column beside the stage rather than a second slide track.
         $style .= '.blocks-engine-authored-carousel--thumbnails{--blocks-engine-carousel-thumbnail-size:80px}'
             . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-right{display:grid;position:relative;grid-template-columns:minmax(0,1fr) var(--blocks-engine-carousel-thumbnail-size);gap:var(--blocks-engine-carousel-gap);align-items:start}'
-            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-bottom{display:grid;position:relative;grid-template-rows:minmax(0,1fr) auto;gap:var(--blocks-engine-carousel-gap)}'
+            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-bottom{display:grid;position:relative;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;gap:var(--blocks-engine-carousel-gap)}'
             . '.blocks-engine-authored-carousel--thumbnails .blocks-engine-authored-carousel__thumbnails{display:grid;gap:calc(var(--blocks-engine-carousel-gap)/2);min-width:0;margin:0;padding:0}'
             . '.blocks-engine-authored-carousel--thumbnails-right .blocks-engine-authored-carousel__thumbnails{grid-auto-flow:row;grid-auto-rows:max-content;max-height:var(--blocks-engine-carousel-height,100%);overflow-y:auto;overscroll-behavior:contain}'
             . '.blocks-engine-authored-carousel--thumbnails-bottom .blocks-engine-authored-carousel__thumbnails{grid-auto-flow:column;grid-auto-columns:var(--blocks-engine-carousel-thumbnail-size);overflow-x:auto;overscroll-behavior:contain}'
@@ -598,7 +602,7 @@ JS;
         $styleAttribute = array() === $styleDeclarations ? '' : ' style="' . implode(';', $styleDeclarations) . '"';
 
         $context = htmlspecialchars(
-            (string) json_encode(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => 0, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false, 'playing' => 0 < $autoplayInterval), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            (string) json_encode(array_merge(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => 0, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false, 'playing' => 0 < $autoplayInterval), empty($attributes['statusFormat']) ? array() : array('statusFormat' => $attributes['statusFormat'])), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
             ENT_QUOTES | ENT_SUBSTITUTE,
             'UTF-8'
         );
@@ -1079,6 +1083,7 @@ JS;
             ? $this->stageBoxForItems($items, $styleResolver)
             : array('ratio' => '', 'width' => 0);
 
+        $status = $this->slideStatus($list);
         $registry->register(self::class, $this->definition($registry->namespace()));
         $attributes = array(
             'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
@@ -1086,7 +1091,8 @@ JS;
             'controlPresentation' => array(),
             'sourcePresentationClasses' => implode(' ', array_unique(array_merge(
                 SourceDom::boundedClassTokens((string) $sourceScope['className']),
-                SourceDom::boundedClassTokens((string) $sourceScope['stageClassName'])
+                SourceDom::boundedClassTokens((string) $sourceScope['stageClassName']),
+                $status instanceof DOMElement ? SourceDom::boundedClassTokens($styleResolver->liveRegionVisibilityClassName($status)) : array()
             ))),
             'sourceControlClasses' => $sourceScope['controlClassName'],
             'sourceControlAttributes' => $sourceScope['controlAttributes'],
@@ -1111,7 +1117,7 @@ JS;
             'sourceRootGeometry' => array_intersect_key($styleResolver->sourceGeometryPresentationDeclarations($element), array_flip(self::ROOT_GEOMETRY_PROPERTIES)),
             'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
             'autoplayInterval' => !$capturedGallery && 'slideshow' === $presentation ? $autoplayInterval : 0,
-            'showStatus' => $capturedGallery || $this->hasSlideStatus($list),
+            'showStatus' => $capturedGallery || $status instanceof DOMElement,
             'showDots' => 'slideshow' === $presentation && $showDots && array() === $thumbnails,
             'fullBleed' => 'slideshow' === $presentation && $fullBleed,
             'thumbnails' => $thumbnails,
@@ -1123,6 +1129,9 @@ JS;
             'playControlPosition' => $playbackPlacement['position'],
             'playControlInset' => $playbackPlacement['inset'],
         );
+        if ($status instanceof DOMElement && preg_match('~^\s*[0-9]+(\s*/\s*)[0-9]+\s*$~', $status->textContent ?? '', $statusMatch)) {
+            $attributes['statusFormat'] = '{index}' . $statusMatch[1] . '{count}';
+        }
         $shell = $this->shell($attributes);
         $innerContent = array($shell['opening']);
         foreach ( $slides as $_ ) {
@@ -2247,12 +2256,12 @@ JS;
             || 1 === preg_match('~^\s*[0-9]+\s*/\s*[0-9]+\s*$~', $element->textContent ?? '');
     }
 
-    private function hasSlideStatus(DOMElement $list): bool
+    private function slideStatus(DOMElement $list): ?DOMElement
     {
         foreach ($list->childNodes as $child) {
-            if ($child instanceof DOMElement && $this->isSlideStatus($child)) return true;
+            if ($child instanceof DOMElement && $this->isSlideStatus($child)) return $child;
         }
-        return false;
+        return null;
     }
 
     /** @return array<int, DOMElement> */
