@@ -379,6 +379,12 @@ final class SourceBlockAttributeProjector
                 }
             }
             if ( '' !== $controlMarker && '' !== $presentationPath && $presentationPath !== $logicalControlPath ) {
+                // The collapsed surface has its own selector identity, even though
+                // navigation and layout still belong to the logical control.
+                $attrs['className'] = SourceDom::mergeClassNames(
+                    (string) ($attrs['className'] ?? ''),
+                    ...$context->selectorProjections->buttonPresentationCarrierClasses($presentationPath)
+                );
                 $context->selectorProjections->installButtonPresentationMarker($presentationPath, $controlMarker);
             }
             // core/button unwraps the label into RichText. Keep its selector
