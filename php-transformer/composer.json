@@ -702,6 +702,7 @@
       "php tests/unit/runtime-island-analyzer.php",
       "php tests/unit/runtime-app-shell-content-embed.php",
       "php tests/unit/commerce-structure-recognizer.php",
+      "php tests/unit/product-grid-card-identity.php",
       "php tests/unit/button-link-dispatcher.php",
       "php tests/unit/linked-responsive-content.php",
       "php tests/unit/empty-destination-anchor.php",

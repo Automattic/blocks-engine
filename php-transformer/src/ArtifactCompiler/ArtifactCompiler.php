@@ -1021,9 +1021,7 @@ final class ArtifactCompiler
         }
 
         $slug = static function (string $value): string {
-            $value = strtolower(trim($value));
-            $value = preg_replace('/[^a-z0-9]+/', '-', $value) ?? '';
-            return trim($value, '-');
+            return \Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug::segment(trim($value));
         };
         $price = static function (mixed $value): string {
             if ( ! is_scalar($value) ) return '';
