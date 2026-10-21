@@ -383,13 +383,70 @@ final class AuthorStylesheetProjector
         }, $selectors));
     }
 
-    private function rewriteStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false): string
+    /** @param list<DOMElement>|null $controls Limit a partition to these matched controls. */
+    private function rewriteStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false, ?array $controls = null): string
     {
         $buttonPresentationPseudoPrelude = $this->buttonPresentationPseudoPrelude($prelude, $context);
         if ( '' !== $buttonPresentationPseudoPrelude ) {
             return $buttonPresentationPseudoPrelude . '{' . $body . '}';
         }
-        $projectedPrelude = $this->rewriteSelectorPrelude($prelude, $context, false, $this->allowsSubjectArms($prelude, $body), true);
+        // A shared utility can size padding-free wrappers for one control but
+        // the padded link for another. Partition only those declarations, and
+        // send each group through the same projection and inner-fill APIs.
+        if ( null === $controls ) {
+            $subjects = null;
+            $rest = array();
+            $partitioned = '';
+            foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+                $colon = strpos($declaration, ':');
+                $groups = array( array(), array() );
+                $name = false === $colon ? '' : strtolower(trim(substr($declaration, 0, $colon)));
+                if ( in_array($name, array( 'height', 'min-height', 'max-height' ), true) ) {
+                    $subjects ??= $this->buttonSizeSubjects($prelude, $context);
+                    $value = trim(substr($declaration, $colon + 1));
+                    foreach ( $subjects as $element ) {
+                        $groups[(int) $this->isButtonControlBoxSize($name, $value, array( $element ))][] = $element;
+                    }
+                }
+                if ( array() === $groups[0] || array() === $groups[1] ) {
+                    $rest[] = $declaration;
+                    continue;
+                }
+                if ( array() !== $rest ) {
+                    $partitioned .= $this->rewriteStyleRule($prelude, implode(';', $rest), $context, $inConditional);
+                    $rest = array();
+                }
+                foreach ( $groups as $group ) {
+                    $partitioned .= $this->rewriteStyleRule($prelude, $declaration, $context, $inConditional, $group);
+                }
+                $projected = $this->rewriteSelectorPrelude($prelude, $context, false, false, true);
+                $nonControls = $this->withoutButtonPresentationProjectionSelectors($projected, implode(',', array_map(
+                    static fn (DOMElement $element): string => ':where(.' . $context->selectorProjections->controlMarker($element->getNodePath() ?? '') . ')',
+                    $subjects
+                )));
+                if ( '' !== $nonControls ) {
+                    $partitioned .= $nonControls . '{' . $declaration . '}';
+                }
+            }
+            if ( '' !== $partitioned ) {
+                return $partitioned . ( array() === $rest ? '' : $this->rewriteStyleRule($prelude, implode(';', $rest), $context, $inConditional) );
+            }
+        }
+        $markers = null === $controls ? null : array_map(static fn (DOMElement $element): string => ':where(.' . $context->selectorProjections->controlMarker($element->getNodePath() ?? '') . ')', $controls);
+        $selectControls = static function (string $projected) use ($markers): string {
+            if ( null === $markers ) {
+                return $projected;
+            }
+            return implode(',', array_filter(CssStylesheetTransformer::splitSelectorList($projected) ?? array(), static function (string $selector) use ($markers): bool {
+                foreach ( $markers as $marker ) {
+                    if ( str_contains($selector, $marker) && ! str_contains($selector, ':not(' . $marker . ')') ) {
+                        return true;
+                    }
+                }
+                return false;
+            }));
+        };
+        $projectedPrelude = $selectControls($this->rewriteSelectorPrelude($prelude, $context, false, null === $controls && $this->allowsSubjectArms($prelude, $body), true));
         $authoredBody = $body;
         $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context);
         $nativeButtonCompatRule = $this->nativeButtonLinkCompatRule($prelude, $authoredBody, $context);
@@ -401,15 +458,15 @@ final class AuthorStylesheetProjector
                 $nonButtonLinkRule = $nonButtonPrelude . '{' . $authoredBody . '}';
             }
         }
-        $wrapperPrelude = $this->buttonPresentationWrapperPrelude($prelude, $context);
+        $wrapperPrelude = $selectControls($this->buttonPresentationWrapperPrelude($prelude, $context));
         if ( '' === $wrapperPrelude ) {
-            $directWrapperPrelude = $this->directButtonGeometryWrapperPrelude($prelude, $context);
+            $directWrapperPrelude = $selectControls($this->directButtonGeometryWrapperPrelude($prelude, $context));
             if ( '' === $directWrapperPrelude ) {
                 $mixedButtonProjection = $this->withoutCollapsedButtonProjectedWidths($projectedPrelude, $body);
                 return $nonButtonLinkRule . ( null !== $mixedButtonProjection ? $mixedButtonProjection : $projectedPrelude . '{' . $body . '}' ) . $nativeButtonCompatRule;
             }
-            [ $placement, $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body, $prelude, $context);
-            $placementPrelude = $this->directButtonPlacementWrapperPrelude($prelude, $context);
+            [ $placement, $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body, $prelude, $context, $controls);
+            $placementPrelude = $selectControls($this->directButtonPlacementWrapperPrelude($prelude, $context));
             $placementRule = '' === $placement || '' === $placementPrelude
                 ? ''
                 : $placementPrelude . '{' . $placement . '}';
@@ -424,7 +481,7 @@ final class AuthorStylesheetProjector
             return $nonButtonLinkRule . $placementRule . $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry, $inConditional, $context) . $nativeButtonCompatRule;
         }
 
-        [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body, $prelude, $context);
+        [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body, $prelude, $context, $controls);
         $nonButtonLayoutPrelude = $this->withoutButtonPresentationProjectionSelectors($projectedPrelude, $wrapperPrelude);
         $nonButtonLayout = '' === $nonButtonLayoutPrelude ? '' : $nonButtonLayoutPrelude . '{' . $layout . '}';
         if ( '' === $layout ) {
@@ -976,10 +1033,13 @@ final class AuthorStylesheetProjector
         return implode(',', array_values(array_unique($rewritten)));
     }
 
-    /** @return array{string, string, string} */
-    private function splitDirectButtonGeometryDeclarations(string $body, string $prelude = '', ?AuthorStylesheetProjectionContext $context = null): array
+    /**
+     * @param list<DOMElement>|null $controls
+     * @return array{string, string, string}
+     */
+    private function splitDirectButtonGeometryDeclarations(string $body, string $prelude = '', ?AuthorStylesheetProjectionContext $context = null, ?array $controls = null): array
     {
-        $controls = $this->buttonSizeSubjects($prelude, $context);
+        $controls ??= $this->buttonSizeSubjects($prelude, $context);
         $placement = array();
         $geometry = array();
         $inner = array();
@@ -1018,10 +1078,13 @@ final class AuthorStylesheetProjector
         return array( implode(';', $placement), implode(';', $geometry), implode(';', $inner) );
     }
 
-    /** @return array{string, string} */
-    private function splitButtonPresentationDeclarations(string $body, string $prelude = '', ?AuthorStylesheetProjectionContext $context = null): array
+    /**
+     * @param list<DOMElement>|null $controls
+     * @return array{string, string}
+     */
+    private function splitButtonPresentationDeclarations(string $body, string $prelude = '', ?AuthorStylesheetProjectionContext $context = null, ?array $controls = null): array
     {
-        $controls = $this->buttonSizeSubjects($prelude, $context);
+        $controls ??= $this->buttonSizeSubjects($prelude, $context);
         $layout = array();
         $control = array();
         $placementVars = $this->buttonPlacementCustomProperties($body);

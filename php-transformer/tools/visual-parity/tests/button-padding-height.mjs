@@ -55,6 +55,20 @@ try {
             assert.ok(Math.abs(actual[key] - expected[key === 'wrapper' ? 'link' : key]) <= 1, `${name} ${key} must match source`);
         }
     }
+    const mixed = readFileSync(path.join(root, 'tests/fixtures/button-mixed-padding-height.html'), 'utf8');
+    const mixedOutput = transform(mixed);
+    const expectedMixed = await measure(mixed, 'button');
+    await page.setContent(`<!doctype html><style>${wordpressButtonCss}${mixedOutput.css}</style>${mixedOutput.html}`);
+    const actualMixed = await page.evaluate(() => ({
+        heights: [...document.querySelectorAll('.wp-block-buttons, .wp-block-button, .wp-block-button__link')].map(element => element.getBoundingClientRect().height),
+        trustTop: [...document.querySelectorAll('span, p')].find(element => element.textContent === 'Fast turnaround').getBoundingClientRect().top,
+    }));
+    console.log(`Mixed button geometry: source=${JSON.stringify(expectedMixed)} transformed=${JSON.stringify(actualMixed)}`);
+    assert.equal(actualMixed.heights.length, 9);
+    actualMixed.heights.forEach((height, index) => {
+        assert.ok(Math.abs(height - expectedMixed.heights[Math.floor(index / 3)]) <= 1, `mixed carrier ${index} must match source`);
+    });
+    assert.ok(Math.abs(actualMixed.trustTop - expectedMixed.trustTop) <= 1, 'mixed trust row must match source');
     const stretched = `<style>.cta{height:auto;display:inline-block;padding:12px 24px;background:#4c2929;color:#fff}.fluid-engine .sqs-stretched .cta{height:100%;display:flex;flex:1;padding-top:0;padding-bottom:0;align-items:center;justify-content:center}</style>
 <div class="fluid-engine"><div class="sqs-stretched" style="height:78px"><a class="cta" href="/order">Order Now</a></div></div>`;
     const stretchedOutput = transform(stretched);
