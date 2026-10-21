@@ -616,7 +616,12 @@ final class AuthorSelectorProjectionState
     public function adoptAsSemanticBlock(string $path): string
     {
         unset($this->richTextMarkers[$path], $this->inlineLayoutCarrierPaths[$path]);
-        return $this->ensureSemanticMarker($path);
+        $marker = $this->ensureSemanticMarker($path);
+        // An earlier pass may have withheld this carrier while it was still
+        // routed as an inline layout carrier or RichText run; as a block of
+        // its own it carries subject classes, so subject arms cover it.
+        unset($this->withheldSubjectCarriers['semantic'][$marker]);
+        return $marker;
     }
 
     public function markInlineLayoutCarrierPath(string $path): void
