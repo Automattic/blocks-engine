@@ -69,12 +69,12 @@ final class ButtonsPattern
             return null;
         }
 
-        $text = $this->buttonText($anchor, SourceDom::innerHtml($anchor), $buttons);
+        $text = $this->buttonText($anchor, $buttons->richTextInnerHtml($anchor), $buttons);
         if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
             // The companion's RichText element replaces the anchor's single
             // wrapper child, so its content is that wrapper's label.
             $wrapper = $this->accessibleLinkContentWrapper($anchor);
-            $wrapperText = $wrapper instanceof DOMElement ? $this->buttonText($wrapper, SourceDom::innerHtml($wrapper), $buttons) : '';
+            $wrapperText = $wrapper instanceof DOMElement ? $this->buttonText($wrapper, $buttons->richTextInnerHtml($wrapper), $buttons) : '';
             if ( '' !== $wrapperText ) {
                 return $buttons->accessibleNameCompanion($anchor, $wrapperText, $wrapper);
             }
@@ -329,10 +329,10 @@ final class ButtonsPattern
     {
         $surface = $this->staticAnchorButtonSurface($anchor);
         if ( $surface instanceof DOMElement ) {
-            return SourceDom::innerHtml($surface);
+            return $buttons->richTextInnerHtml($surface);
         }
 
-        $html = SourceDom::innerHtml($anchor);
+        $html = $buttons->richTextInnerHtml($anchor);
         return str_contains($html, 'data-blocks-engine-richtext-marker=') && $this->hasStandaloneButtonLabel($anchor)
             ? $buttons->richText($anchor)
             : $html;

@@ -22,8 +22,6 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  */
 final class NavigationStyleProjector
 {
-    /** The editor-only host a shell block renders its inner blocks inside. */
-    private const EDITOR_INNER_BLOCKS_CLASS = 'blocks-engine-layout-shell-editor-inner-blocks';
 
     public function __construct(
         private readonly NavigationStyleProjectionContext $context,
@@ -326,7 +324,7 @@ final class NavigationStyleProjector
         }
 
         return substr($selector, 0, $position + 1)
-            . ':where(.' . self::EDITOR_INNER_BLOCKS_CLASS . ')>'
+            . EditorShellBoundary::layer() . '>'
             . substr($selector, $position + 1);
     }
 

@@ -128,9 +128,15 @@ final class ElementTreeDiff
 
     private static function textIdentity(DOMElement $element): string
     {
-        $text = trim((string) preg_replace('/\s+/u', ' ', $element->textContent));
+        $runs = array();
+        foreach ( ( new \DOMXPath($element->ownerDocument) )->query('.//text()', $element) ?: array() as $node ) {
+            $run = trim((string) preg_replace('/\s+/u', ' ', $node->nodeValue));
+            if ( '' !== $run ) {
+                $runs[] = $run;
+            }
+        }
 
-        return '' !== $text ? $text : '';
+        return implode(' ', $runs);
     }
 
     /**

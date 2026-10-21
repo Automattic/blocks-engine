@@ -476,7 +476,7 @@ $assert(str_contains($typeContents, '.style-ok{color:red}') && str_contains($typ
 $embeddedStyles = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
-        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><style>.shared{color:red}</style><link rel="stylesheet" href="site.css"><style media="(min-width: 48rem)">.wide{color:blue}</style></head><body><style>.hero{background:url("images/banner.svg")}</style><main class="shared wide hero"><p>Home</p></main><progress value="4" max="10">Unsupported</progress></body></html>' ),
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><style>.shared{color:red}</style><link rel="stylesheet" href="site.css"><style media="(min-width: 48rem)">.wide{color:blue}</style></head><body><style>.hero{background:url("images/banner.svg")}</style><main class="shared wide hero"><p>Home</p></main><output>Unsupported</output></body></html>' ),
         array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<style>.shared{color:red}</style><main class="shared"><p>About</p></main>' ),
         array( 'path' => 'site.css', 'kind' => 'css', 'content' => '.linked{display:block}' ),
         array( 'path' => 'images/banner.svg', 'kind' => 'asset', 'mime_type' => 'image/svg+xml', 'content' => '<svg xmlns="http://www.w3.org/2000/svg"/>' ),
@@ -487,7 +487,7 @@ $embeddedStylePaths = array_column($embeddedStyleAssets, 'path');
 $embeddedStyleContents = implode("\n", array_column($embeddedStyleAssets, 'content'));
 $embeddedStyleFallbacks = $embeddedStyles['fallbacks'] ?? array();
 $styleFallbacks = array_filter($embeddedStyleFallbacks, static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? '') && 'style' === ($fallback['tag'] ?? ''));
-$unsupportedBodyFallbacks = array_filter($embeddedStyleFallbacks, static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? '') && 'progress' === ($fallback['tag'] ?? ''));
+$unsupportedBodyFallbacks = array_filter($embeddedStyleFallbacks, static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? '') && 'output' === ($fallback['tag'] ?? ''));
 $assert(array( 'index.inline-1.css', 'site.css', 'index.inline-2.css', 'index.inline-3.css', 'about.inline.css' ) === array_slice($embeddedStylePaths, 0, 5), 'head and body styles preserve source-order stylesheet occurrences across pages');
 $assert('(min-width: 48rem)' === (($embeddedStyleAssets[2]['media'] ?? '')), 'embedded media styles retain their stylesheet media scope');
 $assert(str_contains($embeddedStyleContents, '.hero{background:url("images/banner.svg")}'), 'embedded CSS URL references retain canonical artifact-relative resolution');

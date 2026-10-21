@@ -17,12 +17,13 @@ declare(strict_types=1);
  * reaches through the marked layer, without touching front-end matching.
  *
  * The variant is one nested rule whose every crossing step tolerates the
- * layer (`&>x,&>:where(.layer)>x`); see EditorShellBoundary.
+ * layer (`&>x,&>:where(<layers>)>x`); see EditorShellBoundary::layer().
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EditorShellBoundary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 
 $failures = 0;
@@ -50,7 +51,8 @@ $cssFor = static function (array $result): string {
 $transform = static fn (string $html): array => ( new HtmlTransformer() )->transform($html)->toArray();
 
 $layer = EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS;
-$step = static fn (string $child): string => '&>' . $child . ',&>:where(.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ')>' . $child;
+$layerCompound = EditorShellBoundary::layer();
+$step = static fn (string $child): string => '&>' . $child . ',&>' . EditorShellBoundary::layer() . '>' . $child;
 
 $scaledHeadline = $transform(
     '<style>.sqs-html-content .scaled-text-container > .scaled-text h1{font-size:inherit !important}</style>'
@@ -91,7 +93,7 @@ $assert(
 // before it would let `.wrap > .box > .label` reach a `.label` block nested at
 // any depth under `.box`, so a body-text rule could restyle nested headings.
 $assert(
-    1 !== preg_match('/[^>\s]\s*:where\(\.' . preg_quote($layer, '/') . '\)/', $multiCss . $scaledCss),
+    1 !== preg_match('/[^>\s]\s*' . preg_quote($layerCompound, '/') . '/', $multiCss . $scaledCss),
     'a relaxed combinator stays a child step into the layer',
     $multiCss
 );
@@ -148,9 +150,9 @@ $gridCss = $cssFor($transform(
 // `&` weighs what its parent does, so the nested rule weighs its prelude
 // plus the step it nests.
 $variantSelector = null;
-( new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer() )->visitStyleRules($gridCss, static function (string $prelude, string $body) use (&$variantSelector, $layer): void {
-    if ( null === $variantSelector && str_contains($body, $layer) && str_contains($prelude, '.row') && 1 === preg_match('/^,?&>:where\(\.' . preg_quote($layer, '/') . '\)>([^{,]+)\{/', substr($body, strpos($body, ',')), $step) ) {
-        $variantSelector = trim($prelude) . ' > :where(.' . $layer . ') > ' . $step[1];
+( new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer() )->visitStyleRules($gridCss, static function (string $prelude, string $body) use (&$variantSelector, $layer, $layerCompound): void {
+    if ( null === $variantSelector && str_contains($body, $layer) && str_contains($prelude, '.row') && 1 === preg_match('/^,?&>' . preg_quote($layerCompound, '/') . '>([^{]+?)\{/', substr($body, strpos($body, ',')), $step) ) {
+        $variantSelector = trim($prelude) . ' > ' . $layerCompound . ' > ' . $step[1];
     }
 });
 $specificity = static fn (string $selector): array => \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::specificityCounts(\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::parse($selector));

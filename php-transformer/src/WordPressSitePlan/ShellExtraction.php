@@ -1721,6 +1721,13 @@ final class ShellExtraction
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $generic['opening'] . $generic['closing'], $slugs);
             $frames['page'] = array('opening' => $generic['opening'], 'closing' => $generic['closing'], 'shells' => array_values(array_unique($slugs[1])));
         }
+        // With only one authored route, its frame is the site frame for every
+        // native lifecycle template, including pages created later in WordPress.
+        $authored = array_filter($pages, static fn(array $page): bool => empty($page['synthetic']));
+        if (1 === count($authored) && isset($frames['front-page'])) {
+            foreach (array('page', 'single', 'index', 'archive', 'search', '404') as $slug) $frames[$slug] = $frames['front-page'];
+            $genericSource = (string) $pages[array_key_first($authored)]['source_path'];
+        }
         // A page that keeps its chrome in its own content must not also get the
         // generic frame, so it renders through a plain route template.
         if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames['page-' . $page['slug']] = array('opening' => '', 'closing' => '', 'shells' => array());
