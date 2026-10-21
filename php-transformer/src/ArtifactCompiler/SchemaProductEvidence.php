@@ -28,12 +28,24 @@ final class SchemaProductEvidence
         $chosen = array();
         foreach ($documents as $path => $content) {
             $pagePath = self::routePath($path);
+            $schemas = array();
             foreach (HtmlMarkupParser::htmlMarkupNodes($content) as $node) {
                 if ('rawtext' !== ($node['kind'] ?? null) || 'script' !== ($node['name'] ?? null)) continue;
                 $type = strtolower(trim(explode(';', (string) ($node['attributes']['type'] ?? ''), 2)[0]));
                 if ('application/ld+json' !== $type) continue;
-                foreach (self::products(json_decode($node['content'], true)) as $product) {
-                    $row = self::row($product, $path, $slug, $price);
+                $schemas[] = json_decode($node['content'], true);
+            }
+            // Site evidence may follow the Product in another script or graph.
+            $siteNames = array();
+            foreach ($schemas as $schema) {
+                foreach (self::typedNodes($schema, 'WebSite') as $site) {
+                    $name = self::name($site['name'] ?? null);
+                    if ('' !== $name) $siteNames[] = $name;
+                }
+            }
+            foreach ($schemas as $schema) {
+                foreach (self::typedNodes($schema, 'Product') as $product) {
+                    $row = self::row($product, $path, $slug, $price, $siteNames);
                     if (null === $row) continue;
                     [$productSlug, $fields, $urlPath] = $row;
                     $matches = '' !== $urlPath && $urlPath === $pagePath;
@@ -45,18 +57,21 @@ final class SchemaProductEvidence
     }
 
     /** @return array<int,array<string,mixed>> */
-    private static function products(mixed $value): array
+    private static function typedNodes(mixed $value, string $type): array
     {
         if (!is_array($value)) return array();
         $types = $value['@type'] ?? array();
-        $found = is_array($types) || is_string($types) ? (in_array('Product', (array) $types, true) ? array($value) : array()) : array();
-        foreach (is_array($value['@graph'] ?? null) ? $value['@graph'] : array() as $child) $found = array_merge($found, self::products($child));
-        foreach (is_array($value['itemListElement'] ?? null) ? $value['itemListElement'] : array() as $item) if (is_array($item)) $found = array_merge($found, self::products($item['item'] ?? null));
+        $found = is_array($types) || is_string($types) ? (in_array($type, (array) $types, true) ? array($value) : array()) : array();
+        foreach (is_array($value['@graph'] ?? null) ? $value['@graph'] : array() as $child) $found = array_merge($found, self::typedNodes($child, $type));
+        foreach (is_array($value['itemListElement'] ?? null) ? $value['itemListElement'] : array() as $item) if (is_array($item)) $found = array_merge($found, self::typedNodes($item['item'] ?? null, $type));
         return $found;
     }
 
-    /** @return array{0:string,1:array<string,string>,2:string}|null */
-    private static function row(array $product, string $path, callable $slug, callable $price): ?array
+    /**
+     * @param list<string> $siteNames
+     * @return array{0:string,1:array<string,string>,2:string}|null
+     */
+    private static function row(array $product, string $path, callable $slug, callable $price, array $siteNames): ?array
     {
         $offers = $product['offers'] ?? array();
         if (is_array($offers) && array_is_list($offers)) $offers = $offers[0] ?? array();
@@ -64,7 +79,13 @@ final class SchemaProductEvidence
         $spec = $offers['priceSpecification'] ?? array();
         if (is_array($spec) && (isset($spec['billingDuration']) || isset($spec['unitCode']) || isset($spec['referenceQuantity']))) return null;
         $regularPrice = $price('AggregateOffer' === ($offers['@type'] ?? null) ? ($offers['lowPrice'] ?? null) : ($offers['price'] ?? null));
-        $name = is_scalar($product['name'] ?? null) ? trim(html_entity_decode((string) $product['name'], ENT_QUOTES | ENT_HTML5, 'UTF-8')) : '';
+        $name = self::name($product['name'] ?? null);
+        foreach ($siteNames as $siteName) {
+            if (preg_match('/^(.+?)\s+[—–|·:-]\s+' . preg_quote($siteName, '/') . '\z/u', $name, $match) && '' !== trim($match[1])) {
+                $name = trim($match[1]);
+                break;
+            }
+        }
         if ('' === $name || '' === $regularPrice) return null;
         $url = is_string($product['url'] ?? null) ? $product['url'] : (is_string($offers['url'] ?? null) ? $offers['url'] : '');
         $urlPath = (string) (parse_url($url, PHP_URL_PATH) ?: '');
@@ -88,6 +109,11 @@ final class SchemaProductEvidence
         if (is_array($image)) $image = $image['contentUrl'] ?? $image['url'] ?? null;
         if (is_string($image) && '' !== trim($image)) $fields['image'] = trim($image);
         return array($productSlug, $fields, self::routePath($urlPath));
+    }
+
+    private static function name(mixed $value): string
+    {
+        return is_scalar($value) ? trim(html_entity_decode((string) $value, ENT_QUOTES | ENT_HTML5, 'UTF-8')) : '';
     }
 
     /** Route-like path: no slashes at the ends, no `.html` extension, no trailing `index`. */
