@@ -154,7 +154,7 @@
         },
         "18-static-content-library": {
             "added a": 12,
-            "added div [blocks-engine-control]": 26,
+            "added div [blocks-engine-control]": 19,
             "added figure [blocks-engine-synthetic-image-figure]": 9,
             "added img": 18,
             "added mark": 1,
@@ -971,13 +971,10 @@
             "retagged span>mark": 5
         },
         "69-markdown-editor": {
-            "added div [blocks-engine-control]": 4,
-            "added img": 2,
+            "added div [blocks-engine-control]": 2,
             "added p [blocks-engine-inline-layout-carrier]": 2,
-            "removed button": 5,
-            "removed div": 1,
+            "removed button": 2,
             "removed span": 1,
-            "removed svg": 2,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged svg>img": 1
         },
