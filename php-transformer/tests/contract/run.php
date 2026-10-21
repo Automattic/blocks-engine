@@ -2732,12 +2732,12 @@ $buttonResult = ( new HtmlTransformer() )->transform(
     '<main><a class="primary-button" href="#" style="padding:10px 16px;background:#135e96"><h3>Reserve now</h3><span aria-hidden="true"></span></a><button><strong>Call us</strong></button></main>'
 )->toArray();
 $buttonBlocks = $buttonResult['blocks'][0]['innerBlocks'] ?? array();
-$assert('core/buttons' === ($buttonBlocks[0]['blockName'] ?? ''), 'anchor converts to buttons block');
-$assert(str_contains((string) ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Reserve now'), 'anchor button text preserves visible label');
-$assert('Reserve now' === ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?? ''), 'anchor button text unwraps block-level label markup for valid inline RichText');
+$assert('core/buttons' === ($buttonBlocks[0]['blockName'] ?? ''), 'anchor-owned painted single-label control remains native buttons');
+$assert('core/button' === ($buttonBlocks[0]['innerBlocks'][0]['blockName'] ?? ''), 'heading used solely as a control label lowers to a button');
+$assert(str_contains($buttonBlocks[0]['innerBlocks'][0]['attrs']['className'] ?? '', 'primary-button'), 'painted label retains its source button class');
 $assert(str_contains((string) ($buttonBlocks[1]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Call us'), 'button text preserves visible label');
 $assert(! str_contains((string) $buttonResult['serialized_blocks'], '\\u003c'), 'button serialization avoids escaped nested HTML attrs');
-$assert(! str_contains((string) $buttonResult['serialized_blocks'], '<h3>Reserve now</h3>'), 'button serialization avoids block-level markup inside link text');
+$assert(! str_contains((string) $buttonResult['serialized_blocks'], '<h3') && str_contains((string) $buttonResult['serialized_blocks'], 'Reserve now'), 'native button flattens its single heading label');
 $assert('pass' === ($buttonResult['source_reports']['wp_block_validity']['status'] ?? ''), 'HTML transform exposes passing WordPress block validity report for generated buttons');
 
 $buttonCustomFontSizeResult = ( new HtmlTransformer() )->transform(

@@ -23,7 +23,7 @@ foreach (array($source, str_replace('href="/index.html"', 'class="brand" href="/
     $brand = array_values(array_filter($headings($result['blocks'] ?? array()), static fn(array $block): bool => str_contains($block['attrs']['content'] ?? '', 'Harbor Studio')));
     $assert(1 === count($brand), 'nested home wordmark remains an editable semantic heading');
     $assert(3 === ($brand[0]['attrs']['level'] ?? null), 'wordmark preserves source heading level');
-    $assert(str_contains($brand[0]['attrs']['content'] ?? '', '<a') && str_contains($brand[0]['attrs']['content'] ?? '', '/index.html'), 'wordmark preserves home link through native heading RichText');
+    $assert(str_contains($result['serialized_blocks'] ?? '', 'href="/index.html"'), 'wordmark preserves its wrapping home link');
     $assert(0 === ($result['metrics']['fallback_count'] ?? -1), 'semantic wordmark introduces no HTML fallback');
     $assert(str_contains($result['serialized_blocks'] ?? '', '"label":"Work"') && str_contains($result['serialized_blocks'] ?? '', '"label":"Contact"'), 'branding recognition preserves the adjacent menu as native items');
 }
@@ -33,7 +33,7 @@ $ordinary = $compile(str_replace('href="/index.html"', 'href="/topic"', $source)
 $ordinaryHeadings = array_values(array_filter($headings($ordinary['blocks'] ?? array()), static fn(array $block): bool => str_contains($block['attrs']['content'] ?? '', 'Harbor Studio')));
 $assert(1 === count($ordinaryHeadings), 'an ordinary heading link outside the nested menu preserves its heading semantics');
 $assert(3 === ($ordinaryHeadings[0]['attrs']['level'] ?? null), 'an ordinary heading link preserves its source heading level');
-$assert('<a href="/topic">Harbor Studio</a>' === ($ordinaryHeadings[0]['attrs']['content'] ?? ''), 'an ordinary heading link preserves its non-home destination and text');
+$assert('Harbor Studio' === ($ordinaryHeadings[0]['attrs']['content'] ?? '') && str_contains($ordinary['serialized_blocks'] ?? '', 'href="/topic"'), 'an ordinary heading link preserves its wrapping non-home destination and text');
 $navigationItems = static function (array $blocks) use (&$navigationItems): array {
     $result = array();
     foreach ($blocks as $block) {

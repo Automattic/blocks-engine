@@ -3761,7 +3761,7 @@ PHP;
                     $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
                     foreach (self::blockRanges($cardMarkup) as $leaf) {
                         $slice = substr($cardMarkup, $leaf['offset'], $leaf['length']);
-                        if ('featured-image' !== $this->classifyListingCardBlock($slice, $card['post'], $card['route'])) continue;
+                        if ('featured-image' !== $this->classifyListingCardBlock($slice, $card['post'], $card['route']) && !('image' === self::listingBlockName($slice) && str_contains($cardMarkup, '"wrappers"'))) continue;
                         $image = self::listingCardImage($slice);
                         if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
                         break;
@@ -3993,7 +3993,7 @@ PHP;
      * @param array<string,mixed> $post
      * @return array{markup:string,title:bool,content:bool}
      */
-    private function listingTransformRange(string $markup, array $range, array $post, string $route, int $excerptLength = 0, array $boundGroups = array()): array
+    private function listingTransformRange(string $markup, array $range, array $post, string $route, int $excerptLength = 0, array $boundGroups = array(), bool $linkedContainer = false): array
     {
         $slice = substr($markup, $range['offset'], $range['length']);
         if (isset($boundGroups[$range['offset']])) return array('markup' => $boundGroups[$range['offset']], 'title' => false, 'content' => false);
@@ -4005,6 +4005,11 @@ PHP;
             return array('markup' => $slice, 'title' => false, 'content' => false);
         }
         $children = self::childBlockRanges($markup, $range);
+        if (isset(self::listingBlockAttributes($slice)['wrappers'])) {
+            foreach (self::listingBlockAttributes($slice)['wrappers'] ?? array() as $wrapper) {
+                if ('a' === ($wrapper['tagName'] ?? '') && self::hrefMatchesListingRoute((string) ($wrapper['attributes']['href'] ?? ''), $route)) $linkedContainer = true;
+            }
+        }
         if (array() === $children) {
             if ('paragraph' === self::listingBlockName($slice) && '' === ListingExcerptProjection::text($slice)) {
                 foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
@@ -4023,6 +4028,11 @@ PHP;
                 return array('markup' => '<!-- wp:post-excerpt ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->', 'title' => false, 'content' => false);
             }
             $kind = $this->classifyListingCardBlock($slice, $post, $route);
+            if ($linkedContainer && 'heading' === self::listingBlockName($slice)) {
+                $kind = 'title';
+            } elseif ($linkedContainer && 'image' === self::listingBlockName($slice) && null !== self::listingCardImage($slice)) {
+                $kind = 'featured-image';
+            }
             if ('title' === $kind) {
                 return array('markup' => self::postTitleMarkup($slice), 'title' => true, 'content' => false);
             }
@@ -4044,7 +4054,7 @@ PHP;
         $emittedContent = false;
         $replacements = array();
         foreach ($children as $child) {
-            $transformed = $this->listingTransformRange($markup, $child, $post, $route, $excerptLength, $boundGroups);
+            $transformed = $this->listingTransformRange($markup, $child, $post, $route, $excerptLength, $boundGroups, $linkedContainer);
             $foundTitle = $foundTitle || $transformed['title'];
             if ($transformed['content'] && $emittedContent) {
                 $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
@@ -4060,8 +4070,38 @@ PHP;
             $relative = $replacement['offset'] - $range['offset'];
             $slice = substr($slice, 0, $relative) . $replacement['markup'] . substr($slice, $relative + $replacement['length']);
         }
+        // Native query slots own their per-post links. A retained source card
+        // shell must not wrap them in the first post's static destination.
+        $attrs = self::listingBlockAttributes($slice);
+        if (isset($attrs['wrappers'])) {
+            $changed = false;
+            foreach ($attrs['wrappers'] as &$wrapper) {
+                if ('a' === ($wrapper['tagName'] ?? '') && self::hrefMatchesListingRoute((string) ($wrapper['attributes']['href'] ?? ''), $route)) {
+                    $wrapper['tagName'] = 'div';
+                    unset($wrapper['attributes']['href'], $wrapper['attributes']['target'], $wrapper['attributes']['rel']);
+                    $changed = true;
+                }
+            }
+            unset($wrapper);
+            if ($changed) {
+                $slice = preg_replace_callback('/^(<!--\\s*wp:[^\\s]+)\\s+\\{.*?\\}\\s*-->/', static fn(array $match): string => $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' -->', $slice, 1) ?? $slice;
+                $slice = preg_replace('/(<a)\\b[^>]*>/', '<div' . self::listingWrapperAttributes($attrs) . '>', $slice, 1) ?? $slice;
+                $position = strrpos($slice, '</a>');
+                if (false !== $position) $slice = substr_replace($slice, '</div>', $position, 4);
+            }
+        }
         return array('markup' => $slice, 'title' => $foundTitle, 'content' => $emittedContent && !$foundTitle);
     }
+    /** @param array<string,mixed> $attrs */
+    private static function listingWrapperAttributes(array $attrs): string
+    {
+        $html = '';
+        foreach ($attrs['wrappers'][0]['attributes'] ?? array() as $name => $value) {
+            $html .= ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        return $html;
+    }
+
     /** @param array<string,mixed> $post */
     private function classifyListingCardBlock(string $slice, array $post, string $route): string
     {

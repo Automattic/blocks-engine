@@ -44,7 +44,7 @@ $assertCollapsed(
     'zero-width wrapper',
     $transform(
         '.reveal{width:0;overflow:hidden}.button:hover .reveal{width:16px}.reveal svg{width:16px;height:16px}',
-        '<div class="reveal"><div>' . $svg . '</div></div>'
+        '<span class="reveal"><span>' . $svg . '</span></span>'
     )
 );
 
@@ -52,7 +52,7 @@ $assertCollapsed(
     'zero-height wrapper',
     $transform(
         '.reveal{height:0;overflow:hidden}.button:hover .reveal{height:16px}.reveal svg{width:16px;height:16px}',
-        '<div class="reveal"><div>' . $svg . '</div></div>'
+        '<span class="reveal"><span>' . $svg . '</span></span>'
     )
 );
 
@@ -60,7 +60,7 @@ $assertCollapsed(
     'captured zero-width box',
     $transform(
         '.reveal svg{width:16px;height:16px}',
-        '<div class="reveal" data-source-visual-width="0" data-source-visual-height="16"><div>' . $svg . '</div></div>'
+        '<span class="reveal" data-source-visual-width="0" data-source-visual-height="16"><span>' . $svg . '</span></span>'
     )
 );
 
@@ -68,7 +68,7 @@ $assertCollapsed(
     'display none',
     $transform(
         '.reveal{display:none}.button:hover .reveal{display:inline-block}',
-        '<div class="reveal">' . $svg . '</div>'
+        '<span class="reveal">' . $svg . '</span>'
     )
 );
 
@@ -76,13 +76,13 @@ $assertCollapsed(
     'visibility hidden',
     $transform(
         '.reveal{visibility:hidden}.button:hover .reveal{visibility:visible}',
-        '<div class="reveal">' . $svg . '</div>'
+        '<span class="reveal">' . $svg . '</span>'
     )
 );
 
 $visible = $transform(
     '.reveal{width:16px;height:16px}.reveal svg{width:16px;height:16px}',
-    '<div class="reveal">' . $svg . '</div>'
+    '<span class="reveal">' . $svg . '</span>'
 );
 $visibleMarkup = (string) ($visible['serialized_blocks'] ?? '');
 $assert(

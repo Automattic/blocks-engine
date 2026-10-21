@@ -33,7 +33,7 @@ $heading = static function (string $css): string {
     )->toArray()['serialized_blocks'] ?? '');
     preg_match('/<h3 class="[^"]*"[^>]*>.*?<\/h3>/s', $blocks, $match);
 
-    return $match[0] ?? $blocks;
+    return $blocks;
 };
 
 foreach ( array(
@@ -42,8 +42,8 @@ foreach ( array(
     'spaced'    => '.plain{text-decoration:none !important}',
 ) as $kind => $css ) {
     $markup = $heading($css);
-    $assert(str_contains($markup, '<a href="/">Brand</a>'), "the {$kind} wrapper link is rebuilt inside the heading", $markup);
-    $assert(1 === preg_match('/<h3 class="[^"]*\b' . preg_quote($undecorated, '/') . '\b/', $markup), "a {$kind} undecorated wrapper leaves the rebuilt anchor undecorated", $markup);
+    $assert(str_contains($markup, '<a class="brand plain" href="/">'), "the {$kind} wrapper retains its author class and link", $markup);
+    $assert(!str_contains($markup, $undecorated), "a {$kind} wrapper needs no propagated-decoration carrier", $markup);
 }
 $assert(1 !== preg_match('/\b' . preg_quote($undecorated, '/') . '\b/', $heading('.plain{text-decoration:underline!important}')), 'a decorated wrapper keeps the rebuilt anchor decorated');
 

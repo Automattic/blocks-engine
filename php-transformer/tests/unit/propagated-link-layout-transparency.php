@@ -42,11 +42,11 @@ $card = $transform(
 );
 $markup = (string) ($card['serialized_blocks'] ?? '');
 $assert(
-    (bool) preg_match('/<p class="[^"]*\bpill\b[^"]*\b' . preg_quote($class, '/') . '\b[^"]*"><a href="https:\/\/example\.com\/"/', $markup),
-    'the flex pill paragraph that received the propagated card link is marked',
+    str_contains($markup, '<a class="card" href="https://example.com/">') && !str_contains($markup, $class),
+    'the flex pill retains its ancestor link without a propagated anchor',
     $markup
 );
-$assert(str_contains($supportCss($card), $rule), 'the propagated anchor is made layout-transparent', $supportCss($card));
+$assert(!str_contains($supportCss($card), $rule), 'retained container needs no propagated-anchor layout rule', $supportCss($card));
 
 $plain = $transform('<p>Just text with <a href="/x">an authored link</a>.</p>');
 $assert(! str_contains((string) ($plain['serialized_blocks'] ?? ''), $class), 'authored links are never marked');
