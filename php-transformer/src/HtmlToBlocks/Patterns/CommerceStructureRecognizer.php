@@ -117,6 +117,57 @@ final class CommerceStructureRecognizer
      */
     public function productCardData(DOMElement $card): ?array
     {
+        if ( $this->containsMultipleProducts($card) ) {
+            return null;
+        }
+
+        return $this->singleProductCardData($card);
+    }
+
+    /** Reject containers before their first heading can become a product name. */
+    private function containsMultipleProducts(DOMElement $card): bool
+    {
+        $urls = array();
+        foreach ( $card->getElementsByTagName('a') as $link ) {
+            $path = parse_url(trim(SourceDom::attr($link, 'href')), PHP_URL_PATH);
+            if ( is_string($path) && preg_match('~/(?:products?|product-page)/[^/]+~i', $path) ) {
+                $urls[rtrim($path, '/')] = true;
+            }
+        }
+        if ( count($urls) > 1 ) {
+            return true;
+        }
+
+        // Walk down to independent qualifying cards, not their nested wrappers.
+        $count = 0;
+        $visit = function (DOMElement $node) use (&$visit, &$count): void {
+            $before = $count;
+            foreach ( $node->childNodes as $child ) {
+                if ( $child instanceof DOMElement ) {
+                    $visit($child);
+                    if ( $count > 1 ) {
+                        return;
+                    }
+                }
+            }
+            if ( $count === $before && null !== $this->singleProductCardData($node) ) {
+                ++$count;
+            }
+        };
+        foreach ( $card->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $visit($child);
+                if ( $count > 1 ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function singleProductCardData(DOMElement $card): ?array
+    {
         $name = $this->productNameText($card);
         $prices = $this->productPriceTexts($card);
         $hasCart = $this->hasCartControl($card);
@@ -134,6 +185,7 @@ final class CommerceStructureRecognizer
 
         return array_filter(array(
             'name'             => $name,
+            'slug'             => $this->productLinkSlug($card, $name),
             'price'            => $prices['price'],
             'sale_price'       => $prices['sale_price'] ?? null,
             'description'      => $this->productDescriptionText($card, $name),
@@ -258,6 +310,18 @@ final class CommerceStructureRecognizer
 
     private function isGridLike(DOMElement $element): bool
     {
+        if ( in_array(strtolower($element->tagName), array( 'html', 'body' ), true) ) {
+            return false;
+        }
+        // A document wrapper around a real grid is not itself another grid.
+        if ( $element->parentNode instanceof DOMElement && 'body' === strtolower($element->parentNode->tagName) ) {
+            foreach ( $element->getElementsByTagName('*') as $descendant ) {
+                if ( $this->isProductGridContainer($descendant) && $this->containsMultipleProducts($descendant) ) {
+                    return false;
+                }
+            }
+        }
+
         $className = strtolower(trim(SourceDom::attr($element, 'class')));
         $style = strtolower(trim(SourceDom::attr($element, 'style')));
 
@@ -265,14 +329,34 @@ final class CommerceStructureRecognizer
             || (bool) preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style);
     }
 
+    /** The card's title link supplies its authored URL identity when available. */
+    private function productLinkSlug(DOMElement $card, string $name): ?string
+    {
+        foreach ( $card->getElementsByTagName('a') as $link ) {
+            if ( $this->collapsedText($link) !== $name && SourceDom::attr($link, 'title') !== $name ) {
+                continue;
+            }
+            $href = trim(SourceDom::attr($link, 'href'));
+            if ( '' === $href || preg_match('/^(?:#|javascript:|mailto:|tel:)/i', $href) ) {
+                continue;
+            }
+            $path = parse_url($href, PHP_URL_PATH);
+            if ( is_string($path) && '' !== trim($path, '/') ) {
+                return rawurldecode(basename(rtrim($path, '/')));
+            }
+        }
+
+        return null;
+    }
+
     /**
-     * The product name text: schema.org `itemprop="name"`, else the first heading,
-     * else the first element carrying a name token.
+     * Prefer schema.org name, then a heading, then the most specific name/title
+     * carrier. Candidates containing prices, badges or controls are not titles.
      */
     private function productNameText(DOMElement $card): string
     {
         $schemaName = $this->firstDescendantWithItemprop($card, array( 'name' ));
-        if ( null !== $schemaName ) {
+        if ( null !== $schemaName && $this->isProductNameElement($schemaName) ) {
             $text = $this->collapsedText($schemaName);
             if ( '' !== $text ) {
                 return $text;
@@ -280,7 +364,7 @@ final class CommerceStructureRecognizer
         }
 
         foreach ( $card->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && preg_match('/^h[1-6]$/', strtolower($descendant->tagName)) ) {
+            if ( $descendant instanceof DOMElement && preg_match('/^h[1-6]$/', strtolower($descendant->tagName)) && $this->isProductNameElement($descendant) ) {
                 $text = $this->collapsedText($descendant);
                 if ( '' !== $text ) {
                     return $text;
@@ -288,16 +372,39 @@ final class CommerceStructureRecognizer
             }
         }
 
+        $candidates = array();
         foreach ( $card->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->classifier->hasCommerceToken($descendant, array( 'name', 'title', 'product' )) ) {
-                $text = $this->collapsedText($descendant);
-                if ( '' !== $text ) {
-                    return $text;
+            if ( $descendant instanceof DOMElement && $this->classifier->hasCommerceToken($descendant, array( 'name', 'title' )) && $this->isProductNameElement($descendant) ) {
+                $candidates[] = $descendant;
+            }
+        }
+        foreach ( $candidates as $candidate ) {
+            foreach ( $candidates as $other ) {
+                if ( $candidate !== $other && in_array($other, iterator_to_array($candidate->getElementsByTagName('*')), true) ) {
+                    continue 2;
                 }
             }
+            return $this->collapsedText($candidate);
         }
 
         return '';
+    }
+
+    private function isProductNameElement(DOMElement $element): bool
+    {
+        if ( '' === $this->collapsedText($element) ) {
+            return false;
+        }
+        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $node ) {
+            if ( $this->isPriceElement($node)
+                || $this->classifier->hasCommerceToken($node, array( 'badge', 'badges', 'cart', 'buy', 'purchase', 'quickview', 'quick', 'controls' ))
+                || in_array(strtolower($node->tagName), array( 'button', 'input', 'select', 'textarea' ), true)
+                || 'button' === strtolower(SourceDom::attr($node, 'role')) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -332,8 +439,27 @@ final class CommerceStructureRecognizer
             $regular = $this->currencyFormattedText('' !== $content ? $content : ($schemaPrice->textContent ?? ''), $schemaPrice);
         }
 
+        $declared = array();
+        foreach ( array_merge(array( $card ), iterator_to_array($card->getElementsByTagName('*'))) as $node ) {
+            if ( $this->classifier->hasCommerceToken($node, array( 'price', 'amount', 'cost' )) || 'price' === strtolower(SourceDom::attr($node, 'itemprop')) ) {
+                $declared[] = $node;
+            }
+        }
+
         foreach ( $card->getElementsByTagName('*') as $descendant ) {
             if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+            $scope = null;
+            for ( $node = $descendant; $node instanceof DOMElement; $node = $node->parentNode ) {
+                if ( in_array($node, $declared, true) ) {
+                    $scope = $node;
+                }
+                if ( $node === $card ) {
+                    break;
+                }
+            }
+            if ( array() !== $declared && null === $scope ) {
                 continue;
             }
 
@@ -355,7 +481,25 @@ final class CommerceStructureRecognizer
                 continue;
             }
 
-            if ( $this->classifier->hasCommerceToken($descendant, array( 'sale', 'discount', 'special', 'reduced', 'now' )) ) {
+            $isSale = false;
+            for ( $node = $descendant; $node instanceof DOMElement && $node !== $card; $node = $node->parentNode ) {
+                $priceScope = $scope ?? $node->parentNode;
+                $hasStruckPrice = false;
+                if ( $priceScope instanceof DOMElement ) {
+                    foreach ( array( 'del', 's' ) as $tag ) {
+                        foreach ( $priceScope->getElementsByTagName($tag) as $struck ) {
+                            if ( $this->looksLikePriceText($struck->textContent ?? '') || $this->hasPriceDescendant($struck) ) {
+                                $hasStruckPrice = true;
+                            }
+                        }
+                    }
+                }
+                if ( ('ins' === strtolower($node->tagName) && $hasStruckPrice) || ('ins' !== strtolower($node->tagName) && $this->classifier->hasCommerceToken($node, array( 'sale', 'discount', 'special', 'reduced', 'now' ))) ) {
+                    $isSale = true;
+                    break;
+                }
+            }
+            if ( $isSale ) {
                 $sale = '' === $sale ? $formatted : $sale;
                 continue;
             }
@@ -402,7 +546,7 @@ final class CommerceStructureRecognizer
 
         // A schema.org price content attribute is bare numeric (e.g. "24.00");
         // keep it as-is when the element is a declared price.
-        if ( $this->classifier->hasCommerceToken($element, array( 'price', 'amount', 'cost' )) && preg_match('/\d/', $text) ) {
+        if ( $this->classifier->hasCommerceToken($element, array( 'price', 'amount', 'cost' )) && preg_match('/^\d+(?:[.,]\d+)*$/', $text) ) {
             return $text;
         }
 
