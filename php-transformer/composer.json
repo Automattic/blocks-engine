@@ -326,6 +326,7 @@
       "php tests/unit/navigation-checkbox-toggle.php",
       "php tests/unit/block-level-formatting-runs.php",
       "php tests/unit/navigation-toggle-wrapped-list-source.php",
+      "php tests/unit/navigation-image-item.php",
       "php tests/unit/staged-transport.php",
       "php tests/unit/wordpress-site-plan-composer.php",
       "php tests/unit/numeric-post-route-parent.php",
