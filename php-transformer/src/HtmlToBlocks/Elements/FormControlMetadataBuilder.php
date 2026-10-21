@@ -389,6 +389,10 @@ final class FormControlMetadataBuilder
             'description'      => $description['description'],
         ), static fn (string $value): bool => '' !== $value);
 
+        if ( isset($description['classes']) ) {
+            $metadata['description_classes'] = $description['classes'];
+        }
+
         // An accessible name from aria-label or aria-labelledby is not a rendered
         // label box beside the control. A provider that always renders its own
         // label element must keep that name for assistive technology only.
@@ -697,7 +701,7 @@ final class FormControlMetadataBuilder
      * candidate in that wrapper cannot be safely attributed either, so it is
      * reported as ambiguous rather than guessed at.
      *
-     * @return array{description: string, ambiguous: array<int, string>}
+     * @return array{description: string, classes?: array<int, string>, ambiguous: array<int, string>}
      */
     private function describeControl(DOMElement $control, ?DOMElement $labelElement): array
     {
@@ -715,7 +719,11 @@ final class FormControlMetadataBuilder
 
             $candidates = $this->descriptionCandidates($wrapper, $control, $labelElement);
             if ( 1 === count($candidates) ) {
-                return array( 'description' => $this->collapsedElementText($candidates[0]), 'ambiguous' => array() );
+                return array(
+                    'description' => $this->collapsedElementText($candidates[0]),
+                    'classes' => SourceDom::boundedClassTokens(SourceDom::attr($candidates[0], 'class'), 16),
+                    'ambiguous' => array(),
+                );
             }
             if ( 1 < count($candidates) ) {
                 return array(
