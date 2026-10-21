@@ -192,7 +192,7 @@ $assert(
 );
 
 $important = $transform('<style>a.cta:hover{padding:1rem!important}.cta:hover{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
-$assert(str_contains($css($important), '> :where(.wp-block-button__link):hover{padding:1rem!important}') && strpos($css($important), 'padding:1rem!important') < strpos($css($important), 'padding:2rem'), 'projected selectors preserve !important declarations and authored cascade order');
+$assert(str_contains($css($important), '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0):hover{padding:1rem!important}') && strpos($css($important), 'padding:1rem!important') < strpos($css($important), 'padding:2rem'), 'projected selectors preserve !important declarations and authored cascade order');
 
 $shared = $transform('<style>.shared{margin:1px}p.shared{color:green}*{color:blue}</style><a class="shared cta" href="/go" style="padding:1px;background:#000">Go</a><button class="shared" style="padding:1px;background:#000">Send</button><p class="shared wp-block-button">Other</p>');
 $sharedCss = $css($shared);
@@ -213,7 +213,7 @@ $collisionResult = $transform($collision);
 $assert('' !== $match[0] && str_contains($css($collisionResult), 'blocks-engine-source-p-' . $match[1] . '-' . ($match[2] + 1)), 'marker collisions select the deterministic next candidate');
 
 $nested = $transform('<style>@media (min-width:1px){@supports (display:grid){p + a.cta:hover{padding:1rem}}}</style><p>Before</p><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
-$assert(str_contains($css($nested), '@media') && str_contains($css($nested), '@supports') && str_contains($css($nested), '> :where(.wp-block-button__link):hover'), 'nested media and supports rules preserve declarations while projecting selectors');
+$assert(str_contains($css($nested), '@media') && str_contains($css($nested), '@supports') && str_contains($css($nested), '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0):hover'), 'nested media and supports rules preserve declarations while projecting selectors');
 
 $rootChildren = $transform('<style>body > *{position:relative;z-index:1}section{color:red}</style><section id="hero"><h1>Hero</h1></section><section id="features"><h2>Features</h2></section>');
 $rootChildrenMarkup = (string) ($rootChildren['serialized_blocks'] ?? '');
@@ -360,7 +360,7 @@ $assert(
 
 $zeroWidthControl = $transform('<style>.skip{position:absolute;left:50%;width:0;height:0;padding:0 24px}</style><button class="skip">Skip</button>');
 $zeroWidthControlCss = $css($zeroWidthControl);
-$assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0;height:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link){padding:0 24px}'), 'control dimensions and positioning stay on the native wrapper while inner paint remains on the button link');
+$assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0;height:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){padding:0 24px}'), 'control dimensions and positioning stay on the native wrapper while inner paint remains on the button link');
 
 $heroLayers = $transform('<style>.hero{position:relative;min-height:46rem}.hero-image,.hero-overlay{position:absolute;inset:0}.hero-copy{position:relative}</style><section class="hero"><img class="hero-image" src="hero.jpg" alt="Hero"><div class="hero-overlay"></div><div class="hero-copy"><h1>Visible hero copy</h1></div></section>');
 $heroLayersCss = $css($heroLayers);
@@ -401,17 +401,17 @@ $assert(str_contains($directControlMarkup, 'control-cluster') && str_contains($d
 $navCta = $transform('<style>a.btn.btn-primary.nav-cta{display:inline-flex;align-items:center;gap:8px;font-family:monospace;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:9px 20px;border-radius:6px;background:#e8a020;color:#050d1a}.nav-cta:hover{background:#f0ac22}.nav-cta:focus{outline:2px solid #fff}</style><main><a class="btn btn-primary nav-cta" href="#cta">Get Early Access</a></main>');
 $navCtaMarkup = (string) ($navCta['serialized_blocks'] ?? '');
 $navCtaCss = $css($navCta);
-$assert(str_contains($navCtaMarkup, 'blocks-engine-control-') && str_contains($navCtaCss, '> :where(.wp-block-button__link){display:inline-flex') && str_contains($navCtaCss, 'font-family:monospace') && str_contains($navCtaCss, 'padding:9px 20px') && str_contains($navCtaCss, 'background:#e8a020') && str_contains($navCtaCss, ':hover{background:#f0ac22}') && str_contains($navCtaCss, ':focus{outline:2px solid #fff}') && 'pass' === ($navCta['source_reports']['wp_block_validity']['status'] ?? ''), 'class-bearing source anchors project compound, typography, paint, and pseudo-state selectors onto valid core/button links');
+$assert(str_contains($navCtaMarkup, 'blocks-engine-control-') && str_contains($navCtaCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){display:inline-flex') && str_contains($navCtaCss, 'font-family:monospace') && str_contains($navCtaCss, 'padding:9px 20px') && str_contains($navCtaCss, 'background:#e8a020') && str_contains($navCtaCss, ':hover{background:#f0ac22}') && str_contains($navCtaCss, ':focus{outline:2px solid #fff}') && 'pass' === ($navCta['source_reports']['wp_block_validity']['status'] ?? ''), 'class-bearing source anchors project compound, typography, paint, and pseudo-state selectors onto valid core/button links');
 
 $nestedLabelButton = $transform('<style>.contact{display:inline-flex;padding:9px 20px;border-radius:999px;background:#001b2e;color:#000}.contact-label{background-color:transparent;color:#eeffff;font:400 15.75px/1 helvetica}</style><a class="contact" href="#contact"><span class="contact-label">Contacts</span></a>');
 $nestedLabelButtonCss = $css($nestedLabelButton);
 $nestedLabelButtonMarkup = (string) ($nestedLabelButton['serialized_blocks'] ?? '');
-$assert(str_contains($nestedLabelButtonMarkup, '<mark ') && str_contains($nestedLabelButtonMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($nestedLabelButtonCss, ':where(.blocks-engine-role-richtext.blocks-engine-subject.blocks-engine-subject-class-') && str_contains($nestedLabelButtonCss, 'background-color:transparent') && ! str_contains($nestedLabelButtonCss, '> :where(.wp-block-button__link){background-color:transparent') && ! str_contains($nestedLabelButtonCss, 'color:#000!important') && 'pass' === ($nestedLabelButton['source_reports']['wp_block_validity']['status'] ?? ''), 'button label typography and paint stay on its RichText carrier instead of repainting the native control');
+$assert(str_contains($nestedLabelButtonMarkup, '<mark ') && str_contains($nestedLabelButtonMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($nestedLabelButtonCss, ':where(.blocks-engine-role-richtext.blocks-engine-subject.blocks-engine-subject-class-') && str_contains($nestedLabelButtonCss, 'background-color:transparent') && ! str_contains($nestedLabelButtonCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){background-color:transparent') && ! str_contains($nestedLabelButtonCss, 'color:#000!important') && 'pass' === ($nestedLabelButton['source_reports']['wp_block_validity']['status'] ?? ''), 'button label typography and paint stay on its RichText carrier instead of repainting the native control');
 
 $controlMargin = $transform('<style>.nav-cta{margin-left:24px;font-family:monospace}</style><main><a class="nav-cta" href="#cta" style="display:inline-flex;padding:9px 20px;background:#e8a020">Get Early Access</a></main>');
 $controlMarginCss = $css($controlMargin);
 $controlMarginOuterClass = (string) ($controlMargin['blocks'][0]['attrs']['className'] ?? '');
-$assert(! isset($controlMargin['blocks'][0]['attrs']['style']['spacing']['margin']['left']) && str_contains($controlMarginOuterClass, 'blocks-engine-control-') && str_contains($controlMarginCss, '> :where(.wp-block-button__link){font-family:monospace}') && str_contains($controlMarginCss, 'margin-left:24px') && ! str_contains($controlMarginCss, '> :where(.wp-block-button__link){margin-left:24px'), 'control margins use the carrier while typography remains on its link');
+$assert(! isset($controlMargin['blocks'][0]['attrs']['style']['spacing']['margin']['left']) && str_contains($controlMarginOuterClass, 'blocks-engine-control-') && str_contains($controlMarginCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){font-family:monospace}') && str_contains($controlMarginCss, 'margin-left:24px') && ! str_contains($controlMarginCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){margin-left:24px'), 'control margins use the carrier while typography remains on its link');
 
 $textLockupLogo = $transform('<style>.brand{font-size:19.2px;font-weight:400;letter-spacing:.02em;text-transform:uppercase;text-decoration:none;line-height:1;display:inline-flex;align-items:center;gap:.5rem;white-space:nowrap}.brand .mark{display:inline-grid;place-items:center;width:1.9em;height:1.9em;border-radius:50%;background:#f15a36;color:#fff;font-size:.72em;letter-spacing:.02em}.brand .word span{color:#f8d849}</style><a class="brand" href="#hero"><span class="mark">SC</span><span class="word">SUPER<span>COACHING</span></span></a>');
 $textLockupLogoMarkup = (string) ($textLockupLogo['serialized_blocks'] ?? '');

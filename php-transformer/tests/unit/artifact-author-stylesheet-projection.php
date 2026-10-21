@@ -45,7 +45,7 @@ foreach ( $planAssets as $asset ) {
 }
 $assert(hash('sha256', base64_encode('a.cta:hover{padding:1rem}')) === ($assetsByPath['a.css']['source_hash'] ?? null) && ($assetsByPath['a.css']['hash'] ?? '') !== ($assetsByPath['a.css']['source_hash'] ?? ''), 'source hash retains linked pre-projection provenance');
 $assert('text' === ($assetsByPath['a.css']['content_encoding'] ?? '') && ! isset($assetsByPath['a.css']['content_base64']), 'projected linked CSS invalidates the stale source payload encoding');
-$assert(! str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), 'a.cta:hover') && str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), '> :where(.wp-block-button__link):hover'), 'linked button CSS is rewritten in place');
+$assert(! str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), 'a.cta:hover') && str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0):hover'), 'linked button CSS is rewritten in place');
 $assert(hash('sha256', '.hero p{color:green}') === ($assetsByPath['index.inline-2.css']['source_hash'] ?? null) && ! str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), '.hero p') && str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
 $assert(! isset($assetsByPath['a.occurrence-2-generated-1.css']) && '.authored-collision{color:purple}' === ($assetsByPath['a.occurrence-2.css']['content'] ?? ''), 'a repeated identical link materializes no alias while authored collision CSS remains a deterministic orphan asset');
 
