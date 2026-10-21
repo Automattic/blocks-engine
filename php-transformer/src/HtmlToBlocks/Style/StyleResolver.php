@@ -5331,7 +5331,8 @@ final class StyleResolver implements ElementPresentationResolver
     public function safeStageClassName(DOMElement $sourceElement, array $replacedSlides): string
     {
         $classes = array_values(array_unique(array_merge(
-            array_values(array_filter(SourceDom::boundedClassTokens(SourceDom::attr($sourceElement, 'class')), static fn (string $class): bool => !str_starts_with($class, 'blocks-engine-')))
+            array_values(array_filter(SourceDom::boundedClassTokens(SourceDom::attr($sourceElement, 'class')), static fn (string $class): bool => !str_starts_with($class, 'blocks-engine-'))),
+            $this->sourceAttributeSelectorMarkers($sourceElement)
         )));
         $runtimeProperties = array_fill_keys(array('transform', 'translate', 'rotate', 'scale', 'animation', 'animation-name', 'animation-play-state', 'opacity', 'visibility'), true);
         $unsafe = array();
