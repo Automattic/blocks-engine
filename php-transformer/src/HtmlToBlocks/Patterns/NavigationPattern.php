@@ -156,6 +156,15 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
+        $result = $this->recognizeNavigation($element, $context);
+        if (null !== $result) {
+            $context->navigationContext()?->recordNavigationSubjects(array($result->block()), $element);
+        }
+        return $result;
+    }
+
+    private function recognizeNavigation(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
+    {
         $presentationAttributes = $context->presentationAttributes(...);
         $innerHtml = SourceDom::innerHtml(...);
         $createBlock = $context->createBlock(...);

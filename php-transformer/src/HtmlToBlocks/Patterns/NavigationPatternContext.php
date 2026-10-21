@@ -301,6 +301,33 @@ final class NavigationPatternContext
         return $marker;
     }
 
+    /** @var array<string, array{marker: string, target: string, source?: string}> */
+    private array $pendingNavigationSubjects = array();
+
+    /**
+     * Candidate link construction can be abandoned by a later sibling. Only
+     * publish a correspondence when its native carrier is actually emitted;
+     * equal markers in another header do not prove this source path converted.
+     *
+     * @param list<array<string, mixed>> $blocks
+     */
+    public function recordNavigationSubjects(array $blocks, DOMElement $source): void
+    {
+        $markup = (string) json_encode($blocks);
+        $root = $source->getNodePath() ?? '';
+        foreach ($this->pendingNavigationSubjects as $path => $subject) {
+            if ($path !== $root && !str_starts_with($path, $root . '/')) continue;
+            $marker = $subject['marker'];
+            if (1 !== preg_match('/(?<![A-Za-z0-9_-])' . preg_quote($marker, '/') . '(?![A-Za-z0-9_-])/', $markup)) continue;
+            $this->session?->authorSelectorProjectionState()->installNavigationSubject($path, $subject['target']);
+            if (isset($subject['source'])) {
+                // Restore the source anchor's initial stacking below authored
+                // paint, but only when Core really supplies its replacement.
+                $this->sourceTargetProjection?->record($subject['source'], '.wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)', 'z-index:auto');
+            }
+        }
+    }
+
     /** The source anchor remains a distinct CSS subject inside Core's item. */
     public function navigationAnchorSubjectMarker(DOMElement $anchor, ?DOMElement $item = null): string
     {
@@ -313,11 +340,7 @@ final class NavigationPatternContext
         }
         if (!$presented) return '';
         $marker = $this->navigationSubjectMarker($anchor, 'anchor');
-        $this->session->authorSelectorProjectionState()->installNavigationSubject($anchor->getNodePath() ?? '', '.wp-block-navigation .wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)');
-        // Core's synthesized content stacking can change antialiased surface
-        // paint on an anchor that is a flex item. Restore the source initial
-        // value below every projected author rule and explicit inline value.
-        $this->sourceTargetProjection?->record(SourceDom::elementSelector($anchor), '.wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)', 'z-index:auto');
+        $this->pendingNavigationSubjects[$anchor->getNodePath() ?? ''] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)', 'source' => SourceDom::elementSelector($anchor));
         return $marker;
     }
 
@@ -371,7 +394,7 @@ final class NavigationPatternContext
     {
         if (!$this->session instanceof HtmlTransformerSession) return '';
         $marker = $this->navigationSubjectMarker($item, 'item');
-        $this->session->authorSelectorProjectionState()->installNavigationSubject($item->getNodePath() ?? '', '.wp-block-navigation .wp-block-navigation-item.' . $marker);
+        $this->pendingNavigationSubjects[$item->getNodePath() ?? ''] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item.' . $marker);
         return $marker;
     }
 
@@ -397,7 +420,7 @@ final class NavigationPatternContext
         }
         $node = $anchor->parentNode;
         foreach ($boxes as $box) {
-            $this->session->authorSelectorProjectionState()->installNavigationSubject($node->getNodePath() ?? '', '.wp-block-navigation .wp-block-navigation-item .' . $box['marker']);
+            $this->pendingNavigationSubjects[$node->getNodePath() ?? ''] = array('marker' => $box['marker'], 'target' => '.wp-block-navigation .wp-block-navigation-item .' . $box['marker']);
             $node = $node->parentNode;
         }
         return array_reverse($boxes);
@@ -448,7 +471,7 @@ final class NavigationPatternContext
         }
         $markup = $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($svg));
         if ('' === $markup || !SourceDom::isSafeSvgContent($markup)) return '';
-        foreach ($subjects as [$path, $marker]) $this->session->authorSelectorProjectionState()->installNavigationSubject($path, '.wp-block-navigation .wp-block-navigation-item .' . $marker);
+        foreach ($subjects as [$path, $marker]) $this->pendingNavigationSubjects[$path] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item .' . $marker);
         return $markup;
     }
 
