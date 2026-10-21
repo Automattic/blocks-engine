@@ -57,7 +57,7 @@ final class ButtonsPattern
             return null;
         }
 
-        if ( ! $this->sourceElements->isRichTextButtonLabel($anchor) ) {
+        if ( ! $this->isRichTextAnchorLabel($anchor, $buttons) ) {
             return null;
         }
 
@@ -162,13 +162,13 @@ final class ButtonsPattern
         if ( $wrappedAnchor instanceof DOMElement && $this->wrappedButtonRequiresPreservation($wrappedAnchor) ) {
             return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($wrappedAnchor) ), array(), $wrappedAnchor);
         }
-        if ( null !== $wrappedAnchor && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element)) ) {
+        if ( null !== $wrappedAnchor && $this->isRichTextAnchorLabel($wrappedAnchor, $buttons) && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element)) ) {
             return $context->createBlock('core/buttons', $this->buttonWrapperAttributes($element, $context, $buttons), array( $this->buttonBlockFromAnchor($wrappedAnchor, $context, $buttons, $element) ), $element);
         }
 
         $buttonBlocks = array();
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && ! $this->isPositionedFragmentNavigation($child, $buttons->resolvedStyle($child)) && $this->hasButtonSignal($child, $buttons) && $this->sourceElements->isRichTextButtonLabel($child) ) {
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && ! $this->isPositionedFragmentNavigation($child, $buttons->resolvedStyle($child)) && $this->hasButtonSignal($child, $buttons) && $this->isRichTextAnchorLabel($child, $buttons) ) {
                 $buttonBlocks[] = $this->buttonBlockFromAnchor($child, $context, $buttons);
             }
         }
@@ -671,6 +671,14 @@ final class ButtonsPattern
         }
 
         return preg_match('/^(?:transparent|none|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*$/i', trim((string) ($matches[1] ?? ''))) === 1;
+    }
+
+    private function isRichTextAnchorLabel(DOMElement $anchor, ButtonPatternContext $buttons): bool
+    {
+        return $this->sourceElements->isRichTextButtonLabel(
+            $anchor,
+            $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
+        );
     }
 
     private function hasButtonSignal(DOMElement $anchor, ButtonPatternContext $buttons): bool

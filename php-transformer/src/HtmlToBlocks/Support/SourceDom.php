@@ -1201,6 +1201,28 @@ final class SourceDom
         return true;
     }
 
+    /** Definitions-only SVGs must stay in the page, not in an image document. */
+    public static function isDefinitionsOnlySvg(DOMElement $element): bool
+    {
+        if ('svg' !== strtolower($element->tagName)) {
+            return false;
+        }
+        $hasDefinitions = false;
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                $tag = strtolower($child->tagName);
+                if ('defs' === $tag) {
+                    $hasDefinitions = $hasDefinitions || 0 < $child->getElementsByTagName('*')->length;
+                } elseif (!in_array($tag, array('title', 'desc', 'metadata'), true)) {
+                    return false;
+                }
+            } elseif (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) {
+                return false;
+            }
+        }
+        return $hasDefinitions;
+    }
+
     /**
      * Whether an inline SVG carries any drawable artwork worth preserving.
      *

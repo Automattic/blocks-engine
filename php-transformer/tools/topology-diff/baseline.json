@@ -153,7 +153,7 @@
             "retagged svg>img": 2
         },
         "18-static-content-library": {
-            "added a": 52,
+            "added a": 12,
             "added div [blocks-engine-control]": 26,
             "added figure [blocks-engine-synthetic-image-figure]": 9,
             "added img": 18,
@@ -163,7 +163,7 @@
             "removed form": 1,
             "removed nav": 1,
             "removed svg": 18,
-            "retagged a>div [wp-block-group]": 12,
+            "retagged a>div [wp-block-group]": 4,
             "retagged div>p [blocks-engine-lowered-paragraph]": 4,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 4,
             "retagged span>mark": 8,
@@ -171,7 +171,6 @@
             "retagged svg>img": 6
         },
         "19-product-catalog": {
-            "added a": 12,
             "added div [blocks-engine-control]": 20,
             "added figure [blocks-engine-synthetic-image-figure]": 9,
             "added img": 9,
@@ -181,7 +180,6 @@
             "removed button": 1,
             "removed svg": 9,
             "removed ul": 2,
-            "retagged a>div [wp-block-group]": 3,
             "retagged div>p [blocks-engine-lowered-paragraph]": 1,
             "retagged span>mark": 6,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 11,
@@ -208,7 +206,7 @@
             "retagged span>p [blocks-engine-synthetic-paragraph]": 29
         },
         "20-switchback-woocommerce-extra-hard": {
-            "added a": 36,
+            "added a": 20,
             "added div [blocks-engine-authored-select-wrapper]": 4,
             "added div [blocks-engine-control]": 30,
             "added div [blocks-engine-layout-child-button]": 1,
@@ -223,7 +221,7 @@
             "removed button": 1,
             "removed nav": 2,
             "removed svg": 16,
-            "retagged a>div [wp-block-group]": 8,
+            "retagged a>div [wp-block-group]": 4,
             "retagged div>p [blocks-engine-lowered-paragraph]": 26,
             "retagged p>div [wp-block-group]": 1,
             "retagged span>mark": 16,
@@ -277,16 +275,13 @@
             "retagged span>p [blocks-engine-synthetic-paragraph]": 4
         },
         "23-recipe-blog": {
-            "added a": 60,
             "added div [blocks-engine-control]": 10,
             "added mark": 2,
-            "added p": 4,
+            "added p": 22,
             "added p [blocks-engine-inline-layout-carrier]": 21,
-            "added p [blocks-engine-propagated-link-color]": 18,
             "added p [blocks-engine-synthetic-paragraph]": 12,
             "removed button": 1,
             "removed nav": 2,
-            "retagged a>div [wp-block-group]": 9,
             "retagged div>p [blocks-engine-lowered-paragraph]": 3,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 5,
             "retagged span>div [blocks-engine-semantic]": 15,
@@ -366,7 +361,7 @@
             "retagged table>figure [blocks-engine-table]": 1
         },
         "27-university-department": {
-            "added a": 15,
+            "added a": 5,
             "added br": 3,
             "added img": 1,
             "added mark": 1,
@@ -381,7 +376,6 @@
             "removed strong": 1,
             "removed svg": 1,
             "removed ul": 1,
-            "retagged a>div [wp-block-group]": 5,
             "retagged div>p [blocks-engine-lowered-paragraph]": 2,
             "retagged span>mark": 19,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 18,
@@ -410,7 +404,6 @@
             "retagged svg>img": 2
         },
         "29-multilingual-i18n": {
-            "added a": 16,
             "added div [blocks-engine-control]": 14,
             "added img": 2,
             "added p [blocks-engine-inline-layout-carrier]": 5,
@@ -419,7 +412,6 @@
             "removed bdi": 5,
             "removed svg": 2,
             "removed ul": 2,
-            "retagged a>div [wp-block-group]": 4,
             "retagged nav>div [wp-block-group]": 1,
             "retagged span>div [blocks-engine-semantic]": 4,
             "retagged span>mark": 14,
@@ -449,7 +441,6 @@
             "retagged span>p [blocks-engine-synthetic-paragraph]": 20
         },
         "32-wedding-microsite": {
-            "added a": 12,
             "added div [blocks-engine-control]": 8,
             "added img": 1,
             "added mark": 1,
@@ -469,7 +460,6 @@
             "removed svg": 1,
             "removed-wrapper a": 1,
             "removed-wrapper nav": 1,
-            "retagged a>div [wp-block-group]": 3,
             "retagged div>p [blocks-engine-lowered-paragraph]": 4,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged div>strong": 1,
@@ -508,7 +498,6 @@
             "retagged svg>img": 2
         },
         "34-comparison-review-site": {
-            "added a": 54,
             "added div [blocks-engine-control]": 4,
             "added img": 2,
             "added input": 1,
@@ -521,7 +510,6 @@
             "removed nav": 1,
             "removed svg": 2,
             "removed ul": 1,
-            "retagged a>div [wp-block-group]": 12,
             "retagged div>p [blocks-engine-lowered-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 2,
             "retagged span>mark": 14,
@@ -789,7 +777,6 @@
             "retagged a>div [wp-block-group]": 1
         },
         "5-documentation-knowledge-base": {
-            "added a": 12,
             "added div [blocks-engine-control]": 72,
             "added figure [blocks-engine-synthetic-image-figure]": 12,
             "added img": 19,
@@ -799,7 +786,6 @@
             "removed button": 1,
             "removed nav": 3,
             "removed svg": 19,
-            "retagged a>div [wp-block-group]": 4,
             "retagged div>p [blocks-engine-lowered-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 5,
             "retagged span>mark": 1,
@@ -1073,7 +1059,6 @@
             "retagged span>p": 4
         },
         "73-h44-lacrosse": {
-            "added a": 15,
             "added div [blocks-engine-control]": 12,
             "added img": 1,
             "added p [blocks-engine-synthetic-paragraph]": 29,
@@ -1085,7 +1070,6 @@
             "removed-wrapper a": 1,
             "removed-wrapper button": 1,
             "removed-wrapper nav": 1,
-            "retagged a>div [wp-block-group]": 3,
             "retagged div>p [blocks-engine-lowered-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 16,
             "retagged span>mark": 13,
@@ -1121,20 +1105,19 @@
             "retagged svg>img": 1
         },
         "76-sole-society": {
-            "added a": 12,
+            "added a": 4,
             "added div [blocks-engine-control]": 12,
             "added p [blocks-engine-inline-layout-carrier]": 4,
             "added p [blocks-engine-synthetic-paragraph]": 8,
             "added p [blocks-engine-synthetic-svg-paragraph]": 5,
             "removed nav": 1,
-            "retagged a>div [wp-block-group]": 4,
             "retagged div>p [blocks-engine-lowered-paragraph]": 3,
             "retagged span>mark": 9,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged svg>img": 7
         },
         "77-fernwood-plants": {
-            "added a": 9,
+            "added a": 3,
             "added div [blocks-engine-control]": 8,
             "added figure [blocks-engine-synthetic-image-figure]": 2,
             "added img": 3,
@@ -1143,14 +1126,12 @@
             "added p [blocks-engine-synthetic-svg-paragraph]": 5,
             "removed nav": 1,
             "removed svg": 3,
-            "retagged a>div [wp-block-group]": 5,
             "retagged div>p [blocks-engine-lowered-paragraph]": 4,
             "retagged span>mark": 13,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged svg>img": 5
         },
         "78-terra-ceramics": {
-            "added a": 9,
             "added div [blocks-engine-control]": 8,
             "added figure [blocks-engine-synthetic-image-figure]": 5,
             "added img": 5,
@@ -1161,7 +1142,6 @@
             "removed button": 1,
             "removed svg": 5,
             "removed ul": 1,
-            "retagged a>div [wp-block-group]": 4,
             "retagged span>div [blocks-engine-empty-visual-group]": 1,
             "retagged span>div [blocks-engine-semantic]": 3,
             "retagged span>div [wp-block-group]": 4,

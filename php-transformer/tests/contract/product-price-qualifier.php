@@ -43,7 +43,7 @@ $assert(array('Alpha Lamp', 'Beta Chair', 'Delta Vase', 'Gamma Rug') === array_v
 $price = static fn (string $name): string => (string) json_encode(array_intersect_key($byName[$name] ?? array(), array('price' => 1, 'regular_price' => 1, 'sale_price' => 1)));
 $assert(str_contains($price('Beta Chair'), '40') && ! str_contains($price('Beta Chair'), 'from'), 'A "from" price yields its amount: ' . $price('Beta Chair'));
 $assert(str_contains($price('Delta Vase'), '15'), 'A "from" price split by a comment yields its amount: ' . $price('Delta Vase'));
-$assert(str_contains($price('Gamma Rug'), '30') && ! str_contains($price('Gamma Rug'), '24'), 'A wrapper around separate amounts is not read as one joined price: ' . $price('Gamma Rug'));
+$assert('30.00' === ($byName['Gamma Rug']['regular_price'] ?? null) && '24.00' === ($byName['Gamma Rug']['sale_price'] ?? null), 'A wrapper around separate amounts yields distinct regular and sale prices: ' . $price('Gamma Rug'));
 
 $grids = current(array_filter($plan['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'product_grids' === ($declaration['type'] ?? null))) ?: array();
 $items = $grids['payload']['entities'][0]['items'] ?? array();

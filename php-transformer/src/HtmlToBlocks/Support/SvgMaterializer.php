@@ -40,7 +40,8 @@ final class SvgMaterializer implements SvgElementMaterializer
         // Only preserve when there is actual artwork to keep. An SVG whose only
         // content is unsafe (e.g. a lone <script>) has nothing left to render
         // once sanitized, so it defers to the bounded fallback diagnostic.
-        if ( ! SourceDom::svgHasDrawableContent($element) ) {
+        $definitionsOnly = SourceDom::isDefinitionsOnlySvg($element);
+        if ( ! $definitionsOnly && ! SourceDom::svgHasDrawableContent($element) ) {
             return null;
         }
 
@@ -58,6 +59,19 @@ final class SvgMaterializer implements SvgElementMaterializer
         // the bounded fallback metadata path rather than emit unsafe markup.
         if ( ! SourceDom::isSafeSvgContent($html) ) {
             return null;
+        }
+
+        // Definitions have no independent image to render. Externalizing them
+        // severs page-local fragment consumers, even when CSS supplies the URL.
+        // Keep their authored box (including zero dimensions) in the document.
+        if ($definitionsOnly && self::isPassiveSvgMarkup($element)) {
+            return $this->context->svgArtworkBlock($element, $this->restoreSvgCasing($html));
+        }
+        if ($definitionsOnly) {
+            // Non-passive document stores retain their existing inline fallback;
+            // they must not enter any standalone image materialization path.
+            $this->recordGutenbergIncompatibility($element, 'svg_requires_inline_document_context', 'SVG definition store requires inline document context.');
+            return $this->context->createBlock('core/html', array('content' => $this->restoreSvgCasing($html)), array(), $element);
         }
 
         $html = $this->materializeSanitizedSvgMarkup($html, $element);
@@ -405,6 +419,10 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     public function inlineSvgRichTextImageMarkup(DOMElement $element, bool $includeLink = true): ?string
     {
+        // RichText lowering must obey the same document-context rule as blocks.
+        if ( SourceDom::isDefinitionsOnlySvg($element) ) {
+            return null;
+        }
         if ( ! SourceDom::svgHasDrawableContent($element) ) {
             return null;
         }
@@ -1885,7 +1903,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         ));
         $allowedAttributes = array_flip(array(
             'amplitude', 'aria-hidden', 'aria-label', 'azimuth', 'basefrequency', 'bias',
-            'class', 'clip-path', 'clip-rule', 'cliprule', 'color-interpolation', 'color-interpolation-filters',
+            'class', 'clip-path', 'clip-rule', 'clippathunits', 'cliprule', 'color-interpolation', 'color-interpolation-filters',
             'color', 'color-rendering', 'cx', 'cy', 'd',
             'data-bbox', 'data-color', 'data-testid', 'data-type',
             'diffuseconstant', 'divisor', 'dominant-baseline', 'dx', 'dy', 'edgemode',

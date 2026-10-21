@@ -161,6 +161,14 @@ $assert('core/image' === ($hoisted['blockName'] ?? ''), 'single-child-marquee-is
 $noscript = $converter->convert($elementFrom('<noscript>enable js</noscript>'), 'noscript', $fallbacks)->block;
 $assert('core/paragraph' === ($noscript['blockName'] ?? ''), 'noscript-without-children-is-paragraph');
 
+// An unclosed plaintext node consumes entities and apparent closing tags as
+// literal text. Body extraction must not append its serialized closing tag.
+$rawText = 'This is &lt;plaintext&gt; text.</body></html>';
+$roundTrip = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer())->transform('<!doctype html><html><body><plaintext>' . $rawText)->toArray();
+$rendered = new DOMDocument();
+@$rendered->loadHTML($roundTrip['serialized_blocks']);
+$assert($rawText === $rendered->getElementsByTagName('pre')->item(0)?->textContent, 'plaintext-to-eof-survives-body-roundtrip');
+
 if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);

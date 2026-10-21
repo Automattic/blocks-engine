@@ -28,6 +28,7 @@ $pages = array_column($plan['pages'], null, 'source_path');
 $markup = $pages['blog/index.html']['canonical_block_markup'];
 
 $assert(str_contains($markup, '<!-- wp:query '), 'the listing becomes a native query loop');
+$assert(!str_contains($markup, 'href="/blog/one/"') && !str_contains($markup, '"tagName":"a"'), 'native query slots replace the static card wrapper destination');
 $assert(!str_contains($markup, 'wp:post-content'), 'a summary card never renders the whole article');
 $assert(str_contains($markup, 'wp:post-title') && str_contains($markup, 'wp:post-excerpt'), 'headline and description stay native title and excerpt slots');
 $assert(str_contains($markup, 'wp:post-date'), 'a time whose datetime proves the publication timestamp is the date slot, though its text only names the day');

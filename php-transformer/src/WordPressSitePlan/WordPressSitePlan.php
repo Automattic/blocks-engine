@@ -424,7 +424,11 @@ PHP;
         // Bindings anchor on the final canonical page markup before any shell
         // extraction. Asset and route projection can make source anchors equal,
         // so assign occurrences only after that shared projection is complete.
-        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages);
+        $bindingTemplates = $this->templates(array(), array(), $surfaces, $tokens, $references, $routeMap);
+        $surfaceMarkup = array_column($surfaces, 'block_markup', 'source_path');
+        foreach ($bindingTemplates as &$template) if (isset($surfaceMarkup[$template['source_path'] ?? ''])) $template['_projected_source_block_markup'] = $surfaceMarkup[$template['source_path']];
+        unset($template);
+        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $bindingTemplates);
         $pages = $this->pageHierarchy($pages, $routeMap);
         $surfaceSources = array_fill_keys(array_column($surfaces, 'source_path'), true);
         foreach ($assets as &$asset) {
@@ -499,8 +503,8 @@ PHP;
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
-        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $parts);
-         self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
+        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, array_merge($parts, $bindingTemplates));
+         self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, array_merge($parts, $bindingTemplates), $assets);
          $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus, $runtimeDeclarations, $runtimeEntityRecords);
          $pages = $navigation['pages'];
          $parts = $navigation['parts'];
@@ -519,10 +523,10 @@ PHP;
          // Query Loop projection can shorten page markup after shell extraction,
          // and synced patterns take shared panel content (and its bindings) out
          // of the page. Rebase retained runtime anchors on the final documents.
-         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $parts);
+         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, array_merge($parts, $bindingTemplates));
          $pages = self::attachWholePageCandidates($pages, $runtimeDeclarations, $runtimeEntityRecords);
          foreach ($pages as &$page) unset($page['_projected_source_block_markup'], $page['_synced_pattern_source']); unset($page);
-         self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns), $assets);
+         self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
          $projectedTaxonomyEntities = array();
          foreach ($taxonomyProjection['entities'] as $taxonomyEntity) {
              foreach ($pages as $page) if (($page['source_path'] ?? null) === ($taxonomyEntity['archive']['source_path'] ?? null)) {
@@ -704,7 +708,7 @@ PHP;
         foreach ($plan['runtime_declarations'] as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) RuntimeEntityManifest::resolve($declaration['payload'], $records);
         $runtimeRecords = RuntimeDeclarations::normalizeRecords($plan['runtime_records'] ?? array());
         if ($runtimeRecords !== ($plan['runtime_records'] ?? array())) throw new InvalidArgumentException('WordPress site plan runtime records are not canonically normalized.');
-        self::assertEntityBindingsAnchored(RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $plan['pages'], array_merge($plan['template_parts'], $plan['synced_patterns'] ?? array()), $plan['assets']);
+        self::assertEntityBindingsAnchored(RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $plan['pages'], array_merge($plan['template_parts'], $plan['synced_patterns'] ?? array(), $plan['templates']), $plan['assets']);
         if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
@@ -3757,7 +3761,7 @@ PHP;
                     $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
                     foreach (self::blockRanges($cardMarkup) as $leaf) {
                         $slice = substr($cardMarkup, $leaf['offset'], $leaf['length']);
-                        if ('featured-image' !== $this->classifyListingCardBlock($slice, $card['post'], $card['route'])) continue;
+                        if ('featured-image' !== $this->classifyListingCardBlock($slice, $card['post'], $card['route']) && !('image' === self::listingBlockName($slice) && str_contains($cardMarkup, '"wrappers"'))) continue;
                         $image = self::listingCardImage($slice);
                         if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
                         break;
@@ -3989,7 +3993,7 @@ PHP;
      * @param array<string,mixed> $post
      * @return array{markup:string,title:bool,content:bool}
      */
-    private function listingTransformRange(string $markup, array $range, array $post, string $route, int $excerptLength = 0, array $boundGroups = array()): array
+    private function listingTransformRange(string $markup, array $range, array $post, string $route, int $excerptLength = 0, array $boundGroups = array(), bool $linkedContainer = false): array
     {
         $slice = substr($markup, $range['offset'], $range['length']);
         if (isset($boundGroups[$range['offset']])) return array('markup' => $boundGroups[$range['offset']], 'title' => false, 'content' => false);
@@ -4001,6 +4005,11 @@ PHP;
             return array('markup' => $slice, 'title' => false, 'content' => false);
         }
         $children = self::childBlockRanges($markup, $range);
+        if (isset(self::listingBlockAttributes($slice)['wrappers'])) {
+            foreach (self::listingBlockAttributes($slice)['wrappers'] ?? array() as $wrapper) {
+                if ('a' === ($wrapper['tagName'] ?? '') && self::hrefMatchesListingRoute((string) ($wrapper['attributes']['href'] ?? ''), $route)) $linkedContainer = true;
+            }
+        }
         if (array() === $children) {
             if ('paragraph' === self::listingBlockName($slice) && '' === ListingExcerptProjection::text($slice)) {
                 foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
@@ -4019,6 +4028,11 @@ PHP;
                 return array('markup' => '<!-- wp:post-excerpt ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->', 'title' => false, 'content' => false);
             }
             $kind = $this->classifyListingCardBlock($slice, $post, $route);
+            if ($linkedContainer && 'heading' === self::listingBlockName($slice)) {
+                $kind = 'title';
+            } elseif ($linkedContainer && 'image' === self::listingBlockName($slice) && null !== self::listingCardImage($slice)) {
+                $kind = 'featured-image';
+            }
             if ('title' === $kind) {
                 return array('markup' => self::postTitleMarkup($slice), 'title' => true, 'content' => false);
             }
@@ -4040,7 +4054,7 @@ PHP;
         $emittedContent = false;
         $replacements = array();
         foreach ($children as $child) {
-            $transformed = $this->listingTransformRange($markup, $child, $post, $route, $excerptLength, $boundGroups);
+            $transformed = $this->listingTransformRange($markup, $child, $post, $route, $excerptLength, $boundGroups, $linkedContainer);
             $foundTitle = $foundTitle || $transformed['title'];
             if ($transformed['content'] && $emittedContent) {
                 $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
@@ -4056,8 +4070,38 @@ PHP;
             $relative = $replacement['offset'] - $range['offset'];
             $slice = substr($slice, 0, $relative) . $replacement['markup'] . substr($slice, $relative + $replacement['length']);
         }
+        // Native query slots own their per-post links. A retained source card
+        // shell must not wrap them in the first post's static destination.
+        $attrs = self::listingBlockAttributes($slice);
+        if (isset($attrs['wrappers'])) {
+            $changed = false;
+            foreach ($attrs['wrappers'] as &$wrapper) {
+                if ('a' === ($wrapper['tagName'] ?? '') && self::hrefMatchesListingRoute((string) ($wrapper['attributes']['href'] ?? ''), $route)) {
+                    $wrapper['tagName'] = 'div';
+                    unset($wrapper['attributes']['href'], $wrapper['attributes']['target'], $wrapper['attributes']['rel']);
+                    $changed = true;
+                }
+            }
+            unset($wrapper);
+            if ($changed) {
+                $slice = preg_replace_callback('/^(<!--\\s*wp:[^\\s]+)\\s+\\{.*?\\}\\s*-->/', static fn(array $match): string => $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' -->', $slice, 1) ?? $slice;
+                $slice = preg_replace('/(<a)\\b[^>]*>/', '<div' . self::listingWrapperAttributes($attrs) . '>', $slice, 1) ?? $slice;
+                $position = strrpos($slice, '</a>');
+                if (false !== $position) $slice = substr_replace($slice, '</div>', $position, 4);
+            }
+        }
         return array('markup' => $slice, 'title' => $foundTitle, 'content' => $emittedContent && !$foundTitle);
     }
+    /** @param array<string,mixed> $attrs */
+    private static function listingWrapperAttributes(array $attrs): string
+    {
+        $html = '';
+        foreach ($attrs['wrappers'][0]['attributes'] ?? array() as $name => $value) {
+            $html .= ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        return $html;
+    }
+
     /** @param array<string,mixed> $post */
     private function classifyListingCardBlock(string $slice, array $post, string $route): string
     {
@@ -5273,10 +5317,19 @@ PHP;
         // A binding owned by a shared part was re-anchored on the part's final
         // markup when the chrome moved; it needs no source projection, and the
         // part markup is its own projected source.
+        $variantSources = array(); $templateTargets = array(); $sourceBindings = array();
+        foreach ($parts as $part) if (isset($part['template_surface'])) {
+            $templateTargets[$part['source_path']] = $part['target_path'];
+            foreach ($part['template_surface']['source_variants'] as $variant) if ($variant['source_path'] !== $part['source_path']) $variantSources[$variant['source_path']] = $part['source_path'];
+        }
+        // Compare original forms, not projections that may erase differences.
+        foreach ($declarations as $di => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $ei => $entity) foreach ($entity['bindings'] ?? array() as $bi => $binding) {
+            $sourceBindings[$di][$ei][$bi] = array($binding['search_block_markup'] ?? null, $binding['selector'] ?? null);
+        }
         $partSources = array();
         foreach ($parts as $part) if (is_string($part['source_path'] ?? null) && is_string($part['canonical_block_markup'] ?? null)) {
-            $partSources[$part['source_path']] = true;
-            $pages[] = array('source_path' => $part['source_path'], 'canonical_block_markup' => $part['canonical_block_markup'], '_projected_source_block_markup' => $part['canonical_block_markup']);
+            if (!isset($part['template_surface'])) $partSources[$part['source_path']] = true;
+            $pages[] = array('source_path' => $part['source_path'], 'canonical_block_markup' => $part['canonical_block_markup'], '_projected_source_block_markup' => $part['_projected_source_block_markup'] ?? $part['canonical_block_markup']);
         }
         foreach ( $declarations as &$declaration ) {
             if ( ! is_array($declaration) || ! isset($declaration['payload']['entities']) || ! is_array($declaration['payload']['entities']) ) {
@@ -5293,6 +5346,7 @@ PHP;
                     if ( is_array($binding) && is_string($binding['search_block_markup'] ?? null) && is_string($binding['source_path'] ?? null) ) {
                         $sourceMarkup = $binding['search_block_markup'];
                         if (!is_array($binding['projected_anchor'] ?? null)) $binding['projected_anchor'] = self::projectedBindingAnchor($binding);
+                        if (isset($templateTargets[$binding['source_path']])) $binding['target_path'] = $templateTargets[$binding['source_path']];
                         if (isset($partSources[$binding['source_path']])) continue;
                         $markup = $references->content($sourceMarkup, $binding['source_path']);
                         $binding['search_block_markup'] = $this->routeLinks($markup, $binding['source_path'], $routes);
@@ -5314,7 +5368,7 @@ PHP;
         $groups = array();
         // A binding whose block is not emitted has nothing to bind: the block
         // stays static. These are dropped below and reported, not thrown.
-        $unanchored = array();
+        $unanchored = array(); $anchored = array();
         foreach ($declarations as $declarationIndex => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entityIndex => $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $bindingIndex => $binding) {
             $source = $binding['source_path'] ?? null; $search = $binding['search_block_markup'] ?? null; $position = $binding['position'] ?? null;
             $markup = is_string($source) ? ($markupBySource[$source] ?? null) : null;
@@ -5409,6 +5463,7 @@ PHP;
                 $canonical = substr($documentMarkup, $range['offset'], $range['length']);
                 $blockIndex = array_search($range, self::blockRanges($documentMarkup), true);
                 if (!is_string($canonical) || '' === $canonical || !is_int($blockIndex)) throw new InvalidArgumentException('A runtime entity binding resolved to empty canonical block markup.');
+                $anchored[$identity['id']] = true;
                 $binding['search_block_markup'] = $canonical;
                 $binding['occurrence'] = self::occurrenceAtOffset($documentMarkup, $canonical, $range['offset']);
                 $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $range['offset'], 'length' => $range['length']);
@@ -5421,7 +5476,34 @@ PHP;
             }
         }
 
+        // Absorb exact variant forms only when the selected binding anchored.
+        // Missing or different forms retain the existing unanchored diagnostic.
+        foreach ($unanchored as $index => $drop) {
+            if ('document_not_emitted' !== $drop['reason_code']) continue;
+            $variantEntity = $declarations[$drop['declaration']]['payload']['entities'][$drop['entity']];
+            $variantBinding = $variantEntity['bindings'][$drop['binding']];
+            $selected = $variantSources[$variantBinding['source_path']] ?? null;
+            $fallback = $variantEntity['fallback_identity'] ?? null;
+            if (null === $selected || !is_string($fallback) || '' === $fallback) continue;
+            $matches = array();
+            foreach ($declarations as $di => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $ei => $entity) foreach ($entity['bindings'] ?? array() as $bi => $binding) {
+                if (!isset($anchored[$di . ':' . $ei . ':' . $bi]) || $selected !== ($binding['source_path'] ?? null) || $sourceBindings[$di][$ei][$bi] !== $sourceBindings[$drop['declaration']][$drop['entity']][$drop['binding']] || !self::bindingPosition($binding['position'] ?? null, $markupBySource[$selected], $binding['search_block_markup'])) continue;
+                $matches[] = array($di, $ei);
+            }
+            if (1 !== count($matches)) continue;
+            [$di, $ei] = $matches[0];
+            $canonical = &$declarations[$di]['payload']['entities'][$ei];
+            $identities = array_values(array_unique(array_merge($canonical['replaced_fallback_identities'] ?? array(), array_filter(array($canonical['fallback_identity'] ?? null, $fallback)), $variantEntity['replaced_fallback_identities'] ?? array())));
+            sort($identities, SORT_STRING);
+            $canonical['replaced_fallback_identities'] = $identities;
+            unset($canonical);
+            unset($declarations[$drop['declaration']]['payload']['entities'][$drop['entity']]['bindings'][$drop['binding']], $unanchored[$index]);
+        }
         $declarations = SyncedPatternProjection::collapseDuplicateBindings($this->withoutUnanchoredBindings($declarations, $unanchored));
+        foreach ($declarations as &$declaration) {
+            foreach ($declaration['payload']['entities'] ?? array() as $ei => $entity) if (isset($entity['bindings'])) $declaration['payload']['entities'][$ei]['bindings'] = array_values($entity['bindings']);
+        }
+        unset($declaration);
 
         // Rewriting binding markup changes the payload, so drop the derived
         // hashes and re-normalize to recompute canonical identity and content

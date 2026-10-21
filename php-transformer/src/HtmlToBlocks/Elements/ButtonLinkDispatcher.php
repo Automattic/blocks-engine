@@ -48,6 +48,15 @@ final class ButtonLinkDispatcher
             return $this->context->htmlPreservationBlock($element);
         }
 
+        // Flow content must not reach label/image projections that flatten its
+        // descendants. Keep one real anchor around the editable inner blocks.
+        if ( '' !== trim($element->textContent) && $this->context->hasBlockLevelDescendant($element) ) {
+            $container = $this->context->convertLinkWrapperGroup($element, $fallbacks);
+            if ( null !== $container ) {
+                return $container;
+            }
+        }
+
         $linkedLogo = $this->context->linkedSvgLogoBlockFromAnchor($element, $fallbacks);
         if ( null !== $linkedLogo ) {
             return $linkedLogo;
