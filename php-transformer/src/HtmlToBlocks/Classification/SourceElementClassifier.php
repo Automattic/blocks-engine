@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use DOMElement;
@@ -1273,7 +1274,7 @@ final class SourceElementClassifier
 
     private function elementPixelWidth(DOMElement $element): float
     {
-        $width = $this->cssPixelLength(SourceDom::attr($element, 'width'));
+        $width = HtmlDimensionAttribute::pixels(SourceDom::attr($element, 'width')) ?? 0.0;
         if ( $width > 0.0 ) {
             return $width;
         }
