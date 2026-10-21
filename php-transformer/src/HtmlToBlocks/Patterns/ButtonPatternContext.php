@@ -161,12 +161,16 @@ final class ButtonPatternContext
      * The control renders the anchor's descendants with their source identity
      * (classes, nesting), so author rules keep addressing them as written.
      * Rules that reach them through the anchor itself are projected onto the
-     * emitted control element by the author selector projection.
+     * emitted control element by the author selector projection. A surface
+     * unwrapped into that control is projected, not retained label markup.
      */
-    public function retainSourceDescendants(DOMElement $anchor): void
+    public function retainSourceDescendants(DOMElement $anchor, ?DOMElement $projectedSurface = null): void
     {
         $projections = $this->session?->authorSelectorProjectionState();
         foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant === $projectedSurface ) {
+                continue;
+            }
             $projections?->markRetainedSourcePath($descendant->getNodePath() ?? '');
         }
     }
