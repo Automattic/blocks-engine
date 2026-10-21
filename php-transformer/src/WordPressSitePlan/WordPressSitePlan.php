@@ -395,6 +395,20 @@ PHP;
             $collection = in_array('CollectionPage', self::structuredPageTypes($compiledBySource[$page['source_path']] ?? array()), true);
             if (empty($page['entrypoint']) && preg_match('~/page/[1-9][0-9]*$~', $route) && ($collection || !preg_match('~/(?:category|tag)/~', $route))) $paginationSources[$page['source_path']] = true;
         }
+        // A suppressed numbered capture repeats its listing's chrome. Record the
+        // listing that owns it so the runtime entities it shares with that
+        // listing (a sidebar form, for instance) fold into the listing's binding.
+        $paginationOwners = $paginationOwnerBySource;
+        $sourceByRoute = array_flip(array_map(static fn(string $route): string => rtrim($route, '/'), array_filter($routeBySource, 'is_string')));
+        // A listing that became a template surface has no page route; its
+        // numbered capture still sits beside it in the source tree.
+        $surfaceSources = array_fill_keys(array_column($surfaces, 'source_path'), true);
+        foreach (array_keys($paginationSources) as $source) {
+            $owner = $sourceByRoute[rtrim((string) preg_replace('~/page/[1-9][0-9]*$~', '', $routeBySource[$source] ?? ''), '/')] ?? null;
+            $sibling = preg_replace('~/page/[1-9][0-9]*(/index\.html?)$~i', '$1', $source);
+            if (!is_string($owner) && is_string($sibling) && isset($surfaceSources[$sibling])) $owner = $sibling;
+            if (is_string($owner) && $owner !== $source && !isset($paginationSources[$owner])) $paginationOwners[$source] = $owner;
+        }
         $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($paginationSources[$page['source_path']])));
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($paginationSources[$document['source_path']])));
         $assets = array_values(array_filter($assets, static fn(array $asset): bool => 'page' !== ($asset['compilation']['scope'] ?? null) || !isset($paginationSources[$asset['compilation']['id'] ?? ''])));
@@ -428,7 +442,7 @@ PHP;
         $surfaceMarkup = array_column($surfaces, 'block_markup', 'source_path');
         foreach ($bindingTemplates as &$template) if (isset($surfaceMarkup[$template['source_path'] ?? ''])) $template['_projected_source_block_markup'] = $surfaceMarkup[$template['source_path']];
         unset($template);
-        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $bindingTemplates);
+        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $bindingTemplates, $paginationOwners);
         $pages = $this->pageHierarchy($pages, $routeMap);
         $surfaceSources = array_fill_keys(array_column($surfaces, 'source_path'), true);
         foreach ($assets as &$asset) {
@@ -503,7 +517,7 @@ PHP;
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
-        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, array_merge($parts, $bindingTemplates));
+        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
          self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, array_merge($parts, $bindingTemplates), $assets);
          $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus, $runtimeDeclarations, $runtimeEntityRecords);
          $pages = $navigation['pages'];
@@ -523,7 +537,7 @@ PHP;
          // Query Loop projection can shorten page markup after shell extraction,
          // and synced patterns take shared panel content (and its bindings) out
          // of the page. Rebase retained runtime anchors on the final documents.
-         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, array_merge($parts, $bindingTemplates));
+         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
          $pages = self::attachWholePageCandidates($pages, $runtimeDeclarations, $runtimeEntityRecords);
          foreach ($pages as &$page) unset($page['_projected_source_block_markup'], $page['_synced_pattern_source']); unset($page);
          self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
@@ -5289,9 +5303,9 @@ PHP;
      * @param array<int,array<string,mixed>> $routes
      * @return array<int,array<string,mixed>>
      */
-    private function canonicalEntityBindings(array $declarations, array &$records, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array()): array
+    private function canonicalEntityBindings(array $declarations, array &$records, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array(), array $paginationOwners = array()): array
     {
-        $projection = RuntimeEntityManifest::project($declarations, $records, fn(array $inline): array => $this->canonicalInlineEntityBindings($inline, $references, $routes, $pages, $parts));
+        $projection = RuntimeEntityManifest::project($declarations, $records, fn(array $inline): array => $this->canonicalInlineEntityBindings($inline, $references, $routes, $pages, $parts, $paginationOwners));
         $records = $projection['records'];
         return $projection['declarations'];
     }
@@ -5312,7 +5326,7 @@ PHP;
         return array_filter(array('schema' => 'blocks-engine/projected-binding-anchor/v2', 'source_block_hash' => null === $sourceMarkup ? null : hash('sha256', $sourceMarkup), 'source_block_length' => null === $sourceMarkup ? null : strlen($sourceMarkup), 'source_occurrence' => $binding['occurrence'] ?? null, 'source_position' => $binding['position'] ?? null), static fn(mixed $value): bool => null !== $value);
     }
 
-    private function canonicalInlineEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array()): array
+    private function canonicalInlineEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array(), array $paginationOwners = array()): array
     {
         // A binding owned by a shared part was re-anchored on the part's final
         // markup when the chrome moved; it needs no source projection, and the
@@ -5322,9 +5336,19 @@ PHP;
             $templateTargets[$part['source_path']] = $part['target_path'];
             foreach ($part['template_surface']['source_variants'] as $variant) if ($variant['source_path'] !== $part['source_path']) $variantSources[$variant['source_path']] = $part['source_path'];
         }
-        // Compare original forms, not projections that may erase differences.
-        foreach ($declarations as $di => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $ei => $entity) foreach ($entity['bindings'] ?? array() as $bi => $binding) {
-            $sourceBindings[$di][$ei][$bi] = array($binding['search_block_markup'] ?? null, $binding['selector'] ?? null);
+        // Numbered captures of a listing are absorbed by the listing's own document.
+        foreach ($paginationOwners as $source => $owner) $variantSources[$source] ??= $owner;
+        // Compare declared semantics before projections can erase differences.
+        foreach ($declarations as $di => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $ei => $entity) {
+            $type = (string) ($declaration['type'] ?? '');
+            if ('forms' === $type) {
+                $source = $entity['source_path'] ?? null;
+                $action = $entity['form']['action'] ?? null;
+                if (is_string($source) && is_string($action) && $this->isSelfPostAction($action, $source, $routes)) $entity['form']['action'] = 'blocks-engine:self-post';
+                foreach ($entity['controls'] ?? array() as $ci => $control) unset($entity['controls'][$ci]['selector']);
+            }
+            $key = EntityEquivalence::key($entity, $type);
+            foreach ($entity['bindings'] ?? array() as $bi => $binding) $sourceBindings[$di][$ei][$bi] = null === $key ? null : array($type, $key, $binding['selector'] ?? null);
         }
         $partSources = array();
         foreach ($parts as $part) if (is_string($part['source_path'] ?? null) && is_string($part['canonical_block_markup'] ?? null)) {
@@ -5476,7 +5500,7 @@ PHP;
             }
         }
 
-        // Absorb exact variant forms only when the selected binding anchored.
+        // Absorb semantically equivalent variants only when the selected binding anchored.
         // Missing or different forms retain the existing unanchored diagnostic.
         foreach ($unanchored as $index => $drop) {
             if ('document_not_emitted' !== $drop['reason_code']) continue;
@@ -5487,7 +5511,7 @@ PHP;
             if (null === $selected || !is_string($fallback) || '' === $fallback) continue;
             $matches = array();
             foreach ($declarations as $di => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $ei => $entity) foreach ($entity['bindings'] ?? array() as $bi => $binding) {
-                if (!isset($anchored[$di . ':' . $ei . ':' . $bi]) || $selected !== ($binding['source_path'] ?? null) || $sourceBindings[$di][$ei][$bi] !== $sourceBindings[$drop['declaration']][$drop['entity']][$drop['binding']] || !self::bindingPosition($binding['position'] ?? null, $markupBySource[$selected], $binding['search_block_markup'])) continue;
+                if (!isset($anchored[$di . ':' . $ei . ':' . $bi]) || $selected !== ($binding['source_path'] ?? null) || null === $sourceBindings[$di][$ei][$bi] || $sourceBindings[$di][$ei][$bi] !== $sourceBindings[$drop['declaration']][$drop['entity']][$drop['binding']] || !self::bindingPosition($binding['position'] ?? null, $markupBySource[$selected], $binding['search_block_markup'])) continue;
                 $matches[] = array($di, $ei);
             }
             if (1 !== count($matches)) continue;
@@ -5527,6 +5551,22 @@ PHP;
         }
         unset($declaration);
         return RuntimeDeclarations::normalizeForComposition($declarations);
+    }
+
+    /** Resolve against source documents, including surfaces absent from page routes. */
+    private function isSelfPostAction(string $action, string $source, array $routes): bool
+    {
+        if ('' === $action) return true;
+        if (preg_match('~^(?://|#|\?)~', $action) || strpbrk($action, '?#') !== false) return false;
+        if (preg_match('~^[a-z][a-z0-9+.-]*:~i', $action)) {
+            if (!$this->isSameOriginSourceUrl($action)) return false;
+            $action = (string) (parse_url($action, PHP_URL_PATH) ?: '/');
+        }
+        $root = self::entryRootFromDocuments($routes);
+        $path = str_starts_with($action, '/') ? ('' === $root ? ltrim($action, '/') : $root . '/' . ltrim($action, '/')) : self::resolveRouteSource($source, $action);
+        if (null === $path) return false;
+        $document = static fn(string $path): string => preg_replace('~(?:^|/)index\.html?$~', '', rtrim($path, '/'));
+        return rtrim($document($source), '/') === rtrim($document($path), '/');
     }
 
     /**
