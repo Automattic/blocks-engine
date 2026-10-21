@@ -2288,6 +2288,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             && ('div' === strtolower($element->tagName) || str_contains(strtolower($element->tagName), '-'))
             && ($this->sourceElementClassifier->hasRepeatedDirectChildTags($element) || str_contains(strtolower($element->tagName), '-'))
             && ($this->fallbackEmitter()->isRepeatableContentComponent($element) || $this->fallbackEmitter()->isSafeCustomElementHost($element))
+            && ! $this->fallbackEmitter()->containsProductGrid($element)
         ) {
             $this->reusableComponents()->markGeneratedCandidate((string) $element->getNodePath());
             return;
