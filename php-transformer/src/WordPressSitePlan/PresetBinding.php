@@ -626,7 +626,7 @@ final class PresetBinding
             $added = array($flagClass, sprintf($presetClass, '%s'));
             $slug = $this->presetSlug('color', $literal, $observed[$observedProperty] ?? null, $reason);
             $safe = null !== $slug && $this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason);
-            if (!$safe && 'state_variant' === $reason && is_string($literal) && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)) {
+            if (!$safe && is_string($literal) && ($this->rendersThroughClass($name, $property, $literal, $tokens) || ('state_variant' === $reason && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)))) {
                 // A preset class would mask the hover colour; the button
                 // element or author class renders this value with its state, so the
                 // literal only duplicated it.
@@ -1078,6 +1078,32 @@ final class PresetBinding
             if ($stated && !isset($element['hover_' . $field])) return false;
         }
         return $this->safe($property, $tokens, array(), false, false, $reason, true);
+    }
+
+    /**
+     * A carried unconditional class can render a literal even when it has no
+     * palette token (transparent, for example). Require every matching class
+     * declaration to agree; unresolved and conflicting values are not proof.
+     * Keep the same cascade guards as the preset-backed fallback.
+     *
+     * @param array<string,true> $tokens
+     */
+    private function rendersThroughClass(string $name, string $property, string $literal, array $tokens): bool
+    {
+        if ('button' !== $name) return false;
+        $color = CssColor::parse($this->resolve($literal));
+        if (null === $color) return false;
+        $found = false;
+        foreach ($this->classColors as $class => $properties) {
+            if (!isset($tokens['class:' . $class]) && !isset($tokens['class:' . EngineMarker::subjectClassClass($class)])) continue;
+            foreach ('background-color' === $property ? array('background-color', 'background') : array($property) as $candidate) {
+                foreach ($properties[$candidate] ?? array() as $value) {
+                    if (CssColor::parse($this->resolve($value)) !== $color) return false;
+                    $found = true;
+                }
+            }
+        }
+        return $found && $this->safe($property, $tokens, array(), false, false, $reason, true);
     }
 
     /**
