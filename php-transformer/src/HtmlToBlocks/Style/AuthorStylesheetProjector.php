@@ -421,7 +421,7 @@ final class AuthorStylesheetProjector
             if ( '' === $geometry ) {
                 return $nonButtonLinkRule . $placementRule . ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry . $nativeButtonCompatRule;
             }
-            return $nonButtonLinkRule . $placementRule . $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry, $inConditional) . $nativeButtonCompatRule;
+            return $nonButtonLinkRule . $placementRule . $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry, $inConditional, $context) . $nativeButtonCompatRule;
         }
 
         [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body, $prelude, $context);
@@ -431,9 +431,9 @@ final class AuthorStylesheetProjector
             return $nonButtonLinkRule . ( '' === $control ? '' : $projectedPrelude . '{' . $control . '}' ) . $nativeButtonCompatRule;
         }
         if ( '' === $control ) {
-            return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $nonButtonLayout, $inConditional) . $nativeButtonCompatRule;
+            return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $nonButtonLayout, $inConditional, $context) . $nativeButtonCompatRule;
         }
-        return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}' . $nonButtonLayout, $inConditional) . $nativeButtonCompatRule;
+        return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}' . $nonButtonLayout, $inConditional, $context) . $nativeButtonCompatRule;
     }
 
     /**
@@ -1073,7 +1073,7 @@ final class AuthorStylesheetProjector
         }));
     }
 
-    private function withButtonWrapperInnerFill(string $wrapperPrelude, string $layoutCss, string $rest = '', bool $clearInnerAutoHeight = false): string
+    private function withButtonWrapperInnerFill(string $wrapperPrelude, string $layoutCss, string $rest, bool $clearInnerAutoHeight, AuthorStylesheetProjectionContext $context): string
     {
         $css = $wrapperPrelude . '{' . $layoutCss . '}';
         $hasDefiniteWidth = CssValueInspector::hasDefiniteWidth($layoutCss);
@@ -1086,12 +1086,13 @@ final class AuthorStylesheetProjector
                 return $css . $rest;
             }
             $targetsButtonBox = str_contains($wrapperPrelude, '.wp-block-button)') && ! str_contains($wrapperPrelude, '.wp-block-buttons)');
+            $linkTarget = $this->buttonLinkTarget($context);
             if ( $targetsButtonBox ) {
                 $button = implode(',', array_map(static fn (string $selector): string => rtrim($selector), $selectors));
-                $link = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button__link)', $selectors));
+                $link = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . $linkTarget, $selectors));
             } else {
                 $button = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)', $selectors));
-                $link = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)> :where(.wp-block-button__link)', $selectors));
+                $link = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)' . $linkTarget, $selectors));
             }
             if ( $hasDefiniteWidth ) {
                 $css .= $button . '{width:100%!important}'
@@ -1969,7 +1970,7 @@ final class AuthorStylesheetProjector
                 continue;
             }
 
-            $target = ':where(.' . $marker . ($wrapper ? '.wp-block-buttons)' : ')> :where(.wp-block-button__link)') . $specificityShim;
+            $target = ':where(.' . $marker . ($wrapper ? '.wp-block-buttons)' : ')' . $this->buttonLinkTarget($context)) . $specificityShim;
             $projected = preg_replace($pattern, $target, $selector, 1);
             if ( is_string($projected) && '' !== $projected ) {
                 $rewritten[] = $projected;
@@ -2123,8 +2124,8 @@ final class AuthorStylesheetProjector
                 // submit) still matches the first arm.
                 $base = $scope . ':where(' . $target . ')' . $shims;
                 $projected[] = $scope . ':where(' . $target . ':not(.wp-block-buttons,.wp-block-button))' . $shims;
-                $projected[] = $base . '> :where(.wp-block-button__link)';
-                $projected[] = $base . '> :where(.wp-block-button)> :where(.wp-block-button__link)';
+                $projected[] = $base . $this->buttonLinkTarget($context);
+                $projected[] = $base . '> :where(.wp-block-button)' . $this->buttonLinkTarget($context);
                 continue;
             }
             $projected[] = $scope . ':where(' . $target . ')' . $shims;
@@ -2536,7 +2537,20 @@ final class AuthorStylesheetProjector
     private function projectControlTarget(string $target, string $selector, array $parsed, AuthorStylesheetProjectionContext $context, bool $wrapper = false): string
     {
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-        return $target . $this->selectorSpecificityShims($parsed, $context) . ($wrapper ? ':where(.wp-block-buttons)' : '> :where(.wp-block-button__link)') . $suffix;
+        return $target . $this->selectorSpecificityShims($parsed, $context) . ($wrapper ? ':where(.wp-block-buttons)' : $this->buttonLinkTarget($context)) . $suffix;
+    }
+
+    /**
+     * The child step onto core's button link for an authored rule. Core's
+     * global-styles `:root :where(.wp-element-button, .wp-block-button__link)`
+     * weighs (0,1,0), and the editor prints global styles after every other
+     * style, so a tie loses there. One type weight on every projected link
+     * arm outranks it by specificity on every surface, and leaves the order
+     * among authored link rules as it was.
+     */
+    private function buttonLinkTarget(AuthorStylesheetProjectionContext $context): string
+    {
+        return '> :where(.wp-block-button__link)' . $this->typeSpecificityShim($context);
     }
 
     /**
