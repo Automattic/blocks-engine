@@ -188,11 +188,14 @@ final class ButtonsPattern
         if ( $retainsDescendants ) {
             $buttons->retainSourceDescendants($anchor);
         }
-        // A wrapper child the label renders inside the link is retained
-        // descendant markup, not the control surface: the anchor is.
-        $presentationElement ??= $retainsDescendants || $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
-            ? $anchor
-            : ($this->buttonSurfaceElement($anchor) ?? $anchor);
+        // A static native button is unwrapped by buttonHtml(), so its box
+        // becomes the link surface even when its label retains an icon.
+        // Presentational wrappers that remain inside the link are descendants,
+        // not the control surface: in that case the anchor still owns it.
+        $presentationElement ??= $this->staticAnchorButtonSurface($anchor)
+            ?? ($retainsDescendants || $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
+                ? $anchor
+                : ($this->buttonSurfaceElement($anchor) ?? $anchor));
         $resolvedPresentation = trim($buttons->resolvedStyle($presentationElement));
         $hasAuthoredStyleRules = $resolvedPresentation !== trim($presentationElement->getAttribute('style'));
         $attrs = $this->buttonPresentationAttributes($presentationElement, $context, $buttons);
