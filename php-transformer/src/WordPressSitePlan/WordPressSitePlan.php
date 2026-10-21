@@ -3178,18 +3178,18 @@ PHP;
         $base = '/' === $path ? '/index' : $path;
         for ($suffix = 2; ; ++$suffix) if (!isset($taken[$base . '-' . $suffix])) return $base . '-' . $suffix;
     }
-    private function recordRouteCollision(string $keptSourcePath, string $sourcePath, string $routePath, string $resolvedPath): void
+    private function recordRouteCollision(string $keptSourcePath, string $sourcePath, string $routePath, string $resolvedPath, bool $flattened = false): void
     {
         if (count($this->routeCollisions) >= self::MAX_ROUTE_COLLISION_DIAGNOSTICS) { ++$this->omittedRouteCollisionDiagnostics; return; }
         $this->routeCollisions[] = array(
-            'code' => 'wordpress_site_plan_colliding_page_route',
+            'code' => $flattened ? 'wordpress_site_plan_page_hierarchy_flattened' : 'wordpress_site_plan_colliding_page_route',
             'severity' => 'warning',
-            'message' => substr(sprintf('%s derives the same route as %s (%s); it materializes at %s instead.', $sourcePath, $keptSourcePath, $routePath, $resolvedPath), 0, 256),
+            'message' => substr($flattened ? sprintf('%s cannot inherit the post route of %s (%s); it materializes at %s instead.', $sourcePath, $keptSourcePath, $routePath, $resolvedPath) : sprintf('%s derives the same route as %s (%s); it materializes at %s instead.', $sourcePath, $keptSourcePath, $routePath, $resolvedPath), 0, 256),
             'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
             'colliding_source_path' => mb_strcut($keptSourcePath, 0, 256, 'UTF-8'),
             'route_path' => mb_strcut($routePath, 0, 256, 'UTF-8'),
             'resolved_route_path' => mb_strcut($resolvedPath, 0, 256, 'UTF-8'),
-            'reason_code' => 'colliding_page_route',
+            'reason_code' => $flattened ? 'page_hierarchy_flattened' : 'colliding_page_route',
             'pattern_family' => 'site_plan_route',
             'repair_bucket' => 'restore_canonical_route_identity',
         );
@@ -3217,6 +3217,7 @@ PHP;
         $inboundLabels = null;
         foreach (array_keys($byRoute) as $path) {
             if ('post' === ($pages[$byRoute[$path]]['post_type'] ?? null)) continue;
+            // Any existing route, including a post, blocks a synthetic ancestor.
             foreach (self::routeAncestors($path) as $ancestor) if (!isset($byRoute[$ancestor])) {
             $source = 'wordpress-site-plan/routes/' . trim($ancestor, '/') . '.html';
             if (isset($sources[$source])) throw new InvalidArgumentException('WordPress site plan synthetic route source collides with a document.');
@@ -3237,7 +3238,30 @@ PHP;
             if (isset($byRoute[$fallbackPath])) $root['slug'] = self::routeSlug(self::disambiguatedRoutePath($fallbackPath, $byRoute));
             unset($root);
         }
-        foreach ($pages as &$page) { if ('post' === ($page['post_type'] ?? null)) { $page['parent_source_path'] = ''; continue; } $parent = $page['route']['parent_path']; if ('/' !== $parent && 'page' !== ($pages[$byRoute[$parent]]['post_type'] ?? null)) throw new InvalidArgumentException('WordPress site plan page hierarchy cannot inherit a post route.'); $page['parent_source_path'] = '/' === $parent ? '' : $pages[$byRoute[$parent]]['source_path']; }
+        // Repair ancestors before descendants, including synthetic pages. Existing
+        // post routes stay reserved and must never be replaced by synthetic pages.
+        $hierarchyOrder = array_keys($pages);
+        usort($hierarchyOrder, static fn(int $left, int $right): int => substr_count($pages[$left]['route']['path'], '/') <=> substr_count($pages[$right]['route']['path'], '/'));
+        foreach ($hierarchyOrder as $index) {
+            $page = &$pages[$index];
+            if ('post' === ($page['post_type'] ?? null)) { $page['parent_source_path'] = ''; continue; }
+            $parent = $page['route']['parent_path'];
+            if ('/' !== $parent && 'page' !== ($pages[$byRoute[$parent] ?? -1]['post_type'] ?? null)) {
+                $originalPath = $page['route']['path'];
+                $parentSource = $pages[$byRoute[$parent] ?? -1]['source_path'] ?? '';
+                do { $parent = self::parentRoutePath($parent); } while ('/' !== $parent && 'page' !== ($pages[$byRoute[$parent] ?? -1]['post_type'] ?? null));
+                $path = rtrim($parent, '/') . '/' . self::routeSlug($originalPath);
+                if (isset($byRoute[$path])) $path = self::disambiguatedRoutePath($path, $byRoute);
+                $this->recordRouteCollision($parentSource, $page['source_path'], $originalPath, $path, true);
+                unset($byRoute[$originalPath]);
+                $byRoute[$path] = $index;
+                $page['route'] = array('path' => $path, 'parent_path' => self::parentRoutePath($path), 'slug' => self::routeSlug($path));
+                $page['slug'] = $page['route']['slug'];
+                $page['metadata']['route_path'] = $path;
+                $page['reconciliation_identity'] = self::identity('page', $page['source_path'], $path);
+            }
+            $page['parent_source_path'] = '/' === $parent ? '' : $pages[$byRoute[$parent]]['source_path'];
+        }
         unset($page);
         usort($pages, static fn(array $left, array $right): int => substr_count($left['route']['path'], '/') <=> substr_count($right['route']['path'], '/') ?: strcmp($left['route']['path'], $right['route']['path']));
         return $pages;

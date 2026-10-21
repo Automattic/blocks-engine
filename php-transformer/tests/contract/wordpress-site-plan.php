@@ -1245,6 +1245,35 @@ $labeledSyntheticParent = $labeledParentPages['wordpress-site-plan/routes/parent
 $assert(true === ($labeledSyntheticParent['synthetic'] ?? null) && 'Our Parent Section' === ($labeledSyntheticParent['title'] ?? null) && 'Our Parent Section' === ($labeledSyntheticParent['document_metadata']['title'] ?? null) && 'parent' === ($labeledSyntheticParent['slug'] ?? null) && '/parent' === ($labeledSyntheticParent['route']['path'] ?? null) && str_contains((string) ($labeledSyntheticParent['canonical_block_markup'] ?? ''), '<div class="wp-block-group"></div>'), 'A synthesized route parent takes its post title and document title from the most common inbound internal link label while keeping its slug and empty constrained group content.');
 $nestedIndex = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main>Home</main>', 'nested/index.html' => '<main>Nested index</main>', 'nested/about.html' => '<main>Nested about</main>')))->toArray(); $nestedPages = array(); foreach ($nestedIndex['source_reports']['wordpress_site_plan']['pages'] as $page) $nestedPages[$page['source_path']] = $page;
 $assert('/nested' === ($nestedPages['nested/index.html']['route']['path'] ?? null) && 'nested/index.html' === ($nestedPages['nested/about.html']['parent_source_path'] ?? null), 'Directory index pages become canonical hierarchy parents instead of synthetic placeholders.');
+// Neutral three-document regression for #3226: an article route owns a plain child page.
+$postParentFiles = array(
+    'index.html' => '<main><h1>Home</h1><a href="/blog/launch-notes/">Launch notes</a></main>',
+    'blog/launch-notes/index.html' => '<script type="application/ld+json">{"@type":"Article","datePublished":"2026-03-01T10:00:00+00:00"}</script><main><h1>Launch notes</h1><a href="/blog/launch-notes/diagram/">Diagram</a></main>',
+    'blog/launch-notes/diagram/index.html' => '<main><h1>Diagram</h1><p>A plain page.</p></main>',
+);
+foreach (array('synthetic', 'real', 'root', 'collision') as $ancestorCase) {
+    $files = $postParentFiles;
+    if ('real' === $ancestorCase) $files['blog/index.html'] = '<main><h1>Blog</h1></main>';
+    if ('root' === $ancestorCase) {
+        $files = array(); foreach ($postParentFiles as $path => $html) $files[str_replace('blog/', '', $path)] = str_replace('/blog/', '/', $html);
+    }
+    if ('collision' === $ancestorCase) $files['blog/diagram/index.html'] = '<main><h1>Existing diagram</h1></main>';
+    $postParentResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray();
+    $postParentPlan = $postParentResult['source_reports']['wordpress_site_plan'] ?? array();
+    $assert(array() !== $postParentPlan, 'A page under a post builds a site plan (' . $ancestorCase . ').');
+    if (array() === $postParentPlan) continue;
+    WordPressSitePlan::assertValid($postParentPlan);
+    $postParentPages = array(); foreach ($postParentPlan['pages'] as $page) $postParentPages[$page['source_path']] = $page;
+    $prefix = 'root' === $ancestorCase ? '' : 'blog/';
+    $post = $postParentPages[$prefix . 'launch-notes/index.html'];
+    $child = $postParentPages[$prefix . 'launch-notes/diagram/index.html'];
+    $expectedParent = 'root' === $ancestorCase ? '' : ('real' === $ancestorCase ? 'blog/index.html' : 'wordpress-site-plan/routes/blog.html');
+    $expectedRoute = ('root' === $ancestorCase ? '' : '/blog') . '/diagram' . ('collision' === $ancestorCase ? '-2' : '');
+    $paths = array_column(array_column($postParentPlan['pages'], 'route'), 'path');
+    $assert('post' === $post['post_type'] && '/' . $prefix . 'launch-notes' === $post['route']['path'] && 'page' === $child['post_type'] && $expectedParent === $child['parent_source_path'] && $expectedRoute === $child['route']['path'] && basename($expectedRoute) === $child['slug'] && $child['slug'] === $child['route']['slug'] && count($paths) === count(array_unique($paths)), 'Post identity is retained and its child takes a unique route under a valid page or root (' . $ancestorCase . ').');
+    $moves = array_values(array_filter($postParentPlan['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_page_hierarchy_flattened' === ($diagnostic['code'] ?? null)));
+    $assert(1 === count($moves) && 'warning' === $moves[0]['severity'] && $child['source_path'] === $moves[0]['source_path'] && '/' . $prefix . 'launch-notes/diagram' === $moves[0]['route_path'] && $expectedRoute === $moves[0]['resolved_route_path'] && 'page_hierarchy_flattened' === $moves[0]['reason_code'] && 'site_plan_route' === $moves[0]['pattern_family'] && 'restore_canonical_route_identity' === $moves[0]['repair_bucket'], 'A warning records the original and repaired child route (' . $ancestorCase . ').');
+}
 $decisionArtifact = array('entrypoint' => 'index.html', 'files' => array(
     array('path' => 'index.html', 'content' => '<main>Home</main>'),
     array('path' => 'notes/index.html', 'content' => '<main>Notes</main>'),
@@ -1361,7 +1390,7 @@ $assert(true, 'The additive decision fields may be ignored by v2 consumers witho
 $malformedDecision = $decisionFirst; foreach ($malformedDecision['pages'] as &$page) if ('notes/essay.html' === ($page['source_path'] ?? null)) { $page['content_decision']['post_type'] = 'page'; break; } unset($page); $throws(static fn() => WordPressSitePlan::assertValid($malformedDecision), 'Validation rejects content decisions that contradict the materialization post type.');
 $malformedEvidence = $decisionFirst; foreach ($malformedEvidence['pages'] as &$page) if ('notes/essay.html' === ($page['source_path'] ?? null)) { $page['publication_timestamp'] = 'yesterday'; break; } unset($page); $throws(static fn() => WordPressSitePlan::assertValid($malformedEvidence), 'Validation rejects non-UTC or relative publication timestamps.');
 $postParentArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main>Home</main>', '2024/03.html' => '<main>Post route</main>', array('path' => '2024/03/page.html', 'content' => '<main>Page route</main>', 'metadata' => array('post_type' => 'page')))))->toArray();
-$assert(isset($postParentArtifact['source_reports']['wordpress_site_plan_diagnostics']), 'A page below a decided post route fails closed instead of inheriting a post ancestor.');
+$assert(isset($postParentArtifact['source_reports']['wordpress_site_plan']) && !isset($postParentArtifact['source_reports']['wordpress_site_plan_diagnostics']), 'A page below a decided post route imports without inheriting a post ancestor.');
 $wrappedRoot = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'entry_path' => 'website/index.html', 'files' => array('website/index.html' => '<main>Home</main>', 'website/contact.html' => '<main>Contact</main>', 'website/merch.html' => '<main>Merch</main>', 'website/about/index.html' => '<main>About</main>', 'website/about/team/index.html' => '<main>Team</main>')))->toArray(); $wrappedPages = array(); foreach ($wrappedRoot['source_reports']['wordpress_site_plan']['pages'] as $page) $wrappedPages[$page['source_path']] = $page;
 $assert('/' === ($wrappedPages['website/index.html']['route']['path'] ?? null) && 'home' === ($wrappedPages['website/index.html']['slug'] ?? null) && '' === ($wrappedPages['website/index.html']['parent_source_path'] ?? null) && '/contact' === ($wrappedPages['website/contact.html']['route']['path'] ?? null) && '' === ($wrappedPages['website/contact.html']['parent_source_path'] ?? null) && '/merch' === ($wrappedPages['website/merch.html']['route']['path'] ?? null) && '' === ($wrappedPages['website/merch.html']['parent_source_path'] ?? null), 'The entrypoint wrapper directory is the web root: sibling pages are top-level routes, not nested under the front page, and the front page slug is home.');
 $assert('/about' === ($wrappedPages['website/about/index.html']['route']['path'] ?? null) && 'about' === ($wrappedPages['website/about/index.html']['slug'] ?? null) && '' === ($wrappedPages['website/about/index.html']['parent_source_path'] ?? null) && '/about/team' === ($wrappedPages['website/about/team/index.html']['route']['path'] ?? null) && 'team' === ($wrappedPages['website/about/team/index.html']['slug'] ?? null) && 'website/about/index.html' === ($wrappedPages['website/about/team/index.html']['parent_source_path'] ?? null), 'Nested index pages align materialized slugs and parent identity with their canonical routes.');
