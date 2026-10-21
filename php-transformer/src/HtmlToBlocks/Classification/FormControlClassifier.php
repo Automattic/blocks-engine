@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 final class FormControlClassifier
@@ -187,11 +188,11 @@ final class FormControlClassifier
         if ( self::isHoneypotControl($control) ) {
             return true;
         }
+        if ( SourceDom::hasNonAuthoredAncestor($control) ) {
+            return true;
+        }
         $insideNativeForm = false;
         for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( in_array(strtolower($parent->tagName), array( 'template', 'script', 'style', 'noscript' ), true) ) {
-                return true;
-            }
             if ( null !== self::sourceSelectAfterCapturedPanel($parent) ) {
                 return true;
             }

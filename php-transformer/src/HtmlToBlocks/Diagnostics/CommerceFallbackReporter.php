@@ -76,7 +76,7 @@ final class CommerceFallbackReporter
                 continue;
             }
 
-            if ( ! $this->recognizer->isProductGridContainer($element) ) {
+            if ( SourceDom::hasNonAuthoredAncestor($element) || ! $this->recognizer->isProductGridContainer($element) ) {
                 continue;
             }
 
@@ -694,7 +694,7 @@ final class CommerceFallbackReporter
                 return;
             }
 
-            if ( ! $this->recognizer->isProductGridContainer($element) ) {
+            if ( SourceDom::hasNonAuthoredAncestor($element) || ! $this->recognizer->isProductGridContainer($element) ) {
                 continue;
             }
 
@@ -740,6 +740,9 @@ final class CommerceFallbackReporter
     {
         $scopes = array();
         foreach ( $this->recognizer->cartSummaries($body) as $summary ) {
+            if ( SourceDom::hasNonAuthoredAncestor($summary) ) {
+                continue;
+            }
             if ( count($scopes) >= self::MAX_CANDIDATES ) {
                 break;
             }
