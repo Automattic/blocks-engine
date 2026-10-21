@@ -1062,6 +1062,12 @@ final class SourceDom
         return false;
     }
 
+    /** Inert metadata descendants are not authored page content. */
+    public static function hasNonAuthoredAncestor(DOMElement $element): bool
+    {
+        return self::hasAncestorTag($element, array( 'template', 'script', 'style', 'noscript' ));
+    }
+
     public static function hasSourceNavigationSignal(DOMElement $element): bool
     {
         if ( MenuVocabulary::isMenuLandmark($element) ) {
