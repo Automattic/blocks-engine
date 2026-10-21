@@ -80,7 +80,7 @@ final class LinkedResponsiveContentProjector
         $sourceUrl = ($this->imageUrl)($image);
         $src = ($this->resolveUrl)($sourceUrl);
         $labelHtml = $this->labelHtml($label);
-        if ( '' === $href || '' === $src || '' === $labelHtml || ! SourceDom::safeFallbackUrl($src, 'src') ) {
+        if ( '' === $href || '' === $src || '' === $labelHtml || ! SourceDom::safeFallbackUrl($src, 'src', 'img') ) {
             return null;
         }
         $srcset = $this->srcset(SourceDom::attr($image, 'srcset'));
@@ -199,7 +199,7 @@ final class LinkedResponsiveContentProjector
             && ! ($this->hasRouteData)($image)
             && $this->identityIsPreservable($image, array( 'alt', 'class', 'decoding', 'height', 'id', 'loading', 'sizes', 'src', 'srcset', 'style', 'title', 'width', 'aria-labelledby', 'aria-describedby' ))
             && '' !== ($this->imageUrl)($image)
-            && SourceDom::safeFallbackUrl(($this->imageUrl)($image), 'src')
+            && SourceDom::safeFallbackUrl(($this->imageUrl)($image), 'src', 'img')
             && ( $this->hasBox($image) || $this->isGroupedRow($anchor) );
     }
 
@@ -260,14 +260,14 @@ final class LinkedResponsiveContentProjector
 
     private function srcset(string $srcset): string
     {
-        $safe = SourceDom::safeFallbackSrcset($srcset);
+        $safe = SourceDom::safeFallbackSrcset($srcset, 'img');
         if ( '' === $safe ) {
             return '';
         }
         $candidates = array();
         foreach ( SrcsetParser::parse($safe) as $candidate ) {
             $url = ($this->resolveUrl)($candidate['url']);
-            if ( '' === $url || ! SourceDom::safeFallbackUrl($url, 'src') ) {
+            if ( '' === $url || ! SourceDom::safeFallbackUrl($url, 'srcset', 'img') ) {
                 continue;
             }
             $candidates[] = $url . ( '' !== $candidate['descriptor'] ? ' ' . $candidate['descriptor'] : '' );

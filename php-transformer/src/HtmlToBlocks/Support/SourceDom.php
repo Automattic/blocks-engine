@@ -39,6 +39,12 @@ use DOMText;
  */
 final class SourceDom
 {
+    /**
+     * Upper bound for an inline SVG data image kept in preserved HTML. Matches
+     * the data URL budget the document head applies to embedded links.
+     */
+    public const MAX_SVG_DATA_IMAGE_URL_BYTES = 1048576;
+
     public static function innerHtml(DOMElement $element): string
     {
         $element = self::canonicalizedSerializationClone($element);
@@ -795,6 +801,8 @@ final class SourceDom
      */
     private static function hasOnlySafeFallbackAttributes(DOMElement $element): bool
     {
+        $tag = strtolower($element->tagName);
+        $insidePicture = self::isInsidePicture($element);
         foreach ( $element->attributes ?? array() as $attribute ) {
             $name  = strtolower($attribute->nodeName);
             $value = (string) $attribute->nodeValue;
@@ -803,13 +811,13 @@ final class SourceDom
             }
             if ( 'srcset' === $name ) {
                 foreach ( SrcsetParser::parse($value) as $candidate ) {
-                    if ( ! self::safeFallbackUrl($candidate['url'], 'src') ) {
+                    if ( ! self::safeFallbackUrl($candidate['url'], 'srcset', $tag, $insidePicture) ) {
                         return false;
                     }
                 }
                 continue;
             }
-            if ( self::isFallbackUrlAttribute($name) && ! self::safeFallbackUrl($value, $name) ) {
+            if ( self::isFallbackUrlAttribute($name) && ! self::safeFallbackUrl($value, $name, $tag, $insidePicture) ) {
                 return false;
             }
         }
@@ -899,22 +907,31 @@ final class SourceDom
         $html = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $html) ?? '';
         $html = preg_replace('@<link\b[^>]*\/?>@si', '', $html) ?? '';
         $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
+        $source = $html;
         $html = preg_replace_callback(
             '/\s+([a-zA-Z_:][\w:.-]*)\s*=\s*("([^"]*)"|\'([^\']*)\'|([^\s>]+))/i',
-            function (array $matches): string {
-                $attribute = strtolower($matches[1]);
-                $value = $matches[3] ?? $matches[4] ?? $matches[5] ?? '';
+            function (array $matches) use ($source): string {
+                $attribute = strtolower($matches[1][0]);
+                $value = $matches[3][0] ?? $matches[4][0] ?? $matches[5][0] ?? '';
+                // Only an image-loading attribute can widen the URL policy,
+                // so the owning element is resolved just for those.
+                $context = in_array($attribute, array( 'src', 'srcset' ), true)
+                    ? self::serializedAttributeOwner($source, (int) $matches[0][1])
+                    : array( 'tag' => '', 'inside_picture' => false );
                 if ( 'srcset' === $attribute ) {
-                    $srcset = self::safeFallbackSrcset($value);
+                    $srcset = self::safeFallbackSrcset($value, $context['tag'], $context['inside_picture']);
                     return '' === $srcset
                         ? ''
-                        : ' ' . $matches[1] . '="' . htmlspecialchars($srcset, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                        : ' ' . $matches[1][0] . '="' . htmlspecialchars($srcset, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
                 }
-                return self::isFallbackUrlAttribute($attribute) && ! self::safeFallbackUrl($value, $attribute)
+                return self::isFallbackUrlAttribute($attribute) && ! self::safeFallbackUrl($value, $attribute, $context['tag'], $context['inside_picture'])
                     ? ''
-                    : $matches[0];
+                    : $matches[0][0];
             },
-            $html
+            $html,
+            -1,
+            $count,
+            PREG_OFFSET_CAPTURE | PREG_UNMATCHED_AS_NULL
         ) ?? '';
         $html = preg_replace_callback('@<meta\b[^>]*>@i', function (array $matches): string {
             $tag = $matches[0];
@@ -942,11 +959,11 @@ final class SourceDom
      * Keep only safe srcset candidates while retaining their source-selection
      * descriptors. The URL policy deliberately matches fallback image `src`.
      */
-    public static function safeFallbackSrcset(string $srcset): string
+    public static function safeFallbackSrcset(string $srcset, string $tag = '', bool $insidePicture = false): string
     {
         $candidates = array();
         foreach ( SrcsetParser::parse($srcset) as $candidate ) {
-            if ( self::safeFallbackUrl($candidate['url'], 'src') ) {
+            if ( self::safeFallbackUrl($candidate['url'], 'srcset', $tag, $insidePicture) ) {
                 $candidates[] = $candidate['url'] . ( '' !== $candidate['descriptor'] ? ' ' . $candidate['descriptor'] : '' );
             }
         }
@@ -954,8 +971,20 @@ final class SourceDom
         return implode(', ', $candidates);
     }
 
-    public static function safeFallbackUrl(string $url, string $attribute): bool
+    /**
+     * The single URL policy for attributes kept on preserved source HTML.
+     *
+     * `$tag` and `$insidePicture` name the element that owns the attribute.
+     * Image-loading attributes ({@see self::isImageLoadingUrlAttribute()})
+     * additionally accept a bounded `data:image/svg+xml` URL: an SVG loaded
+     * as an image renders in secure static mode, with no script and no
+     * external fetch. Every other attribute or element (iframe, object,
+     * embed, links, form actions) keeps rejecting it. Raster base64 data
+     * images keep their existing `src`/`srcset` policy.
+     */
+    public static function safeFallbackUrl(string $url, string $attribute, string $tag = '', bool $insidePicture = false): bool
     {
+        $attribute = strtolower($attribute);
         $normalized = strtolower(preg_replace('/[\x00-\x20\x7f]+/', '', html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
         for ( $index = 0; $index < 2 && str_contains($normalized, '%'); ++$index ) {
             $normalized = rawurldecode($normalized);
@@ -968,7 +997,86 @@ final class SourceDom
             return true;
         }
 
-        return 'src' === $attribute && (bool) preg_match('#^data:image/(?:avif|gif|jpeg|png|webp);base64,[a-z0-9+/=]+$#i', $normalized);
+        if ( self::isImageLoadingUrlAttribute($tag, $attribute, $insidePicture) && self::isSafeSvgDataImageUrl($url) ) {
+            return true;
+        }
+
+        return in_array($attribute, array( 'src', 'srcset' ), true) && (bool) preg_match('#^data:image/(?:avif|gif|jpeg|png|webp);base64,[a-z0-9+/=]+$#i', $normalized);
+    }
+
+    /**
+     * Attributes whose URL the browser only ever loads as an image: `img`
+     * src/srcset, and `source` src/srcset when the source feeds a `picture`.
+     */
+    public static function isImageLoadingUrlAttribute(string $tag, string $attribute, bool $insidePicture = false): bool
+    {
+        if ( ! in_array(strtolower($attribute), array( 'src', 'srcset' ), true) ) {
+            return false;
+        }
+        $tag = strtolower($tag);
+
+        return 'img' === $tag || ( 'source' === $tag && $insidePicture );
+    }
+
+    /**
+     * A size-bounded `data:image/svg+xml` URL, percent-encoded or base64.
+     */
+    public static function isSafeSvgDataImageUrl(string $url): bool
+    {
+        $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if ( '' === $url || strlen($url) > self::MAX_SVG_DATA_IMAGE_URL_BYTES ) {
+            return false;
+        }
+        if ( ! preg_match('#^data:image/svg\+xml((?:;[a-z0-9._+-]+(?:=[a-z0-9._+-]+)?)*),(.+)$#is', $url, $parts) ) {
+            return false;
+        }
+        if ( preg_match('/;base64$/i', $parts[1]) ) {
+            $payload = (string) preg_replace('/\s+/', '', $parts[2]);
+            return 1 === preg_match('#^[a-z0-9+/]+={0,2}$#i', $payload) && false !== base64_decode($payload, true);
+        }
+        if ( str_contains(strtolower($parts[1]), 'base64') ) {
+            return false;
+        }
+
+        // Percent-encoded payloads may not carry raw control characters.
+        return 1 !== preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/', $parts[2]);
+    }
+
+    /** True when a `<source>` (or any element) sits directly in a `<picture>`. */
+    public static function isInsidePicture(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+
+        return $parent instanceof DOMElement && 'picture' === strtolower($parent->tagName);
+    }
+
+    /**
+     * The tag that owns an attribute found at `$offset` of serialized HTML,
+     * and whether that tag is inside an open `<picture>`. An attribute-like
+     * run outside a start tag resolves to no owner, so it keeps the strict
+     * policy.
+     *
+     * @return array{tag: string, inside_picture: bool}
+     */
+    private static function serializedAttributeOwner(string $html, int $offset): array
+    {
+        $none = array( 'tag' => '', 'inside_picture' => false );
+        $start = strrpos(substr($html, 0, $offset), '<');
+        if ( false === $start ) {
+            return $none;
+        }
+        $head = substr($html, $start, $offset - $start);
+        if ( ! preg_match('/^<([a-zA-Z][\w:-]*)(?:\s+[^\s"\'>\/=]+(?:\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s"\'>]+))?)*\s*$/', $head, $match) ) {
+            return $none;
+        }
+        $tag = strtolower($match[1]);
+        $insidePicture = false;
+        if ( 'source' === $tag ) {
+            $before = substr($html, 0, $start);
+            $insidePicture = preg_match_all('/<picture\b/i', $before) > preg_match_all('/<\/picture\s*>/i', $before);
+        }
+
+        return array( 'tag' => $tag, 'inside_picture' => $insidePicture );
     }
 
     /**
@@ -1532,7 +1640,10 @@ final class SourceDom
 
     private static function isSafeImageSourceUrl(string $url): bool
     {
-        if ( ! self::safeFallbackUrl($url, 'src') ) {
+        if ( self::isSafeSvgDataImageUrl($url) ) {
+            return true;
+        }
+        if ( ! self::safeFallbackUrl($url, 'src', 'img') ) {
             return false;
         }
         $normalized = strtolower(preg_replace('/[\x00-\x20\x7f]+/', '', html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
