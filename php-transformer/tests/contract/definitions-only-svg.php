@@ -42,4 +42,24 @@ foreach (array($html, str_replace('overflow:hidden;', 'overflow:hidden;--shape:u
 $compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
 $assert('passed' === ($compiled['source_reports']['editability_policy']['status'] ?? null), 'The reduced fixture passes the compiler editability policy without exemptions.');
 $assert(!str_contains($compiled['serialized_blocks'], '<!-- wp:html'), 'Artifact compilation also avoids core/html.');
+// Original #1534 source: no drawable sibling is added to the definition SVG.
+$maskedVideoSource = '<div class="masked-video"><svg viewBox="0 0 600 120"><defs><clipPath id="clip-masked-video"><text x="0" y="0">LET&apos;S TALK</text></clipPath></defs></svg><div class="fill-layers-wrapper" style="clip-path:url(&quot;#clip-masked-video&quot;)"><video src="footer.mp4" autoplay muted loop></video></div></div>';
+foreach (array($maskedVideoSource, '<style>.fill-layers-wrapper{clip-path:url("#clip-masked-video")}</style>' . str_replace(' style="clip-path:url(&quot;#clip-masked-video&quot;)"', '', $maskedVideoSource)) as $source) {
+    $result = (new HtmlTransformer())->transform($source)->toArray();
+    $expandMedia = static function (array $blocks) use (&$expandMedia): array {
+        foreach ($blocks as &$block) {
+            if ('custom/responsive-media' === $block['blockName']) {
+                $block['innerContent'] = array($block['attrs']['content']);
+            } elseif ('custom/svg-artwork' === $block['blockName']) {
+                $block['innerContent'] = array($block['attrs']['svg']);
+            }
+            $block['innerBlocks'] = $expandMedia($block['innerBlocks'] ?? array());
+        }
+        return $blocks;
+    };
+    $rendered = (new Runtime())->renderBlocks($expandMedia($result['blocks']));
+    $rendered .= '<style>' . implode("\n", array_column(array_filter($result['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null)), 'content')) . '</style>';
+    $assert(str_contains(strtolower($rendered), 'id="clip-masked-video"') && 1 === preg_match('/clip-path:\\s*url\\([^)]*#clip-masked-video/', html_entity_decode($rendered)), 'Original masked video renders the definition and consumer clip-path in the same document.');
+    $assert(!str_contains($result['serialized_blocks'], 'assets/materialized-svg/'), 'Definition carriers are never externalized, including the media path.');
+}
 echo "Definitions-only SVG contract passed.\n";

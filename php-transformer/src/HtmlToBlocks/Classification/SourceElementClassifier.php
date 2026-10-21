@@ -139,9 +139,7 @@ final class SourceElementClassifier
         $definitionSvgs = array();
         $ambiguousIds = array();
         foreach ( $candidates as $svg ) {
-            // Definitions-only carriers stay inline through SvgMaterializer;
-            // their consumers can remain native editable blocks.
-            if ( 'svg' !== strtolower($svg->tagName) || SourceDom::isDefinitionsOnlySvg($svg) ) {
+            if ( 'svg' !== strtolower($svg->tagName) ) {
                 continue;
             }
             foreach ( $svg->getElementsByTagName('*') as $definition ) {
@@ -172,6 +170,16 @@ final class SourceElementClassifier
             }
             foreach ( array_unique($references) as $id ) {
                 if ( isset($definitions[$id]) && $this->lowestCommonElementAncestor($definitions[$id], $candidate) === $element ) {
+                    // Definition carriers can stay inline alongside editable image
+                    // blocks. Video/audio wrappers instead need the shared boundary:
+                    // native media lowering would discard the consumer wrapper.
+                    if ( SourceDom::isDefinitionsOnlySvg($definitionSvgs[$id])
+                        && ! in_array(strtolower($candidate->tagName), array('video', 'audio'), true)
+                        && 0 === $candidate->getElementsByTagName('video')->length
+                        && 0 === $candidate->getElementsByTagName('audio')->length
+                    ) {
+                        continue;
+                    }
                     return true;
                 }
             }

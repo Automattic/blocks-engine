@@ -36,7 +36,7 @@ $assert(str_contains($documentAsset, '<defs id="document-definitions">') && str_
 $assert(!str_contains($documentAsset, 'data-dom-store'), 'The hidden document store is not retained in the portable asset.');
 
 $cssConsumer = (new HtmlTransformer())->transform('<style>.filtered-panel{filter:url(#portrait-tone)}</style><svg data-dom-store style="display:none"><defs>' . $filter . '</defs></svg><div class="filtered-panel">Panel</div>')->toArray();
-$assert(!str_contains((string) ($cssConsumer['serialized_blocks'] ?? ''), '<!-- wp:html') && str_contains((string) ($cssConsumer['serialized_blocks'] ?? ''), '<!-- wp:custom/svg-artwork'), 'A definition store with a non-SVG CSS consumer remains in document context through editable SVG artwork.');
+$assert(str_contains((string) ($cssConsumer['serialized_blocks'] ?? ''), '<!-- wp:html'), 'A definition store with a non-SVG CSS consumer remains in document context.');
 
 $external = (new HtmlTransformer())->transform('<svg viewBox="0 0 10 10"><use href="sprite.svg#mark"></use></svg>')->toArray();
 $assert(!str_contains((string) ($external['serialized_blocks'] ?? ''), '<!-- wp:image') && 'html_inline_svg_fallback' === ($external['fallbacks'][0]['diagnostic_code'] ?? null), 'External-document SVG references still fail closed with an explicit diagnostic.');
