@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/throw-classification/v1",
   "description": "Every throw new and throwing-helper call in src/, keyed by file and Class(normalized message) or helper(normalized arguments), with its occurrence count. Enforced by tests/contract/throw-classification.php; see docs/contracts/throw-classification.md. LogicException and its project subclasses are integrity by construction and are not listed.",
-  "representability_pending_max": 10,
+  "representability_pending_max": 9,
   "sites": {
     "src/ArtifactCompiler/ArtifactCompiler.php": {
       "InvalidArgumentException('Caller runtime declarations cannot provide compiler-reserved script supersession proofs.')": {"class": "integrity", "count": 1},
@@ -515,7 +515,6 @@
       "InvalidArgumentException('WordPress site plan operation references an invalid front page.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('WordPress site plan operations are incomplete.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('WordPress site plan page has a stale content hash.')": {"class": "integrity", "count": 1},
-      "InvalidArgumentException('WordPress site plan page hierarchy cannot inherit a post route.')": {"class": "representability", "count": 1, "unit": "route", "finding": "wordpress_site_plan_page_hierarchy_flattened", "pending": true},
       "InvalidArgumentException('WordPress site plan page lacks a canonical route.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('WordPress site plan page route is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('WordPress site plan page routes reject encoded path separators and dot segments.')": {"class": "integrity", "count": 1},
