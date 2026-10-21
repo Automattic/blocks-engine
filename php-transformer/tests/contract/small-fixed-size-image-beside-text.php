@@ -11,7 +11,8 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
  * A small image whose used size is fixed -- by numeric width/height
  * attributes, by attributes written as `42px` (read with the HTML rules for
  * parsing dimension values), or by author CSS on wrappers the image fills at
- * 100% -- beside text is an icon/avatar lockup, not a media-and-text layout.
+ * 100%, including when the image also declares an inline aspect-ratio and
+ * object-fit -- beside text is an icon/avatar lockup, not a media-and-text layout.
  * It stays a sized core/image instead of an unsized core/media-text whose
  * image then renders at the uploaded file's natural size.
  */
@@ -40,6 +41,16 @@ $fixtures = array(
         'css' => '.av{display:inline-block;width:36px;height:36px}.av img{display:block;width:100%;height:100%;border-radius:50%}.row{display:flex;padding:24px}',
         'html' => '<div class="row"><div class="av"><div class="core"><img src="media/a.png" alt="P u"></div></div><div><p>Great app.</p><p>Reviewer name</p></div></div>',
         'size' => '36px',
+    ),
+    'px attributes with an inline aspect-ratio style (42px)' => array(
+        'css' => '',
+        'html' => '<div style="display:flex"><div style="margin-right:12px"><img width="42px" height="42px" class="wds-image" src="media/a.png" alt="" style="object-fit: cover; object-position: center center; aspect-ratio: 42 / 42;"></div><div><p>Call</p></div></div>',
+        'size' => '42px',
+    ),
+    'px attributes with an inline aspect-ratio style (54px)' => array(
+        'css' => '',
+        'html' => '<div style="display:flex"><div style="margin-right:12px"><img width="54px" height="54px" class="wds-image" src="media/a.png" alt="" style="object-fit: cover; object-position: center center; aspect-ratio: 54 / 54;"></div><div><p>Call</p></div></div>',
+        'size' => '54px',
     ),
 );
 

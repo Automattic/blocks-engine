@@ -10190,7 +10190,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // overrides an attribute already resolved above.
         $shape = $this->imageShapeConstraintAttributes($image, $width, $height);
         $attrs += $shape;
-        if (isset($shape['aspectRatio'])) {
+        // A fixed width AND height that already state the promoted ratio are the
+        // image's used size (a 42px x 42px avatar with `aspect-ratio:42/42`),
+        // not file metadata competing with a stylesheet-owned crop. Keep them
+        // beside aspectRatio/scale; dropping them would let the image render
+        // at the uploaded file's natural size.
+        if (isset($shape['aspectRatio'])
+            && ! $this->imageDimensionsStateAspectRatio((string) ($attrs['width'] ?? ''), (string) ($attrs['height'] ?? ''), (string) $shape['aspectRatio'])
+        ) {
             foreach (array( 'width', 'height' ) as $property) {
                 if ($this->imageDimensionIsIntrinsicAttribute($image, $property)) {
                     // HTML dimensions describe the file, not a stylesheet-owned
@@ -12658,6 +12665,25 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $ratio = (float) $ratioMatch[1] / (float) ($ratioMatch[2] ?? '1');
         return abs(((float) $widthMatch[1] / (float) $heightMatch[1]) - $ratio) > 0.000001;
+    }
+
+    /**
+     * Whether a fixed width and height in one absolute unit already determine
+     * exactly the given aspect ratio. Percentages, mixed units and missing
+     * axes do not: they leave the box to the stylesheet-owned crop.
+     */
+    private function imageDimensionsStateAspectRatio(string $width, string $height, string $aspectRatio): bool
+    {
+        if (! preg_match('/^(\d*\.?\d+)(px|r?em|cm|mm|in|pt|pc)$/i', $width, $widthMatch)
+            || ! preg_match('/^(\d*\.?\d+)(px|r?em|cm|mm|in|pt|pc)$/i', $height, $heightMatch)
+            || strtolower($widthMatch[2]) !== strtolower($heightMatch[2])
+            || 0.0 >= (float) $widthMatch[1]
+            || 0.0 >= (float) $heightMatch[1]
+            || ! preg_match('#^(\d*\.?\d+)(?:\s*/\s*(\d*\.?\d+))?$#', $aspectRatio)) {
+            return false;
+        }
+
+        return ! $this->imageDimensionsDetermineDifferentAspectRatio($width, $height, $aspectRatio);
     }
 
     private function cssPixelValue(float $pixels): string
