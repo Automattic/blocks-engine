@@ -88,5 +88,49 @@ $assert('pantalon-fausti-marron' === ($entities[0]['slug'] ?? null), 'Runtime sl
 $assert('120900' === ($entities[0]['regular_price'] ?? null), 'Regular price normalizes thousands separators.');
 $assert('48360' === ($entities[0]['sale_price'] ?? null), 'Sale price is the inserted amount, not the installment.');
 
+// Full document reproduces the document-wrapper false card and lone-ins price.
+$regularCard = <<<'HTML'
+<li class="columns"><article class="product-card">
+  <a href="/products/bolsa-wave-blanco"><img src="b.jpg" alt="Bolsa Wave Blanco"></a>
+  <a class="product-card-title" href="/products/bolsa-wave-blanco">Bolsa Wave Blanco</a>
+  <span class="price"><ins><span class="amount"><span class="money">$39,000</span></span></ins></span>
+  <span class="cuotas"> · 6 cuotas sin interés de <span class="money">$6,500</span></span>
+  <span class="cuotas"> · Precio sin impuestos nacionales: <span class="money">$32,231</span></span>
+</article></li>
+HTML;
+$grid = str_replace('<ul class="grid">', '<ul class="grid">' . $regularCard, $card);
+// Two cards need authoritative commerce evidence (image-only grids require more repetition).
+$grid = str_replace('</li>', '<button>Add to cart</button></li>', $grid);
+$document = '<!doctype html><html><head><meta charset="UTF-8"></head><body class="template-collection"><div id="wrapper">'
+    . $drawer . '<aside><a href="/collections/all">Envío desde $200.000</a></aside>' . $grid . '</div></body></html>';
+$wrapper = $element('<div class="template-collection">' . $drawer . '<aside><a href="/collections/all">$200.000</a></aside>' . $grid . '</div>');
+$assert(null === $recognizer->productCardData($wrapper), 'A multi-product wrapper is not a card, regardless of its first heading.');
+$assert(!$recognizer->isProductGridContainer($wrapper), 'A document wrapper around a grid is not another grid.');
+$wrapper->parentNode->setAttribute('class', 'template-collection');
+$assert(!$recognizer->isProductGridContainer($wrapper->parentNode), 'Body is never a product grid.');
+$assert(null === $recognizer->productCardData($element('<article><h3>Group</h3><span class="price">$10</span><button>Buy</button><a href="/products/one">One</a><a href="/products/two">Two</a></article>')), 'Distinct product links disqualify a card even without nested cards.');
+$assert(null === $recognizer->productCardData($element('<section><h3>Group</h3><article><h4>One</h4><span class="price">$10</span><button>Buy</button></article><article><h4>Two</h4><span class="price">$20</span><button>Buy</button></article></section>')), 'Independent cards disqualify their container even without product URLs.');
+$compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $document)))->toArray();
+$entities = array();
+foreach ($compiled['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array() as $declaration) {
+    if ('products' === ($declaration['type'] ?? null)) {
+        $entities = array_merge($entities, $declaration['payload']['entities'] ?? array());
+    }
+}
+$assert(2 === count($entities), 'Full document declares exactly the two grid products.');
+$bySlug = array_column($entities, null, 'slug');
+foreach (array(
+    'bolsa-wave-blanco' => array('Bolsa Wave Blanco', '39000', null),
+    'pantalon-fausti-marron' => array('Pantalón Fausti Marrón', '120900', '48360'),
+) as $slug => [$name, $price, $sale]) {
+    $entity = $bySlug[$slug] ?? array();
+    $assert($name === ($entity['name'] ?? null), 'Compiled product name: ' . $slug);
+    $assert($price === ($entity['regular_price'] ?? null), 'Compiled regular price: ' . $slug);
+    $assert($sale === ($entity['sale_price'] ?? null), 'Compiled sale price: ' . $slug);
+}
+foreach ($entities as $entity) {
+    $assert(!str_contains(strtolower($entity['name'] ?? ''), 'filtrar'), 'Facet heading never names a product.');
+}
+
 if ($failures) exit(1);
 echo "product-grid-card-identity: ok\n";
