@@ -70,27 +70,14 @@ final class CommerceFallbackReporter
     public function appendProductGridFallbacks(DOMElement $body, array &$fallbacks, array $blocks): void
     {
         $emitted = 0;
-        $coveredPaths = array();
+        $candidates = array();
         foreach ( $body->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement ) {
                 continue;
             }
 
-            if ( $emitted >= self::MAX_CANDIDATES ) {
-                return;
-            }
-
             if ( ! $this->recognizer->isProductGridContainer($element) ) {
                 continue;
-            }
-
-            // Prefer the innermost qualifying container: skip a grid whose products
-            // were already attributed to a nested grid emitted earlier in the walk.
-            $path = $element->getNodePath() ?? '';
-            foreach ( $coveredPaths as $coveredPath ) {
-                if ( '' !== $path && '' !== $coveredPath && str_starts_with($coveredPath, $path . '/') ) {
-                    continue 2;
-                }
             }
 
             $products = $this->productCardsForContainer($element, $blocks);
@@ -120,7 +107,34 @@ final class CommerceFallbackReporter
             }
             unset($product);
 
-            $coveredPaths[] = $path;
+            $candidates[] = array('element' => $element, 'products' => $products);
+        }
+
+        foreach ( $candidates as $candidate ) {
+            $element = $candidate['element'];
+            $products = $candidate['products'];
+            $unclaimed = array_fill_keys(array_column($products, 'source_selector'), true);
+            foreach ( $candidates as $nested ) {
+                if ( $element === $nested['element'] || ! SourceDom::elementContains($element, $nested['element']) ) {
+                    continue;
+                }
+                foreach ( $nested['products'] as $product ) {
+                    foreach ( $unclaimed as $selector => $_ ) {
+                        // An outer card can be a wrapper around the nested card.
+                        if ( $product['source_selector'] === $selector || str_starts_with($product['source_selector'], $selector . ' > ') ) {
+                            unset($unclaimed[$selector]);
+                        }
+                    }
+                }
+            }
+            // Only discard a candidate when nested grids claim all its cards.
+            // Siblings and grids with independent cards retain their findings.
+            if ( array() === $unclaimed ) {
+                continue;
+            }
+            if ( $emitted >= self::MAX_CANDIDATES ) {
+                return;
+            }
             $listing = $this->listingControls($element, $products);
 
             $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
