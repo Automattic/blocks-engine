@@ -715,6 +715,7 @@
       "php tests/unit/product-grid-card-identity.php",
       "php tests/unit/product-grid-nested-container.php",
       "php tests/unit/product-grid-template-content.php",
+      "php tests/unit/product-grid-custom-element-host.php",
       "php tests/unit/button-link-dispatcher.php",
       "php tests/unit/linked-responsive-content.php",
       "php tests/unit/empty-destination-anchor.php",

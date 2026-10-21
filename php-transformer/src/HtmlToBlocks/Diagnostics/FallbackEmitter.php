@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\Classific
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SubtreeClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
@@ -152,7 +153,7 @@ final class FallbackEmitter
      */
     public function maybeGenerateCustomBlock(DOMElement $element, GeneratedBlockRegistry $registry, bool $preserveRoot = false, bool $confirmedComponent = false): ?array
     {
-        if ($this->containsProjectedCollectionControl($element)) return null;
+        if ($this->containsProjectedCollectionControl($element) || $this->containsProductGrid($element)) return null;
         $result = $this->classifier->classify($element, $this->classificationContext($element));
         if ( ! $confirmedComponent && ! $result->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK) ) {
             return null;
@@ -269,6 +270,24 @@ final class FallbackEmitter
                 && $childResult->confidence() >= self::GENERATION_CONFIDENCE_THRESHOLD
                 && 2 <= (int) ($childSignals['repeatable_children'] ?? 0)
                 && empty($childSignals['inline_event_handlers'])
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Keep recognized collection containers available for their own block bindings. */
+    public function containsProductGrid(DOMElement $element): bool
+    {
+        $recognizer = new CommerceStructureRecognizer();
+        if ($recognizer->isProductGridContainer($element) && array() !== $recognizer->productCardsForContainer($element)) {
+            return true;
+        }
+        foreach ($element->getElementsByTagName('*') as $descendant) {
+            if ($descendant instanceof DOMElement
+                && $recognizer->isProductGridContainer($descendant)
+                && array() !== $recognizer->productCardsForContainer($descendant)
             ) {
                 return true;
             }
