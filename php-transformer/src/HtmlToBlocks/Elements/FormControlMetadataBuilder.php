@@ -137,11 +137,8 @@ final class FormControlMetadataBuilder
 
         // Copy a control already owns — its label, its field description — is
         // carried by the control manifest, so it must not also surface here.
-        // A honeypot's wrapping label is claimed too: the control it labels is
-        // not authored (see `FormControlClassifier::isHoneypotControl()`), its
-        // copy is the decoy bots are meant to fill, and nothing inside it — or
-        // in a wrapper holding nothing else — is context a reader sees.
-        $claimedLabels = array();
+        // A honeypot's label and field-container copy are decoys, not context.
+        $claimedLabels = FormControlClassifier::honeypotCopyElements($form);
         $claimedTexts = array();
         foreach ( $form->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement || ! FormControlClassifier::isControlElement($node) ) {
@@ -162,9 +159,6 @@ final class FormControlMetadataBuilder
             if ( '' !== $description['description'] ) {
                 $claimedTexts[] = $description['description'];
             }
-        }
-        foreach ( FormControlClassifier::honeypotLabels($form) as $honeypotLabel ) {
-            $claimedLabels[] = $honeypotLabel;
         }
 
         $recorded = array();
@@ -748,8 +742,12 @@ final class FormControlMetadataBuilder
     {
         $candidates = array();
         $listbox = $this->ownedListboxPanel($control);
+        $honeypotCopy = FormControlClassifier::honeypotCopyElements($wrapper);
         foreach ( $wrapper->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
+                continue;
+            }
+            if ( $this->isControlOwnedCopy($node, $this->collapsedElementText($node), $honeypotCopy, array()) ) {
                 continue;
             }
             if ( $listbox instanceof DOMElement && $this->isOwnedListboxCopy($node, $listbox) ) {
