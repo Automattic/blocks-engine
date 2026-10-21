@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** Routes standalone SVGs to materialized, preserved, decorative, or fallback representations. */
@@ -41,6 +42,15 @@ final class SvgElementConverter implements ElementConverter
                     array(),
                     $element
                 ));
+            }
+        }
+
+        // A definition carrier is document content even when aria-hidden or
+        // positioned as decoration; do not discard it or wrap it as an image.
+        if (SourceDom::isDefinitionsOnlySvg($element)) {
+            $block = $this->materializer->inlineSvgBlockFromElement($element);
+            if (null !== $block) {
+                return ConversionOutcome::handled($block);
             }
         }
 

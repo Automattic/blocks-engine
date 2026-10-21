@@ -1,0 +1,11 @@
+<!doctype html><html><head><style>
+#block-a .frame{overflow:hidden;clip-path:url("#mask-a")}
+.frame img{display:block;width:300px;height:300px;object-fit:cover}
+</style></head><body><main>
+<div class="image-block" id="block-a">
+  <div class="frame"><img src="photo.jpg" alt="Portrait" width="300" height="300"></div>
+  <svg width="0" height="0" style="position:absolute"><defs>
+    <clipPath id="mask-a" clipPathUnits="objectBoundingBox"><path d="M0.5,0 C0.9,0,1,0.1,1,0.5 C1,0.9,0.9,1,0.5,1 C0.1,1,0,0.9,0,0.5 C0,0.1,0.1,0,0.5,0"></path></clipPath>
+  </defs></svg>
+</div>
+</main></body></html>
