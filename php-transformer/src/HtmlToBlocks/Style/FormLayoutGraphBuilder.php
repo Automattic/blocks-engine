@@ -726,12 +726,15 @@ final class FormLayoutGraphBuilder
     private function matched(DOMElement $element, array $rules, bool $spacingFromLayers = false): array
     {
         $base = array();
+        $gaps = array();
         if ( $element->hasAttribute('style') ) {
             $inline = $element->getAttribute('style');
             foreach ( $this->boxDeclarations(CssRuleAnalyzer::declarations($inline, array_merge(self::PROPERTIES, self::SOURCE_BOX_PROPERTIES, self::SHORTHAND_PROPERTIES))) as $declaration ) {
                 $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
                 $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
-                CssCascade::apply($base, $declaration['name'], array( 'value' => $value, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'selector' => '[style]', 'order' => PHP_INT_MAX, 'specificity' => PHP_INT_MAX, 'important' => $important ));
+                $fact = array( 'value' => $value, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'selector' => '[style]', 'order' => PHP_INT_MAX, 'specificity' => PHP_INT_MAX, 'important' => $important );
+                CssCascade::apply($base, $declaration['name'], $fact);
+                self::applyGapLonghands($gaps[''], $declaration['name'], $fact);
             }
         }
         $conditional = array();
@@ -792,9 +795,77 @@ final class FormLayoutGraphBuilder
                 }
                 CssCascade::apply($target, $declaration['name'], $fact);
                 unset($target);
+                self::applyGapLonghands($gaps[$key ?? ''], $declaration['name'], $fact);
             }
         }
+        $base = self::resolvedGap($base, $gaps[''] ?? array());
+        foreach ( $conditional as $key => $facts ) {
+            $conditional[$key] = self::resolvedGap($facts, $gaps[$key] ?? array());
+        }
         return array( 'base' => $base, 'conditional' => $conditional );
+    }
+
+    /**
+     * Cascade `gap` as the two longhands it sets, beside the facts themselves.
+     *
+     * The `gap` shorthand and `row-gap`/`column-gap` are separate facts, but they
+     * set the same two values, so which one holds depends on the cascade between
+     * them. Declaration order inside a rule decides it too. This mirror records
+     * the winner per longhand, applied in declaration order.
+     *
+     * @param array<string, array<string, mixed>>|null $gaps
+     * @param array<string, mixed>                     $fact
+     */
+    private static function applyGapLonghands(?array &$gaps, string $property, array $fact): void
+    {
+        $gaps ??= array();
+        if ( 'row-gap' === $property || 'column-gap' === $property ) {
+            CssCascade::apply($gaps, $property, $fact);
+            return;
+        }
+        if ( 'gap' !== $property ) {
+            return;
+        }
+        $parts = CssValueSplitter::splitTopLevelWhitespace($fact['value']);
+        if ( 1 > count($parts) || 2 < count($parts) || ( 1 === count($parts) && str_contains($parts[0], 'var(') ) ) {
+            // A custom property can stand for both values, so its longhands are unknown.
+            $gaps['unresolved'] = $fact;
+            return;
+        }
+        CssCascade::apply($gaps, 'row-gap', array( 'value' => $parts[0] ) + $fact);
+        CssCascade::apply($gaps, 'column-gap', array( 'value' => $parts[1] ?? $parts[0] ) + $fact);
+    }
+
+    /**
+     * Replace a shorthand that meets a longhand with the longhands that hold.
+     *
+     * Read apart, `gap: 40px` and `column-gap: 10px` do not say which column gap
+     * the box has: it is 10px when the longhand comes later and 40px when the
+     * shorthand does. Where both reach a node, the node states the resolved row
+     * and column gaps instead. A shorthand alone, or one its longhands agree with,
+     * stays as authored.
+     *
+     * @param array<string, array<string, mixed>> $facts
+     * @param array<string, array<string, mixed>> $gaps
+     * @return array<string, array<string, mixed>>
+     */
+    private static function resolvedGap(array $facts, array $gaps): array
+    {
+        if ( ! isset($facts['gap']) || ( ! isset($facts['row-gap']) && ! isset($facts['column-gap']) ) || isset($gaps['unresolved']) ) {
+            return $facts;
+        }
+        $parts = CssValueSplitter::splitTopLevelWhitespace($facts['gap']['value']);
+        if ( ( $facts['row-gap']['value'] ?? $parts[0] ) === $parts[0] && ( $facts['column-gap']['value'] ?? $parts[1] ?? $parts[0] ) === ( $parts[1] ?? $parts[0] ) ) {
+            // A longhand that agrees with the shorthand leaves one reading.
+            return $facts;
+        }
+        unset($facts['gap']);
+        foreach ( array( 'row-gap', 'column-gap' ) as $property ) {
+            if ( isset($gaps[$property]) ) {
+                $facts[$property] = $gaps[$property];
+            }
+        }
+        return $facts;
     }
 
     /** @return array<string, string> */
