@@ -5322,9 +5322,17 @@ PHP;
             $templateTargets[$part['source_path']] = $part['target_path'];
             foreach ($part['template_surface']['source_variants'] as $variant) if ($variant['source_path'] !== $part['source_path']) $variantSources[$variant['source_path']] = $part['source_path'];
         }
-        // Compare original forms, not projections that may erase differences.
-        foreach ($declarations as $di => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $ei => $entity) foreach ($entity['bindings'] ?? array() as $bi => $binding) {
-            $sourceBindings[$di][$ei][$bi] = array($binding['search_block_markup'] ?? null, $binding['selector'] ?? null);
+        // Compare declared semantics before projections can erase differences.
+        foreach ($declarations as $di => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $ei => $entity) {
+            $type = (string) ($declaration['type'] ?? '');
+            if ('forms' === $type) {
+                $source = $entity['source_path'] ?? null;
+                $action = $entity['form']['action'] ?? null;
+                if (is_string($source) && is_string($action) && $this->isSelfPostAction($action, $source, $routes)) $entity['form']['action'] = 'blocks-engine:self-post';
+                foreach ($entity['controls'] ?? array() as $ci => $control) unset($entity['controls'][$ci]['selector']);
+            }
+            $key = EntityEquivalence::key($entity, $type);
+            foreach ($entity['bindings'] ?? array() as $bi => $binding) $sourceBindings[$di][$ei][$bi] = null === $key ? null : array($type, $key, $binding['selector'] ?? null);
         }
         $partSources = array();
         foreach ($parts as $part) if (is_string($part['source_path'] ?? null) && is_string($part['canonical_block_markup'] ?? null)) {
@@ -5476,7 +5484,7 @@ PHP;
             }
         }
 
-        // Absorb exact variant forms only when the selected binding anchored.
+        // Absorb semantically equivalent variants only when the selected binding anchored.
         // Missing or different forms retain the existing unanchored diagnostic.
         foreach ($unanchored as $index => $drop) {
             if ('document_not_emitted' !== $drop['reason_code']) continue;
@@ -5487,7 +5495,7 @@ PHP;
             if (null === $selected || !is_string($fallback) || '' === $fallback) continue;
             $matches = array();
             foreach ($declarations as $di => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $ei => $entity) foreach ($entity['bindings'] ?? array() as $bi => $binding) {
-                if (!isset($anchored[$di . ':' . $ei . ':' . $bi]) || $selected !== ($binding['source_path'] ?? null) || $sourceBindings[$di][$ei][$bi] !== $sourceBindings[$drop['declaration']][$drop['entity']][$drop['binding']] || !self::bindingPosition($binding['position'] ?? null, $markupBySource[$selected], $binding['search_block_markup'])) continue;
+                if (!isset($anchored[$di . ':' . $ei . ':' . $bi]) || $selected !== ($binding['source_path'] ?? null) || null === $sourceBindings[$di][$ei][$bi] || $sourceBindings[$di][$ei][$bi] !== $sourceBindings[$drop['declaration']][$drop['entity']][$drop['binding']] || !self::bindingPosition($binding['position'] ?? null, $markupBySource[$selected], $binding['search_block_markup'])) continue;
                 $matches[] = array($di, $ei);
             }
             if (1 !== count($matches)) continue;
@@ -5527,6 +5535,22 @@ PHP;
         }
         unset($declaration);
         return RuntimeDeclarations::normalizeForComposition($declarations);
+    }
+
+    /** Resolve against source documents, including surfaces absent from page routes. */
+    private function isSelfPostAction(string $action, string $source, array $routes): bool
+    {
+        if ('' === $action) return true;
+        if (preg_match('~^(?://|#|\?)~', $action) || strpbrk($action, '?#') !== false) return false;
+        if (preg_match('~^[a-z][a-z0-9+.-]*:~i', $action)) {
+            if (!$this->isSameOriginSourceUrl($action)) return false;
+            $action = (string) (parse_url($action, PHP_URL_PATH) ?: '/');
+        }
+        $root = self::entryRootFromDocuments($routes);
+        $path = str_starts_with($action, '/') ? ('' === $root ? ltrim($action, '/') : $root . '/' . ltrim($action, '/')) : self::resolveRouteSource($source, $action);
+        if (null === $path) return false;
+        $document = static fn(string $path): string => preg_replace('~(?:^|/)index\.html?$~', '', rtrim($path, '/'));
+        return rtrim($document($source), '/') === rtrim($document($path), '/');
     }
 
     /**

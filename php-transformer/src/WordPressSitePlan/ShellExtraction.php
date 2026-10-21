@@ -1954,7 +1954,7 @@ final class ShellExtraction
         foreach ($indexes as $index) {
             $pageKeys = array();
             foreach ($shellBindings[$index] ?? array() as $ref) {
-                $key = self::hoistableEntityKey($declarations[$ref['declaration']]['payload']['entities'][$ref['entity']], (string) ($declarations[$ref['declaration']]['type'] ?? ''));
+                $key = EntityEquivalence::key($declarations[$ref['declaration']]['payload']['entities'][$ref['entity']], (string) ($declarations[$ref['declaration']]['type'] ?? ''));
                 if (null === $key) return null;
                 $pageKeys[] = $key;
             }
@@ -1985,50 +1985,6 @@ final class ShellExtraction
         }
         foreach ($keep as $position => $ref) { $identities = array_values(array_unique($ref['replaced_fallback_identities'])); sort($identities, SORT_STRING); $keep[$position]['replaced_fallback_identities'] = $identities; }
         return array('keep' => $keep, 'drop' => $drop);
-    }
-
-    /** @param array<string,mixed> $entity */
-    private static function hoistableEntityKey(array $entity, string $type = ''): ?string
-    {
-        $bindings = $entity['bindings'] ?? null;
-        if (!is_array($bindings) || 1 !== count($bindings) || !empty($entity['superseded_scripts'])) return null;
-        $role = (string) ($bindings[array_key_first($bindings)]['role'] ?? '');
-        unset($entity['bindings'], $entity['reconciliation_identity'], $entity['fallback_identity'], $entity['replaced_fallback_identities']);
-        // External metric rows repeated in equivalent shared chrome are
-        // per-document anchors for one source fact. The first row owns the
-        // shared-part binding; route-specific IDs are transport identities, not
-        // metric semantics, so comparing them would incorrectly retain every
-        // otherwise-identical shell page.
-        if ('external_metrics' === $type && is_array($entity['source'] ?? null) && isset($entity['metric'], $entity['aggregation'], $entity['fallback'])) {
-            unset($entity['id']);
-            // Unlike ordinary source-location provenance, external metric
-            // provenance establishes why a remote fact is trustworthy.
-            // Keep its kind, repository revision and source path in the
-            // equivalence key so coalescing cannot discard a distinct mapping.
-            return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson($entity));
-        }
-        return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson(self::withoutSourcePaths($entity)));
-    }
-
-    /**
-     * Where an entity was read from, and in what cascade order, is provenance,
-     * not identity; so are the conversion diagnostics a graph collects while
-     * reading its page's stylesheet (every rule it could not evaluate, most of
-     * them about other elements). A grid placement written as the `area`
-     * shorthand is the same placement as its `row` and `column` longhands.
-     */
-    private static function withoutSourcePaths(array $value): array
-    {
-        unset($value['source_path'], $value['provenance'], $value['source_order'], $value['diagnostics']);
-        if (is_string($value['area'] ?? null) && 4 === count($lines = array_map('trim', explode('/', $value['area'])))) {
-            unset($value['area']);
-            $value['row'] = $lines[0] . ' / ' . $lines[2];
-            $value['column'] = $lines[1] . ' / ' . $lines[3];
-        }
-        foreach (array('row', 'column') as $line) if (is_string($value[$line] ?? null)) $value[$line] = preg_replace('/\s*\/\s*/', ' / ', trim($value[$line]));
-        foreach ($value as $key => $child) if (is_array($child)) $value[$key] = self::withoutSourcePaths($child);
-        if (!array_is_list($value)) ksort($value, SORT_STRING);
-        return $value;
     }
 
     /**
