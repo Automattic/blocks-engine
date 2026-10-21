@@ -461,12 +461,69 @@ final class ButtonsPattern
         // beside an icon) is retained descendant markup, not a single text
         // run. Its source wrapper (a flex container, say) is part of that
         // markup: author rules lay the retained elements out through it, and
-        // it carries attributes RichText keeps as an element.
-        if ( true === $identified && $this->hasRetainedSourceElement($html) ) {
+        // it carries attributes RichText keeps as an element. That holds
+        // whether those elements stay plain authored markup or became RichText
+        // marker carriers: either way they are separate items the wrapper
+        // lays out, not one run the wrapper merely styles.
+        if ( true === $identified && ($this->hasRetainedSourceElement($html) || $this->isSourceItemSequence($html)) ) {
             return $wrapped;
         }
 
         return $html;
+    }
+
+    /**
+     * Whether the markup is a sequence of sibling source elements with no
+     * bare text between them (a label span beside an icon span), at least one
+     * of which keeps a source identity (an authored class or a RichText
+     * marker). A wrapper around such a sequence is its layout container.
+     */
+    private function isSourceItemSequence(string $html): bool
+    {
+        if ( ! str_contains($html, '<') ) {
+            return false;
+        }
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if ( ! $body instanceof DOMElement ) {
+            return false;
+        }
+
+        $items = 0;
+        $identified = false;
+        foreach ( $body->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                ++$items;
+                $identified = $identified
+                    || $child->hasAttribute('data-blocks-engine-richtext-marker')
+                    || str_contains($child->getAttribute('style'), '--blocks-engine-richtext-marker:')
+                    || $this->hasAuthoredClass($child->getAttribute('class'));
+                continue;
+            }
+            if ( XML_COMMENT_NODE !== $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+        }
+
+        return $items > 1 && $identified;
+    }
+
+    /** Whether the markup is a source-identified wrapper around a source item sequence. */
+    private function isSourceItemWrapper(string $html): bool
+    {
+        $identified = null;
+        $wrapped = false;
+        while ( preg_match('/^(<span\b[^>]*>)(.*)<\/span>$/is', $html, $matches) === 1 && $this->spanWrapsEntireContent($matches[2]) ) {
+            $identified = (null === $identified || $identified) && $this->hasSourceIdentity($matches[1]);
+            $html = trim($matches[2]);
+            $wrapped = true;
+        }
+
+        return $wrapped && true === $identified && $this->isSourceItemSequence($html);
     }
 
     /**
@@ -479,10 +536,20 @@ final class ButtonsPattern
             return false;
         }
         foreach ( $matches[2] as $classes ) {
-            foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
-                if ( '' !== $class && ! str_starts_with($class, 'blocks-engine-') && ! str_starts_with($class, 'be-') ) {
-                    return true;
-                }
+            if ( $this->hasAuthoredClass($classes) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether a class list holds a class that is neither an engine marker nor generated geometry. */
+    private function hasAuthoredClass(string $classes): bool
+    {
+        foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
+            if ( '' !== $class && ! str_starts_with($class, 'blocks-engine-') && ! str_starts_with($class, 'be-') ) {
+                return true;
             }
         }
 
@@ -527,6 +594,9 @@ final class ButtonsPattern
      */
     private function rendersSourceDescendants(DOMElement $anchor, string $html): bool
     {
+        if ( $this->isSourceItemWrapper($html) ) {
+            return true;
+        }
         $emitted = $this->retainedSourceElementClasses($html);
         if ( array() === $emitted ) {
             return false;
