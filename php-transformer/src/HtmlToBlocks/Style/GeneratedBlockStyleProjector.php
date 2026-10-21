@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonStyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMElement;
@@ -280,7 +282,12 @@ final class GeneratedBlockStyleProjector
                     $guardedDeclarations[':not([style*="border-width"]):not([style*="border-top-width"])'][] = 'border-width:0!important';
                 }
             }
-            if ( preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(?:px|em|rem|vh|vw)$/', $height) ) {
+            $resolvedBox = $this->styleResolver->resolvedSourceStateDeclarations($sourceControl);
+            $controlOwnsHeight = (new ButtonStyleResolver())->heightNeedsControlBox($resolvedBox, CssLength::toPx($height) ?? INF);
+            if ( $controlOwnsHeight ) {
+                // The padded control owns this size, not its padding-free carriers.
+                $declarations[] = 'box-sizing:' . ($resolvedBox['box-sizing'] ?? 'border-box');
+            } elseif ( preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(?:px|em|rem|vh|vw)$/', $height) ) {
                 $wrapperDeclarations[] = 'height:100%';
                 $declarations[] = 'height:100%!important';
             } elseif (

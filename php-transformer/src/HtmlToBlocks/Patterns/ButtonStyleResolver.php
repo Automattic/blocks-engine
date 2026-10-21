@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -139,6 +140,35 @@ final class ButtonStyleResolver
         }
 
         return array( 'style' => $style );
+    }
+
+    /**
+     * Padding/borders impose a floor under border-box, but add to a
+     * content-box height. Either case requires the padded link to own the size.
+     * Reuse native attribute mapping for physical/logical padding and borders.
+     *
+     * @param array<string, string> $declarations
+     */
+    public function heightNeedsControlBox(array $declarations, float $height): bool
+    {
+        if ( ! is_finite($height) ) {
+            return false;
+        }
+        $css = '';
+        foreach ( $declarations as $name => $value ) {
+            $css .= $name . ':' . $value . ';';
+        }
+        $mapped = $this->mapper->map($this->declarations($css))['style'];
+        $chrome = 0.0;
+        foreach ( array( 'top', 'bottom' ) as $side ) {
+            $chrome += CssLength::toPx(CssValueInspector::withoutImportant((string) ($mapped['spacing']['padding'][$side] ?? '0'))) ?? 0.0;
+            $border = $mapped['border'][$side] ?? $mapped['border'] ?? array();
+            if ( ! in_array($border['style'] ?? '', array( 'none', 'hidden' ), true) ) {
+                $chrome += CssLength::toPx((string) ($border['width'] ?? '0')) ?? 0.0;
+            }
+        }
+        $boxSizing = CssValueInspector::comparable((string) ($declarations['box-sizing'] ?? 'border-box'));
+        return 'content-box' === $boxSizing ? $chrome > 0 : $chrome > $height;
     }
 
     /**

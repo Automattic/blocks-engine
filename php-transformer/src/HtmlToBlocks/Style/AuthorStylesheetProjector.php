@@ -5,11 +5,13 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonStyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -406,7 +408,7 @@ final class AuthorStylesheetProjector
                 $mixedButtonProjection = $this->withoutCollapsedButtonProjectedWidths($projectedPrelude, $body);
                 return $nonButtonLinkRule . ( null !== $mixedButtonProjection ? $mixedButtonProjection : $projectedPrelude . '{' . $body . '}' ) . $nativeButtonCompatRule;
             }
-            [ $placement, $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
+            [ $placement, $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body, $prelude, $context);
             $placementPrelude = $this->directButtonPlacementWrapperPrelude($prelude, $context);
             $placementRule = '' === $placement || '' === $placementPrelude
                 ? ''
@@ -422,7 +424,7 @@ final class AuthorStylesheetProjector
             return $nonButtonLinkRule . $placementRule . $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry, $inConditional) . $nativeButtonCompatRule;
         }
 
-        [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body);
+        [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body, $prelude, $context);
         $nonButtonLayoutPrelude = $this->withoutButtonPresentationProjectionSelectors($projectedPrelude, $wrapperPrelude);
         $nonButtonLayout = '' === $nonButtonLayoutPrelude ? '' : $nonButtonLayoutPrelude . '{' . $layout . '}';
         if ( '' === $layout ) {
@@ -804,17 +806,17 @@ final class AuthorStylesheetProjector
 
     private function isSpecializedNativeButton(DOMElement $element, string $body): bool
     {
-        return $this->hasNativeButtonGeometryDeclaration($body);
+        return $this->hasNativeButtonGeometryDeclaration($body, $element);
     }
 
-    private function hasNativeButtonGeometryDeclaration(string $body): bool
+    private function hasNativeButtonGeometryDeclaration(string $body, ?DOMElement $element = null): bool
     {
         if ( preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)/i', $body) && preg_match('/(?:^|;)\s*(?:width|height)\s*:\s*0(?:[;\s]|$)/i', $body) ) {
             return true;
         }
         foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
             $colon = strpos($declaration, ':');
-            if ( false !== $colon && $this->isButtonControlBoxSize(trim(substr($declaration, 0, $colon)), trim(substr($declaration, $colon + 1))) ) {
+            if ( false !== $colon && $this->isButtonControlBoxSize(trim(substr($declaration, 0, $colon)), trim(substr($declaration, $colon + 1)), null === $element ? array() : array( $element )) ) {
                 return true;
             }
         }
@@ -975,8 +977,9 @@ final class AuthorStylesheetProjector
     }
 
     /** @return array{string, string, string} */
-    private function splitDirectButtonGeometryDeclarations(string $body): array
+    private function splitDirectButtonGeometryDeclarations(string $body, string $prelude = '', ?AuthorStylesheetProjectionContext $context = null): array
     {
+        $controls = $this->buttonSizeSubjects($prelude, $context);
         $placement = array();
         $geometry = array();
         $inner = array();
@@ -1003,7 +1006,7 @@ final class AuthorStylesheetProjector
             }
             $places = '' !== $name && false !== $colon && $this->declarationPlacesTheButton($name, $placementVars);
             $owned = '' !== $name && false !== $colon && in_array($name, $wrapperOwned, true)
-                && ! $this->isButtonControlBoxSize($name, $value);
+                && ! $this->isButtonControlBoxSize($name, $value, $controls);
             if ( $places ) {
                 $placement[] = $declaration;
             } elseif ( $owned ) {
@@ -1016,8 +1019,9 @@ final class AuthorStylesheetProjector
     }
 
     /** @return array{string, string} */
-    private function splitButtonPresentationDeclarations(string $body): array
+    private function splitButtonPresentationDeclarations(string $body, string $prelude = '', ?AuthorStylesheetProjectionContext $context = null): array
     {
+        $controls = $this->buttonSizeSubjects($prelude, $context);
         $layout = array();
         $control = array();
         $placementVars = $this->buttonPlacementCustomProperties($body);
@@ -1033,7 +1037,7 @@ final class AuthorStylesheetProjector
                 continue;
             }
             if ( $this->declarationPlacesTheButton($name, $placementVars)
-                || ( $this->isButtonWrapperLayoutProperty($name) && ! $this->isButtonControlBoxSize($name, $value) )
+                || ( $this->isButtonWrapperLayoutProperty($name) && ! $this->isButtonControlBoxSize($name, $value, $controls) )
             ) {
                 $layout[] = $declaration;
             } else {
@@ -1110,10 +1114,47 @@ final class AuthorStylesheetProjector
         return $css . $rest;
     }
 
-    private function isButtonControlBoxSize(string $property, string $value): bool
+    /** @return list<DOMElement> */
+    private function buttonSizeSubjects(string $prelude, ?AuthorStylesheetProjectionContext $context): array
+    {
+        if ( null === $context ) {
+            return array();
+        }
+        $controls = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                continue;
+            }
+            foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                if ( '' !== $context->selectorProjections->controlMarker($element->getNodePath() ?? '') ) {
+                    $controls[] = $element;
+                }
+            }
+        }
+        return $controls;
+    }
+
+    /** @param list<DOMElement> $controls */
+    private function isButtonControlBoxSize(string $property, string $value, array $controls = array()): bool
     {
         if ( ! in_array($property, array( 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' ), true) ) {
             return false;
+        }
+        // Only proven padding/border sizing needs link ownership. Percentage,
+        // auto and fill sizes must keep the existing wrapper resolution chain.
+        if ( in_array($property, array( 'height', 'min-height', 'max-height' ), true) ) {
+            if ( array() === $controls ) {
+                return false;
+            }
+            foreach ( $controls as $element ) {
+                $resolved = $this->styleResolver->resolveCssVariablesInValue($value, $element);
+                $size = CssLength::toPx($resolved);
+                if ( null === $size || ! (new ButtonStyleResolver())->heightNeedsControlBox($this->styleResolver->resolvedSourceStateDeclarations($element), $size) ) {
+                    return false;
+                }
+            }
+            return true;
         }
         $value = strtolower(CssValueInspector::withoutImportant($value));
         return in_array($value, array( 'min-content', 'max-content', 'fit-content', 'content' ), true);
