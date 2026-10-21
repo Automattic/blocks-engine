@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 /**
  * Binds block colour, font size, font family and padding values that match a
@@ -70,7 +71,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  *   (`.hover\:bg-x:hover`) or nested (`.hover\:bg-x{&:hover{…}}`). A
  *   button whose literal colour is the `button` element style's token, and
  *   whose state rule the element's `:hover` restates, drops the literal
- *   instead (rendersThroughElement());
+ *   instead, as does a button painted by a matching bound author class
+ *   (rendersThroughElement());
  * - the source renders the property differently under a media condition
  *   (breakpoint or colour scheme), unless every such value matches the same
  *   token;
@@ -168,6 +170,8 @@ final class PresetBinding
     private array $stateTokens = array();
     /** @var array<string,array<string,string>> Authored class list => property => the one observation every element agreed on, or `!`. */
     private array $classStyles = array();
+    /** @var array<string,array<string,list<string>>> Unconditional single-class colour declarations. */
+    private array $classColors = array();
     private int $bound = 0;
     /** Whether an author rule selects `mark` elements, which a span made a mark would join. */
     private bool $markRules = false;
@@ -190,6 +194,16 @@ final class PresetBinding
             $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()): void {
                 $this->indexRule($prelude, $body);
                 $this->indexVariables($prelude, $body, $ancestors);
+                if (array() === $ancestors) {
+                    foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                        // A plain class (including its projected control exclusion)
+                        // proves a resting rule; contextual/conditional selectors do not.
+                        if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', trim($selector), $match)) continue;
+                        foreach (self::declarations($body) as [$property, $value]) {
+                            if (in_array($property, array('color', 'background-color', 'background'), true)) $this->classColors[$match[1]][$property][] = $value;
+                        }
+                    }
+                }
             });
         }
         foreach ($this->scopedVariables as $name => $values) {
@@ -612,9 +626,9 @@ final class PresetBinding
             $added = array($flagClass, sprintf($presetClass, '%s'));
             $slug = $this->presetSlug('color', $literal, $observed[$observedProperty] ?? null, $reason);
             $safe = null !== $slug && $this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason);
-            if (!$safe && 'state_variant' === $reason && is_string($literal) && $this->rendersThroughElement($name, $key, (string) $slug, $property, $tokens)) {
+            if (!$safe && 'state_variant' === $reason && is_string($literal) && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)) {
                 // A preset class would mask the hover colour; the button
-                // element style renders this value with its `:hover`, so the
+                // element or author class renders this value with its state, so the
                 // literal only duplicated it.
                 if (!self::removeDeclaration($declarations, $property, $literal)) {
                     $this->refuse('inconsistent_source');
@@ -1031,9 +1045,11 @@ final class PresetBinding
      * style renders (DesignSystem::unanimousElements()), so the block can
      * drop it and render through Global Styles. That needs the element value
      * to be this token and, when an interaction-state rule restyles the
-     * colour, the element's `:hover` value too: a state variant then renders
-     * through the element's `:hover`, which a preset class (`!important`)
-     * would mask. The other checks of safe() still apply.
+     * colour, the element's `:hover` value too. An unconditional author class
+     * that bindStylesheet() will bind to the same token also renders the
+     * value, without requiring unanimous button colours. In either case a
+     * preset class (`!important`) would mask the state rule; the other
+     * checks of safe() still apply.
      *
      * @param array<string,true> $tokens
      */
@@ -1042,10 +1058,25 @@ final class PresetBinding
         if ('button' !== $name) return false;
         $element = $this->system->elements['button'] ?? array();
         $field = 'text' === $key ? 'color' : 'background';
-        if (!isset($element[$field]) || $this->system->colorSlug($element[$field]) !== $slug) return false;
-        $stated = false;
-        foreach (self::families($property) as $family) $stated = $stated || $this->stateMatches($family, $tokens);
-        if ($stated && !isset($element['hover_' . $field])) return false;
+        if ('' === $slug) return false;
+        $throughClass = false;
+        foreach ($this->classColors as $class => $properties) {
+            if (!isset($tokens['class:' . $class]) && !isset($tokens['class:' . EngineMarker::subjectClassClass($class)])) continue;
+            foreach ('background-color' === $property ? array('background-color', 'background') : array($property) as $candidate) {
+                foreach ($properties[$candidate] ?? array() as $value) {
+                    // The same resolver and token lookup as bindStylesheet():
+                    // only a rule that will read this exact preset is evidence.
+                    if ($this->slug('color', $this->resolve($value)) !== $slug) return false;
+                    $throughClass = true;
+                }
+            }
+        }
+        if (!$throughClass) {
+            if (!isset($element[$field]) || $this->system->colorSlug($element[$field]) !== $slug) return false;
+            $stated = false;
+            foreach (self::families($property) as $family) $stated = $stated || $this->stateMatches($family, $tokens);
+            if ($stated && !isset($element['hover_' . $field])) return false;
+        }
         return $this->safe($property, $tokens, array(), false, false, $reason, true);
     }
 
