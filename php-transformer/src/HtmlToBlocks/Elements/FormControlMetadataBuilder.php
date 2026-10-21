@@ -804,7 +804,9 @@ final class FormControlMetadataBuilder
 
     private function classNames(DOMElement $element): string
     {
-        return implode(' ', SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'), 16));
+        $classes = SourceDom::attr($element, 'class');
+        // Bound by the authored attribute, not a prefix that can drop variant classes.
+        return implode(' ', SourceDom::boundedClassTokens($classes, strlen($classes)));
     }
 
     public function submitText(DOMElement $control, string $fallback): string
