@@ -1368,6 +1368,45 @@ final class SourceDom
         return $images->item(0);
     }
 
+    /** Whether a textless custom host contains only passive, nonempty graphics. */
+    public static function staticGraphicOnlyCustomElement(DOMElement $element): bool
+    {
+        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') ) {
+            return false;
+        }
+
+        $hasGraphic = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $tag = strtolower($child->tagName);
+            if ( 'svg' === $tag ) {
+                if ( ! self::svgHasDrawableContent($child) || ! self::isSafeInlineSvgMarkup(self::outerHtml($child)) ) {
+                    return false;
+                }
+            } elseif ( 'img' === $tag ) {
+                if ( '' === trim(self::attr($child, 'src')) && '' === trim(self::attr($child, 'srcset')) ) {
+                    return false;
+                }
+            } elseif ( 'picture' === $tag ) {
+                if ( ! self::pictureHasRenderableSource($child) ) {
+                    return false;
+                }
+                foreach ( $child->getElementsByTagName('*') as $descendant ) {
+                    if ( ! in_array(strtolower($descendant->tagName), array( 'img', 'source' ), true) ) {
+                        return false;
+                    }
+                }
+            } else {
+                return false;
+            }
+            $hasGraphic = true;
+        }
+
+        return $hasGraphic;
+    }
+
     /**
      * Whether $container is $element or one of its ancestors. Shared DOM
      * ancestry helper; consumed by form dispatch and navigation suppression.
