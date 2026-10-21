@@ -328,7 +328,7 @@ final class SourceElementClassifier
     public function isInlineSourceElement(string $tagName): bool
     {
         return $this->isInlineContentElement($tagName)
-            || in_array($tagName, array( 'a', 'audio', 'bdi', 'bdo', 'button', 'canvas', 'data', 'del', 'dfn', 'img', 'input', 'ins', 'label', 'meter', 'output', 'picture', 'progress', 'q', 's', 'select', 'svg', 'textarea', 'u', 'video' ), true);
+            || in_array($tagName, array( 'a', 'audio', 'bdi', 'bdo', 'button', 'canvas', 'data', 'dfn', 'img', 'input', 'label', 'meter', 'output', 'picture', 'progress', 'q', 'select', 'svg', 'textarea', 'video' ), true);
     }
 
     public function hasBlockContentChildren(DOMElement $element): bool

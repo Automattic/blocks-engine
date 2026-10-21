@@ -4874,7 +4874,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function isDirectFormattingRunBeforeBlock(DOMElement $element): bool
     {
         $parent = $element->parentNode;
-        if ( ! in_array(strtolower($element->tagName), array( 'abbr', 'b', 'cite', 'code', 'em', 'i', 'kbd', 'mark', 'samp', 'small', 'strong', 'sub', 'sup', 'time', 'var' ), true)
+        if ( ! in_array(strtolower($element->tagName), array( 'abbr', 'b', 'cite', 'code', 'del', 'em', 'i', 'ins', 'kbd', 'mark', 's', 'samp', 'small', 'strong', 'sub', 'sup', 'time', 'u', 'var' ), true)
             || ! $parent instanceof DOMElement
             || $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
         ) {
