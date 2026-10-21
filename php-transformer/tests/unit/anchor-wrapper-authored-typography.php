@@ -75,9 +75,10 @@ $assert(
     $markup
 );
 $assert(
-    str_contains($markup, '<a href="/"><span class="font-heading text-sm tracking-wide">DISTRICT 21</span></a>')
-        && str_contains($markup, '<a href="/"><span class="text-[7px] tracking-[0.25em]">FRIED CHICKEN · 100% HALAL</span></a>'),
-    'each leaf is wrapped by the propagated anchor, not flattened onto it',
+    str_contains($markup, '<a href="/">')
+        && str_contains($markup, '<span class="font-heading text-sm tracking-wide">DISTRICT 21</span>')
+        && str_contains($markup, '<span class="text-[7px] tracking-[0.25em]">FRIED CHICKEN · 100% HALAL</span>'),
+    'one retained anchor wraps the authored typography leaves',
     $markup
 );
 $assert(

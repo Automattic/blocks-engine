@@ -58,7 +58,7 @@ foreach ( range(1, 6) as $level ) {
     }
 }
 
-// 2. A card link wrapping a heading, text and a list: the heading keeps the icon and receives the card href like its siblings.
+// 2. A card link wrapping a heading, text and a list keeps one link around its blocks.
 $card = ( new HtmlTransformer() )->transform(
     '<div class="group"><a href="https://example.com/" target="_blank">'
     . '<h3 class="mb-1 flex items-center gap-2 text-xl font-semibold"> Project title ' . $icon . ' </h3>'
@@ -73,7 +73,8 @@ if ( null === $cardHeading
     || in_array('core/html', $blockNames($card['blocks'] ?? array()), true)
     || str_contains($cardMarkup, '<svg')
     || ! str_contains($cardHeadingContent, '<img src="assets/materialized-svg/')
-    || ! preg_match('/<a\b[^>]*href="https:\/\/example\.com\/"[^>]*>\s*Project title/', $cardHeadingContent)
+    || ! str_contains($cardMarkup, '<a href="https://example.com/" target="_blank">')
+    || str_contains($cardHeadingContent, '<a')
     || 'pass' !== ($card['source_reports']['wp_block_validity']['status'] ?? '') ) {
     $failures[] = 'Card-link heading with an inline icon keeps the icon, the link and a native heading block: ' . $cardMarkup;
 }

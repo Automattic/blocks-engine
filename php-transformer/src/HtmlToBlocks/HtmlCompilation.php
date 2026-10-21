@@ -3135,9 +3135,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function normalizeExplicitPlaintextElements(string $html): string
     {
-        return preg_replace_callback(
+        $html = preg_replace_callback(
             '/<plaintext\b([^>]*)>(.*?)<\/plaintext\s*>/is',
             static fn (array $matches): string => '<pre' . $matches[1] . '>' . str_replace('<', '&lt;', $matches[2]) . '</pre>',
+            $html
+        ) ?? $html;
+
+        // A real (unclosed) plaintext element consumes everything to EOF,
+        // including entities and apparent closing body/html tags. Normalize it
+        // before serializing and reparsing the document body: libxml's saved
+        // </plaintext> would otherwise become extra visible text on that pass.
+        return preg_replace_callback(
+            '/<plaintext\b([^>]*)>(.*)\z/is',
+            static fn (array $matches): string => '<pre' . $matches[1] . '>' . htmlspecialchars($matches[2], ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</pre>',
             $html
         ) ?? $html;
     }
@@ -3202,7 +3212,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<int, array<string, mixed>>
      */
-    private function convertChildren(DOMNode $parent, array &$fallbacks, bool $captureUnsupported = false): array
+    private function convertChildren(DOMNode $parent, array &$fallbacks, bool $captureUnsupported = false, bool $preserveLinkContainers = false): array
     {
         $blocks = array();
         $unsupportedRuntimeMediaOwner = null;
@@ -3236,7 +3246,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $unsupportedRuntimeMediaOwner = null;
             $ownerFallbackIndex = null;
             $fallbackOffset = count($fallbacks);
-            $block = $this->convertElement($child, $fallbacks, $captureUnsupported);
+            $block = $preserveLinkContainers && 'div' === strtolower($child->tagName) && 0 === $child->attributes->length
+                ? $this->layoutShellBlockForElements(array($child), $this->convertChildren($child, $fallbacks, $captureUnsupported, true), $child)
+                : $this->convertElement($child, $fallbacks, $captureUnsupported);
             if ( null !== $block ) {
                 $blocks[] = $block;
             } elseif ( $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($child) ) {
@@ -3527,7 +3539,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $mediaDispatch->block;
         }
 
-        if ($this->session->usesFallbackReductionMode() && ( 'button' === $tagName || ( 'a' === $tagName && '' === trim($this->attr($element, 'aria-label')) ) )) {
+        if ($this->session->usesFallbackReductionMode() && ( 'button' === $tagName || ( 'a' === $tagName && ! $this->sourceElementClassifier->hasBlockLevelDescendant($element) && '' === trim($this->attr($element, 'aria-label')) ) )) {
             $text = $this->innerHtml($element);
             if ('' !== trim($this->runtime->stripAllTags($text))) {
                 $attrs = array_merge($this->styleResolver->presentationAttributes($element), array('text' => $text));
@@ -11936,31 +11948,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
-     * Convert a whole-element link wrapper (an `<a href>` wrapping block-level
-     * content) into a core/group whose layout/className is preserved while the
-     * anchor's href is propagated onto native link-bearing inner blocks, so the
-     * card content stays navigable instead of carrying a dead href on the group
-     * (#260).
-     *
-     * Mapping is chosen deterministically from the wrapped content:
-     *  - Button-like anchors (carrying a button signal) are routed to
-     *    core/button/core/buttons upstream of this method, so they never arrive
-     *    here.
-     *  - Otherwise (card/tile with heading, image, text) the link is propagated
-     *    onto core/image (native link attributes) and core/heading /
-     *    core/paragraph / core/list-item (inline `<a>` around the text content),
-     *    recursing through layout containers (group/columns/column/…). The
-     *    container never carries a bogus href.
-     *
-     * When the link cannot be preserved on any inner block (e.g. the card holds
-     * only non-link-bearing content), a structured finding is emitted instead.
+     * Preserve a flow-content link as an existing layout shell around editable
+     * inner blocks. Bare divs keep their line-box boundaries rather than being
+     * coalesced across media. Phrasing-only buttons are handled upstream.
+     * Media-only wrappers retain native image-link/lightbox handling; if no
+     * inner block can carry that link, emit the existing structured finding.
      *
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
     public function convertLinkWrapperGroup(DOMElement $anchor, array &$fallbacks): ?array
     {
-        $children = $this->convertChildren($anchor, $fallbacks, true);
+        $children = $this->convertChildren($anchor, $fallbacks, true, $this->sourceElementClassifier->hasBlockLevelDescendant($anchor) && '' !== trim($anchor->textContent));
         if ( array() === $children ) {
             return null;
         }
@@ -11972,6 +11971,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // that would navigate away from the page.
         if ( $this->imageLinkOpensNativeLightbox($anchor) && $this->enableNativeLightboxOnImages($children) ) {
             return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($anchor), $children, $anchor);
+        }
+        // Keep a flow-content anchor as one clickable container. The existing
+        // layout shell saves exact wrapper attributes around editable blocks;
+        // unlike link propagation it also retains ancestor selectors and hitbox.
+        if ( $this->sourceElementClassifier->hasBlockLevelDescendant($anchor) && '' !== trim($anchor->textContent) ) {
+            $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
+            if ( '' === $href ) {
+                $anchor->removeAttribute('href');
+            } else {
+                $anchor->setAttribute('href', $href);
+            }
+            return $this->layoutShellBlockForElements(array($anchor), $children, $anchor);
         }
         if ( array() !== $linkAttrs && ! $this->propagateLinkWrapper($children, $linkAttrs) ) {
             $this->recordDroppedLinkWrapper($anchor);
