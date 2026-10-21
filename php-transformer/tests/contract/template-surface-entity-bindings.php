@@ -95,12 +95,21 @@ foreach (array('controls', 'action', 'selector', 'source_path') as $field) {
 // A numbered capture of a plain listing page is suppressed as a view of that
 // listing, not declared as a template variant. Its copy of the listing's form
 // (posting to its own URL) folds into the listing page's binding.
-$listing = static fn(string $action): string => '<main><h1>Journal</h1><p>Entries</p><form method="post" action="' . $action . '"><label for="news">Email</label><input id="news" type="email" name="news"><button>Subscribe</button></form><a href="/journal/page/2/">Older</a></main>';
+// The numbered render also carries a hidden trap field container, which
+// shifts every positional selector after it, including the layout graph's.
+$listing = static fn(string $action, string $trap = ''): string => '<html><head><link rel="stylesheet" href="/site.css"></head><body><main><h1>Journal</h1><p>Entries</p><form method="post" action="' . $action . '"><div class="row">' . $trap . '<div class="field"><label for="news">Email</label><input id="news" type="email" name="news"></div><div class="field"><button>Subscribe</button></div></div></form><a href="/journal/page/2/">Older</a></main></body></html>';
+$trap = '<div class="field"><input type="text" name="trap" tabindex="-1" aria-hidden="true" autocomplete="off"></div>';
 $paged = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     array('path' => 'index.html', 'content' => '<main>Home <a href="/journal/">Journal</a></main>'),
     array('path' => 'journal/index.html', 'content' => $listing('/journal/')),
-    array('path' => 'journal/page/2/index.html', 'content' => $listing('/journal/page/2/')),
+    array('path' => 'journal/page/2/index.html', 'content' => $listing('/journal/page/2/', $trap)),
+    array('path' => 'site.css', 'content' => '.row{display:flex;gap:12px}.field{flex:1 1 0}'),
 )))->toArray();
+$graphSelectors = array();
+foreach (RuntimeDeclarations::materialize($paged['source_reports']['compiled_site']['runtime_declarations'], $paged['source_reports']['compiled_site']['runtime_records'] ?? array()) as $declaration) {
+    if ('forms' === ($declaration['type'] ?? null)) foreach ($declaration['payload']['entities'] as $entity) $graphSelectors[$entity['source_path']] = array_column(array_column($entity['layout_graph']['nodes'] ?? array(), 'source'), 'selector');
+}
+$assert(2 === count($graphSelectors) && array() !== $graphSelectors['journal/index.html'] && $graphSelectors['journal/index.html'] !== $graphSelectors['journal/page/2/index.html'], 'The trap shifts the numbered capture layout graph selectors.');
 unset($paged['source_reports']['wordpress_site_plan'], $paged['source_reports']['conversion_report']);
 $pagedPlan = (new WordPressSitePlan())->fromCompilerResult($paged);
 $assert(!in_array('journal/page/2/index.html', array_column($pagedPlan['pages'], 'source_path'), true), 'The numbered capture is not emitted as a page.');
