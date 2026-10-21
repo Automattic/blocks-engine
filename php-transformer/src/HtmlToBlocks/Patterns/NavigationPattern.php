@@ -2285,6 +2285,16 @@ final class NavigationPattern implements PatternRecognizerInterface
 
             $block = $this->navigationBlockFromItem($item, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $collected);
             if ( null === $block ) {
+                // An item whose only content is a nameless image link — the
+                // centred logo of a header menu — is not a reason to reject the
+                // whole menu: it stays a navigation item at its source position,
+                // labelled by the image itself.
+                $block = $this->navigationImageLinkBlock($item, $presentationAttributes, $createBlock, $navigationContext);
+                if ( null !== $block ) {
+                    $collected[] = $item;
+                }
+            }
+            if ( null === $block ) {
                 return array();
             }
 
@@ -2296,6 +2306,104 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $blocks;
+    }
+
+    /**
+     * Lower a menu item whose only content is an image link with no accessible
+     * name to a navigation link labelled by that image.
+     *
+     * `anchorLabel()` has nothing to read on `<a href="/"><img src="logo.png"></a>`
+     * — no text, no `aria-label`/`title`, no image `alt` — so the item declines
+     * the text-labelled lowering and used to reject the whole list, leaving the
+     * menu to groups that keep each route's `active` state and so are never
+     * shared between routes. The item stays the list item the authored menu
+     * rules address: core renders it as an `<li>` carrying the item's classes,
+     * and RichText carries the `<img>` as its inline image object in the label.
+     * A `<picture>`'s `<source>` candidates are not kept, since a navigation
+     * label carries only the `<img>`; its own `src` is the rendered fallback.
+     * Anything else — a second element beside the image, a link that drives an
+     * in-page control — still declines the item.
+     *
+     * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
+     * @return array<string, mixed>|null
+     */
+    private function navigationImageLinkBlock(DOMElement $item, callable $presentationAttributes, callable $createBlock, ?NavigationPatternContext $navigationContext): ?array
+    {
+        $anchor = $this->primaryNavigationAnchor($item);
+        if ( ! $anchor instanceof DOMElement || ! $this->anchorNavigatesToDestination($anchor) ) {
+            return null;
+        }
+
+        $brand = $this->singleUnnamedBrandImage($anchor);
+        if ( null === $brand || '' === trim($this->attr($brand['image'], 'src')) ) {
+            return null;
+        }
+
+        $image = $brand['image']->cloneNode(false);
+        if ( ! $image instanceof DOMElement ) {
+            return null;
+        }
+        foreach ( array( 'loading', 'decoding', 'fetchpriority', 'srcset', 'sizes' ) as $attribute ) {
+            $image->removeAttribute($attribute);
+        }
+        $label = SourceDom::safeFallbackHtml($image);
+        if ( ! str_starts_with($label, '<img') ) {
+            return null;
+        }
+
+        $linkAttrs = $this->navigationItemAttributes($item, $anchor, null, array(
+            'label' => $label,
+            'url'   => SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
+            'kind'  => 'custom',
+        ), $presentationAttributes, $navigationContext);
+
+        return $createBlock('core/navigation-link', $linkAttrs, array(), $anchor);
+    }
+
+    /**
+     * The one unnamed image an anchor is built from, through the transparent
+     * carriers that may sit between a link and its media: a `<picture>`, a
+     * `<source>` beside it, or a presentation wrapper. Anything else the anchor
+     * holds is content the brand carrying cannot represent. A named image never
+     * reaches here — `anchorLabel()` has already turned its alt text into a
+     * navigation link's label.
+     *
+     * @return array{image: DOMElement, picture: ?DOMElement}|null
+     */
+    private function singleUnnamedBrandImage(DOMElement $anchor): ?array
+    {
+        $images = array();
+        foreach ( $anchor->getElementsByTagName('img') as $image ) {
+            if ( $image instanceof DOMElement ) {
+                $images[] = $image;
+            }
+        }
+        if ( 1 !== count($images) ) {
+            return null;
+        }
+
+        $image = $images[0];
+        foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+            if ( ! in_array(strtolower($descendant->tagName), array( 'picture', 'source', 'img', 'span', 'div' ), true) ) {
+                return null;
+            }
+        }
+        // Every carrier between the anchor and the image must be one of the
+        // transparent tags above, so the walk stops at the anchor itself.
+        for ( $node = $image->parentNode; $node instanceof DOMElement && ! $node->isSameNode($anchor); $node = $node->parentNode ) {
+            if ( ! in_array(strtolower($node->tagName), array( 'picture', 'span', 'div' ), true) ) {
+                return null;
+            }
+        }
+
+        $parent = $image->parentNode;
+        $picture = $parent instanceof DOMElement && 'picture' === strtolower($parent->tagName) ? $parent : null;
+
+        return array( 'image' => $image, 'picture' => $picture );
     }
 
     private function navigationBlockFromItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null, ?array &$listItems = null): ?array
