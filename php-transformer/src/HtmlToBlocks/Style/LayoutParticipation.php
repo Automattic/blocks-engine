@@ -58,6 +58,15 @@ final class LayoutParticipation
                 : ( in_array($tag, self::UA_INLINE_BLOCK, true) ? 'inline-block' : 'block' );
         }
 
+        // A link lowered together with its sole native button represents the
+        // button's box, not the surrounding inline anchor's line box.
+        if ( 'inline' === $sourceDisplay && 'a' === strtolower($element->tagName) && 1 === $element->childElementCount ) {
+            $child = $element->firstElementChild;
+            if ( $child instanceof DOMElement && 'button' === strtolower($child->tagName) ) {
+                $sourceDisplay = self::resolvedDisplay($child, $styleResolver) ?: 'inline-block';
+            }
+        }
+
         if ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true) ) {
             $context = self::FLEX_ITEM;
         } elseif ( in_array($parentDisplay, array( 'grid', 'inline-grid' ), true) ) {
