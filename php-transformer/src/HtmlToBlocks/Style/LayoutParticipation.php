@@ -160,13 +160,16 @@ final class LayoutParticipation
      *
      * `display: contents` does not remove the ancestor from the tree, so
      * core's `.wp-block-buttons .wp-block-button__link { width: 100% }` still
-     * matches. `:where()` cannot outrank that descendant selector; these
-     * declarations are therefore important. Author `!important` widths that
+     * matches, as does core's link `height:100%`. Restore auto height so the
+     * participating link sizes intrinsically (or stretches via the source flex
+     * alignment), rather than resolving core's percentage against the row.
+     * `:where()` cannot outrank those selectors; these
+     * declarations are therefore important. Author `!important` sizes that
      * arrive later still win.
      */
     public static function transferredItemDeclarations(): string
     {
-        return 'display:inline!important;width:fit-content!important;word-break:normal!important';
+        return 'display:inline!important;width:fit-content!important;height:auto!important;word-break:normal!important';
     }
 
     /**
