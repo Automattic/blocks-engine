@@ -2607,11 +2607,11 @@ PHP;
      * Records one unit the plan dropped or rewrote instead of failing. Findings
      * with the same fields are one row whose `omitted_count` counts them.
      *
-     * @param array<string,string> $finding code, unit, source_path, reason_code, message and unit identity fields.
+     * @param array<string,mixed> $finding code, unit, source_path, reason_code, message, metrics and unit identity fields.
      */
     private function recordUnitFinding(array $finding): void
     {
-        $finding = array_map(static fn(string $value): string => self::clipDiagnosticField($value), $finding);
+        $finding = array_map(static fn(mixed $value): mixed => is_string($value) ? self::clipDiagnosticField($value) : $value, $finding);
         $key = json_encode($finding, JSON_THROW_ON_ERROR);
         if (isset($this->unitFindings[$key])) { ++$this->unitFindings[$key]['omitted_count']; return; }
         $this->unitFindings[$key] = array('code' => $finding['code'], 'severity' => 'warning') + $finding + array('omitted_count' => 1);
@@ -5435,6 +5435,15 @@ PHP;
         }
         unset($declaration);
 
+        // Composition can grow a previously representable entity's bindings.
+        // Screen the final projected form before factoring or rebuilding manifests.
+        foreach ($declarations as &$declaration) {
+            if ('entity_collection' !== ($declaration['kind'] ?? null) || !is_array($declaration['payload']['entities'] ?? null)) continue;
+            $screened = RuntimeEntityManifest::screenEntities($declaration['payload']['entities'], $declaration['payload']['schema'], $declaration['source_path'] ?? '');
+            $declaration['payload']['entities'] = $screened['entities'];
+            foreach ($screened['diagnostics'] as $finding) $this->recordUnitFinding($finding);
+        }
+        unset($declaration);
         return RuntimeDeclarations::normalizeForComposition($declarations);
     }
 

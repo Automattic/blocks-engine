@@ -300,7 +300,14 @@ final class RuntimeDeclarations
             $payload = $declaration['payload'] ?? null;
             if (!is_array($payload) || !is_array($payload['entities'] ?? null) || !array_is_list($payload['entities'])) continue;
             $chunks = array(); $chunk = array();
-            foreach ($payload['entities'] as $entity) { $candidate = array_merge($chunk, array($entity)); if (strlen(self::canonicalJson(array('schema' => $payload['schema'], 'entities' => $candidate))) > self::MAX_PAYLOAD_BYTES) { if (array() === $chunk) throw new InvalidArgumentException("Runtime declaration {$index} contains an entity that exceeds the byte limit."); $chunks[] = $chunk; $chunk = array($entity); } else $chunk = $candidate; }
+            foreach ($payload['entities'] as $entity) {
+                if (strlen(self::canonicalJson(array('schema' => $payload['schema'], 'entities' => array($entity)))) > self::MAX_PAYLOAD_BYTES) throw new InvalidArgumentException("Runtime declaration {$index} contains an entity that exceeds the byte limit.");
+                $candidate = array_merge($chunk, array($entity));
+                if (strlen(self::canonicalJson(array('schema' => $payload['schema'], 'entities' => $candidate))) > self::MAX_PAYLOAD_BYTES) {
+                    $chunks[] = $chunk;
+                    $chunk = array($entity);
+                } else $chunk = $candidate;
+            }
             if (array() !== $chunk) $chunks[] = $chunk;
             $references = array(); foreach ($chunks as $chunk) { $recordPayload = array('schema' => $payload['schema'], 'entities' => $chunk); $encoded = self::canonicalJson($recordPayload); $hash = self::hash($recordPayload); $id = 'runtime-record-' . $hash; $records[$id] = array('schema' => self::RECORD_SCHEMA, 'id' => $id, 'content_hash' => $hash, 'bytes' => strlen($encoded), 'payload' => $recordPayload); $references[] = array('id' => $id, 'content_hash' => $hash, 'bytes' => strlen($encoded)); }
             $declaration['payload'] = array('schema' => self::RECORD_MANIFEST_SCHEMA, 'record_schema' => $payload['schema'], 'records' => $references); unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
