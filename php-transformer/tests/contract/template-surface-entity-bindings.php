@@ -92,4 +92,38 @@ foreach (array('controls', 'action', 'selector', 'source_path') as $field) {
     $assert(1 === count($unanchored) && $expectedSource === $unanchored[0]['source_path'] && 'document_not_emitted' === $unanchored[0]['reason_code'], 'A variant with different ' . $field . ' stays unanchored.');
     $assert(!isset($formsOf($different)[0]['replaced_fallback_identities']), 'An unanchored form must not be counted as an absorbed fallback.');
 }
+// A numbered capture of a plain listing page is suppressed as a view of that
+// listing, not declared as a template variant. Its copy of the listing's form
+// (posting to its own URL) folds into the listing page's binding.
+$listing = static fn(string $action): string => '<main><h1>Journal</h1><p>Entries</p><form method="post" action="' . $action . '"><label for="news">Email</label><input id="news" type="email" name="news"><button>Subscribe</button></form><a href="/journal/page/2/">Older</a></main>';
+$paged = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main>Home <a href="/journal/">Journal</a></main>'),
+    array('path' => 'journal/index.html', 'content' => $listing('/journal/')),
+    array('path' => 'journal/page/2/index.html', 'content' => $listing('/journal/page/2/')),
+)))->toArray();
+unset($paged['source_reports']['wordpress_site_plan'], $paged['source_reports']['conversion_report']);
+$pagedPlan = (new WordPressSitePlan())->fromCompilerResult($paged);
+$assert(!in_array('journal/page/2/index.html', array_column($pagedPlan['pages'], 'source_path'), true), 'The numbered capture is not emitted as a page.');
+$pagedFindings = array_values(array_filter($pagedPlan['diagnostics'] ?? array(), static fn(array $row): bool => 'runtime_entity_binding_unanchored' === ($row['code'] ?? null)));
+$assert(array() === $pagedFindings, 'A numbered capture form folds into its listing: ' . json_encode($pagedFindings));
+$pagedForms = $formsOf($pagedPlan);
+$pagedIdentities = array_values(array_filter(array_column(array_filter($paged['fallbacks'], static fn(array $row): bool => 'html_form_fallback' === ($row['diagnostic_code'] ?? null)), 'fallback_identity')));
+sort($pagedIdentities);
+$assert(1 === count($pagedForms) && 'journal/index.html' === $pagedForms[0]['bindings'][0]['source_path'], 'The listing page owns the one form binding.');
+$assert(2 === count($pagedIdentities) && $pagedIdentities === ($pagedForms[0]['replaced_fallback_identities'] ?? null), 'The listing form accounts for the numbered capture fallback.');
+WordPressSitePlan::assertValid($pagedPlan);
+// A listing that became a template surface has no page route; its undeclared
+// numbered capture is still owned by the surface beside it in the source tree.
+$surfaceListing = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main>Home <a href="/updates/">Updates</a></main>'),
+    array('path' => 'updates/index.html', 'content' => $listing('/updates/'), 'metadata' => array('template_surface' => $surface)),
+    array('path' => 'updates/page/2/index.html', 'content' => $listing('/updates/page/2/')),
+)))->toArray();
+unset($surfaceListing['source_reports']['wordpress_site_plan'], $surfaceListing['source_reports']['conversion_report']);
+$surfacePlan = (new WordPressSitePlan())->fromCompilerResult($surfaceListing);
+$surfaceFindings = array_values(array_filter($surfacePlan['diagnostics'] ?? array(), static fn(array $row): bool => 'runtime_entity_binding_unanchored' === ($row['code'] ?? null)));
+$assert(array() === $surfaceFindings, 'A numbered capture form folds into its template surface: ' . json_encode($surfaceFindings));
+$surfaceForms = $formsOf($surfacePlan);
+$assert(1 === count($surfaceForms) && 'templates/archive-updates.html' === ($surfaceForms[0]['bindings'][0]['target_path'] ?? null) && 2 === count($surfaceForms[0]['replaced_fallback_identities'] ?? array()), 'The template surface form accounts for the numbered capture fallback.');
+WordPressSitePlan::assertValid($surfacePlan);
 echo "Template surface entity binding contracts passed.\n";
