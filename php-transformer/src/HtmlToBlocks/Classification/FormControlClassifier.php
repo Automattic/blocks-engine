@@ -184,9 +184,6 @@ final class FormControlClassifier
         if ( 'new-password' === strtolower(trim($control->getAttribute('autocomplete'))) ) {
             return true;
         }
-        if ( self::isUnreachableTextTrap($control) ) {
-            return true;
-        }
         if ( self::isHoneypotControl($control) ) {
             return true;
         }
@@ -233,43 +230,49 @@ final class FormControlClassifier
      * the tab order, and hidden or moved off-screen by inline style — all
      * three together on the control itself, or all three together on the label
      * that wraps it. A field carrying only some of the signals stays authored
-     * (see `isUnreachableTextTrap()` for the aria-hidden-plus-untabbable
-     * free-text trap that needs no style). Form providers bring their own
+     * except for an aria-hidden-plus-untabbable free-text trap, which needs
+     * no style (see `isUnreachableTextTrap()`). Form providers bring their own
      * spam protection, so a honeypot is left out of form extraction entirely:
      * no field, and no unrepresented label text.
      */
     public static function isHoneypotControl(DOMElement $control): bool
     {
-        return self::hasHoneypotSignals($control) || null !== self::honeypotSignalLabel($control);
+        return self::isUnreachableTextTrap($control) || self::hasHoneypotSignals($control) || null !== self::honeypotSignalLabel($control);
     }
 
     /**
-     * The labels that wrap a control whose honeypot signals sit on the label
-     * itself: each label's entire copy is that honeypot's decoy copy, so none
-     * of it is reader-facing form context.
+     * A trap owns its associated/wrapping label and its immediate field
+     * container's copy. Never claim a form/group or a container shared with
+     * a real control, and count raw controls here (authored enumeration has
+     * already dropped the traps).
      *
      * @return array<int, DOMElement>
      */
-    public static function honeypotLabels(DOMElement $form): array
+    public static function honeypotCopyElements(DOMElement $form): array
     {
-        $labels = array();
+        $elements = array();
         foreach ( $form->getElementsByTagName('*') as $control ) {
-            if ( ! $control instanceof DOMElement || ! self::isControlElement($control) ) {
+            if ( ! $control instanceof DOMElement || ! self::isControlElement($control) || ! self::isHoneypotControl($control) ) {
                 continue;
             }
-            $label = self::honeypotSignalLabel($control);
-            if ( null === $label ) {
+            $label = FormControlLabel::element($control);
+            if ( null !== $label ) {
+                $elements[] = $label;
+            }
+            $container = $control->parentNode;
+            if ( ! $container instanceof DOMElement
+                || in_array(strtolower($container->tagName), array( 'form', 'fieldset', 'body', 'html' ), true) ) {
                 continue;
             }
-            foreach ( $labels as $seen ) {
-                if ( $seen->isSameNode($label) ) {
+            foreach ( $container->getElementsByTagName('*') as $sibling ) {
+                if ( $sibling instanceof DOMElement && self::isControlElement($sibling) && ! self::isHoneypotControl($sibling) ) {
                     continue 2;
                 }
             }
-            $labels[] = $label;
+            $elements[] = $container;
         }
 
-        return $labels;
+        return $elements;
     }
 
     /** The control's wrapping label when that label, not the control, carries the honeypot signals. */

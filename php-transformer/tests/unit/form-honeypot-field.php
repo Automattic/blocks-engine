@@ -166,6 +166,39 @@ $assert(
     json_encode($partialNames)
 );
 
+// Neutral regression for #3200: a two-signal trap between visible fields.
+$neutral = $compile('<main><form method="post" action="/contact">'
+    . '<div><label for="first">First name</label><input id="first" name="first"></div>'
+    . '<div><label for="decoy" aria-hidden="true">Decoy label</label>'
+    . '<input id="decoy" name="decoy" tabindex="-1" aria-hidden="true">'
+    . '<p>Decoy helper copy</p></div>'
+    . '<p>We reply within a day.</p>'
+    . '<div><label for="last">Last name</label><input id="last" name="last"></div>'
+    . '<button type="submit">Send</button></form></main>');
+$neutralEntity = $formEntity($neutral);
+$assert(is_array($neutralEntity) && array('first', 'last') === $fieldNames($neutralEntity), 'neutral trap is not a control');
+$assert(
+    array('We reply within a day.') === array_column($neutralEntity['form']['unrepresented_context'] ?? array(), 'text'),
+    'only genuine interleaved copy is unrepresented',
+    $extractedJson($neutralEntity)
+);
+$assert(! str_contains($extractedJson($neutralEntity), 'Decoy'), 'no decoy label or container copy reaches extracted metadata');
+$assert(
+    1 === count($unrepresentedDiagnostics($neutral)) && ! str_contains((string) json_encode($unrepresentedDiagnostics($neutral)), 'Decoy'),
+    'only genuine copy raises an unrepresented diagnostic',
+    json_encode($unrepresentedDiagnostics($neutral))
+);
+
+// A trap nested beside a real field must not become that field's description.
+$descriptionResult = $compile('<main><form method="post"><div>'
+    . '<label for="real">Email</label><input id="real" name="real">'
+    . '<div><label for="trap" aria-hidden="true">Decoy label</label>'
+    . '<input id="trap" name="trap" tabindex="-1" aria-hidden="true"><p>Decoy helper copy</p></div>'
+    . '</div><button type="submit">Send</button></form></main>');
+$descriptionEntity = $formEntity($descriptionResult);
+$assert(! str_contains($extractedJson($descriptionEntity), 'Decoy'), 'trap copy is not a neighboring description candidate', $extractedJson($descriptionEntity));
+$assert(array() === $unrepresentedDiagnostics($descriptionResult), 'trap description candidates produce no diagnostics');
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "form honeypot field FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);
