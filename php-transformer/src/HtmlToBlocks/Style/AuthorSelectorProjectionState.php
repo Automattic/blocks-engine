@@ -520,6 +520,12 @@ final class AuthorSelectorProjectionState
         return array( 'reached' => $reached, 'covered' => $covered );
     }
 
+    /** Subject identity for a collapsed surface; its rules still target the logical control. */
+    public function buttonPresentationCarrierClasses(string $path): array
+    {
+        return $this->carrierClasses($this->allocatePathMarker('control', $path), $path);
+    }
+
     public function installButtonPresentationMarker(string $path, string $marker): void
     {
         $this->controlMarkers[$path] = $marker;

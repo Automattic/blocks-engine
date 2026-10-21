@@ -381,6 +381,7 @@
       "php tests/unit/theme-json-projection-responsive-breakpoints.php",
       "php tests/unit/design-system-usage-derivation.php",
       "php tests/unit/hover-variant-buttons.php",
+      "php tests/unit/wrapped-hover-variant-buttons.php",
       "php tests/unit/design-usage-media-scoped-styles.php",
       "php tests/unit/responsive-font-size-not-baked.php",
       "php tests/unit/heading-block-span-font-size.php",
