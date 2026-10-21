@@ -569,6 +569,24 @@ $multiPageHasPageCopy = array() !== array_map(static fn (array $asset): string =
 $assert(array(array('kind' => 'global')) === $multiPagePlanSharedScopes && ! $multiPageHasPageCopy, 'an identically projected shared stylesheet linked by every page is emitted once, site-wide across its consuming pages, with no per-page copy');
 $assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
 
+// A text-only inline-block span in a flex row is first routed as an inline
+// layout carrier, then adopted as its own paragraph block carrying subject
+// classes. The subject arm covers it on every page, so no page keeps a
+// per-element arm and the stylesheet stays one shared asset.
+$adoptedSpanPage = static fn (string $icon, string $title): string => '<link rel="stylesheet" href="icons.css"><main><section><div class="row"><span class="icon text-4xl">' . $icon . '</span><h2>' . $title . '</h2></div></section></main>';
+$adoptedSpan = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => $adoptedSpanPage('construction', 'Program A') ),
+        array( 'path' => 'b.html', 'kind' => 'html', 'content' => $adoptedSpanPage('campaign', 'Program B') ),
+        array( 'path' => 'icons.css', 'kind' => 'css', 'content' => '.icon{display:inline-block;line-height:1}.text-4xl{font-size:2.25rem;line-height:2.5rem}.row{display:flex;gap:12px;align-items:center}' ),
+    ),
+) )->toArray();
+$adoptedSpanCss = array_values(array_filter($adoptedSpan['assets'] ?? array(), static fn (array $asset): bool => str_starts_with((string) ($asset['path'] ?? ''), 'icons.')));
+$adoptedSpanPages = array_column($adoptedSpan['source_reports']['compiled_site']['pages'] ?? array(), 'block_markup', 'source_path');
+$adoptedSpanCarriers = preg_match_all('/<p class="[^"]*blocks-engine-synthetic-paragraph[^"]*blocks-engine-role-semantic blocks-engine-subject [^"]*">(?:construction|campaign)</', implode('', $adoptedSpanPages));
+$assert(2 === $adoptedSpanCarriers && 1 === count($adoptedSpanCss) && 'icons.css' === ($adoptedSpanCss[0]['path'] ?? '') && 0 === preg_match('/blocks-engine-semantic-[a-f0-9]{12}-\d+/', (string) ($adoptedSpanCss[0]['content'] ?? '')) && str_contains((string) ($adoptedSpanCss[0]['content'] ?? ''), 'font-size:2.25rem'), 'a text-only span adopted as its own paragraph is covered by the subject arm, so its stylesheet stays one shared asset with no per-element arm');
+
 // A source grid's attribute-specific desktop winner must remain later than a
 // shared fallback that still matches the attribute-free editable Group.
 $responsiveGrid = ( new ArtifactCompiler() )->compile(array(
