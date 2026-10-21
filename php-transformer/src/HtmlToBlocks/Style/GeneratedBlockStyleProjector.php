@@ -29,6 +29,28 @@ final class GeneratedBlockStyleProjector
         GeneratedSupportStylesheetState $generatedStyles,
         bool $preserveGeneratedStyle
     ): array {
+        // Adding has-background opts these blocks into core's padded box. Source
+        // CSS has no such opt-in: carry every side, including initial zeroes.
+        // Resolve before mapping so shorthand/longhand and selector precedence
+        // use the same primitives as other source presentation.
+        if ( in_array($name, array( 'core/paragraph', 'core/heading', 'core/list', 'core/columns' ), true)
+            && (isset($attrs['style']['color']['background']) || isset($attrs['style']['color']['gradient'])) ) {
+            $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($sourceElement));
+            $mapped = $this->styleResolver->styleAttributeMapper()->map(
+                $declarations,
+                fn (string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $sourceElement)
+            );
+            $padding = $mapped['style']['spacing']['padding'] ?? array();
+            foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+                // Lists have a UA indentation even without authored padding.
+                $initial = 'left' === $side && in_array(strtolower($sourceElement->tagName), array( 'ul', 'ol' ), true) ? '40px' : '0';
+                $property = 'padding-' . $side;
+                $candidate = $this->styleResolver->classOwnedResponsiveDeclarations($sourceElement, array($property => $padding[$side] ?? $initial));
+                if ( isset($candidate[$property]) ) {
+                    $attrs['style']['spacing']['padding'][$side] = $candidate[$property];
+                }
+            }
+        }
         $normalized = $this->runtime->normalizeBlockSupportAttributes($name, $attrs);
         $fallback = $normalized['fallbackStyle'];
         $attrs = $normalized['attrs'];
