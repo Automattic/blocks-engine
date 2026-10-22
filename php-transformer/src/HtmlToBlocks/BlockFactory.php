@@ -64,6 +64,20 @@ final class BlockFactory
         );
     }
 
+    public function rebuild(array $block, array $attrs): array
+    {
+        $name = (string) ($block['blockName'] ?? '');
+        $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+        $rebuilt = $this->create($name, $attrs, $innerBlocks);
+        foreach ( $block as $key => $value ) {
+            if ( is_string($key) && str_starts_with($key, '_') ) {
+                $rebuilt[$key] = $value;
+            }
+        }
+
+        return $rebuilt;
+    }
+
     /**
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
