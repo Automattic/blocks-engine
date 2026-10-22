@@ -56,6 +56,20 @@ Visual parity runners should exchange `blocks-engine/php-transformer/visual-pari
 
 `blocks` is always a list-shaped array of parsed WordPress block arrays when exposed through `TransformerResult` or `FormatBridge::toBlocks()`. `fallbacks` entries should include stable generic metadata such as `type`, `reason`, `diagnostic_code`, `source_format`, and the preserved source fragment needed by callers to inspect or replay unsupported content.
 
+### Form fallback fields
+
+`html_form_fallback` entries retain `form` (submission metadata), `controls`, `readable_blocks`, preserved `html`, and `binding` plus stable reconciliation identities. The additive top-level `form_intent` field is a structural hint, not proof that a provider can materialize the form:
+
+- `commerce_add_to_cart`: a cart/add action path, hidden item identifier with quantity, or add-to-cart submit semantics.
+- `login`: a password control.
+- `search`: a GET/default-GET search control, query name, search role, or search action path.
+- `filter_sort`: a GET/default-GET form with select controls, after search detection.
+- `newsletter`: an email field with subscription submit semantics or action path.
+- `contact`: email and message controls.
+- `unknown`: no supported structural evidence (also the default for findings built without intent).
+
+Classification uses source semantics, not platform, theme, or vendor class names. Commerce takes precedence, then login, search/filter, newsletter, and contact. Cart forms use the existing `shop` / `commerce_controls` / `commerce_cart_runtime` materialization target and commerce runtime repair metadata, including outside product grids; all other intents retain the legacy `form_provider` target when controls exist. Consumers should inspect intent before offering forms to a contact-form provider, and treat absent intent from older producers as `unknown`. Existing fields, bindings, and rendering remain unchanged; native forms that need no fallback do not acquire one.
+
 `context` contains normalized per-call behavior flags. The stable keys are `strict` and `allow_fallbacks`. Callers may pass these keys at the top level of the options array or under `context`.
 
 `provenance` entries identify the transformer-owned operation and may include caller-supplied `source` and `scope` strings. These fields are generic metadata for wrappers and product integrations; canonical fixtures should avoid downstream package names.
