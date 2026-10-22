@@ -3614,6 +3614,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $flowContainerDispatch->block;
         }
 
+        // Autoplay cannot change a single slide. Keep its complete light DOM
+        // (including responsive images and links), not the image-only slide path.
+        if ( $this->authoredCarouselGenerator->isStaticSingleSlideCarousel($element)
+            && $this->isSafeTransparentCustomElement($element, true)
+        ) {
+            return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $this->convertChildren($element, $fallbacks, $captureUnsupported), $element);
+        }
+
         $carousel = $this->authoredCarouselGenerator->convert($element);
         if ( null !== $carousel ) {
             return $carousel;
@@ -3935,7 +3943,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $block;
     }
 
-    private function isSafeTransparentCustomElement(DOMElement $element): bool
+    private function isSafeTransparentCustomElement(DOMElement $element, bool $allowMotionStructure = false): bool
     {
         foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) {
@@ -3946,7 +3954,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // transparent lowering, so preserve the complete custom element.
             if ( $this->runtimeIslands->isRuntimeDomTarget($candidate)
                 || array() !== $this->eventMetadata($candidate)
-                || $this->sourceElementClassifier->hasMotionStructureToken($candidate)
+                || (! $allowMotionStructure && $this->sourceElementClassifier->hasMotionStructureToken($candidate))
             ) {
                 return false;
             }

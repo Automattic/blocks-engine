@@ -246,9 +246,9 @@ $collectCarousels = static function (array $blocks) use (&$collectCarousels, &$r
 };
 $collectCarousels($responsiveTestimonialResult['blocks'] ?? array());
 $responsiveTestimonialMarkup = (string) ($responsiveTestimonialResult['serialized_blocks'] ?? '');
-$assert(2 === count($responsiveTestimonialBlocks) && 2 === count($responsiveTestimonialBlocks[0]['innerBlocks'] ?? array()) && 2 === count($responsiveTestimonialBlocks[1]['innerBlocks'] ?? array()), 'responsive carousel counterparts reconcile controls and complete text-rich slide collections through stable root identity');
-$assert(403 === ($responsiveTestimonialBlocks[0]['attrs']['viewportHeight'] ?? null) && 309 === ($responsiveTestimonialBlocks[1]['attrs']['viewportHeight'] ?? null), 'slideshow viewport geometry falls back to each authored root when its slide list uses percentage height');
-$assert(2 === substr_count($responsiveTestimonialMarkup, 'Second testimonial.') && 2 === substr_count($responsiveTestimonialMarkup, 'data-wp-interactive=') && 4 === substr_count($responsiveTestimonialMarkup, 'data-carousel-index='), 'responsive text slides remain editable and each variant receives functional carousel controls and pagination');
+$assert(1 === count($responsiveTestimonialBlocks) && 2 === count($responsiveTestimonialBlocks[0]['innerBlocks'] ?? array()), 'responsive carousel hosts keep their own slide lists even when root identities match');
+$assert(309 === ($responsiveTestimonialBlocks[0]['attrs']['viewportHeight'] ?? null), 'slideshow viewport geometry falls back to its authored root when its slide list uses percentage height');
+$assert(2 === substr_count($responsiveTestimonialMarkup, 'First testimonial.') && 1 === substr_count($responsiveTestimonialMarkup, 'Second testimonial.') && 1 === substr_count($responsiveTestimonialMarkup, 'data-wp-interactive=') && 2 === substr_count($responsiveTestimonialMarkup, 'data-carousel-index='), 'the incomplete host keeps its own editable content and only the complete host receives carousel pagination');
 
 $thumbnailRailSource = '<div id="gallery-showcase" class="photo-slideshow"><div class="stage"><div class="slides">'
     . '<div class="slide"><img src="one-large.jpg" alt="One"></div>'
