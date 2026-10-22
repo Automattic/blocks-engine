@@ -923,7 +923,13 @@ final class PresetBinding
 
     private function exactFontFamilySlug(string $value): ?string
     {
-        $normalize = static fn(string $stack): string => strtolower((string) preg_replace('/[\s"\']+/', '', $stack));
+        $value = $this->resolve($value);
+        // Compare the whole stack, not just its primary family. Splitting
+        // first preserves whitespace and commas inside quoted family names.
+        $normalize = static fn(string $stack): array => array_map(
+            static fn(string $family): string => strtolower(trim(trim($family), "\"'")),
+            CssValueSplitter::splitTopLevel($stack, array(','))
+        );
         foreach ($this->system->fontFamilies as $family) if ($normalize($family['fontFamily']) === $normalize($value)) return $family['slug'];
         return null;
     }
