@@ -12016,6 +12016,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'rel'             => $this->attr($link, 'rel'),
             'linkClass'       => $this->mergeClassNames(
                 $this->attr($link, 'class'),
+                $this->styleResolver->inlineCustomPropertyCarrierClassName($link),
                 ...$this->session->authorSelectorProjectionState()->semanticMarkersForPath($link->getNodePath() ?? '')
             ),
         );
