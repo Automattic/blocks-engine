@@ -1672,6 +1672,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $blocks = $this->compressProjectedGroupChains($blocks);
         $fallbacks = array_merge($fallbacks, $this->transformationEvidence()->responsiveImageFallbacks());
         $this->reconcileNativeListItemFallbacks($fallbacks, $blocks);
+        $this->reconcileFormControlGroupFallbacks($body, $fallbacks);
         if (! $this->session->usesFallbackReductionMode()) {
             $blocks = $this->reduceCoreHtmlFallbackBlocks($blocks);
         }
@@ -7697,6 +7698,68 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
         return null;
+    }
+
+    /**
+     * Form classification must see the original conversion findings. Only after
+     * conversion can the enclosing form claim a control-only unsupported group.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function reconcileFormControlGroupFallbacks(DOMElement $body, array &$fallbacks): void
+    {
+        $forms = array();
+        $unsupported = array();
+        foreach ( $fallbacks as $index => $finding ) {
+            $selector = $finding['selector'] ?? '';
+            if ( 'html_form_fallback' === ($finding['diagnostic_code'] ?? '') ) {
+                $forms[$selector] = array_fill_keys(array_column($finding['controls'] ?? array(), 'selector'), true);
+            } elseif ( 'html_unsupported_element' === ($finding['diagnostic_code'] ?? '') ) {
+                $unsupported[$selector][] = $index;
+            }
+        }
+        if ( array() === $forms || array() === $unsupported ) return;
+
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            $selector = $this->elementSelector($element);
+            if ( ! isset($unsupported[$selector]) ) continue;
+            for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+                $owner = $forms[$this->elementSelector($parent)] ?? null;
+                if ( null === $owner ) continue;
+                $controls = FormControlClassifier::controlElements($element);
+                if ( array() !== $controls
+                    && $this->isSafeTransparentCustomElement($element)
+                    && $this->isFormOwnedControlStructure($element, $owner)
+                ) {
+                    foreach ( $unsupported[$selector] as $index ) unset($fallbacks[$index]);
+                }
+                break;
+            }
+        }
+        $fallbacks = array_values($fallbacks);
+    }
+
+    /** @param array<string, bool> $controls */
+    private function isFormOwnedControlStructure(DOMElement $element, array $controls): bool
+    {
+        if ( FormControlClassifier::isControlElement($element) ) {
+            return isset($controls[$this->elementSelector($element)]);
+        }
+        $tag = strtolower($element->tagName);
+        if ( ! in_array($tag, array('div', 'span'), true) && ! str_contains($tag, '-') ) return false;
+        if ( (new CustomElementRuntimeDependency())->hasConfigurationAttribute($element)
+            || $element->hasAttribute('role') || $element->hasAttribute('aria-label') || $element->hasAttribute('aria-labelledby')
+        ) return false;
+        $hasChild = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $hasChild = true;
+                if ( ! $this->isFormOwnedControlStructure($child, $controls) ) return false;
+            } elseif ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+        }
+        return $hasChild;
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks @param array<int, array<string, mixed>> $blocks */
