@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ProjectedNavigationConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -64,9 +65,17 @@ final class NavigationPatternContext
     }
 
     /** Source list identity also survives when its landmark owns another block. */
-    public function navigationListHostIdentity(DOMElement $element, ?DOMElement $list = null): string
+    public function navigationListHostIdentity(DOMElement $element, ?DOMElement $list = null, ?string $rowGap = null): string
     {
         $boxMarker = $this->navigationListBoxMarker($list);
+        if ('' !== $boxMarker && null !== $rowGap && !$this->declaresColumns($list)) {
+            // Core's flow layout does not render blockGap as a horizontal gap.
+            // This projected list box supplies the flex row, so carry its gap
+            // through the same support-style serializer as other rendered boxes.
+            $gapStyle = array('spacing' => array('blockGap' => $rowGap));
+            $this->projectSourceToNativeTarget($list, '.wp-block-navigation.' . $boxMarker,
+                $this->styleResolver->styleAttributeMapper()->serialize($gapStyle)['style']);
+        }
         $identity = $this->sourceListHostIdentity($element);
 
         return trim($identity . ' ' . $boxMarker);
@@ -177,6 +186,39 @@ final class NavigationPatternContext
             $this->session?->sourceStyleResolutionState()->pseudoElementRules() ?? array(),
             fn (DOMElement $element, string $selector): bool => $this->styleResolver->matchesCssSelector($element, $selector)
         );
+    }
+
+    /** @return array<string, string> */
+    public function resolvedDeclarations(DOMElement $element): array
+    {
+        return $this->styleResolver?->cssDeclarations($this->resolvedStyle($element)) ?? array();
+    }
+
+    /** Horizontal border-box extent of a content-free box; unknown lengths refuse carry. */
+    public function emptyBoxWidth(DOMElement $element): ?float
+    {
+        if (null === $this->styleResolver) return null;
+        $declarations = $this->resolvedDeclarations($element);
+        $mapped = $this->styleResolver->styleAttributeMapper()->map($declarations)['style'];
+        $extent = 0.0;
+        foreach (array('left', 'right') as $side) {
+            $padding = CssLength::toPx((string) ($mapped['spacing']['padding'][$side] ?? '0'));
+            $border = $mapped['border'][$side] ?? $mapped['border'] ?? array();
+            $borderWidth = in_array($border['style'] ?? 'none', array('none', 'hidden'), true)
+                ? 0.0 : CssLength::toPx((string) ($border['width'] ?? 'medium'));
+            if (null === $padding || null === $borderWidth) return null;
+            $extent += $padding + $borderWidth;
+        }
+        $widthValue = $declarations['width'] ?? 'auto';
+        $width = 'auto' === $widthValue ? 0.0 : CssLength::toPx($widthValue);
+        if (null === $width) return null;
+        return 'border-box' === $this->resolvedBoxSizing($element)
+            ? max($extent, $width) : $extent + $width;
+    }
+
+    public function resolvedBoxSizing(DOMElement $element): string
+    {
+        return (string) ($this->styleResolver?->referenceViewportAuthorDeclarations($element, array('box-sizing'))['box-sizing'] ?? 'content-box');
     }
 
     public function resolvedStyle(DOMElement $element): string
