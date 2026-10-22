@@ -19,6 +19,18 @@ item set. The listing's first binding anchors the enclosing region and the
 remaining bindings anchor each control. Checkbox facets use the additive
 `shape: "checkboxes"` value, including when there are no cards to partition.
 
+Sort selects recognize ordering values independently of localized labels;
+`sort`/`order`-named selects also qualify without card-order proof. Known
+options retain normalized `order` values (including `oldest` for ascending
+creation/date order); unknown options on explicitly named selects retain their
+source value and label without inventing an order. Forms entirely owned by
+listing controls are not also declared as generic provider forms.
+
+Empty candidates require an empty-state signal, not checkbox controls alone.
+They are suppressed when any populated product grid qualifies. Control lookup
+includes the nearest landmark but does not cross it, so unrelated promoted
+cards outside the collection's landmark do not veto an empty listing.
+
 ## Product rows
 
 `generic/products/v1` is the provider-neutral `products` entity collection for

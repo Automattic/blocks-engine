@@ -85,7 +85,7 @@ final class CommerceFallbackReporter
 
             $products = $this->recognizer->isProductGridContainer($element) ? $this->productCardsForContainer($element, $blocks) : array();
             if ( array() === $products ) {
-                if ( ! in_array(strtolower($element->tagName), array('div', 'section'), true) ) {
+                if ( ! in_array(strtolower($element->tagName), array('div', 'section'), true) || ! $this->isEmptyCollectionRegion($element) ) {
                     continue;
                 }
                 // An empty listing cannot claim a populated descendant grid.
@@ -125,6 +125,12 @@ final class CommerceFallbackReporter
             $candidates[] = array('element' => $element, 'products' => $products, 'listing' => $listing);
         }
 
+        // Controls in an off-canvas panel are not independent empty loops.
+        // Only consider zero-item candidates when no populated grid qualified.
+        $hasPopulatedGrid = array() !== array_filter($candidates, static fn (array $candidate): bool => array() !== $candidate['products']);
+        if ( $hasPopulatedGrid ) {
+            $candidates = array_values(array_filter($candidates, static fn (array $candidate): bool => array() !== $candidate['products']));
+        }
         $emptyRegions = array();
         foreach ( $candidates as $candidate ) {
             $element = $candidate['element'];
@@ -192,6 +198,27 @@ final class CommerceFallbackReporter
     }
 
     /**
+     * Empty loops need collection evidence of their own, not just nearby form
+     * controls. Keep form wrappers and generic preference/contact panels out.
+     * The text is structural empty-state evidence, not a platform class name.
+     */
+    private function isEmptyCollectionRegion(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'form' === strtolower($node->tagName) ) {
+                return false;
+            }
+        }
+        if ( $element->getElementsByTagName('form')->length > 0 ) {
+            return false;
+        }
+        $text = preg_replace('/\s+/u', ' ', trim($element->textContent));
+        $identity = $element->getAttribute('id') . ' ' . $element->getAttribute('class');
+        return (bool) preg_match('/\b(no|zero)\s+(products?|items?|results?)\b|\b(products?|items?|results?)\s+(not found|unavailable)\b/i', (string) $text)
+            || ((bool) preg_match('/\bempty\b/i', $identity) && (bool) preg_match('/product|collection|catalog/i', $identity));
+    }
+
+    /**
      * The controls that facet, bound, sort, or count this grid's products, and
      * the region that holds them with the grid, each anchored on its own
      * emitted block. Facet values land on the products they describe: a
@@ -224,7 +251,16 @@ final class CommerceFallbackReporter
             if ( $recognized['region'] === $grid ) {
                 return array();
             }
-            foreach ( $recognized['region']->getElementsByTagName('*') as $descendant ) {
+            // Product evidence in another landmark/section is not evidence
+            // that this empty collection is populated.
+            $collectionRegion = $recognized['region'];
+            for ( $node = $grid->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+                if ( in_array(strtolower($node->tagName), array('section', 'main', 'header', 'footer', 'aside', 'nav', 'body'), true) ) {
+                    $collectionRegion = $node;
+                    break;
+                }
+            }
+            foreach ( $collectionRegion->getElementsByTagName('*') as $descendant ) {
                 if ( null !== $this->recognizer->productCardData($descendant) ) {
                     return array();
                 }

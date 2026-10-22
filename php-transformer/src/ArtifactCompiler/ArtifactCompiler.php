@@ -1260,6 +1260,24 @@ final class ArtifactCompiler
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
             foreach ( array('description', 'image', 'category', 'sku', 'images', 'tags', 'variants', 'sale_price', 'stock_status') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
+        // Listing-owned forms are shop controls, not a second form-provider
+        // surface. In particular a sort-only form and its select may serialize
+        // to the very same block anchor. Retain mixed/data-entry forms.
+        foreach ( $forms as $key => $form ) {
+            $owned = array();
+            foreach ( $productListings as $listing ) {
+                if ( $listing['source_path'] !== $form['source_path'] ) continue;
+                foreach ( $listing['controls'] as $control ) $owned[] = $control['selector'];
+            }
+            $unclaimed = array_filter($form['controls'] ?? array(), static function (array $control) use ($owned): bool {
+                $selector = $control['selector'] ?? '';
+                foreach ( $owned as $owner ) {
+                    if ( $selector === $owner || str_starts_with($selector, $owner . ' > ') ) return false;
+                }
+                return ! in_array($control['type'] ?? '', array('submit', 'button', 'reset'), true);
+            });
+            if ( array() !== $owned && array() === $unclaimed ) unset($forms[$key]);
+        }
         ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($orderLookups, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
         $collections = array(
             array('capability' => 'shop', 'type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),

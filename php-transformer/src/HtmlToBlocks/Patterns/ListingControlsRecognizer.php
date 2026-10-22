@@ -31,8 +31,8 @@ use DOMElement;
  */
 final class ListingControlsRecognizer
 {
-    private const BOUNDARY_TAGS = array( 'body', 'main', 'header', 'footer', 'nav', 'html' );
-    private const SORT_KEYS = array( 'default', 'popularity', 'rating', 'newest', 'price_asc', 'price_desc', 'name_asc', 'name_desc' );
+    private const BOUNDARY_TAGS = array( 'body', 'main', 'header', 'footer', 'nav', 'aside', 'html' );
+    private const SORT_KEYS = array( 'default', 'popularity', 'rating', 'newest', 'oldest', 'price_asc', 'price_desc', 'name_asc', 'name_desc' );
 
     /**
      * @param list<DOMElement> $cards
@@ -42,8 +42,11 @@ final class ListingControlsRecognizer
     public function recognize(DOMElement $listing, array $cards, array $prices): ?array
     {
         $scope = $listing;
-        for ( $node = $listing->parentNode; $node instanceof DOMElement && ! in_array(strtolower($node->tagName), self::BOUNDARY_TAGS, true); $node = $node->parentNode ) {
+        for ( $node = $listing->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
             $scope = $node;
+            if ( in_array(strtolower($node->tagName), self::BOUNDARY_TAGS, true) ) {
+                break;
+            }
         }
         if ( $scope === $listing ) {
             return null;
@@ -58,7 +61,7 @@ final class ListingControlsRecognizer
             if ( isset($claimed[spl_object_id($group['element'])]) ) {
                 continue;
             }
-            $sort = 'select' === $group['shape'] ? $this->sortOptions($group['options']) : null;
+            $sort = 'select' === $group['shape'] ? $this->sortOptions($group['options'], $group['element']) : null;
             if ( null !== $sort ) {
                 $controls[] = array('kind' => 'sort', 'element' => $group['element'], 'label' => $this->controlLabel($group['element']), 'options' => $sort);
                 $claimed[spl_object_id($group['element'])] = true;
@@ -293,20 +296,21 @@ final class ListingControlsRecognizer
 
     /**
      * @param list<array{value: string, label: string}> $options
-     * @return list<array{value: string, label: string, order: string}>|null
+     * @return list<array{value: string, label: string, order?: string}>|null
      */
-    private function sortOptions(array $options): ?array
+    private function sortOptions(array $options, DOMElement $select): ?array
     {
         $sorted = array();
         foreach ( $options as $option ) {
-            $order = $this->sortOrder($option['label'] . ' ' . $option['value']);
-            if ( null === $order ) {
+            // Machine values are independent of the storefront's language.
+            $order = $this->sortOrder($option['value']) ?? $this->sortOrder($option['label']);
+            if ( null === $order && ! preg_match('/sort|order/i', SourceDom::attr($select, 'name')) ) {
                 return null;
             }
-            $sorted[] = $option + array('order' => $order);
+            $sorted[] = null === $order ? $option : $option + array('order' => $order);
         }
         $orders = array_column($sorted, 'order');
-        if ( count(array_unique($orders)) < 2 || count(array_intersect($orders, array( 'price_asc', 'price_desc', 'name_asc', 'name_desc', 'newest' ))) < 1 ) {
+        if ( ! preg_match('/sort|order/i', SourceDom::attr($select, 'name')) && count(array_unique($orders)) < 2 ) {
             return null;
         }
 
@@ -320,11 +324,13 @@ final class ListingControlsRecognizer
             str_contains($text, 'price') && (bool) preg_match('/high\W*(to|-|→)\W*low|desc|highest|most expensive/', $text) => 'price_desc',
             str_contains($text, 'price') && (bool) preg_match('/low\W*(to|-|→)\W*high|asc|lowest|cheapest/', $text) => 'price_asc',
             (bool) preg_match('/\bz\W*(to|-|→)\W*a\b/', $text) => 'name_desc',
-            (bool) preg_match('/\bname\b|\ba\W*(to|-|→)\W*z\b|alphabet/', $text) => 'name_asc',
-            (bool) preg_match('/\b(new|newest|latest|recent|date)\b/', $text) => 'newest',
+            (bool) preg_match('/\b(title|name)\b.*desc/', $text) => 'name_desc',
+            (bool) preg_match('/\b(title|name)\b.*asc|\bname\b|\ba\W*(to|-|→)\W*z\b|alphabet/', $text) => 'name_asc',
+            (bool) preg_match('/\b(date|created)\b.*asc|\boldest\b/', $text) => 'oldest',
+            (bool) preg_match('/\b(new|newest|latest|recent|date|created)\b/', $text) => 'newest',
             (bool) preg_match('/\b(popular|popularity|best.?sell\w*|trending)\b/', $text) => 'popularity',
             (bool) preg_match('/\b(rating|rated|reviews?)\b/', $text) => 'rating',
-            (bool) preg_match('/\b(featured|default|relevance|recommended)\b/', $text) => 'default',
+            (bool) preg_match('/\b(featured|default|relevance|recommended|manual)\b/', $text) => 'default',
             default => null,
         };
 
