@@ -729,7 +729,10 @@ JS;
             return false;
         }
         [$list, $items] = $this->outermostCarouselList($element);
+        // When the only list found is itself a slide, the host's real track
+        // went unrecognized and its slide count is unknown.
         if ( ! $list instanceof DOMElement || 1 !== count($items)
+            || $this->sourceElementClassifier->isCarouselSlideChild($list)
             || null !== $this->playbackToggleElement($element)
             || 0 !== $this->carouselPaginationCount($element)
             || array() !== $this->thumbnailPagerItems($element, $list)

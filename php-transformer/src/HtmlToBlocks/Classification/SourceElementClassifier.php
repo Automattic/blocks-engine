@@ -1312,7 +1312,7 @@ final class SourceElementClassifier
         return $items;
     }
 
-    private function isCarouselSlideChild(DOMElement $child): bool
+    public function isCarouselSlideChild(DOMElement $child): bool
     {
         if ( 'listitem' === strtolower(trim(SourceDom::attr($child, 'role'))) || 'li' === strtolower($child->tagName) ) {
             return true;
