@@ -79,7 +79,7 @@ final class CommerceFallbackReporter
                 continue;
             }
 
-            if ( SourceDom::hasNonAuthoredAncestor($element) ) {
+            if ( SourceDom::hasNonAuthoredAncestor($element) || ListingControlsRecognizer::inSearchContext($element) ) {
                 continue;
             }
 
@@ -251,17 +251,10 @@ final class CommerceFallbackReporter
             if ( $recognized['region'] === $grid ) {
                 return array();
             }
-            // Product evidence in another landmark/section is not evidence
-            // that this empty collection is populated.
-            $collectionRegion = $recognized['region'];
-            for ( $node = $grid->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-                if ( in_array(strtolower($node->tagName), array('section', 'main', 'header', 'footer', 'aside', 'nav', 'body'), true) ) {
-                    $collectionRegion = $node;
-                    break;
-                }
-            }
-            foreach ( $collectionRegion->getElementsByTagName('*') as $descendant ) {
-                if ( null !== $this->recognizer->productCardData($descendant) ) {
+            // The controls' common region is the collection boundary even
+            // without landmarks. Search suggestions elsewhere are not items.
+            foreach ( $recognized['region']->getElementsByTagName('*') as $descendant ) {
+                if ( ! ListingControlsRecognizer::inSearchContext($descendant) && null !== $this->recognizer->productCardData($descendant) ) {
                     return array();
                 }
             }
@@ -405,7 +398,11 @@ final class CommerceFallbackReporter
             $roleTaken = null !== $role && isset($roleCounts[$role]) && 1 < $roleCounts[$role];
             $role = $roleTaken ? null : $role;
             $varies = count(array_unique(array_column($values, 'markup'))) > 1 || count($values) < count($cards);
-            if ( null === $role && ! $varies ) {
+            // An opaque, single-block card can contain several product fields
+            // at once. With only one card there is no variation to expose it;
+            // retain the whole card as a generic field instead of losing the loop.
+            $atomicCard = 1 === count($cards) && 1 === count($templatePaths);
+            if ( null === $role && ! $varies && ! $atomicCard ) {
                 continue;
             }
             $id = 'slot-' . ( count($slots) + 1 );

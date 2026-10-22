@@ -88,4 +88,54 @@ $assert(array() === $entities($contact, 'product_grids') && array() === $entitie
 $assert(array() === array_filter($contact['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_product_grid_fallback' === ($finding['diagnostic_code'] ?? null)), 'Contact interests emit no grid findings.');
 $loneOrder = $compile('<section><form><select name="order"><option value="one">Uno</option><option value="two">Dos</option></select></form></section>');
 $assert(array() === $entities($loneOrder, 'product_grids') && array() === $entities($loneOrder, 'product_listings'), 'An order select without product signals is not commerce.');
+// Captured-page topology: no landmarks, deep sibling branches, duplicate devices.
+$capturedCard = static fn (string $name): string => '<li class="column"><product-card class="product-card"><figure><a href="/products/' . strtolower($name) . '"><img src="' . $name . '.jpg" alt="' . $name . '"></a></figure><h2><a href="/products/' . strtolower($name) . '">' . $name . '</a></h2><span>$145.000</span></product-card></li>';
+$capturedSort = '<select name="sort_by">';
+foreach (array('manual' => 'Destacados', 'best-selling' => 'Más vendidos', 'title-ascending' => 'Título A–Z', 'price-ascending' => 'Precio, menor a mayor', 'price-descending' => 'Precio, mayor a menor', 'created-descending' => 'Fecha, recientes primero') as $value => $label) {
+    $capturedSort .= '<option value="' . $value . '">' . $label . '</option>';
+}
+$capturedSort .= '</select>';
+$capturedFacets = '';
+foreach (array('availability' => array('1'), 'color' => array('red', 'blue'), 'size' => array('XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL')) as $key => $values) {
+    $capturedFacets .= '<details><summary>' . ucfirst($key) . '</summary><div>';
+    foreach ($values as $value) {
+        $capturedFacets .= '<label><input type="checkbox" name="filter.v.' . ('availability' === $key ? '' : 'option.') . $key . '" value="' . $value . '">' . $value . '</label>';
+    }
+    $capturedFacets .= '</div></details>';
+}
+foreach (array(2, 1, 0) as $count) {
+    $grid = 0 === $count ? '<div id="product-grid" class="collection-empty"><p>No products found</p></div>' : '<ul id="product-grid" class="products collection row">' . $capturedCard('Alpha') . (2 === $count ? $capturedCard('Beta') : '') . '</ul>';
+    $column = '<div><div><form id="FiltersFormMobile">' . $capturedFacets . $capturedSort . '</form></div><div><form id="FiltersForm-bar">' . $capturedSort . '</form><span>' . $count . ' productos</span>' . $grid . '</div></div>';
+    $drawer = '<div class="search-drawer"><ul>';
+    foreach (array('Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta') as $name) $drawer .= $capturedCard($name);
+    $drawer .= '</ul></div>';
+    $copy = '<div>' . str_repeat('<div>', 8) . $column . str_repeat('</div>', 8) . $drawer . '</div>';
+    $html = '<!doctype html><html><head><title>Catalog</title></head><body><style>.neutral { color: black; }</style><script>window.neutral = "not a facet label";</script>' . $copy . $copy . '</body></html>';
+    $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'catalog.html', 'files' => array('catalog.html' => $html)))->toArray();
+    $grids = $entities($result, 'product_grids');
+    $listings = $entities($result, 'product_listings');
+    $assert('failed' !== $result['status'] && !isset($result['source_reports']['wordpress_site_plan_diagnostics']), 'Landmark-free page composes cleanly.');
+    $assert(2 === count($grids) && 2 === count($listings), 'Each device has exactly one grid and listing for ' . $count . ' cards.');
+    foreach ($grids as $index => $gridEntity) {
+        $assert($count === count($gridEntity['items']) && !empty($gridEntity['bindings']), 'Grid items and binding survive.');
+        $listing = $listings[$index];
+        $assert($listing['grid_selector'] === $gridEntity['selector'] && !empty($listing['bindings']), 'Listing binds to its own device grid.');
+        $kinds = array_count_values(array_column($listing['controls'], 'kind'));
+        $assert(array('sort' => 2, 'facet' => 3, 'result_count' => 1) === $kinds, 'All facets, both sorts and result count belong to the listing: ' . json_encode($kinds));
+        $keys = array_column(array_filter($listing['controls'], static fn (array $control): bool => 'facet' === $control['kind']), 'key');
+        $assert(array('availability', 'color', 'size') === $keys && max(array_map('strlen', $keys)) <= 40, 'Facet keys use only their own group label.');
+        foreach ($listing['controls'] as $control) {
+            $assert(str_starts_with($control['selector'], 'div:nth-of-type(' . ($index + 1) . ') > '), 'Controls stay within their device copy.');
+        }
+    }
+    $assert(array() === $entities($result, 'forms'), 'Both filter_sort forms per device are claimed by the listing.');
+    $findings = array_values(array_filter($result['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_product_grid_fallback' === ($finding['diagnostic_code'] ?? null)));
+    $assert(2 === count($findings), 'Search drawer cards never create another grid.');
+}
+// Without a group caption, use the input name, never unlabeled ancestor text.
+$dom = new DOMDocument();
+$dom->loadHTML('<html><body><style>body { color: red; }</style><div>Unrelated page text<form><div><label><input type="checkbox" name="filter.v.option.color" value="red">Red</label><label><input type="checkbox" name="filter.v.option.color" value="blue">Blue</label></div></form><ul id="empty-grid"></ul></div></body></html>');
+$recognized = (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ListingControlsRecognizer())->recognize($dom->getElementsByTagName('ul')->item(0), array(), array());
+$assert('color' === ($recognized['controls'][0]['key'] ?? null), 'Unlabeled facet key falls back to the final input name segment.');
+$assert(strlen($recognized['controls'][0]['label']) <= 40, 'Unlabeled facet never takes ancestor text.');
 echo "product-listing-small-catalog: ok\n";

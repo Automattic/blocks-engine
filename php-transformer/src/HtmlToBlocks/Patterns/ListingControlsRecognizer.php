@@ -109,7 +109,7 @@ final class ListingControlsRecognizer
         $groups = array();
         $radios = array();
         foreach ( $scope->getElementsByTagName('*') as $element ) {
-            if ( ! $element instanceof DOMElement || $this->contains($listing, $element) ) {
+            if ( ! $element instanceof DOMElement || $this->contains($listing, $element) || self::inSearchContext($element) || $this->inSiblingListingBranch($listing, $element) ) {
                 continue;
             }
             $tag = strtolower($element->tagName);
@@ -135,7 +135,7 @@ final class ListingControlsRecognizer
             }
         }
         foreach ( $radios as $members ) {
-            if ( count($members) < 2 ) {
+            if ( count($members) < 2 && 'checkbox' !== strtolower(SourceDom::attr($members[0]['element'], 'type')) ) {
                 continue;
             }
             $container = $members[0]['element'];
@@ -146,7 +146,7 @@ final class ListingControlsRecognizer
                 continue;
             }
             $shape = 'checkbox' === strtolower(SourceDom::attr($members[0]['element'], 'type')) ? 'checkboxes' : 'radios';
-            $groups[] = array('shape' => $shape, 'element' => $container, 'options' => array_column($members, 'option'));
+            $groups[] = array('shape' => $shape, 'element' => $container, 'name' => SourceDom::attr($members[0]['element'], 'name'), 'options' => array_column($members, 'option'));
         }
 
         return $groups;
@@ -234,6 +234,10 @@ final class ListingControlsRecognizer
             return null;
         }
         $label = $this->controlLabel($group['element']);
+        if ( '' === $label ) {
+            $name = $group['name'] ?? SourceDom::attr($group['element'], 'name');
+            $label = (string) preg_replace('/^.*[.\[\]]([^.[\]]+)\]?$/', '$1', $name);
+        }
         $key = trim((string) preg_replace('/[^a-z0-9]+/', '_', $this->normalize('' !== $label ? $label : 'facet')), '_');
         ksort($cardValues);
 
@@ -278,7 +282,7 @@ final class ListingControlsRecognizer
         }
         $tag = strtolower($listing->tagName);
         $class = $listing->getAttribute('class');
-        foreach ( $branch->getElementsByTagName('*') as $element ) {
+        foreach ( array_merge(array($branch), iterator_to_array($branch->getElementsByTagName('*'), false)) as $element ) {
             if ( $element instanceof DOMElement && $element !== $listing && strtolower($element->tagName) === $tag && $element->getAttribute('class') === $class ) {
                 return true;
             }
@@ -416,11 +420,20 @@ final class ListingControlsRecognizer
 
     private function controlLabel(DOMElement $control): string
     {
-        if ( 'fieldset' === strtolower($control->tagName) ) {
-            foreach ( $control->childNodes as $child ) {
-                if ( $child instanceof DOMElement && 'legend' === strtolower($child->tagName) ) {
-                    return $this->text($child);
+        // Only a group's own disclosure/fieldset supplies its caption. Never
+        // use a broad ancestor's text as a label.
+        for ( $node = $control; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $tag = strtolower($node->tagName);
+            if ( in_array($tag, array('form', 'body', 'main', 'section'), true) ) {
+                break;
+            }
+            if ( in_array($tag, array('fieldset', 'details'), true) ) {
+                foreach ( $node->childNodes as $child ) {
+                    if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array('legend', 'summary'), true) ) {
+                        return $this->text($child);
+                    }
                 }
+                break;
             }
         }
         $label = SourceDom::associatedLabel($control);
@@ -429,6 +442,9 @@ final class ListingControlsRecognizer
         }
         $document = $control->ownerDocument;
         foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-labelledby'))) ?: array() as $id ) {
+            if ( '' === $id ) {
+                continue;
+            }
             $labelElement = '' !== $id && null !== $document ? $document->getElementById($id) : null;
             if ( null === $labelElement && null !== $document ) {
                 foreach ( $document->getElementsByTagName('*') as $candidate ) {
@@ -444,6 +460,18 @@ final class ListingControlsRecognizer
         }
 
         return trim(SourceDom::attr($control, 'aria-label'));
+    }
+
+    /** Search suggestions are not the page's browsable collection. */
+    public static function inSearchContext(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'search' === strtolower(SourceDom::attr($node, 'role')) || 'search' === strtolower($node->tagName)
+                || preg_match('/(?:^|[\s_-])search(?:[\s_-]|$)/i', SourceDom::attr($node, 'id') . ' ' . SourceDom::attr($node, 'class')) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function commonAncestor(DOMElement $a, DOMElement $b): DOMElement

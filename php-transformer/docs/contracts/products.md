@@ -17,7 +17,11 @@ shape: `source_path`, `selector`, `grid_selector`, `controls`, and `bindings`.
 `grid_selector` references the empty grid entity; its `items: []` is the empty
 item set. The listing's first binding anchors the enclosing region and the
 remaining bindings anchor each control. Checkbox facets use the additive
-`shape: "checkboxes"` value, including when there are no cards to partition.
+`shape: "checkboxes"` value, including single-option groups and when there are
+no cards to partition. Facet keys use the group's own summary, legend, or
+associated label, falling back to the final input-name segment; page ancestor
+text is never a label. Same-named inputs in sibling device listings remain
+separate groups.
 
 Sort selects recognize ordering values independently of localized labels;
 `sort`/`order`-named selects also qualify without card-order proof. Known
@@ -29,7 +33,11 @@ listing controls are not also declared as generic provider forms.
 Empty candidates require an empty-state signal, not checkbox controls alone.
 They are suppressed when any populated product grid qualifies. Control lookup
 includes the nearest landmark but does not cross it, so unrelated promoted
-cards outside the collection's landmark do not veto an empty listing.
+cards outside the collection's landmark do not veto an empty listing. Without
+landmarks, the controls' common ancestor bounds the empty collection check.
+Search drawers and search regions do not supply collection grids or controls.
+A single opaque card block can be retained as a generic item-template field
+when its individual product fields cannot be separated.
 
 ## Product rows
 
