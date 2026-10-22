@@ -71,6 +71,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkLefto
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredMotionMarkerConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableAttributesBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LinkWrapperPropagator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormCompositionPlanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatchContext;
@@ -266,6 +267,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     );
 
     private readonly BlockFactory $blockFactory;
+    private readonly TableAttributesBuilder $tableAttributesBuilder;
     private readonly LinkWrapperPropagator $linkWrapperPropagator;
 
     private readonly BlockMaterializer $blockMaterializer;
@@ -562,6 +564,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->createNavigationToggleSuppressionContext(),
             $this->styleResolver
         );
+        $this->tableAttributesBuilder = new TableAttributesBuilder($this->styleResolver, $this->navigationToggleSuppressor, $this->session);
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(
             fn (DOMElement $element): string => $this->elementSelector($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
@@ -1142,13 +1145,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
 
-    /** Source markup changed after selector analysis, so cached inputs are stale. */
-    private function onSourceMarkupMutated(): void
-    {
-        $this->sourceStyles()->invalidateSelectorMatches();
-        $this->navigationToggleSuppressor->forgetCoreNavigationRecognitions();
-    }
-
     /** Collaborator surface for {@see StyleResolver}. */
     private function createStyleResolutionContext(): StyleResolutionContext
     {
@@ -1159,7 +1155,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (string $selector): array => $this->parsedCssSelector($selector),
             fn (string $className): string => $this->promotedClassName($className),
             fn (string $url): string => $this->resolvedAssetImageUrl($url),
-            fn (DOMElement $element): bool => $this->authorSelectorProjections()->isRuntimeAttributePath($this->sourceElementIdentity($element))
+            fn (DOMElement $element): bool => $this->authorSelectorProjections()->isRuntimeAttributePath(SourceDom::sourceElementIdentity($element))
         );
     }
 
@@ -1260,7 +1256,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             },
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
             $this->styleResolver,
-            fn (DOMElement $element): array => $this->tableAttributes($element),
+            fn (DOMElement $element): array => $this->tableAttributesBuilder->tableAttributes($element),
             $this
         );
     }
@@ -2634,7 +2630,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $directRows = 0;
         foreach ( $table->getElementsByTagName('tr') as $candidate ) {
-            if ( $candidate instanceof DOMElement && $this->belongsToTable($candidate, $table) ) {
+            if ( $candidate instanceof DOMElement && SourceDom::belongsToTable($candidate, $table) ) {
                 ++$directRows;
                 if ( 1 < $directRows ) {
                     return $this->mediaLayoutTableColumnsBlock($table, $fallbacks);
@@ -2945,7 +2941,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $row = 'tr' === strtolower($element->tagName) ? $element : null;
         foreach ( null === $row ? $element->getElementsByTagName('tr') : array() as $candidate ) {
-            if ( $candidate instanceof DOMElement && $this->belongsToTable($candidate, $element) ) {
+            if ( $candidate instanceof DOMElement && SourceDom::belongsToTable($candidate, $element) ) {
                 $row = $candidate;
                 break;
             }
@@ -3029,7 +3025,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( 'tr' !== strtolower($element->tagName) ) {
             $row = null;
             foreach ( $element->getElementsByTagName('tr') as $candidate ) {
-                if ( $candidate instanceof DOMElement && $this->belongsToTable($candidate, $element) ) {
+                if ( $candidate instanceof DOMElement && SourceDom::belongsToTable($candidate, $element) ) {
                     $row = $candidate;
                     break;
                 }
@@ -3061,7 +3057,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $rows = array();
         foreach ($table->getElementsByTagName('tr') as $row) {
-            if (! $row instanceof DOMElement || ! $this->belongsToTable($row, $table)) {
+            if (! $row instanceof DOMElement || ! SourceDom::belongsToTable($row, $table)) {
                 continue;
             }
 
@@ -4532,7 +4528,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @return list<string> */
     private function authorSemanticMarkersForElement(DOMElement $element): array
     {
-        $path = $this->sourceElementIdentity($element);
+        $path = SourceDom::sourceElementIdentity($element);
         return $this->authorSelectorProjections()->semanticMarkersForPath($path);
     }
 
@@ -5305,11 +5301,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return false;
     }
 
-    private function sourceElementIdentity(DOMElement $element): string
-    {
-        return $element->getNodePath() ?? '';
-    }
-
     private function richTextMarkerForElement(DOMElement $element): string
     {
         $marker = trim($this->attr($element, 'data-blocks-engine-richtext-marker'));
@@ -5317,7 +5308,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $marker;
         }
 
-        return $this->authorSelectorProjections()->richTextMarker($this->sourceElementIdentity($element));
+        return $this->authorSelectorProjections()->richTextMarker(SourceDom::sourceElementIdentity($element));
     }
 
     public function richTextMarker(DOMElement $element): string
@@ -7987,65 +7978,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
-     * @return array<string, mixed>
-     */
-    private function tableAttributes(DOMElement $table): array
-    {
-        $native = self::isNativeSavedTable($table);
-        $attrs = array(
-            'hasFixedLayout' => $native
-                ? in_array('has-fixed-layout', self::classTokens($table), true)
-                : 'fixed' === strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($table)['table-layout'] ?? ''))),
-        );
-        // core/table's own saved markup already looks the way core styles it, so
-        // only captured tables are normalized away from core's table defaults.
-        if ( ! $native ) {
-            $this->registerTablePresentationNormalization($table);
-        }
-        $this->registerTableCellGeometry($table);
-        foreach ( array( 'thead' => 'head', 'tbody' => 'body', 'tfoot' => 'foot' ) as $sectionTag => $attrName ) {
-            $rows = array();
-            foreach ( $table->getElementsByTagName($sectionTag) as $section ) {
-                if ( ! $this->belongsToTable($section, $table) ) {
-                    continue;
-                }
-                foreach ( $section->getElementsByTagName('tr') as $row ) {
-                    if ( ! $this->belongsToTable($row, $table) ) {
-                        continue;
-                    }
-                    $rows[] = array( 'cells' => $this->tableCells($row) );
-                }
-            }
-            if ( array() !== $rows ) {
-                $attrs[$attrName] = $rows;
-            }
-        }
-
-        if ( empty($attrs['body']) ) {
-            $rows = array();
-            foreach ( $table->getElementsByTagName('tr') as $row ) {
-                if ( ! $this->belongsToTable($row, $table) ) {
-                    continue;
-                }
-                if ( in_array($this->closestTagName($row), array( 'thead', 'tfoot' ), true) ) {
-                    continue;
-                }
-                $rows[] = array( 'cells' => $this->tableCells($row) );
-            }
-            if ( array() !== $rows ) {
-                $attrs['body'] = $rows;
-            }
-        }
-
-        $caption = $this->firstChildElement($table, 'caption');
-        if ( $caption instanceof DOMElement ) {
-            $attrs['caption'] = $this->innerHtml($caption);
-        }
-
-        return $attrs;
-    }
-
-    /**
      * Comment attributes whose value is the block's registered default. The
      * block editor leaves these out of saved markup, so emitting them makes
      * converted markup differ from what WordPress itself saves for the same
@@ -8076,135 +8008,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $block;
         };
         return array_map($strip, $blocks);
-    }
-
-    /**
-     * A table inside the figure core/table saves that the engine did not
-     * produce: WordPress's own markup. Engine output carries its table marker
-     * and keeps the normalization that marker scopes.
-     */
-    public static function isNativeSavedTable(DOMElement $table): bool
-    {
-        $figure = $table->parentNode;
-        if ( ! $figure instanceof DOMElement
-            || 'figure' !== strtolower($figure->tagName)
-            || ! in_array('wp-block-table', self::classTokens($figure), true)
-        ) {
-            return false;
-        }
-        foreach ( array_merge(self::classTokens($figure), self::classTokens($table)) as $class ) {
-            if ( str_starts_with($class, 'blocks-engine-table-') ) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /** @return list<string> */
-    private static function classTokens(DOMElement $element): array
-    {
-        return array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn (string $class): bool => '' !== $class));
-    }
-
-    private function registerTablePresentationNormalization(DOMElement $table): void
-    {
-        $path = $this->sourceElementIdentity($table);
-        $marker = $this->authorSelectorProjections()->ensureTableMarker($path, $table);
-        $tableDeclarations = $this->styleResolver->structuralPresentationDeclarations($table);
-        // A single marker class ties core's .wp-block-table margin while later
-        // source classes promoted onto the figure retain their authored margins.
-        $rules = array( '.' . $marker . '{margin:0}' );
-        $borderModel = array();
-        foreach ( array( 'border-collapse', 'border-spacing' ) as $property ) {
-            $value = trim((string) ($tableDeclarations[$property] ?? ''));
-            if ( '' !== $value ) {
-                $borderModel[] = $property . ':' . $value;
-            }
-        }
-        if ( array() !== $borderModel ) {
-            $rules[] = '.' . $marker . '>table{' . implode(';', $borderModel) . '}';
-        }
-
-        // Core supplies borders on every cell. Clear them before projected author
-        // CSS restores only the source-declared cell sides.
-        $rules[] = '.' . $marker . '>table th,.' . $marker . '>table td{border:0}';
-
-        // Core's cell padding and border are unlayered, so they beat author
-        // cell rules inside an `@layer` (Tailwind utilities) whatever their
-        // specificity. When every author rule setting a property family on
-        // these cells is layered, `revert-layer` drops the unlayered values
-        // (core's and the reset above) and lets the author's layered cascade
-        // decide, layer order and media queries included. A family an
-        // unlayered author rule also sets keeps the existing behavior.
-        $layering = array();
-        foreach ( $table->getElementsByTagName('*') as $cell ) {
-            if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) || ! $this->belongsToTable($cell, $table) ) {
-                continue;
-            }
-            foreach ( $this->styleResolver->tableCellBoxLayering($cell) as $family => $layered ) {
-                $layering[ $family ] = ( $layering[ $family ] ?? true ) && $layered;
-            }
-        }
-        $reverted = array_keys(array_filter($layering));
-        sort($reverted);
-        if ( array() !== $reverted ) {
-            $rules[] = '.' . $marker . '>table th,.' . $marker . '>table td{' . implode(';', array_map(static fn (string $family): string => $family . ':revert-layer', $reverted)) . '}';
-        }
-
-        $head = $this->firstChildElement($table, 'thead');
-        if ( $head instanceof DOMElement ) {
-            $headDeclarations = $this->styleResolver->structuralPresentationDeclarations($head);
-            if ( ! isset($headDeclarations['border']) && ! isset($headDeclarations['border-bottom']) && ! isset($headDeclarations['border-bottom-width']) ) {
-                // core/table adds a 3px header separator that did not exist in source.
-                $rules[] = '.' . $marker . '>table>thead{border-bottom:0}';
-            }
-        }
-
-        $this->layoutGeometry()->registerRule($marker, implode("\n", $rules));
-    }
-
-    private function registerTableCellGeometry(DOMElement $table): void
-    {
-        $rules = array();
-        $sectionRows = array( 'thead' => 0, 'tbody' => 0, 'tfoot' => 0 );
-        foreach ( $table->getElementsByTagName('tr') as $row ) {
-            if ( ! $row instanceof DOMElement || ! $this->belongsToTable($row, $table) ) {
-                continue;
-            }
-            $section = $this->closestTagName($row);
-            $section = isset($sectionRows[$section]) ? $section : 'tbody';
-            $rowIndex = ++$sectionRows[$section];
-            $cellIndex = 0;
-            foreach ( $row->childNodes as $cell ) {
-                if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
-                    continue;
-                }
-                ++$cellIndex;
-                $declarations = $this->styleResolver->cssDeclarations($this->attr($cell, 'style'));
-                $geometry = array();
-                $width = trim((string) ($declarations['width'] ?? ''));
-                if ( '' !== $width && preg_match('/^(?:\d+(?:\.\d+)?(?:%|px|em|rem|vw|ch)|calc\(.+\)|var\(.+\))$/i', $width) ) {
-                    $geometry[] = 'width:' . $width . '!important';
-                }
-                foreach ( array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ) as $property ) {
-                    $value = trim((string) ($declarations[$property] ?? ''));
-                    if ( '' !== $value && preg_match('/^(?:-?\d+(?:\.\d+)?(?:px|em|rem|%|vw|vh|ch)?)(?:\s+-?\d+(?:\.\d+)?(?:px|em|rem|%|vw|vh|ch)?){0,3}$/i', $value) ) {
-                        $geometry[] = $property . ':' . $value . '!important';
-                    }
-                }
-                if ( array() !== $geometry ) {
-                    $rules[] = $section . '>tr:nth-child(' . $rowIndex . ')>' . strtolower($cell->tagName) . ':nth-child(' . $cellIndex . '){' . implode(';', $geometry) . '}';
-                }
-            }
-        }
-        if ( array() === $rules ) {
-            return;
-        }
-
-        $path = $this->sourceElementIdentity($table);
-        $marker = $this->authorSelectorProjections()->ensureTableMarker($path, $table);
-        $scopedRules = array_map(static fn (string $rule): string => '.' . $marker . '>table>' . $rule, $rules);
-        $this->layoutGeometry()->appendRule($marker, implode("\n", $scopedRules));
     }
 
     private function materializeDeclarativeCounters(DOMElement $body, string $declarativeStateHtml = ''): void
@@ -8257,52 +8060,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 break;
             }
         }
-    }
-
-    private function belongsToTable(DOMElement $element, DOMElement $table): bool
-    {
-        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( 'table' !== strtolower($node->tagName) ) {
-                continue;
-            }
-
-            return $node->isSameNode($table);
-        }
-
-        return false;
-    }
-
-    /**
-     * @return array<int, array<string, string>>
-     */
-    private function tableCells(DOMElement $row): array
-    {
-        $cells = array();
-        $sourceMarkupMutated = false;
-        foreach ( $row->childNodes as $cell ) {
-            if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
-                continue;
-            }
-            foreach ( $cell->getElementsByTagName('*') as $descendant ) {
-                if ( ! $descendant instanceof DOMElement ) {
-                    continue;
-                }
-                $sourceTagName = strtolower($descendant->tagName);
-                $sourceTagMarker = $this->authorSelectorProjections()->tagMarker($sourceTagName);
-                if ( '' !== $sourceTagMarker ) {
-                    $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $sourceTagMarker));
-                    $sourceMarkupMutated = true;
-                }
-            }
-            $cells[] = array(
-                'content' => $this->innerHtml($cell),
-                'tag'     => strtolower($cell->tagName),
-            );
-        }
-        if ( $sourceMarkupMutated ) {
-            $this->onSourceMarkupMutated();
-        }
-        return $cells;
     }
 
     /**

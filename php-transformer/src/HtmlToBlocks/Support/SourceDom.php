@@ -1735,4 +1735,22 @@ final class SourceDom
 
         return $data;
     }
+
+    public static function belongsToTable(DOMElement $element, DOMElement $table): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'table' !== strtolower($node->tagName) ) {
+                continue;
+            }
+
+            return $node->isSameNode($table);
+        }
+
+        return false;
+    }
+
+    public static function sourceElementIdentity(DOMElement $element): string
+    {
+        return $element->getNodePath() ?? '';
+    }
 }

@@ -61,7 +61,7 @@ final class TableElementConverter implements ElementConverter
         }
 
         $presentation = $this->context->presentationAttributes($element);
-        if ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation::isNativeSavedTable($element) && isset($presentation['className']) ) {
+        if ( TableAttributesBuilder::isNativeSavedTable($element) && isset($presentation['className']) ) {
             // core/table saves hasFixedLayout as this class; it is an attribute, not an author class.
             $classes = array_values(array_filter(preg_split('/\s+/', (string) $presentation['className']) ?: array(), static fn (string $class): bool => '' !== $class && 'has-fixed-layout' !== $class));
             if ( array() === $classes ) {
