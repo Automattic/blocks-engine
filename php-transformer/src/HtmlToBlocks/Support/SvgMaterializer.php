@@ -426,7 +426,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         if ( ! SourceDom::svgHasDrawableContent($element) ) {
             return null;
         }
-        if ( $this->collapsedRestingControlPresentation($element) ) {
+        if ( $this->collapsedRestingRichTextPresentation($element) ) {
             return '';
         }
 
@@ -497,24 +497,25 @@ final class SvgMaterializer implements SvgElementMaterializer
         return $markup;
     }
 
-    private function collapsedRestingControlPresentation(DOMElement $element): bool
+    private function collapsedRestingRichTextPresentation(DOMElement $element): bool
     {
-        $control = null;
+        $container = null;
         for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
             $tagName = strtolower($node->tagName);
-            if ( in_array($tagName, array( 'a', 'button' ), true) ) {
-                $control = $node;
+            // Stop at the text block (or control), not a hidden outer section.
+            if ( in_array($tagName, array( 'a', 'button', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li' ), true) ) {
+                $container = $node;
                 break;
             }
             if ( in_array($tagName, array( 'body', 'html' ), true) ) {
                 return false;
             }
         }
-        if ( ! $control instanceof DOMElement ) {
+        if ( ! $container instanceof DOMElement ) {
             return false;
         }
 
-        for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($control); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+        for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($container); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
             if ( $this->restingBoxIsCollapsed($node) ) {
                 return true;
             }

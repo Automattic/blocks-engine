@@ -413,6 +413,7 @@
       "php tests/unit/gradient-text-background-clip.php",
       "php tests/unit/rich-text-svg-transaction.php",
       "php tests/unit/heading-inline-svg-rich-text.php",
+      "php tests/unit/rich-text-hidden-animated-svg.php",
       "php tests/unit/image-only-heading-rich-text.php",
       "php tests/unit/inline-image-paragraph-rich-text.php",
       "php tests/unit/paragraph-inline-picture-text.php",
