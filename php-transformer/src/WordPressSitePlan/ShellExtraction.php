@@ -837,6 +837,18 @@ final class ShellExtraction
         }
         $rows = array_values(array_filter($rows, static fn(array $row): bool => array() === array_diff($row['main_ancestors'], $shellMains ?? array())));
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        // Block-tree ranges are either nested or disjoint. A same-area landmark
+        // inside another belongs to that outer shell, not to a responsive variant.
+        // Filter here so every consumer (including additional_ranges) receives
+        // disjoint ranges before identities and variant counts are considered.
+        $disjoint = array(); $outerEnd = -1;
+        foreach ($rows as $row) {
+            $end = $row['offset'] + $row['length'];
+            if ($end <= $outerEnd) continue;
+            $disjoint[] = $row;
+            $outerEnd = $end;
+        }
+        $rows = $disjoint;
         foreach ($rows as $variant => &$row) { unset($row['main_ancestors']); $row['variant'] = $variant; } unset($row);
         return $rows;
     }
