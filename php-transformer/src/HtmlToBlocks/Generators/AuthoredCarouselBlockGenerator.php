@@ -722,9 +722,45 @@ JS;
         return '<button type="button" class="blocks-engine-authored-carousel__' . $direction . ' ' . $boundedClasses . '"' . ('' !== $style ? ' style="' . $style . '"' : '') . $sourceAttributes . ' data-carousel-' . $direction . '="true" data-wp-on--click="' . $action . '" data-wp-bind--disabled="' . $bound . '" aria-label="' . $label . ' slide">' . $this->safeControlVisual($visual) . '</button>';
     }
 
+    /** A host-local slide with no interaction has only static light DOM. */
+    public function isStaticSingleSlideCarousel(DOMElement $element): bool
+    {
+        if ( ! $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
+            return false;
+        }
+        [$list, $items] = $this->outermostCarouselList($element);
+        // When the only list found is itself a slide, the host's real track
+        // went unrecognized and its slide count is unknown.
+        if ( ! $list instanceof DOMElement || 1 !== count($items)
+            || $this->sourceElementClassifier->isCarouselSlideChild($list)
+            || null !== $this->playbackToggleElement($element)
+            || 0 !== $this->carouselPaginationCount($element)
+            || array() !== $this->thumbnailPagerItems($element, $list)
+        ) {
+            return false;
+        }
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement && $this->sourceElementClassifier->isCarouselControl($candidate, $element) ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** @return array<string, mixed>|null */
     public function convert(DOMElement $element): ?array
     {
+        // All callers, including flow-container dispatch, must leave static
+        // hosts to ordinary content conversion. An ancestor must not combine
+        // their media with controls belonging to a different carousel.
+        if ( $this->isStaticSingleSlideCarousel($element) ) {
+            return null;
+        }
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement && $this->isStaticSingleSlideCarousel($candidate) ) {
+                return null;
+            }
+        }
         $styleResolver = $this->styleResolver ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
         $createBlock = $this->createBlock ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
         $blockFactory = $this->blockFactory ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
@@ -847,12 +883,27 @@ JS;
             $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
         [$list, $items] = $this->richestCarouselList($element);
+        if ( $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
+            [$outerList, $outerItems] = $this->outermostCarouselList($element);
+            if ( $outerList instanceof DOMElement ) {
+                $list = $outerList;
+                $items = $outerItems;
+            }
+        }
         $localList = $list;
         // Let the smallest complete carousel own its list and controls. An
         // enclosing gallery section still converts its heading and other copy.
         if ( $list instanceof DOMElement ) {
             $rootControls = $this->allNavigationControls($element);
             for ( $owner = $list->parentNode; $owner instanceof DOMElement && $owner !== $element; $owner = $owner->parentNode ) {
+                if ( $this->sourceElementClassifier->hasCarouselIdentity($owner) ) {
+                    [$ownerList] = $this->outermostCarouselList($owner);
+                    // An ancestor cannot promote a slide's nested media list
+                    // into slides, even if controls exist elsewhere below it.
+                    if ( $ownerList instanceof DOMElement && $ownerList !== $list && $this->containsNode($ownerList, $list) ) {
+                        return null;
+                    }
+                }
                 if ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) {
                     return null;
                 }
@@ -2155,6 +2206,34 @@ JS;
         return $thumbnails;
     }
 
+    /**
+     * Only outermost lists describe the host's slides. Nested lists, such as
+     * responsive image pairs in a slide background, are slide content.
+     *
+     * @return array{0: DOMElement|null, 1: array<int, DOMElement>}
+     */
+    private function outermostCarouselList(DOMElement $root): array
+    {
+        $list = null;
+        $items = array();
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root) ) {
+                continue;
+            }
+            for ( $ancestor = $candidate->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode ) {
+                if ( $this->sourceElementClassifier->isCarouselList($ancestor) ) {
+                    continue 2;
+                }
+            }
+            $candidateItems = $this->carouselListItems($candidate);
+            if ( count($candidateItems) > count($items) && $this->carouselItemsHaveContent($candidateItems) ) {
+                $list = $candidate;
+                $items = $candidateItems;
+            }
+        }
+        return array($list, $items);
+    }
+
     /** @return array{0: DOMElement|null, 1: array<int, DOMElement>} */
     private function richestCarouselList(DOMElement $root): array
     {
@@ -2229,27 +2308,12 @@ JS;
         return array($clone, true);
     }
 
+    /** Responsive copies share an id; shared class tokens are not identity. */
     private function sharesCarouselIdentity(DOMElement $left, DOMElement $right): bool
     {
-        if ( ! $this->sourceElementClassifier->hasCarouselIdentity($right) ) {
-            return false;
-        }
-        $leftId = trim(SourceDom::attr($left, 'id'));
-        if ( '' !== $leftId && $leftId === trim(SourceDom::attr($right, 'id')) ) {
-            return true;
-        }
-
-        $identityClasses = static function (string $classes): array {
-            $matches = array();
-            foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
-                $words = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), $class));
-                if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $words) ) {
-                    $matches[] = $class;
-                }
-            }
-            return $matches;
-        };
-        return array() !== array_intersect($identityClasses(SourceDom::attr($left, 'class')), $identityClasses(SourceDom::attr($right, 'class')));
+        $id = trim(SourceDom::attr($left, 'id'));
+        return '' !== $id && $id === trim(SourceDom::attr($right, 'id'))
+            && $this->sourceElementClassifier->hasCarouselIdentity($right);
     }
 
     private function isSlideStatus(DOMElement $element): bool

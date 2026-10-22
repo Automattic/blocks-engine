@@ -273,6 +273,7 @@
       "php tests/unit/captured-carousel.php",
       "php tests/unit/gallery-stage-controls.php",
       "php tests/unit/carousel-single-control-owner.php",
+      "php tests/unit/single-slide-carousel-static.php",
       "php tests/unit/carousel-page-navigation-link.php",
       "php tests/unit/image-slideshow-gallery.php",
       "php tests/unit/authored-marquee-block.php",
