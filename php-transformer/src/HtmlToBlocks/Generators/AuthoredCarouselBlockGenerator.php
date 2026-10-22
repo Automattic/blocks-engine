@@ -969,8 +969,9 @@ JS;
         }
         foreach ( $items as $sourceItem ) {
             [$item, $temporary] = $this->carouselItemInRoot($sourceItem, $element, $localList);
-            // A native video slide's <img> is the video's fallback content, not the slide.
-            $image = $this->sourceElementClassifier->isNativeVideoSlide($item) ? null : $item->getElementsByTagName('img')->item(0);
+            // Only simple image slides can use caption conversion. Rich slides
+            // retain their media, links and authored text through child conversion.
+            $image = $this->sourceElementClassifier->isSingleMediaSlide($item, 'img') ? $item->getElementsByTagName('img')->item(0) : null;
             if ( $image instanceof DOMElement ) {
                 $slide = $convertImage($image);
                 if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
@@ -1010,7 +1011,7 @@ JS;
 
         $listIdentity = strtolower(implode(' ', array($list->tagName, SourceDom::attr($list, 'class'), SourceDom::attr($list, 'role'), SourceDom::attr($list, 'data-hook'))));
         $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
-        $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?)(?:[^a-z0-9]|$)/', $listIdentity);
+        $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slider)(?:[^a-z0-9]|$)/', $listIdentity);
         $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
         if ( ! $isTrackList && $this->sourceElementClassifier->isHomogeneousMediaSlideList($list) ) {
             $visible = 0;
@@ -1170,7 +1171,7 @@ JS;
             'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
             'autoplayInterval' => !$capturedGallery && 'slideshow' === $presentation ? $autoplayInterval : 0,
             'showStatus' => $capturedGallery || $status instanceof DOMElement,
-            'showDots' => 'slideshow' === $presentation && $showDots && array() === $thumbnails,
+            'showDots' => $showDots && array() === $thumbnails,
             'fullBleed' => 'slideshow' === $presentation && $fullBleed,
             'thumbnails' => $thumbnails,
             'thumbnailPosition' => $thumbnailPosition,
@@ -1555,6 +1556,14 @@ JS;
     {
         foreach ( self::SLIDE_INDEX_ATTRIBUTES as $attribute ) {
             if ( ctype_digit(trim(SourceDom::attr($element, $attribute))) ) {
+                return true;
+            }
+        }
+        if ( 'li' === strtolower($element->tagName) && ctype_digit(trim(SourceDom::attr($element, 'aria-label'))) ) {
+            $list = $element->parentNode;
+            if ( $list instanceof DOMElement && in_array(strtolower($list->tagName), array('ol', 'ul'), true)
+                && 1 === preg_match('/(?:^|[^a-z0-9])(?:dots?|pagination|pager)(?:[^a-z0-9]|$)/', strtolower(SourceDom::attr($list, 'class') . ' ' . SourceDom::attr($list, 'id')))
+            ) {
                 return true;
             }
         }
@@ -2274,7 +2283,7 @@ JS;
     {
         $count = 0;
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( $candidate instanceof DOMElement && in_array(strtolower($candidate->tagName), array('a', 'button'), true) && $this->isPaginationControl($candidate) ) {
+            if ( $candidate instanceof DOMElement && in_array(strtolower($candidate->tagName), array('a', 'button', 'li'), true) && $this->isPaginationControl($candidate) ) {
                 ++$count;
             }
         }

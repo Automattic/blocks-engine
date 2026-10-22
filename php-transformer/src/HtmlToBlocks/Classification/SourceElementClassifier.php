@@ -913,6 +913,8 @@ final class SourceElementClassifier
         ))));
 
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slides?)(?:[^a-z0-9]|$)/', $identity)
+            // A slider host tag alone does not prove its children form a track.
+            || 1 === preg_match('/(?:^|[^a-z0-9])slider(?:[^a-z0-9]|$)/', substr($identity, strlen($element->tagName)))
             || $this->isHomogeneousMediaSlideList($element);
     }
 
@@ -948,7 +950,16 @@ final class SourceElementClassifier
     {
         return (in_array(strtolower($element->tagName), array('a', 'button'), true)
             || ('button' === strtolower(trim(SourceDom::attr($element, 'role')))
-                && '' !== trim(SourceDom::attr($element, 'aria-label'))))
+                && '' !== trim(SourceDom::attr($element, 'aria-label')))
+            || ('' === trim(SourceDom::attr($element, 'role'))
+                && 1 === preg_match('/^\d+$/D', trim(SourceDom::attr($element, 'tabindex')))
+                && 1 === preg_match('/(?:^|[^a-z])(?:prev|previous|next)(?:[^a-z]|$)/', strtolower(implode(' ', array(
+                    SourceDom::attr($element, 'aria-label'),
+                    SourceDom::attr($element, 'title'),
+                    SourceDom::attr($element, 'class'),
+                    SourceDom::attr($element, 'data-hook'),
+                    SourceDom::attr($element, 'data-testid'),
+                ))))))
             && ! self::isDocumentNavigationLink($element)
             && ! $this->isExpandedCarouselState($element, $root);
     }
@@ -1358,8 +1369,14 @@ final class SourceElementClassifier
         return false;
     }
 
-    private function isSingleMediaSlide(DOMElement $item, string $mediaTag): bool
+    public function isSingleMediaSlide(DOMElement $item, string $mediaTag): bool
     {
+        // Linked text is authored content, not an image caption.
+        foreach ( $item->getElementsByTagName('a') as $link ) {
+            if ( '' !== trim($link->textContent ?? '') ) {
+                return false;
+            }
+        }
         foreach ( array( 'img', 'video', 'audio', 'iframe', 'canvas', 'form', 'object', 'embed' ) as $tag ) {
             if ( $tag === $mediaTag ) {
                 continue;
