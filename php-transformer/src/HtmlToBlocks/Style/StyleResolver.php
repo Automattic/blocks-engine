@@ -2577,7 +2577,9 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $rule = 'height:100% !important';
-        $linkRule = $this->hasAncestorLink($image) ? '>a{display:block !important;width:100% !important;' . $rule . '}' : '';
+        $linkRule = $this->hasAncestorLink($image) && ! $this->authorStylesDriveImageBox($this->imageLinkAncestor($image))
+            ? '>a{display:block !important;width:100% !important;' . $rule . '}'
+            : '';
         $className = $this->context->layoutGeometry()->allocateCarrier('figure-height' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule . $linkRule);
         $this->context->layoutGeometry()->registerRule(
             $className,
@@ -2598,6 +2600,41 @@ final class StyleResolver implements ElementPresentationResolver
         for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
             if ( 'a' === strtolower($ancestor->tagName) ) {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** The nearest source ancestor anchor of an image, the anchor core/image rebuilds as its link. */
+    private function imageLinkAncestor(DOMElement $image): ?DOMElement
+    {
+        for ( $ancestor = $image->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'a' === strtolower($ancestor->tagName) ) {
+                return $ancestor;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether author stylesheet rules size this element's box: they declare
+     * `width` or `height` on it, so the box survives the conversion and keeps
+     * sizing the element in the rebuilt markup. Such a box is authored, not
+     * generated, so a generated fill must not rest over it (the inline
+     * geometry carrier's premise in reverse).
+     */
+    private function authorStylesDriveImageBox(DOMElement $element): bool
+    {
+        $declared = $this->authorDeclaredPropertyValues($element, array( 'width', 'height' ));
+
+        foreach ( $declared as $values ) {
+            foreach ( $values as $value ) {
+                $value = strtolower(trim(CssValueInspector::withoutImportant((string) $value)));
+                if ( '' !== $value && ! in_array($value, array( 'auto', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
+                    return true;
+                }
             }
         }
 
@@ -2685,6 +2722,47 @@ final class StyleResolver implements ElementPresentationResolver
     public function consumedInlineCustomProperties(DOMElement $element, array $carriedValues = array()): array
     {
         return $this->inlineCustomPropertyDeclarations($element, $this->cssDeclarations(SourceDom::attr($element, 'style')), array_values($carriedValues));
+    }
+
+    /**
+     * A generated carrier class restating the inline custom properties this
+     * element declares and something still reads: an author rule matching it
+     * or a descendant, a descendant's own inline declaration, or one of the
+     * values the caller carries. '' when nothing reads one.
+     *
+     * A carrier that rebuilds an element without its inline style must define
+     * these again in the element's own cascade scope, or every surviving
+     * `var()` reader resolves to its initial value. core/image with a link is
+     * such a carrier: the source anchor is rebuilt from the block's link
+     * attributes alone (`linkClass`), so the class rides the rebuilt anchor
+     * and the reader rules the author stylesheet keeps still match it. The
+     * declarations sit at the important tier, like the inline geometry
+     * carrier's, because the inline declarations they restate outrank any
+     * authored normal rule whatever its specificity.
+     *
+     * @param array<int|string, string> $carriedValues
+     */
+    public function inlineCustomPropertyCarrierClassName(DOMElement $element, array $carriedValues = array()): string
+    {
+        $declarations = array();
+        foreach ( $this->consumedInlineCustomProperties($element, $carriedValues) as $name => $value ) {
+            if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
+                $declarations[] = $name . ':' . $value;
+            }
+        }
+        if ( array() === $declarations ) {
+            return '';
+        }
+
+        $className = $this->context->layoutGeometry()->allocateCarrier(
+            $this->geometryStructuralPath($element) . "\ninline-custom-properties\n" . implode(';', $declarations)
+        );
+        $this->context->layoutGeometry()->registerRule(
+            $className,
+            '.' . $className . '{' . implode(' !important;', $declarations) . ' !important}'
+        );
+
+        return $className;
     }
 
     /**
