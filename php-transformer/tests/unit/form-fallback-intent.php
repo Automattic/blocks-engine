@@ -38,6 +38,8 @@ $cases = array(
     'item-and-quantity' => array('<form method="post"><input type="hidden" name="item_id" value="42"><input type="number" name="quantity"><button>Submit</button></form>', 'commerce_add_to_cart'),
     'submit' => array('<form method="post"><input name="item"><button>Add to cart</button></form>', 'commerce_add_to_cart'),
     'contact-with-select-default-get' => array('<form name="contact" onsubmit="send()"><input type="email" name="email"><select name="subject"><option>Sales</option><option>Support</option></select><textarea name="message"></textarea><button>Send</button></form>', 'contact'),
+    'contact-with-phone-and-select-no-method' => array('<form><input type="text" name="name"><input type="tel" name="phone"><select name="preference"><option>Email</option><option>Phone</option></select><button type="submit">Send</button></form>', 'unknown'),
+    'facet-with-choices-and-price-range' => array('<form><input type="checkbox" name="filter.size" value="m"><input type="number" name="filter.price.gte"><select name="sort_by"><option>Price</option></select></form>', 'filter_sort'),
     'filter-without-email' => array('<form onsubmit="apply()"><select name="sort_by"><option>Price</option><option>Name</option></select><button>Apply</button></form>', 'filter_sort'),
     'search' => array('<form method="get"><input type="search" name="q" oninput="lookup()"></form>', 'search'),
     'newsletter' => array('<form method="post" action="/newsletter/subscribe"><input type="email" name="email"><button>Subscribe</button></form>', 'newsletter'),
