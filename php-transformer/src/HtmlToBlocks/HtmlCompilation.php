@@ -10996,12 +10996,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
 
             $allowed = array_merge($globalAttributes, $tagAttributes[$tag] ?? array());
+            $insidePicture = SourceDom::isInsidePicture($candidate);
             foreach ($this->htmlAttributes($candidate) as $attribute => $value) {
                 $attribute = strtolower($attribute);
                 if ( (! str_starts_with($attribute, 'data-') && ! str_starts_with($attribute, 'aria-') && ! in_array($attribute, $allowed, true))
                     || str_starts_with($attribute, 'data-wp-')
-                    || ('srcset' === $attribute && $this->safeFallbackSrcset($value) !== $value)
-                    || (in_array($attribute, array('href', 'src'), true) && ! $this->safeFallbackUrl($value, $attribute))
+                    || ('srcset' === $attribute && $this->safeFallbackSrcset($value, $tag, $insidePicture) !== $value)
+                    || (in_array($attribute, array('href', 'src'), true) && ! $this->safeFallbackUrl($value, $attribute, $tag, $insidePicture))
                 ) {
                     return false;
                 }
