@@ -741,6 +741,7 @@
       "php tests/unit/app-shell-captured-dialog-template.php",
       "php tests/unit/commerce-structure-recognizer.php",
       "php tests/unit/product-grid-card-identity.php",
+      "php tests/unit/product-listing-small-catalog.php",
       "php tests/unit/product-grid-nested-container.php",
       "php tests/unit/product-grid-template-content.php",
       "php tests/unit/product-grid-custom-element-host.php",
