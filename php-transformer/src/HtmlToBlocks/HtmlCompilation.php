@@ -246,13 +246,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private const DESKTOP_REFERENCE_WIDTH = 1440;
 
     /**
-     * Root font size (px) used to resolve `em`/`rem` media-query breakpoints.
-     * Media features resolve these against the initial value, not any authored
-     * font-size, so the CSS default is the correct constant rather than a guess.
-     */
-    private const ROOT_FONT_SIZE_PX = 16;
-
-    /**
      * Tag-only script selectors that must keep their native DOM shape when a
      * first-party runtime binds directly to them.
      *

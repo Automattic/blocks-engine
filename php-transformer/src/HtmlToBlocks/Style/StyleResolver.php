@@ -3244,10 +3244,21 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * Resolve the CSS root font size for rem-based structural measurements.
-     * Fragment transforms often retain only a body root; in that case resolve
-     * `html` rules against a detached root element through the same selector
-     * and cascade machinery used for source elements.
+     * Detached `html` stand-ins for body-rooted analysis documents. Retained so
+     * the element-keyed resolution caches never see a recycled wrapper.
+     *
+     * @var \WeakMap<\DOMDocument, DOMElement>|null
+     */
+    private ?\WeakMap $detachedDocumentRoots = null;
+
+    /**
+     * Resolve the CSS root font size, in px, that `rem` lengths in the source
+     * use. Body-only analysis documents do not retain the `html` element, so
+     * `html` rules resolve against a detached root element through the same
+     * selector and cascade machinery used for source elements.
+     *
+     * The root's own `em`, `rem` and `%` resolve against the 16px initial
+     * value. Values that cannot be resolved statically return null.
      */
     public function documentRootFontSize(DOMElement $context): ?float
     {
@@ -3258,23 +3269,55 @@ final class StyleResolver implements ElementPresentationResolver
 
         $root = $document->documentElement;
         if ( ! $root instanceof DOMElement || 'html' !== strtolower($root->tagName) ) {
-            // Fragment input has no author document root; in its default
-            // browser context rem uses the initial 16px root size.
-            return 16.0;
+            if ( ! $this->hasRootFontSizeRule() ) {
+                return 16.0;
+            }
+            $this->detachedDocumentRoots ??= new \WeakMap();
+            $root = $this->detachedDocumentRoots[$document] ??= $document->createElement('html');
         }
         $declarations = $this->structuralPresentationDeclarations($root);
         $fontSize = trim(CssValueInspector::withoutImportant((string) ($declarations['font-size'] ?? '')));
+
+        return self::rootFontSizePx($fontSize);
+    }
+
+    /** Whether any static rule that can select a bare `html` element declares a font size. */
+    private function hasRootFontSizeRule(): bool
+    {
+        $cache = $this->context->sourceStyles();
+        $index = $cache->ruleCandidateIndexes['static'] ??= $this->styleRuleCandidateIndex('static');
+        foreach ( array_merge($index['tags']['html'] ?? array(), $index['universal']) as $entry ) {
+            if ( isset($entry['rule']['declarations']['font-size']) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Resolve a font-size declared on the root element to px. Relative units
+     * on the root resolve against the 16px initial value.
+     */
+    public static function rootFontSizePx(string $fontSize): ?float
+    {
+        $fontSize = trim($fontSize);
         if ( '' === $fontSize ) {
             return 16.0;
         }
-        if ( 1 === preg_match('/^(\d+(?:\.\d+)?)\s*px$/i', $fontSize, $matches) ) {
-            return 0 < (float) $matches[1] ? (float) $matches[1] : null;
+        if ( 1 !== preg_match('/^(\d*\.?\d+)\s*(px|r?em|%)$/i', $fontSize, $matches) ) {
+            return null;
         }
-        if ( 1 === preg_match('/^(\d+(?:\.\d+)?)\s*(?:em|rem)$/i', $fontSize, $matches) ) {
-            return 0 < (float) $matches[1] ? 16 * (float) $matches[1] : null;
+        $number = (float) $matches[1];
+        if ( 0 >= $number ) {
+            return null;
         }
 
-        return null;
+        return match ( strtolower($matches[2]) ) {
+            'px' => $number,
+            '%' => 16 * $number / 100,
+            default => 16 * $number,
+        };
     }
 
     /**
