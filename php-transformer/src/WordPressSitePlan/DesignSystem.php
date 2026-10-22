@@ -190,7 +190,8 @@ final class DesignSystem
                 }
                 $stack = is_string($row['font_family'] ?? null) ? trim($row['font_family']) : '';
                 $familyKey = self::familyKey($stack);
-                if ('' === $familyKey || in_array($familyKey, self::GENERIC_FAMILIES, true) || in_array($familyKey, self::CSS_WIDE_KEYWORDS, true)) continue;
+                // Generic families are rendered stacks too, even without a font face.
+                if ('' === $familyKey || in_array($familyKey, self::CSS_WIDE_KEYWORDS, true)) continue;
                 $familyWeights[$familyKey] = ($familyWeights[$familyKey] ?? 0) + $weight;
                 $familyStacks[$familyKey][$stack] = ($familyStacks[$familyKey][$stack] ?? 0) + $weight;
                 if ('heading' === ($row['role'] ?? null)) $documentHeadings[$familyKey] = ($documentHeadings[$familyKey] ?? 0) + self::headingProminence($row, $px);
