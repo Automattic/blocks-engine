@@ -70,6 +70,7 @@ final class DesignUsageCollector
         'font-family' => array('font-family'),
         'font-size' => array('font-size'),
         'font-weight' => array('font-weight'),
+        'line-height' => array('line-height'),
     );
 
     /** Bindable properties of class-styled elements and the style family a variant of each declares. */
@@ -117,6 +118,7 @@ final class DesignUsageCollector
             'role' => 'body',
             'heading_level' => 0,
             'weight' => 400,
+            'line_height' => 'normal',
             'hover_color' => null,
             'conditional' => array(),
         );
@@ -228,6 +230,11 @@ final class DesignUsageCollector
         if (null === $size && 'small' === $tag) $size = round(0.833 * $parent['size'], 3);
         if (null !== $size) $context['size'] = $size;
 
+        $lineHeight = self::clean($declarations['line-height'] ?? 'inherit');
+        if (!in_array($lineHeight, array('inherit', 'unset'), true)) {
+            $context['line_height'] = $lineHeight;
+        }
+
         $color = $this->keyword($declarations['color'] ?? null);
         if (null === $color || 'inherit' === $color || 'unset' === $color || 'currentcolor' === $color) {
             // Links and buttons do not inherit colour in the user-agent sheet.
@@ -324,13 +331,14 @@ final class DesignUsageCollector
         $hover = in_array($context['role'], array('link', 'button'), true) ? $context['hover_color'] : null;
         $conditional = $context['conditional'];
         sort($conditional, SORT_STRING);
-        $key = implode("\n", array($context['role'], $context['color'], (string) $family, CssLength::format($context['size']), $context['background'], (string) $level, (string) $context['weight'], (string) $hover, implode(',', $conditional)));
+        $key = implode("\n", array($context['role'], $context['color'], (string) $family, CssLength::format($context['size']), $context['background'], (string) $level, (string) $context['weight'], $context['line_height'], (string) $hover, implode(',', $conditional)));
         $row = $this->text[$key] ?? array(
             'role' => $context['role'],
             'color' => $context['color'],
             'font_family' => $family,
             'font_size_px' => self::number($context['size']),
             'font_weight' => (int) $context['weight'],
+            'line_height' => $context['line_height'],
             'background' => $context['background'],
             'count' => 0,
             'weight' => 0,
@@ -609,7 +617,7 @@ final class DesignUsageCollector
         }
         $conditional = array();
         foreach (self::DESKTOP_READ_FAMILIES as $family => $properties) {
-            if (array() === array_intersect_key($declarations, array_flip($properties)) && $this->resolver->hasConditionalStyleFamily($element, $family)) array_push($conditional, ...$properties);
+            if ((array() === array_intersect_key($declarations, array_flip($properties)) || (isset(self::HEADING_EM[strtolower($element->tagName)]) && in_array($family, array('font-size', 'font-weight', 'line-height'), true))) && $this->resolver->hasConditionalStyleFamily($element, $family)) array_push($conditional, ...$properties);
         }
         if (array() === $conditional) return $declarations;
         foreach ($this->resolver->referenceViewportAuthorDeclarations($element, $conditional) as $property => $value) {

@@ -26,6 +26,29 @@ $compile = static function (array $artifact): array {
     foreach ($plan['writes'] ?? array() as $write) if ('theme.json' === $write['target_path']) $theme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
     return array($plan, $theme, $result['source_reports']['editability_report'] ?? array());
 };
+// Reduced heading case: class-owned typography becomes editable without
+// changing the source declarations' values, including at a breakpoint.
+foreach (array(false, true) as $responsive) {
+    $css = '.t6{font-size:3.75rem;line-height:1;font-weight:800}.t4{font-size:2.25rem;line-height:2.5rem;font-weight:700}.t5{font-size:1.25rem;font-weight:700}';
+    if ($responsive) $css = '.t6{font-size:2rem;line-height:1;font-weight:800}@media(min-width:48rem){.t6{font-size:3.75rem}}' . substr($css, strpos($css, '.t4'));
+    [$headingPlan, $headingTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><style>' . $css . '</style></head><body><h1 class="t6">Hero</h1><h2 class="t4">Section</h2><h2 class="t4">Section</h2><h3 class="t5">Card</h3><h3 class="t5">Card</h3></body></html>')));
+    $sizes = array_column($headingTheme['settings']['typography']['fontSizes'] ?? array(), 'size', 'slug');
+    $heroSlug = array_search('60px', $sizes, true);
+    $assert(false !== $heroSlug, 'reduced headings: the largest rendered size is a preset, including breakpoint-only sizes');
+    foreach (array('h1' => array('60px', '800', '1'), 'h2' => array('36px', '700', '2.5rem'), 'h3' => array('20px', '700', 'normal')) as $level => [$size, $weight, $lineHeight]) {
+        $type = $headingTheme['styles']['elements'][$level]['typography'] ?? array();
+        $assert('var:preset|font-size|' . array_search($size, $sizes, true) === ($type['fontSize'] ?? null) && $weight === ($type['fontWeight'] ?? null) && $lineHeight === ($type['lineHeight'] ?? null), 'reduced headings: ' . $level . ' exposes its rendered size, weight and line height');
+    }
+    $headingCss = implode('', array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? null) ? ($asset['content'] ?? '') : '', $headingPlan['assets']));
+    $assert(str_contains($headingCss, 'font-size:var(--wp--preset--font-size--' . $heroSlug . ',3.75rem)'), 'reduced headings: source size reads its preset with the original fallback');
+    $assert(str_contains($headingCss, 'line-height:1') && str_contains($headingCss, 'font-weight:800'), 'reduced headings: source weight and line height remain intact');
+    if ($responsive) {
+        $markup = implode('', array_column($headingPlan['pages'], 'canonical_block_markup'));
+        $assert(!preg_match('/<!-- wp:heading [^>]*"level":1[^>]*"fontSize"/', $markup), 'reduced headings: no important core size class freezes the responsive heading');
+        $assert(str_contains($headingCss, '@media') && (str_contains($headingCss, ',2rem)') || str_contains($headingCss, 'font-size:2rem')), 'reduced headings: mobile size and media rule retain their original fallback');
+    }
+}
+
 // A late shared WordPress capture stylesheet cannot redefine generated presets.
 [$sourcePresetPlan, $sourcePresetTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/source-wordpress-presets.php');
 $sourcePalette = array_column($sourcePresetTheme['settings']['color']['palette'], 'color', 'slug');
@@ -153,6 +176,16 @@ foreach (array(12, 14, 16, 16.2, 18, 20, 24, 30, 36, 48, 60, 72) as $index => $s
 $scale = DesignSystem::fromUsage(array('a.html' => $usage($sizes)));
 $scaleSlugs = array_column($scale?->fontSizes ?? array(), 'slug');
 $assert(8 === count($scaleSlugs) && 'medium' === ($scale?->fontSizeSlug('16px')) && null === ($scale?->fontSizeSlug('16.2px')) && in_array('small', $scaleSlugs, true) && in_array('large', $scaleSlugs, true), 'font sizes within half a pixel merge, only the preset\'s own size binds, and the scale is capped at eight steps');
+// A short heading keeps a scale slot even on a page with eight heavier
+// body sizes. Per-level typography uses the dominant rendered value.
+$crowdedSizes = array();
+foreach (array(12, 14, 16, 18, 20, 24, 30, 36) as $size) $crowdedSizes[] = $row('#111111', 1000, 'body', $size);
+$crowdedSizes[] = $row('#111111', 1, 'heading', 60) + array('heading_level' => 1, 'font_weight' => 800, 'line_height' => '1');
+$crowdedSizes[] = $row('#111111', 2, 'heading', 36) + array('heading_level' => 2, 'font_weight' => 700, 'line_height' => '1.2');
+$crowdedSizes[] = $row('#111111', 1, 'heading', 24) + array('heading_level' => 2, 'font_weight' => 400, 'line_height' => '1.5');
+$crowdedSystem = DesignSystem::fromUsage(array('a.html' => $usage($crowdedSizes)));
+$assert(8 === count($crowdedSystem?->fontSizes ?? array()) && null !== $crowdedSystem?->fontSizeSlug('60px'), 'a low-mass heading keeps a preset in the bounded scale');
+$assert(array('font_size' => '36px', 'font_weight' => '700', 'line_height' => '1.2') === array_intersect_key($crowdedSystem?->elements['h2'] ?? array(), array_flip(array('font_size', 'font_weight', 'line_height'))), 'each heading level uses its dominant rendered typography');
 // Three per-page copies of one stylesheet ship three times its bytes.
 $copies = array_fill(0, 3, array('kind' => 'css', 'source' => 'files', 'content' => str_repeat('a{color:#111111}', 10)));
 $sizeMetrics = DesignSystem::fromUsage(array('a.html' => $usage(array($row('#111111', 5)))))?->metrics(array('<!-- wp:paragraph --><p>a</p><!-- /wp:paragraph -->'), $copies, array(), array(), 160);
@@ -434,7 +467,7 @@ foreach (array('dark-hero-headings' => false, 'dark-hero-headings control' => tr
 // A size a breakpoint changes stays with the source: an element style
 // would override the responsive variant.
 [, $v4Theme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/tailwind-v4.php');
-$assert(!isset($v4Theme['styles']['elements']['h1']['typography']['fontSize']), 'tailwind-v4: the responsive h1 size is not an element style');
+$assert(str_starts_with($v4Theme['styles']['elements']['h1']['typography']['fontSize'] ?? '', 'var:preset|font-size|'), 'tailwind-v4: the desktop heading size is an editable element preset');
 
 // Root styles name roles, and restyle coverage is reported for every fixture.
 foreach ($plans as $fixture => [$plan, $theme]) {
