@@ -90,13 +90,15 @@ final class FormRuntimeRequirementAnalyzer
             return 'commerce_add_to_cart';
         }
         if ( $password ) return 'login';
+        // Messaging intents first: a contact form may offer a subject <select>
+        // and omit `method`, but a search or filter form never collects an email.
+        if ( $email && ($subscribe || preg_match('~(?:^|/)(?:newsletter|subscribe)(?:/|$)~', $path)) ) return 'newsletter';
+        if ( $email && $message ) return 'contact';
         $method = strtolower(trim(SourceDom::attr($form, 'method')));
         if ( '' === $method || 'get' === $method ) {
             if ( $search || preg_match('~(?:^|/)search(?:/|$)~', $path) ) return 'search';
             if ( $select ) return 'filter_sort';
         }
-        if ( $email && ($subscribe || preg_match('~(?:^|/)(?:newsletter|subscribe)(?:/|$)~', $path)) ) return 'newsletter';
-        if ( $email && $message ) return 'contact';
 
         return 'unknown';
     }
