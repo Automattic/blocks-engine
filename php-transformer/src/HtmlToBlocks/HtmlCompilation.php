@@ -34,7 +34,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceMediaR
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionListBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
@@ -157,7 +157,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetPr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ProjectedSelectorBindings;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CascadeLayer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssCascade;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayeredCssCollector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
@@ -334,6 +333,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private readonly SvgMaterializer $svgMaterializer;
 
     private readonly RichTextMaterializer $richTextMaterializer;
+    private readonly AuthoredMarqueeRecognizer $authoredMarqueeRecognizer;
 
     private readonly OrderedElementConverterRegistry $structuralContentConverters;
 
@@ -598,6 +598,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->runtime
         );
         $this->richTextMaterializer = new RichTextMaterializer($this->styleResolver, $this->svgMaterializer, $this->session, $this);
+        $this->authoredMarqueeRecognizer = new AuthoredMarqueeRecognizer($this->sourceElementClassifier, $this->styleResolver, $this->richTextMaterializer, $this->runtime, $this->session);
         $this->patternProbeContext = $this->createProbePatternContext();
         $this->navigationToggleSuppressor = new NavigationToggleSuppressor(
             $this->createNavigationToggleSuppressionContext(),
@@ -1007,7 +1008,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             visualTextWrapperBlock: fn (DOMElement $element): ?array => $this->visualTextWrapperBlockFromElement($element),
             standaloneSearchBlock: fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromStandaloneControl($element),
             readableFormControlBlock: fn (DOMElement $element): ?array => $this->readableFormControlBlockConverter->convert($element),
-            cssAuthoredMarqueeBlock: fn (DOMElement $element): ?array => $this->cssAuthoredMarqueeBlock($element),
+            cssAuthoredMarqueeBlock: fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->cssAuthoredMarqueeBlock($element),
             authoredCarouselBlock: fn (DOMElement $element): ?array => $this->authoredCarouselGenerator->convert($element),
             generatedComponentBlock: function (DOMElement $element): ?array {
                 $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
@@ -1271,7 +1272,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return new RuntimeIslandContext(
             $this->session,
             $this->sourceElementClassifier,
-            fn (DOMElement $element): iterable => $this->descendantElements($element),
+            fn (DOMElement $element): iterable => SourceDom::descendantElements($element),
             fn (DOMElement $element): array => $this->requiredScriptsForElement($element),
             fn (string $html): ?DOMElement => $this->preservedHtmlRootElement($html),
             fn (DOMElement $element): bool => $this->hasWorkspaceSurface($element)
@@ -1341,7 +1342,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this,
             $this->richTextMaterializer,
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
-            fn (DOMElement $element): ?array => $this->authoredMarqueeBlock($element),
+            fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->authoredMarqueeBlock($element),
             fn (DOMElement $element): bool => $this->hasEmptyVisualInlineChild($element),
             fn (DOMElement $element): bool => $this->hasBoxChromeWrapperStyling($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
@@ -2319,7 +2320,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function generatedComponentBlock(array $generated, DOMElement $element): array
     {
         $block = $this->createBlock($generated['blockName'], $generated['attrs'], array(), $element);
-        foreach (array_merge(array($element), $this->descendantElements($element)) as $target) {
+        foreach (array_merge(array($element), SourceDom::descendantElements($element)) as $target) {
             if (! $this->runtimeIslands->isRuntimeDomTarget($target)) {
                 continue;
             }
@@ -9514,28 +9515,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return null;
     }
 
-    /**
-     * @return array<int, DOMElement>
-     */
-    private function descendantElements(DOMElement $element): array
-    {
-        $descendants = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            $descendants[] = $child;
-            foreach ( $this->descendantElements($child) as $grandchild ) {
-                $descendants[] = $grandchild;
-            }
-        }
-
-        return $descendants;
-    }
-
     private function hasWorkspaceSurface(DOMElement $element): bool
     {
-        foreach ( $this->descendantElements($element) as $descendant ) {
+        foreach ( SourceDom::descendantElements($element) as $descendant ) {
             $tagName = strtolower($descendant->tagName);
             // Templates and their contents are inert, not visitor workspaces.
             if ( 'template' === $tagName || SourceDom::hasNonAuthoredAncestor($descendant) ) {
@@ -9544,7 +9526,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // A canvas hidden from assistive technology is a decorative backdrop,
             // not a surface the visitor works in, so it does not make its wrapper
             // an application shell.
-            if ( 'canvas' === $tagName && ! $this->hasAriaHiddenAncestor($descendant) ) {
+            if ( 'canvas' === $tagName && ! SourceDom::hasAriaHiddenAncestor($descendant) ) {
                 return true;
             }
             // An iframe loading a third-party document by https URL is a content
@@ -11009,7 +10991,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'link' => array('href', 'rel'),
         );
 
-        foreach (array_merge(array($element), $this->descendantElements($element)) as $candidate) {
+        foreach (array_merge(array($element), SourceDom::descendantElements($element)) as $candidate) {
             $tag = strtolower($candidate->tagName);
             $customElement = (bool) preg_match('/^[a-z][a-z0-9]*-[a-z0-9-]+$/D', $tag);
             if ( (! $customElement && ! in_array($tag, $tags, true)) || $this->isDeclaredRuntimeDomTarget($candidate) || array() !== $this->eventMetadata($candidate) ) {
@@ -11125,271 +11107,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
         return $depth;
-    }
-
-    /** @return array<string, mixed>|null */
-    private function cssAuthoredMarqueeBlock(DOMElement $element): ?array
-    {
-        if ( ! $this->sourceElementClassifier->hasMotionStructureToken($element) ) {
-            return null;
-        }
-
-        $children = $this->authoredMarqueeElementChildren($element);
-        $count = count($children);
-        if ( 0 === $count || 0 !== $count % 2 ) {
-            return null;
-        }
-
-        $half = intdiv($count, 2);
-        $signature = static function (DOMElement $item) use (&$signature): string {
-            $parts = array(
-                strtolower($item->tagName),
-                trim($item->getAttribute('class')),
-                trim($item->textContent ?? ''),
-            );
-            foreach ( $item->childNodes as $child ) {
-                if ( $child instanceof DOMElement ) {
-                    $parts[] = $signature($child);
-                }
-            }
-
-            return implode("\0", $parts);
-        };
-        for ( $index = 0; $index < $half; ++$index ) {
-            if ( $signature($children[$index]) !== $signature($children[$index + $half]) ) {
-                return null;
-            }
-        }
-
-        $itemSources = $this->authoredMarqueeItemSources($children, $half);
-        if ( null === $itemSources ) {
-            return null;
-        }
-
-        $motion = $this->authoredMarqueeMotion($element);
-        if ( null === $motion ) {
-            return null;
-        }
-
-        $items = array();
-        foreach ( $itemSources as $item ) {
-            $content = $this->authoredMarqueeItemContent($item);
-            if ( null === $content ) {
-                return null;
-            }
-            $items[] = array(
-                'content' => $content,
-                'className' => trim($this->attr($item, 'class')),
-                'marker' => trim($this->attr($item, 'data-blocks-engine-richtext-marker')),
-            );
-        }
-
-        $generator = new AuthoredMarqueeBlockGenerator();
-        $this->generatedBlocks()->register(AuthoredMarqueeBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
-        $attributes = array(
-            'items' => $items,
-            'direction' => $motion['direction'],
-            'duration' => $motion['duration'],
-            'decorative' => $this->hasAriaHiddenAncestor($element),
-        );
-        $markup = $generator->markup($attributes);
-
-        return array(
-            'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
-            'attrs' => $attributes,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
-    }
-
-    /**
-     * @return list<DOMElement>
-     */
-    private function authoredMarqueeElementChildren(DOMElement $element): array
-    {
-        return array_values(array_filter(
-            iterator_to_array($element->childNodes),
-            static fn (mixed $child): bool => $child instanceof DOMElement
-        ));
-    }
-
-    /**
-     * @param list<DOMElement> $children
-     * @return list<DOMElement>|null
-     */
-    private function authoredMarqueeItemSources(array $children, int $half): ?array
-    {
-        $leaves = true;
-        foreach ( $children as $child ) {
-            if ( 0 !== $child->childElementCount ) {
-                $leaves = false;
-                break;
-            }
-        }
-        if ( $leaves && 2 <= $half ) {
-            return array_slice($children, 0, $half);
-        }
-        if ( 2 === count($children) && 0 < $children[0]->childElementCount ) {
-            $items = $this->authoredMarqueeElementChildren($children[0]);
-            return array() === $items ? null : $items;
-        }
-
-        return null;
-    }
-
-    private function authoredMarqueeItemContent(DOMElement $item): ?string
-    {
-        if ( 0 === $item->childElementCount ) {
-            $text = trim($item->textContent ?? '');
-            return '' === $text ? null : $this->runtime->escapeHtml($text);
-        }
-
-        $content = $this->richTextMaterializer->content($item);
-        if ( '' === trim($this->runtime->stripAllTags($content))
-            || $this->richTextMaterializer->hasStructuralHtml($content)
-            || $this->richTextMaterializer->requiresHtmlFallback($content)
-        ) {
-            return null;
-        }
-
-        return $content;
-    }
-
-    /** @return array{direction: string, duration: float}|null */
-    private function authoredMarqueeMotion(DOMElement $element): ?array
-    {
-        $declarations = $this->cascadedAnimationDeclarations($element);
-        $name = trim((string) ($declarations['animation-name'] ?? ''));
-        $duration = trim((string) ($declarations['animation-duration'] ?? ''));
-        $direction = strtolower(trim((string) ($declarations['animation-direction'] ?? 'normal')));
-        $iteration = strtolower(trim((string) ($declarations['animation-iteration-count'] ?? '1')));
-        $timing = strtolower(trim((string) ($declarations['animation-timing-function'] ?? 'ease')));
-
-        if ( '' === $name || 'infinite' !== $iteration || 'linear' !== $timing || ! in_array($direction, array( 'normal', 'reverse' ), true) ) {
-            return null;
-        }
-        $keyframeDirection = null;
-        ( new CssStylesheetTransformer() )->visitKeyframeRules(
-            $this->authorStyles()->combinedCss(),
-            function (string $keyframeName, string $body) use ($name, &$keyframeDirection): void {
-                if ( 0 === strcasecmp(trim($keyframeName), trim($name)) ) {
-                    $keyframeDirection = $this->marqueeKeyframeDirection($body);
-                }
-            }
-        );
-        if ( null === $keyframeDirection || ! preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)$/', strtolower($duration), $durationMatch) ) {
-            return null;
-        }
-        $seconds = (float) $durationMatch[1] * ('ms' === $durationMatch[2] ? 0.001 : 1);
-        $resolvedDirection = 'reverse' === $direction
-            ? ('left' === $keyframeDirection ? 'right' : 'left')
-            : $keyframeDirection;
-
-        return array(
-            'direction' => $resolvedDirection,
-            'duration' => min(600, max(1, $seconds)),
-        );
-    }
-
-    /** @param array<string, array<string, mixed>> $cascade @param array<string, string> $declarations */
-    private function applyAuthoredAnimationCascade(array &$cascade, array $declarations, int $specificity, int &$sequence): void
-    {
-        $properties = array( 'animation-name', 'animation-duration', 'animation-timing-function', 'animation-iteration-count', 'animation-direction' );
-        foreach ( $declarations as $property => $rawValue ) {
-            if ( 'animation' !== $property && ! in_array($property, $properties, true) ) {
-                continue;
-            }
-            $important = (bool) preg_match('/!\s*important\s*$/i', $rawValue);
-            $value = trim((string) preg_replace('/!\s*important\s*$/i', '', $rawValue));
-            $values = 'animation' === $property ? $this->marqueeAnimationShorthand($value) : array( $property => $value );
-            if ( null === $values ) {
-                $values = array( 'animation-name' => 'none' );
-            }
-            foreach ( $values as $name => $resolved ) {
-                CssCascade::apply($cascade, $name, array(
-                    'value' => $resolved,
-                    'important' => $important,
-                    'specificity' => $specificity,
-                    'order' => $sequence,
-                ));
-            }
-            ++$sequence;
-        }
-    }
-
-    /** @return array<string, string>|null */
-    private function marqueeAnimationShorthand(string $animation): ?array
-    {
-        $layers = CssValueSplitter::splitTopLevel($animation, array( ',' ));
-        if ( 1 !== count($layers) ) {
-            return null;
-        }
-        $resolved = array(
-            'animation-name' => 'none',
-            'animation-duration' => '0s',
-            'animation-timing-function' => 'ease',
-            'animation-iteration-count' => '1',
-            'animation-direction' => 'normal',
-        );
-        $times = 0;
-        foreach ( CssValueSplitter::splitTopLevelWhitespace($layers[0]) as $token ) {
-            $lower = strtolower($token);
-            if ( preg_match('/^[0-9]+(?:\.[0-9]+)?m?s$/', $lower) ) {
-                if ( 0 === $times++ ) {
-                    $resolved['animation-duration'] = $lower;
-                }
-            } elseif ( 'infinite' === $lower || is_numeric($lower) ) {
-                $resolved['animation-iteration-count'] = $lower;
-            } elseif ( in_array($lower, array( 'normal', 'reverse', 'alternate', 'alternate-reverse' ), true) ) {
-                $resolved['animation-direction'] = $lower;
-            } elseif ( 'linear' === $lower || str_starts_with($lower, 'cubic-bezier(') || str_starts_with($lower, 'steps(') || str_starts_with($lower, 'ease') ) {
-                $resolved['animation-timing-function'] = $lower;
-            } elseif ( ! in_array($lower, array( 'none', 'forwards', 'backwards', 'both', 'running', 'paused' ), true) ) {
-                $resolved['animation-name'] = $token;
-            }
-        }
-        return $resolved;
-    }
-
-    private function marqueeKeyframeDirection(string $body): ?string
-    {
-        $frames = array( 'start' => null, 'end' => null );
-        ( new CssStylesheetTransformer() )->visitStyleRules($body, function (string $prelude, string $declarations) use (&$frames): void {
-            $transform = $this->styleResolver->cssDeclarations($declarations)['transform'] ?? '';
-            $offsets = CssStylesheetTransformer::splitSelectorList($prelude) ?? array();
-            foreach ( $offsets as $offset ) {
-                $offset = strtolower(trim($offset));
-                if ( 'from' === $offset || '0%' === $offset ) {
-                    $frames['start'] = $this->marqueeTranslationPercentage($transform);
-                } elseif ( 'to' === $offset || '100%' === $offset ) {
-                    $frames['end'] = $this->marqueeTranslationPercentage($transform);
-                }
-            }
-        });
-        if ( 0.0 === $frames['start'] && -50.0 === $frames['end'] ) {
-            return 'left';
-        }
-        return -50.0 === $frames['start'] && 0.0 === $frames['end'] ? 'right' : null;
-    }
-
-    private function marqueeTranslationPercentage(string $transform): ?float
-    {
-        if ( ! preg_match('/translate(?:X)?\s*\(\s*(-?[0-9]+(?:\.[0-9]+)?)(%?)\s*\)/i', $transform, $match) ) {
-            return null;
-        }
-        $value = (float) $match[1];
-        return '%' === $match[2] || 0.0 === $value ? $value : null;
-    }
-
-    private function hasAriaHiddenAncestor(DOMElement $element): bool
-    {
-        for ( $candidate = $element; $candidate instanceof DOMElement; $candidate = $candidate->parentNode instanceof DOMElement ? $candidate->parentNode : null ) {
-            if ( 'true' === strtolower(trim($this->attr($candidate, 'aria-hidden'))) ) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** @return array<string, mixed> */
@@ -11660,7 +11377,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function subtreeHasPaintedPseudo(DOMElement $element): bool
     {
-        $nodes = array_merge(array( $element ), $this->descendantElements($element));
+        $nodes = array_merge(array( $element ), SourceDom::descendantElements($element));
         $classes = array();
         foreach ( $nodes as $node ) {
             foreach ( preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array() as $class ) {
@@ -11697,7 +11414,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function containsExcludedMedia(DOMElement $element): bool
     {
-        foreach ( array_merge(array( $element ), $this->descendantElements($element)) as $node ) {
+        foreach ( array_merge(array( $element ), SourceDom::descendantElements($element)) as $node ) {
             $tag = strtolower($node->tagName);
             if ( in_array($tag, array( 'audio', 'canvas', 'iframe', 'img', 'object', 'picture', 'svg', 'video' ), true) ) {
                 return true;
@@ -11739,99 +11456,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return false;
-    }
-
-    /** @return array<string, mixed>|null */
-    private function authoredMarqueeBlock(DOMElement $element): ?array
-    {
-        $track = null;
-        foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( $candidate instanceof DOMElement && in_array($this->attr($candidate, 'data-marquee-animation'), array( 'left', 'right' ), true) ) {
-                $track = $candidate;
-                break;
-            }
-        }
-        if ( ! $track instanceof DOMElement ) {
-            return null;
-        }
-        foreach ( $this->descendantElements($element) as $node ) {
-            if ( FormControlClassifier::isControlElement($node) ) {
-                return null;
-            }
-        }
-
-        $content = '';
-        foreach ( $track->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || 'true' === $this->attr($candidate, 'aria-hidden') || 0 !== $candidate->childElementCount ) {
-                continue;
-            }
-            $text = trim($candidate->textContent ?? '');
-            if ( '' !== $text ) {
-                $content = $this->runtime->escapeHtml($text);
-                break;
-            }
-        }
-        if ( '' === $content ) {
-            return null;
-        }
-
-        $this->generatedBlocks()->register(AuthoredMarqueeBlockGenerator::class, ( new AuthoredMarqueeBlockGenerator() )->definition($this->generatedBlocks()->namespace()));
-
-        $duration = 40.0;
-        $durationCandidates = array( $this->styleResolver->cssDeclarations($this->attr($track, 'style'))['--marquee-duration'] ?? '' );
-        for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode instanceof DOMElement ? $carrier->parentNode : null ) {
-            $durationCandidates[] = $this->styleResolver->cssDeclarations($this->attr($carrier, 'style'))['--marquee-duration'] ?? '';
-        }
-        foreach ( $durationCandidates as $value ) {
-            if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)s$/', trim((string) $value), $matches) ) {
-                $duration = (float) $matches[1];
-                break;
-            }
-        }
-
-        $attributes = array(
-            'content' => $content,
-            'direction' => $this->attr($track, 'data-marquee-animation'),
-            'duration' => min(600, max(1, $duration)),
-        );
-        $markup = ( new AuthoredMarqueeBlockGenerator() )->markup($attributes);
-
-        return array(
-            'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
-            'attrs' => $attributes,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
-    }
-
-    /** @return array<string, string> */
-    private function cascadedAnimationDeclarations(DOMElement $element): array
-    {
-        $cascade = array();
-        $sequence = 0;
-        foreach ( $this->authorStyles()->styleRules() as $rule ) {
-            foreach ( $rule['selectors'] ?? array() as $selector ) {
-                $value = (string) ($selector['selector'] ?? '');
-                if ( '' !== $value && $this->styleResolver->matchesCssSelector($element, $value) ) {
-                    $this->applyAuthoredAnimationCascade(
-                        $cascade,
-                        $rule['declarations'] ?? array(),
-                        CssSelectorMatcher::specificity($selector['parsed'] ?? array()),
-                        $sequence
-                    );
-                    break;
-                }
-            }
-        }
-        $this->applyAuthoredAnimationCascade(
-            $cascade,
-            $this->styleResolver->cssDeclarations($this->attr($element, 'style')),
-            PHP_INT_MAX,
-            $sequence
-        );
-
-        return array_map(static fn (array $fact): string => (string) $fact['value'], $cascade);
     }
 
     /**
@@ -11905,7 +11529,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function hasUnsafeResponsiveImageSources(DOMElement $element): bool
     {
-        foreach ( array_merge(array($element), $this->descendantElements($element)) as $candidate ) {
+        foreach ( array_merge(array($element), SourceDom::descendantElements($element)) as $candidate ) {
             if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array( 'img', 'source' ), true) ) {
                 continue;
             }
@@ -12162,7 +11786,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function linkWrapperPaintsAuthoredTextColor(DOMElement $anchor): bool
     {
         $textOwners = array();
-        foreach ( array_merge(array( $anchor ), $this->descendantElements($anchor)) as $element ) {
+        foreach ( array_merge(array( $anchor ), SourceDom::descendantElements($anchor)) as $element ) {
             foreach ( $element->childNodes as $node ) {
                 if ( XML_TEXT_NODE === $node->nodeType && '' !== trim($node->textContent ?? '') ) {
                     $textOwners[] = $element;

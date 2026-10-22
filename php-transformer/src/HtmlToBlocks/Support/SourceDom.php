@@ -1691,4 +1691,33 @@ final class SourceDom
         return in_array($scheme[1], array( 'http', 'https' ), true)
             || (bool) preg_match('#^data:image/(?:avif|gif|jpeg|png|webp);base64,[a-z0-9+/=]+$#i', $normalized);
     }
+
+    public static function hasAriaHiddenAncestor(DOMElement $element): bool
+    {
+        for ( $candidate = $element; $candidate instanceof DOMElement; $candidate = $candidate->parentNode instanceof DOMElement ? $candidate->parentNode : null ) {
+            if ( 'true' === strtolower(trim(self::attr($candidate, 'aria-hidden'))) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    public static function descendantElements(DOMElement $element): array
+    {
+        $descendants = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $descendants[] = $child;
+            foreach ( self::descendantElements($child) as $grandchild ) {
+                $descendants[] = $grandchild;
+            }
+        }
+
+        return $descendants;
+    }
 }
