@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
@@ -348,7 +349,9 @@ final class LinkedResponsiveContentProjector
 
     private function pixel(string $value): string
     {
-        return 1 === preg_match('/^\d{1,5}$/', trim($value)) ? trim($value) : '';
+        $pixels = HtmlDimensionAttribute::pixels($value);
+
+        return null !== $pixels && $pixels < 100000 ? HtmlDimensionAttribute::pixelAttribute($value) : '';
     }
 
     /** @param array<int, string> $allowed */

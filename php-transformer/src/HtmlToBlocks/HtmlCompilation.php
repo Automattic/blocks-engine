@@ -193,6 +193,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\OwnSaveShapeInverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphColor;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
@@ -3334,7 +3335,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                         : $this->authorSelectorProjections()->ensureMediaTextImageMarker($sourceElement->getNodePath() ?? '') )
                 ),
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mediaTextPresentationStyle($sourceElement),
-                fn (DOMElement $sourceElement): ?float => $this->styleResolver->documentRootFontSize($sourceElement)
+                fn (DOMElement $sourceElement): ?float => $this->styleResolver->documentRootFontSize($sourceElement),
+                fn (DOMElement $image): array => $this->imageDimensions()->fixedPixelSize($image)
             ),
             new ColumnsPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->cssDeclarationString($this->styleResolver->structuralPresentationDeclarations($sourceElement)),
@@ -10234,6 +10236,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $width = $this->imageDimensions()->imageDisplayDimension($image, 'width');
         $height = $this->imageDimensions()->imageDisplayDimension($image, 'height');
+        if ( '100%' === $width || '100%' === $height ) {
+            // An image that fills a fixed-size sizing wrapper on both axes (an
+            // avatar `.av{width:36px;height:36px} .av img{width:100%;height:100%}`)
+            // has a fixed used size. Wrappers can be flattened or restyled by
+            // core, so carry that size itself rather than a percentage of a
+            // box that may no longer exist.
+            $fixedSize = $this->imageDimensions()->fixedPixelSize($image);
+            if ( null !== $fixedSize['width'] && null !== $fixedSize['height'] ) {
+                $width = $this->cssPixelValue($fixedSize['width']);
+                $height = $this->cssPixelValue($fixedSize['height']);
+            }
+        }
         if ( '' !== $width || '' !== $height ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-resized');
         }
@@ -10256,7 +10270,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // overrides an attribute already resolved above.
         $shape = $this->imageShapeConstraintAttributes($image, $width, $height);
         $attrs += $shape;
-        if (isset($shape['aspectRatio'])) {
+        // A fixed width AND height that already state the promoted ratio are the
+        // image's used size (a 42px x 42px avatar with `aspect-ratio:42/42`),
+        // not file metadata competing with a stylesheet-owned crop. Keep them
+        // beside aspectRatio/scale; dropping them would let the image render
+        // at the uploaded file's natural size.
+        if (isset($shape['aspectRatio'])
+            && ! $this->imageDimensionsStateAspectRatio((string) ($attrs['width'] ?? ''), (string) ($attrs['height'] ?? ''), (string) $shape['aspectRatio'])
+        ) {
             foreach (array( 'width', 'height' ) as $property) {
                 if ($this->imageDimensionIsIntrinsicAttribute($image, $property)) {
                     // HTML dimensions describe the file, not a stylesheet-owned
@@ -10680,7 +10701,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $inline = $this->styleResolver->cssDeclarations($this->attr($image, 'style'))[$property] ?? '';
             $value = trim(CssValueInspector::withoutImportant((string) $inline));
             if ( '' === $value ) {
-                $value = trim($this->attr($image, $property));
+                $pixels = HtmlDimensionAttribute::pixels($this->attr($image, $property));
+                if ( null === $pixels || $pixels <= 0 ) {
+                    return false;
+                }
+                continue;
             }
             if ( 1 !== preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(?:px)?$/i', $value) || (float) rtrim(strtolower($value), 'px') <= 0 ) {
                 return false;
@@ -12723,6 +12748,32 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return abs(((float) $widthMatch[1] / (float) $heightMatch[1]) - $ratio) > 0.000001;
     }
 
+    /**
+     * Whether a fixed width and height in one absolute unit already determine
+     * exactly the given aspect ratio. Percentages, mixed units and missing
+     * axes do not: they leave the box to the stylesheet-owned crop.
+     */
+    private function imageDimensionsStateAspectRatio(string $width, string $height, string $aspectRatio): bool
+    {
+        if (! preg_match('/^(\d*\.?\d+)(px|r?em|cm|mm|in|pt|pc)$/i', $width, $widthMatch)
+            || ! preg_match('/^(\d*\.?\d+)(px|r?em|cm|mm|in|pt|pc)$/i', $height, $heightMatch)
+            || strtolower($widthMatch[2]) !== strtolower($heightMatch[2])
+            || 0.0 >= (float) $widthMatch[1]
+            || 0.0 >= (float) $heightMatch[1]
+            || ! preg_match('#^(\d*\.?\d+)(?:\s*/\s*(\d*\.?\d+))?$#', $aspectRatio)) {
+            return false;
+        }
+
+        return ! $this->imageDimensionsDetermineDifferentAspectRatio($width, $height, $aspectRatio);
+    }
+
+    private function cssPixelValue(float $pixels): string
+    {
+        $formatted = rtrim(rtrim(number_format($pixels, 4, '.', ''), '0'), '.');
+
+        return ('' === $formatted ? '0' : $formatted) . 'px';
+    }
+
     /** Whether the emitted dimensions came only from the image file metadata. */
     private function imageDimensionsAreIntrinsicAttributes(DOMElement $image): bool
     {
@@ -12753,7 +12804,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $value = trim(CssValueInspector::withoutImportant((string) ($this->styleResolver->presentationDeclarations($image)[ $property ] ?? '')));
         }
         if ('' === $value || in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
-            $value = trim($this->attr($image, $property));
+            $raw = $this->attr($image, $property);
+            $attribute = HtmlDimensionAttribute::parse($raw);
+            // A signed value is not a valid dimension; it still fails closed.
+            return null === $attribute
+                ? 1 === preg_match('/^[\t\n\f\r ]*[+-]/', $raw)
+                : 0.0 >= $attribute['value'];
         }
         return 1 === preg_match('/^[+-]?(?:\d+|\d*\.\d+)(?:%|px|r?em|ex|ch|lh|rlh|vw|vh|vmin|vmax|vi|vb|cm|mm|q|in|pt|pc)?$/i', $value)
             && 0.0 >= (float) $value;
