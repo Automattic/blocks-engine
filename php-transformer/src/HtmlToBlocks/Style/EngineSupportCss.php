@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmit
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LinkWrapperPropagator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\Support\EditorInnerBlocksLayer;
 
@@ -419,12 +420,12 @@ final class EngineSupportCss
                 . "\n" . ':root .blocks-engine-layout-table-cell .blocks-engine-synthetic-image-figure-inline{display:contents;margin:0}'
                 . "\n" . '.blocks-engine-layout-table-cell :where(.blocks-engine-synthetic-image-figure-inline) img{display:inline;max-width:none;vertical-align:baseline}';
         }
-        if ( str_contains($serializedBlocks, HtmlCompilation::PROPAGATED_LINK_CARRIER_CLASS) ) {
+        if ( str_contains($serializedBlocks, LinkWrapperPropagator::PROPAGATED_LINK_CARRIER_CLASS) ) {
             // A propagated card link wraps all of the block's source children.
             // Layout-transparent, so the source element's flex/grid row still
             // lays out those children directly; the link stays clickable
             // through them.
-            $parts[] = ':root :where(.' . HtmlCompilation::PROPAGATED_LINK_CARRIER_CLASS . ')>a:only-child{display:contents}';
+            $parts[] = ':root :where(.' . LinkWrapperPropagator::PROPAGATED_LINK_CARRIER_CLASS . ')>a:only-child{display:contents}';
         }
         if ( str_contains($serializedBlocks, FallbackEmitter::LINK_CONTENTS_CLASS) ) {
             // A source link restored around frozen component content adds only
