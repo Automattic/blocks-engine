@@ -859,8 +859,11 @@ final class PresetBinding
                 if (false === $start) continue;
                 $result .= self::sourcePresets(substr($value, $offset, $start - $offset));
                 $replacement = null;
-                if (null !== CssColor::parse($token)) {
-                    $slug = $this->system->colorSlug($token);
+                // Resolve for membership just as whole-colour declarations do,
+                // but retain the authored token as the rendering fallback.
+                $resolved = $this->resolve($token);
+                if (null !== CssColor::parse($resolved)) {
+                    $slug = $this->system->colorSlug($resolved);
                     $replacement = null !== $slug ? 'var(--wp--preset--color--' . $slug . ',' . self::sourcePresets($token) . ')' : $this->translucentMix($token, true);
                     if (null !== $replacement) ++$this->bound;
                 } elseif (1 === preg_match('/^((?:repeating-)?(?:linear|radial|conic)-gradient)\((.*)\)$/is', $token, $match) && CssValueSplitter::hasBalancedParens($token)) {

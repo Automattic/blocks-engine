@@ -41,6 +41,25 @@ $systemStackAssets = implode('', array_column($systemStackPlan['assets'] ?? arra
 foreach (array('body' => 'body', 'heading' => 'display') as $role => $token) {
     $assert(str_contains($systemStackAssets, 'font-family:var(--wp--preset--font-family--' . $role . ',var(--font-' . $token . '))'), 'rendered system stacks: ' . $role . ' source declaration binds with its original var() fallback');
 }
+
+// Channel custom properties are colours only in the consuming function, not
+// standalone palette values. Keep the authored expression as the CSS fallback.
+foreach (array('hsl(var(--foreground))', 'hsl(var(--foreground) / 1)', 'rgb(var(--channels))', 'rgb(var(--channels) / 100%)') as $expression) {
+    [$channelPlan, $channelTheme] = $compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array('index.html' => '<!doctype html><html><head><style>:root{--foreground:0 0% 3.9%;--muted:215 16% 47%;--channels:10 10 10;--paper:255 255 255}body{color:' . $expression . ';background-color:rgb(var(--paper) / 1)}.muted{color:hsl(var(--muted))}.ink{color:#000}.surface{background:linear-gradient(' . $expression . ',rgb(var(--paper) / 100%))}</style></head><body><p class="surface">' . str_repeat('Lots of body copy. ', 20) . '</p><p class="muted">Secondary copy.</p><p class="ink">A little black text</p></body></html>'),
+    ));
+    $channelPalette = array_column($channelTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+    $channelSlug = array_search('#0a0a0a', $channelPalette, true);
+    $assert(false !== $channelSlug, $expression . ': rendered channel colour belongs to the palette');
+    $assert('#0a0a0a' === ($channelPalette['contrast'] ?? null), $expression . ': dominant body copy determines contrast, not the small literal black run');
+    $assert('var:preset|color|' . $channelSlug === ($channelTheme['styles']['color']['text'] ?? null), $expression . ': root text references its matching preset');
+    $assert('var:preset|color|base' === ($channelTheme['styles']['color']['background'] ?? null), $expression . ': root background references its matching preset');
+    $channelCss = implode("\n", array_column($channelPlan['assets'], 'content'));
+    $assert(str_contains($channelCss, 'color:var(--wp--preset--color--' . $channelSlug . ',' . $expression . ')'), $expression . ': CSS binds with the original expression as fallback');
+    $assert(str_contains($channelCss, 'linear-gradient(var(--wp--preset--color--' . $channelSlug . ',' . $expression . '),var(--wp--preset--color--base,rgb(var(--paper) / 100%)))'), $expression . ': compound colour tokens resolve and retain their original fallbacks too');
+}
+
 // A late shared WordPress capture stylesheet cannot redefine generated presets.
 [$sourcePresetPlan, $sourcePresetTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/source-wordpress-presets.php');
 $sourcePalette = array_column($sourcePresetTheme['settings']['color']['palette'], 'color', 'slug');
