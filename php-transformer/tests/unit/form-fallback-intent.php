@@ -37,6 +37,8 @@ $cases = array(
     'action' => array('<form method="post" action="https://example.test/cart/add"><input name="item"><button>Submit</button></form>', 'commerce_add_to_cart'),
     'item-and-quantity' => array('<form method="post"><input type="hidden" name="item_id" value="42"><input type="number" name="quantity"><button>Submit</button></form>', 'commerce_add_to_cart'),
     'submit' => array('<form method="post"><input name="item"><button>Add to cart</button></form>', 'commerce_add_to_cart'),
+    'contact-with-select-default-get' => array('<form name="contact" onsubmit="send()"><input type="email" name="email"><select name="subject"><option>Sales</option><option>Support</option></select><textarea name="message"></textarea><button>Send</button></form>', 'contact'),
+    'filter-without-email' => array('<form onsubmit="apply()"><select name="sort_by"><option>Price</option><option>Name</option></select><button>Apply</button></form>', 'filter_sort'),
     'search' => array('<form method="get"><input type="search" name="q" oninput="lookup()"></form>', 'search'),
     'newsletter' => array('<form method="post" action="/newsletter/subscribe"><input type="email" name="email"><button>Subscribe</button></form>', 'newsletter'),
     'login' => array('<form method="post"><input name="username"><input type="password" name="password"><button>Log in</button></form>', 'login'),
