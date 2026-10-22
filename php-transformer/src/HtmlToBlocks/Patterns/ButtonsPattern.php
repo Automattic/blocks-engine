@@ -205,9 +205,6 @@ final class ButtonsPattern
     {
         $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
         $retainsDescendants = $this->rendersSourceDescendants($anchor, $text);
-        if ( $retainsDescendants ) {
-            $buttons->retainSourceDescendants($anchor);
-        }
         // A static native button is unwrapped by buttonHtml(), so its box
         // becomes the link surface even when its label retains an icon.
         // Presentational wrappers that remain inside the link are descendants,
@@ -216,6 +213,11 @@ final class ButtonsPattern
             ?? ($retainsDescendants || $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
                 ? $anchor
                 : ($this->buttonSurfaceElement($anchor) ?? $anchor));
+        if ( $retainsDescendants ) {
+            // The native button is unwrapped into the link surface, not kept
+            // as label markup. Its author selectors still need control carriers.
+            $buttons->retainSourceDescendants($anchor, $presentationElement);
+        }
         $resolvedPresentation = trim($buttons->resolvedStyle($presentationElement));
         $hasAuthoredStyleRules = $resolvedPresentation !== trim($presentationElement->getAttribute('style'));
         $attrs = $this->buttonPresentationAttributes($presentationElement, $context, $buttons);

@@ -11,7 +11,7 @@ array{
   controls: list<array{index: int, control?: Role, label?: Role, required_marker?: Role}>,
   visual_parts: list<array{
     id: 'control-{control order}-svg-{descendant order}', index: int,
-    kind: 'inline_svg', source_selector: string, markup: safe-svg,
+    kind: 'inline_svg', label_side: 'before'|'after', source_selector: string, markup: safe-svg,
     intrinsic_size?: array{width: positive-int, height: positive-int},
     source_css: array{state: 'known', styles: array<string,string>, provenance: list<Provenance>}|array{state: 'unknown'}
   }>,
@@ -20,7 +20,7 @@ array{
 }
 ```
 
-`visual_parts` contains only drawable SVG descendants that pass `SourceDom::isSafeInlineSvgMarkup()`. `source_selector` identifies the source descendant and `index` links it to the source control order. `source_css.state: 'unknown'` means no unconditional source-CSS facts were matched. Responsive facts can still be present in `variants`; consumers evaluate those conditions rather than treating an unknown base as missing presentation. Consumers must not infer a role or layout from SVG shape or order.
+`visual_parts` contains only drawable SVG descendants that pass `SourceDom::isSafeInlineSvgMarkup()`. `source_selector` identifies the source descendant and `index` links it to the source control order. `label_side` records whether the SVG precedes or follows the control's first non-whitespace text node in document order, defaulting to `'before'` when there is no text. `source_css.state: 'unknown'` means no unconditional source-CSS facts were matched. Responsive facts can still be present in `variants`; consumers evaluate those conditions rather than treating an unknown base as missing presentation. Consumers must not infer a role or layout from SVG shape or order.
 
 `required_marker` is emitted only for the existing explicit required marker identity: an `aria-hidden="true"` span containing one to four asterisks on a required control's associated label. It records the marker's own matched CSS and variants; when it inherits the label unchanged, it safely has empty `styles` and `provenance` rather than invented source facts. Existing v1 graphs remain valid. Graphs without visual parts or an explicit required marker retain the v1 envelope; graphs with either emit v2. This contract describes source appearance, not interaction-state semantics or provider destinations.
 
