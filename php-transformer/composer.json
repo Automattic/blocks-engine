@@ -627,6 +627,7 @@
       "php tests/unit/non-rendered-metadata-pruning.php",
       "php tests/unit/static-content-containers.php",
       "php tests/unit/inert-capture-scaffolding.php",
+      "php tests/unit/hidden-decorative-spinner-placeholder.php",
       "php tests/unit/inert-closed-state-interactions.php",
       "php tests/unit/reveal-animation-settling.php",
       "php tests/unit/geometry-chain-coalescing.php",
