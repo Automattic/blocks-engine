@@ -918,7 +918,8 @@ JS;
         }
         foreach ( $items as $sourceItem ) {
             [$item, $temporary] = $this->carouselItemInRoot($sourceItem, $element, $localList);
-            $image = $item->getElementsByTagName('img')->item(0);
+            // A native video slide's <img> is the video's fallback content, not the slide.
+            $image = $this->sourceElementClassifier->isNativeVideoSlide($item) ? null : $item->getElementsByTagName('img')->item(0);
             if ( $image instanceof DOMElement ) {
                 $slide = $convertImage($image);
                 if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {

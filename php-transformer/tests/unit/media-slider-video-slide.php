@@ -21,7 +21,7 @@ $collect = static function (array $blocks, string $name) use (&$collect): array 
 };
 $images = '<div class="media__slide media__slide--image"><div class="media"><img src="/1.jpg" alt="1"></div></div>'
     . '<div class="media__slide media__slide--image"><div class="media"><img src="/2.jpg" alt="2"></div></div>';
-$video = '<div class="media__slide media__slide--video"><div class="media"><video muted playsinline poster="/v.webp" src="/v.mp4"><source src="/v.mp4" type="video/mp4"></video></div></div>';
+$video = '<div class="media__slide media__slide--video"><div class="media"><video muted playsinline poster="/v.webp" src="/v.mp4"><source src="/v.mp4" type="video/mp4"><img src="/v.webp" alt=""></video></div></div>';
 $compile = static function (string $slides): array {
     $html = '<div><x-media-slider class="media-images" data-captions="false">' . $slides . '</x-media-slider>'
         . '<div class="media-buttons"><button type="button" aria-label="Previous">‹</button><button type="button" aria-label="Next">›</button></div></div>';

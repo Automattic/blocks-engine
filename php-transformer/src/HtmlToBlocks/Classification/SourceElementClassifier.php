@@ -1348,11 +1348,27 @@ final class SourceElementClassifier
         return false;
     }
 
+    private function hasAncestorTag(DOMElement $element, string $tag, DOMElement $root): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement && ! $node->isSameNode($root); $node = $node->parentNode ) {
+            if ( $tag === strtolower($node->tagName) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private function isSingleMediaSlide(DOMElement $item, string $mediaTag): bool
     {
         foreach ( array( 'img', 'video', 'audio', 'iframe', 'canvas', 'form', 'object', 'embed' ) as $tag ) {
-            if ( $tag !== $mediaTag && 0 < $item->getElementsByTagName($tag)->length ) {
-                return false;
+            if ( $tag === $mediaTag ) {
+                continue;
+            }
+            foreach ( $item->getElementsByTagName($tag) as $other ) {
+                // Fallback content inside a <video> (a poster <img>) is not a second medium.
+                if ( 'video' !== $mediaTag || ! $this->hasAncestorTag($other, 'video', $item) ) {
+                    return false;
+                }
             }
         }
         foreach ( array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote' ) as $tag ) {
