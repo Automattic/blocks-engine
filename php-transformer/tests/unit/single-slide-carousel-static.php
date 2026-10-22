@@ -57,12 +57,13 @@ $renamed = $compile(str_replace(array('x-slides', 'slideshow carousel', 'track-s
 $assert(array() === ($renamed['fallbacks'] ?? array()) && str_contains($renamed['serialized_blocks'] ?? '', 'a-mobile.png'), 'generic carousel structure does not depend on fixture class or tag names');
 $multiple = $compile($host($slide . str_replace('is-selected', '', $slide)));
 $assert(array() !== ($multiple['fallbacks'] ?? array()), 'multiple slides without controls do not take the static exception');
-// Product cards inside an unrecognized track: the only "list" found is one
-// card, so the host's slide count is unknown and it is not a static slide.
+// Product cards inside a slider track with focusable div arrows must count
+// their items and controls rather than taking the static exception.
 $card = static fn (string $name, bool $selected): string => '<div class="column carousel__slide' . ($selected ? ' is-selected' : '') . '"><x-card class="card"><figure class="card-media"><a href="/products/' . $name . '"><img class="card-image-secondary" src="/' . $name . '-b.jpg" alt=""><img class="card-image" src="/' . $name . '.jpg" alt="' . $name . '"></a></figure><div class="card-info"><a href="/products/' . $name . '">' . $name . '</a><span class="price">$10</span></div></x-card></div>';
 $arrow = '<svg width="15" height="11" viewBox="0 0 15 11"><path d="M14 5.5H2"></path></svg>';
 $untracked = $compile('<x-slides class="products carousel" tabindex="0"><div class="nav nav-prev" tabindex="0">' . $arrow . '</div><div class="nav nav-next" tabindex="0">' . $arrow . '</div><div class="viewport"><div class="stage-slider">' . $card('one', true) . $card('two', false) . $card('three', false) . '</div></div></x-slides>');
-$assert(1 !== preg_match('/<div[^>]*class="[^"]*products carousel/', $untracked['serialized_blocks'] ?? ''), 'a host whose track is unrecognized does not take the static exception');
+$trackedCarousels = $carousels($untracked['blocks'] ?? array());
+$assert(1 === count($trackedCarousels) && 3 === count($trackedCarousels[0]['innerBlocks']), 'a slider track with div arrows becomes a three-slide carousel, not static content');
 
 $empty = $compile($host(''));
 $assert(array() !== ($empty['fallbacks'] ?? array()), 'an empty configured host still reports missing content');

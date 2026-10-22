@@ -275,6 +275,7 @@
       "php tests/unit/carousel-single-control-owner.php",
       "php tests/unit/single-slide-carousel-static.php",
       "php tests/unit/carousel-page-navigation-link.php",
+      "php tests/unit/carousel-div-controls-rich-slides.php",
       "php tests/unit/image-slideshow-gallery.php",
       "php tests/unit/authored-marquee-block.php",
       "php tests/unit/copy-to-clipboard-block.php",
