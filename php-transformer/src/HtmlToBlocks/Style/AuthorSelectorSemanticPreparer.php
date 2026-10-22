@@ -90,7 +90,8 @@ final class AuthorSelectorSemanticPreparer
         $authorStyles->installStyleRules($applicableAuthorStyleRules);
         $sourceStyles->retainMatchableRules(static function (array $rule) use ($sourceStyles, $authorStyles): bool {
             $parsed = $sourceStyles->parsedSelector((string) ($rule['selector'] ?? ''));
-            return null === $parsed || ! ($parsed['supported'] ?? false) || $authorStyles->selectorCanMatch($parsed);
+            return null === $parsed || ! ($parsed['supported'] ?? false) || $authorStyles->selectorCanMatch($parsed)
+                || self::isDocumentRootTypeSelector($parsed);
         });
         $this->discoverAuthorInlineSemanticPaths($authorSelectors, $authorStyles, $projections);
         $this->discoverInlineLayoutCarrierPaths($authorSelectors, $authorStyles, $projections);
@@ -121,6 +122,20 @@ final class AuthorSelectorSemanticPreparer
             }
         }
         return $authorStyles->rememberSelectorMatches($selector, $matches);
+    }
+
+    /**
+     * A lone `html` compound. Body-only analysis documents do not keep the
+     * root element, yet its rules still own document facts such as the root
+     * font size that `rem` resolves against (StyleResolver::documentRootFontSize()).
+     * They match no element in a body-rooted document.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private static function isDocumentRootTypeSelector(array $parsed): bool
+    {
+        $compounds = $parsed['compounds'] ?? array();
+        return 1 === count($compounds) && 'html' === strtolower((string) ($compounds[0]['type'] ?? ''));
     }
 
     /** @param array<string, mixed> $parsed */

@@ -148,8 +148,9 @@ final class ButtonStyleResolver
      * Reuse native attribute mapping for physical/logical padding and borders.
      *
      * @param array<string, string> $declarations
+     * @param float                 $rootFontSize Source root font size `rem` chrome resolves against.
      */
-    public function heightNeedsControlBox(array $declarations, float $height): bool
+    public function heightNeedsControlBox(array $declarations, float $height, float $rootFontSize = 16.0): bool
     {
         if ( ! is_finite($height) ) {
             return false;
@@ -161,10 +162,10 @@ final class ButtonStyleResolver
         $mapped = $this->mapper->map($this->declarations($css))['style'];
         $chrome = 0.0;
         foreach ( array( 'top', 'bottom' ) as $side ) {
-            $chrome += CssLength::toPx(CssValueInspector::withoutImportant((string) ($mapped['spacing']['padding'][$side] ?? '0'))) ?? 0.0;
+            $chrome += CssLength::toPx(CssValueInspector::withoutImportant((string) ($mapped['spacing']['padding'][$side] ?? '0')), $rootFontSize) ?? 0.0;
             $border = $mapped['border'][$side] ?? $mapped['border'] ?? array();
             if ( ! in_array($border['style'] ?? '', array( 'none', 'hidden' ), true) ) {
-                $chrome += CssLength::toPx((string) ($border['width'] ?? '0')) ?? 0.0;
+                $chrome += CssLength::toPx((string) ($border['width'] ?? '0'), $rootFontSize) ?? 0.0;
             }
         }
         $boxSizing = CssValueInspector::comparable((string) ($declarations['box-sizing'] ?? 'border-box'));
