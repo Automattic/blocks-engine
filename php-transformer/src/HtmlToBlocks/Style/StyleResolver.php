@@ -1799,6 +1799,12 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element);
     }
 
+    /** Carry box spacing lost on a display:contents synthetic image figure. */
+    public function syntheticFlexImageBoxClassName(DOMElement $image): string
+    {
+        return $this->inlineGeometry()->syntheticFlexImageBoxClassName($image);
+    }
+
     /** Carry runtime-authored inline image placement on the native image leaf. */
     public function imageLeafPlacementClassName(DOMElement $image): string
     {

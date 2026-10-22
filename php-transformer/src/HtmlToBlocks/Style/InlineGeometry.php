@@ -347,6 +347,23 @@ final class InlineGeometry
         return $this->className($element, $excludedProperties, $forced);
     }
 
+    /** Carry the source box properties a transparent figure cannot honour. */
+    public function syntheticFlexImageBoxClassName(DOMElement $element): string
+    {
+        // The synthetic figure is display:contents. Box spacing and item
+        // alignment therefore belong to the rendered image, not its wrapper.
+        $resolved = ($this->structuralPresentationDeclarations)($element);
+        $box = array_filter($resolved, static fn (string $property): bool =>
+            'margin' === $property || str_starts_with($property, 'margin-')
+            || 'padding' === $property || str_starts_with($property, 'padding-')
+            || in_array($property, array( 'align-self', 'justify-self', 'place-self' ), true), ARRAY_FILTER_USE_KEY);
+        if ( array() === $box ) {
+            return '';
+        }
+        $inline = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
+        return $this->className($element, array_values(array_diff(array_keys($inline), array_keys($box))), array_keys($box), $box, false, true);
+    }
+
     /**
      * Core supports cannot serialize arbitrary box dimensions. Keep only source
      * inline geometry in a generated stylesheet; class-owned declarations are
@@ -551,11 +568,11 @@ final class InlineGeometry
         $rules = array();
         if ( array() !== $normalPriorityDeclarations ) {
             $carrier = ':root ' . $this->normalTierCarrierCompound($element, $className, $normalPriorityOverrides);
-            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors($carrier) : $carrier;
+            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors(':root .wp-block-image' . $this->normalTierCarrierCompound($element, $className, $normalPriorityOverrides)) : $carrier;
             $rules[] = $selector . '{' . implode(';', $normalPriorityDeclarations) . '}';
         }
         if ( array() !== $importantDeclarations ) {
-            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors('.' . $className) : '.' . $className;
+            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors('.wp-block-image.' . $className) : '.' . $className;
             $rules[] = $selector . '{' . implode(';', $importantDeclarations) . '}';
         }
         if ('video' === strtolower($element->tagName) && isset($geometry['object-fit'], $geometry['width'], $geometry['height'])) {
