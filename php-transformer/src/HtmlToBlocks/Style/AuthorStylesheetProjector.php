@@ -1632,7 +1632,7 @@ final class AuthorStylesheetProjector
                 array_push($rewritten, ...$attributeAncestryProjection);
                 continue;
             }
-            $attributeProjection = $this->projectSourceAttributeSelector($selector, $parsed, $matches, $context);
+            $attributeProjection = $this->projectSourceAttributeSelector($selector, $parsed, $matches, $context, $controlWrapper);
             if ( null !== $attributeProjection ) {
                 array_push($rewritten, ...$attributeProjection);
                 continue;
@@ -2314,7 +2314,7 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
-    private function projectSourceAttributeSelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?array
+    private function projectSourceAttributeSelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): ?array
     {
         if ( null !== $parsed['pseudo_state_suffix_span'] ) {
             return null;
@@ -2328,7 +2328,16 @@ final class AuthorStylesheetProjector
         }
         $projected = array();
         foreach ( $matches as $element ) {
-            $marker = $context->selectorProjections->attributeMarker($element->getNodePath() ?? '', $selector);
+            $path = $element->getNodePath() ?? '';
+            $controlMarker = $context->selectorProjections->controlMarker($path);
+            if ( '' !== $controlMarker ) {
+                // Static data predicates identify the source control, not the
+                // extra wrapper core/button saves around its painted surface.
+                $wrapper = $controlWrapper && LayoutParticipation::BOX_LINK !== LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox();
+                $projected[] = $this->projectControlSelector($selector, $parsed, $controlMarker, $context, $wrapper);
+                continue;
+            }
+            $marker = $context->selectorProjections->attributeMarker($path, $selector);
             if ( '' === $marker ) {
                 return null;
             }
