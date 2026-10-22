@@ -1374,6 +1374,33 @@ final class SourceDom
         return $images->item(0);
     }
 
+    /** Whether a subtree contains native media with a captured source. */
+    public static function hasRenderableMediaContent(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            $tag = strtolower($descendant->tagName);
+            if ( 'picture' === $tag && self::pictureHasRenderableSource($descendant) ) {
+                return true;
+            }
+            if ( in_array($tag, array( 'img', 'video' ), true) ) {
+                if ( '' !== trim(self::attr($descendant, 'src'))
+                    || ( 'img' === $tag && '' !== trim(self::attr($descendant, 'srcset')) )
+                ) {
+                    return true;
+                }
+                if ( 'video' === $tag ) {
+                    foreach ( $descendant->childNodes as $source ) {
+                        if ( $source instanceof DOMElement && 'source' === strtolower($source->tagName) && '' !== trim(self::attr($source, 'src')) ) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     /** Whether a textless custom host contains only passive, nonempty graphics. */
     public static function staticGraphicOnlyCustomElement(DOMElement $element): bool
     {

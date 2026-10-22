@@ -3771,7 +3771,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * path, as do the legacy Shadow DOM insertion points `content` and
      * `shadow`, and a textless hyphenated custom element, which a script may
      * still upgrade into rendered shadow content. Passive graphic-only light DOM
-     * is the exception, unless configuration or a proven runtime owns the host.
+     * or captured native media is the exception, unless configuration or a proven
+     * runtime owns the host.
      */
     private function isTransparentUnknownElement(DOMElement $element): bool
     {
@@ -3793,7 +3794,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $runtimeDependency = new CustomElementRuntimeDependency();
-        return SourceDom::staticGraphicOnlyCustomElement($element)
+        return ( SourceDom::staticGraphicOnlyCustomElement($element) || SourceDom::hasRenderableMediaContent($element) )
             && ! $runtimeDependency->hasConfigurationAttribute($element)
             && 'preserve' !== $runtimeDependency->classify(
                 $element,
