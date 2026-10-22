@@ -180,7 +180,11 @@ final class ButtonsPattern
             if ( ! $anchor instanceof DOMElement ) {
                 return null;
             }
-            if ( $anchor !== $child
+            $nativeWrapper = $anchor !== $child
+                && SourceDom::hasClass($element, 'wp-block-buttons')
+                && SourceDom::hasClass($child, 'wp-block-button')
+                && SourceDom::hasClass($anchor, 'wp-block-button__link');
+            if ( $anchor !== $child && ! $nativeWrapper
                 && ( $child->attributes->length > ($child->hasAttribute('class') ? 1 : 0) || '' !== trim($buttons->resolvedStyle($child)) ) ) {
                 return null;
             }
@@ -190,10 +194,10 @@ final class ButtonsPattern
                 || ! $this->hasButtonSignal($anchor, $buttons) || ! $this->isRichTextAnchorLabel($anchor, $buttons) ) {
                 return null;
             }
-            $buttonBlocks[] = $this->buttonBlockFromAnchor($anchor, $context, $buttons);
+            $buttonBlocks[] = $this->buttonBlockFromAnchor($anchor, $context, $buttons, null, $nativeWrapper ? $child : null);
         }
 
-        if ( count($buttonBlocks) <= 1 ) {
+        if ( array() === $buttonBlocks || (1 === count($buttonBlocks) && ! SourceDom::hasClass($element, 'wp-block-buttons')) ) {
             return null;
         }
 
@@ -201,7 +205,7 @@ final class ButtonsPattern
     }
 
     /** @return array<string, mixed> */
-    private function buttonBlockFromAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons, ?DOMElement $presentationElement = null): array
+    private function buttonBlockFromAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons, ?DOMElement $presentationElement = null, ?DOMElement $nativeWrapper = null): array
     {
         $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
         $retainsDescendants = $this->rendersSourceDescendants($anchor, $text);
@@ -227,6 +231,18 @@ final class ButtonsPattern
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
         $attrs = array_replace_recursive($attrs, $this->buttonLabelTextAttributes($anchor, $buttons));
+        if ( $nativeWrapper instanceof DOMElement ) {
+            // The saved wrapper owns width/alignment, while descendant author
+            // rules paint the link. Neither is an authored outer Group.
+            $wrapperAttrs = $this->buttonPresentationAttributes($nativeWrapper, $context, $buttons);
+            $attrs = array_replace_recursive($wrapperAttrs, $attrs);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($wrapperAttrs['className'] ?? ''), (string) ($attrs['className'] ?? ''));
+            // This runtime strips the legacy width attribute on serialization.
+            // Keep the native save class as well so core CSS still sizes the box.
+            if ( preg_match('/(?:^|\s)(wp-block-button__width-(?:25|50|75|100))(?:\s|$)/', $nativeWrapper->getAttribute('class'), $widthClass) ) {
+                $attrs['className'] = SourceDom::mergeClassNames($attrs['className'], 'has-custom-width ' . $widthClass[1]);
+            }
+        }
 
         return $context->createBlock('core/button', array_filter(array_merge($attrs, array(
             'text'       => $text,
@@ -705,6 +721,10 @@ final class ButtonsPattern
     {
         $resolvedStyle = $buttons->resolvedStyle($element);
         $width = LayoutParticipation::widthPreset($resolvedStyle);
+        if ( null === $width && SourceDom::hasClass($element, 'wp-block-button')
+            && preg_match('/(?:^|\s)wp-block-button__width-(25|50|75|100)(?:\s|$)/', $element->getAttribute('class'), $matches) ) {
+            $width = (int) $matches[1];
+        }
         // Resolve native paint before classifying an outline: a generic reset such
         // as `button { background: none }` can precede a filled button variant.
         // It is also resolved before the presentation attributes so the carrier

@@ -79,7 +79,7 @@ final class BlockFactory
             }
         }
 
-        $attrs = $this->normalizeClassNameAttr($attrs);
+        $attrs = $this->normalizeClassNameAttr($attrs, $name);
 
         $attrs = $this->runtime()->normalizeBlockSupportAttributes($name, $attrs)['attrs'];
 
@@ -170,7 +170,7 @@ final class BlockFactory
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function normalizeClassNameAttr(array $attrs): array
+    private function normalizeClassNameAttr(array $attrs, string $blockName): array
     {
         if ( ! is_string($attrs['className'] ?? null) ) {
             return $attrs;
@@ -178,7 +178,8 @@ final class BlockFactory
 
         $classes = array();
         foreach ( preg_split('/\s+/', trim($attrs['className'])) ?: array() as $class ) {
-            if ( '' === $class || GeneratedGutenbergClassPolicy::isGeneratedClassName($class) || in_array($class, $classes, true) ) {
+            $nativeButtonWidth = 'core/button' === $blockName && 1 === preg_match('/^wp-block-button__width-(25|50|75|100)$/', $class);
+            if ( '' === $class || (! $nativeButtonWidth && GeneratedGutenbergClassPolicy::isGeneratedClassName($class)) || in_array($class, $classes, true) ) {
                 continue;
             }
             $classes[] = $class;
