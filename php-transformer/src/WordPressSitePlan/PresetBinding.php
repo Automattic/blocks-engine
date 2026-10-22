@@ -751,7 +751,9 @@ final class PresetBinding
      *
      * - A colour (`color`, `background-color`, a lone-colour `background`,
      *   or a custom property whose whole value is a colour) binds when it is
-     *   a token's exact colour. A `var()` in it must resolve the same way as
+     *   a token's exact colour. Compound custom properties and backgrounds
+     *   also bind literal colour tokens, including gradient stops.
+     *   A `var()` in a whole colour must resolve the same way as
      *   for a block literal.
      * - A font size binds only when it is the preset's own length, and a
      *   font family only when it is the preset's own stack, so no fallback
@@ -812,6 +814,10 @@ final class PresetBinding
             $value = trim(substr($value, 0, -strlen($match[0])));
         }
         if ('' === $value) return $declaration;
+        if ((str_starts_with($property, '--') || in_array($property, array('background', 'background-image'), true)) && null === CssColor::parse($this->resolve($value))) {
+            $bound = $this->bindColorTokens($value);
+            return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;
+        }
         $kind = match (true) {
             in_array($property, array('color', 'background-color', 'background'), true), str_starts_with($property, '--') => 'color',
             'font-size' === $property => 'font-size',
@@ -839,20 +845,55 @@ final class PresetBinding
     }
 
     /**
+     * Bind literal colour tokens, descending only into gradients. Functions
+     * such as var() and url() are indivisible: their contents are not stops.
+     * Source fragments are projected before inserting generated preset reads.
+     */
+    private function bindColorTokens(string $value): string
+    {
+        $result = '';
+        $offset = 0;
+        foreach (CssValueSplitter::splitTopLevel($value, array(',')) as $part) {
+            foreach (CssValueSplitter::splitTopLevelWhitespace($part) as $token) {
+                $start = strpos($value, $token, $offset);
+                if (false === $start) continue;
+                $result .= self::sourcePresets(substr($value, $offset, $start - $offset));
+                $replacement = null;
+                if (null !== CssColor::parse($token)) {
+                    $slug = $this->system->colorSlug($token);
+                    $replacement = null !== $slug ? 'var(--wp--preset--color--' . $slug . ',' . self::sourcePresets($token) . ')' : $this->translucentMix($token, true);
+                    if (null !== $replacement) ++$this->bound;
+                } elseif (1 === preg_match('/^((?:repeating-)?(?:linear|radial|conic)-gradient)\((.*)\)$/is', $token, $match) && CssValueSplitter::hasBalancedParens($token)) {
+                    $replacement = $match[1] . '(' . $this->bindColorTokens($match[2]) . ')';
+                }
+                $result .= $replacement ?? self::sourcePresets($token);
+                $offset = $start + strlen($token);
+            }
+        }
+        return $result . self::sourcePresets(substr($value, $offset));
+    }
+
+    /**
      * A translucent colour whose opaque colour is a token, restated as the
      * token mixed with transparency: `rgb(245 241 232 / .7)` becomes
      * `color-mix(in srgb, var(--wp--preset--color--contrast,#f5f1e8) 70%, transparent)`.
      * Mixing with `transparent` in sRGB keeps the colour and scales its
      * alpha, so this renders the literal until the token is edited.
      */
-    private function translucentMix(string $value): ?string
+    private function translucentMix(string $value, bool $includeTransparent = false): ?string
     {
         $resolved = $this->resolve($value);
-        $translucent = $this->comparable('color', $resolved) ? $this->system->translucentColor($resolved) : null;
-        if (null === $translucent) return null;
         $color = CssColor::parse($resolved);
         if (null === $color) return null;
         $opaque = sprintf('#%02x%02x%02x', (int) round($color[0]), (int) round($color[1]), (int) round($color[2]));
+        $translucent = $this->comparable('color', $resolved) ? $this->system->translucentColor($resolved) : null;
+        // Transparent gradient stops still carry the palette colour's RGB.
+        // Keep whole-value transparent declarations on their existing path.
+        if ($includeTransparent && 0.0 === $color[3]) {
+            $slug = $this->system->colorSlug($opaque);
+            if (null !== $slug) $translucent = array('slug' => $slug, 'percent' => 0);
+        }
+        if (null === $translucent) return null;
         return 'color-mix(in srgb, var(--wp--preset--color--' . $translucent['slug'] . ',' . $opaque . ') ' . $translucent['percent'] . '%, transparent)';
     }
 
