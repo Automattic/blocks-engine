@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
@@ -269,7 +270,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationSource = $splitLandmarkOwnership && $listSource instanceof DOMElement ? $listSource : $element;
         $navigationAttrs = $label instanceof DOMElement
             ? $this->nestedLabeledNavigationAttributes($element, $presentationAttributes)
-            : $this->navigationContainerAttributes($navigationSource, $presentationAttributes);
+            : $this->navigationContainerAttributes($navigationSource, $presentationAttributes, $navigationContext);
         $navigationAttrs = $this->withResolvedNonFlexNavigationLayout($navigationAttrs, $navigationSource, $navigationContext);
         $navigationAttrs = $this->withResolvedVerticalNavigationOrientation($navigationAttrs, $navigationSource, $navigationContext);
         $navigationAttrs = $this->withNoWrapNavigationRow($navigationAttrs, $navigationSource, $listSource, $navigationContext);
@@ -353,7 +354,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $navigationSource, $navigationContext);
-        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($navigationSource, 'never' === ($navigationAttrs['overlayMenu'] ?? '') ? $listSource : null) ?? '');
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($navigationSource, 'never' === ($navigationAttrs['overlayMenu'] ?? '') ? $listSource : null, 'default' === ($navigationAttrs['layout']['type'] ?? '') ? ($navigationAttrs['style']['spacing']['blockGap'] ?? null) : null) ?? '');
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $navigationSource);
         // WordPress copies the emitted block's classes onto its inner list. Key
         // the container reset on the source's own classes; a class-less source
@@ -743,7 +744,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // stays with the menu instead of being copied onto the landmark.
         $navigationAttrs = $cluster->isSameNode($element)
             ? array()
-            : $this->navigationContainerAttributes($cluster, $presentationAttributes);
+            : $this->navigationContainerAttributes($cluster, $presentationAttributes, $navigationContext);
         $navigationAttrs = $this->withCollapsedItemBand($navigationAttrs, $cluster, $navigationContext);
         $listSource = $this->navigationListSource($cluster);
         $splitLandmarkOwnership = $this->shouldSplitLandmarkOwnership($element, $listSource, $navigationContext);
@@ -3180,7 +3181,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     /**
      * @return array<string, mixed>
      */
-    private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes): array
+    private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes, ?NavigationPatternContext $navigationContext = null): array
     {
         $attrs = $this->withoutCoreNavigationClasses($presentationAttributes($element));
         $list = $this->navigationListSource($element);
@@ -3188,7 +3189,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::LIST_NAVIGATION_CLASS);
         }
         if ( '' !== (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
-            return $attrs;
+            return $this->withEmptySiblingNavigationSpacing($attrs, $list, $navigationContext);
         }
 
         if ( $list instanceof DOMElement && ! $list->isSameNode($element) ) {
@@ -3209,6 +3210,100 @@ final class NavigationPattern implements PatternRecognizerInterface
             $attrs['style']['spacing']['blockGap'] = '0px';
         }
 
+        return $this->withEmptySiblingNavigationSpacing($attrs, $list, $navigationContext);
+    }
+
+    /**
+     * Empty support boxes are omitted from native items. Preserve their box
+     * extent only when every inter-item boundary describes the same row gap.
+     * Outer leading/trailing space is not an inter-item boundary.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withEmptySiblingNavigationSpacing(array $attrs, ?DOMElement $list, ?NavigationPatternContext $context): array
+    {
+        if (null === $list || null === $context
+            || 'vertical' === ($attrs['layout']['orientation'] ?? '')
+            || str_starts_with($context->resolvedDeclarations($list)['flex-direction'] ?? '', 'column')
+        ) {
+            return $attrs;
+        }
+        $edges = array();
+        foreach ($list->childNodes as $item) {
+            if (!$item instanceof DOMElement) {
+                continue;
+            }
+            $display = $context->resolvedDisplay($item);
+            $row = in_array($display, array('inline-table', 'inline-block', 'inline-flex', 'flex'), true)
+                || in_array($context->resolvedDisplay($list), array('flex', 'inline-flex'), true);
+            if (!$row || 'li' !== strtolower($item->tagName)) {
+                return $attrs;
+            }
+            $itemStyle = $context->resolvedDeclarations($item);
+            if (str_starts_with($itemStyle['flex-direction'] ?? '', 'column') || $context->isOutOfFlow($item)) {
+                return $attrs;
+            }
+            $anchor = $this->primaryNavigationAnchor($item);
+            if (!$anchor instanceof DOMElement || !$anchor->parentNode?->isSameNode($item)) {
+                return $attrs;
+            }
+            $before = 0.0;
+            $after = 0.0;
+            $seenAnchor = false;
+            foreach ($item->childNodes as $child) {
+                if (!$child instanceof DOMElement) {
+                    continue;
+                }
+                if ($child->isSameNode($anchor)) {
+                    $seenAnchor = true;
+                    continue;
+                }
+                // Leaf, content-free siblings only: do not count media, nested
+                // controls, generated labels, or boxes outside normal flow.
+                if (!in_array(strtolower($child->tagName), self::ANCHOR_CARRIER_TAGS, true)
+                    || '' !== trim($child->textContent ?? '')
+                    || 0 !== $child->getElementsByTagName('*')->length
+                    || $child->hasAttribute('tabindex')
+                    || $child->hasAttribute('role')
+                    || $context->isRuntimeDomTarget($child)
+                ) {
+                    return $attrs;
+                }
+                if ($context->isOutOfFlow($child) || $context->isHiddenAtReferenceViewport($child)) {
+                    continue;
+                }
+                // A block stacked below a link has no horizontal contribution.
+                if ('table-cell' !== $context->resolvedDisplay($child)
+                    && !in_array($display, array('flex', 'inline-flex'), true)
+                    && !in_array($context->resolvedDisplay($child), array('inline-block', 'inline'), true)
+                ) {
+                    return $attrs;
+                }
+                $extent = $context->emptyBoxWidth($child);
+                if (null === $extent) {
+                    return $attrs;
+                }
+                if ($seenAnchor) {
+                    $after += $extent;
+                } else {
+                    $before += $extent;
+                }
+            }
+            $edges[] = array($before, $after);
+        }
+        $gaps = array();
+        for ($i = 1; $i < count($edges); ++$i) {
+            $gaps[] = CssLength::format($edges[$i - 1][1] + $edges[$i][0]);
+        }
+        if (array() !== $gaps && 1 === count(array_unique($gaps)) && '0px' !== $gaps[0]) {
+            // Authored gap has no used extent on a table/block list.
+            $gap = in_array($context->resolvedDisplay($list), array('flex', 'inline-flex', 'grid', 'inline-grid'), true)
+                ? CssLength::toPx((string) ($attrs['style']['spacing']['blockGap'] ?? '0px')) : 0.0;
+            if (null !== $gap) {
+                $attrs['style']['spacing']['blockGap'] = CssLength::format($gap + (CssLength::toPx($gaps[0]) ?? 0.0));
+            }
+        }
         return $attrs;
     }
 
