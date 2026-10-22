@@ -1720,4 +1720,19 @@ final class SourceDom
 
         return $descendants;
     }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function safeDataAttributes(DOMElement $element): array
+    {
+        $data = array();
+        foreach ( self::htmlAttributes($element) as $name => $value ) {
+            if ( preg_match('/^data-[a-z0-9_-]+$/i', $name) && strlen($value) <= 300 && ! preg_match('/javascript\s*:/i', $value) ) {
+                $data[$name] = $value;
+            }
+        }
+
+        return $data;
+    }
 }
