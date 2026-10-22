@@ -97,7 +97,11 @@ final class SourceBlockAttributeProjector
         if ( 'core/image' === $name && 'figure' !== $sourceTagName ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
             if ($this->sourceImageIsFlexOrGridItem($sourceElement)) {
-                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS);
+                $attrs['className'] = SourceDom::mergeClassNames(
+                    (string) ($attrs['className'] ?? ''),
+                    self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
+                    $this->styleResolver->syntheticFlexImageBoxClassName($sourceElement)
+                );
             }
             // The source image was inline content that its parent aligned. A
             // synthesized figure is a block box that fills the line instead,
