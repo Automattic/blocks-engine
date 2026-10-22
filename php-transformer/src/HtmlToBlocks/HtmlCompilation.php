@@ -3588,6 +3588,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // same terminal recorder every other unconvertible element reaches,
             // so it is either generated as a custom block or recorded as an
             // unsupported-element fallback the import report can account for.
+            //
+            // An anchor that neither navigates nor renders anything is not
+            // that loss. It is the same non-rendering inline scaffolding as
+            // the empty `<span>` a widget usually leaves beside it, so it
+            // follows the empty-inline disposition: carried only when authored
+            // styles give its box something to show, never counted as an
+            // unsupported-element fallback.
+            if ( SourceDom::isEmptyNonNavigatingAnchor($element) ) {
+                return $this->shouldPreserveEmptyVisualElement($element)
+                    ? $this->emptyVisualSpacerBlock($element)
+                    : null;
+            }
+
             return $captureUnsupported ? $this->unsupportedRecorder->record($element, $tagName, $fallbacks) : null;
         }
 

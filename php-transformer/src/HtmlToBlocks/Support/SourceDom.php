@@ -304,6 +304,27 @@ final class SourceDom
     }
 
     /**
+     * An anchor that renders nothing and goes nowhere: no `href` to navigate,
+     * no `id`/`name` to be a fragment target, no children, no text. Beside
+     * the empty inline scaffolding it usually accompanies (an empty `<span>`
+     * from the same widget), it is a non-rendering inline element, not a
+     * lost link.
+     */
+    public static function isEmptyNonNavigatingAnchor(DOMElement $element): bool
+    {
+        if ( 'a' !== strtolower($element->tagName)
+            || 0 !== self::childElementCount($element)
+            || '' !== trim($element->textContent ?? '')
+            || '' !== LinkUrlSanitizer::sanitize(self::attr($element, 'href'))
+            || '' !== self::namedFragmentTargetId($element)
+        ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Whether this anchor is the document's skip link: a fragment link to the
      * document's first <main>, ahead of it and outside every landmark (a logo
      * in the header that links to the top of <main> is the site's brand). A
