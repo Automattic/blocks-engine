@@ -1,5 +1,46 @@
 # Products collection
 
+## Small and empty controlled listings
+
+Page-owned sort, facet, or result-count controls are commerce evidence for a
+qualifying product card, even below the image-only grid repetition threshold.
+Uncontrolled image-only grids still require four qualifying cards.
+
+An empty collection with recognized controls can declare a
+`generic/product-grids/v1` entity without a `products` collection. Its `items`
+is an empty array, its binding anchors the empty-state region, and
+`item_template` is absent because there is no card to repeat. Nonempty grids
+retain their existing item-template contract.
+
+The corresponding `generic/product-listings/v1` entity keeps its existing
+shape: `source_path`, `selector`, `grid_selector`, `controls`, and `bindings`.
+`grid_selector` references the empty grid entity; its `items: []` is the empty
+item set. The listing's first binding anchors the enclosing region and the
+remaining bindings anchor each control. Checkbox facets use the additive
+`shape: "checkboxes"` value, including single-option groups and when there are
+no cards to partition. Facet keys use the group's own summary, legend, or
+associated label, falling back to the final input-name segment; page ancestor
+text is never a label. Same-named inputs in sibling device listings remain
+separate groups.
+
+Sort selects recognize ordering values independently of localized labels;
+`sort`/`order`-named selects also qualify without card-order proof. Known
+options retain normalized `order` values (including `oldest` for ascending
+creation/date order); unknown options on explicitly named selects retain their
+source value and label without inventing an order. Forms entirely owned by
+listing controls are not also declared as generic provider forms.
+
+Empty candidates require an empty-state signal, not checkbox controls alone.
+They are suppressed when any populated product grid qualifies. Control lookup
+includes the nearest landmark but does not cross it, so unrelated promoted
+cards outside the collection's landmark do not veto an empty listing. Without
+landmarks, the controls' common ancestor bounds the empty collection check.
+Search drawers and search regions do not supply collection grids or controls.
+A single opaque card block can be retained as a generic item-template field
+when its individual product fields cannot be separated.
+
+## Product rows
+
 `generic/products/v1` is the provider-neutral `products` entity collection for
 shop imports. Rows retain `name`, `slug`, `regular_price` and existing optional
 `description`, `category`, `image`, `sale_price`, `attributes` and source/binding

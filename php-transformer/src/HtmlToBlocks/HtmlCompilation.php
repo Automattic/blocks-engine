@@ -71,6 +71,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkLefto
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredMotionMarkerConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LinkWrapperPropagator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormCompositionPlanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatchContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
@@ -245,13 +246,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private const DESKTOP_REFERENCE_WIDTH = 1440;
 
     /**
-     * Root font size (px) used to resolve `em`/`rem` media-query breakpoints.
-     * Media features resolve these against the initial value, not any authored
-     * font-size, so the CSS default is the correct constant rather than a guess.
-     */
-    private const ROOT_FONT_SIZE_PX = 16;
-
-    /**
      * Tag-only script selectors that must keep their native DOM shape when a
      * first-party runtime binds directly to them.
      *
@@ -271,36 +265,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         'simulator', 'stage', 'studio', 'terminal', 'viewport', 'workspace', 'world',
     );
 
-    /**
-     * Blocks that manage their own link destination and must never receive a
-     * propagated card-link wrapper href (core/button owns its `url`,
-     * core/navigation-link owns its `url`, core/html is opaque markup, …).
-     *
-     * @var array<int, string>
-     */
-    private const LINK_SELF_MANAGING_BLOCKS = array(
-        'core/button',
-        'core/buttons',
-        'core/file',
-        'core/html',
-        'core/navigation',
-        'core/navigation-link',
-        'core/navigation-submenu',
-    );
-
-    /**
-     * RichText content blocks whose stored `content` can carry an inline `<a>`
-     * when a whole-element link wrapper is propagated onto them (#260).
-     *
-     * @var array<int, string>
-     */
-    private const LINK_BEARING_TEXT_BLOCKS = array(
-        'core/heading',
-        'core/paragraph',
-        'core/list-item',
-    );
-
     private readonly BlockFactory $blockFactory;
+    private readonly LinkWrapperPropagator $linkWrapperPropagator;
 
     private readonly BlockMaterializer $blockMaterializer;
 
@@ -481,16 +447,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     public const EMPTY_RUNTIME_TARGET_CLASS = 'blocks-engine-empty-runtime-target';
 
-    /**
-     * Marks a RichText block whose text was painted by the source, and into
-     * whose content a content-wrapping anchor's link had to be pushed. The
-     * synthesized inline `<a>` becomes the text's nearest painted ancestor, so
-     * the browser's link colour would replace the source colour; the projected
-     * rule makes that anchor inherit its host block's colour instead.
-     */
-    private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = SourceBlockAttributeProjector::PROPAGATED_LINK_COLOR_CLASS;
-    public const PROPAGATED_LINK_CARRIER_CLASS = SourceBlockAttributeProjector::PROPAGATED_LINK_CLASS;
-
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
     private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
@@ -567,6 +523,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->deadProjectedSelectorReporter = new DeadProjectedSelectorReporter();
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
         $this->styleResolver = new StyleResolver($this->createStyleResolutionContext(), $this->analysisCache);
+        $this->linkWrapperPropagator = new LinkWrapperPropagator($this->styleResolver, $this->blockFactory);
         $this->generatedBlockStyleProjector = new GeneratedBlockStyleProjector($this->runtime, $this->styleResolver);
         $this->sourceBlockAttributeProjector = new SourceBlockAttributeProjector($this->styleResolver, $this->generatedBlockStyleProjector);
         $this->stylesheetAnalysisComposer = new StylesheetAnalysisComposer($this->styleResolver, $this->analysisCache);
@@ -2751,7 +2708,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 if ('core/paragraph' === ($block['blockName'] ?? '') && isset($bareText[$text])) {
                     $attrs = $block['attrs'];
                     $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
-                    $block = $this->rebuildBlock($block, $attrs);
+                    $block = $this->blockFactory->rebuild($block, $attrs);
                 }
             }
             unset($block);
@@ -3598,6 +3555,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // same terminal recorder every other unconvertible element reaches,
             // so it is either generated as a custom block or recorded as an
             // unsupported-element fallback the import report can account for.
+            //
+            // An anchor that neither navigates nor renders anything is not
+            // that loss. It is the same non-rendering inline scaffolding as
+            // the empty `<span>` a widget usually leaves beside it, so it
+            // follows the empty-inline disposition: carried only when authored
+            // styles give its box something to show, never counted as an
+            // unsupported-element fallback.
+            if ( SourceDom::isEmptyNonNavigatingAnchor($element) ) {
+                return $this->shouldPreserveEmptyVisualElement($element)
+                    ? $this->emptyVisualSpacerBlock($element)
+                    : null;
+            }
+
             return $captureUnsupported ? $this->unsupportedRecorder->record($element, $tagName, $fallbacks) : null;
         }
 
@@ -4421,7 +4391,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ) {
                 continue;
             }
-            $innerBlocks[ $index ] = $this->rebuildBlock(
+            $innerBlocks[ $index ] = $this->blockFactory->rebuild(
                 $innerBlock,
                 array_merge(is_array($innerBlock['attrs'] ?? null) ? $innerBlock['attrs'] : array(), array( 'align' => $alignment ))
             );
@@ -5294,7 +5264,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if (! is_array($block)) continue;
             if (isset($block['attrs']['content']) && is_string($block['attrs']['content'])) {
                 $content = preg_replace('/^<a\b[^>]*>(.*)<\/a>$/is', '$1', $block['attrs']['content']) ?? $block['attrs']['content'];
-                if ($content !== $block['attrs']['content']) $block = $this->rebuildBlock($block, array_merge($block['attrs'], array('content' => $content)));
+                if ($content !== $block['attrs']['content']) $block = $this->blockFactory->rebuild($block, array_merge($block['attrs'], array('content' => $content)));
             }
             if (is_string($block['innerHTML'] ?? null)) $block['innerHTML'] = preg_replace('/<a\b[^>]*>(<img\b[^>]*>)<\/a>/is', '$1', $block['innerHTML']) ?? $block['innerHTML'];
             if (is_array($block['innerContent'] ?? null)) foreach ($block['innerContent'] as &$part) if (is_string($part)) $part = preg_replace('/<a\b[^>]*>(<img\b[^>]*>)<\/a>/is', '$1', $part) ?? $part;
@@ -9744,8 +9714,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         ));
 
         $children = array( $image, $textBlock );
-        $linkAttrs = $this->linkPropagationAttributes($anchor);
-        $this->propagateLinkWrapper($children, $linkAttrs);
+        $linkAttrs = $this->linkWrapperPropagator->linkPropagationAttributes($anchor);
+        $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs);
 
         $attrs = array_replace_recursive(
             $this->styleResolver->presentationAttributes($paragraph),
@@ -11311,7 +11281,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        $linkAttrs = $this->linkPropagationAttributes($anchor);
+        $linkAttrs = $this->linkWrapperPropagator->linkPropagationAttributes($anchor);
         // A gallery thumbnail wraps its image, and often a caption overlay, in
         // a lightbox trigger. That link is the viewer, not a destination, so
         // core's native lightbox replaces it rather than propagating an href
@@ -11331,173 +11301,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
             return $this->layoutShellBlockForElements(array($anchor), $children, $anchor);
         }
-        if ( array() !== $linkAttrs && ! $this->propagateLinkWrapper($children, $linkAttrs) ) {
+        if ( array() !== $linkAttrs && ! $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs) ) {
             $this->recordDroppedLinkWrapper($anchor);
         }
 
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($anchor), $children, $anchor);
-    }
-
-    /**
-     * The subset of a card-link wrapper's attributes used to propagate the link
-     * onto inner blocks: href (sanitized), target, and rel. The wrapper's own
-     * class/aria-label stay on the container group, not on each inner block.
-     *
-     * @return array<string, string>
-     */
-    private function linkPropagationAttributes(DOMElement $anchor): array
-    {
-        $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
-        if ( '' === $href ) {
-            return array();
-        }
-
-        $declarations = $this->styleResolver->presentationDeclarations($anchor);
-        // An author utility such as `text-decoration:none!important` still
-        // leaves the wrapper undecorated.
-        $textDecoration = CssValueInspector::comparable((string) ($declarations['text-decoration'] ?? ''));
-
-        return array_filter(array(
-            'href'           => $href,
-            'target'         => $this->attr($anchor, 'target'),
-            'rel'            => $this->attr($anchor, 'rel'),
-            'textDecoration' => 'none' === $textDecoration ? 'none' : '',
-            'color'          => $this->linkWrapperPaintsAuthoredTextColor($anchor) ? 'inherit' : '',
-        ), static fn (string $value): bool => '' !== trim($value));
-    }
-
-    /**
-     * Whether an element strictly inside a content-wrapping anchor paints every
-     * run of the anchor's text.
-     *
-     * Pushing the wrapper's href down onto an inner RichText block (see
-     * {@see self::propagateInlineLink()}) rebuilds the anchor INSIDE the block
-     * that the painting element became, so the synthesized `<a>` — not that
-     * element — is now the text's nearest painted ancestor and the browser's
-     * link colour replaces the source colour. Making the anchor inherit
-     * restores the source's painted colour, whatever it is, because the block
-     * that inherits from still carries the source's own styling hooks.
-     *
-     * The wrapper's own colour is deliberately not counted. It has no painting
-     * element inside the anchor to lose: source rules that reach the anchor by
-     * type still reach the rebuilt one, and no repaint is owed. Text sitting
-     * directly in the anchor is likewise unpainted from within, so a wrapper
-     * that holds any is left exactly as it is today.
-     */
-    private function linkWrapperPaintsAuthoredTextColor(DOMElement $anchor): bool
-    {
-        $textOwners = array();
-        foreach ( array_merge(array( $anchor ), SourceDom::descendantElements($anchor)) as $element ) {
-            foreach ( $element->childNodes as $node ) {
-                if ( XML_TEXT_NODE === $node->nodeType && '' !== trim($node->textContent ?? '') ) {
-                    $textOwners[] = $element;
-                    break;
-                }
-            }
-        }
-
-        if ( array() === $textOwners ) {
-            return false;
-        }
-
-        foreach ( $textOwners as $textOwner ) {
-            if ( ! $this->paintsTextColorBelow($textOwner, $anchor) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Whether the cascade paints `$element` — or an ancestor of it below
-     * `$anchor` — with a colour of its own. That is the inheritance chain the
-     * rebuilt anchor severs, so it is the chain that decides whether the anchor
-     * must inherit.
-     *
-     * The paint is read through
-     * {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver::controlSurfaceResolvedStyle()}
-     * because this is a classification signal, not a projection: a capture
-     * routinely serialises a site's desktop paint behind a width query, and the
-     * static-only view would call such a leaf unpainted — leaving the rebuilt
-     * anchor to render the browser's link colour exactly where the source
-     * rendered white. Conditions that never hold at the reference viewport
-     * still count for nothing, matching what the document renders with.
-     */
-    private function paintsTextColorBelow(DOMElement $element, DOMElement $anchor): bool
-    {
-        for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($anchor); $node = $node->parentNode ) {
-            $declarations = $this->styleResolver->cssDeclarations(
-                $this->styleResolver->controlSurfaceResolvedStyle($node)
-            );
-            $color = strtolower(trim((string) ($declarations['color'] ?? '')));
-            if ( '' !== $color && ! in_array($color, array( 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'currentcolor' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Walk the converted inner blocks of a link wrapper and propagate the
-     * anchor's link onto every native link-bearing descendant so the content
-     * remains navigable. core/image receives native link attributes;
-     * {@see self::LINK_BEARING_TEXT_BLOCKS} get an inline `<a>` around their text
-     * content. Layout containers (group/columns/column/…) are recursed into so a
-     * card whose heading/image/text lives behind wrapper `<div>`s is still
-     * covered. Blocks that manage their own link
-     * ({@see self::LINK_SELF_MANAGING_BLOCKS}) are skipped.
-     *
-     * Returns true when the link was carried onto at least one inner block.
-     *
-     * @param array<int, array<string, mixed>> $blocks
-     * @param array<string, string> $linkAttrs
-     */
-    private function propagateLinkWrapper(array &$blocks, array $linkAttrs): bool
-    {
-        $preserved = false;
-        foreach ( $blocks as $index => $block ) {
-            if ( ! is_array($block) ) {
-                continue;
-            }
-
-            $name = (string) ($block['blockName'] ?? '');
-
-            if ( in_array($name, self::LINK_SELF_MANAGING_BLOCKS, true) ) {
-                continue;
-            }
-
-            // Companion content frozen from inside this link already carries
-            // the link it was restored with (see FallbackEmitter::withEnclosingLink()).
-            $content = $block['attrs']['content'] ?? null;
-            if ( is_string($content) && str_starts_with($content, '<a href="' . htmlspecialchars((string) ($linkAttrs['href'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"') && str_contains($content, 'class="' . FallbackEmitter::LINK_CONTENTS_CLASS . '"') ) {
-                $preserved = true;
-                continue;
-            }
-
-            if ( 'core/image' === $name ) {
-                if ( $this->propagateLinkOntoImage($blocks[$index], $linkAttrs) ) {
-                    $preserved = true;
-                }
-                continue;
-            }
-
-            if ( in_array($name, self::LINK_BEARING_TEXT_BLOCKS, true) ) {
-                if ( $this->propagateInlineLink($blocks[$index], $linkAttrs) ) {
-                    $preserved = true;
-                }
-                continue;
-            }
-
-            if ( isset($blocks[$index]['innerBlocks']) && is_array($blocks[$index]['innerBlocks']) ) {
-                if ( $this->propagateLinkWrapper($blocks[$index]['innerBlocks'], $linkAttrs) ) {
-                    $preserved = true;
-                }
-            }
-        }
-
-        return $preserved;
     }
 
     /**
@@ -11527,7 +11335,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
                 if ( '' === (string) ($attrs['href'] ?? '') ) {
                     $attrs['lightbox'] = array( 'enabled' => true );
-                    $blocks[ $index ] = $this->rebuildBlock($block, $attrs);
+                    $blocks[ $index ] = $this->blockFactory->rebuild($block, $attrs);
                     $enabled = true;
                 }
                 continue;
@@ -11539,116 +11347,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $enabled;
-    }
-
-    private function propagateLinkOntoImage(array &$block, array $linkAttrs): bool
-    {
-        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-        if ( '' !== (string) ($attrs['href'] ?? '') ) {
-            return false;
-        }
-
-        $href = (string) ($linkAttrs['href'] ?? '');
-        if ( '' === $href ) {
-            return false;
-        }
-
-        $imageLink = array_filter(array(
-            'href'            => $href,
-            'linkDestination' => 'custom',
-            'linkTarget'      => (string) ($linkAttrs['target'] ?? ''),
-            'rel'             => (string) ($linkAttrs['rel'] ?? ''),
-        ), static fn (string $value): bool => '' !== trim($value));
-
-        $block = $this->rebuildBlock($block, array_merge($attrs, $imageLink));
-        return true;
-    }
-
-    /**
-     * Propagate a card-link wrapper's href onto a RichText content block
-     * (heading/paragraph/list-item) by wrapping its text content in an inline
-     * `<a>`. Content that is empty or already carries a link is left untouched.
-     *
-     * @param array<string, mixed> $block
-     * @param array<string, string> $linkAttrs
-     */
-    private function propagateInlineLink(array &$block, array $linkAttrs): bool
-    {
-        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-        $content = (string) ($attrs['content'] ?? '');
-        if ( '' === trim($content) ) {
-            return false;
-        }
-
-        $href = (string) ($linkAttrs['href'] ?? '');
-        if ( '' === $href ) {
-            return false;
-        }
-
-        if ( preg_match('/<a\b/i', $content) ) {
-            return false;
-        }
-
-        $wrapped = $this->wrapInlineLink($content, $linkAttrs);
-        if ( $wrapped === $content ) {
-            return false;
-        }
-
-        $replacementAttrs = array_merge($attrs, array( 'content' => $wrapped ));
-        if ( 'inherit' === (string) ($linkAttrs['color'] ?? '') ) {
-            $replacementAttrs['className'] = $this->mergeClassNames(
-                (string) ($replacementAttrs['className'] ?? ''),
-                self::PROPAGATED_LINK_COLOR_CARRIER_CLASS
-            );
-        }
-        if ( 'none' === (string) ($linkAttrs['textDecoration'] ?? '') ) {
-            $replacementAttrs['className'] = $this->mergeClassNames(
-                (string) ($replacementAttrs['className'] ?? ''),
-                SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS
-            );
-            $style = is_array($replacementAttrs['style'] ?? null) ? $replacementAttrs['style'] : array();
-            $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
-            $typography['textDecoration'] = 'none';
-            $style['typography'] = $typography;
-            $replacementAttrs['style'] = $style;
-        }
-
-        // The injected anchor wraps every child of the source element. When
-        // those children include elements (an icon beside a label), it must
-        // not become the element's only layout child, or a flex/grid source
-        // row collapses into the anchor's inline flow. Plain text is unaffected.
-        if ( str_contains($content, '<') ) {
-            $replacementAttrs['className'] = $this->mergeClassNames(
-                (string) ($replacementAttrs['className'] ?? ''),
-                self::PROPAGATED_LINK_CARRIER_CLASS
-            );
-        }
-        $block = $this->rebuildBlock($block, $replacementAttrs);
-        return true;
-    }
-
-    /**
-     * Wrap a RichText content string in an inline `<a>` carrying the propagated
-     * href/target/rel.
-     *
-     * @param array<string, string> $linkAttrs
-     */
-    private function wrapInlineLink(string $content, array $linkAttrs): string
-    {
-        $href = (string) ($linkAttrs['href'] ?? '');
-        if ( '' === $href || '' === trim($content) ) {
-            return $content;
-        }
-
-        $attributes = ' href="' . htmlspecialchars($href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        if ( '' !== trim((string) ($linkAttrs['target'] ?? '')) ) {
-            $attributes .= ' target="' . htmlspecialchars($linkAttrs['target'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        }
-        if ( '' !== trim((string) ($linkAttrs['rel'] ?? '')) ) {
-            $attributes .= ' rel="' . htmlspecialchars($linkAttrs['rel'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        }
-
-        return '<a' . $attributes . '>' . $content . '</a>';
     }
 
     /**
@@ -11710,20 +11408,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $declarations = $this->styleResolver->resolvedPresentationDeclarations($element);
 
         return strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? ''))));
-    }
-
-    private function rebuildBlock(array $block, array $attrs): array
-    {
-        $name = (string) ($block['blockName'] ?? '');
-        $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
-        $rebuilt = $this->blockFactory->create($name, $attrs, $innerBlocks);
-        foreach ( $block as $key => $value ) {
-            if ( is_string($key) && str_starts_with($key, '_') ) {
-                $rebuilt[$key] = $value;
-            }
-        }
-
-        return $rebuilt;
     }
 
     private function safeImageUrl(string $url): string

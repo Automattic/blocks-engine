@@ -16,8 +16,6 @@ use WeakMap;
 /** Projects authored rule bodies whose source geometry changes under block wrappers. */
 final class AuthorStyleRuleProjector
 {
-    private const ROOT_FONT_SIZE_PX = 16;
-
     /** Bounded ancestor walk for stretch-derived percentage-height resolution. */
     private const MAX_STRETCH_ANCESTOR_DEPTH = 12;
 
@@ -350,7 +348,7 @@ final class AuthorStyleRuleProjector
             foreach ( $matches as $element ) {
                 $scope = SourceDom::documentVariantRoot($element);
                 if ($scope instanceof DOMElement && $scope->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)) return $body;
-                if ( ! $this->isWideAbsoluteMinimumWidth($this->styleResolver->resolveCssVariablesInValue($minimumWidth, $element)) ) {
+                if ( ! $this->isWideAbsoluteMinimumWidth($this->styleResolver->resolveCssVariablesInValue($minimumWidth, $element), $element) ) {
                     return $body;
                 }
             }
@@ -882,7 +880,8 @@ final class AuthorStyleRuleProjector
         return 'repeat(' . $parts[0] . ', ' . $this->collapseFractionalGridRowTracks($parts[1]) . ')';
     }
 
-    private function isWideAbsoluteMinimumWidth(string $value): bool
+    /** `rem` and `em` lengths resolve against the source document's root font size. */
+    private function isWideAbsoluteMinimumWidth(string $value, DOMElement $element): bool
     {
         $value = CssValueInspector::withoutImportant($value);
         if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)\s*(px|r?em)$/i', $value, $matches) ) {
@@ -890,7 +889,11 @@ final class AuthorStyleRuleProjector
         }
         $pixels = (float) $matches[1];
         if ( 'px' !== strtolower($matches[2]) ) {
-            $pixels *= self::ROOT_FONT_SIZE_PX;
+            $rootFontSize = $this->styleResolver->documentRootFontSize($element);
+            if ( null === $rootFontSize ) {
+                return false;
+            }
+            $pixels *= $rootFontSize;
         }
         return $pixels >= 640;
     }

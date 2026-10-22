@@ -1950,6 +1950,22 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     private static function isPassiveSvgElement(DOMElement $element, array $allowedTags, array $allowedAttributes): bool
     {
+        // SMIL transform animation is self-contained in an SVG image document.
+        // Keep the target implicit and restrict it to geometry: general SMIL
+        // attribute mutation (notably href) is not passive artwork.
+        if ( 'animatetransform' === strtolower($element->tagName) ) {
+            if ( 'transform' !== strtolower(trim(SourceDom::attr($element, 'attributename')))
+                || ! in_array(strtolower(trim(SourceDom::attr($element, 'type'))), array( 'translate', 'scale', 'rotate', 'skewx', 'skewy' ), true) ) {
+                return false;
+            }
+            $allowedTags['animatetransform'] = 1;
+            $allowedAttributes = array_flip(array(
+                'attributename', 'attributetype', 'type', 'from', 'to', 'by', 'values',
+                'dur', 'repeatcount', 'repeatdur', 'calcmode', 'keytimes', 'keysplines',
+                'additive', 'accumulate', 'fill',
+            ));
+        }
+
         if ( ! isset($allowedTags[strtolower($element->tagName)]) ) {
             return false;
         }
