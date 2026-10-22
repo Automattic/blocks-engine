@@ -781,6 +781,7 @@
       "php tests/unit/form-control-topology-group-label.php",
       "php tests/unit/artifact-compiler-schema-product-evidence.php",
       "php tests/unit/schema-product-site-name.php",
+      "php tests/unit/schema-product-group.php",
       "php tests/unit/numeric-class-token-component-facts.php",
       "php tests/unit/document-head-style-link.php"
     ],
