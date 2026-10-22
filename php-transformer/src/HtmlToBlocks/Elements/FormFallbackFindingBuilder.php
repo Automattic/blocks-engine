@@ -72,6 +72,7 @@ final class FormFallbackFindingBuilder
             'selector'         => SourceDom::elementSelector($element),
             'attributes'       => SourceDom::htmlAttributes($element),
             'form'             => $formMetadata,
+            'form_intent'      => FormRuntimeRequirementAnalyzer::formIntent($element),
             'success_panel'    => $this->successPanelMetadataBuilder->build($element),
             'context'          => $this->context->sourceContext($element),
             'classification'   => $this->context->classifyFallbackSubtree($element),
