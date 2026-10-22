@@ -166,6 +166,15 @@ final class FlowContainerElementConverter implements ElementConverter
             if ( null !== $navigation ) {
                 return $navigation;
             }
+            // Native core/buttons save markup is laid out by its own block
+            // CSS. Its author flex rules restate that layout, so the native
+            // block keeps each button (and its width class) editable.
+            if ( SourceDom::hasClass($element, 'wp-block-buttons') ) {
+                $buttons = $this->context->recognizePatterns($element, $fallbacks, array( ButtonsContainerPattern::class ));
+                if ( null !== $buttons ) {
+                    return ConversionOutcome::handled($buttons);
+                }
+            }
             $block = $this->context->proofBackedWrapperCoalescing($element, $fallbacks);
             return ConversionOutcome::handled($block ?? $this->context->authorLayoutBlock($element, $fallbacks));
         }
