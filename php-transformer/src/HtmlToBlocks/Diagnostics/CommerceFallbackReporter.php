@@ -28,7 +28,8 @@ final class CommerceFallbackReporter
     /**
      * When every qualifying card in a grid was admitted only through the
      * weaker image-corroborated catalog path (no schema.org evidence and no
-     * cart control anywhere in the grid), require more repeated cards than the
+     * cart control anywhere in the grid) and has no listing controls, require
+     * more repeated cards than the
      * authoritative-signal minimum before trusting the grid as commerce. A
      * small (2-3 card) pricing/plan comparison is a much more common false
      * positive at low repetition than a real product catalog is.
@@ -60,7 +61,9 @@ final class CommerceFallbackReporter
      * (heading or name token), a currency-formatted price, and an
      * add-to-cart/buy control. A lone card is only a grid on its own strong
      * evidence (schema.org or a cart control); image-only qualification needs
-     * repetition (see `MIN_IMAGE_ONLY_QUALIFIED_CARDS`). Detection reads only
+     * listing controls or repetition (see `MIN_IMAGE_ONLY_QUALIFIED_CARDS`).
+     * A controlled empty-state region also emits a finding with zero products.
+     * Detection reads only
      * structural/semantic signals and schema.org vocabulary — never fixture
      * names or specific class strings.
      *
@@ -76,11 +79,23 @@ final class CommerceFallbackReporter
                 continue;
             }
 
-            if ( SourceDom::hasNonAuthoredAncestor($element) || ! $this->recognizer->isProductGridContainer($element) ) {
+            if ( SourceDom::hasNonAuthoredAncestor($element) ) {
                 continue;
             }
 
-            $products = $this->productCardsForContainer($element, $blocks);
+            $products = $this->recognizer->isProductGridContainer($element) ? $this->productCardsForContainer($element, $blocks) : array();
+            if ( array() === $products ) {
+                if ( ! in_array(strtolower($element->tagName), array('div', 'section'), true) ) {
+                    continue;
+                }
+                // An empty listing cannot claim a populated descendant grid.
+                foreach ( $element->getElementsByTagName('*') as $descendant ) {
+                    if ( null !== $this->recognizer->productCardData($descendant) ) {
+                        continue 2;
+                    }
+                }
+            }
+            $listing = $this->listingControls($element, $products);
 
             // A card only reaches here via schema.org evidence, a cart control,
             // or the weaker image-corroborated catalog path (see
@@ -88,9 +103,9 @@ final class CommerceFallbackReporter
             // repeated cards, but a lone card is commerce on its own evidence:
             // schema.org Product/Offer structure or a cart control
             // (`_catalog_image_only` is false for exactly those cards). A lone
-            // image-only card keeps the repetition thresholds below.
+            // image-only card without listing controls keeps the thresholds below.
             $stronglyQualified = array_filter($products, static fn (array $product): bool => true !== ($product['_catalog_image_only'] ?? false));
-            if ( count($products) < 2 && array() === $stronglyQualified ) {
+            if ( array() === $listing && count($products) < 2 && array() === $stronglyQualified ) {
                 continue;
             }
 
@@ -99,7 +114,7 @@ final class CommerceFallbackReporter
             // since a small pricing/plan comparison is a far more common false
             // positive at low repetition than a real product catalog is.
             $imageOnlyQualified = array_filter($products, static fn (array $product): bool => true === ($product['_catalog_image_only'] ?? false));
-            if ( count($imageOnlyQualified) === count($products) && count($products) < self::MIN_IMAGE_ONLY_QUALIFIED_CARDS ) {
+            if ( array() === $listing && count($imageOnlyQualified) === count($products) && count($products) < self::MIN_IMAGE_ONLY_QUALIFIED_CARDS ) {
                 continue;
             }
             foreach ( $products as &$product ) {
@@ -107,9 +122,10 @@ final class CommerceFallbackReporter
             }
             unset($product);
 
-            $candidates[] = array('element' => $element, 'products' => $products);
+            $candidates[] = array('element' => $element, 'products' => $products, 'listing' => $listing);
         }
 
+        $emptyRegions = array();
         foreach ( $candidates as $candidate ) {
             $element = $candidate['element'];
             $products = $candidate['products'];
@@ -117,6 +133,10 @@ final class CommerceFallbackReporter
             foreach ( $candidates as $nested ) {
                 if ( $element === $nested['element'] || ! SourceDom::elementContains($element, $nested['element']) ) {
                     continue;
+                }
+                if ( array() === $products ) {
+                    // Keep only the innermost empty listing region.
+                    continue 2;
                 }
                 foreach ( $nested['products'] as $product ) {
                     foreach ( $unclaimed as $selector => $_ ) {
@@ -129,13 +149,21 @@ final class CommerceFallbackReporter
             }
             // Only discard a candidate when nested grids claim all its cards.
             // Siblings and grids with independent cards retain their findings.
-            if ( array() === $unclaimed ) {
+            if ( array() !== $products && array() === $unclaimed ) {
                 continue;
             }
             if ( $emitted >= self::MAX_CANDIDATES ) {
                 return;
             }
-            $listing = $this->listingControls($element, $products);
+            $listing = $candidate['listing'];
+            if ( array() === $products ) {
+                // Several empty-state wrappers can share the same controls.
+                // They describe one listing, not independent product loops.
+                if ( isset($emptyRegions[$listing['selector']]) ) {
+                    continue;
+                }
+                $emptyRegions[$listing['selector']] = true;
+            }
 
             $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
                 'type'              => 'html',
@@ -191,6 +219,16 @@ final class CommerceFallbackReporter
         $recognized = (new ListingControlsRecognizer())->recognize($grid, $cards, $prices);
         if ( null === $recognized ) {
             return array();
+        }
+        if ( array() === $products ) {
+            if ( $recognized['region'] === $grid ) {
+                return array();
+            }
+            foreach ( $recognized['region']->getElementsByTagName('*') as $descendant ) {
+                if ( null !== $this->recognizer->productCardData($descendant) ) {
+                    return array();
+                }
+            }
         }
 
         $controls = array();

@@ -1,5 +1,26 @@
 # Products collection
 
+## Small and empty controlled listings
+
+Page-owned sort, facet, or result-count controls are commerce evidence for a
+qualifying product card, even below the image-only grid repetition threshold.
+Uncontrolled image-only grids still require four qualifying cards.
+
+An empty collection with recognized controls can declare a
+`generic/product-grids/v1` entity without a `products` collection. Its `items`
+is an empty array, its binding anchors the empty-state region, and
+`item_template` is absent because there is no card to repeat. Nonempty grids
+retain their existing item-template contract.
+
+The corresponding `generic/product-listings/v1` entity keeps its existing
+shape: `source_path`, `selector`, `grid_selector`, `controls`, and `bindings`.
+`grid_selector` references the empty grid entity; its `items: []` is the empty
+item set. The listing's first binding anchors the enclosing region and the
+remaining bindings anchor each control. Checkbox facets use the additive
+`shape: "checkboxes"` value, including when there are no cards to partition.
+
+## Product rows
+
 `generic/products/v1` is the provider-neutral `products` entity collection for
 shop imports. Rows retain `name`, `slug`, `regular_price` and existing optional
 `description`, `category`, `image`, `sale_price`, `attributes` and source/binding

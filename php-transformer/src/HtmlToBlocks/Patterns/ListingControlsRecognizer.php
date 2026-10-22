@@ -13,9 +13,11 @@ use DOMElement;
  * evidence about those cards rather than by vocabulary alone:
  *
  * - `facet`: an option group (a `select`, sibling buttons that share one
- *   `data-*` attribute name, or same-named radios) whose option values
+ *   `data-*` attribute name, or same-named radios/checkboxes) whose option values
  *   partition the cards. A card carries an option's value as the text of one
  *   of its leaves, a segment of one of its class tokens, or a `data-*` value.
+ *   Explicit checkbox facets also qualify without card partition evidence,
+ *   including on one-item and empty collections.
  * - `range`: an `input[type=range]` whose bounds contain every card's price.
  * - `sort`: a `select` whose options all read as orderings of the cards.
  * - `result_count`: a short text whose number is the card count.
@@ -39,10 +41,6 @@ final class ListingControlsRecognizer
      */
     public function recognize(DOMElement $listing, array $cards, array $prices): ?array
     {
-        if ( count($cards) < 2 ) {
-            return null;
-        }
-
         $scope = $listing;
         for ( $node = $listing->parentNode; $node instanceof DOMElement && ! in_array(strtolower($node->tagName), self::BOUNDARY_TAGS, true); $node = $node->parentNode ) {
             $scope = $node;
@@ -123,7 +121,7 @@ final class ListingControlsRecognizer
                 }
                 continue;
             }
-            if ( 'input' === $tag && 'radio' === strtolower(SourceDom::attr($element, 'type')) && '' !== SourceDom::attr($element, 'name') ) {
+            if ( 'input' === $tag && in_array(strtolower(SourceDom::attr($element, 'type')), array('radio', 'checkbox'), true) && '' !== SourceDom::attr($element, 'name') ) {
                 $label = SourceDom::associatedLabel($element);
                 $radios[SourceDom::attr($element, 'name')][] = array('element' => $element, 'option' => array('value' => SourceDom::attr($element, 'value'), 'label' => null !== $label ? $this->text($label) : SourceDom::attr($element, 'value')));
                 continue;
@@ -144,7 +142,8 @@ final class ListingControlsRecognizer
             if ( $this->inSiblingListingBranch($listing, $container) ) {
                 continue;
             }
-            $groups[] = array('shape' => 'radios', 'element' => $container, 'options' => array_column($members, 'option'));
+            $shape = 'checkbox' === strtolower(SourceDom::attr($members[0]['element'], 'type')) ? 'checkboxes' : 'radios';
+            $groups[] = array('shape' => $shape, 'element' => $container, 'options' => array_column($members, 'option'));
         }
 
         return $groups;
@@ -225,7 +224,10 @@ final class ListingControlsRecognizer
             }
             $options[] = $option;
         }
-        if ( $matchedOptions < 2 || count($cardValues) * 2 < count($cardTokens) ) {
+        // Explicit checkbox filters remain meaningful on a one-item or empty
+        // collection, where partitioning two cards is impossible.
+        $explicitFacet = 'checkboxes' === $group['shape'];
+        if ( ! $explicitFacet && ($matchedOptions < 2 || count($cardValues) * 2 < count($cardTokens)) ) {
             return null;
         }
         $label = $this->controlLabel($group['element']);
@@ -408,6 +410,13 @@ final class ListingControlsRecognizer
 
     private function controlLabel(DOMElement $control): string
     {
+        if ( 'fieldset' === strtolower($control->tagName) ) {
+            foreach ( $control->childNodes as $child ) {
+                if ( $child instanceof DOMElement && 'legend' === strtolower($child->tagName) ) {
+                    return $this->text($child);
+                }
+            }
+        }
         $label = SourceDom::associatedLabel($control);
         if ( null !== $label ) {
             return $this->text($label);
