@@ -913,11 +913,11 @@ final class SourceElementClassifier
         ))));
 
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slides?)(?:[^a-z0-9]|$)/', $identity)
-            || $this->isHomogeneousImageSlideList($element);
+            || $this->isHomogeneousMediaSlideList($element);
     }
 
-    /** A bounded collection of same-kind, image-bearing slide children. */
-    public function isHomogeneousImageSlideList(DOMElement $element): bool
+    /** A bounded collection of same-kind, image- or native-video-bearing slide children. */
+    public function isHomogeneousMediaSlideList(DOMElement $element): bool
     {
         $count = 0;
         $tag = null;
@@ -928,9 +928,11 @@ final class SourceElementClassifier
                 }
                 continue;
             }
-            if ( ! $this->isCarouselSlideChild($child) || ! $this->isImageOnlySlide($child)
+            if ( ! $this->isCarouselSlideChild($child)
                 || ($tag !== null && strtolower($child->tagName) !== $tag)
-                || '' === trim(SourceDom::attr($child->getElementsByTagName('img')->item(0), 'src'))
+                || ! (($this->isSingleMediaSlide($child, 'img')
+                    && '' !== trim(SourceDom::attr($child->getElementsByTagName('img')->item(0), 'src')))
+                    || $this->isNativeVideoSlide($child))
             ) {
                 return false;
             }
@@ -1303,7 +1305,7 @@ final class SourceElementClassifier
             if ( ! $child instanceof DOMElement || ! $this->isCarouselSlideChild($child) ) {
                 continue;
             }
-            if ( ! $this->isImageOnlySlide($child) ) {
+            if ( ! $this->isSingleMediaSlide($child, 'img') ) {
                 return array();
             }
             $items[] = $child;
@@ -1328,11 +1330,45 @@ final class SourceElementClassifier
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item|group)(?:[^a-z0-9]|$)/', $identity);
     }
 
-    private function isImageOnlySlide(DOMElement $item): bool
+    public function isNativeVideoSlide(DOMElement $item): bool
     {
-        foreach ( array( 'video', 'audio', 'iframe', 'canvas', 'form', 'object', 'embed' ) as $tag ) {
-            if ( 0 < $item->getElementsByTagName($tag)->length ) {
-                return false;
+        if ( ! $this->isSingleMediaSlide($item, 'video') ) {
+            return false;
+        }
+        $video = $item->getElementsByTagName('video')->item(0);
+        if ( '' !== trim(SourceDom::attr($video, 'src')) ) {
+            return true;
+        }
+        foreach ( $video->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'source' === strtolower($child->tagName) ) {
+                // Native media conversion uses the first direct source child.
+                return '' !== trim(SourceDom::attr($child, 'src'));
+            }
+        }
+        return false;
+    }
+
+    private function hasAncestorTag(DOMElement $element, string $tag, DOMElement $root): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement && ! $node->isSameNode($root); $node = $node->parentNode ) {
+            if ( $tag === strtolower($node->tagName) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function isSingleMediaSlide(DOMElement $item, string $mediaTag): bool
+    {
+        foreach ( array( 'img', 'video', 'audio', 'iframe', 'canvas', 'form', 'object', 'embed' ) as $tag ) {
+            if ( $tag === $mediaTag ) {
+                continue;
+            }
+            foreach ( $item->getElementsByTagName($tag) as $other ) {
+                // Fallback content inside a <video> (a poster <img>) is not a second medium.
+                if ( 'video' !== $mediaTag || ! $this->hasAncestorTag($other, 'video', $item) ) {
+                    return false;
+                }
             }
         }
         foreach ( array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote' ) as $tag ) {
@@ -1341,7 +1377,7 @@ final class SourceElementClassifier
             }
         }
 
-        return 1 === $item->getElementsByTagName('img')->length;
+        return 1 === $item->getElementsByTagName($mediaTag)->length;
     }
 
     /**
