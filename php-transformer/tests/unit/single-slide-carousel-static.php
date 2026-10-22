@@ -13,7 +13,7 @@ $compile = static fn (string $body): array => (new ArtifactCompiler())->compile(
     'entrypoint' => 'index.html',
     'files' => array('index.html' => '<!doctype html><html><head><title>Slides</title></head><body><main>' . $body . '</main></body></html>'),
 ))->toArray();
-$slide = '<div class="carousel__slide is-selected" style="position:absolute;left:0"><div class="slide-media"><img src="/a-desktop.png" alt=""><img src="/a-mobile.png" alt=""></div><a href="/collections/new" class="slide-link"></a></div>';
+$slide = '<div class="carousel__slide is-selected" style="position:absolute;left:0"><div class="slide-media"><img src="/a-desktop.png" alt=""><img src="/a-mobile.png" alt=""></div><div class="slide-bg"><img class="slide-image--desktop" src="/a-desktop-bg.png" alt=""><img class="slide-image--mobile" src="/a-mobile-bg.png" alt=""></div><a href="/collections/new" class="slide-link"></a></div>';
 $host = static fn (string $slides, string $controls = '', string $attributes = ''): string => '<x-slides class="slideshow carousel" data-autoplay="5000" data-dots="false" ' . $attributes . '><div class="viewport" style="height:35vw"><div class="track-slider">' . $slides . '</div></div>' . $controls . '</x-slides>';
 $other = '<div class="slideshow carousel"><div class="track-slider"><div class="carousel__slide"><img src="/other-one.png" alt=""></div><div class="carousel__slide"><img src="/other-two.png" alt=""></div></div><button aria-label="Next slide">Next</button></div>';
 $carousels = static function (array $blocks) use (&$carousels): array {
@@ -24,12 +24,20 @@ $carousels = static function (array $blocks) use (&$carousels): array {
     }
     return $found;
 };
-foreach (array('alone' => '', 'beside another carousel' => $other) as $label => $sibling) {
-    $result = $compile($host($slide) . $sibling);
+foreach (array(
+    'alone as main children' => array('', false),
+    'beside another carousel as main children' => array($other, false),
+    'alone in sections' => array('', true),
+    'beside another carousel in sections' => array($other, true),
+) as $label => [$sibling, $wrapped]) {
+    $layout = static fn (string $content): string => $wrapped
+        ? '<section>' . $content . '</section>' . ('' === $sibling ? '' : '<section>' . $sibling . '</section>')
+        : $content . $sibling;
+    $result = $compile($layout($host($slide)));
     $markup = $result['serialized_blocks'] ?? '';
     $assert(array() === ($result['fallbacks'] ?? array()), $label . ': static slide has no fallback');
     $assert(str_contains($markup, '<!-- wp:group'), $label . ': static content lowers to a group');
-    foreach (array('a-desktop.png', 'a-mobile.png', '/collections/new') as $content) {
+    foreach (array('a-desktop.png', 'a-mobile.png', 'a-desktop-bg.png', 'a-mobile-bg.png', '/collections/new') as $content) {
         $assert(str_contains($markup, $content), $label . ': retains ' . $content);
     }
     $converted = $carousels($result['blocks'] ?? array());
@@ -38,11 +46,13 @@ foreach (array('alone' => '', 'beside another carousel' => $other) as $label => 
         $assert(2 === count($converted[0]['innerBlocks']), 'the sibling retains its two slides');
         $assert(!str_contains(json_encode($converted), 'a-desktop'), 'the sibling never takes the static host content');
     }
+    // A navigation control must not enable borrowing from an unrelated host,
+    // nor turn the responsive background images into separate slides.
+    $controlled = $compile($layout($host($slide, '<button aria-label="Next slide">Next</button>')));
+    $controlledCarousels = $carousels($controlled['blocks'] ?? array());
+    $assert(('' === $sibling ? 0 : 1) === count($controlledCarousels), $label . ': a controlled one-slide host never borrows sibling slides');
+    $assert(!str_contains(json_encode($controlledCarousels), 'a-desktop'), $label . ': controlled host media never enters the sibling');
 }
-// The old document-wide lookup could turn this one-slide host into a copy of
-// its two-slide sibling as soon as the host had a navigation control.
-$controlled = $compile($host($slide, '<button aria-label="Next slide">Next</button>') . $other);
-$assert(1 === count($carousels($controlled['blocks'] ?? array())), 'a controlled one-slide host never borrows sibling slides');
 $renamed = $compile(str_replace(array('x-slides', 'slideshow carousel', 'track-slider', 'carousel__slide'), array('neutral-banner', 'gallery', 'rail', 'item'), $host($slide)));
 $assert(array() === ($renamed['fallbacks'] ?? array()) && str_contains($renamed['serialized_blocks'] ?? '', 'a-mobile.png'), 'generic carousel structure does not depend on fixture class or tag names');
 $multiple = $compile($host($slide . str_replace('is-selected', '', $slide)));
