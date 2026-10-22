@@ -960,7 +960,7 @@ JS;
         $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
         $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?)(?:[^a-z0-9]|$)/', $listIdentity);
         $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
-        if ( ! $isTrackList && $this->sourceElementClassifier->isHomogeneousImageSlideList($list) ) {
+        if ( ! $isTrackList && $this->sourceElementClassifier->isHomogeneousMediaSlideList($list) ) {
             $visible = 0;
             $hidden = 0;
             $active = 0;
@@ -2181,6 +2181,7 @@ JS;
                 return false;
             }
             if ( 0 === $item->getElementsByTagName('img')->length
+                && ! $this->sourceElementClassifier->isNativeVideoSlide($item)
                 && '' === trim(str_replace("\xc2\xa0", ' ', $item->textContent ?? ''))
             ) {
                 return false;
@@ -2291,7 +2292,7 @@ JS;
                 SourceDom::attr($child, 'data-testid'),
             )));
             if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item|group)(?:[^a-z0-9]|$)/', $identity)
-                && 0 < $child->getElementsByTagName('img')->length
+                && (0 < $child->getElementsByTagName('img')->length || $this->sourceElementClassifier->isNativeVideoSlide($child))
             ) {
                 $items[] = $child;
                 continue;

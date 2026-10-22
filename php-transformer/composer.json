@@ -266,6 +266,7 @@
       "php tests/unit/authored-carousel-block.php",
       "php tests/unit/bottom-thumbnail-carousel.php",
       "php tests/unit/structural-carousel.php",
+      "php tests/unit/media-slider-video-slide.php",
       "php tests/unit/captured-gallery-contract.php",
       "php tests/unit/captured-gallery-direction-control.php",
       "php tests/unit/captured-carousel.php",
