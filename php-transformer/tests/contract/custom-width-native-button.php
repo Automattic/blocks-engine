@@ -31,4 +31,15 @@ $assert('/contact/' === $link->getAttribute('href') && 'Contact' === trim($link-
 // fill that wrapper, never the entire buttons row.
 $assert(str_contains($link->parentNode->getAttribute('class'), 'wp-block-button__width-25'), 'Rendered link is constrained by the native quarter-width wrapper.');
 $assert(str_contains($link->getAttribute('style'), 'background-color:#f1634c'), 'Descendant-owned paint still reaches the link.');
+// Theme CSS that restates core layout makes the row author-owned flex. The
+// native row must still be recognized instead of lowering to layout Groups.
+$authorFlexHtml = <<<'HTML'
+<!doctype html><html><head><style>body .is-layout-flex{display:flex}.is-layout-flex > :is(*, div){margin:0}.wp-block-button__link{background-color:#32373c;color:#fff;padding:10px 20px}</style></head>
+<body><main><h1>T</h1><div class="wp-block-buttons is-layout-flex wp-block-buttons-is-layout-flex"><div class="wp-block-button has-custom-width wp-block-button__width-25 aligncenter"><a class="wp-block-button__link wp-element-button" href="/contact/">Contact</a></div></div></main></body></html>
+HTML;
+$authorFlex = (string) (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $authorFlexHtml)))->toArray()['serialized_blocks'];
+$assert(1 === preg_match_all('/<!-- wp:group(?: |-->)/', $authorFlex), 'An author-flex native row does not become layout Groups.');
+$assert(1 === preg_match_all('/<!-- wp:button (\{.*?\}) -->/', $authorFlex, $flexMatches), 'The author-flex native row holds exactly one core/button.');
+$flexAttrs = json_decode($flexMatches[1][0], true, 512, JSON_THROW_ON_ERROR);
+$assert(str_contains($flexAttrs['className'] ?? '', 'wp-block-button__width-25'), 'Width intent survives an author-flex native row.');
 echo "Custom-width native button contract passed.\n";
