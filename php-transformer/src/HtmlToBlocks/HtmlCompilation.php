@@ -1646,7 +1646,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->pruneNonRenderedMetadataElements($body);
         // Saved block markup re-enters as source; invert save shapes that moved
         // source identity onto synthesized wrappers before anything reads them.
-        OwnSaveShapeInverter::invert($body);
+        OwnSaveShapeInverter::invert($body, function (DOMElement $element): bool {
+            foreach ( $this->styleResolver->styleRuleCandidates($element, 'static-conditional') as $rule ) {
+                if ( $this->styleResolver->matchesCssSelector($element, (string) $rule['selector']) ) {
+                    return true;
+                }
+            }
+            return false;
+        });
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         // Remove wrapper-convention custom elements before author selectors are

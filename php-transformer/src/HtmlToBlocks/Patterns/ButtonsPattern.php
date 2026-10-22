@@ -168,9 +168,29 @@ final class ButtonsPattern
 
         $buttonBlocks = array();
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && ! $this->isPositionedFragmentNavigation($child, $buttons->resolvedStyle($child)) && $this->hasButtonSignal($child, $buttons) && $this->isRichTextAnchorLabel($child, $buttons) ) {
-                $buttonBlocks[] = $this->buttonBlockFromAnchor($child, $context, $buttons);
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
             }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+            // Controls may have a single presentational wrapper apiece. Keep
+            // that ancestry intact until the anchor's class rules are resolved.
+            $anchor = 'a' === strtolower($child->tagName) ? $child : $this->singleSimpleAnchorChild($child);
+            if ( ! $anchor instanceof DOMElement ) {
+                return null;
+            }
+            if ( $anchor !== $child
+                && ( $child->attributes->length > ($child->hasAttribute('class') ? 1 : 0) || '' !== trim($buttons->resolvedStyle($child)) ) ) {
+                return null;
+            }
+            if ( '' === trim($anchor->textContent ?? '')
+                || ! $this->isSimpleAnchor($anchor) || $buttons->isRuntimeDomTarget($anchor)
+                || $this->isPositionedFragmentNavigation($anchor, $buttons->resolvedStyle($anchor))
+                || ! $this->hasButtonSignal($anchor, $buttons) || ! $this->isRichTextAnchorLabel($anchor, $buttons) ) {
+                return null;
+            }
+            $buttonBlocks[] = $this->buttonBlockFromAnchor($anchor, $context, $buttons);
         }
 
         if ( count($buttonBlocks) <= 1 ) {
