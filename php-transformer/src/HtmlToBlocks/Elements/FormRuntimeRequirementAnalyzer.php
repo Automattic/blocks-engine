@@ -72,6 +72,7 @@ final class FormRuntimeRequirementAnalyzer
         $select = false;
         $password = false;
         $subscribe = false;
+        $freeText = false;
         foreach ( $controls as $control ) {
             $type = strtolower(SourceDom::attr($control, 'type'));
             $name = strtolower(SourceDom::attr($control, 'name'));
@@ -82,6 +83,10 @@ final class FormRuntimeRequirementAnalyzer
             $search = $search || 'search' === $type || in_array($name, array( 'q', 's', 'search', 'query' ), true);
             $select = $select || 'select' === $tag;
             $password = $password || 'password' === $type;
+            // Filters choose among values (select, checkbox, radio, range, number,
+            // date); a form that asks for free text such as a name or phone
+            // collects a message, never a catalog filter.
+            $freeText = $freeText || 'textarea' === $tag || ('input' === $tag && in_array($type, array( '', 'text', 'tel', 'email', 'url' ), true) && ! in_array($name, array( 'q', 's', 'search', 'query' ), true));
             if ( FormControlClassifier::isSubmitLikeControl($control) ) {
                 $subscribe = $subscribe || 1 === preg_match('/\b(?:subscribe|newsletter)\b/i', ($control->textContent ?? '') . ' ' . SourceDom::attr($control, 'value'));
             }
@@ -97,7 +102,7 @@ final class FormRuntimeRequirementAnalyzer
         $method = strtolower(trim(SourceDom::attr($form, 'method')));
         if ( '' === $method || 'get' === $method ) {
             if ( $search || preg_match('~(?:^|/)search(?:/|$)~', $path) ) return 'search';
-            if ( $select ) return 'filter_sort';
+            if ( $select && ! $freeText ) return 'filter_sort';
         }
 
         return 'unknown';
