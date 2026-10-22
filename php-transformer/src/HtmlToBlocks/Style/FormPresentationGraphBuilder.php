@@ -1068,7 +1068,7 @@ final class FormPresentationGraphBuilder
     /** A visual part describes source identity and facts, never an inferred semantic role. */
     private static function assertVisualPart(mixed $part): void
     {
-        if ( ! is_array($part) || array_diff(array_keys($part), array( 'id', 'index', 'kind', 'source_selector', 'markup', 'intrinsic_size', 'source_css' )) || ! is_string($part['id'] ?? null) || ! preg_match('/^control-[0-9]+-svg-[0-9]+$/', $part['id']) || ! is_int($part['index'] ?? null) || $part['index'] < 0 || $part['index'] >= self::MAX_CONTROLS || ! is_string($part['source_selector'] ?? null) || '' === trim($part['source_selector']) || strlen($part['source_selector']) > 2048 || 'inline_svg' !== ($part['kind'] ?? null) || ! is_string($part['markup'] ?? null) || strlen($part['markup']) > self::MAX_VISUAL_BYTES || ! SourceDom::isSafeInlineSvgMarkup($part['markup']) || ! is_array($part['source_css'] ?? null) || ! in_array($part['source_css']['state'] ?? null, array( 'known', 'unknown' ), true) ) throw new InvalidArgumentException('Form presentation visual part is invalid.');
+        if ( ! is_array($part) || array_diff(array_keys($part), array( 'id', 'index', 'kind', 'source_selector', 'markup', 'intrinsic_size', 'source_css', 'label_side' )) || ! is_string($part['id'] ?? null) || ! preg_match('/^control-[0-9]+-svg-[0-9]+$/', $part['id']) || ! is_int($part['index'] ?? null) || $part['index'] < 0 || $part['index'] >= self::MAX_CONTROLS || ! is_string($part['source_selector'] ?? null) || '' === trim($part['source_selector']) || strlen($part['source_selector']) > 2048 || ! in_array($part['label_side'] ?? null, array( 'before', 'after' ), true) || 'inline_svg' !== ($part['kind'] ?? null) || ! is_string($part['markup'] ?? null) || strlen($part['markup']) > self::MAX_VISUAL_BYTES || ! SourceDom::isSafeInlineSvgMarkup($part['markup']) || ! is_array($part['source_css'] ?? null) || ! in_array($part['source_css']['state'] ?? null, array( 'known', 'unknown' ), true) ) throw new InvalidArgumentException('Form presentation visual part is invalid.');
         if ( isset($part['intrinsic_size']) && (! is_array($part['intrinsic_size']) || array_diff(array_keys($part['intrinsic_size']), array( 'width', 'height' )) || ! self::validDimension($part['intrinsic_size']['width'] ?? null) || ! self::validDimension($part['intrinsic_size']['height'] ?? null)) ) throw new InvalidArgumentException('Form presentation visual part dimensions are invalid.');
         $sourceCss = $part['source_css'];
         if ( 'known' === $sourceCss['state'] ) {
@@ -1143,6 +1143,17 @@ final class FormPresentationGraphBuilder
         return FormControlLabel::element($control);
     }
 
+    private function labelSide(DOMElement $control, DOMElement $svg): string
+    {
+        // Walk descendants in document order, including text in nested wrappers.
+        $nodes = (new \DOMXPath($control->ownerDocument))->query('.//node()', $control);
+        foreach ( $nodes as $node ) {
+            if ( $node->isSameNode($svg) ) return 'before';
+            if ( $node instanceof \DOMText && '' !== trim($node->textContent) ) return 'after';
+        }
+        return 'before';
+    }
+
     /** @return list<array{part: array<string,mixed>, variants: list<array<string,mixed>>, group?: array<string,mixed>, group_variants?: list<array<string,mixed>>}> */
     private function visualParts(DOMElement $control, int $index, array $rules, array $customPropertyRules): array
     {
@@ -1161,7 +1172,7 @@ final class FormPresentationGraphBuilder
             if ( strlen($markup) > self::MAX_VISUAL_BYTES || ! SourceDom::isSafeInlineSvgMarkup($markup) ) { $this->diagnostics[] = 'unsafe_visual_part'; continue; }
             $matched = $this->matched($svg, $rules);
             $styles = $this->styles($matched['base'], $svg, null, $customPropertyRules);
-            $part = array( 'id' => 'control-' . $index . '-svg-' . $ordinal++, 'index' => $index, 'kind' => 'inline_svg', 'source_selector' => $selector, 'markup' => $markup, 'source_css' => array( 'state' => 'unknown' ) );
+            $part = array( 'id' => 'control-' . $index . '-svg-' . $ordinal++, 'index' => $index, 'kind' => 'inline_svg', 'label_side' => $this->labelSide($control, $svg), 'source_selector' => $selector, 'markup' => $markup, 'source_css' => array( 'state' => 'unknown' ) );
             $size = $this->intrinsicSize($svg);
             if ( array() !== $size ) $part['intrinsic_size'] = $size;
             if ( array() !== $styles ) $part['source_css'] = array( 'state' => 'known', 'styles' => $styles, 'provenance' => $this->provenance($matched['base'], null) );
