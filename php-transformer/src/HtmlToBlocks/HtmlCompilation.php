@@ -10236,9 +10236,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $width = $this->imageDimensions()->imageDisplayDimension($image, 'width');
         $height = $this->imageDimensions()->imageDisplayDimension($image, 'height');
-        if ( '100%' === $width || '100%' === $height ) {
+        if ( '' !== $this->imageDimensions()->parentSizedDimension($image, 'width')
+            || '' !== $this->imageDimensions()->parentSizedDimension($image, 'height') ) {
             // An image that fills a fixed-size sizing wrapper on both axes (an
-            // avatar `.av{width:36px;height:36px} .av img{width:100%;height:100%}`)
+            // avatar `.av{width:36px;height:36px} .av img{width:100%;height:100%}`,
+            // or `width:inherit;height:inherit` under the same wrapper)
             // has a fixed used size. Wrappers can be flattened or restyled by
             // core, so carry that size itself rather than a percentage of a
             // box that may no longer exist.

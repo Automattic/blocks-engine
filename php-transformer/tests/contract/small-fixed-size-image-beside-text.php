@@ -52,6 +52,16 @@ $fixtures = array(
         'html' => '<div style="display:flex"><div style="margin-right:12px"><img width="54px" height="54px" class="wds-image" src="media/a.png" alt="" style="object-fit: cover; object-position: center center; aspect-ratio: 54 / 54;"></div><div><p>Call</p></div></div>',
         'size' => '54px',
     ),
+    'image inheriting width/height from a fixed-size wrapper' => array(
+        'css' => '.row{display:flex;padding:24px}.core{width:36px;height:36px}.core img{width:inherit;height:inherit}',
+        'html' => '<div class="row"><div class="ctr"><div class="core"><img src="media/a.png" alt="P u"></div></div><div><p>Great app, does exactly what it says.</p><p>Reviewer name</p></div></div>',
+        'size' => '36px',
+    ),
+    'image inheriting width/height and radius from a descendant-sized wrapper' => array(
+        'css' => '.row{display:flex;padding:24px}.s36 .core{border-radius:21px;height:36px;width:36px}.core.img .c{border-radius:inherit;height:inherit;width:inherit}',
+        'html' => '<div class="row"><div class="s36"><div class="core img"><img class="c" src="media/a.png" alt="P u"></div></div><div><p>Great app, does exactly what it says.</p><p>Reviewer name</p></div></div>',
+        'size' => '36px',
+    ),
 );
 
 foreach ($fixtures as $name => $fixture) {

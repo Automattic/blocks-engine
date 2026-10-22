@@ -92,12 +92,42 @@ final class ImageDimensionResolver
     /** {@see fixedPixelSize()} for one axis. */
     public function fixedPixelDimension(DOMElement $image, string $property): ?float
     {
-        $value = $this->imageDisplayDimension($image, $property);
-        if ( '100%' === $value ) {
-            return $this->fillingWrapperPixelDimension($image, $property);
+        $parentSizing = $this->parentSizedDimension($image, $property);
+        if ( '' !== $parentSizing ) {
+            return $this->fillingWrapperPixelDimension($image, $property, 'inherit' === $parentSizing);
         }
 
-        return $this->absolutePixelLength($value, $image);
+        return $this->absolutePixelLength($this->imageDisplayDimension($image, $property), $image);
+    }
+
+    /**
+     * How this image axis takes its size from its parent box, if it does:
+     * `100%` when it fills the parent, `inherit` when it inherits the parent's
+     * specified length, or '' when the axis is sized some other way.
+     *
+     * This is the one rule for "this image dimension is the parent's size":
+     * both {@see fixedPixelDimension()} and core/image emission ask it before
+     * replacing a parent-relative dimension with the parent's fixed length.
+     * `inherit` is only honoured when author CSS states it for the axis at
+     * every viewport; a responsive rule leaves the axis to the projected
+     * stylesheet.
+     */
+    public function parentSizedDimension(DOMElement $image, string $property): string
+    {
+        if ( '100%' === $this->imageDisplayDimension($image, $property) ) {
+            return '100%';
+        }
+        if ( $this->styles->imageAxisVariesByViewport($image, $property) ) {
+            return '';
+        }
+        $declaration = $this->styles->imageShapeDeclarations($image)[$property] ?? array();
+        if ( ! is_array($declaration) || ! $this->imageStylesheetDimensionIsViewportInvariant($declaration['conditions'] ?? array()) ) {
+            return '';
+        }
+
+        return 'inherit' === CssValueInspector::comparable(CssValueInspector::withoutImportant((string) ($declaration['value'] ?? '')))
+            ? 'inherit'
+            : '';
     }
 
     /**
@@ -110,8 +140,14 @@ final class ImageDimensionResolver
      * shared content, padding that insets the box, floats, out-of-flow or
      * flex/grid-item wrappers whose auto size depends on their content, a size
      * a media query varies -- is not a fixed box, and the axis stays unfixed.
+     *
+     * An `inherit`ed axis takes the parent's specified value instead of a
+     * share of its box: the parent's absolute length is the image's size
+     * (its padding does not inset an inherited length), a parent that is
+     * itself `100%` continues as a fill, and a parent that is unstated or
+     * `auto` leaves the image `auto`, so the axis stays unfixed.
      */
-    private function fillingWrapperPixelDimension(DOMElement $image, string $property): ?float
+    private function fillingWrapperPixelDimension(DOMElement $image, string $property, bool $inherits = false): ?float
     {
         $paddingProperties = 'width' === $property
             ? array( 'padding', 'padding-left', 'padding-right', 'padding-inline', 'padding-inline-start', 'padding-inline-end' )
@@ -129,13 +165,26 @@ final class ImageDimensionResolver
                 $wrapper,
                 array_merge(array( $property, 'display', 'position', 'float' ), $paddingProperties)
             );
+            $value = CssValueInspector::comparable(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? '')));
+            if ( $inherits ) {
+                if ( 'inherit' === $value ) {
+                    $node = $wrapper;
+                    continue;
+                }
+                if ( in_array($value, array( '', 'auto' ), true) ) {
+                    return null;
+                }
+                $inherits = false;
+                if ( '100%' !== $value ) {
+                    return $this->absolutePixelLength($value, $wrapper);
+                }
+            }
             foreach ( $paddingProperties as $padding ) {
                 if ( ! $this->isZeroLength(CssValueInspector::comparable((string) ($declarations[ $padding ] ?? ''))) ) {
                     return null;
                 }
             }
 
-            $value = CssValueInspector::comparable((string) ($declarations[ $property ] ?? ''));
             if ( ! in_array($value, array( '', 'auto', '100%' ), true) ) {
                 return $this->absolutePixelLength($value, $wrapper);
             }
