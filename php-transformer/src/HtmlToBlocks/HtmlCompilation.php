@@ -9456,8 +9456,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         foreach ( $this->descendantElements($element) as $descendant ) {
             $tagName = strtolower($descendant->tagName);
-            if ( 'template' === $tagName ) {
-                return true;
+            // Templates and their contents are inert, not visitor workspaces.
+            if ( 'template' === $tagName || SourceDom::hasNonAuthoredAncestor($descendant) ) {
+                continue;
             }
             // A canvas hidden from assistive technology is a decorative backdrop,
             // not a surface the visitor works in, so it does not make its wrapper

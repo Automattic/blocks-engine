@@ -149,7 +149,10 @@ final class RuntimeIslandAnalyzer
         $count = 0;
         foreach ( $this->context->descendantElements($element) as $descendant ) {
             if ( $this->isRuntimeCanvasTarget($descendant)
-                || ( $this->isRuntimeDomTarget($descendant) && ! $this->isCapturedAttributeRuntimeBinding($descendant) )
+                || ( $this->isRuntimeDomTarget($descendant)
+                    && ! $this->isCapturedAttributeRuntimeBinding($descendant)
+                    && ! $this->isCapturedDialogRuntimeBinding($descendant)
+                )
             ) {
                 if ( ++$count >= $limit ) {
                     break;
@@ -158,6 +161,25 @@ final class RuntimeIslandAnalyzer
         }
 
         return $count;
+    }
+
+    /** Dialog controls own a bounded panel, not the surrounding page. */
+    private function isCapturedDialogRuntimeBinding(DOMElement $element): bool
+    {
+        if ( SourceDom::isBoundCapturedDialogTrigger($element) || SourceDom::isBoundCapturedDialogCloser($element) ) {
+            return true;
+        }
+
+        foreach ( array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_CLOSE) as $binding ) {
+            $key = trim(SourceDom::attr($element, $binding));
+            if ( '' === $key ) continue;
+            $panel = $element->ownerDocument?->getElementById($key);
+            if ( $panel instanceof DOMElement && $key === SourceDom::attr($panel, CaptureEvidence::DIALOG_PANEL) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
