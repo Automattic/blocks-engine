@@ -259,6 +259,22 @@ $assert(!str_contains($sheet($opacity . '.text-opacity-50{--tw-text-opacity:.5}'
 $assert(!str_contains($sheet('.a{color:hsl(var(--x))}', array(array('kind' => 'css', 'content' => ':root{--x:347 77% 50%}.dark{--x:0 0% 7%}'))), '--wp--preset--color--'), 'a colour read from a custom property a scope redefines keeps the literal');
 $assert('.a{font-family:var(--wp--preset--font-family--body,Inter, sans-serif)}.b{font-family:Inter,Arial}' === $sheet('.a{font-family:Inter, sans-serif}.b{font-family:Inter,Arial}'), 'only the preset\'s own font stack binds, so fallbacks do not change');
 
+// Compound colour values follow the palette without interpreting positions,
+// variable fallbacks or URLs as colour tokens.
+$compoundSystem = (new \ReflectionClass(DesignSystem::class))->newInstanceWithoutConstructor();
+$compoundConstructor = new \ReflectionMethod(DesignSystem::class, '__construct');
+$compoundConstructor->invoke($compoundSystem, array(
+    array('slug' => 'primary', 'color' => '#2563eb'),
+    array('slug' => 'accent', 'color' => '#1d4ed8'),
+), array(), array(), array(), array(), array(), array(), 16.0, 1);
+$compoundBinding = new PresetBinding($compoundSystem, array());
+$compoundCss = '.a{--x:#1d4ed8 var(--pos);--stops:var(--a), #2563eb var(--b), var(--c);background-image:linear-gradient(135deg,#1d4ed8,#2563eb 60%,#000);--fade:#1d4ed800 var(--pos);background:url("#1d4ed8") #abcdef;--other:var(--missing,#1d4ed8) #abcdef}';
+$compoundExpected = '.a{--x:var(--wp--preset--color--accent,#1d4ed8) var(--pos);--stops:var(--a), var(--wp--preset--color--primary,#2563eb) var(--b), var(--c);background-image:linear-gradient(135deg,var(--wp--preset--color--accent,#1d4ed8),var(--wp--preset--color--primary,#2563eb) 60%,#000);--fade:color-mix(in srgb, var(--wp--preset--color--accent,#1d4ed8) 0%, transparent) var(--pos);background:url("#1d4ed8") #abcdef;--other:var(--missing,#1d4ed8) #abcdef}';
+$assert($compoundExpected === $compoundBinding->bindStylesheet($compoundCss), 'compound custom properties and gradient stops bind exact palette colours and translucent variants, leaving references, positions, URLs and other colours untouched');
+$assert(5 === $compoundBinding->boundCount(), 'each bound compound colour token is counted once');
+$assert('.a{background:linear-gradient(to right, var(--wp--preset--color--accent,rgb(29,78,216)), var(--wp--preset--color--primary,rgba(37,99,235,1)) 60%, #000)!important}' === $compoundBinding->bindStylesheet('.a{background:linear-gradient(to right, rgb(29,78,216), rgba(37,99,235,1) 60%, #000)!important}'), 'background gradients keep functional colours whole and preserve angles, stops and importance');
+$assert('.a{--x:var(--be--source--preset--color--old) var(--wp--preset--color--accent,#1d4ed8)}' === $compoundBinding->bindStylesheet('.a{--x:var(--wp--preset--color--old) #1d4ed8}'), 'compound source reads stay source-owned while generated preset reads keep the WordPress namespace');
+
 // A document whose root is 10px names its sizes in rem. A rule on the root
 // element itself resolves rem, em and % against the initial 16px, so binding
 // `html{font-size:10px}` to a `1rem` preset would scale every rem on the page
