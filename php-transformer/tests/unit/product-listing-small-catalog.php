@@ -114,14 +114,15 @@ foreach (array(2, 1, 0) as $count) {
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'catalog.html', 'files' => array('catalog.html' => $html)))->toArray();
     $grids = $entities($result, 'product_grids');
     $listings = $entities($result, 'product_listings');
-    $assert('failed' !== $result['status'] && !isset($result['source_reports']['wordpress_site_plan_diagnostics']), 'Landmark-free page composes cleanly.');
+    $assert('failed' !== $result['status'] && !isset($result['source_reports']['wordpress_site_plan_diagnostics']), 'Landmark-free page composes cleanly: ' . json_encode($result['source_reports']['wordpress_site_plan_diagnostics'] ?? $result['status']));
     $assert(2 === count($grids) && 2 === count($listings), 'Each device has exactly one grid and listing for ' . $count . ' cards.');
     foreach ($grids as $index => $gridEntity) {
         $assert($count === count($gridEntity['items']) && !empty($gridEntity['bindings']), 'Grid items and binding survive.');
         $listing = $listings[$index];
         $assert($listing['grid_selector'] === $gridEntity['selector'] && !empty($listing['bindings']), 'Listing binds to its own device grid.');
         $kinds = array_count_values(array_column($listing['controls'], 'kind'));
-        $assert(array('sort' => 2, 'facet' => 3, 'result_count' => 1) === $kinds, 'All facets, both sorts and result count belong to the listing: ' . json_encode($kinds));
+        $assert(array('sort' => 1, 'facet' => 3, 'result_count' => 1) === $kinds, 'All facets, the shared sort and result count belong to the listing: ' . json_encode($kinds));
+        $assert(2 === count(array_filter($listing['bindings'], static fn (array $binding): bool => 'sort' === ($binding['control'] ?? null))), 'Both sort placements stay anchored to the one sort control.');
         $keys = array_column(array_filter($listing['controls'], static fn (array $control): bool => 'facet' === $control['kind']), 'key');
         $assert(array('availability', 'color', 'size') === $keys && max(array_map('strlen', $keys)) <= 40, 'Facet keys use only their own group label.');
         foreach ($listing['controls'] as $control) {
