@@ -1259,8 +1259,36 @@ final class ArtifactCompiler
                 $forms[$sourcePath . "\n" . $selector] = $form;
             }
         }
-        foreach ( SchemaProductEvidence::rows($files, $slug, $price, $diagnostics) as $productSlug => $row ) {
+        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics);
+        // Only a page with one schema product can own an otherwise unclaimed
+        // purchase form. Card descendants retain their existing card bindings.
+        $pageProducts = array();
+        $cardSelectors = array();
+        foreach ( $schemaProducts as $productSlug => $row ) $pageProducts[$row['source_path']][] = $productSlug;
+        foreach ( $fallbacks as $fallback ) {
+            if ( 'html_product_grid_fallback' !== ($fallback['diagnostic_code'] ?? '') ) continue;
+            foreach ( $fallback['products'] ?? array() as $card ) {
+                if ( is_string($card['source_selector'] ?? null) ) $cardSelectors[$fallback['source'] ?? $entryPath][] = $card['source_selector'];
+            }
+        }
+        foreach ( $fallbacks as $fallback ) {
+            if ( 'commerce_add_to_cart' !== ($fallback['form_intent'] ?? '') ) continue;
+            $sourcePath = $fallback['source'] ?? $entryPath;
+            if ( 1 !== count($pageProducts[$sourcePath] ?? array()) ) continue;
+            $selector = $fallback['selector'] ?? '';
+            foreach ( $cardSelectors[$sourcePath] ?? array() as $cardSelector ) {
+                if ( $selector === $cardSelector || str_starts_with($selector, $cardSelector . ' > ') ) continue 2;
+            }
+            $binding = $fallback['binding'] ?? null;
+            if ( ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? '') || '' === trim($binding['search_block_markup'] ?? '') ) continue;
+            $productSlug = $pageProducts[$sourcePath][0];
+            $schemaProducts[$productSlug]['bindings'][] = array_merge($binding, array('role' => 'commerce_add_to_cart_form', 'source_path' => $sourcePath));
+            // A purchase form belongs to shop, not a competing form provider.
+            unset($forms[$sourcePath . "\n" . $selector]);
+        }
+        foreach ( $schemaProducts as $productSlug => $row ) {
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
+            foreach ( $row['bindings'] ?? array() as $binding ) $products[$productSlug]['bindings'][] = $binding;
             foreach ( array('description', 'image', 'category', 'sku', 'images', 'tags', 'variants', 'sale_price', 'stock_status') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
         // Listing-owned forms are shop controls, not a second form-provider
