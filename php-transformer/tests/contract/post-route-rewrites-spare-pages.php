@@ -61,8 +61,17 @@ $start = strpos($bootstrap, '$blocks_engine_post_routes =');
 $end = strpos($bootstrap, "add_filter( 'post_link',", $start ?: 0);
 $assert(false !== $start && false !== $end, 'Generated route runtime is present.');
 eval(substr($bootstrap, $start, $end - $start));
-$vars = $filters['query_vars'][0](array('p'));
-$assert(in_array('blocks_engine_post_route', $vars, true), 'The route query var is public.');
+$rewriteTags = array();
+function add_rewrite_tag(string $tag, string $regex): void {
+    $GLOBALS['rewriteTags'][$tag] = $regex;
+}
+function add_rewrite_rule(string $regex, string $query, string $after): void {}
+function get_option(string $name): string { return ''; }
+function update_option(string $name, string $value): void {}
+function flush_rewrite_rules(bool $hard): void {}
+function wp_json_encode(mixed $value): string { return json_encode($value); }
+foreach ($actions['init'] ?? array() as $init) $init();
+$assert(isset($rewriteTags['%blocks_engine_post_route%']), 'The route query var is registered through a rewrite tag, so url_to_postid() honours it.');
 $resolve = $filters['request'][0];
 $sharedIds = array();
 foreach ($plan['pages'] as $page) {

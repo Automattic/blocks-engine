@@ -5088,7 +5088,6 @@ PHP;
         ksort($postRouteParents);
         if (array() !== $postRoutePaths) {
             $lines[] = '$blocks_engine_post_routes = ' . var_export($postRoutePaths, true) . ';';
-            $lines[] = "add_filter( 'query_vars', static function ( array \$vars ): array { \$vars[] = 'blocks_engine_post_route'; return \$vars; } );";
             $lines[] = "\$blocks_engine_resolve_post_route = static function ( array \$vars ) use ( \$blocks_engine_post_routes ): array {";
             $lines[] = "    if ( ! isset( \$vars['blocks_engine_post_route'] ) ) return \$vars;";
             $lines[] = "    \$identity = array_search( \$vars['blocks_engine_post_route'], \$blocks_engine_post_routes, true );";
@@ -5101,6 +5100,9 @@ PHP;
             $lines[] = "    if ( isset( \$query->query_vars['blocks_engine_post_route'] ) ) \$query->parse_query( \$blocks_engine_resolve_post_route( \$query->query_vars ) );";
             $lines[] = "} );";
             $lines[] = "add_action( 'init', static function () use ( \$blocks_engine_post_routes ): void {";
+            // A rewrite tag registers the public query var on \$wp itself, so
+            // url_to_postid() honours it as well as front-end requests.
+            $lines[] = "    add_rewrite_tag( '%blocks_engine_post_route%', '(.+)' );";
             foreach ($postRouteParents as $parent => $slugs) {
                 // Only shipped posts may shadow core's hierarchical page rules.
                 // A numeric parent (`/2019/<slug>/`) is an int key.
