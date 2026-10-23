@@ -1042,7 +1042,7 @@ final class ArtifactCompiler
         $forms = array();
         $orderLookups = array();
         $carts = array();
-        $productGrids = array(); $productListings = array();
+        $productGrids = array(); $productListings = array(); $listingControlSelectors = array();
         foreach ( $fallbacks as $fallback ) {
             if ( ! is_array($fallback) ) continue;
             $code = (string) ($fallback['diagnostic_code'] ?? $fallback['kind'] ?? '');
@@ -1106,7 +1106,9 @@ final class ArtifactCompiler
                     if ( isset($fallback['item_template']) ) $productGrids[$sourcePath . "\n" . $container]['item_template'] = $fallback['item_template'];
                     // The controls that facet, bound, sort, or count this grid:
                     // the region holding them with the grid is the first
-                    // binding, then one binding per control naming its id.
+                    // binding, then one binding per control placement naming its
+                    // id. A control rendered twice (a sort bar and the same sort
+                    // in a filter form) is one control with two placements.
                     $listing = $fallback['listing'] ?? null;
                     if ( is_array($listing) && is_string($listing['selector'] ?? null) && is_array($listing['binding'] ?? null) && is_array($listing['controls'] ?? null) && array() !== $listing['controls'] ) {
                         $controls = array();
@@ -1115,9 +1117,10 @@ final class ArtifactCompiler
                             $id = $control['kind'] . (isset($control['key']) ? ':' . $control['key'] : (isset($control['field']) ? ':' . $control['field'] : ''));
                             $bindings[] = array_merge($control['binding'], array('source_path' => $sourcePath, 'control' => $id));
                             unset($control['binding']);
-                            $controls[] = array('id' => $id) + $control;
+                            if ( is_string($control['selector'] ?? null) ) $listingControlSelectors[$sourcePath][] = $control['selector'];
+                            $controls[$id] ??= array('id' => $id) + $control;
                         }
-                        $productListings[$sourcePath . "\n" . $listing['selector']] = array('source_path' => $sourcePath, 'selector' => $listing['selector'], 'grid_selector' => $container, 'controls' => $controls, 'bindings' => $bindings);
+                        $productListings[$sourcePath . "\n" . $listing['selector']] = array('source_path' => $sourcePath, 'selector' => $listing['selector'], 'grid_selector' => $container, 'controls' => array_values($controls), 'bindings' => $bindings);
                     }
                 }
             } elseif ( 'html_cart_view_fallback' === $code ) {
@@ -1264,11 +1267,9 @@ final class ArtifactCompiler
         // surface. In particular a sort-only form and its select may serialize
         // to the very same block anchor. Retain mixed/data-entry forms.
         foreach ( $forms as $key => $form ) {
-            $owned = array();
-            foreach ( $productListings as $listing ) {
-                if ( $listing['source_path'] !== $form['source_path'] ) continue;
-                foreach ( $listing['controls'] as $control ) $owned[] = $control['selector'];
-            }
+            // Every placement of a listing control claims its form, including
+            // a repeated control declared once on the listing.
+            $owned = $listingControlSelectors[$form['source_path']] ?? array();
             $unclaimed = array_filter($form['controls'] ?? array(), static function (array $control) use ($owned): bool {
                 $selector = $control['selector'] ?? '';
                 foreach ( $owned as $owner ) {
