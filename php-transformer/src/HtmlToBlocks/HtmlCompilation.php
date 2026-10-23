@@ -10221,9 +10221,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $this->generatedBlocks()->register(ResponsiveMediaBlockGenerator::class, ( new ResponsiveMediaBlockGenerator() )->definition($this->generatedBlocks()->namespace()));
 
+        $overflowClass = $this->styleResolver->responsiveImageOverflowClassName($element);
+        $contentElement = $element;
+        if ( '' !== $overflowClass ) {
+            $contentElement = clone $element;
+            $contentElement->setAttribute('class', SourceDom::mergeClassNames($contentElement->getAttribute('class'), $overflowClass));
+        }
+
         return $this->createBlock(
             $this->generatedBlocks()->blockName(ResponsiveMediaBlockGenerator::LOCAL_NAME),
-            array( 'content' => SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers()), 'kind' => 'media' ),
+            array( 'content' => SourceDom::safeFallbackHtml($contentElement, $this->authorSelectorProjections()->tagMarkers()), 'kind' => 'media' ),
             array(),
             $element
         );

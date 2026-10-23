@@ -2058,6 +2058,21 @@ final class StyleResolver implements ElementPresentationResolver
         return false;
     }
 
+    /** Preserve source overflow on responsive media emitted without a figure. */
+    public function responsiveImageOverflowClassName(DOMElement $image): string
+    {
+        if ('img' !== strtolower($image->tagName)
+            || ! $this->imageHasViewportDerivedWidth($image)
+            || $this->imageAxisVariesByViewport($image, 'max-width')
+            || ! $this->imageComputedMaxWidthIsNone($this->imageShapeDeclarations($image))) {
+            return '';
+        }
+
+        $className = $this->context->layoutGeometry()->allocateCarrier($this->geometryStructuralPath($image) . "\nresponsive-image-overflow");
+        $this->context->layoutGeometry()->registerRule($className, 'img.' . $className . '{max-width:none!important}');
+        return $className;
+    }
+
     /** Whether the cascade leaves this image's max-width at its initial `none`. */
     private function imageComputedMaxWidthIsNone(array $declarations): bool
     {

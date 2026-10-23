@@ -72,4 +72,60 @@ foreach (array(
     $assert(! str_contains($rules($compile($extra, $width, $height)), 'max-width:none!important'), 'Keep core clamp when author clamps or neither viewport derives width from height.');
 }
 
+// The real icon uses responsive-media, not core/image. Serving the declared
+// source at 390px (with and without JS) gives a 68.89px item spanning 4/16,
+// not a 374px item: the source's percentage tracks really are narrow. The
+// unclamped icon overflows at 82px. Removing unrelated markup, transitions,
+// desktop rules and the other grid tracks leaves these relations. Chromium:
+// source 82x82 -> add core max-width:100% 69x82 -> max-width:none 82x82;
+// all three ancestors remain 69px throughout. Widening tracks would change
+// the authored layout rather than fix it. Keep mobile custom properties,
+// multi-track placement, absolute positioning and the definite wrapper.
+$compileResponsive = static function (string $extra = '', string $width = 'auto', string $height = '100%') : array {
+    $css = '.block-layout{display:grid;width:360px;grid-template-columns:var(--grid-template-columns);grid-template-rows:82px}'
+        . '.layout-element{display:grid;grid-column:var(--grid-column);grid-row:1}'
+        . '.image-wrapper{position:relative;grid-area:1/1/-1/-1;width:100%;height:100%;max-height:82px}'
+        . '.image-wrapper--mobile{position:relative;width:100%;height:100%}'
+        . '.picture{position:absolute;top:0;left:0;width:var(--desktop-width);height:var(--desktop-height);aspect-ratio:1;object-fit:cover}'
+        . '@media(max-width:920px){.block-layout{grid-template-columns:var(--m-grid-template-columns)}'
+        . '.layout-element{grid-column:var(--m-grid-column)}'
+        . '.picture{width:var(--mobile-width);height:var(--mobile-height)}}' . $extra;
+    $html = '<!doctype html><html><head><style>' . $css . '</style></head><body>'
+        . '<div class="block-layout" style="--grid-template-columns:repeat(16,1fr);--m-grid-template-columns:repeat(3,2%) repeat(12,1.6%) 74.8%">'
+        . '<div class="layout-element" style="--grid-column:4/15;--m-grid-column:4/16"><div class="image-wrapper">'
+        . '<div class="image-wrapper--mobile" style="--desktop-width:100%;--desktop-height:auto;--mobile-width:' . $width . ';--mobile-height:' . $height . '">'
+        . '<img class="picture wp-image-123" src="icon.png" srcset="icon.png 82w, icon-large.png 164w" sizes="82px" width="82" height="82" alt="">'
+        . '</div></div></div></div></body></html>';
+    return (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
+};
+$responsiveRules = static function (array $result) use ($assert): string {
+    $markup = $result['serialized_blocks'];
+    $assert(1 === preg_match('/<!-- wp:custom\/responsive-media (\{.*?\}) \/-->/s', $markup, $match), 'Real structure emits unwrapped responsive media.');
+    $content = json_decode($match[1], true)['content'];
+    $assert(! str_contains($content, '<figure'), 'No artificial image carrier.');
+    preg_match_all('/be-inline-geometry-[0-9a-f]+/', $content, $classes);
+    $css = implode('', array_column($result['assets'], 'content'));
+    $rules = '';
+    foreach (array_unique($classes[0]) as $class) {
+        if (preg_match('/img\.' . $class . '\{[^}]*\}/', $css, $rule)) {
+            $rules .= $rule[0];
+        }
+    }
+    $assert(str_contains($css, 'grid-column:var(--m-grid-column)'), 'Keep mobile multi-track placement.');
+    $assert(str_contains($css, 'grid-template-columns:var(--m-grid-template-columns)'), 'Keep mobile track sizing.');
+    $assert(str_contains($css, 'position:absolute'), 'Keep absolute image positioning.');
+    return $rules;
+};
+$overflow = $responsiveRules($compileResponsive());
+$assert(str_contains($overflow, 'max-width:none!important'), 'Unwrapped image escapes the wp-image core clamp.');
+$assert(! preg_match('/(?:\{|;)(?:width|height):/', $overflow), 'Overflow protection must not pin responsive axes.');
+foreach (array(
+    array('.picture{max-width:100%}', 'auto', '100%'),
+    array('@media(max-width:920px){.picture{max-width:70px}}', 'auto', '100%'),
+    array('', '100%', '100%'),
+    array('', 'auto', 'auto'),
+) as [$extra, $width, $height]) {
+    $assert(! str_contains($responsiveRules($compileResponsive($extra, $width, $height)), 'max-width:none!important'), 'Do not override author clamps or non-derived widths on responsive media.');
+}
+
 echo "viewport height-derived image max-width ok\n";
