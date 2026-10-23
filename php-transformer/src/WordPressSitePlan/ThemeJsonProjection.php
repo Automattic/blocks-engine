@@ -449,6 +449,7 @@ final class ThemeJsonProjection
             'color', 'background-color' => null !== CssColor::hex($declared) && CssColor::hex($declared) === CssColor::hex($value),
             'font-family' => '' !== DesignSystem::familyKey($declared) && DesignSystem::familyKey($declared) === DesignSystem::familyKey($value),
             'font-size' => null !== ($px = CssLength::toPx($declared, 16.0)) && abs($px - (CssLength::toPx($value, 16.0) ?? -1.0)) < 0.001,
+            'line-height' => $declared === strtolower($value),
             'font-weight' => (array('normal' => '400', 'bold' => '700')[$declared] ?? $declared) === (array('normal' => '400', 'bold' => '700')[strtolower($value)] ?? strtolower($value)),
             default => false,
         };
@@ -486,17 +487,18 @@ final class ThemeJsonProjection
             'font_family' => array(array('typography', 'fontFamily'), $family),
             'font_size' => array(array('typography', 'fontSize'), $size),
             'font_weight' => array(array('typography', 'fontWeight'), static fn(string $value): string => $value),
+            'line_height' => array(array('typography', 'lineHeight'), static fn(string $value): string => $value),
             'hover_color' => array(array(':hover', 'color', 'text'), $color),
             'hover_background' => array(array(':hover', 'color', 'background'), $color),
         );
-        $properties = array('color' => array('color'), 'background' => array('background', 'background-color'), 'font_family' => array('font-family', 'font'), 'font_size' => array('font-size', 'font'), 'font_weight' => array('font-weight', 'font'));
+        $properties = array('color' => array('color'), 'background' => array('background', 'background-color'), 'font_family' => array('font-family', 'font'), 'font_size' => array('font-size', 'font'), 'font_weight' => array('font-weight', 'font'), 'line_height' => array('line-height', 'font'));
         foreach ($system->elements as $element => $values) {
             $tags = 'heading' === $element ? array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') : array($element);
             $element = 'a' === $element ? 'link' : $element;
             foreach ($values as $field => $value) {
                 if (!isset($paths[$field])) continue;
                 $differs = false;
-                foreach ($tags as $tag) foreach ($properties[$field] ?? array() as $property) foreach ($authored['element:' . $tag . "\n" . $property] ?? array() as $declared) $differs = $differs || !self::sameElementValue($property, $declared, $value);
+                foreach ($tags as $tag) foreach ($properties[$field] ?? array() as $property) foreach ($authored['element:' . $tag . "\n" . $property] ?? array() as $declared) $differs = $differs || !(self::sameElementValue($property, $declared, $value) || (1 === preg_match('/^h[1-6]$/', $element) && in_array($field, array('font_size', 'font_weight', 'line_height'), true) && in_array(trim($declared), array('inherit', 'unset'), true)));
                 if ($differs && !('button' === $element && 'color' === $field)) continue;
                 [$path, $reference] = $paths[$field];
                 $target = &$styles['elements'][$element];
@@ -506,6 +508,7 @@ final class ThemeJsonProjection
                 // and every button block carried it (DesignSystem::withButtonElementsOwnedBy()),
                 // so it replaces a colour projected from an authored `button` rule.
                 if (('button' === $element && 'color' === $path[0]) || ':hover' === $path[0]) $target = $reference($value);
+                elseif (1 === preg_match('/^h[1-6]$/', $element) && in_array($field, array('font_size', 'font_weight', 'line_height'), true) && in_array($target, array(null, 'inherit', 'unset'), true)) $target = $reference($value);
                 else $target ??= $reference($value);
                 unset($target);
             }

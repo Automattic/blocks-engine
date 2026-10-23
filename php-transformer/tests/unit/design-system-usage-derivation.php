@@ -26,6 +26,56 @@ $compile = static function (array $artifact): array {
     foreach ($plan['writes'] ?? array() as $write) if ('theme.json' === $write['target_path']) $theme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
     return array($plan, $theme, $result['source_reports']['editability_report'] ?? array());
 };
+// Reduced heading case: class-owned typography becomes editable without
+// changing the source declarations' values, including at a breakpoint.
+foreach (array(false, true) as $responsive) {
+    $css = '.t6{font-size:3.75rem;line-height:1;font-weight:800}.t4{font-size:2.25rem;line-height:2.5rem;font-weight:700}.t5{font-size:1.25rem;font-weight:700}';
+    if ($responsive) $css = '.t6{font-size:2rem;line-height:1;font-weight:800}@media(min-width:48rem){.t6{font-size:3.75rem}}' . substr($css, strpos($css, '.t4'));
+    [$headingPlan, $headingTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><style>' . $css . '</style></head><body><h1 class="t6">Hero</h1><h2 class="t4">Section</h2><h2 class="t4">Section</h2><h3 class="t5">Card</h3><h3 class="t5">Card</h3></body></html>')));
+    $sizes = array_column($headingTheme['settings']['typography']['fontSizes'] ?? array(), 'size', 'slug');
+    $heroSlug = array_search('60px', $sizes, true);
+    $assert(false !== $heroSlug, 'reduced headings: the largest rendered size is a preset, including breakpoint-only sizes');
+    foreach (array('h1' => array('60px', '800', '1'), 'h2' => array('36px', '700', '2.5rem'), 'h3' => array('20px', '700', null)) as $level => [$size, $weight, $lineHeight]) {
+        $type = $headingTheme['styles']['elements'][$level]['typography'] ?? array();
+        $expectedSize = $responsive && 'h1' === $level ? null : 'var:preset|font-size|' . array_search($size, $sizes, true);
+        $assert($expectedSize === ($type['fontSize'] ?? null) && $weight === ($type['fontWeight'] ?? null) && $lineHeight === ($type['lineHeight'] ?? null), 'reduced headings: ' . $level . ' exposes its rendered size, weight and line height: ' . json_encode($type));
+    }
+    $headingCss = implode('', array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? null) ? ($asset['content'] ?? '') : '', $headingPlan['assets']));
+    $assert(str_contains($headingCss, 'font-size:var(--wp--preset--font-size--' . $heroSlug . ',3.75rem)'), 'reduced headings: source size reads its preset with the original fallback');
+    $assert(str_contains($headingCss, 'line-height:1') && str_contains($headingCss, 'font-weight:800'), 'reduced headings: source weight and line height remain intact');
+    if ($responsive) {
+        $markup = implode('', array_column($headingPlan['pages'], 'canonical_block_markup'));
+        $assert(!preg_match('/<!-- wp:heading [^>]*"level":1[^>]*"fontSize"/', $markup), 'reduced headings: no important core size class freezes the responsive heading');
+        $assert(str_contains($headingCss, '@media') && (str_contains($headingCss, ',2rem)') || str_contains($headingCss, 'font-size:2rem')), 'reduced headings: mobile size and media rule retain their original fallback');
+    }
+}
+// A contextual/inherited heading must not receive a sibling's declarations.
+$neutralCss = 'body{line-height:1.6}.display{font-size:3.75rem;line-height:1;font-weight:800}.context{font-size:1.25rem;line-height:1.4}.inherited{font-size:inherit;font-weight:inherit}.card{font-size:1.25rem;font-weight:700}';
+[$neutralPlan, $neutralTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<html><head><style>' . $neutralCss . '</style></head><body><h1 class="display">A prominent page title</h1><section class="context"><h1 class="inherited">Other</h1></section><h3 class="card">A card with inherited leading</h3></body></html>')));
+$neutralElements = $neutralTheme['styles']['elements'];
+$assert(!isset($neutralElements['h1']['typography']['lineHeight']) && !str_starts_with($neutralElements['h1']['typography']['fontSize'] ?? '', 'var:preset|') && !isset($neutralElements['h1']['typography']['fontWeight']), 'contextual heading: no dominant sibling typography leaks into an inherited heading');
+$assert(!isset($neutralElements['h3']['typography']['lineHeight']), 'class-owned size does not prove ownership of inherited line height');
+
+// Solved-site promotion regression: baseline presets are byte-identical to
+// trunk; h1's matched .hero h1 rule alone proves weight and leading.
+$solvedRoot = dirname(__DIR__, 3) . '/fixtures/solved/89-static-site-importer-architecture';
+$solvedFiles = array();
+foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($solvedRoot)) as $file) {
+    if ($file->isFile() && in_array($file->getExtension(), array('html', 'css'), true)) $solvedFiles[substr($file->getPathname(), strlen($solvedRoot) + 1)] = file_get_contents($file->getPathname());
+}
+[, $solvedTheme] = $compile(array('entrypoint' => 'index.html', 'files' => $solvedFiles));
+$trunkSizes = array();
+foreach (array('xx-small' => '12.48px', 'x-small' => '13.12px', 'small' => '13.76px', 'medium' => '16px', 'large' => '16.8px', 'x-large' => '18.72px', 'xx-large' => '20px', 'xxx-large' => '24px') as $slug => $size) {
+    $trunkSizes[] = array('slug' => $slug, 'name' => ucwords(str_replace('-', ' ', preg_replace_callback('/^x+(?=-)/', static fn(array $m): string => strtoupper($m[0]), $slug))), 'size' => $size);
+}
+$assert(json_encode($trunkSizes) === json_encode(array_slice($solvedTheme['settings']['typography']['fontSizes'], 0, 8)), 'solved architecture: original body presets remain byte-identical to trunk');
+$solvedTypography = array();
+foreach ($solvedTheme['styles']['elements'] as $level => $element) {
+    $fields = array_intersect_key($element['typography'] ?? array(), array_flip(array('fontSize', 'fontWeight', 'lineHeight')));
+    if (array() !== $fields) $solvedTypography[$level] = $fields;
+}
+$assert(array('h1' => array('fontWeight' => '500', 'lineHeight' => '.92')) === $solvedTypography, 'solved architecture: only the h1 declarations shared by every heading of that level become element fields');
+
 // Rendered stacks need no @font-face to become editable role presets (#3302).
 $systemStackCss = ':root{--font-body:ui-sans-serif,system-ui,sans-serif;--font-display:Georgia,serif}'
     . 'body{font-family:var(--font-body)} h1,h2{font-family:var(--font-display)}';
@@ -111,7 +161,7 @@ foreach ($unusedFamilies as $fixture => $unusedFamily) {
     $assert(count($slugs) === count(array_unique(array_map('strtolower', array_column($palette, 'color')))), "$fixture: palette colours are distinct");
     $sizes = $theme['settings']['typography']['fontSizes'] ?? array();
     $assert(count($sizes) >= 4 && count($sizes) <= 8, "$fixture: type scale has 4-8 steps (" . count($sizes) . ')');
-    $assert(in_array('medium', array_column($sizes, 'slug'), true) && array() === array_filter(array_column($sizes, 'slug'), static fn(string $slug): bool => 1 !== preg_match($sizeSlug, $slug)), "$fixture: type scale uses t-shirt slugs around medium");
+    $assert(in_array('medium', array_column($sizes, 'slug'), true) && array() === array_filter(array_column($sizes, 'slug'), static fn(string $slug): bool => 1 !== preg_match($sizeSlug, $slug) && !str_starts_with($slug, 'heading-')), "$fixture: type scale uses t-shirt slugs around medium");
     $families = $theme['settings']['typography']['fontFamilies'] ?? array();
     $assert(in_array('body', array_column($families, 'slug'), true), "$fixture: body family is a preset");
     $assert(array() === array_filter($families, static fn(array $family): bool => str_contains((string) $family['fontFamily'], $unusedFamily)), "$fixture: the declared but unrendered $unusedFamily stack is not a preset");
@@ -187,6 +237,23 @@ foreach (array(12, 14, 16, 16.2, 18, 20, 24, 30, 36, 48, 60, 72) as $index => $s
 $scale = DesignSystem::fromUsage(array('a.html' => $usage($sizes)));
 $scaleSlugs = array_column($scale?->fontSizes ?? array(), 'slug');
 $assert(8 === count($scaleSlugs) && 'medium' === ($scale?->fontSizeSlug('16px')) && null === ($scale?->fontSizeSlug('16.2px')) && in_array('small', $scaleSlugs, true) && in_array('large', $scaleSlugs, true), 'font sizes within half a pixel merge, only the preset\'s own size binds, and the scale is capped at eight steps');
+// Heading additions preserve every baseline preset, including its slug.
+// Disagreeing per-level declarations must not become element defaults.
+$crowdedSizes = array();
+foreach (array(12, 14, 16, 18, 20, 24, 30, 36) as $size) $crowdedSizes[] = $row('#111111', 1000, 'body', $size);
+$crowdedSizes[] = $row('#111111', 1, 'heading', 60) + array('heading_level' => 1, 'font_weight' => 800, 'line_height' => '1');
+$crowdedSizes[] = $row('#111111', 2, 'heading', 36) + array('heading_level' => 2, 'font_weight' => 700, 'line_height' => '1.2');
+$crowdedSizes[] = $row('#111111', 1, 'heading', 24) + array('heading_level' => 2, 'font_weight' => 400, 'line_height' => '1.5');
+$crowdedUsage = $usage($crowdedSizes);
+$baselineSystem = DesignSystem::fromUsage(array('a.html' => $crowdedUsage));
+$crowdedUsage['heading_typography'] = array(
+    array('level' => 1, 'size_px' => 60, 'font_size' => 60, 'font_weight' => 800, 'line_height' => '1'),
+    array('level' => 2, 'size_px' => 36, 'font_size' => 36, 'font_weight' => 700, 'line_height' => '1.2'),
+    array('level' => 2, 'size_px' => 24, 'font_size' => 24, 'font_weight' => 400, 'line_height' => '1.5'),
+);
+$crowdedSystem = DesignSystem::fromUsage(array('a.html' => $crowdedUsage));
+$assert(9 === count($crowdedSystem?->fontSizes ?? array()) && null !== $crowdedSystem?->fontSizeSlug('60px') && $baselineSystem?->fontSizes === array_slice($crowdedSystem?->fontSizes ?? array(), 0, 8), 'a low-mass heading adds a preset without changing the established scale');
+$assert(array() === array_intersect_key($crowdedSystem?->elements['h2'] ?? array(), array_flip(array('font_size', 'font_weight', 'line_height'))), 'disagreeing headings have no per-level typography defaults');
 // Three per-page copies of one stylesheet ship three times its bytes.
 $copies = array_fill(0, 3, array('kind' => 'css', 'source' => 'files', 'content' => str_repeat('a{color:#111111}', 10)));
 $sizeMetrics = DesignSystem::fromUsage(array('a.html' => $usage(array($row('#111111', 5)))))?->metrics(array('<!-- wp:paragraph --><p>a</p><!-- /wp:paragraph -->'), $copies, array(), array(), 160);
@@ -424,7 +491,7 @@ $preset = static fn(string $hex): string => 'var:preset|color|' . ($elementSlug[
 $elements = $elementTheme['styles']['elements'] ?? array();
 $assert($preset('#0f766e') === ($elements['link']['color']['text'] ?? null) && $preset('#134e4a') === ($elements['link'][':hover']['color']['text'] ?? null), 'element-styles: link colour and hover colour are palette references (' . json_encode($elements['link'] ?? null) . ')');
 $assert($preset('#ffffff') === ($elements['button']['color']['text'] ?? null) && $preset('#0f766e') === ($elements['button']['color']['background'] ?? null) && $preset('#134e4a') === ($elements['button'][':hover']['color']['background'] ?? null) && '600' === ($elements['button']['typography']['fontWeight'] ?? null), 'element-styles: button colours, hover background and weight project (' . json_encode($elements['button'] ?? null) . ')');
-$assert($preset('#134e4a') === ($elements['heading']['color']['text'] ?? null) && 'var:preset|font-family|heading' === ($elements['heading']['typography']['fontFamily'] ?? null) && '700' === ($elements['heading']['typography']['fontWeight'] ?? null), 'element-styles: heading colour, family and weight project (' . json_encode($elements['heading'] ?? null) . ')');
+$assert($preset('#134e4a') === ($elements['heading']['color']['text'] ?? null) && 'var:preset|font-family|heading' === ($elements['heading']['typography']['fontFamily'] ?? null) && !isset($elements['heading']['typography']['fontWeight']), 'element-styles: heading colour and family project without an unproven shared weight (' . json_encode($elements['heading'] ?? null) . ')');
 // An element style outranks author element rules (`:root :where(h1)`), so a
 // usage-derived value never fills a property an author stylesheet sets to
 // another value: here a selectable `light` set makes `h1` weight 300.
@@ -471,7 +538,7 @@ foreach (array('dark-hero-headings' => false, 'dark-hero-headings control' => tr
 // A size a breakpoint changes stays with the source: an element style
 // would override the responsive variant.
 [, $v4Theme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/tailwind-v4.php');
-$assert(!isset($v4Theme['styles']['elements']['h1']['typography']['fontSize']), 'tailwind-v4: the responsive h1 size is not an element style');
+$assert(!isset($v4Theme['styles']['elements']['h1']['typography']['fontSize']), 'tailwind-v4: conditional heading sizes do not become fixed element defaults');
 
 // Root styles name roles, and restyle coverage is reported for every fixture.
 foreach ($plans as $fixture => [$plan, $theme]) {
