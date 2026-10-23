@@ -305,7 +305,8 @@ final class GeneratedBlockStyleProjector
                 }
             }
             $resolvedBox = $this->styleResolver->resolvedSourceStateDeclarations($sourceControl);
-            $controlOwnsHeight = (new ButtonStyleResolver())->heightNeedsControlBox($resolvedBox, CssLength::toPx($height) ?? INF);
+            $rootFontSize = $this->styleResolver->documentRootFontSize($sourceControl) ?? 16.0;
+            $controlOwnsHeight = (new ButtonStyleResolver())->heightNeedsControlBox($resolvedBox, CssLength::toPx($height, $rootFontSize) ?? INF, $rootFontSize);
             if ( $controlOwnsHeight ) {
                 // The padded control owns this size, not its padding-free carriers.
                 $declarations[] = 'box-sizing:' . ($resolvedBox['box-sizing'] ?? 'border-box');

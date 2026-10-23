@@ -1220,8 +1220,9 @@ final class AuthorStylesheetProjector
             }
             foreach ( $controls as $element ) {
                 $resolved = $this->styleResolver->resolveCssVariablesInValue($value, $element);
-                $size = CssLength::toPx($resolved);
-                if ( null === $size || ! (new ButtonStyleResolver())->heightNeedsControlBox($this->styleResolver->resolvedSourceStateDeclarations($element), $size) ) {
+                $rootFontSize = $this->styleResolver->documentRootFontSize($element) ?? 16.0;
+                $size = CssLength::toPx($resolved, $rootFontSize);
+                if ( null === $size || ! (new ButtonStyleResolver())->heightNeedsControlBox($this->styleResolver->resolvedSourceStateDeclarations($element), $size, $rootFontSize) ) {
                     return false;
                 }
             }

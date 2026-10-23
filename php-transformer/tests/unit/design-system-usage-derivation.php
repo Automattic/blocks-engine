@@ -26,6 +26,40 @@ $compile = static function (array $artifact): array {
     foreach ($plan['writes'] ?? array() as $write) if ('theme.json' === $write['target_path']) $theme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
     return array($plan, $theme, $result['source_reports']['editability_report'] ?? array());
 };
+// Rendered stacks need no @font-face to become editable role presets (#3302).
+$systemStackCss = ':root{--font-body:ui-sans-serif,system-ui,sans-serif;--font-display:Georgia,serif}'
+    . 'body{font-family:var(--font-body)} h1,h2{font-family:var(--font-display)}';
+[$systemStackPlan, $systemStackTheme] = $compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array('index.html' => '<!doctype html><html><head><style>' . $systemStackCss . '</style></head><body><h1>Title</h1><p>Body</p></body></html>'),
+));
+$systemStackFamilies = array_column($systemStackTheme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
+$assert(array('heading' => 'Georgia,serif', 'body' => 'ui-sans-serif,system-ui,sans-serif') === $systemStackFamilies, 'rendered system stacks: body and heading presets contain the rendered stacks without font faces');
+$assert('var:preset|font-family|body' === ($systemStackTheme['styles']['typography']['fontFamily'] ?? null), 'rendered system stacks: root typography references body');
+$assert('var:preset|font-family|heading' === ($systemStackTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'rendered system stacks: heading typography references heading (' . json_encode($systemStackTheme['styles'] ?? array()) . ')');
+$systemStackAssets = implode('', array_column($systemStackPlan['assets'] ?? array(), 'content'));
+foreach (array('body' => 'body', 'heading' => 'display') as $role => $token) {
+    $assert(str_contains($systemStackAssets, 'font-family:var(--wp--preset--font-family--' . $role . ',var(--font-' . $token . '))'), 'rendered system stacks: ' . $role . ' source declaration binds with its original var() fallback');
+}
+
+// Channel custom properties are colours only in the consuming function, not
+// standalone palette values. Keep the authored expression as the CSS fallback.
+foreach (array('hsl(var(--foreground))', 'hsl(var(--foreground) / 1)', 'rgb(var(--channels))', 'rgb(var(--channels) / 100%)') as $expression) {
+    [$channelPlan, $channelTheme] = $compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array('index.html' => '<!doctype html><html><head><style>:root{--foreground:0 0% 3.9%;--muted:215 16% 47%;--channels:10 10 10;--paper:255 255 255}body{color:' . $expression . ';background-color:rgb(var(--paper) / 1)}.muted{color:hsl(var(--muted))}.ink{color:#000}.surface{background:linear-gradient(' . $expression . ',rgb(var(--paper) / 100%))}</style></head><body><p class="surface">' . str_repeat('Lots of body copy. ', 20) . '</p><p class="muted">Secondary copy.</p><p class="ink">A little black text</p></body></html>'),
+    ));
+    $channelPalette = array_column($channelTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+    $channelSlug = array_search('#0a0a0a', $channelPalette, true);
+    $assert(false !== $channelSlug, $expression . ': rendered channel colour belongs to the palette');
+    $assert('#0a0a0a' === ($channelPalette['contrast'] ?? null), $expression . ': dominant body copy determines contrast, not the small literal black run');
+    $assert('var:preset|color|' . $channelSlug === ($channelTheme['styles']['color']['text'] ?? null), $expression . ': root text references its matching preset');
+    $assert('var:preset|color|base' === ($channelTheme['styles']['color']['background'] ?? null), $expression . ': root background references its matching preset');
+    $channelCss = implode("\n", array_column($channelPlan['assets'], 'content'));
+    $assert(str_contains($channelCss, 'color:var(--wp--preset--color--' . $channelSlug . ',' . $expression . ')'), $expression . ': CSS binds with the original expression as fallback');
+    $assert(str_contains($channelCss, 'linear-gradient(var(--wp--preset--color--' . $channelSlug . ',' . $expression . '),var(--wp--preset--color--base,rgb(var(--paper) / 100%)))'), $expression . ': compound colour tokens resolve and retain their original fallbacks too');
+}
+
 // A late shared WordPress capture stylesheet cannot redefine generated presets.
 [$sourcePresetPlan, $sourcePresetTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/source-wordpress-presets.php');
 $sourcePalette = array_column($sourcePresetTheme['settings']['color']['palette'], 'color', 'slug');
@@ -258,6 +292,9 @@ $assert(str_contains($sheet($opacity), 'color:var(--wp--preset--color--' . $slug
 $assert(!str_contains($sheet($opacity . '.text-opacity-50{--tw-text-opacity:.5}'), '--wp--preset--color--'), 'an opacity variable another rule sets differently keeps the literal');
 $assert(!str_contains($sheet('.a{color:hsl(var(--x))}', array(array('kind' => 'css', 'content' => ':root{--x:347 77% 50%}.dark{--x:0 0% 7%}'))), '--wp--preset--color--'), 'a colour read from a custom property a scope redefines keeps the literal');
 $assert('.a{font-family:var(--wp--preset--font-family--body,Inter, sans-serif)}.b{font-family:Inter,Arial}' === $sheet('.a{font-family:Inter, sans-serif}.b{font-family:Inter,Arial}'), 'only the preset\'s own font stack binds, so fallbacks do not change');
+$fontVariables = ':root{--family:Inter, sans-serif;--other:Inter,Arial}.a{font-family:var(--family)}.b{font-family:var(--other)}';
+$assert(str_contains($sheet($fontVariables), '.a{font-family:var(--wp--preset--font-family--body,var(--family))}') && str_contains($sheet($fontVariables), '.b{font-family:var(--other)}'), 'resolved font declarations bind only an exact stack and retain the original variable fallback');
+$assert('.a{font-family:var(--wp--preset--font-family--body,"Inter",sans-serif)}.b{font-family:"In ter",sans-serif}' === $sheet('.a{font-family:"Inter",sans-serif}.b{font-family:"In ter",sans-serif}'), 'font stack comparison preserves spaces inside family names');
 
 // Compound colour values follow the palette without interpreting positions,
 // variable fallbacks or URLs as colour tokens.

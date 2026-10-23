@@ -1100,8 +1100,10 @@ final class ArtifactCompiler
                 // grid-scope anchor plus the card as an item template and each
                 // product's value for every template slot.
                 $gridBinding = $fallback['binding'] ?? null;
-                if ( '' !== $container && is_array($fallback['item_template'] ?? null) && array() !== $gridItems && is_array($gridBinding) && 'generic/block-binding/v1' === ($gridBinding['schema'] ?? null) && is_string($gridBinding['search_block_markup'] ?? null) && '' !== trim($gridBinding['search_block_markup']) ) {
-                    $productGrids[$sourcePath . "\n" . $container] = array('source_path' => $sourcePath, 'selector' => $container, 'item_template' => $fallback['item_template'], 'items' => $gridItems, 'bindings' => array(array_merge($gridBinding, array('source_path' => $sourcePath))));
+                $emptyListing = 0 === ($fallback['product_count'] ?? null) && ! empty($fallback['listing']['controls']);
+                if ( '' !== $container && ($emptyListing || (is_array($fallback['item_template'] ?? null) && array() !== $gridItems)) && is_array($gridBinding) && 'generic/block-binding/v1' === ($gridBinding['schema'] ?? null) && is_string($gridBinding['search_block_markup'] ?? null) && '' !== trim($gridBinding['search_block_markup']) ) {
+                    $productGrids[$sourcePath . "\n" . $container] = array('source_path' => $sourcePath, 'selector' => $container, 'items' => $gridItems, 'bindings' => array(array_merge($gridBinding, array('source_path' => $sourcePath))));
+                    if ( isset($fallback['item_template']) ) $productGrids[$sourcePath . "\n" . $container]['item_template'] = $fallback['item_template'];
                     // The controls that facet, bound, sort, or count this grid:
                     // the region holding them with the grid is the first
                     // binding, then one binding per control naming its id.
@@ -1254,9 +1256,27 @@ final class ArtifactCompiler
                 $forms[$sourcePath . "\n" . $selector] = $form;
             }
         }
-        foreach ( SchemaProductEvidence::rows($files, $slug, $price) as $productSlug => $row ) {
+        foreach ( SchemaProductEvidence::rows($files, $slug, $price, $diagnostics) as $productSlug => $row ) {
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
-            foreach ( array('description', 'image', 'category') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+            foreach ( array('description', 'image', 'category', 'sku', 'images', 'tags', 'variants', 'sale_price', 'stock_status') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+        }
+        // Listing-owned forms are shop controls, not a second form-provider
+        // surface. In particular a sort-only form and its select may serialize
+        // to the very same block anchor. Retain mixed/data-entry forms.
+        foreach ( $forms as $key => $form ) {
+            $owned = array();
+            foreach ( $productListings as $listing ) {
+                if ( $listing['source_path'] !== $form['source_path'] ) continue;
+                foreach ( $listing['controls'] as $control ) $owned[] = $control['selector'];
+            }
+            $unclaimed = array_filter($form['controls'] ?? array(), static function (array $control) use ($owned): bool {
+                $selector = $control['selector'] ?? '';
+                foreach ( $owned as $owner ) {
+                    if ( $selector === $owner || str_starts_with($selector, $owner . ' > ') ) return false;
+                }
+                return ! in_array($control['type'] ?? '', array('submit', 'button', 'reset'), true);
+            });
+            if ( array() !== $owned && array() === $unclaimed ) unset($forms[$key]);
         }
         ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($orderLookups, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
         $collections = array(
@@ -1265,9 +1285,9 @@ final class ArtifactCompiler
             // beside a products collection: on its own it would ask a provider
             // to install a store with nothing to sell.
             array('capability' => 'shop', 'type' => 'carts', 'aliases' => array('cart', 'carts'), 'entities' => array_values($carts), 'schema' => 'generic/carts/v1', 'requires' => array('product', 'products')),
-            // Grids repeat the store's products, so like carts they are
-            // declared only beside a products collection.
-            array('capability' => 'shop', 'type' => 'product_grids', 'aliases' => array('product_grid', 'product_grids'), 'entities' => array_values($productGrids), 'schema' => 'generic/product-grids/v1', 'requires' => array('product', 'products')),
+            // Empty controlled listings still declare their replaceable grid
+            // region, even when the site has no products yet.
+            array('capability' => 'shop', 'type' => 'product_grids', 'aliases' => array('product_grid', 'product_grids'), 'entities' => array_values($productGrids), 'schema' => 'generic/product-grids/v1'),
             // The filters, sort, and count around a grid narrow or order that
             // grid, so they are declared only beside the grids.
             array('capability' => 'shop', 'type' => 'product_listings', 'aliases' => array('product_listing', 'product_listings'), 'entities' => array_values($productListings), 'schema' => 'generic/product-listings/v1', 'requires' => array('product_grid', 'product_grids')),

@@ -13,9 +13,11 @@ use DOMElement;
  * evidence about those cards rather than by vocabulary alone:
  *
  * - `facet`: an option group (a `select`, sibling buttons that share one
- *   `data-*` attribute name, or same-named radios) whose option values
+ *   `data-*` attribute name, or same-named radios/checkboxes) whose option values
  *   partition the cards. A card carries an option's value as the text of one
  *   of its leaves, a segment of one of its class tokens, or a `data-*` value.
+ *   Explicit checkbox facets also qualify without card partition evidence,
+ *   including on one-item and empty collections.
  * - `range`: an `input[type=range]` whose bounds contain every card's price.
  * - `sort`: a `select` whose options all read as orderings of the cards.
  * - `result_count`: a short text whose number is the card count.
@@ -29,8 +31,8 @@ use DOMElement;
  */
 final class ListingControlsRecognizer
 {
-    private const BOUNDARY_TAGS = array( 'body', 'main', 'header', 'footer', 'nav', 'html' );
-    private const SORT_KEYS = array( 'default', 'popularity', 'rating', 'newest', 'price_asc', 'price_desc', 'name_asc', 'name_desc' );
+    private const BOUNDARY_TAGS = array( 'body', 'main', 'header', 'footer', 'nav', 'aside', 'html' );
+    private const SORT_KEYS = array( 'default', 'popularity', 'rating', 'newest', 'oldest', 'price_asc', 'price_desc', 'name_asc', 'name_desc' );
 
     /**
      * @param list<DOMElement> $cards
@@ -39,13 +41,12 @@ final class ListingControlsRecognizer
      */
     public function recognize(DOMElement $listing, array $cards, array $prices): ?array
     {
-        if ( count($cards) < 2 ) {
-            return null;
-        }
-
         $scope = $listing;
-        for ( $node = $listing->parentNode; $node instanceof DOMElement && ! in_array(strtolower($node->tagName), self::BOUNDARY_TAGS, true); $node = $node->parentNode ) {
+        for ( $node = $listing->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
             $scope = $node;
+            if ( in_array(strtolower($node->tagName), self::BOUNDARY_TAGS, true) ) {
+                break;
+            }
         }
         if ( $scope === $listing ) {
             return null;
@@ -60,7 +61,7 @@ final class ListingControlsRecognizer
             if ( isset($claimed[spl_object_id($group['element'])]) ) {
                 continue;
             }
-            $sort = 'select' === $group['shape'] ? $this->sortOptions($group['options']) : null;
+            $sort = 'select' === $group['shape'] ? $this->sortOptions($group['options'], $group['element']) : null;
             if ( null !== $sort ) {
                 $controls[] = array('kind' => 'sort', 'element' => $group['element'], 'label' => $this->controlLabel($group['element']), 'options' => $sort);
                 $claimed[spl_object_id($group['element'])] = true;
@@ -108,7 +109,7 @@ final class ListingControlsRecognizer
         $groups = array();
         $radios = array();
         foreach ( $scope->getElementsByTagName('*') as $element ) {
-            if ( ! $element instanceof DOMElement || $this->contains($listing, $element) ) {
+            if ( ! $element instanceof DOMElement || $this->contains($listing, $element) || self::inSearchContext($element) || $this->inSiblingListingBranch($listing, $element) ) {
                 continue;
             }
             $tag = strtolower($element->tagName);
@@ -123,7 +124,7 @@ final class ListingControlsRecognizer
                 }
                 continue;
             }
-            if ( 'input' === $tag && 'radio' === strtolower(SourceDom::attr($element, 'type')) && '' !== SourceDom::attr($element, 'name') ) {
+            if ( 'input' === $tag && in_array(strtolower(SourceDom::attr($element, 'type')), array('radio', 'checkbox'), true) && '' !== SourceDom::attr($element, 'name') ) {
                 $label = SourceDom::associatedLabel($element);
                 $radios[SourceDom::attr($element, 'name')][] = array('element' => $element, 'option' => array('value' => SourceDom::attr($element, 'value'), 'label' => null !== $label ? $this->text($label) : SourceDom::attr($element, 'value')));
                 continue;
@@ -134,7 +135,7 @@ final class ListingControlsRecognizer
             }
         }
         foreach ( $radios as $members ) {
-            if ( count($members) < 2 ) {
+            if ( count($members) < 2 && 'checkbox' !== strtolower(SourceDom::attr($members[0]['element'], 'type')) ) {
                 continue;
             }
             $container = $members[0]['element'];
@@ -144,7 +145,8 @@ final class ListingControlsRecognizer
             if ( $this->inSiblingListingBranch($listing, $container) ) {
                 continue;
             }
-            $groups[] = array('shape' => 'radios', 'element' => $container, 'options' => array_column($members, 'option'));
+            $shape = 'checkbox' === strtolower(SourceDom::attr($members[0]['element'], 'type')) ? 'checkboxes' : 'radios';
+            $groups[] = array('shape' => $shape, 'element' => $container, 'name' => SourceDom::attr($members[0]['element'], 'name'), 'options' => array_column($members, 'option'));
         }
 
         return $groups;
@@ -225,10 +227,17 @@ final class ListingControlsRecognizer
             }
             $options[] = $option;
         }
-        if ( $matchedOptions < 2 || count($cardValues) * 2 < count($cardTokens) ) {
+        // Explicit checkbox filters remain meaningful on a one-item or empty
+        // collection, where partitioning two cards is impossible.
+        $explicitFacet = 'checkboxes' === $group['shape'];
+        if ( ! $explicitFacet && ($matchedOptions < 2 || count($cardValues) * 2 < count($cardTokens)) ) {
             return null;
         }
         $label = $this->controlLabel($group['element']);
+        if ( '' === $label ) {
+            $name = $group['name'] ?? SourceDom::attr($group['element'], 'name');
+            $label = (string) preg_replace('/^.*[.\[\]]([^.[\]]+)\]?$/', '$1', $name);
+        }
         $key = trim((string) preg_replace('/[^a-z0-9]+/', '_', $this->normalize('' !== $label ? $label : 'facet')), '_');
         ksort($cardValues);
 
@@ -273,7 +282,7 @@ final class ListingControlsRecognizer
         }
         $tag = strtolower($listing->tagName);
         $class = $listing->getAttribute('class');
-        foreach ( $branch->getElementsByTagName('*') as $element ) {
+        foreach ( array_merge(array($branch), iterator_to_array($branch->getElementsByTagName('*'), false)) as $element ) {
             if ( $element instanceof DOMElement && $element !== $listing && strtolower($element->tagName) === $tag && $element->getAttribute('class') === $class ) {
                 return true;
             }
@@ -291,20 +300,21 @@ final class ListingControlsRecognizer
 
     /**
      * @param list<array{value: string, label: string}> $options
-     * @return list<array{value: string, label: string, order: string}>|null
+     * @return list<array{value: string, label: string, order?: string}>|null
      */
-    private function sortOptions(array $options): ?array
+    private function sortOptions(array $options, DOMElement $select): ?array
     {
         $sorted = array();
         foreach ( $options as $option ) {
-            $order = $this->sortOrder($option['label'] . ' ' . $option['value']);
-            if ( null === $order ) {
+            // Machine values are independent of the storefront's language.
+            $order = $this->sortOrder($option['value']) ?? $this->sortOrder($option['label']);
+            if ( null === $order && ! preg_match('/sort|order/i', SourceDom::attr($select, 'name')) ) {
                 return null;
             }
-            $sorted[] = $option + array('order' => $order);
+            $sorted[] = null === $order ? $option : $option + array('order' => $order);
         }
         $orders = array_column($sorted, 'order');
-        if ( count(array_unique($orders)) < 2 || count(array_intersect($orders, array( 'price_asc', 'price_desc', 'name_asc', 'name_desc', 'newest' ))) < 1 ) {
+        if ( ! preg_match('/sort|order/i', SourceDom::attr($select, 'name')) && count(array_unique($orders)) < 2 ) {
             return null;
         }
 
@@ -318,11 +328,13 @@ final class ListingControlsRecognizer
             str_contains($text, 'price') && (bool) preg_match('/high\W*(to|-|→)\W*low|desc|highest|most expensive/', $text) => 'price_desc',
             str_contains($text, 'price') && (bool) preg_match('/low\W*(to|-|→)\W*high|asc|lowest|cheapest/', $text) => 'price_asc',
             (bool) preg_match('/\bz\W*(to|-|→)\W*a\b/', $text) => 'name_desc',
-            (bool) preg_match('/\bname\b|\ba\W*(to|-|→)\W*z\b|alphabet/', $text) => 'name_asc',
-            (bool) preg_match('/\b(new|newest|latest|recent|date)\b/', $text) => 'newest',
+            (bool) preg_match('/\b(title|name)\b.*desc/', $text) => 'name_desc',
+            (bool) preg_match('/\b(title|name)\b.*asc|\bname\b|\ba\W*(to|-|→)\W*z\b|alphabet/', $text) => 'name_asc',
+            (bool) preg_match('/\b(date|created)\b.*asc|\boldest\b/', $text) => 'oldest',
+            (bool) preg_match('/\b(new|newest|latest|recent|date|created)\b/', $text) => 'newest',
             (bool) preg_match('/\b(popular|popularity|best.?sell\w*|trending)\b/', $text) => 'popularity',
             (bool) preg_match('/\b(rating|rated|reviews?)\b/', $text) => 'rating',
-            (bool) preg_match('/\b(featured|default|relevance|recommended)\b/', $text) => 'default',
+            (bool) preg_match('/\b(featured|default|relevance|recommended|manual)\b/', $text) => 'default',
             default => null,
         };
 
@@ -408,12 +420,31 @@ final class ListingControlsRecognizer
 
     private function controlLabel(DOMElement $control): string
     {
+        // Only a group's own disclosure/fieldset supplies its caption. Never
+        // use a broad ancestor's text as a label.
+        for ( $node = $control; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $tag = strtolower($node->tagName);
+            if ( in_array($tag, array('form', 'body', 'main', 'section'), true) ) {
+                break;
+            }
+            if ( in_array($tag, array('fieldset', 'details'), true) ) {
+                foreach ( $node->childNodes as $child ) {
+                    if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array('legend', 'summary'), true) ) {
+                        return $this->text($child);
+                    }
+                }
+                break;
+            }
+        }
         $label = SourceDom::associatedLabel($control);
         if ( null !== $label ) {
             return $this->text($label);
         }
         $document = $control->ownerDocument;
         foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-labelledby'))) ?: array() as $id ) {
+            if ( '' === $id ) {
+                continue;
+            }
             $labelElement = '' !== $id && null !== $document ? $document->getElementById($id) : null;
             if ( null === $labelElement && null !== $document ) {
                 foreach ( $document->getElementsByTagName('*') as $candidate ) {
@@ -429,6 +460,18 @@ final class ListingControlsRecognizer
         }
 
         return trim(SourceDom::attr($control, 'aria-label'));
+    }
+
+    /** Search suggestions are not the page's browsable collection. */
+    public static function inSearchContext(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'search' === strtolower(SourceDom::attr($node, 'role')) || 'search' === strtolower($node->tagName)
+                || preg_match('/(?:^|[\s_-])search(?:[\s_-]|$)/i', SourceDom::attr($node, 'id') . ' ' . SourceDom::attr($node, 'class')) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function commonAncestor(DOMElement $a, DOMElement $b): DOMElement
