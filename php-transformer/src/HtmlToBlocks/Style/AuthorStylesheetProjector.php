@@ -95,9 +95,11 @@ final class AuthorStylesheetProjector
     {
         $parts = str_contains($body, '{') ? (new CssStylesheetTransformer())->splitStyleRuleBody($body) : array();
         $hasNestedRules = array_filter($parts, static fn (array $part): bool => isset($part['prelude']));
+        $hasButtonSubjects = (bool) preg_match('/(?:^|[;{])\s*(?:align-self|justify-self|place-self)\s*:/i', $body)
+            && array() !== $this->buttonSizeSubjects($prelude, $context);
         $hasMargins = $hasNestedRules && array_filter(
             $this->styleResolver->verbatimCssDeclarations($body),
-            static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'),
+            static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-') || ($hasButtonSubjects && in_array($name, array('align-self', 'justify-self', 'place-self'), true)),
             ARRAY_FILTER_USE_KEY
         );
         if ( $hasMargins ) {
@@ -130,7 +132,9 @@ final class AuthorStylesheetProjector
         );
         $body = $projection['body'];
         $declarations = $projection['declarations'];
-        $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
+        // Margins and self-alignment position the outer box in its parent.
+        // Keep them out of surface projection, including attribute-ancestry arms.
+        $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-') || ($hasButtonSubjects && in_array($name, array('align-self', 'justify-self', 'place-self'), true)), ARRAY_FILTER_USE_KEY);
         $mediaTextImagePrelude = $this->projectMediaTextImagePrelude($prelude, $context);
         if ( '' !== $mediaTextImagePrelude ) {
             return $mediaTextImagePrelude . '{' . $body . '}';
@@ -1654,7 +1658,7 @@ final class AuthorStylesheetProjector
             if (array() === $otherSubjects) continue;
             $matches = $otherSubjects;
 
-            $attributeAncestryProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $matches, $context);
+            $attributeAncestryProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $matches, $context, $controlWrapper);
             if ( null !== $attributeAncestryProjection ) {
                 array_push($rewritten, ...$attributeAncestryProjection);
                 continue;
@@ -2268,7 +2272,7 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
-    private function projectSourceAttributeAncestrySelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?array
+    private function projectSourceAttributeAncestrySelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): ?array
     {
         if (SourceAttributeSubjects::retainsDataPredicates($parsed, $context->authorStyles)) return null;
         $rightmost = $parsed['rightmost_compound_span'] ?? null;
@@ -2323,6 +2327,11 @@ final class AuthorStylesheetProjector
             }
             $shims = $this->selectorSpecificityShims($parsed, $context);
             if ( '' !== $context->selectorProjections->controlMarker($element->getNodePath() ?? '') ) {
+                if ( $controlWrapper && LayoutParticipation::BOX_LINK !== LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox() ) {
+                    // Outer box spacing belongs to the layout item, not its link.
+                    $projected[] = $scope . ':where(' . $target . ')' . $shims . ':where(.wp-block-buttons)';
+                    continue;
+                }
                 // A source control converted to core/button carries its marker on
                 // the generated core/buttons wrapper, and on core/button when that
                 // block is built from the control itself. The authored surface is
