@@ -29,29 +29,60 @@ foreach (array(false, true) as $flex) {
     $assert($link instanceof DOMElement, 'The emitted link exists.');
     $assert(str_contains($link->getAttribute('class'), 'wp-block-button__link'), 'The native button link is the control surface.');
     $assert(!str_contains($link->getAttribute('style'), 'background-color:'), 'Responsive paint stays stylesheet-owned: an inline background must not mask a lost projection.');
-    $hits = array('background-color' => 0, 'border-radius' => 0, 'padding' => 0, 'color' => 0);
-    $wrapperPaint = 0;
+    // The anchor's surface is moved onto the link, never duplicated on the
+    // core/button and core/buttons wrappers that core saves around it.
+    $wrappers = array();
+    for ($node = $link->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+        if (preg_match('/\bwp-block-buttons?\b/', $node->getAttribute('class'))) $wrappers[] = $node;
+    }
+    $assert(2 === count($wrappers), 'The link sits inside generated core/button and core/buttons wrappers.');
+    $inline = $xpath->query('//a[@href="#details"]')->item(0);
+    $assert($inline instanceof DOMElement && !str_contains($inline->getAttribute('class'), 'wp-block-button__link'), 'The same-scoped inline link stays a plain link sharing the attribute marker.');
+    $surface = static function (string $name): ?string {
+        foreach (array('background', 'padding', 'border') as $family) {
+            if ($name === $family || str_starts_with($name, $family . '-')) return 'border' === $family && str_contains($name, 'radius') ? 'border-radius' : $family;
+        }
+        return null;
+    };
+    $neutral = static fn (string $value): bool => 1 === preg_match('/^(?:0(?:px)?|none|transparent|initial|unset)(?:\s+(?:0(?:px)?|none))*(?:\s*!important)?$/i', trim($value));
+    $linkSurface = array('background' => 0, 'padding' => 0, 'border' => 0, 'border-radius' => 0, 'color' => 0);
+    $inlineSurface = $linkSurface;
+    $wrapperSurface = array();
+    foreach ($wrappers as $wrapper) {
+        foreach (explode(';', $wrapper->getAttribute('style')) as $declaration) {
+            $name = strtolower(trim((string) strstr($declaration, ':', true)));
+            if (null !== $surface($name)) $wrapperSurface[] = 'inline ' . trim($declaration);
+        }
+    }
     foreach ($plan['assets'] as $asset) {
         if ('css' !== ($asset['kind'] ?? '') || !in_array($asset['stylesheet_target'] ?? 'both', array('frontend', 'both'), true)) continue;
-        (new CssStylesheetTransformer())->transformStyleRules($asset['content'], static function (string $prelude, string $body) use ($link, &$hits, &$wrapperPaint): string {
+        (new CssStylesheetTransformer())->transformStyleRules($asset['content'], static function (string $prelude, string $body) use ($link, $inline, $wrappers, $surface, $neutral, &$linkSurface, &$inlineSurface, &$wrapperSurface): string {
+            $declarations = array();
+            foreach (explode(';', $body) as $declaration) {
+                if (false === strpos($declaration, ':')) continue;
+                $declarations[] = array(strtolower(trim((string) strstr($declaration, ':', true))), trim(substr($declaration, strpos($declaration, ':') + 1)));
+            }
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                 if (str_contains($selector, '.editor-styles-wrapper')) continue;
                 $parsed = CssSelectorMatcher::parse($selector);
-                $matchesLink = CssSelectorMatcher::matches($link, $parsed)['matches'];
-                foreach ($hits as $property => $count) {
-                    if (preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . '\s*:\s*(?:var|calc)\(/', $body) && $matchesLink) ++$hits[$property];
-                }
-                if (str_contains($body, 'background-color:var(--background-color,')) {
-                    for ($wrapper = $link->parentNode; $wrapper instanceof DOMElement; $wrapper = $wrapper->parentNode) {
-                        if (CssSelectorMatcher::matches($wrapper, $parsed)['matches']) ++$wrapperPaint;
-                    }
+                $onLink = CssSelectorMatcher::matches($link, $parsed)['matches'];
+                $onInline = CssSelectorMatcher::matches($inline, $parsed)['matches'];
+                $onWrapper = false;
+                foreach ($wrappers as $wrapper) $onWrapper = $onWrapper || CssSelectorMatcher::matches($wrapper, $parsed)['matches'];
+                foreach ($declarations as [$name, $value]) {
+                    $family = 'color' === $name ? 'color' : $surface($name);
+                    if (null === $family || !preg_match('/(?:var|calc)\(/', $value)) continue;
+                    if ($onLink) ++$linkSurface[$family];
+                    if ($onInline) ++$inlineSurface[$family];
+                    if ($onWrapper && 'color' !== $family && !$neutral($value)) $wrapperSurface[] = trim($selector) . ' { ' . $name . ':' . $value . ' }';
                 }
             }
             return $prelude . '{' . $body . '}';
         });
     }
-    foreach ($hits as $property => $count) $assert($count > 0, "Author $property reaches the link, not just its wrappers.");
-    $assert(0 === $wrapperPaint, 'Neither generated wrapper paints the author background.');
+    foreach ($linkSurface as $family => $count) $assert($count > 0, "Author $family reaches the link.");
+    foreach ($inlineSurface as $family => $count) $assert($count > 0, "Author $family still reaches the plain inline link.");
+    $assert(array() === $wrapperSurface, "Generated wrappers carry none of the anchor's surface:\n" . implode("\n", $wrapperSurface));
     $assert(1 === preg_match('/--background-color:[^;]*rgb\(125,28,40\)/', $markup . implode('', array_column($plan['assets'], 'content'))), 'Inline custom properties remain available to the projected rule.');
 }
 echo "Data-scoped button surface passed.\n";

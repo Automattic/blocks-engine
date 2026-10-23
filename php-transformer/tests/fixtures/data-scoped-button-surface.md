@@ -53,3 +53,31 @@ These are selector-match measurements, not browser geometry. The contract
 checks frontend assets and canonical page/template-part markup from the full
 compiler path. Recompiling the original captured header and full stylesheet
 also changes the wrapper-only background signature from present to absent.
+
+## Moved, not duplicated
+
+A real-site import still rendered the control as a padded, painted link inside
+a padded, painted `.wp-block-button` box. The data-scoped selector also matched
+source elements that do not become controls; the fixture keeps one as the
+inline `details` link. `projectSourceAttributeSelector()` projected those
+through the selector's attribute marker, and that marker is also written on
+the control's generated `core/buttons` and `core/button` wrappers. The bare
+`:where(.marker)` arm therefore repainted both wrappers with the anchor's
+padding, background, border and radius, duplicating the control arm.
+
+When any subject of the selector is control-owned (the same control-marker
+decision that routes its surface to the link), the attribute arm now targets
+`:where(.marker:not(.wp-block-buttons):not(.wp-block-button))`. The wrappers
+keep only the layout/flex-item declarations from the existing geometry split.
+The contract asserts that no frontend rule gives either wrapper a non-neutral
+background, padding, border or radius declaration (and no inline one), while
+the link and the plain inline link each receive all of them.
+
+Surface declarations matching the real header control after full compilation
+(hover/focus and editor arms excluded):
+
+| Box | Before | After |
+|---|---|---|
+| `a.wp-block-button__link` | padding, background-color, border, border-radius | padding, background-color, border, border-radius |
+| `.wp-block-button` | padding, background-color, border, border-radius | none (only a generic `padding:0`) |
+| `.wp-block-buttons` | padding, background-color, border, border-radius | none (only a generic `padding:0`) |

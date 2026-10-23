@@ -2328,10 +2328,21 @@ final class AuthorStylesheetProjector
             return null;
         }
         $projected = array();
+        $controlOwned = array();
         foreach ( $matches as $element ) {
             $path = $element->getNodePath() ?? '';
-            $controlMarker = $context->selectorProjections->controlMarker($path);
-            if ( '' !== $controlMarker ) {
+            $controlOwned[] = '' !== $context->selectorProjections->controlMarker($path);
+        }
+        // The attribute marker is per selector, so a source control converted
+        // to core/button also carries it on the generated core/buttons and
+        // core/button wrappers. Its surface is owned by the control arm below;
+        // the attribute arm for the selector's other subjects must not paint
+        // those wrappers a second time.
+        $attributeTarget = in_array(true, $controlOwned, true) ? ':not(.wp-block-buttons):not(.wp-block-button)' : '';
+        foreach ( $matches as $index => $element ) {
+            $path = $element->getNodePath() ?? '';
+            if ( $controlOwned[$index] ) {
+                $controlMarker = $context->selectorProjections->controlMarker($path);
                 // Static data predicates identify the source control, not the
                 // extra wrapper core/button saves around its painted surface.
                 $wrapper = $controlWrapper && LayoutParticipation::BOX_LINK !== LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox();
@@ -2342,7 +2353,7 @@ final class AuthorStylesheetProjector
             if ( '' === $marker ) {
                 return null;
             }
-            $projected[] = ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed, $context);
+            $projected[] = ':where(.' . $marker . $attributeTarget . ')' . $this->selectorSpecificityShims($parsed, $context);
         }
         return array_values(array_unique($projected));
     }
