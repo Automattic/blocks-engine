@@ -2788,6 +2788,16 @@ PHP;
         }
         return array_keys($linked);
     }
+    /** @param array<int,array<string,string>> $evidence */
+    private static function hasOnlyPublishTimeMeta(array $evidence): bool
+    {
+        if (array() === $evidence) return false;
+        foreach ($evidence as $row) {
+            $source = $row['source'] ?? '';
+            if (!str_starts_with($source, 'meta:') || 'meta:og:url-dated' === $source || !isset($row['publication_timestamp'])) return false;
+        }
+        return true;
+    }
     /** @param mixed $documents @return array<int,array<string,mixed>> */
     private function decideDocuments(mixed $documents): array
     {
@@ -2828,6 +2838,9 @@ PHP;
                 $listings[$parent] = true;
             }
         }
+        $metaOnlyPosts = array();
+        $inferredPostCount = 0;
+        $datedPostCount = 0;
         foreach ($documents as $index => &$document) {
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
             // A collection becomes an archive template only on a route WordPress
@@ -2891,6 +2904,17 @@ PHP;
             $pageEvidence = $pageEvidenceByIndex[$index] ?? array();
             if (array() !== $pageEvidence) $evidence = $pageEvidence;
             $postType = $explicit ?? ((!empty($document['entrypoint']) || array() !== $pageEvidence || array() === $evidence) ? 'page' : 'post');
+            if (null === $explicit && 'post' === $postType) {
+                // Meta-only documents are the ambiguous candidates, not votes
+                // against a dated permalink pattern. Stronger undated posts
+                // do vote against it, even when listing inference drops a date.
+                if (self::hasOnlyPublishTimeMeta($evidenceByIndex[$index])) {
+                    $metaOnlyPosts[] = $index;
+                } else {
+                    ++$inferredPostCount;
+                    if (in_array('route:dated', array_column($evidenceByIndex[$index], 'source'), true)) ++$datedPostCount;
+                }
+            }
             $surface = $this->templateSurface($metadata['template_surface'] ?? null, (string) ($document['source_path'] ?? ''));
             if (null !== $surface) {
                 $document['template_surface'] = $surface;
@@ -2908,6 +2932,16 @@ PHP;
             }
         }
         unset($document);
+        // Decide from the complete site's inferred posts, independently of
+        // document order. Declarations and stronger publication evidence are
+        // never overridden by the site's permalink pattern.
+        if ($datedPostCount > 0 && $datedPostCount === $inferredPostCount) {
+            foreach ($metaOnlyPosts as $index) {
+                $documents[$index]['metadata']['post_type'] = 'page';
+                $documents[$index]['content_decision']['post_type'] = 'page';
+                $documents[$index]['content_decision']['evidence'][] = array('source' => 'site:dated-post-routes');
+            }
+        }
         return $documents;
     }
     /** @return array<string,mixed>|null */
