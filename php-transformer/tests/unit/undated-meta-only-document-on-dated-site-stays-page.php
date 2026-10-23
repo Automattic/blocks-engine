@@ -50,4 +50,11 @@ $declaredPages = array_column((new WordPressSitePlan())->fromCompilerResult($dec
 $declared = $declaredPages['declared/index.html'];
 $assert('post' === $declared['post_type'] && 'declared' === $declared['content_decision']['state'], 'a declared meta-only post is never overridden', $declared['content_decision']);
 
+// One dated URL on a blog whose posts are mostly meta-only and undated is not
+// the site's permalink pattern: the meta-only posts stay posts.
+$minority = $plan($home + array('2024/03/archive/index.html' => '<main><h1>Archive</h1></main>', 'one/index.html' => $article(), 'two/index.html' => $article()));
+foreach (array('one/index.html', 'two/index.html') as $path) {
+    $assert('post' === $minority[$path]['post_type'], 'meta-only posts outnumbering the dated routes stay posts', $minority[$path]['content_decision']);
+}
+
 fwrite(STDOUT, "undated meta-only document on dated site stays page tests: passed\n");

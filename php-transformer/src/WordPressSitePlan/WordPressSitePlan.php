@@ -2934,8 +2934,11 @@ PHP;
         unset($document);
         // Decide from the complete site's inferred posts, independently of
         // document order. Declarations and stronger publication evidence are
-        // never overridden by the site's permalink pattern.
-        if ($datedPostCount > 0 && $datedPostCount === $inferredPostCount) {
+        // never overridden by the site's permalink pattern. The dated pattern
+        // must also be the site's dominant post shape: dated posts outnumber
+        // the meta-only candidates, so one dated URL on a `/slug/` blog never
+        // turns its undated posts into pages.
+        if ($datedPostCount > 0 && $datedPostCount === $inferredPostCount && $datedPostCount > count($metaOnlyPosts)) {
             foreach ($metaOnlyPosts as $index) {
                 $documents[$index]['metadata']['post_type'] = 'page';
                 $documents[$index]['content_decision']['post_type'] = 'page';
