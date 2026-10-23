@@ -5088,20 +5088,29 @@ PHP;
         ksort($postRouteParents);
         if (array() !== $postRoutePaths) {
             $lines[] = '$blocks_engine_post_routes = ' . var_export($postRoutePaths, true) . ';';
+            // WP::parse_request() reads public vars through query_vars; the
+            // rewrite tag below also registers it on \$wp for url_to_postid().
+            $lines[] = "add_filter( 'query_vars', static function ( array \$vars ): array { \$vars[] = 'blocks_engine_post_route'; return array_values( array_unique( \$vars ) ); } );";
             $lines[] = "\$blocks_engine_resolve_post_route = static function ( array \$vars ) use ( \$blocks_engine_post_routes ): array {";
             $lines[] = "    if ( ! isset( \$vars['blocks_engine_post_route'] ) ) return \$vars;";
             $lines[] = "    \$identity = array_search( \$vars['blocks_engine_post_route'], \$blocks_engine_post_routes, true );";
-            $lines[] = "    \$ids = false === \$identity ? array() : get_posts( array( 'post_type' => 'post', 'post_status' => 'publish', 'numberposts' => 1, 'fields' => 'ids', 'meta_key' => '_blocks_engine_reconciliation_identity', 'meta_value' => \$identity ) );";
+            // A route outside this inventory is a 404 unless a later resolver
+            // owns it, so the route var stays for that resolver to claim.
+            $lines[] = "    if ( false === \$identity ) return array( 'error' => '404', 'blocks_engine_post_route' => \$vars['blocks_engine_post_route'] );";
+            $lines[] = "    \$ids = get_posts( array( 'post_type' => 'post', 'post_status' => 'publish', 'numberposts' => 1, 'fields' => 'ids', 'meta_key' => '_blocks_engine_reconciliation_identity', 'meta_value' => \$identity ) );";
             $lines[] = "    return empty( \$ids ) ? array( 'error' => '404' ) : array( 'p' => (int) \$ids[0] );";
             $lines[] = "};";
             $lines[] = "add_filter( 'request', \$blocks_engine_resolve_post_route );";
             // url_to_postid() constructs WP_Query directly, bypassing request.
             $lines[] = "add_action( 'parse_query', static function ( WP_Query \$query ) use ( \$blocks_engine_resolve_post_route ): void {";
-            $lines[] = "    if ( isset( \$query->query_vars['blocks_engine_post_route'] ) ) \$query->parse_query( \$blocks_engine_resolve_post_route( \$query->query_vars ) );";
+            // Re-parse only when resolution changes the request, so a route left
+            // as a claimable 404 does not re-enter parse_query indefinitely.
+            $lines[] = "    if ( ! isset( \$query->query['blocks_engine_post_route'] ) ) return;";
+            $lines[] = "    \$resolved = \$blocks_engine_resolve_post_route( \$query->query );";
+            $lines[] = "    if ( \$resolved !== \$query->query ) \$query->parse_query( \$resolved );";
             $lines[] = "} );";
             $lines[] = "add_action( 'init', static function () use ( \$blocks_engine_post_routes ): void {";
-            // A rewrite tag registers the public query var on \$wp itself, so
-            // url_to_postid() honours it as well as front-end requests.
+            // url_to_postid() matches only \$wp->public_query_vars.
             $lines[] = "    add_rewrite_tag( '%blocks_engine_post_route%', '(.+)' );";
             foreach ($postRouteParents as $parent => $slugs) {
                 // Only shipped posts may shadow core's hierarchical page rules.

@@ -83,7 +83,7 @@ foreach ($plan['pages'] as $page) {
     $assert(array('p' => $id) === $resolve(array('blocks_engine_post_route' => $matchesFor($path)[0], 'name' => 'wrong-post', 'pagename' => 'wrong-page', 'p' => 999)), 'Each captured route resolves exclusively to its identity owner: ' . $path);
 }
 $assert(2 === count($sharedIds['first-note']) && $sharedIds['first-note'][0] !== $sharedIds['first-note'][1], 'Fixture includes two distinct owners sharing a source slug.');
-$assert(array('error' => '404') === $resolve(array('blocks_engine_post_route' => 'north/unknown')), 'Unknown routes return a 404, never a slug fallback.');
+$assert(array('error' => '404', 'blocks_engine_post_route' => 'north/unknown') === $resolve(array('blocks_engine_post_route' => 'north/unknown', 'name' => 'unknown')), 'Unknown routes return a 404, never a slug fallback, and stay claimable by the resolver that owns them.');
 $storedPosts = array();
 $assert(array('error' => '404') === $resolve(array('blocks_engine_post_route' => 'north/first-note')), 'A shipped route without an imported identity owner returns a 404.');
 $assert(array('pagename' => 'north/contact') === $resolve(array('pagename' => 'north/contact')), 'Core page requests are unchanged.');
