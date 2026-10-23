@@ -1,0 +1,22 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-native-progress-meter",
+  "description": "Issue #3180: native indicators retain their fill, fallback text, ARIA and authored size.",
+  "source_reference": { "repo": "php-transformer", "path": "tests/fixtures/parity/html-native-progress-meter.json", "notes": "Neutral reduced fixture from #3180; sibling meter coverage is in the contract test." },
+  "legacy_comparison": { "skip": true, "reason": "Native indicator projection is an upstream primitive." },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><style>\nprogress{width:200px;height:6px}\n</style></head><body><main>\n<div class=\"meter-row\">\n  <label for=\"p1\">Upload</label>\n  <progress id=\"p1\" max=\"100\" value=\"40\">40%</progress>\n  <progress class=\"buffer\" min=\"0\" max=\"100\" value=\"0\" role=\"progressbar\" aria-hidden=\"true\">% buffered</progress>\n</div>\n</main></body></html>"
+  },
+  "expected_blocks": [],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "custom/authored-input" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "40%</progress>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "% buffered</progress>" }
+  ]
+}

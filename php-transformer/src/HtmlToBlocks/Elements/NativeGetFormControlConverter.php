@@ -26,6 +26,11 @@ final class NativeGetFormControlConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
+        // Indicators have no readable-prose equivalent: keep their native fill
+        // semantics even without authored CSS or an enclosing form.
+        if (in_array($tagName, array('progress', 'meter'), true)) {
+            return ConversionOutcome::handled($this->authoredFormControlBlockConverter->input($element, null, true, true));
+        }
         // Typed baseline facts are a native-control contract even without CSS,
         // including hidden/file/readonly controls and controls outside a form.
         if (null !== NativeControlState::attributes($element)) {

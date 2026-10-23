@@ -46,14 +46,9 @@ final class RuntimeEntityManifest
      */
     public static function declareCollection(array $declarations, string $type, string $schema, array $entities, string $sourcePath, ?string $dependencyCapability): array
     {
-        $kept = array();
-        $diagnostics = array();
-        foreach ($entities as $entity) {
-            $reason = RuntimeDeclarations::unrepresentableEntityReason(self::planForm($entity), $bytes);
-            if (null === $reason) $kept[] = $entity;
-            else $diagnostics[] = self::droppedEntityDiagnostic($entity, $reason, $bytes, $schema, $sourcePath);
-        }
-        $result = array('payload' => null, 'records' => array(), 'diagnostics' => $diagnostics);
+        $screened = self::screenEntities($entities, $schema, $sourcePath);
+        $kept = $screened['entities'];
+        $result = array('payload' => null, 'records' => array(), 'diagnostics' => $screened['diagnostics']);
         if (array() === $kept) return $result;
 
         $declarable = static function (array $payload, bool $aggregateFits) use ($declarations, $type, $sourcePath, $dependencyCapability): bool {
@@ -81,6 +76,23 @@ final class RuntimeEntityManifest
         }
         $result['diagnostics'][] = self::droppedDeclarationDiagnostic($type, $schema, count($kept), $sourcePath);
         return $result;
+    }
+
+    /**
+     * Apply the same per-entity rule to generated and composition-grown entities.
+     * @param array<int,array<string,mixed>> $entities
+     * @return array{entities:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
+     */
+    public static function screenEntities(array $entities, string $schema, string $sourcePath): array
+    {
+        $kept = array();
+        $diagnostics = array();
+        foreach ($entities as $entity) {
+            $reason = RuntimeDeclarations::unrepresentableEntityReason(self::planForm($entity), $bytes);
+            if (null === $reason) $kept[] = $entity;
+            else $diagnostics[] = self::droppedEntityDiagnostic($entity, $reason, $bytes, $schema, $sourcePath);
+        }
+        return array('entities' => $kept, 'diagnostics' => $diagnostics);
     }
 
     /**

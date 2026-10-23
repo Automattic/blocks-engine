@@ -25,7 +25,7 @@ final class AuthorSelectorProjectionState
 
     /**
      * Marker carriers that received subject classes, by role kind (`control`,
-     * `semantic`) and marker: the source tag and class tokens the subject
+     * `semantic`, `richtext`) and marker: the source tag and class tokens the subject
      * classes state, or null when the source element could not be resolved.
      *
      * @var array<string, array<string, array{tag: string, classes: array<string, true>}|null>>
@@ -40,6 +40,18 @@ final class AuthorSelectorProjectionState
      * @var array<string, array<string, true>>
      */
     private array $withheldSubjectCarriers = array();
+
+    /**
+     * RichText markers whose every carrier in the emitted block markup was
+     * seen with its role and subject classes (see confirmRichTextCarriers()).
+     * RichText carriers are also emitted by paths that never ask for those
+     * classes (a format span keeping its data attribute, a block attribute a
+     * render callback restates), so only a marker confirmed here counts as
+     * covered by a subject arm.
+     *
+     * @var array<string, true>
+     */
+    private array $confirmedRichTextCarriers = array();
 
     /** @var array<string, true> */
     private array $buttonPresentationPaths = array();
@@ -155,6 +167,39 @@ final class AuthorSelectorProjectionState
 
     /** @var array<string, string> Source subject path => its exact native CSS target. */
     private array $navigationSubjects = array();
+
+    private array $navigationListBoxSubjects = array();
+
+    /** @var array<string, string> Source list path => native display of the list when shown. */
+    private array $navigationListShownDisplays = array();
+
+    /** Source list box properties that the native root renders after the list becomes display:contents. */
+    public const NAVIGATION_LIST_BOX_PROPERTIES = array('display', 'overflow', 'overflow-x', 'overflow-y', 'columns', 'column-count', 'column-width', 'column-gap', 'column-fill', 'column-rule', 'column-rule-color', 'column-rule-style', 'column-rule-width');
+
+    /**
+     * Target class for the native root that renders source list `$path`'s box.
+     * A dedicated marker kind, so the root receives only the list's box rules
+     * and never becomes a semantic carrier of the list or its landmark.
+     * `$shownDisplay` is the root's display wherever the source shows the list.
+     */
+    public function installNavigationListBoxSubject(string $path, string $shownDisplay): string
+    {
+        $marker = $this->allocatePathMarker('navigation-list-box', $path);
+        $this->navigationListBoxSubjects[$path] = ':where(nav.wp-block-navigation.' . $marker . ')';
+        $this->navigationListShownDisplays[$path] = $shownDisplay;
+
+        return $marker;
+    }
+
+    public function navigationListShownDisplay(string $path): string
+    {
+        return $this->navigationListShownDisplays[$path] ?? 'flex';
+    }
+
+    public function navigationListBoxSubject(string $path): string
+    {
+        return $this->navigationListBoxSubjects[$path] ?? '';
+    }
 
     public function installNavigationSubject(string $path, string $selector): void
     {
@@ -309,6 +354,82 @@ final class AuthorSelectorProjectionState
         return $this->carrierClasses($marker, $path);
     }
 
+    /**
+     * Classes for an inline element that carries the RichText marker
+     * `$marker`: the richtext role class and the subject classes of its source
+     * element, recorded as for controlCarrierClasses(). The marker itself is
+     * not among them; the carrier states it in its style or data attribute.
+     *
+     * @return list<string>
+     */
+    public function richTextCarrierClasses(string $marker): array
+    {
+        $path = array_search($marker, $this->richTextMarkers, true);
+        return false === $path ? array() : array_values(array_diff($this->carrierClasses($marker, (string) $path), array($marker)));
+    }
+
+    /**
+     * `$html` with each RichText carrier in it (a `<mark>` stating its marker
+     * in its style, a `<span>` in its data attribute) given its
+     * richTextCarrierClasses(). Idempotent.
+     */
+    public function withRichTextCarrierClasses(string $html): string
+    {
+        if ( ! str_contains($html, 'blocks-engine-richtext-marker') ) {
+            return $html;
+        }
+        return preg_replace_callback('/<(mark|span)\b([^>]*)>/i', function (array $tag): string {
+            $form = 'mark' === strtolower($tag[1])
+                ? '/\sstyle="[^"]*--blocks-engine-richtext-marker:\s*(blocks-engine-richtext-[a-f0-9]+-\d+)/i'
+                : '/\sdata-blocks-engine-richtext-marker="(blocks-engine-richtext-[a-f0-9]+-\d+)"/i';
+            $classes = 1 === preg_match($form, $tag[2], $marker) ? $this->richTextCarrierClasses($marker[1]) : array();
+            if ( array() === $classes ) {
+                return $tag[0];
+            }
+            if ( 1 !== preg_match('/\sclass="([^"]*)"/i', $tag[2], $class) ) {
+                return '<' . $tag[1] . ' class="' . implode(' ', $classes) . '"' . $tag[2] . '>';
+            }
+            $tokens = array_filter(preg_split('/\s+/', trim($class[1])) ?: array(), static fn (string $token): bool => '' !== $token);
+            return '<' . $tag[1] . str_replace($class[0], ' class="' . implode(' ', array_unique(array_merge($tokens, $classes))) . '"', $tag[2]) . '>';
+        }, $html) ?? $html;
+    }
+
+    /**
+     * Record which RichText markers reach the subject arm: those whose every
+     * occurrence in the serialized blocks is a `<mark>` or `<span>` carrier
+     * holding the role and subject classes richTextCarrierClasses() gave it.
+     * Any other occurrence (a carrier emitted without them, a marker kept in
+     * a block attribute) leaves the marker on its own per-element arm.
+     */
+    public function confirmRichTextCarriers(string $markup): void
+    {
+        $this->confirmedRichTextCarriers = array();
+        // A carrier restated in a block attribute (a navigation link label)
+        // is JSON-escaped in the block comment.
+        $markup = str_replace(array( '\\u003c', '\\u003e', '\\u0022' ), array( '<', '>', '"' ), $markup);
+        foreach ( $this->subjectCarriers['richtext'] ?? array() as $marker => $carrier ) {
+            $marker = (string) $marker;
+            if ( null === $carrier || isset($this->withheldSubjectCarriers['richtext'][$marker]) ) {
+                continue;
+            }
+            $pattern = preg_quote($marker, '/') . '(?!\d)';
+            $occurrences = preg_match_all('/' . $pattern . '/', $markup);
+            if ( ! is_int($occurrences) || 0 === $occurrences
+                || ! preg_match_all('/<(?:mark|span)\b[^>]*' . $pattern . '[^>]*>/i', $markup, $tags) || count($tags[0]) !== $occurrences
+            ) {
+                continue;
+            }
+            $expected = array( EngineMarker::roleClass($marker), ...EngineMarker::subjectClasses($carrier['tag'], array_map('strval', array_keys($carrier['classes']))) );
+            foreach ( $tags[0] as $tag ) {
+                $classes = 1 === preg_match('/\sclass="([^"]*)"/i', $tag, $class) ? preg_split('/\s+/', trim($class[1])) ?: array() : array();
+                if ( array() !== array_diff($expected, $classes) ) {
+                    continue 2;
+                }
+            }
+            $this->confirmedRichTextCarriers[$marker] = true;
+        }
+    }
+
     /** @return list<string> */
     private function carrierClasses(string $marker, string $path): array
     {
@@ -320,7 +441,7 @@ final class AuthorSelectorProjectionState
         if ( '' === $role ) {
             return array($marker);
         }
-        if ( $this->routesOutsideRoleArms($path) ) {
+        if ( $this->routesOutsideRoleArms($path, $kind) ) {
             $this->withheldSubjectCarriers[$kind][$marker] = true;
             return array($marker, $role);
         }
@@ -345,11 +466,12 @@ final class AuthorSelectorProjectionState
      * retains, or something core/navigation or core/social-links renders. Its
      * carrier gets no subject classes, so a subject arm (which some other
      * page's copy of a stylesheet may hold) never reaches it; its rules keep
-     * naming its marker.
+     * naming its marker. A RichText carrier of `$kind` `richtext` is the one
+     * a RichText marker stands for, so for it only the other routes count.
      */
-    private function routesOutsideRoleArms(string $path): bool
+    private function routesOutsideRoleArms(string $path, string $kind): bool
     {
-        if ( '' !== $this->richTextMarker($path) || $this->isInlineLayoutCarrierPath($path) || $this->isSupersededControlPath($path)
+        if ( ('richtext' !== $kind && '' !== $this->richTextMarker($path)) || $this->isInlineLayoutCarrierPath($path) || $this->isSupersededControlPath($path)
             || $this->isRetainedSourcePath($path) || '' !== $this->navigationSubject($path) || '' !== $this->socialAnchorMarker($path)
         ) {
             return true;
@@ -391,11 +513,17 @@ final class AuthorSelectorProjectionState
                 }
             }
             $reached[] = (string) $marker;
-            if ( ! isset($this->withheldSubjectCarriers[$kind][$marker]) ) {
+            if ( ! isset($this->withheldSubjectCarriers[$kind][$marker]) && ('richtext' !== $kind || isset($this->confirmedRichTextCarriers[$marker])) ) {
                 $covered[] = (string) $marker;
             }
         }
         return array( 'reached' => $reached, 'covered' => $covered );
+    }
+
+    /** Subject identity for a collapsed surface; its rules still target the logical control. */
+    public function buttonPresentationCarrierClasses(string $path): array
+    {
+        return $this->carrierClasses($this->allocatePathMarker('control', $path), $path);
     }
 
     public function installButtonPresentationMarker(string $path, string $marker): void
@@ -494,7 +622,12 @@ final class AuthorSelectorProjectionState
     public function adoptAsSemanticBlock(string $path): string
     {
         unset($this->richTextMarkers[$path], $this->inlineLayoutCarrierPaths[$path]);
-        return $this->ensureSemanticMarker($path);
+        $marker = $this->ensureSemanticMarker($path);
+        // An earlier pass may have withheld this carrier while it was still
+        // routed as an inline layout carrier or RichText run; as a block of
+        // its own it carries subject classes, so subject arms cover it.
+        unset($this->withheldSubjectCarriers['semantic'][$marker]);
+        return $marker;
     }
 
     public function markInlineLayoutCarrierPath(string $path): void
@@ -515,6 +648,11 @@ final class AuthorSelectorProjectionState
     public function isRetainedSourcePath(string $path): bool
     {
         return isset($this->retainedSourcePaths[$path]);
+    }
+
+    public function hasRetainedSourcePaths(): bool
+    {
+        return array() !== $this->retainedSourcePaths;
     }
 
     /**

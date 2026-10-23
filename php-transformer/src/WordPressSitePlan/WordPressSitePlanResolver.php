@@ -33,10 +33,12 @@ final class WordPressSitePlanResolver
         unset($template);
         foreach ($plan['menus'] as &$menu) if (is_string($menu['block_markup'] ?? null)) $menu['resolved_block_markup'] = self::resolvePayload($menu['block_markup'], $references);
         unset($menu);
+        if (isset($plan['synced_patterns'])) foreach ($plan['synced_patterns'] as &$pattern) $pattern['resolved_block_markup'] = self::resolvePayload($pattern['canonical_block_markup'], $references);
+        unset($pattern);
         // Provider bindings replace page or shared template part markup, so their
         // anchors must use the same destination projection as the document
         // materialized by consumers.
-        $bindingDocuments = array_merge($plan['pages'], $plan['template_parts']);
+        $bindingDocuments = array_merge($plan['pages'], $plan['template_parts'], $plan['synced_patterns'] ?? array(), $plan['templates']);
         $plan['runtime_declarations'] = self::resolveEntityBindings($plan['runtime_declarations'], $bindingDocuments, $references);
         $plan['runtime_entity_resolution'] = self::resolveManifestEntities($plan['runtime_declarations'], $plan['runtime_entity_records'], $bindingDocuments, $references);
         foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) { $write['canonical_payload'] = $write['payload']['data']; $write['canonical_payload_hash'] = WordPressSitePlan::contentHash($write['canonical_payload']); $write['payload']['data'] = self::resolveWritePayload($write['canonical_payload'], $plan['reference_tokens'], $themeUri, $write['target_path']); $write['payload_hash'] = WordPressSitePlan::contentHash($write['payload']['data']); }
@@ -87,6 +89,8 @@ final class WordPressSitePlanResolver
             if (!is_array($declaration['payload']['entities'] ?? null)) continue;
             foreach ($declaration['payload']['entities'] as $entityIndex => $entity) {
                 if (!is_array($entity['bindings'] ?? null)) continue;
+                $entity = WordPressSitePlan::mapItemTemplateMarkup($entity, static fn(string $markup): string => self::resolvePayload($markup, $references));
+                $declarations[$declarationIndex]['payload']['entities'][$entityIndex] = $entity;
                 foreach ($entity['bindings'] as $bindingIndex => $binding) {
                     if (!is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? null) || !is_string($binding['source_path'] ?? null) || !is_string($binding['search_block_markup'] ?? null) || !is_int($binding['occurrence'] ?? null)) continue;
                     $page = $pagesBySource[$binding['source_path']] ?? null;

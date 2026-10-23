@@ -62,10 +62,7 @@ final class ListingQueryPresentation
                 return $original . (array() === $aliases ? '' : implode(',', array_keys($aliases)) . '{' . $body . '}');
             });
             if ($content === $asset['content']) continue;
-            $asset['content'] = $content;
-            $asset['content_hash'] = hash('sha256', $content);
-            $asset['hash'] = $asset['content_hash'];
-            $asset['bytes'] = strlen($content);
+            $asset = WordPressSitePlan::withRewrittenTextContent($asset, $content);
         }
         unset($asset);
         return $assets;

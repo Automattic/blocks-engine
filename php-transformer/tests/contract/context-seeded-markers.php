@@ -160,10 +160,17 @@ foreach ( $sliced['assets'] ?? array() as $asset ) {
 }
 $assert('' !== $siteCopy && 1 === count($slices) && array( 'index.html', 'd.html' ) === array_column($slices[0]['scopes'], 'source_path'), 'the two pages that need the same slice share one published asset', (string) json_encode(array_map(static fn (array $slice): array => array_column($slice['scopes'], 'source_path'), $slices)));
 foreach ( array( 'index.html', 'd.html', 'a.html', 'b.html', 'c.html' ) as $source ) {
-    $sequence = array_column(WordPressSitePlan::documentStylesheets($sliced, $source), 'target_path');
-    $at = array_search($siteCopy, $sequence, true);
     $own = array_values(array_filter($slices, static fn (array $slice): bool => in_array($source, array_column($slice['scopes'], 'source_path'), true)));
-    $assert(false !== $at && count($own) <= 1 && (array() === $own || ($sequence[$at + 1] ?? null) === $own[0]['target_path']), "{$source} enqueues its slice right after the site-wide copy", (string) json_encode($sequence));
+    // A stylesheet split for visitors has an editor copy; each context loads one.
+    foreach ( array( 'frontend', 'editor' ) as $context ) {
+        $rows = array_values(array_filter(WordPressSitePlan::documentStylesheets($sliced, $source), static fn (array $row): bool => in_array($row['stylesheet_target'], array( 'both', $context ), true)));
+        $sequence = array_column($rows, 'target_path');
+        $at = array_search($siteCopy, $sequence, true);
+        if ( false === $at ) $at = array_search(preg_replace('/\.css$/', '.editor.css', $siteCopy), $sequence, true);
+        $slice = array() === $own ? null : $own[0]['target_path'];
+        $sliceIn = null === $slice ? null : (in_array($slice, $sequence, true) ? $slice : preg_replace('/\.css$/', '.editor.css', $slice));
+        $assert(false !== $at && count($own) <= 1 && (null === $sliceIn || ($sequence[$at + 1] ?? null) === $sliceIn), "{$source} enqueues its slice right after the site-wide copy ({$context})", (string) json_encode($sequence));
+    }
 }
 
 if ( 0 < $failures ) {

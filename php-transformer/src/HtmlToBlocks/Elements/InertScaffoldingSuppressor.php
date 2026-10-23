@@ -58,6 +58,10 @@ final class InertScaffoldingSuppressor implements ElementConverter
             return ConversionOutcome::handled(null);
         }
 
+        if ( $this->isHiddenPresentationScaffolding($element) ) {
+            return ConversionOutcome::handled(null);
+        }
+
         if ( $this->isInertLiveRegionScaffolding($element) ) {
             return ConversionOutcome::handled(null);
         }
@@ -268,6 +272,57 @@ final class InertScaffoldingSuppressor implements ElementConverter
             }
 
             return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * A display:none presentation tree has neither a box nor readable content.
+     * Do not generalize this to arbitrary hidden content: controls, addressed
+     * panels, captured state and conditional CSS can reveal meaningful content.
+     */
+    private function isHiddenPresentationScaffolding(DOMElement $element): bool
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
+            || 'none' !== CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['display'] ?? '')) ) {
+            return false;
+        }
+
+        // Captured runtime owners can reveal anonymous descendants as well.
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( $this->runtimeIslands->isRuntimeDomTarget($ancestor)
+                || in_array(strtolower($ancestor->tagName), array( 'dialog', 'details' ), true) ) {
+                return false;
+            }
+            foreach ( $ancestor->attributes as $attribute ) {
+                if ( str_starts_with(strtolower($attribute->name), 'data-') ) {
+                    return false;
+                }
+            }
+        }
+
+        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+            if ( ! in_array(strtolower($candidate->tagName), array( 'div', 'span', 'svg', 'g', 'circle', 'path', 'ellipse', 'rect', 'line', 'polyline', 'polygon', 'animatetransform' ), true)
+                || $this->runtimeIslands->isRuntimeDomTarget($candidate)
+                || array() !== SourceDom::eventMetadata($candidate)
+                || $this->sourceElementClassifier->hasMotionStructureToken($candidate)
+                || $this->styleResolver->hasConditionalStyleFamily($candidate, 'layout')
+                || $this->styleResolver->hasConditionalStyleFamily($candidate, 'visibility')
+                || $this->styleResolver->hasConditionalStyleFamily($candidate, 'opacity') ) {
+                return false;
+            }
+            if ( 'svg' === strtolower($candidate->tagName) && 'true' !== strtolower(trim(SourceDom::attr($candidate, 'aria-hidden'))) ) {
+                return false;
+            }
+            foreach ( $candidate->attributes as $attribute ) {
+                $name = strtolower($attribute->name);
+                if ( in_array($name, array( 'id', 'role', 'title', 'tabindex', 'href', 'xlink:href', 'name' ), true)
+                    || str_starts_with($name, 'data-')
+                    || (str_starts_with($name, 'aria-') && 'aria-hidden' !== $name) ) {
+                    return false;
+                }
+            }
         }
 
         return true;

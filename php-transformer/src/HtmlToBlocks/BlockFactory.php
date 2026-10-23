@@ -64,13 +64,36 @@ final class BlockFactory
         );
     }
 
+    public function rebuild(array $block, array $attrs): array
+    {
+        $name = (string) ($block['blockName'] ?? '');
+        $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+        $rebuilt = $this->create($name, $attrs, $innerBlocks);
+        foreach ( $block as $key => $value ) {
+            if ( is_string($key) && str_starts_with($key, '_') ) {
+                $rebuilt[$key] = $value;
+            }
+        }
+
+        return $rebuilt;
+    }
+
     /**
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
     private function normalizeAttrsForBlock(string $name, array $attrs): array
     {
-        $attrs = $this->normalizeClassNameAttr($attrs);
+        // Normalize before both attribute storage and markup generation. The
+        // registered schema (or bundled core snapshot) identifies these values
+        // generically, including URL, alt, title, target and rel attributes.
+        foreach ( ($this->runtime()->blockMetadata($name)['attributes'] ?? array()) as $attribute => $schema ) {
+            if ( 'attribute' === ($schema['source'] ?? null) && is_string($attrs[$attribute] ?? null) ) {
+                $attrs[$attribute] = $this->runtime()->normalizeAttributeValue($attrs[$attribute]);
+            }
+        }
+
+        $attrs = $this->normalizeClassNameAttr($attrs, $name);
 
         $attrs = $this->runtime()->normalizeBlockSupportAttributes($name, $attrs)['attrs'];
 
@@ -161,7 +184,7 @@ final class BlockFactory
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function normalizeClassNameAttr(array $attrs): array
+    private function normalizeClassNameAttr(array $attrs, string $blockName): array
     {
         if ( ! is_string($attrs['className'] ?? null) ) {
             return $attrs;
@@ -169,7 +192,8 @@ final class BlockFactory
 
         $classes = array();
         foreach ( preg_split('/\s+/', trim($attrs['className'])) ?: array() as $class ) {
-            if ( '' === $class || GeneratedGutenbergClassPolicy::isGeneratedClassName($class) || in_array($class, $classes, true) ) {
+            $nativeButtonWidth = 'core/button' === $blockName && 1 === preg_match('/^wp-block-button__width-(25|50|75|100)$/', $class);
+            if ( '' === $class || (! $nativeButtonWidth && GeneratedGutenbergClassPolicy::isGeneratedClassName($class)) || in_array($class, $classes, true) ) {
                 continue;
             }
             $classes[] = $class;

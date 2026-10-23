@@ -66,7 +66,8 @@ $tags = static function (string $html, string $tag): array {
 };
 $head = DocumentHeadContext::fromPlan($resolved, 'index.html');
 $links = $tags($head, 'link');
-$assert(4 === count($links) + count($tags($head, 'script')), 'The head context emits the three links and the script.');
+$assert(5 === count($links) + count($tags($head, 'script')) && 'inline-owned' === ($links[0]['id'] ?? null) && !isset($links[0]['integrity']), 'The head context emits the inline style as a stylesheet link, the three links and the script.');
+array_shift($links);
 $assert($sri('sha384', $finalCss) === ($links[0]['integrity'] ?? null), 'A head stylesheet link carries the sha384 digest of the served stylesheet, not the source digest.');
 $assert($sri('sha256', $finalCss) . ' ' . $sri('sha512', $finalCss) === ($links[1]['integrity'] ?? null), 'A preload link keeps every source algorithm, recomputed over the served bytes.');
 $assert('sha384-externalDigestKept' === ($links[2]['integrity'] ?? null) && 'anonymous' === ($links[2]['crossorigin'] ?? null), 'An external link keeps its source integrity unchanged.');

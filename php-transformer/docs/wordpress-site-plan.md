@@ -226,6 +226,37 @@ template) keep one copy of repeated markup. They do so only when the kept copy
 renders the same menus as every dropped copy; otherwise the posts or the listing
 stay as captured, so no menu entity is left without a reference.
 
+Synced patterns follow the same token-and-entity model. `core/tabs` admits only a
+tab list and its panels, so content a captured selectable set leaves unchanged is
+repeated in every `core/tab-panel`. A maximal block subtree whose serialized
+markup is identical at the same position in every panel of one tabs block is
+declared once in the optional `synced_patterns` group as
+`{identity, title, canonical_block_markup, source_path, provenance}`. It must
+render in every panel: a subtree a panel hides (a `hidden` attribute, inline
+`display:none`, or a class some stylesheet rule hides) stays inline, as do the
+panel's whole content and single text blocks (paragraph, heading, list). Each
+panel references it as `<!-- wp:block {"ref":"{{wordpress-site-plan:pattern:pattern-<16hex>}}"} /-->`,
+where the token is `pattern-` plus the first 16 hex of `identity`
+(`SyncedPatternProjection`). The title is the subtree's first heading, else the
+nearest heading before it in the panel, else the tab list label, else `Shared
+content`. `source_path` is `wordpress-site-plan/synced-patterns/<token>`, and
+`provenance.occurrences` records each page, panel count and in-panel block path.
+The group and `reference_semantics.synced_patterns` (`explicit_refs/v1`) are
+present only when a pattern is declared. `core/block` renders pattern content in
+place without a wrapper on the front end, so panel-ancestor author styles still
+apply; in the editor its wrapper takes no box and the editor restatement of child
+combinators tolerates it.
+
+Runtime bindings inside a synced pattern belong to the pattern document, like
+bindings in a shared template part. The final `canonicalEntityBindings()` pass
+matches bindings on the page markup before the projection, then rebases each
+one: a binding in the first panel's copy moves to the pattern `source_path` with
+`occurrence` and `position` recomputed on the pattern markup, the copies in the
+other panels are dropped (with entities left without bindings, whose fallback
+identities the kept entity lists in `replaced_fallback_identities`), and the
+remaining page bindings renumber on the final page markup. Consumers apply
+bindings to synced pattern documents as they do to template parts.
+
 Consumers persist declared entities and resolve their references to integer IDs.
 They do not rediscover menu equivalence. The plan validator checks declarations
 and reference ownership together; the resolver projects entity asset references
@@ -254,9 +285,10 @@ footer and the other routes.
 
 Clustering is deterministic:
 
-- Opaque colours within CIE76 ΔE 2.3 (one just-noticeable difference) merge.
+- A preset binding never changes a painted colour: a block attribute, stylesheet declaration or element style binds a colour only to a token whose value is that exact colour, so an import paints 1:1.
+- Opaque colours within CIE76 ΔE 2.3 (one just-noticeable difference) group together for ranking.
 - Colours are ranked by prominence: the mean of their share of the document's text and background area and their share of its coloured runs (text runs and painted elements). A colour reached through an authored custom property (`color:var(--cyan)`) counts like a literal. An accent on many small elements (bullets, eyebrow labels) therefore ranks beside a grey on a few long paragraphs, though it covers far less area.
-- A colour within ΔE 5 (imperceptible) of a more prominent kept colour then merges into it however much it is used, so the palette holds distinct colours, not every spelling of one (`#1a1a1a` and `#212121`, ΔE 3.5, are one token). The merged colour binds to that token wherever it is used, including inside authored custom properties (`--cyan:var(--wp--preset--color--accent-1,#22d3ee)`). It then renders as the token, at most ΔE 5 off, which an untrained observer only notices side by side; stylesheet values keep their own colour as the `var()` fallback. Shades a designer can tell apart stay apart (Tailwind's slate-50 beside white, ΔE 2.2, merges; blue-500/600, ΔE 19, do not). The palette keeps at most 12.
+- A group within ΔE 5 of a more prominent one joins it for ranking however much it is used, so a near-duplicate (`#1a1a1a` beside `#212121`, ΔE 3.5) does not compete with a distinct colour for a role. Grouping only names the roles (`base`, `contrast`, `primary`, `secondary`, each its group's heaviest colour) and breaks ranking ties. Every other painted colour takes an `accent-N` token of its own exact value by its own painted weight, heaviest first, whatever group it ranks in: a heavily painted near shade (`#ffffff` cards on a `#f7fafc` page, `#f6f8fa` sections beside a `#ffffff` card) keeps a token ahead of a distinct colour painted on one tiny element. On a tie a group's own colour goes before a near shade of another. The palette keeps at most 12; the painted colours past the bound are the lightest, keep their literal everywhere and are reported in the design-system report's `literal_colors` (and `literal_color_count` in the metrics), never bound to a near token.
 - Font sizes within 0.5px merge. The scale keeps the 8 heaviest steps.
 - Spacing merges only identical pixel lengths and keeps 10 steps.
 - Font stacks group by primary family, ignoring case and quotes, and keep the most used stack. Only families some rendered text uses as its primary become presets. A stack with a generic primary (`ui-monospace`) is not a token. A primary family that is declared but not rendered is reported as unused. Fallbacks and `@font-face` names are not reported.

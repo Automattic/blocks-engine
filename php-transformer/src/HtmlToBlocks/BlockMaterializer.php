@@ -9,6 +9,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationPr
 /** Records source ownership and builds the final canonical block representation. */
 final class BlockMaterializer
 {
+    /** Block metadata key holding source hooks a dynamic block renders for scripts. */
+    public const RUNTIME_ATTRIBUTES_KEY = 'blocksEngineRuntimeAttributes';
+
     public function __construct(
         private readonly BlockFactory $blockFactory,
         private readonly RuntimeIslandAnalyzer $runtimeIslands
@@ -32,7 +35,11 @@ final class BlockMaterializer
             $this->recordPresentationSignal($name, $attrs, $sourceFacts, $provenance);
             $this->recordStructureSignal($name, $sourceFacts, $provenance);
             $runtimeOwned = $this->runtimeIslands->recordBlockRuntimeDomContract($sourceFacts->sourceElement, $name);
-            $provenanceId = $provenance->registerSource($sourceFacts->sourceEntry, $sourceFacts->startsHidden);
+            $runtimeAttributes = $this->runtimeIslands->runtimeAttributesCarriedBy($sourceFacts->sourceElement, $name);
+            if ( array() !== $runtimeAttributes ) {
+                $attrs['metadata'][self::RUNTIME_ATTRIBUTES_KEY] = $runtimeAttributes;
+            }
+            $provenanceId = $provenance->registerSource($sourceFacts->sourceEntry, $sourceFacts->startsHidden, $sourceFacts->wrapperHiddenAtCollapsedViewport);
         }
 
         $block = $this->blockFactory->create($name, $attrs, $innerBlocks);

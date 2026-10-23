@@ -28,28 +28,24 @@ final class CssSelectorMatcher
     }
 
     /**
-     * HTML defines these enumerated attribute values as ASCII-case-insensitive
-     * by default, which this matcher does not model.
+     * HTML matches these attributes' values ASCII-case-insensitively in
+     * selectors unless the selector carries an explicit `s` flag (HTML,
+     * "Selectors": case-sensitivity of selectors). Every other attribute is
+     * matched case-sensitively.
      *
-     * Keyed for O(1) membership because every selector match that misses the
-     * cache tests it, and a page can miss hundreds of thousands of times. As a
-     * class constant it is built once at compile time rather than rebuilt on
-     * each of those calls.
+     * Keyed for O(1) membership because every attribute match tests it.
      */
-    private const ENUMERATED_ATTRIBUTES = array(
-        'autocomplete' => true,
-        'contenteditable' => true,
-        'dir' => true,
-        'draggable' => true,
-        'enterkeyhint' => true,
-        'hidden' => true,
-        'inputmode' => true,
-        'kind' => true,
-        'method' => true,
-        'rel' => true,
-        'spellcheck' => true,
-        'translate' => true,
-        'type' => true,
+    private const CASE_INSENSITIVE_ATTRIBUTES = array(
+        'accept' => true, 'accept-charset' => true, 'align' => true, 'alink' => true, 'axis' => true,
+        'bgcolor' => true, 'charset' => true, 'checked' => true, 'clear' => true, 'codetype' => true,
+        'color' => true, 'compact' => true, 'declare' => true, 'defer' => true, 'dir' => true,
+        'direction' => true, 'disabled' => true, 'enctype' => true, 'face' => true, 'frame' => true,
+        'hreflang' => true, 'http-equiv' => true, 'lang' => true, 'language' => true, 'link' => true,
+        'media' => true, 'method' => true, 'multiple' => true, 'nohref' => true, 'noresize' => true,
+        'noshade' => true, 'nowrap' => true, 'readonly' => true, 'rel' => true, 'rev' => true,
+        'rules' => true, 'scope' => true, 'scrolling' => true, 'selected' => true, 'shape' => true,
+        'target' => true, 'text' => true, 'type' => true, 'valign' => true, 'valuetype' => true,
+        'vlink' => true,
     );
 
     /**
@@ -260,14 +256,74 @@ final class CssSelectorMatcher
         if ( null !== ($selector['pseudo_state_suffix_span'] ?? null) && ! $accountForPseudoStateSuffix ) {
             return array( 'supported' => false, 'matches' => false );
         }
-        if ( self::hasUnmodeledHtmlAttributeValueSemantics($selector['compounds']) ) {
-            return array( 'supported' => false, 'matches' => false );
-        }
-
         return array(
             'supported' => true,
             'matches' => self::matchesAt($element, $selector['compounds'], $selector['combinators'], count($selector['compounds']) - 1, $cache),
         );
+    }
+
+    /**
+     * Whether a parsed selector's result depends only on the subject element's
+     * own tag name and attributes.
+     *
+     * That holds for one compound without combinators whose negations and
+     * selector-list arguments are themselves such compounds. Structural
+     * pseudo-classes (`:nth-*`, `:first-child`, `:last-child`, `:root`) read the
+     * element's position, and a combinator reads its neighbours, so either
+     * keeps the result tied to the element. A compound carrying any part this
+     * method does not recognise is treated as positional: a selector match
+     * cache may share a subject-only result between elements with equal
+     * attributes, and only a proven-local selector is safe to share.
+     *
+     * @param array<string, mixed> $selector Result of parse().
+     */
+    public static function dependsOnlyOnSubject(array $selector): bool
+    {
+        if ( ! ($selector['supported'] ?? false) ) {
+            return false;
+        }
+        return self::isSubjectOnlyComplex($selector['compounds'] ?? array(), $selector['combinators'] ?? array());
+    }
+
+    /** @param mixed $compounds @param mixed $combinators */
+    private static function isSubjectOnlyComplex($compounds, $combinators): bool
+    {
+        return is_array($compounds) && 1 === count($compounds) && array() === $combinators
+            && is_array($compounds[0] ?? null) && self::isSubjectOnlyCompound($compounds[0]);
+    }
+
+    /** @param array<string, mixed> $compound */
+    private static function isSubjectOnlyCompound(array $compound): bool
+    {
+        static $known = array(
+            'type' => true, 'universal' => true, 'classes' => true, 'ids' => true, 'attributes' => true,
+            'not' => true, 'any' => true, 'nth_child' => true, 'nth_type' => true, 'first_child' => true,
+            'last_child' => true, 'root' => true, 'resting_state_negations' => true,
+            'zero_specificity' => true, 'forced_zero_specificity' => true,
+        );
+        foreach ( $compound as $key => $value ) {
+            if ( ! isset($known[ $key ]) ) {
+                return false;
+            }
+        }
+        if ( null !== ($compound['nth_child'] ?? null) || null !== ($compound['nth_type'] ?? null)
+            || ! empty($compound['first_child']) || ! empty($compound['last_child']) || ! empty($compound['root'])
+        ) {
+            return false;
+        }
+        foreach ( $compound['not'] ?? array() as $negated ) {
+            if ( ! is_array($negated) || ! self::isSubjectOnlyComplex($negated['compounds'] ?? null, $negated['combinators'] ?? null) ) {
+                return false;
+            }
+        }
+        foreach ( $compound['any'] ?? array() as $group ) {
+            foreach ( (is_array($group) ? ($group['alternatives'] ?? null) : null) ?? array(null) as $alternative ) {
+                if ( ! is_array($alternative) || ! self::isSubjectOnlyComplex($alternative['compounds'] ?? null, $alternative['combinators'] ?? null) ) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /**
@@ -922,7 +978,8 @@ final class CssSelectorMatcher
         }
 
         $expected = (string) $attribute['value'];
-        if ( 'i' === $attribute['flag'] ) {
+        $flag = $attribute['flag'] ?? ( isset(self::CASE_INSENSITIVE_ATTRIBUTES[ strtolower($attribute['name']) ]) ? 'i' : null );
+        if ( 'i' === $flag ) {
             $actual = strtolower($actual);
             $expected = strtolower($expected);
         }
@@ -936,18 +993,6 @@ final class CssSelectorMatcher
         };
     }
 
-    /** @param list<array<string, mixed>> $compounds */
-    private static function hasUnmodeledHtmlAttributeValueSemantics(array $compounds): bool
-    {
-        foreach ( $compounds as $compound ) {
-            foreach ( $compound['attributes'] as $attribute ) {
-                if ( null !== $attribute['operator'] && null === $attribute['flag'] && isset(self::ENUMERATED_ATTRIBUTES[ $attribute['name'] ]) ) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
 
     private static function previousElementSibling(DOMElement $element): ?DOMElement
     {

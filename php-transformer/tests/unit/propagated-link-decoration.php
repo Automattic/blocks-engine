@@ -9,9 +9,9 @@ $transform = static fn (string $decoration): array => (new HtmlTransformer())->t
 $plain = $transform('none');
 $css = implode("\n", array_column($plain['assets'], 'content'));
 $marker = SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS;
-if (!str_contains($plain['serialized_blocks'], $marker)
-    || !str_contains($css, $marker . ')>a{text-decoration:none}')
-    || str_contains($transform('underline')['serialized_blocks'], $marker)) {
+if (!str_contains($plain['serialized_blocks'], 'text-decoration:none')
+    || str_contains($plain['serialized_blocks'], $marker)
+    || !str_contains($transform('underline')['serialized_blocks'], 'text-decoration:underline')) {
     fwrite(STDERR, "Propagated links must replay only the source's explicit undecorated ownership\n");
     exit(1);
 }

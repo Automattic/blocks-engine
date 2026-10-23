@@ -117,13 +117,64 @@ final class CommerceStructureRecognizer
      */
     public function productCardData(DOMElement $card): ?array
     {
+        if ( $this->containsMultipleProducts($card) ) {
+            return null;
+        }
+
+        return $this->singleProductCardData($card);
+    }
+
+    /** Reject containers before their first heading can become a product name. */
+    private function containsMultipleProducts(DOMElement $card): bool
+    {
+        $urls = array();
+        foreach ( $card->getElementsByTagName('a') as $link ) {
+            $path = parse_url(trim(SourceDom::attr($link, 'href')), PHP_URL_PATH);
+            if ( is_string($path) && preg_match('~/(?:products?|product-page)/[^/]+~i', $path) ) {
+                $urls[rtrim($path, '/')] = true;
+            }
+        }
+        if ( count($urls) > 1 ) {
+            return true;
+        }
+
+        // Walk down to independent qualifying cards, not their nested wrappers.
+        $count = 0;
+        $visit = function (DOMElement $node) use (&$visit, &$count): void {
+            $before = $count;
+            foreach ( $node->childNodes as $child ) {
+                if ( $child instanceof DOMElement ) {
+                    $visit($child);
+                    if ( $count > 1 ) {
+                        return;
+                    }
+                }
+            }
+            if ( $count === $before && null !== $this->singleProductCardData($node) ) {
+                ++$count;
+            }
+        };
+        foreach ( $card->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $visit($child);
+                if ( $count > 1 ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function singleProductCardData(DOMElement $card): ?array
+    {
         $name = $this->productNameText($card);
         $prices = $this->productPriceTexts($card);
         $hasCart = $this->hasCartControl($card);
         $isSchemaProduct = $this->isSchemaProductCard($card);
         $image = $this->productImage($card);
 
-        if ( '' === $name || array() === $prices ) {
+        if ( '' === $name || array() === $prices || $this->isCartSummary($card) ) {
             return null;
         }
 
@@ -134,10 +185,12 @@ final class CommerceStructureRecognizer
 
         return array_filter(array(
             'name'             => $name,
+            'slug'             => $this->productLinkSlug($card, $name),
             'price'            => $prices['price'],
             'sale_price'       => $prices['sale_price'] ?? null,
             'description'      => $this->productDescriptionText($card, $name),
             'image'            => $image,
+            'category'         => $this->productCategoryText($card),
             'has_cart_control' => $hasCart,
             'source_selector'  => SourceDom::elementSelector($card),
         ), static fn (mixed $value, string $key): bool => in_array($key, array( 'sale_price', 'description', 'image' ), true) || ( null !== $value && '' !== $value ), ARRAY_FILTER_USE_BOTH);
@@ -257,6 +310,18 @@ final class CommerceStructureRecognizer
 
     private function isGridLike(DOMElement $element): bool
     {
+        if ( in_array(strtolower($element->tagName), array( 'html', 'body' ), true) ) {
+            return false;
+        }
+        // A document wrapper around a real grid is not itself another grid.
+        if ( $element->parentNode instanceof DOMElement && 'body' === strtolower($element->parentNode->tagName) ) {
+            foreach ( $element->getElementsByTagName('*') as $descendant ) {
+                if ( $this->isProductGridContainer($descendant) && $this->containsMultipleProducts($descendant) ) {
+                    return false;
+                }
+            }
+        }
+
         $className = strtolower(trim(SourceDom::attr($element, 'class')));
         $style = strtolower(trim(SourceDom::attr($element, 'style')));
 
@@ -264,14 +329,34 @@ final class CommerceStructureRecognizer
             || (bool) preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style);
     }
 
+    /** The card's title link supplies its authored URL identity when available. */
+    private function productLinkSlug(DOMElement $card, string $name): ?string
+    {
+        foreach ( $card->getElementsByTagName('a') as $link ) {
+            if ( $this->collapsedText($link) !== $name && SourceDom::attr($link, 'title') !== $name ) {
+                continue;
+            }
+            $href = trim(SourceDom::attr($link, 'href'));
+            if ( '' === $href || preg_match('/^(?:#|javascript:|mailto:|tel:)/i', $href) ) {
+                continue;
+            }
+            $path = parse_url($href, PHP_URL_PATH);
+            if ( is_string($path) && '' !== trim($path, '/') ) {
+                return rawurldecode(basename(rtrim($path, '/')));
+            }
+        }
+
+        return null;
+    }
+
     /**
-     * The product name text: schema.org `itemprop="name"`, else the first heading,
-     * else the first element carrying a name token.
+     * Prefer schema.org name, then a heading, then the most specific name/title
+     * carrier. Candidates containing prices, badges or controls are not titles.
      */
     private function productNameText(DOMElement $card): string
     {
         $schemaName = $this->firstDescendantWithItemprop($card, array( 'name' ));
-        if ( null !== $schemaName ) {
+        if ( null !== $schemaName && $this->isProductNameElement($schemaName) ) {
             $text = $this->collapsedText($schemaName);
             if ( '' !== $text ) {
                 return $text;
@@ -279,7 +364,7 @@ final class CommerceStructureRecognizer
         }
 
         foreach ( $card->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && preg_match('/^h[1-6]$/', strtolower($descendant->tagName)) ) {
+            if ( $descendant instanceof DOMElement && preg_match('/^h[1-6]$/', strtolower($descendant->tagName)) && $this->isProductNameElement($descendant) ) {
                 $text = $this->collapsedText($descendant);
                 if ( '' !== $text ) {
                     return $text;
@@ -287,16 +372,39 @@ final class CommerceStructureRecognizer
             }
         }
 
+        $candidates = array();
         foreach ( $card->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->classifier->hasCommerceToken($descendant, array( 'name', 'title', 'product' )) ) {
-                $text = $this->collapsedText($descendant);
-                if ( '' !== $text ) {
-                    return $text;
+            if ( $descendant instanceof DOMElement && $this->classifier->hasCommerceToken($descendant, array( 'name', 'title' )) && $this->isProductNameElement($descendant) ) {
+                $candidates[] = $descendant;
+            }
+        }
+        foreach ( $candidates as $candidate ) {
+            foreach ( $candidates as $other ) {
+                if ( $candidate !== $other && in_array($other, iterator_to_array($candidate->getElementsByTagName('*')), true) ) {
+                    continue 2;
                 }
             }
+            return $this->collapsedText($candidate);
         }
 
         return '';
+    }
+
+    private function isProductNameElement(DOMElement $element): bool
+    {
+        if ( '' === $this->collapsedText($element) ) {
+            return false;
+        }
+        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $node ) {
+            if ( $this->isPriceElement($node)
+                || $this->classifier->hasCommerceToken($node, array( 'badge', 'badges', 'cart', 'buy', 'purchase', 'quickview', 'quick', 'controls' ))
+                || in_array(strtolower($node->tagName), array( 'button', 'input', 'select', 'textarea' ), true)
+                || 'button' === strtolower(SourceDom::attr($node, 'role')) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -308,6 +416,17 @@ final class CommerceStructureRecognizer
      *
      * @return array{price: string, sale_price?: string}
      */
+    private function hasPriceDescendant(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && '' !== $this->collapsedText($descendant) && $this->isPriceElement($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function productPriceTexts(DOMElement $card): array
     {
         $regular = '';
@@ -320,8 +439,27 @@ final class CommerceStructureRecognizer
             $regular = $this->currencyFormattedText('' !== $content ? $content : ($schemaPrice->textContent ?? ''), $schemaPrice);
         }
 
+        $declared = array();
+        foreach ( array_merge(array( $card ), iterator_to_array($card->getElementsByTagName('*'))) as $node ) {
+            if ( $this->classifier->hasCommerceToken($node, array( 'price', 'amount', 'cost' )) || 'price' === strtolower(SourceDom::attr($node, 'itemprop')) ) {
+                $declared[] = $node;
+            }
+        }
+
         foreach ( $card->getElementsByTagName('*') as $descendant ) {
             if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+            $scope = null;
+            for ( $node = $descendant; $node instanceof DOMElement; $node = $node->parentNode ) {
+                if ( in_array($node, $declared, true) ) {
+                    $scope = $node;
+                }
+                if ( $node === $card ) {
+                    break;
+                }
+            }
+            if ( array() !== $declared && null === $scope ) {
                 continue;
             }
 
@@ -330,8 +468,11 @@ final class CommerceStructureRecognizer
                 continue;
             }
             // Only consider leaf-ish price elements so a wrapper's concatenated
-            // text does not shadow the individual regular/sale amounts.
-            if ( SourceDom::childElementCount($descendant) > 0 ) {
+            // text does not shadow the individual regular/sale amounts. A price
+            // whose only children are qualifiers rather than amounts (e.g.
+            // `<small>from </small>$60.00` on a variable product) is still the
+            // leaf that carries the amount.
+            if ( SourceDom::childElementCount($descendant) > 0 && $this->hasPriceDescendant($descendant) ) {
                 continue;
             }
 
@@ -340,7 +481,25 @@ final class CommerceStructureRecognizer
                 continue;
             }
 
-            if ( $this->classifier->hasCommerceToken($descendant, array( 'sale', 'discount', 'special', 'reduced', 'now' )) ) {
+            $isSale = false;
+            for ( $node = $descendant; $node instanceof DOMElement && $node !== $card; $node = $node->parentNode ) {
+                $priceScope = $scope ?? $node->parentNode;
+                $hasStruckPrice = false;
+                if ( $priceScope instanceof DOMElement ) {
+                    foreach ( array( 'del', 's' ) as $tag ) {
+                        foreach ( $priceScope->getElementsByTagName($tag) as $struck ) {
+                            if ( $this->looksLikePriceText($struck->textContent ?? '') || $this->hasPriceDescendant($struck) ) {
+                                $hasStruckPrice = true;
+                            }
+                        }
+                    }
+                }
+                if ( ('ins' === strtolower($node->tagName) && $hasStruckPrice) || ('ins' !== strtolower($node->tagName) && $this->classifier->hasCommerceToken($node, array( 'sale', 'discount', 'special', 'reduced', 'now' ))) ) {
+                    $isSale = true;
+                    break;
+                }
+            }
+            if ( $isSale ) {
                 $sale = '' === $sale ? $formatted : $sale;
                 continue;
             }
@@ -387,7 +546,7 @@ final class CommerceStructureRecognizer
 
         // A schema.org price content attribute is bare numeric (e.g. "24.00");
         // keep it as-is when the element is a declared price.
-        if ( $this->classifier->hasCommerceToken($element, array( 'price', 'amount', 'cost' )) && preg_match('/\d/', $text) ) {
+        if ( $this->classifier->hasCommerceToken($element, array( 'price', 'amount', 'cost' )) && preg_match('/^\d+(?:[.,]\d+)*$/', $text) ) {
             return $text;
         }
 
@@ -397,6 +556,97 @@ final class CommerceStructureRecognizer
     private function hasCartControl(DOMElement $card): bool
     {
         return null !== $this->cartControlElement($card);
+    }
+
+    /**
+     * The order summaries of cart views inside `$root`, in document order.
+     *
+     * A cart view's order summary is the innermost element that holds a
+     * checkout control together with at least two amount rows (subtotal,
+     * shipping, total) and a total label. It is detected from structure and
+     * generic commerce vocabulary on the control and row text, class, id and
+     * `data-*` attribute names — never a shop-provider name or fixture class.
+     *
+     * @return array<int, DOMElement>
+     */
+    public function cartSummaries(DOMElement $root): array
+    {
+        $summaries = array();
+        foreach ( $root->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement || ! $this->isCheckoutControl($element) ) {
+                continue;
+            }
+            for ( $node = $element->parentNode; $node instanceof DOMElement && $node !== $root->parentNode; $node = $node->parentNode ) {
+                if ( $this->hasCartTotals($node) ) {
+                    $summaries[spl_object_id($node)] = $node;
+                    break;
+                }
+            }
+        }
+
+        return array_values($summaries);
+    }
+
+    /**
+     * Whether `$element` is, or contains, a cart view's order summary. A grid
+     * child that reads as an order summary is never a product card: its heading
+     * names the summary and its amounts are cart totals, not a product price.
+     */
+    public function isCartSummary(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->isCheckoutControl($descendant) ) {
+                return $this->hasCartTotals($element);
+            }
+        }
+
+        return false;
+    }
+
+    private function isCheckoutControl(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( ! in_array($tagName, array( 'button', 'a', 'input' ), true) && 'button' !== strtolower(SourceDom::attr($element, 'role')) ) {
+            return false;
+        }
+
+        return $this->classifier->hasTokenBoundary($this->vocabulary($element), 'checkout');
+    }
+
+    /** At least two amount leaves and one total label: subtotal/shipping/total rows. */
+    private function hasCartTotals(DOMElement $element): bool
+    {
+        $amounts = 0;
+        $hasTotal = false;
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement || SourceDom::childElementCount($descendant) > 0 ) {
+                continue;
+            }
+            if ( $this->looksLikePriceText($this->collapsedText($descendant)) ) {
+                ++$amounts;
+            }
+            $vocabulary = $this->vocabulary($descendant);
+            if ( $this->classifier->hasTokenBoundary($vocabulary, 'total') || $this->classifier->hasTokenBoundary($vocabulary, 'subtotal') ) {
+                $hasTotal = true;
+            }
+        }
+
+        return $hasTotal && $amounts >= 2;
+    }
+
+    /** Text, class, id, aria-label and `data-*` attribute names, tokenized on non-alphanumerics. */
+    private function vocabulary(DOMElement $element): string
+    {
+        $dataNames = array_map(static fn (string $name): string => substr($name, 5), array_keys($this->safeDataAttributes($element)));
+
+        return strtolower((string) preg_replace('/[^a-z0-9]+/i', ' ', implode(' ', array(
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'id'),
+            SourceDom::attr($element, 'aria-label'),
+            SourceDom::attr($element, 'value'),
+            implode(' ', $dataNames),
+            $this->collapsedText($element),
+        ))));
     }
 
     /**
@@ -505,6 +755,29 @@ final class CommerceStructureRecognizer
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement && in_array(strtolower(SourceDom::attr($descendant, 'itemprop')), $itemprops, true) ) {
                 return $descendant;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The card's category label: the schema.org `category` property, or a
+     * short leaf whose class or id names a category.
+     */
+    private function productCategoryText(DOMElement $card): ?string
+    {
+        $schema = $this->firstDescendantWithItemprop($card, array( 'category' ));
+        $candidates = null !== $schema ? array( $schema ) : array();
+        foreach ( $card->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && SourceDom::childElementCount($element) === 0 && $this->classifier->hasCommerceToken($element, array( 'category', 'cat', 'collection' )) ) {
+                $candidates[] = $element;
+            }
+        }
+        foreach ( $candidates as $element ) {
+            $text = '' !== SourceDom::attr($element, 'content') ? trim(SourceDom::attr($element, 'content')) : $this->collapsedText($element);
+            if ( '' !== $text && mb_strlen($text) <= 60 ) {
+                return $text;
             }
         }
 

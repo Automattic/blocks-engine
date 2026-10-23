@@ -40,7 +40,8 @@ final class SvgMaterializer implements SvgElementMaterializer
         // Only preserve when there is actual artwork to keep. An SVG whose only
         // content is unsafe (e.g. a lone <script>) has nothing left to render
         // once sanitized, so it defers to the bounded fallback diagnostic.
-        if ( ! SourceDom::svgHasDrawableContent($element) ) {
+        $definitionsOnly = SourceDom::isDefinitionsOnlySvg($element);
+        if ( ! $definitionsOnly && ! SourceDom::svgHasDrawableContent($element) ) {
             return null;
         }
 
@@ -58,6 +59,19 @@ final class SvgMaterializer implements SvgElementMaterializer
         // the bounded fallback metadata path rather than emit unsafe markup.
         if ( ! SourceDom::isSafeSvgContent($html) ) {
             return null;
+        }
+
+        // Definitions have no independent image to render. Externalizing them
+        // severs page-local fragment consumers, even when CSS supplies the URL.
+        // Keep their authored box (including zero dimensions) in the document.
+        if ($definitionsOnly && self::isPassiveSvgMarkup($element)) {
+            return $this->context->svgArtworkBlock($element, $this->restoreSvgCasing($html));
+        }
+        if ($definitionsOnly) {
+            // Non-passive document stores retain their existing inline fallback;
+            // they must not enter any standalone image materialization path.
+            $this->recordGutenbergIncompatibility($element, 'svg_requires_inline_document_context', 'SVG definition store requires inline document context.');
+            return $this->context->createBlock('core/html', array('content' => $this->restoreSvgCasing($html)), array(), $element);
         }
 
         $html = $this->materializeSanitizedSvgMarkup($html, $element);
@@ -313,6 +327,16 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
         $preserveInlineGeometry = ! $isFlexOrGridItem && ( '' === $sourceDisplay || in_array($sourceDisplay, array( 'inline', 'inline-block' ), true) );
         $preserveBlockDisplay = ! $richTextImage && 'block' === $sourceDisplay;
+        // A block-level SVG with a viewBox but no width or height of its own has
+        // an aspect ratio and no intrinsic size, so CSS gives it its containing
+        // block's width. The materialized asset carries a viewBox-sized width,
+        // which an image would render at instead, so the image fills the same
+        // width and keeps the viewBox ratio.
+        $fillsContainingBlockWidth = $preserveBlockDisplay
+            && $this->fillsContainingBlockWidth($element, $html, $presentation, $parentPresentation);
+        if ( $fillsContainingBlockWidth ) {
+            $dimensions = array();
+        }
         $geometryClass = '';
         if ( $preserveInlineGeometry || $preserveBlockDisplay ) {
             $imageDisplay = $preserveBlockDisplay ? 'block' : ('' === $sourceDisplay ? 'inline' : $sourceDisplay);
@@ -322,7 +346,9 @@ final class SvgMaterializer implements SvgElementMaterializer
                     $mediaBox .= ';' . $property . ':' . trim((string) $presentation[$property]);
                 }
             }
-            if ( array() === $dimensions ) {
+            if ( $fillsContainingBlockWidth ) {
+                $mediaBox .= ';width:100%;height:auto';
+            } elseif ( array() === $dimensions ) {
                 $mediaBox .= $this->unsizedMediaAxisDeclarations($presentation);
             }
             $carriedProperties = $this->carriedCustomPropertyDeclarations($element, $mediaBox);
@@ -393,10 +419,14 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     public function inlineSvgRichTextImageMarkup(DOMElement $element, bool $includeLink = true): ?string
     {
+        // RichText lowering must obey the same document-context rule as blocks.
+        if ( SourceDom::isDefinitionsOnlySvg($element) ) {
+            return null;
+        }
         if ( ! SourceDom::svgHasDrawableContent($element) ) {
             return null;
         }
-        if ( $this->collapsedRestingControlPresentation($element) ) {
+        if ( $this->collapsedRestingRichTextPresentation($element) ) {
             return '';
         }
 
@@ -467,24 +497,25 @@ final class SvgMaterializer implements SvgElementMaterializer
         return $markup;
     }
 
-    private function collapsedRestingControlPresentation(DOMElement $element): bool
+    private function collapsedRestingRichTextPresentation(DOMElement $element): bool
     {
-        $control = null;
+        $container = null;
         for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
             $tagName = strtolower($node->tagName);
-            if ( in_array($tagName, array( 'a', 'button' ), true) ) {
-                $control = $node;
+            // Stop at the text block (or control), not a hidden outer section.
+            if ( in_array($tagName, array( 'a', 'button', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li' ), true) ) {
+                $container = $node;
                 break;
             }
             if ( in_array($tagName, array( 'body', 'html' ), true) ) {
                 return false;
             }
         }
-        if ( ! $control instanceof DOMElement ) {
+        if ( ! $container instanceof DOMElement ) {
             return false;
         }
 
-        for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($control); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+        for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($container); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
             if ( $this->restingBoxIsCollapsed($node) ) {
                 return true;
             }
@@ -732,6 +763,43 @@ final class SvgMaterializer implements SvgElementMaterializer
      *
      * @param array<string, string> $presentation
      */
+    /**
+     * Whether a block-level source SVG sizes to its containing block's width:
+     * it has a viewBox (an aspect ratio), no width, height, or height limit
+     * from its attributes or CSS, and its parent is a block box in normal
+     * flow, whose width is definite.
+     *
+     * @param array<string, string> $presentation
+     * @param array<string, string> $parentPresentation
+     */
+    private function fillsContainingBlockWidth(DOMElement $element, string $html, array $presentation, array $parentPresentation): bool
+    {
+        if ( '' !== trim(SourceDom::attr($element, 'width')) || '' !== trim(SourceDom::attr($element, 'height')) ) {
+            return false;
+        }
+        if ( $this->cssDefinesMediaSize($element) ) {
+            return false;
+        }
+        // A height limit transfers through the aspect ratio only to an auto
+        // width, so a limited SVG keeps the auto width.
+        foreach ( array( 'width', 'height', 'aspect-ratio', 'min-height', 'max-height' ) as $property ) {
+            $value = strtolower(trim((string) ($presentation[$property] ?? '')));
+            if ( '' !== $value && 'auto' !== $value ) {
+                return false;
+            }
+        }
+        if ( 1 !== preg_match('/\sviewBox\s*=\s*(["\'])\s*[-\d.]+[\s,]+[-\d.]+[\s,]+[\d.]*[1-9][\d.]*[\s,]+[\d.]*[1-9][\d.]*\s*\1/i', $html) ) {
+            return false;
+        }
+        $parentDisplay = CssValueInspector::comparable((string) ($parentPresentation['display'] ?? ''));
+        $parentPosition = strtolower(trim((string) ($parentPresentation['position'] ?? '')));
+        $parentFloat = strtolower(trim((string) ($parentPresentation['float'] ?? '')));
+
+        return in_array($parentDisplay, array( '', 'block', 'flow-root', 'list-item' ), true)
+            && ! in_array($parentPosition, array( 'absolute', 'fixed' ), true)
+            && in_array($parentFloat, array( '', 'none' ), true);
+    }
+
     private function unsizedMediaAxisDeclarations(array $presentation): string
     {
         $declarations = '';
@@ -1836,7 +1904,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         ));
         $allowedAttributes = array_flip(array(
             'amplitude', 'aria-hidden', 'aria-label', 'azimuth', 'basefrequency', 'bias',
-            'class', 'clip-path', 'clip-rule', 'cliprule', 'color-interpolation', 'color-interpolation-filters',
+            'class', 'clip-path', 'clip-rule', 'clippathunits', 'cliprule', 'color-interpolation', 'color-interpolation-filters',
             'color', 'color-rendering', 'cx', 'cy', 'd',
             'data-bbox', 'data-color', 'data-testid', 'data-type',
             'diffuseconstant', 'divisor', 'dominant-baseline', 'dx', 'dy', 'edgemode',
@@ -1882,6 +1950,22 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     private static function isPassiveSvgElement(DOMElement $element, array $allowedTags, array $allowedAttributes): bool
     {
+        // SMIL transform animation is self-contained in an SVG image document.
+        // Keep the target implicit and restrict it to geometry: general SMIL
+        // attribute mutation (notably href) is not passive artwork.
+        if ( 'animatetransform' === strtolower($element->tagName) ) {
+            if ( 'transform' !== strtolower(trim(SourceDom::attr($element, 'attributename')))
+                || ! in_array(strtolower(trim(SourceDom::attr($element, 'type'))), array( 'translate', 'scale', 'rotate', 'skewx', 'skewy' ), true) ) {
+                return false;
+            }
+            $allowedTags['animatetransform'] = 1;
+            $allowedAttributes = array_flip(array(
+                'attributename', 'attributetype', 'type', 'from', 'to', 'by', 'values',
+                'dur', 'repeatcount', 'repeatdur', 'calcmode', 'keytimes', 'keysplines',
+                'additive', 'accumulate', 'fill',
+            ));
+        }
+
         if ( ! isset($allowedTags[strtolower($element->tagName)]) ) {
             return false;
         }

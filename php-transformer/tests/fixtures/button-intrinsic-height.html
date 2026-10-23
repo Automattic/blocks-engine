@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Intrinsic and stretched controls</title>
+<style>
+.row{display:flex;align-items:center;justify-content:space-between;height:55px;border:2px solid #222;width:140px}
+button{padding:0;border:0;background:none}
+svg,img{display:block}
+.stretched{height:100%;display:flex;align-items:center;justify-content:center}
+</style></head><body>
+<div class="row">
+<button type="button" aria-label="Decrease"><svg width="17" height="17" viewBox="0 0 22 22"><path d="M3 10v2h17v-2H3z"/></svg></button>
+<input type="number" value="1" style="width:40px">
+<button type="button" aria-label="Increase"><svg width="17" height="17" viewBox="0 0 22 22"><path d="M12 3h-2v7H3v2h7v7h2v-7h7v-2h-7V3z"/></svg></button>
+</div>
+<div class="row"><button type="button" class="stretched">Stretched</button><span>Sibling</span></div>
+</body></html>

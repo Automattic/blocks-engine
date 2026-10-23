@@ -1421,7 +1421,7 @@ $assert(in_array('malformed_stylesheet:inline-style', $malformedLayoutGraph['dia
 $cascadeGraph = (new HtmlTransformer())->transform($layoutGraphHtml, array('static_css' => '.form{display:flex;display:grid!important;display:block}.field{display:flex}@media (max-width:50rem){@supports (display:grid){.field{gap:1rem}}}.form button[type="submit"]{order:2}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
 $cascadeNodes = array_column($cascadeGraph['nodes'] ?? array(), null, 'id');
 $cascadeVariant = $cascadeGraph['variants'][0] ?? array();
-$assert('grid' === ($cascadeNodes['form']['layout']['display'] ?? null) && !isset($cascadeNodes['control-2']['layout']['order']) && in_array('unsupported_selector:.form button[type="submit"]', $cascadeGraph['diagnostics'] ?? array(), true), 'layout graph resolves duplicate same-rule declarations by declaration order and !important, and reports unsupported attribute selector semantics explicitly');
+$assert('grid' === ($cascadeNodes['form']['layout']['display'] ?? null) && '2' === ($cascadeNodes['control-2']['layout']['order'] ?? null) && !in_array('unsupported_selector:.form button[type="submit"]', $cascadeGraph['diagnostics'] ?? array(), true), 'layout graph resolves duplicate same-rule declarations by declaration order and !important, and matches HTML case-insensitive attribute selectors');
 $assert('all' === ($cascadeVariant['condition']['kind'] ?? null) && $cascadeVariant['condition'] === ($cascadeVariant['provenance'][0]['condition'] ?? null), 'layout graph retains nested condition chains and conditional provenance exactly.');
 $conditionalOnlyGraph = (new HtmlTransformer())->transform('<form method="post" action="#"><div class="field"><input name="x"></div><button type="submit">Send</button></form>', array('static_css' => '@media (max-width:50rem){.field{display:flex;flex-direction:column;align-items:flex-start}}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
 $conditionalOnlyNode = array_column($conditionalOnlyGraph['nodes'] ?? array(), null, 'id')['wrapper-0'] ?? array(); $conditionalOnlyVariant = $conditionalOnlyGraph['variants'][0] ?? array();
@@ -1786,7 +1786,7 @@ $quotedMailboxHref = '';
 if ( 1 === preg_match('/href="([^"]+)">Quoted mailbox</', $canonicalLinkMarkup, $matches) ) {
     $quotedMailboxHref = rawurldecode(html_entity_decode($matches[1], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
 }
-$assert(2 === substr_count($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com"') && str_contains($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com?subject=Hello"') && str_contains($canonicalLinkMarkup, 'href="https://martinguitar.com"') && str_contains($canonicalLinkMarkup, 'href="https://example.test/?x=&amp;copy;"') && 'mailto:"quoted.local"@example.test' === $quotedMailboxHref && str_contains($canonicalLinkMarkup, 'href="mailto:%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE@%CF%80%CE%B1%CF%81%CE%AC%CE%B4%CE%B5%CE%B9%CE%B3%CE%BC%CE%B1.%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE"') && str_contains($canonicalLinkMarkup, 'href="members/hello@richlynngroup.com/profile"') && ! str_contains($canonicalLinkMarkup, 'script:') && ! str_contains($canonicalLinkMarkup, 'data:') && ! str_contains($canonicalLinkMarkup, 'vbscript:'), 'link sanitization canonicalizes DOM-decoded NBSP-trimmed bare emails and web hosts, preserves literal entity query text and relative @ paths, preserves quoted-mailbox URL semantics across HTML serializers, supports Unicode mailboxes, and rejects unsafe schemes');
+$assert(2 === substr_count($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com"') && str_contains($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com?subject=Hello"') && str_contains($canonicalLinkMarkup, 'href="https://martinguitar.com"') && str_contains($canonicalLinkMarkup, 'href="https://example.test/?x=%C2%A9"') && 'mailto:"quoted.local"@example.test' === $quotedMailboxHref && str_contains($canonicalLinkMarkup, 'href="mailto:%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE@%CF%80%CE%B1%CF%81%CE%AC%CE%B4%CE%B5%CE%B9%CE%B3%CE%BC%CE%B1.%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE"') && str_contains($canonicalLinkMarkup, 'href="members/hello@richlynngroup.com/profile"') && ! str_contains($canonicalLinkMarkup, 'script:') && ! str_contains($canonicalLinkMarkup, 'data:') && ! str_contains($canonicalLinkMarkup, 'vbscript:'), 'link sanitization canonicalizes DOM-decoded NBSP-trimmed bare emails and web hosts, normalizes entity query text for Gutenberg and preserves relative @ paths, preserves quoted-mailbox URL semantics across HTML serializers, supports Unicode mailboxes, and rejects unsafe schemes');
 $assert('mailto:hello@richlynngroup.com' === $canonicalNavigation, 'native navigation conversion shares bare-email link canonicalization');
 $assert('https://example.test/?x=&copy;' === LinkUrlSanitizer::sanitize('https://example.test/?x=&copy;') && 'https://martinguitar.com' === LinkUrlSanitizer::sanitize('martinguitar.com') && 'guide.html' === LinkUrlSanitizer::sanitize('guide.html') && 'mailto:"quoted.local"@example.test' === LinkUrlSanitizer::sanitize('"quoted.local"@example.test') && 'mailto:δοκιμή@παράδειγμα.δοκιμή' === LinkUrlSanitizer::sanitize('δοκιμή@παράδειγμα.δοκιμή'), 'link sanitization recognizes bare web hosts without converting common relative file links and recognizes quoted and Unicode mailboxes without IDN conversion');
 $safeLinkProtocols = array( 'http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'ircs', 'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'svn', 'tel', 'fax', 'xmpp', 'webcal', 'urn' );
@@ -2121,8 +2121,8 @@ $flexAnchorButtonMarkup = (string) ($flexAnchorButton['serialized_blocks'] ?? ''
 $flexAnchorButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorButton['assets'] ?? array()));
 $assert(str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'product-row'), 'styled anchor button uses a generated control marker instead of its source anchor class');
 $assert(! str_contains($flexAnchorButtonMarkup, 'wp-block-button product-row') && ! str_contains($flexAnchorButtonMarkup, 'wp-element-button product-row'), 'styled anchor button keeps source anchor classes out of canonical core/button markup');
-$assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link){display:flex!important;align-items:center!important;gap:1rem!important') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor root and descendant selectors project through the generated marker with priority over core button defaults');
-$assert(str_contains($flexAnchorButtonMarkup, 'class="product-row__name"'), 'styled anchor button preserves descendant classes in its RichText content');
+$assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){display:flex!important;align-items:center!important;gap:1rem!important') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor root and descendant selectors project through the generated marker with priority over core button defaults');
+$assert(1 === preg_match('/class="product-row__name[ "]/', $flexAnchorButtonMarkup), 'styled anchor button preserves descendant classes in its RichText content');
 $assert('pass' === ($flexAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled anchor button remains editor-valid with marker-projected source selectors');
 
 $flexChainButton = ( new HtmlTransformer() )->transform(
@@ -2448,12 +2448,12 @@ $assert('custom/authored-select' === ($standaloneControlBlocks[2]['innerBlocks']
 $authoredSelectBlocks = array_values(array_filter($standaloneControls['source_reports']['generated_blocks'] ?? array(), static fn (array $block): bool => 'authored-select' === ($block['name'] ?? '')));
 $authoredSelectCss = (string) ($authoredSelectBlocks[0]['assets']['style.css'] ?? '');
 $assert(str_contains($authoredSelectCss, '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}') && ! str_contains($authoredSelectCss, '!important'), 'authored-select companion wrapper CSS preserves display contents without important declarations');
-$assert('core/html' === ($standaloneControlBlocks[3]['blockName'] ?? ''), 'runtime-targeted select preserves native DOM output');
+$assert('core/group' === ($standaloneControlBlocks[3]['blockName'] ?? '') && 'custom/authored-select' === ($standaloneControlBlocks[3]['innerBlocks'][0]['blockName'] ?? ''), 'runtime-targeted select stays a native authored select');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<option value="" selected disabled>Choose an order</option>'), 'compact select preserves selected placeholder option state');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select id="product-sort" name="products" placeholder="Sort products" class="catalog-sort">'), 'compact select preserves native id, name, placeholder, and CSS selector identity');
 $assert(1 === substr_count((string) ($standaloneControls['serialized_blocks'] ?? ''), '>Sort products</label>') && str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<label for="product-sort"'), 'styled select emits its source associated label exactly once without a duplicate wrapping label');
 $assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<!-- wp:html') || str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'only the runtime-targeted select uses core/html');
-$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted select preserves native markup in serialized blocks');
+$assert(1 === preg_match('/<select[^>]*\\sclass="js-sort-select"/', (string) ($standaloneControls['serialized_blocks'] ?? '')), 'runtime-targeted select preserves native markup in serialized blocks');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'id="donation"'), 'readable input output preserves source id as a block anchor');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'js-sort-select'), 'runtime-targeted select keeps behavior-hook class on native markup');
 $assert(1 === count($standaloneControls['source_reports']['runtime_islands'] ?? array()), 'runtime islands report only the explicitly runtime-targeted standalone control');
@@ -2732,12 +2732,12 @@ $buttonResult = ( new HtmlTransformer() )->transform(
     '<main><a class="primary-button" href="#" style="padding:10px 16px;background:#135e96"><h3>Reserve now</h3><span aria-hidden="true"></span></a><button><strong>Call us</strong></button></main>'
 )->toArray();
 $buttonBlocks = $buttonResult['blocks'][0]['innerBlocks'] ?? array();
-$assert('core/buttons' === ($buttonBlocks[0]['blockName'] ?? ''), 'anchor converts to buttons block');
-$assert(str_contains((string) ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Reserve now'), 'anchor button text preserves visible label');
-$assert('Reserve now' === ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?? ''), 'anchor button text unwraps block-level label markup for valid inline RichText');
+$assert('core/buttons' === ($buttonBlocks[0]['blockName'] ?? ''), 'anchor-owned painted single-label control remains native buttons');
+$assert('core/button' === ($buttonBlocks[0]['innerBlocks'][0]['blockName'] ?? ''), 'heading used solely as a control label lowers to a button');
+$assert(str_contains($buttonBlocks[0]['innerBlocks'][0]['attrs']['className'] ?? '', 'primary-button'), 'painted label retains its source button class');
 $assert(str_contains((string) ($buttonBlocks[1]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Call us'), 'button text preserves visible label');
 $assert(! str_contains((string) $buttonResult['serialized_blocks'], '\\u003c'), 'button serialization avoids escaped nested HTML attrs');
-$assert(! str_contains((string) $buttonResult['serialized_blocks'], '<h3>Reserve now</h3>'), 'button serialization avoids block-level markup inside link text');
+$assert(! str_contains((string) $buttonResult['serialized_blocks'], '<h3') && str_contains((string) $buttonResult['serialized_blocks'], 'Reserve now'), 'native button flattens its single heading label');
 $assert('pass' === ($buttonResult['source_reports']['wp_block_validity']['status'] ?? ''), 'HTML transform exposes passing WordPress block validity report for generated buttons');
 
 $buttonCustomFontSizeResult = ( new HtmlTransformer() )->transform(
@@ -3445,14 +3445,14 @@ $styledLogo = ( new HtmlTransformer() )->transform(
     '<style>#wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><a class="logo" href="/"><span id="wordmark">Brand Name</span></a>'
 )->toArray();
 $styledLogoSerialized = (string) ($styledLogo['serialized_blocks'] ?? '');
-$assert(str_contains($styledLogoSerialized, '<mark style="') && str_contains($styledLogoSerialized, 'Brand Name</mark>'), 'selector-addressed logo labels retain a valid RichText semantic marker instead of flattening to plain text');
+$assert(1 === preg_match('/<mark (?:class="[^"]*" )?style="/', $styledLogoSerialized) && str_contains($styledLogoSerialized, 'Brand Name</mark>'), 'selector-addressed logo labels retain a valid RichText semantic marker instead of flattening to plain text');
 $assert('pass' === ($styledLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'selector-addressed logo label markers remain editor-valid');
 
 $nestedStyledLogo = ( new HtmlTransformer() )->transform(
     '<style>.header #wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><div class="header"><div class="logo"><span><a href="/"><span id="wordmark">Nested Brand</span></a></span></div></div>'
 )->toArray();
 $nestedStyledLogoSerialized = (string) ($nestedStyledLogo['serialized_blocks'] ?? '');
-$assert(str_contains($nestedStyledLogoSerialized, '<a href="/"><mark style="') && str_contains($nestedStyledLogoSerialized, 'Nested Brand</mark></a>'), 'nested logo chrome unwraps presentational containers while preserving the styled semantic label and link');
+$assert(1 === preg_match('/<a href="\/"><mark (?:class="[^"]*" )?style="/', $nestedStyledLogoSerialized) && str_contains($nestedStyledLogoSerialized, 'Nested Brand</mark></a>'), 'nested logo chrome unwraps presentational containers while preserving the styled semantic label and link');
 $assert(str_contains($nestedStyledLogoSerialized, '"margin":{"top":"0","right":"0","bottom":"0","left":"0"}'), 'div-based logos neutralize core paragraph margins that the source element did not have');
 $explicitLogoMargin = ( new HtmlTransformer() )->transform('<div class="logo" style="margin-bottom:4px"><a href="/">Brand</a></div>')->toArray();
 $explicitLogoMarginSerialized = (string) ($explicitLogoMargin['serialized_blocks'] ?? '');
@@ -6069,6 +6069,47 @@ $assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+
 $assert(1 === preg_match('/button\[aria-selected="true"\]\{[^}]*background-color:#497969[^}]*\}/', $pillCss), 'the selected source trigger look is carried onto the selected tab');
 $assert(1 !== preg_match('/button\{[^}]*background-color:#497969/', $pillCss), 'the selected look is not applied to every tab');
 
+// #3055: the source marks the selected trigger only by a class toggled by JS,
+// and its row scrolls sideways instead of wrapping.
+$classMarkedMember = static function (int $index, string $label, string $text): array {
+    $html = '<p>' . $text . '</p>';
+    return array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(' . ($index + 1) . ')', 'tag' => 'button', 'label' => $label, 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $html, 'htmlBytes' => strlen($html), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 3, 'index' => $index));
+};
+$classMarkedSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Class Marked Tabs Site', 'slug' => 'captured-class-marked-tabs-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<html><head><style>.row{display:flex;gap:8px;overflow-x:auto}.btn{padding:8px 16px;border:1px solid #ddd;background:#fff;color:#111;white-space:nowrap;flex-shrink:0}.btn.on{background:#123;color:#fff;border-color:#123}</style></head><body><main><div class="row" role="tablist"><button class="btn on" data-tab="a">01. First option</button><button class="btn" data-tab="b">02. Second option</button><button class="btn" data-tab="c">03. Third option</button></div><div id="a">Panel A</div><div id="b" hidden>Panel B</div><div id="c" hidden>Panel C</div></main></body></html>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(
+                    $classMarkedMember(0, '01. First option', 'Panel A'),
+                    $classMarkedMember(1, '02. Second option', 'Panel B'),
+                    $classMarkedMember(2, '03. Third option', 'Panel C'),
+                ),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$classMarkedMarkup = (string) ($classMarkedSelectableSet['serialized_blocks'] ?? '');
+$classMarkedCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $classMarkedSelectableSet['assets'] ?? array()));
+$assert(1 === substr_count($classMarkedMarkup, '<!-- wp:tab-list') && 3 === substr_count($classMarkedMarkup, '<!-- wp:tab-panel '), 'a class-marked tab row still becomes native core/tabs');
+$classMarkedButtons = preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\{([^}]*)\}/', $classMarkedCss, $classMarkedButtonMatch) ? $classMarkedButtonMatch[1] : '';
+$assert(1 === preg_match('/(?:^|;)background(?:-color)?:#fff(?:;|$)/', $classMarkedButtons) && 1 === preg_match('/(?:^|;)color:#111(?:;|$)/', $classMarkedButtons) && str_contains($classMarkedButtons, '#ddd') && ! str_contains($classMarkedButtons, '#123'), 'class-marked inactive tabs paint the unselected source look (#fff, #111, #ddd)', $classMarkedCss);
+// #3066: the source triggers keep their labels on one line and refuse to
+// shrink inside the scrolling row; the tab buttons must too.
+$assert(1 === preg_match('/(?:^|;)white-space:nowrap(?:;|$)/', $classMarkedButtons) && 1 === preg_match('/(?:^|;)flex-shrink:0(?:;|$)/', $classMarkedButtons), 'tab buttons carry the source trigger white-space:nowrap and flex-shrink:0', $classMarkedCss);
+$classMarkedActive = preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\[aria-selected="true"\]\{([^}]*)\}/', $classMarkedCss, $classMarkedActiveMatch) ? $classMarkedActiveMatch[1] : '';
+$assert(1 === preg_match('/(?:^|;)background(?:-color)?:#123(?:;|$)/', $classMarkedActive) && 1 === preg_match('/(?:^|;)color:#fff(?:;|$)/', $classMarkedActive) && 1 === preg_match('/(?:^|;)border-color:#123(?:;|$)/', $classMarkedActive), 'the trigger visible at rest paints the selected source look (#123)', $classMarkedCss);
+$assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\[aria-selected="true"\]::before\{display:none\}/', $classMarkedCss), 'core\'s selected-tab underline is hidden when the source selected trigger draws none', $classMarkedCss);
+$assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+\{[^}]*flex-wrap:nowrap[^}]*\}/', $classMarkedCss), 'a horizontal source row that scrolled instead of wrapping keeps flex-wrap:nowrap', $classMarkedCss);
+
 $keyedSelectableSet = $compiler->compile(array(
     'site' => array('name' => 'Captured Keyed Tabs Site', 'slug' => 'captured-keyed-tabs-site'),
     'entrypoint' => 'website/index.html',
@@ -6208,6 +6249,61 @@ $assert(1 === preg_match('/<div class="wp-block-tab-list step-row"/', $regionLay
 $assert(str_contains($regionLayoutMarkup, 'role="tab"') && str_contains($regionLayoutMarkup, 'role="tabpanel"'), 'projected tabs keep tab and tabpanel roles');
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($regionLayoutSelectableSet['blocks'] ?? array()), 'region-layout selectable-set tabs retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($regionLayoutSelectableSet['blocks'] ?? array())['status'] ?? ''), 'region-layout selectable-set tabs remain Gutenberg-valid');
+
+// #3076: a form inside a captured tab panel keeps its box so rules that target
+// the form's children (Tailwind space-y-*) keep spacing the fields.
+$formPanel = static fn (string $title): string => '<div class="p-5"><h4 class="mb-4">' . $title . '</h4><form class="space-y-3" action="https://collect.example/subscribe" method="post" enctype="multipart/form-data" target="_blank" novalidate accept-charset="utf-8"><div class="form-field-a"><label>Name</label><input name="name"></div><div class="form-field-b"><label>Email</label><input name="email"></div><button type="submit" formaction="https://collect.example/alt">Send</button></form></div>';
+$formSelectableState = static fn (int $index, string $label): array => array(
+    'status' => 'captured',
+    'kind' => 'selectable-set',
+    'trigger' => array('selector' => 'body > main > div > button:nth-of-type(' . ($index + 1) . ')', 'tag' => 'button', 'label' => $label, 'ariaHaspopup' => '', 'dataBindings' => array()),
+    'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $formPanel($label), 'htmlBytes' => strlen($formPanel($label)), 'htmlTruncated' => false),
+    'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => $index),
+);
+$formSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Form Panel Selectable Set Site', 'slug' => 'captured-form-panel-selectable-set-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<html><head><style>.p-5{padding:1.25rem}.mb-4{margin-bottom:1rem}.space-y-3>:not([hidden])~:not([hidden]){margin-top:.75rem}</style></head><body><main><div><button type="button">Alpha</button><button type="button">Beta</button></div><div><p>Select an item to view details</p></div></main></body></html>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'pages' => array(array('sourceUrl' => 'https://example.com/', 'states' => array($formSelectableState(0, 'Alpha'), $formSelectableState(1, 'Beta')))),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$formSelectableMarkup = (string) ($formSelectableSet['serialized_blocks'] ?? '');
+$formSelectableCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $formSelectableSet['assets'] ?? array()));
+$assert(str_contains($formSelectableMarkup, '<!-- wp:tabs') && 2 === substr_count($formSelectableMarkup, 'role="tabpanel"'), 'tab panels holding a form still serialize as native core/tabs');
+$assert(2 === preg_match_all('/<form\b[^>]*class="[^"]*\bspace-y-3\b/', $formSelectableMarkup), 'each panel keeps the form box with its source class', $formSelectableMarkup);
+$assert(1 !== preg_match('/<form\b[^>]*\b(?:action|method|enctype|target|novalidate|accept-charset)=?/i', $formSelectableMarkup) && ! str_contains($formSelectableMarkup, 'collect.example'), 'the kept form box drops its submission semantics');
+$formPanelDocument = new DOMDocument();
+$formPanelPrevious = libxml_use_internal_errors(true);
+$formPanelDocument->loadHTML('<?xml encoding="UTF-8"><body>' . $formSelectableMarkup . '</body>');
+libxml_clear_errors();
+libxml_use_internal_errors($formPanelPrevious);
+$formSecondFields = iterator_to_array((new DOMXPath($formPanelDocument))->query('//*[contains(concat(" ", normalize-space(@class), " "), " form-field-b ")]') ?: array());
+$formSpacingSelectors = array();
+if (preg_match_all('/(?:^|})([^{}]*\.space-y-3>[^{}]*)\{margin-top:\.75rem\}/', $formSelectableCss, $formSpacingRules)) {
+    foreach ($formSpacingRules[1] as $formSpacingList) {
+        foreach (explode(',', $formSpacingList) as $formSpacingSelector) {
+            $formSpacingSelectors[] = trim($formSpacingSelector);
+        }
+    }
+}
+$formSecondFieldSpaced = 2 === count($formSecondFields) && array() !== $formSpacingSelectors;
+foreach ($formSecondFields as $formSecondField) {
+    $formSecondFieldSpaced = $formSecondFieldSpaced && array() !== array_filter(
+        $formSpacingSelectors,
+        static fn (string $selector): bool => $formSecondField instanceof DOMElement && (\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($formSecondField, \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::parse($selector))['matches'] ?? false),
+    );
+}
+$assert($formSecondFieldSpaced, 'the source space-y-3 field-spacing rule still resolves for the second field in every panel', implode("\n", $formSpacingSelectors));
+$assert(array() === (new CanonicalSaveShapeValidator())->findings($formSelectableSet['blocks'] ?? array()), 'form-panel selectable-set tabs retain a canonical save shape');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($formSelectableSet['blocks'] ?? array())['status'] ?? ''), 'form-panel selectable-set tabs remain Gutenberg-valid');
 
 $graphicAlpha = '<div><h2>FR1</h2><p>Flower Room 1 specification</p></div>';
 $graphicBeta = '<div><h2>FR2</h2><p>Flower Room 2 specification</p></div>';

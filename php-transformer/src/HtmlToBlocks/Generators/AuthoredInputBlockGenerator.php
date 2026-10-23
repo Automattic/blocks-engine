@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+
 /** Builds the editable companion for browser-native input controls. */
 final class AuthoredInputBlockGenerator
 {
@@ -12,10 +15,11 @@ final class AuthoredInputBlockGenerator
     public function blockJson(string $namespace): array
     {
         $attributes = array();
-        foreach (array('type', 'id', 'name', 'form', 'value', 'placeholder', 'ariaLabel', 'className', 'style', 'min', 'max', 'step', 'src', 'alt', 'width', 'height', 'title', 'label', 'labelMarkup', 'labelId', 'labelClassName', 'labelStyle') as $name) {
+        foreach (array('tagName', 'fallbackText', 'low', 'high', 'optimum', 'type', 'id', 'name', 'form', 'value', 'placeholder', 'ariaLabel', 'className', 'style', 'min', 'max', 'step', 'src', 'alt', 'width', 'height', 'title', 'label', 'labelMarkup', 'labelId', 'labelClassName', 'labelStyle') as $name) {
             $attributes[$name] = array('type' => 'string', 'default' => 'type' === $name ? 'text' : '');
         }
         foreach (array('required', 'disabled', 'readOnly', 'checked', 'valueDeclared', 'indeterminate', 'labelAfterControl') as $name) $attributes[$name] = array('type' => 'boolean', 'default' => false);
+        $attributes['indicatorAttributes'] = array('type' => 'object', 'default' => array());
         $attributes['initialValue'] = array('type' => 'string');
         $attributes['initialChecked'] = array('type' => 'boolean');
         $attributes['dataAttributes'] = array('type' => 'object', 'default' => array());
@@ -34,7 +38,25 @@ final class AuthoredInputBlockGenerator
     function escapeAttribute(value){return String(value||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 __CONTROL_HELPERS__
     function styleObject(value){return value?String(value).split(';').reduce(function(output,declaration){var separator=declaration.indexOf(':');if(separator<1)return output;var name=declaration.slice(0,separator).trim();output[name.indexOf('--')===0?name:name.replace(/-([a-z])/g,function(_,letter){return letter.toUpperCase();})]=declaration.slice(separator+1).trim();return output;},{}):undefined;}
+    var indicatorPolicy=__INDICATOR_POLICY__;
+    function indicatorTag(attrs){return ['progress','meter'].includes(attrs.tagName)?attrs.tagName:'';}
+    function indicatorAttributes(attrs){
+        var safe={},pattern=new RegExp(indicatorPolicy.pattern);
+        Object.keys(attrs.indicatorAttributes||{}).sort().forEach(function(name){
+            var value=attrs.indicatorAttributes[name];
+            if(typeof value==='string'&&indicatorPolicy.excludedNames.indexOf(name)===-1&&name.indexOf(indicatorPolicy.excludedPrefix)!==0&&(indicatorPolicy.names.includes(name)||pattern.test(name)))safe[name]=value;
+        });
+        return safe;
+    }
     function markup(attrs){
+        var tag=indicatorTag(attrs);
+        if(tag){
+            var output='<'+tag;
+            ['id','value','ariaLabel','className','style','min','max','low','high','optimum'].forEach(function(key){if(attrs[key]!==undefined&&attrs[key]!=='')output+=' '+({className:'class',ariaLabel:'aria-label'}[key]||key)+'="'+escapeAttribute(attrs[key])+'"';});
+            var source=indicatorAttributes(attrs);
+            Object.keys(source).forEach(function(name){output+=' '+name+'="'+escapeAttribute(source[name])+'"';});
+            return output+'>'+escapeAttribute(attrs.fallbackText)+'</'+tag+'>';
+        }
         var output='<input';
         ['type','id','name','form','value','placeholder','ariaLabel','className','style','min','max','step','src','alt','width','height','title'].forEach(function(key){
             if(key==='value'&&attrs.type==='file')return;
@@ -72,6 +94,11 @@ __CONTROL_HELPERS__
                 window.wp.data.dispatch('core/block-editor').updateBlockAttributes(clientId,{checked:false,initialChecked:false,indeterminate:false});
             });
         }
+        var tag=indicatorTag(attrs);
+        if(tag)return createElement(element.Fragment,null,
+            createElement(InspectorControls,null,createElement(components.PanelBody,{title:'Indicator settings'},
+                ...['value','min','max','low','high','optimum','fallbackText'].map(function(key){return createElement(components.TextControl,{label:key,value:attrs[key]||'',onChange:function(value){var update={};update[key]=value;props.setAttributes(update);}});}))),
+            createElement(tag,Object.assign(indicatorAttributes(attrs),{id:attrs.id||undefined,className:attrs.className||undefined,style:styleObject(attrs.style),value:attrs.value===''?undefined:attrs.value,min:attrs.min||undefined,max:attrs.max||undefined,low:attrs.low||undefined,high:attrs.high||undefined,optimum:attrs.optimum||undefined,'aria-label':attrs.ariaLabel||undefined}),attrs.fallbackText));
         var input=createElement('input',Object.assign({type:attrs.type||'text',id:attrs.id||undefined,name:attrs.name||undefined,form:attrs.form||undefined,
             value:attrs.type==='file'?undefined:initialValue(attrs),checked:initialChecked(attrs),placeholder:attrs.placeholder||undefined,'aria-label':attrs.ariaLabel||undefined,
             className:attrs.className||undefined,style:styleObject(attrs.style),min:attrs.min||undefined,max:attrs.max||undefined,step:attrs.step||undefined,
@@ -95,14 +122,24 @@ __CONTROL_HELPERS__
 })(window.wp.blocks,window.wp.blockEditor,window.wp.components,window.wp.element);
 JS;
         $script = AuthoredFormLabelEditorScript::synchronize($script);
-        return array('index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__', '__CONTROL_HELPERS__'),
-            array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), AuthoredControlState::editorHelpers()), $script));
+        return array('index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__', '__CONTROL_HELPERS__', '__INDICATOR_POLICY__'),
+            array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), AuthoredControlState::editorHelpers(), json_encode(SourceAttribute::staticPolicy(), JSON_THROW_ON_ERROR)), $script));
     }
 
     /** @param array<string,mixed> $attrs */
     public function markup(array $attrs): string
     {
         $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        if (in_array($attrs['tagName'] ?? '', array('progress', 'meter'), true)) {
+            $tag = $attrs['tagName'];
+            $html = '<' . $tag;
+            foreach (array('id', 'value', 'ariaLabel', 'className', 'style', 'min', 'max', 'low', 'high', 'optimum') as $key) {
+                $value = (string) ($attrs[$key] ?? '');
+                if ('' !== $value) $html .= ' ' . (array('className' => 'class', 'ariaLabel' => 'aria-label')[$key] ?? $key) . '="' . $escape($value) . '"';
+            }
+            $source = SourceAttribute::staticAttributes(is_array($attrs['indicatorAttributes'] ?? null) ? $attrs['indicatorAttributes'] : array());
+            return $html . SourceDom::htmlAttributeString($source) . '>' . $escape($attrs['fallbackText'] ?? '') . '</' . $tag . '>';
+        }
         $html = '<input';
         foreach (array('type', 'id', 'name', 'form', 'value', 'placeholder', 'ariaLabel', 'className', 'style', 'min', 'max', 'step', 'src', 'alt', 'width', 'height', 'title') as $key) {
             if ('value' === $key && 'file' === ($attrs['type'] ?? '')) continue;

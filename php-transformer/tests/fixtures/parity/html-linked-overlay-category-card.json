@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-linked-overlay-category-card",
-  "description": "Whole-card overlay/category anchors wrapping background and content regions become valid core/group blocks with the link propagated onto inner image/heading/paragraph blocks so the card stays navigable. The group itself never carries an unsupported href attribute (#260).",
+  "description": "Whole-card anchors retain one source link around editable image, heading and paragraph blocks, without unsupported core/group href attributes.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-linked-overlay-category-card.json",
-    "notes": "Generic coverage for overlay cards with card__bg and category-card content. The wrapping anchor's href is propagated to the inner core/image (native link attrs) and to the heading/paragraph (inline <a>), never onto the group."
+    "notes": "Overlay cards retain source link and block wrappers instead of propagating duplicate links into descendants."
   },
   "legacy_comparison": {
     "skip": true,
@@ -17,10 +17,10 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "category-grid", "layout": { "type": "grid" } } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "category-card overlay-card" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "custom/layout-shell", "attrs": { "wrappers": [{ "tagName": "a", "attributes": { "aria-label": "Read design category", "class": "category-card overlay-card", "href": "/category/design" } }] } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "card__bg" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "overlay" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "category-card overlay-card" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "custom/layout-shell" },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "card__bg" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/group", "attrs": { "className": "content" } }
   ],
@@ -32,9 +32,9 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "Sharp Visual Systems" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Production Workflows" },
     { "path": "serialized_blocks", "assert": "contains", "value": "card__bg" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/category/design\">Sharp Visual Systems</a>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/category/build\">Production Workflows</a>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/category/design\"><img" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a aria-label=\"Read design category\" class=\"category-card overlay-card\" href=\"/category/design\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"category-card overlay-card\" href=\"/category/build\">" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<a href=\"/category/design\"><img" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\"ariaLabel\"" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }

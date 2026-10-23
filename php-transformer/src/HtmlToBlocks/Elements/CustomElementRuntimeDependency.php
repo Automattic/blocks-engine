@@ -260,7 +260,7 @@ final class CustomElementRuntimeDependency
         return true;
     }
 
-    private function hasConfigurationAttribute(DOMElement $element): bool
+    public function hasConfigurationAttribute(DOMElement $element): bool
     {
         foreach ( $element->attributes ?? array() as $attribute ) {
             $name = strtolower($attribute->name);

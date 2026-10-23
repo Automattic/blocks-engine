@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
@@ -352,8 +353,8 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 if ( ! $icon instanceof DOMElement ) {
                     continue;
                 }
-                $width = (float) $this->attr($icon, 'width');
-                $height = (float) $this->attr($icon, 'height');
+                $width = HtmlDimensionAttribute::pixels($this->attr($icon, 'width')) ?? 0.0;
+                $height = HtmlDimensionAttribute::pixels($this->attr($icon, 'height')) ?? 0.0;
                 if ( 0 < $width && 0 < $height ) {
                     $dimensions[] = min($width, $height);
                 }

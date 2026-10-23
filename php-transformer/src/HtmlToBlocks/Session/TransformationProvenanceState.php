@@ -20,6 +20,9 @@ final class TransformationProvenanceState
     /** @var array<int, bool> */
     private array $sourceBaseHiddenStates = array();
 
+    /** @var array<int, bool> */
+    private array $sourceCollapsedWrapperHiddenStates = array();
+
     /** @var array<string, string> */
     private array $formControlSlotTokens = array();
 
@@ -62,11 +65,12 @@ final class TransformationProvenanceState
     }
 
     /** @param array<string, mixed> $entry */
-    public function registerSource(array $entry, bool $startsHidden): int
+    public function registerSource(array $entry, bool $startsHidden, bool $wrapperHiddenAtCollapsedViewport = false): int
     {
         $id = $this->nextSourceId++;
         $this->sources[$id] = $entry;
         $this->sourceBaseHiddenStates[$id] = $startsHidden;
+        $this->sourceCollapsedWrapperHiddenStates[$id] = $wrapperHiddenAtCollapsedViewport;
 
         return $id;
     }
@@ -95,6 +99,17 @@ final class TransformationProvenanceState
     public function sourceBaseHiddenStates(): array
     {
         return $this->sourceBaseHiddenStates;
+    }
+
+    /**
+     * Whether a wrapper around the source (not the source itself) is hidden at
+     * the collapsed (mobile) reference viewport. Recorded for navigation only.
+     *
+     * @return array<int, bool>
+     */
+    public function sourceCollapsedWrapperHiddenStates(): array
+    {
+        return $this->sourceCollapsedWrapperHiddenStates;
     }
 
     public function reserveFormControlSlot(string $path): string
@@ -161,6 +176,7 @@ final class TransformationProvenanceState
             unset($block['_source_provenance_ids']);
             unset($block['_layout_shell_wrappers']);
             unset($block['_binding_token']);
+            unset($block['_source_anchor_selector']);
             unset($block['_editability_runtime_owned']);
             unset($block['_editability_visual_owned']);
 

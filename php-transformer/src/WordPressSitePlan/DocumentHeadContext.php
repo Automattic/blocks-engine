@@ -189,7 +189,7 @@ final class DocumentHeadContext
         return array() !== $relations && array() === array_diff($relations, array('canonical', 'alternate', 'next', 'prev', 'author', 'license', 'help')) && !isset($attributes['as']) && !in_array(strtolower($attributes['type'] ?? ''), array('text/css', 'text/javascript'), true);
     }
 
-    /** Same DOM bytes used by the proof and by the generated theme. */
+    /** Same DOM bytes used by the proof and by the generated theme. Style rows render as stylesheet links. */
     public static function render(array $head, array $assets, array $tokens, string $entryRoot = ''): string
     {
         self::assertValid($head);
@@ -208,15 +208,15 @@ final class DocumentHeadContext
                 if (!isset($row['content'])) $body = $references->content($body, $asset['source_path']);
                 if (preg_match('~</script\b~i', $body)) throw new InvalidArgumentException('Document head script cannot close its raw-text element.');
             }
+            // A style row links its canonical CSS write in place; the theme file owns the bytes.
             if ('style' === $tag) {
-                $asset = $byToken[$reference] ?? null;
-                if (!is_array($asset) || 'css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) throw new InvalidArgumentException('Document head style lacks a canonical CSS payload.');
-                $body = $references->content($asset['content'], $asset['source_path']);
-                if (preg_match('~</style\b~i', $body)) throw new InvalidArgumentException('Document head stylesheet cannot close its raw-text element.');
+                if ('css' !== ($byToken[$reference]['kind'] ?? null)) throw new InvalidArgumentException('Document head style lacks a canonical CSS write.');
+                $tag = 'link';
+                $attributes = array('rel' => 'stylesheet', 'href' => $reference) + array_filter($attributes, static fn(string $name): bool => in_array($name, array('media', 'id', 'class', 'nonce', 'title'), true) || str_starts_with($name, 'data-'), ARRAY_FILTER_USE_KEY);
             }
             $html .= '<' . $tag;
             foreach ($attributes as $name => $value) $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '"';
-            $html .= '>' . (in_array($tag, array('script', 'style'), true) ? $body . '</' . $tag . '>' : '') . "\n";
+            $html .= '>' . ('script' === $tag ? $body . '</' . $tag . '>' : '') . "\n";
         }
         return $html;
     }
@@ -274,13 +274,13 @@ final class DocumentHeadContext
         foreach ($tokens as $token) $paths[WordPressSitePlan::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
         $code = <<<'PHP'
 add_filter( 'template_include', static function ( $template ) use ( $blocks_engine_document_heads, $blocks_engine_head_assets ) {
-    $id = is_singular() ? get_queried_object_id() : 0;
+    $id = (int) apply_filters( 'blocks_engine_document_id', is_singular() ? get_queried_object_id() : 0 );
     $identity = $id ? get_post_meta( $id, '_blocks_engine_reconciliation_identity', true ) : '';
     $queried_term = function_exists( 'get_queried_object' ) ? get_queried_object() : null;
     foreach ( $blocks_engine_document_heads as $row ) {
         if ( isset( $row['taxonomy'], $row['term_slug'] ) ) {
             if ( ! is_object( $queried_term ) || ( $queried_term->taxonomy ?? '' ) !== $row['taxonomy'] || ( $queried_term->slug ?? '' ) !== $row['term_slug'] ) continue;
-        } elseif ( '' !== $identity ? $identity !== $row['identity'] : !( ( $row['front_page'] && is_front_page() ) || ( is_page() && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) continue;
+        } elseif ( '' !== $identity ? $identity !== $row['identity'] : !( ( $row['front_page'] && is_front_page() ) || ( 0 !== $id && 'page' === get_post_type( $id ) && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) continue;
         if ( $row['viewport'] ) remove_action( 'wp_head', '_block_template_viewport_meta_tag', 0 );
         add_action( 'wp_enqueue_scripts', static function () use ( $row ): void {
             foreach ( array_merge( $row['styles'], $row['after'] ) as $handle ) wp_dequeue_style( $handle );

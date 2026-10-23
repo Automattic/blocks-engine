@@ -4,9 +4,11 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use DOMElement;
@@ -169,6 +171,16 @@ final class SourceElementClassifier
             }
             foreach ( array_unique($references) as $id ) {
                 if ( isset($definitions[$id]) && $this->lowestCommonElementAncestor($definitions[$id], $candidate) === $element ) {
+                    // Definition carriers can stay inline alongside editable image
+                    // blocks. Video/audio wrappers instead need the shared boundary:
+                    // native media lowering would discard the consumer wrapper.
+                    if ( SourceDom::isDefinitionsOnlySvg($definitionSvgs[$id])
+                        && ! in_array(strtolower($candidate->tagName), array('video', 'audio'), true)
+                        && 0 === $candidate->getElementsByTagName('video')->length
+                        && 0 === $candidate->getElementsByTagName('audio')->length
+                    ) {
+                        continue;
+                    }
                     return true;
                 }
             }
@@ -272,8 +284,18 @@ final class SourceElementClassifier
         return 1 === preg_match('/^(?:align-|appearance|aspect-ratio|background|border|bottom|box-shadow|column|contain|cursor|display|filter|flex|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|table-layout|top|transform|vertical-align|width|z-index)/', $property);
     }
 
+    /**
+     * A definite length above zero. Besides a plain length this accepts a
+     * `calc()` that scales one ({@see CssLength::toPx()}), the form Tailwind
+     * v4 sizing utilities resolve to: `calc(.25rem * 2)` sizes a box as surely
+     * as `8px` does.
+     */
     public function isPositiveCssLength(string $value): bool
     {
+        if ( str_starts_with(strtolower(trim($value)), 'calc(') ) {
+            $px = CssLength::toPx($value);
+            return null !== $px && $px > 0;
+        }
         if ( ! preg_match('/^([+]?(?:\d+(?:\.\d+)?|\.\d+))(?:px|em|rem|ex|ch|cm|mm|in|pt|pc|vw|vh|vmin|vmax)$/i', trim($value), $matches) ) {
             return false;
         }
@@ -307,7 +329,7 @@ final class SourceElementClassifier
     public function isInlineSourceElement(string $tagName): bool
     {
         return $this->isInlineContentElement($tagName)
-            || in_array($tagName, array( 'a', 'audio', 'bdi', 'bdo', 'button', 'canvas', 'data', 'del', 'dfn', 'img', 'input', 'ins', 'label', 'meter', 'output', 'picture', 'progress', 'q', 's', 'select', 'svg', 'textarea', 'u', 'video' ), true);
+            || in_array($tagName, array( 'a', 'audio', 'bdi', 'bdo', 'button', 'canvas', 'data', 'dfn', 'img', 'input', 'label', 'meter', 'output', 'picture', 'progress', 'q', 'select', 'svg', 'textarea', 'video' ), true);
     }
 
     public function hasBlockContentChildren(DOMElement $element): bool
@@ -624,15 +646,39 @@ final class SourceElementClassifier
     /**
      * Whether a control's subtree is a RichText-legal button label.
      *
-     * core/button stores its label as phrasing RichText. A single flow wrapper
-     * around that label — a heading used for CTA type, a layout div around an
-     * icon — is still a label. Sibling flow containers that each hold visible
-     * text, or more than one text-bearing flow element (heading, paragraph),
-     * are not: flattening them concatenates distinct blocks into one uneditable
-     * text run.
+     * core/button stores its label as phrasing RichText. Anchors containing
+     * flow elements remain linked containers unless the anchor paints its own
+     * control surface and has just one direct text label.
+     * Native controls retain their separate label handling, but multiple
+     * text-bearing flow elements cannot be concatenated into one text run.
      */
-    public function isRichTextButtonLabel(DOMElement $element): bool
+    public function isRichTextButtonLabel(DOMElement $element, bool $hasOwnButtonSurface = false): bool
     {
+        if ( 'a' === strtolower($element->tagName) && $this->hasBlockLevelDescendant($element) ) {
+            // A painted control may use a flow element solely for its label.
+            // Do not extend this exception to a card body wrapping that label,
+            // or to a label accompanied by media or another structural child.
+            if ( ! $hasOwnButtonSurface ) {
+                return false;
+            }
+            $labels = 0;
+            foreach ( $this->significantButtonLabelChildren($element) as $child ) {
+                if ( ! $child instanceof DOMElement ) {
+                    return false;
+                }
+                if ( $this->isTextBearingFlowElement($child) && ! $this->hasBlockContentChildren($child) && '' !== $this->visibleTextContent($child) ) {
+                    ++$labels;
+                    continue;
+                }
+                if ( $this->isBlockLevelFlowElement($child) || '' !== $this->visibleTextContent($child) || $this->hasDirectMediaChild($child) || $this->hasBlockLevelDescendant($child) || in_array(strtolower($child->tagName), array('img', 'picture', 'svg', 'video', 'audio'), true) ) {
+                    return false;
+                }
+            }
+            if ( 1 !== $labels ) {
+                return false;
+            }
+        }
+
         if ( $this->hasSiblingFlowTextContainers($element) ) {
             return false;
         }
@@ -656,10 +702,16 @@ final class SourceElementClassifier
      * erased on lowering. A phrasing-only subtree (an icon plus its label) is
      * unaffected and stays on the native control path.
      */
-    private function hasBlockLevelDescendant(DOMElement $element): bool
+    public function hasBlockLevelDescendant(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->isBlockLevelFlowElement($descendant) ) {
+            // A generic wrapper around a phrasing-only label does not make
+            // that label block content. In particular, stacked logo spans and
+            // button labels keep their existing native lowering. Semantic flow
+            // descendants inside such wrappers (p, headings, etc.) still count.
+            if ( $descendant instanceof DOMElement
+                && 'div' !== strtolower($descendant->tagName)
+                && $this->isBlockLevelFlowElement($descendant) ) {
                 return true;
             }
         }
@@ -862,11 +914,13 @@ final class SourceElementClassifier
         ))));
 
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slides?)(?:[^a-z0-9]|$)/', $identity)
-            || $this->isHomogeneousImageSlideList($element);
+            // A slider host tag alone does not prove its children form a track.
+            || 1 === preg_match('/(?:^|[^a-z0-9])slider(?:[^a-z0-9]|$)/', substr($identity, strlen($element->tagName)))
+            || $this->isHomogeneousMediaSlideList($element);
     }
 
-    /** A bounded collection of same-kind, image-bearing slide children. */
-    public function isHomogeneousImageSlideList(DOMElement $element): bool
+    /** A bounded collection of same-kind, image- or native-video-bearing slide children. */
+    public function isHomogeneousMediaSlideList(DOMElement $element): bool
     {
         $count = 0;
         $tag = null;
@@ -877,9 +931,11 @@ final class SourceElementClassifier
                 }
                 continue;
             }
-            if ( ! $this->isCarouselSlideChild($child) || ! $this->isImageOnlySlide($child)
+            if ( ! $this->isCarouselSlideChild($child)
                 || ($tag !== null && strtolower($child->tagName) !== $tag)
-                || '' === trim(SourceDom::attr($child->getElementsByTagName('img')->item(0), 'src'))
+                || ! (($this->isSingleMediaSlide($child, 'img')
+                    && '' !== trim(SourceDom::attr($child->getElementsByTagName('img')->item(0), 'src')))
+                    || $this->isNativeVideoSlide($child))
             ) {
                 return false;
             }
@@ -895,7 +951,16 @@ final class SourceElementClassifier
     {
         return (in_array(strtolower($element->tagName), array('a', 'button'), true)
             || ('button' === strtolower(trim(SourceDom::attr($element, 'role')))
-                && '' !== trim(SourceDom::attr($element, 'aria-label'))))
+                && '' !== trim(SourceDom::attr($element, 'aria-label')))
+            || ('' === trim(SourceDom::attr($element, 'role'))
+                && 1 === preg_match('/^\d+$/D', trim(SourceDom::attr($element, 'tabindex')))
+                && 1 === preg_match('/(?:^|[^a-z])(?:prev|previous|next)(?:[^a-z]|$)/', strtolower(implode(' ', array(
+                    SourceDom::attr($element, 'aria-label'),
+                    SourceDom::attr($element, 'title'),
+                    SourceDom::attr($element, 'class'),
+                    SourceDom::attr($element, 'data-hook'),
+                    SourceDom::attr($element, 'data-testid'),
+                ))))))
             && ! self::isDocumentNavigationLink($element)
             && ! $this->isExpandedCarouselState($element, $root);
     }
@@ -1222,7 +1287,7 @@ final class SourceElementClassifier
 
     private function elementPixelWidth(DOMElement $element): float
     {
-        $width = $this->cssPixelLength(SourceDom::attr($element, 'width'));
+        $width = HtmlDimensionAttribute::pixels(SourceDom::attr($element, 'width')) ?? 0.0;
         if ( $width > 0.0 ) {
             return $width;
         }
@@ -1252,7 +1317,7 @@ final class SourceElementClassifier
             if ( ! $child instanceof DOMElement || ! $this->isCarouselSlideChild($child) ) {
                 continue;
             }
-            if ( ! $this->isImageOnlySlide($child) ) {
+            if ( ! $this->isSingleMediaSlide($child, 'img') ) {
                 return array();
             }
             $items[] = $child;
@@ -1261,7 +1326,7 @@ final class SourceElementClassifier
         return $items;
     }
 
-    private function isCarouselSlideChild(DOMElement $child): bool
+    public function isCarouselSlideChild(DOMElement $child): bool
     {
         if ( 'listitem' === strtolower(trim(SourceDom::attr($child, 'role'))) || 'li' === strtolower($child->tagName) ) {
             return true;
@@ -1277,11 +1342,51 @@ final class SourceElementClassifier
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item|group)(?:[^a-z0-9]|$)/', $identity);
     }
 
-    private function isImageOnlySlide(DOMElement $item): bool
+    public function isNativeVideoSlide(DOMElement $item): bool
     {
-        foreach ( array( 'video', 'audio', 'iframe', 'canvas', 'form', 'object', 'embed' ) as $tag ) {
-            if ( 0 < $item->getElementsByTagName($tag)->length ) {
+        if ( ! $this->isSingleMediaSlide($item, 'video') ) {
+            return false;
+        }
+        $video = $item->getElementsByTagName('video')->item(0);
+        if ( '' !== trim(SourceDom::attr($video, 'src')) ) {
+            return true;
+        }
+        foreach ( $video->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'source' === strtolower($child->tagName) ) {
+                // Native media conversion uses the first direct source child.
+                return '' !== trim(SourceDom::attr($child, 'src'));
+            }
+        }
+        return false;
+    }
+
+    private function hasAncestorTag(DOMElement $element, string $tag, DOMElement $root): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement && ! $node->isSameNode($root); $node = $node->parentNode ) {
+            if ( $tag === strtolower($node->tagName) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public function isSingleMediaSlide(DOMElement $item, string $mediaTag): bool
+    {
+        // Linked text is authored content, not an image caption.
+        foreach ( $item->getElementsByTagName('a') as $link ) {
+            if ( '' !== trim($link->textContent ?? '') ) {
                 return false;
+            }
+        }
+        foreach ( array( 'img', 'video', 'audio', 'iframe', 'canvas', 'form', 'object', 'embed' ) as $tag ) {
+            if ( $tag === $mediaTag ) {
+                continue;
+            }
+            foreach ( $item->getElementsByTagName($tag) as $other ) {
+                // Fallback content inside a <video> (a poster <img>) is not a second medium.
+                if ( 'video' !== $mediaTag || ! $this->hasAncestorTag($other, 'video', $item) ) {
+                    return false;
+                }
             }
         }
         foreach ( array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote' ) as $tag ) {
@@ -1290,7 +1395,7 @@ final class SourceElementClassifier
             }
         }
 
-        return 1 === $item->getElementsByTagName('img')->length;
+        return 1 === $item->getElementsByTagName($mediaTag)->length;
     }
 
     /**

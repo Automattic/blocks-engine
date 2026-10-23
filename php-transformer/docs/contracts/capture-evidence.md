@@ -102,6 +102,7 @@ See [Captured image galleries](../captured-galleries.md).
 | `data-blocks-engine-capture-gallery-sequence` | attribute | JSON frame sequence | The observed frame cycle. |
 | `data-blocks-engine-capture-gallery-slot` | attribute | integer | Image slot offset relative to the current frame. |
 | `data-blocks-engine-capture-gallery-stage` | attribute (flag) | ignored | The gallery stage. |
+| `data-blocks-engine-capture-gallery-frame` | attribute | integer | One captured frame inside the gallery stage; the gallery runtime toggles its `hidden` state. |
 | `data-blocks-engine-capture-gallery-initial` | attribute | integer | Initial frame of a gallery list. |
 | `data-blocks-engine-capture-gallery-display` | attribute | CSS `display` keyword | Observed display of a gallery item. |
 | `data-blocks-engine-capture-gallery-direction` | attribute on `<button>` | `-1` or `1` | Previous or next control. |

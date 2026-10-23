@@ -782,6 +782,21 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * The element to serialize as RichText: a clone without the boundary
+     * whitespace its flex and grid containers (at the reference viewport)
+     * never paint, or the element itself when there is none.
+     * {@see SourceDom::withoutBlockifiedBoundaryWhitespace()}
+     */
+    public function richTextSerializationSource(DOMElement $element): DOMElement
+    {
+        return SourceDom::withoutBlockifiedBoundaryWhitespace($element, function (DOMElement $container): bool {
+            $display = CssValueInspector::comparable($this->referenceViewportAuthorDeclarations($container, array( 'display' ))['display'] ?? '');
+
+            return 1 === preg_match('/(?<![\w-])(?:inline-)?(?:flex|grid)(?![\w-])/', $display);
+        });
+    }
+
+    /**
      * Which cascade a table cell's authored padding and border come from.
      *
      * Core's `.wp-block-table td, th { padding; border }` is unlayered, so it
@@ -1062,6 +1077,32 @@ final class StyleResolver implements ElementPresentationResolver
     public function conditionalDisplayRules(DOMElement $element): array
     {
         return $this->declaredPresentation($element, 'display')->conditional();
+    }
+
+    /**
+     * Carry a replaced counter's viewport visibility without removing its live
+     * announcements from the accessibility tree. The marker belongs to its owner.
+     */
+    public function liveRegionVisibilityClassName(DOMElement $element): string
+    {
+        $display = $this->declaredPresentation($element, 'display');
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        $rules = array('' => $inline['display'] ?? $display->base());
+        if (!isset($inline['display'])) $rules += $display->conditional();
+        if (array('' => '') === $rules) return '';
+
+        $marker = $this->context->layoutGeometry()->allocateCarrier('live-region-visibility' . serialize($rules));
+        $stylesheet = '';
+        foreach ($rules as $conditions => $value) {
+            $hidden = 'none' === CssValueInspector::comparable($value);
+            $css = '.' . $marker . '>[aria-live]{' . ($hidden
+                ? 'position:absolute!important;width:1px!important;height:1px!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important'
+                : 'position:static!important;width:auto!important;height:auto!important;margin:0!important;overflow:visible!important;clip:auto!important;white-space:normal!important') . '}';
+            if ('' !== $conditions) $css = $conditions . '{' . $css . str_repeat('}', substr_count($conditions, '{') + 1);
+            $stylesheet .= $css;
+        }
+        $this->context->layoutGeometry()->registerRule($marker, $stylesheet);
+        return $marker;
     }
 
     /**
@@ -1756,6 +1797,12 @@ final class StyleResolver implements ElementPresentationResolver
     public function emptyElementBackgroundCarrierClassName(DOMElement $element): string
     {
         return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element);
+    }
+
+    /** Carry box spacing lost on a display:contents synthetic image figure. */
+    public function syntheticFlexImageBoxClassName(DOMElement $image): string
+    {
+        return $this->inlineGeometry()->syntheticFlexImageBoxClassName($image);
     }
 
     /** Carry runtime-authored inline image placement on the native image leaf. */
@@ -2530,7 +2577,9 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $rule = 'height:100% !important';
-        $linkRule = $this->hasAncestorLink($image) ? '>a{display:block !important;width:100% !important;' . $rule . '}' : '';
+        $linkRule = $this->hasAncestorLink($image) && ! $this->authorStylesDriveImageBox($this->imageLinkAncestor($image))
+            ? '>a{display:block !important;width:100% !important;' . $rule . '}'
+            : '';
         $className = $this->context->layoutGeometry()->allocateCarrier('figure-height' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule . $linkRule);
         $this->context->layoutGeometry()->registerRule(
             $className,
@@ -2551,6 +2600,41 @@ final class StyleResolver implements ElementPresentationResolver
         for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
             if ( 'a' === strtolower($ancestor->tagName) ) {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** The nearest source ancestor anchor of an image, the anchor core/image rebuilds as its link. */
+    private function imageLinkAncestor(DOMElement $image): ?DOMElement
+    {
+        for ( $ancestor = $image->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'a' === strtolower($ancestor->tagName) ) {
+                return $ancestor;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether author stylesheet rules size this element's box: they declare
+     * `width` or `height` on it, so the box survives the conversion and keeps
+     * sizing the element in the rebuilt markup. Such a box is authored, not
+     * generated, so a generated fill must not rest over it (the inline
+     * geometry carrier's premise in reverse).
+     */
+    private function authorStylesDriveImageBox(DOMElement $element): bool
+    {
+        $declared = $this->authorDeclaredPropertyValues($element, array( 'width', 'height' ));
+
+        foreach ( $declared as $values ) {
+            foreach ( $values as $value ) {
+                $value = strtolower(trim(CssValueInspector::withoutImportant((string) $value)));
+                if ( '' !== $value && ! in_array($value, array( 'auto', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
+                    return true;
+                }
             }
         }
 
@@ -2638,6 +2722,47 @@ final class StyleResolver implements ElementPresentationResolver
     public function consumedInlineCustomProperties(DOMElement $element, array $carriedValues = array()): array
     {
         return $this->inlineCustomPropertyDeclarations($element, $this->cssDeclarations(SourceDom::attr($element, 'style')), array_values($carriedValues));
+    }
+
+    /**
+     * A generated carrier class restating the inline custom properties this
+     * element declares and something still reads: an author rule matching it
+     * or a descendant, a descendant's own inline declaration, or one of the
+     * values the caller carries. '' when nothing reads one.
+     *
+     * A carrier that rebuilds an element without its inline style must define
+     * these again in the element's own cascade scope, or every surviving
+     * `var()` reader resolves to its initial value. core/image with a link is
+     * such a carrier: the source anchor is rebuilt from the block's link
+     * attributes alone (`linkClass`), so the class rides the rebuilt anchor
+     * and the reader rules the author stylesheet keeps still match it. The
+     * declarations sit at the important tier, like the inline geometry
+     * carrier's, because the inline declarations they restate outrank any
+     * authored normal rule whatever its specificity.
+     *
+     * @param array<int|string, string> $carriedValues
+     */
+    public function inlineCustomPropertyCarrierClassName(DOMElement $element, array $carriedValues = array()): string
+    {
+        $declarations = array();
+        foreach ( $this->consumedInlineCustomProperties($element, $carriedValues) as $name => $value ) {
+            if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
+                $declarations[] = $name . ':' . $value;
+            }
+        }
+        if ( array() === $declarations ) {
+            return '';
+        }
+
+        $className = $this->context->layoutGeometry()->allocateCarrier(
+            $this->geometryStructuralPath($element) . "\ninline-custom-properties\n" . implode(';', $declarations)
+        );
+        $this->context->layoutGeometry()->registerRule(
+            $className,
+            '.' . $className . '{' . implode(' !important;', $declarations) . ' !important}'
+        );
+
+        return $className;
     }
 
     /**
@@ -3119,10 +3244,21 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * Resolve the CSS root font size for rem-based structural measurements.
-     * Fragment transforms often retain only a body root; in that case resolve
-     * `html` rules against a detached root element through the same selector
-     * and cascade machinery used for source elements.
+     * Detached `html` stand-ins for body-rooted analysis documents. Retained so
+     * the element-keyed resolution caches never see a recycled wrapper.
+     *
+     * @var \WeakMap<\DOMDocument, DOMElement>|null
+     */
+    private ?\WeakMap $detachedDocumentRoots = null;
+
+    /**
+     * Resolve the CSS root font size, in px, that `rem` lengths in the source
+     * use. Body-only analysis documents do not retain the `html` element, so
+     * `html` rules resolve against a detached root element through the same
+     * selector and cascade machinery used for source elements.
+     *
+     * The root's own `em`, `rem` and `%` resolve against the 16px initial
+     * value. Values that cannot be resolved statically return null.
      */
     public function documentRootFontSize(DOMElement $context): ?float
     {
@@ -3133,23 +3269,55 @@ final class StyleResolver implements ElementPresentationResolver
 
         $root = $document->documentElement;
         if ( ! $root instanceof DOMElement || 'html' !== strtolower($root->tagName) ) {
-            // Fragment input has no author document root; in its default
-            // browser context rem uses the initial 16px root size.
-            return 16.0;
+            if ( ! $this->hasRootFontSizeRule() ) {
+                return 16.0;
+            }
+            $this->detachedDocumentRoots ??= new \WeakMap();
+            $root = $this->detachedDocumentRoots[$document] ??= $document->createElement('html');
         }
         $declarations = $this->structuralPresentationDeclarations($root);
         $fontSize = trim(CssValueInspector::withoutImportant((string) ($declarations['font-size'] ?? '')));
+
+        return self::rootFontSizePx($fontSize);
+    }
+
+    /** Whether any static rule that can select a bare `html` element declares a font size. */
+    private function hasRootFontSizeRule(): bool
+    {
+        $cache = $this->context->sourceStyles();
+        $index = $cache->ruleCandidateIndexes['static'] ??= $this->styleRuleCandidateIndex('static');
+        foreach ( array_merge($index['tags']['html'] ?? array(), $index['universal']) as $entry ) {
+            if ( isset($entry['rule']['declarations']['font-size']) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Resolve a font-size declared on the root element to px. Relative units
+     * on the root resolve against the 16px initial value.
+     */
+    public static function rootFontSizePx(string $fontSize): ?float
+    {
+        $fontSize = trim($fontSize);
         if ( '' === $fontSize ) {
             return 16.0;
         }
-        if ( 1 === preg_match('/^(\d+(?:\.\d+)?)\s*px$/i', $fontSize, $matches) ) {
-            return 0 < (float) $matches[1] ? (float) $matches[1] : null;
+        if ( 1 !== preg_match('/^(\d*\.?\d+)\s*(px|r?em|%)$/i', $fontSize, $matches) ) {
+            return null;
         }
-        if ( 1 === preg_match('/^(\d+(?:\.\d+)?)\s*(?:em|rem)$/i', $fontSize, $matches) ) {
-            return 0 < (float) $matches[1] ? 16 * (float) $matches[1] : null;
+        $number = (float) $matches[1];
+        if ( 0 >= $number ) {
+            return null;
         }
 
-        return null;
+        return match ( strtolower($matches[2]) ) {
+            'px' => $number,
+            '%' => 16 * $number / 100,
+            default => 16 * $number,
+        };
     }
 
     /**
@@ -3978,6 +4146,39 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether the element's own resolved author cascade is `display:none` at
+     * every viewport its `display` rules distinguish, the reference one
+     * included. A `hidden md:block` element is visible at some width and so
+     * is not hidden here.
+     */
+    public function isDisplayNoneAtEveryViewport(DOMElement $element): bool
+    {
+        $widths = array( self::DESKTOP_REFERENCE_WIDTH );
+        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
+            if ( ! isset($rule['declarations']['display']) ) {
+                continue;
+            }
+            foreach ( $rule['conditions'] ?? array() as $condition ) {
+                if ( 1 !== preg_match('/^@media\b/i', trim((string) $condition)) || ! preg_match_all('/(\d*\.?\d+)\s*(px|r?em)\b/i', (string) $condition, $matches, PREG_SET_ORDER) ) {
+                    continue;
+                }
+                foreach ( $matches as $match ) {
+                    $px = (float) $match[1] * ( 'px' === strtolower($match[2]) ? 1.0 : 16.0 );
+                    array_push($widths, $px, max(1.0, $px - 1.0), $px + 1.0);
+                }
+            }
+        }
+        foreach ( array_unique($widths, SORT_REGULAR) as $width ) {
+            $display = (string) ( $this->cssDeclarations($this->resolvedCascadeStyle($element, 'static-conditional', (float) $width))['display'] ?? '' );
+            if ( 'none' !== CssValueInspector::comparable($display) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Resolve an element's authored resting cascade over one rule collection.
      *
      * The two callers above were the same thirty-five lines twice over, differing
@@ -3986,16 +4187,16 @@ final class StyleResolver implements ElementPresentationResolver
      * sentence that names its collection.
      *
      * Rules a media query conditions are skipped unless they apply at the
-     * reference viewport. That test is a no-op for the static collection, whose
+     * given viewport (the reference one by default). That test is a no-op for the static collection, whose
      * rules carry no conditions by construction, so it does not need to be a
      * parameter.
      */
-    private function resolvedCascadeStyle(DOMElement $element, string $collection): string
+    private function resolvedCascadeStyle(DOMElement $element, string $collection, float $viewportWidth = self::DESKTOP_REFERENCE_WIDTH): string
     {
         $cascade = array();
         $sequence = 0;
         foreach ( $this->matchingStyleRules($element, $collection) as $rule ) {
-            if ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtReferenceViewport($rule['conditions']) ) {
+            if ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) ) {
                 continue;
             }
 
@@ -4787,6 +4988,7 @@ final class StyleResolver implements ElementPresentationResolver
     private function cascadeRelevantDeclarations(array $declarations): array
     {
         static $cascadeProperties = array(
+            'box-sizing' => true,
             'color' => true,
             // Anchor carriers must resolve authored decoration even when the
             // general presentation demand filter skips an ordinary text link.
@@ -5282,7 +5484,8 @@ final class StyleResolver implements ElementPresentationResolver
     public function safeStageClassName(DOMElement $sourceElement, array $replacedSlides): string
     {
         $classes = array_values(array_unique(array_merge(
-            array_values(array_filter(SourceDom::boundedClassTokens(SourceDom::attr($sourceElement, 'class')), static fn (string $class): bool => !str_starts_with($class, 'blocks-engine-')))
+            array_values(array_filter(SourceDom::boundedClassTokens(SourceDom::attr($sourceElement, 'class')), static fn (string $class): bool => !str_starts_with($class, 'blocks-engine-'))),
+            $this->sourceAttributeSelectorMarkers($sourceElement)
         )));
         $runtimeProperties = array_fill_keys(array('transform', 'translate', 'rotate', 'scale', 'animation', 'animation-name', 'animation-play-state', 'opacity', 'visibility'), true);
         $unsafe = array();

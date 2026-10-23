@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
 use DOMElement;
 
@@ -59,11 +60,13 @@ final class RichTextMaterializer implements RichTextMaterialization
     /** @param array<int, string> $excludedTags */
     public function content(DOMElement $element, array $excludedTags = array()): string
     {
-        $content = array() === $excludedTags ? SourceDom::innerHtml($element) : SourceDom::innerHtmlWithoutTags($element, $excludedTags);
+        $serialized = $this->styleResolver->richTextSerializationSource($element);
+        $content = array() === $excludedTags ? SourceDom::innerHtml($serialized) : SourceDom::innerHtmlWithoutTags($serialized, $excludedTags);
         // `<wbr>` is a void presentation hint, not editable RichText markup.
         // Browsers can serialize malformed source as a closing `</wbr>` too;
         // remove both forms so it cannot become structural HTML in a block.
         $content = preg_replace('/<\/?wbr\b[^>]*>/i', '', $content) ?? $content;
+        $content = $this->normalizeMarkupAttributes($content);
         if ( '' === $content || ( ! preg_match('/<(?:span|font|em|i|strong|b|mark|small|sub|sup)\b/i', $content) && ! RichTextInlineTags::containsUnknownElement($content) ) ) {
             return $content;
         }
@@ -147,6 +150,38 @@ final class RichTextMaterializer implements RichTextMaterialization
         }
 
         return SourceDom::innerHtml($body);
+    }
+
+    /** Normalize attributes inside RichText, without decoding its text nodes. */
+    private function normalizeMarkupAttributes(string $content): string
+    {
+        if ( ! str_contains($content, '&amp;') ) {
+            return $content;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if ( ! $body instanceof DOMElement ) {
+            return $content;
+        }
+
+        $runtime = new Runtime();
+        $changed = false;
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            foreach ( $element->attributes as $attribute ) {
+                $value = $runtime->normalizeAttributeValue($attribute->value);
+                if ( $value !== $attribute->value ) {
+                    $element->setAttribute($attribute->name, $value);
+                    $changed = true;
+                }
+            }
+        }
+
+        return $changed ? SourceDom::innerHtml($body) : $content;
     }
 
     /** @return array<string, string> */
@@ -384,6 +419,16 @@ final class RichTextMaterializer implements RichTextMaterialization
             $content
         ) ?? $content;
         return $this->requiresHtmlFallback($content);
+    }
+
+    public function requiresHtmlFallbackForElement(DOMElement $element, string $content): bool
+    {
+        // Inline images beside text are RichText `core/image` objects, so a
+        // text element whose images all qualify is gated on its other content.
+        if ( SourceDom::carriesOnlyRichTextInlineImages($element) ) {
+            $content = preg_replace('@<img\b[^>]*>@i', '', $content) ?? $content;
+        }
+        return $this->requiresHtmlFallbackWithoutNativeSvgImageObjects($content);
     }
 
     public function containsNativeSvgImageObject(string $content): bool

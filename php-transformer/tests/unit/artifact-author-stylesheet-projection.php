@@ -45,7 +45,7 @@ foreach ( $planAssets as $asset ) {
 }
 $assert(hash('sha256', base64_encode('a.cta:hover{padding:1rem}')) === ($assetsByPath['a.css']['source_hash'] ?? null) && ($assetsByPath['a.css']['hash'] ?? '') !== ($assetsByPath['a.css']['source_hash'] ?? ''), 'source hash retains linked pre-projection provenance');
 $assert('text' === ($assetsByPath['a.css']['content_encoding'] ?? '') && ! isset($assetsByPath['a.css']['content_base64']), 'projected linked CSS invalidates the stale source payload encoding');
-$assert(! str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), 'a.cta:hover') && str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), '> :where(.wp-block-button__link):hover'), 'linked button CSS is rewritten in place');
+$assert(! str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), 'a.cta:hover') && str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0):hover'), 'linked button CSS is rewritten in place');
 $assert(hash('sha256', '.hero p{color:green}') === ($assetsByPath['index.inline-2.css']['source_hash'] ?? null) && ! str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), '.hero p') && str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
 $assert(! isset($assetsByPath['a.occurrence-2-generated-1.css']) && '.authored-collision{color:purple}' === ($assetsByPath['a.occurrence-2.css']['content'] ?? ''), 'a repeated identical link materializes no alias while authored collision CSS remains a deterministic orphan asset');
 
@@ -476,7 +476,7 @@ $assert(str_contains($typeContents, '.style-ok{color:red}') && str_contains($typ
 $embeddedStyles = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
-        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><style>.shared{color:red}</style><link rel="stylesheet" href="site.css"><style media="(min-width: 48rem)">.wide{color:blue}</style></head><body><style>.hero{background:url("images/banner.svg")}</style><main class="shared wide hero"><p>Home</p></main><progress value="4" max="10">Unsupported</progress></body></html>' ),
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><style>.shared{color:red}</style><link rel="stylesheet" href="site.css"><style media="(min-width: 48rem)">.wide{color:blue}</style></head><body><style>.hero{background:url("images/banner.svg")}</style><main class="shared wide hero"><p>Home</p></main><output>Unsupported</output></body></html>' ),
         array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<style>.shared{color:red}</style><main class="shared"><p>About</p></main>' ),
         array( 'path' => 'site.css', 'kind' => 'css', 'content' => '.linked{display:block}' ),
         array( 'path' => 'images/banner.svg', 'kind' => 'asset', 'mime_type' => 'image/svg+xml', 'content' => '<svg xmlns="http://www.w3.org/2000/svg"/>' ),
@@ -487,7 +487,7 @@ $embeddedStylePaths = array_column($embeddedStyleAssets, 'path');
 $embeddedStyleContents = implode("\n", array_column($embeddedStyleAssets, 'content'));
 $embeddedStyleFallbacks = $embeddedStyles['fallbacks'] ?? array();
 $styleFallbacks = array_filter($embeddedStyleFallbacks, static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? '') && 'style' === ($fallback['tag'] ?? ''));
-$unsupportedBodyFallbacks = array_filter($embeddedStyleFallbacks, static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? '') && 'progress' === ($fallback['tag'] ?? ''));
+$unsupportedBodyFallbacks = array_filter($embeddedStyleFallbacks, static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? '') && 'output' === ($fallback['tag'] ?? ''));
 $assert(array( 'index.inline-1.css', 'site.css', 'index.inline-2.css', 'index.inline-3.css', 'about.inline.css' ) === array_slice($embeddedStylePaths, 0, 5), 'head and body styles preserve source-order stylesheet occurrences across pages');
 $assert('(min-width: 48rem)' === (($embeddedStyleAssets[2]['media'] ?? '')), 'embedded media styles retain their stylesheet media scope');
 $assert(str_contains($embeddedStyleContents, '.hero{background:url("images/banner.svg")}'), 'embedded CSS URL references retain canonical artifact-relative resolution');
@@ -566,8 +566,26 @@ foreach ($multiPageWordPressAssets as $planAsset) {
 }
 $multiPageScopeSources = array_map(static fn (array $scope): string => (string) ($scope['source_path'] ?? ''), $multiPagePlanSharedScopes);
 $multiPageHasPageCopy = array() !== array_map(static fn (array $asset): string => (string) $asset['path'], array_values(array_filter($multiPage['assets'] ?? array(), static fn (array $asset): bool => 1 === preg_match('#^shared\.page-[a-f0-9]{12}\.css$#', (string) ($asset['path'] ?? '')))));
-$assert(array('index.html', 'about.html') === $multiPageScopeSources && ! $multiPageHasPageCopy, 'an identically projected shared stylesheet is emitted once and scoped to both consuming pages, with no per-page copy');
+$assert(array(array('kind' => 'global')) === $multiPagePlanSharedScopes && ! $multiPageHasPageCopy, 'an identically projected shared stylesheet linked by every page is emitted once, site-wide across its consuming pages, with no per-page copy');
 $assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
+
+// A text-only inline-block span in a flex row is first routed as an inline
+// layout carrier, then adopted as its own paragraph block carrying subject
+// classes. The subject arm covers it on every page, so no page keeps a
+// per-element arm and the stylesheet stays one shared asset.
+$adoptedSpanPage = static fn (string $icon, string $title): string => '<link rel="stylesheet" href="icons.css"><main><section><div class="row"><span class="icon text-4xl">' . $icon . '</span><h2>' . $title . '</h2></div></section></main>';
+$adoptedSpan = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => $adoptedSpanPage('construction', 'Program A') ),
+        array( 'path' => 'b.html', 'kind' => 'html', 'content' => $adoptedSpanPage('campaign', 'Program B') ),
+        array( 'path' => 'icons.css', 'kind' => 'css', 'content' => '.icon{display:inline-block;line-height:1}.text-4xl{font-size:2.25rem;line-height:2.5rem}.row{display:flex;gap:12px;align-items:center}' ),
+    ),
+) )->toArray();
+$adoptedSpanCss = array_values(array_filter($adoptedSpan['assets'] ?? array(), static fn (array $asset): bool => str_starts_with((string) ($asset['path'] ?? ''), 'icons.')));
+$adoptedSpanPages = array_column($adoptedSpan['source_reports']['compiled_site']['pages'] ?? array(), 'block_markup', 'source_path');
+$adoptedSpanCarriers = preg_match_all('/<p class="[^"]*blocks-engine-synthetic-paragraph[^"]*blocks-engine-role-semantic blocks-engine-subject [^"]*">(?:construction|campaign)</', implode('', $adoptedSpanPages));
+$assert(2 === $adoptedSpanCarriers && 1 === count($adoptedSpanCss) && 'icons.css' === ($adoptedSpanCss[0]['path'] ?? '') && 0 === preg_match('/blocks-engine-semantic-[a-f0-9]{12}-\d+/', (string) ($adoptedSpanCss[0]['content'] ?? '')) && str_contains((string) ($adoptedSpanCss[0]['content'] ?? ''), 'font-size:2.25rem'), 'a text-only span adopted as its own paragraph is covered by the subject arm, so its stylesheet stays one shared asset with no per-element arm');
 
 // A source grid's attribute-specific desktop winner must remain later than a
 // shared fallback that still matches the attribute-free editable Group.
@@ -641,7 +659,7 @@ $pageSubsetScopes = array_column($pageSubsetAssets['section.css']['scopes'] ?? a
 $assert(array('services.html', 'portfolio.html') === $pageSubsetScopes, 'a stylesheet linked by a subset of pages retains every owning page scope without becoming global');
 $pageSubsetWrites = array_column($pageSubsetStylesheet['source_reports']['wordpress_site_plan']['writes'] ?? array(), null, 'target_path');
 $pageSubsetBootstrap = (string) ($pageSubsetWrites['functions.php']['payload']['data'] ?? '');
-$assert(str_contains($pageSubsetBootstrap, "'services' === trim( get_page_uri( get_queried_object_id() ), '/' )") && str_contains($pageSubsetBootstrap, "'portfolio' === trim( get_page_uri( get_queried_object_id() ), '/' )"), 'a subset-scoped stylesheet bootstrap matches every owning WordPress route');
+$assert(str_contains($pageSubsetBootstrap, "'services' === trim( get_page_uri( \$blocks_engine_page_id ), '/' )") && str_contains($pageSubsetBootstrap, "'portfolio' === trim( get_page_uri( \$blocks_engine_page_id ), '/' )"), 'a subset-scoped stylesheet bootstrap matches every owning WordPress route');
 $assert(array(array('kind' => 'global')) === ($pageSubsetAssets['explicit-shared.css']['scopes'] ?? null) && array(array('kind' => 'global')) === ($pageSubsetAssets['unreferenced.css']['scopes'] ?? null), 'explicitly shared and unreferenced stylesheets retain global scope');
 $pageSubsetCompiledAssets = array_column($pageSubsetStylesheet['source_reports']['compiled_site']['assets'] ?? array(), null, 'path');
 $assert(!isset($pageSubsetCompiledAssets['section.css']['compilation']) && array('services.html', 'portfolio.html') === array_values(array_unique(array_column($pageSubsetCompiledAssets['section.css']['references'] ?? array(), 'source_path'))), 'linked-page scope reuses existing asset references without extending compiled ownership metadata');
@@ -664,7 +682,7 @@ $sharedShellPlanAssets = $sharedShellResponsive['source_reports']['wordpress_sit
 $sharedShellPageStyles = array_values(array_filter($sharedShellPlanAssets, static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && 'shared.css' !== ($asset['source_path'] ?? '') && 'global' !== (($asset['scopes'][0]['kind'] ?? null))));
 $sharedShellPageCss = implode("\n", array_column($sharedShellPageStyles, 'content'));
 $sharedShellSharedAsset = array_values(array_filter($sharedShellPlanAssets, static fn (array $asset): bool => 'shared.css' === ($asset['source_path'] ?? '')))[0] ?? array();
-$assert(2 === count($sharedShellSharedAsset['scopes'] ?? array()) && ! str_contains($sharedShellPageCss, 'site-chrome'), 'shared stylesheet remains scoped to its two consuming pages without absorbing route CSS');
+$assert(array(array('kind' => 'global')) === ($sharedShellSharedAsset['scopes'] ?? array()) && ! str_contains($sharedShellPageCss, 'site-chrome'), 'a stylesheet linked by its two consuming pages is site-wide without absorbing route CSS');
 $assert(str_contains($sharedShellPageCss, 'home-grid') && str_contains($sharedShellPageCss, 'about-grid'), 'route-owned responsive styles remain in page-scoped assets after shared-shell extraction');
 $sharedShellHome = new DOMDocument();
 $sharedShellHome->loadHTML('<html><body><div class="home-grid"><div>One</div><div>Two</div></div></body></html>');
@@ -855,9 +873,9 @@ $nativeTable = ( new ArtifactCompiler() )->compile(array(
 $nativeTableMarkup = (string) ($nativeTable['serialized_blocks'] ?? '');
 $nativeTableCss = implode("\n", array_column(array_filter($nativeTable['assets'] ?? array(), static fn (array $asset): bool => 'website/table.css' === ($asset['path'] ?? '')), 'content'));
 $assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)"><table/', $nativeTableMarkup, $nativeTableMarker) === 1 && str_contains($nativeTableMarkup, '<!-- wp:table'), 'external table stylesheet retains a native core/table with an isolated projection marker');
-$assert(str_contains($nativeTableCss, '.' . ($nativeTableMarker[1] ?? '') . '>table>thead>tr:nth-child(1)>th:nth-child(1):not(blocks-engine-specificity-') && str_contains($nativeTableCss, '.' . ($nativeTableMarker[1] ?? '') . '>table>tbody>tr:nth-child(1)>td:nth-child(2):not(blocks-engine-specificity-') && ! str_contains($nativeTableCss, ':where(.' . ($nativeTableMarker[1] ?? '') . '>table>') && str_contains($nativeTableCss, 'padding:1.35rem 1rem'), 'direct th and td selectors use an isolated table class and exact path that beats .wp-block-table td/th defaults');
+$assert(str_contains($nativeTableCss, '.' . ($nativeTableMarker[1] ?? '') . '>table>thead>tr:nth-child(n)>:is(td,th):nth-child(n):not(blocks-engine-specificity-') && str_contains($nativeTableCss, '.' . ($nativeTableMarker[1] ?? '') . '>table>tbody>tr:nth-child(n)>:is(td,th):nth-child(2):not(blocks-engine-specificity-') && ! str_contains($nativeTableCss, ':where(.' . ($nativeTableMarker[1] ?? '') . '>table>') && str_contains($nativeTableCss, 'padding:1.35rem 1rem'), 'direct th and td selectors use an isolated table class and exact path that beats .wp-block-table td/th defaults');
 $assert(str_contains($nativeTableCss, 'font-size:.66rem') && str_contains($nativeTableCss, 'width:22%') && str_contains($nativeTableCss, 'width:39%'), 'thead and tbody cell selectors retain their external stylesheet presentation');
-$assert(str_contains($nativeTableCss, '@media(max-width:600px)') && str_contains($nativeTableCss, '.' . ($nativeTableMarker[1] ?? '') . '>table>tbody>tr:nth-child(1)>td:nth-child(2)') && str_contains($nativeTableCss, 'display:block;width:100%;padding:10px 0'), 'external responsive cell selectors project through the isolated native table marker');
+$assert(str_contains($nativeTableCss, '@media(max-width:600px)') && str_contains($nativeTableCss, '.' . ($nativeTableMarker[1] ?? '') . '>table>tbody>tr:nth-child(n)>:is(td,th):nth-child(2)') && str_contains($nativeTableCss, 'display:block;width:100%;padding:10px 0'), 'external responsive cell selectors project through the isolated native table marker');
 $assert(preg_match('/<div class="paragraph (blocks-engine-source-div-[^"]+)">Materialization<\/div>/', $nativeTableMarkup, $nativeTableDescendantMarker) === 1 && str_contains($nativeTableCss, ':where(.' . ($nativeTableDescendantMarker[1] ?? '') . ')') && str_contains($nativeTableCss, 'padding-bottom:20px'), 'preserved table-cell descendants retain source-tag selector markers');
 $assert('pass' === ( new Runtime() )->validateBlockSerialization($nativeTableMarkup)['status'], 'projected artifact table markup remains editor-valid');
 
@@ -871,7 +889,7 @@ $tableNormalizationMarkup = (string) ($tableNormalization['serialized_blocks'] ?
 $tableNormalizationCss = implode("\n", array_column(array_filter($tableNormalization['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
 $assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)">/', $tableNormalizationMarkup, $tableNormalizationMarker) === 1, 'native table normalization uses an isolated table marker');
 $tableCellReset = '.' . ($tableNormalizationMarker[1] ?? '') . '>table th,.' . ($tableNormalizationMarker[1] ?? '') . '>table td{border:0}';
-$tableBottomBorder = '.' . ($tableNormalizationMarker[1] ?? '') . '>table>tbody>tr:nth-child(1)>td:nth-child(1)';
+$tableBottomBorder = '.' . ($tableNormalizationMarker[1] ?? '') . '>table>tbody>tr:nth-child(n)>:is(td,th):nth-child(n)';
 $assert(str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && ! str_contains($tableNormalizationCss, '.wp-block-table.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table{border-collapse:collapse;border-spacing:0}') && str_contains($tableNormalizationCss, $tableCellReset) && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table>thead{border-bottom:0}') && false !== strpos($tableNormalizationCss, $tableCellReset) && false !== strpos($tableNormalizationCss, $tableBottomBorder) && strpos($tableNormalizationCss, $tableCellReset) < strpos($tableNormalizationCss, $tableBottomBorder) && str_contains($tableNormalizationCss, $tableBottomBorder . ':not(blocks-engine-specificity-'), 'collapsed border tables clear all synthetic cell sides before projected bottom-only author rules restore the source geometry');
 $assert(preg_match('/\.table-wrap:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin-bottom:2rem\}/', $tableNormalizationCss) === 1 && preg_match('/table:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin:3rem 0\}/', $tableNormalizationCss) === 1 && str_contains($tableNormalizationCss, 'table{border-collapse:collapse;border-spacing:0}'), 'authored wrapper and table margins remain reset-resistant in the source stylesheet rather than becoming a broad table override');
 $assert('pass' === ( new Runtime() )->validateBlockSerialization($tableNormalizationMarkup)['status'], 'table normalization preserves editor-valid native markup');

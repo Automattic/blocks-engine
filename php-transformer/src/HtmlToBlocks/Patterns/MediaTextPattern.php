@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use DOMElement;
@@ -54,7 +55,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
             $media->resolveImageUrl(...),
             $context->createBlock(...),
             $media->coverStyle(...),
-            $media->documentRootFontSize(...)
+            $media->documentRootFontSize(...),
+            $media->imageFixedPixelSize(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -72,6 +74,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
      * @param callable(DOMElement): string $fullPresentationStyle Superset of the gate-only media style, including
      *        `position` (the same source CoverPattern reads background/position facts from).
      * @param callable(DOMElement): ?float $documentRootFontSize CSS root size used to resolve rem dimensions.
+     * @param (callable(DOMElement): array{width: ?float, height: ?float})|null $imageFixedPixelSize The image's
+     *        used pixel size per axis where its attributes or author CSS (on the image or a sizing wrapper it
+     *        fills) fix it -- the same resolution core/image emission uses.
      * @return array<string, mixed>|null
      */
     public function match(
@@ -85,7 +90,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
         callable $resolveAssetUrl,
         callable $createBlock,
         callable $fullPresentationStyle,
-        callable $documentRootFontSize
+        callable $documentRootFontSize,
+        ?callable $imageFixedPixelSize = null
     ): ?array {
         $elementChildren = $this->strictElementChildren($element);
         if ( null === $elementChildren || 2 !== count($elementChildren) ) {
@@ -204,6 +210,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
             }
             $mediaStyle = $fullPresentationStyle($resolution['media']);
             $rootFontSize = $documentRootFontSize($element);
+            $fixedSize = 'img' === $mediaType && null !== $imageFixedPixelSize
+                ? $imageFixedPixelSize($resolution['media'])
+                : null;
         } catch ( \Throwable ) {
             return null;
         }
@@ -238,7 +247,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
         // A small, explicitly sized image beside short text is an icon lockup,
         // not a two-pane media/text section. Let normal group lowering retain
         // the authored row so both the image and text stay editable.
-        if ( 'img' === $mediaType && $this->isCompactIconTextPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle, $rootFontSize) ) {
+        if ( 'img' === $mediaType && $this->isCompactIconTextPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle, $rootFontSize, $fixedSize) ) {
             return null;
         }
 
@@ -630,22 +639,34 @@ final class MediaTextPattern implements PatternRecognizerInterface
         return false;
     }
 
-    private function isCompactIconTextPair(DOMElement $media, DOMElement $text, string $mediaStyle, ?float $rootFontSize): bool
+    /**
+     * @param array{width: ?float, height: ?float}|null $fixedSize Resolved used size of the image, or null
+     *        when the caller supplies no resolver and only the dimension attributes can be read.
+     */
+    private function isCompactIconTextPair(DOMElement $media, DOMElement $text, string $mediaStyle, ?float $rootFontSize, ?array $fixedSize): bool
     {
+        // An image whose used size is fixed on both axes at icon/avatar scale
+        // -- by its width/height attributes or by author CSS on it or on the
+        // sizing wrapper it fills -- is never one pane of a media/text split:
+        // core/media-text stretches its media to the media column, so the
+        // icon would render at the column width instead of its fixed size.
+        $width = null === $fixedSize ? $this->compactHtmlDimension($this->attr($media, 'width')) : $fixedSize['width'];
+        $height = null === $fixedSize ? $this->compactHtmlDimension($this->attr($media, 'height')) : $fixedSize['height'];
+        if ( null !== $width
+            && null !== $height
+            && 0 < $width
+            && 0 < $height
+            && 64 >= $width
+            && 64 >= $height ) {
+            return true;
+        }
+
         $simpleText = preg_match('/^(?:h[1-6]|p|span)$/', strtolower($text->tagName));
         if ( ! $simpleText && ! $this->hasCompactPortraitPresentation($mediaStyle) ) {
             return false;
         }
 
         $declarations = $this->styleDeclarations($mediaStyle);
-        $width = $this->compactHtmlDimension($this->attr($media, 'width'));
-        $height = $this->compactHtmlDimension($this->attr($media, 'height'));
-        if ( null !== $width
-            && null !== $height
-            && 64 >= $width
-            && 64 >= $height ) {
-            return true;
-        }
 
         $width = $this->compactPixelDimension($this->normalizedCssValue((string) ($declarations['width'] ?? '')), $rootFontSize);
         $heightValue = strtolower($this->normalizedCssValue((string) ($declarations['height'] ?? 'auto')));
@@ -687,12 +708,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
 
     private function compactHtmlDimension(string $value): ?float
     {
-        if ( ! preg_match('/^\s*(\d+(?:\.\d+)?)\s*$/', $value, $matches) ) {
-            return null;
-        }
+        $dimension = HtmlDimensionAttribute::pixels($value);
 
-        $dimension = (float) $matches[1];
-        return 0 < $dimension ? $dimension : null;
+        return null !== $dimension && 0 < $dimension ? $dimension : null;
     }
 
     /**

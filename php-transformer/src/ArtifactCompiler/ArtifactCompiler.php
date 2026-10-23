@@ -48,7 +48,7 @@ final class ArtifactCompiler
 {
     use StagedTransport;
 
-    private const MAX_PLAN_DIGEST_DEPTH = 512;
+    public const MAX_PLAN_DIGEST_DEPTH = 512;
 
     public const INPUT_SCHEMA = 'blocks-engine/php-transformer/site-artifact/v1';
     // Plans are a published v1 transport contract. Receipts are additive: v2
@@ -350,6 +350,7 @@ final class ArtifactCompiler
             if (is_array($fallback)) unset($fallback['_collection_binding_declined']);
             return $fallback;
         }, $allFallbacks);
+        $authoredFiles = $normalized['files'];
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''));
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
@@ -366,7 +367,7 @@ final class ArtifactCompiler
             if ($content !== $file['content']) $file = $this->projectedStylesheetFile($file, $file['path'], $content);
         }
         unset($file);
-        $wordpressCompatAssets = $this->wordpressCompatAssetsForDocuments($normalized['files']);
+        $wordpressCompatAssets = $this->wordpressCompatAssetsForDocuments($normalized['files'], $authoredFiles);
         $normalized['files'] = $this->chunkProjectedStylesheets($normalized['files']);
         foreach ($normalized['files'] as $file) {
             if ($entryPath === ($file['path'] ?? null) && is_string($file['content'] ?? null)) {
@@ -1020,9 +1021,7 @@ final class ArtifactCompiler
         }
 
         $slug = static function (string $value): string {
-            $value = strtolower(trim($value));
-            $value = preg_replace('/[^a-z0-9]+/', '-', $value) ?? '';
-            return trim($value, '-');
+            return \Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug::segment(trim($value));
         };
         $price = static function (mixed $value): string {
             if ( ! is_scalar($value) ) return '';
@@ -1041,6 +1040,9 @@ final class ArtifactCompiler
 
         $products = array();
         $forms = array();
+        $orderLookups = array();
+        $carts = array();
+        $productGrids = array(); $productListings = array();
         foreach ( $fallbacks as $fallback ) {
             if ( ! is_array($fallback) ) continue;
             $code = (string) ($fallback['diagnostic_code'] ?? $fallback['kind'] ?? '');
@@ -1050,8 +1052,12 @@ final class ArtifactCompiler
                 if ( true === ($fallback['_collection_binding_declined'] ?? false) ) {
                     $diagnostics[] = $this->declinedProductGridBindingDiagnostic($fallback, $sourcePath, $container);
                 }
+                $gridItems = array();
                 foreach ( is_array($fallback['products'] ?? null) ? $fallback['products'] : array() as $product ) {
                     if ( ! is_array($product) ) continue;
+                    if ( is_array($product['template_slots'] ?? null) && is_scalar($product['name'] ?? null) && '' !== trim((string) $product['name']) ) {
+                        $gridItems[] = array('product' => $slug(is_scalar($product['slug'] ?? null) ? (string) $product['slug'] : trim((string) $product['name'])), 'slots' => $product['template_slots']);
+                    }
                     $name = is_scalar($product['name'] ?? null) ? trim((string) $product['name']) : '';
                     $productSlug = $slug(is_scalar($product['slug'] ?? null) ? (string) $product['slug'] : $name);
                     $regularPrice = $price($product['price'] ?? null);
@@ -1061,6 +1067,8 @@ final class ArtifactCompiler
                     if ( is_scalar($product['description'] ?? null) && '' !== trim((string) $product['description']) ) $row['description'] = (string) $product['description'];
                     $image = is_string($product['image'] ?? null) ? $product['image'] : (is_array($product['image'] ?? null) && is_string($product['image']['src'] ?? null) ? $product['image']['src'] : '');
                     if ( '' !== trim($image) ) $row['image'] = $image;
+                    if ( is_string($product['category'] ?? null) && '' !== trim($product['category']) ) $row['category'] = trim($product['category']);
+                    if ( is_array($product['attributes'] ?? null) && array() !== $product['attributes'] ) $row['attributes'] = $product['attributes'];
                     $sourceSelector = is_string($product['source_selector'] ?? null) ? trim($product['source_selector']) : '';
                     $selectors = array_values(array_unique(array_filter(array($sourceSelector, $container), static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
                     if ( array() !== $selectors ) $row['source_selectors'] = $selectors;
@@ -1074,6 +1082,8 @@ final class ArtifactCompiler
                         $row['bindings'] = array(array_merge($product['binding'], array('source_path' => $sourcePath)));
                     }
                     if ( isset($products[$productSlug]) ) {
+                        // The same product on another page may be the one its filters describe.
+                        foreach ( array('category', 'attributes') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
                         if ( ! isset($row['bindings'][0]) ) {
                             continue;
                         }
@@ -1086,6 +1096,37 @@ final class ArtifactCompiler
                     }
                     $products[$productSlug] = $row;
                 }
+                // A grid a provider can replace with its own product loop: the
+                // grid-scope anchor plus the card as an item template and each
+                // product's value for every template slot.
+                $gridBinding = $fallback['binding'] ?? null;
+                $emptyListing = 0 === ($fallback['product_count'] ?? null) && ! empty($fallback['listing']['controls']);
+                if ( '' !== $container && ($emptyListing || (is_array($fallback['item_template'] ?? null) && array() !== $gridItems)) && is_array($gridBinding) && 'generic/block-binding/v1' === ($gridBinding['schema'] ?? null) && is_string($gridBinding['search_block_markup'] ?? null) && '' !== trim($gridBinding['search_block_markup']) ) {
+                    $productGrids[$sourcePath . "\n" . $container] = array('source_path' => $sourcePath, 'selector' => $container, 'items' => $gridItems, 'bindings' => array(array_merge($gridBinding, array('source_path' => $sourcePath))));
+                    if ( isset($fallback['item_template']) ) $productGrids[$sourcePath . "\n" . $container]['item_template'] = $fallback['item_template'];
+                    // The controls that facet, bound, sort, or count this grid:
+                    // the region holding them with the grid is the first
+                    // binding, then one binding per control naming its id.
+                    $listing = $fallback['listing'] ?? null;
+                    if ( is_array($listing) && is_string($listing['selector'] ?? null) && is_array($listing['binding'] ?? null) && is_array($listing['controls'] ?? null) && array() !== $listing['controls'] ) {
+                        $controls = array();
+                        $bindings = array(array_merge($listing['binding'], array('source_path' => $sourcePath)));
+                        foreach ( $listing['controls'] as $control ) {
+                            $id = $control['kind'] . (isset($control['key']) ? ':' . $control['key'] : (isset($control['field']) ? ':' . $control['field'] : ''));
+                            $bindings[] = array_merge($control['binding'], array('source_path' => $sourcePath, 'control' => $id));
+                            unset($control['binding']);
+                            $controls[] = array('id' => $id) + $control;
+                        }
+                        $productListings[$sourcePath . "\n" . $listing['selector']] = array('source_path' => $sourcePath, 'selector' => $listing['selector'], 'grid_selector' => $container, 'controls' => $controls, 'bindings' => $bindings);
+                    }
+                }
+            } elseif ( 'html_cart_view_fallback' === $code ) {
+                // A cart view is provider-bindable only through its page-owned
+                // anchor; without one a provider cannot locate it in the page.
+                $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+                $binding = $fallback['binding'] ?? null;
+                if ( '' === $selector || ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? null) || ! is_string($binding['search_block_markup'] ?? null) || '' === trim($binding['search_block_markup']) ) continue;
+                $carts[$sourcePath . "\n" . $selector] = array('source_path' => $sourcePath, 'selector' => $selector, 'bindings' => array(array_merge($binding, array('source_path' => $sourcePath))));
             } elseif ( 'html_form_fallback' === $code && is_array($fallback['controls'] ?? null) ) {
                 $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
                 // Only a finding carrying data-entry metadata describes a form a
@@ -1120,6 +1161,31 @@ final class ArtifactCompiler
                 $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => $rawControls);
                 if ( array() !== $choiceGroups ) $form['choice_groups'] = $choiceGroups;
                 foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null) && preg_match('/^[a-f0-9]{64}$/', $fallback[$identityKey])) $form[$identityKey] = $fallback[$identityKey];
+                // An order-lookup form (order number + the email used at checkout
+                // + a submit) is a shop surface: a form provider can never answer
+                // it, while a shop provider owns order tracking. Recognized forms
+                // are pulled out of the detected-forms path here — the path that
+                // would otherwise declare them in `forms` — and declared beside
+                // the other shop collections below, reusing the finding's
+                // finalized form anchor under the `order_lookup` role. The
+                // `html_form_fallback` finding itself keeps carrying the
+                // extracted controls with its fallback identity, so a consumer
+                // can reconcile the form against its materialization. A form
+                // without a page-owned anchor stays on the generic path, which
+                // declines it loudly instead of silently.
+                $orderLookupBinding = is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ? $fallback['binding'] : null;
+                $orderLookup = array() === $choiceGroups ? OrderLookupFormRecognizer::recognize($rawControls) : null;
+                if ( null !== $orderLookup && null !== $orderLookupBinding ) {
+                    // The entity carries the same source form evidence and fallback
+                    // identity a `forms` entity would, so a consumer reconciles
+                    // it against the `html_form_fallback` finding unchanged.
+                    $orderLookups[$sourcePath . "\n" . $selector] = array_filter($form + array(
+                        'fields' => $orderLookup['fields'],
+                        'submit_label' => '' !== $orderLookup['submit_label'] ? $orderLookup['submit_label'] : null,
+                        'bindings' => array(array_merge($orderLookupBinding, array('role' => 'order_lookup', 'source_path' => $sourcePath))),
+                    ), static fn (mixed $value): bool => null !== $value && array() !== $value);
+                    continue;
+                }
                 // The control topology is the provider's map of where each flat
                 // control sits, and consumers enforce the same producer contract
                 // against this entity's control list. A topology that fails it
@@ -1190,16 +1256,52 @@ final class ArtifactCompiler
                 $forms[$sourcePath . "\n" . $selector] = $form;
             }
         }
-        foreach ( SchemaProductEvidence::rows($files, $slug, $price) as $productSlug => $row ) {
+        foreach ( SchemaProductEvidence::rows($files, $slug, $price, $diagnostics) as $productSlug => $row ) {
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
-            foreach ( array('description', 'image') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+            foreach ( array('description', 'image', 'category', 'sku', 'images', 'tags', 'variants', 'sale_price', 'stock_status') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
-        ksort($products, SORT_STRING); ksort($forms, SORT_STRING);
+        // Listing-owned forms are shop controls, not a second form-provider
+        // surface. In particular a sort-only form and its select may serialize
+        // to the very same block anchor. Retain mixed/data-entry forms.
+        foreach ( $forms as $key => $form ) {
+            $owned = array();
+            foreach ( $productListings as $listing ) {
+                if ( $listing['source_path'] !== $form['source_path'] ) continue;
+                foreach ( $listing['controls'] as $control ) $owned[] = $control['selector'];
+            }
+            $unclaimed = array_filter($form['controls'] ?? array(), static function (array $control) use ($owned): bool {
+                $selector = $control['selector'] ?? '';
+                foreach ( $owned as $owner ) {
+                    if ( $selector === $owner || str_starts_with($selector, $owner . ' > ') ) return false;
+                }
+                return ! in_array($control['type'] ?? '', array('submit', 'button', 'reset'), true);
+            });
+            if ( array() !== $owned && array() === $unclaimed ) unset($forms[$key]);
+        }
+        ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($orderLookups, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
         $collections = array(
-            'shop' => array('type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
-            'form' => array('type' => 'forms', 'aliases' => array('form', 'forms'), 'entities' => array_values($forms), 'schema' => 'generic/forms/v1'),
+            array('capability' => 'shop', 'type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
+            // A cart holds the store's products, so a cart view is declared only
+            // beside a products collection: on its own it would ask a provider
+            // to install a store with nothing to sell.
+            array('capability' => 'shop', 'type' => 'carts', 'aliases' => array('cart', 'carts'), 'entities' => array_values($carts), 'schema' => 'generic/carts/v1', 'requires' => array('product', 'products')),
+            // Empty controlled listings still declare their replaceable grid
+            // region, even when the site has no products yet.
+            array('capability' => 'shop', 'type' => 'product_grids', 'aliases' => array('product_grid', 'product_grids'), 'entities' => array_values($productGrids), 'schema' => 'generic/product-grids/v1'),
+            // The filters, sort, and count around a grid narrow or order that
+            // grid, so they are declared only beside the grids.
+            array('capability' => 'shop', 'type' => 'product_listings', 'aliases' => array('product_listing', 'product_listings'), 'entities' => array_values($productListings), 'schema' => 'generic/product-listings/v1', 'requires' => array('product_grid', 'product_grids')),
+            // An order lookup asks the store for one past order by its number
+            // and the buyer's email, so like carts it is declared for the shop
+            // capability: a form provider could not answer it. The same form is
+            // never also declared in `forms`.
+            array('capability' => 'shop', 'type' => 'order_lookups', 'aliases' => array('order_lookup', 'order_lookups'), 'entities' => array_values($orderLookups), 'schema' => 'generic/order-lookups/v1'),
+            array('capability' => 'form', 'type' => 'forms', 'aliases' => array('form', 'forms'), 'entities' => array_values($forms), 'schema' => 'generic/forms/v1'),
         );
-        foreach ( $collections as $capability => $collection ) {
+        foreach ( $collections as $collection ) {
+            $capability = $collection['capability'];
+            $requires = $collection['requires'] ?? array();
+            if ( array() !== $requires && array() === array_filter($requires, static fn (string $type): bool => isset($keys['entity_collection:' . $type])) ) continue;
             $entityKey = 'entity_collection:' . $collection['type'];
             foreach ( $collection['aliases'] as $alias ) if ( isset($keys['entity_collection:' . $alias]) ) { $entityKey = 'entity_collection:' . $alias; break; }
             if ( array() !== $collection['entities'] && ! isset($keys[$entityKey]) ) {
@@ -2032,16 +2134,36 @@ final class ArtifactCompiler
     }
 
     /**
-     * Replay the same occurrence stream used by source analysis, after selector
-     * projection and before chunking. File transport order is not CSS order.
-     * A page's delta belongs immediately after its source stylesheet, not after
-     * another linked stylesheet or another page's cascade.
+     * Replay the pre-projection authored occurrence stream, excluding native
+     * item subjects already carried by projection. Generated editor alternatives are
+     * transport, not additional source navigation rules. File transport order
+     * is not CSS order.
      *
      * @param array<int, array<string, mixed>> $files
+     * @param array<int, array<string, mixed>> $authoredFiles
      * @return array<int, array<string, mixed>>
      */
-    private function wordpressCompatAssetsForDocuments(array $files): array
+    private function wordpressCompatAssetsForDocuments(array $files, array $authoredFiles): array
     {
+        // Replay authored rules, not generated element/editor alternatives.
+        // A source list-item subject replaced by a native item projection already
+        // carries its geometry in the author sheet and must not be replayed.
+        // Apply the same selection to route-owned deltas.
+        $authoredByPath = array_column($authoredFiles, null, 'path');
+        $transformer = new CssStylesheetTransformer();
+        foreach ($files as &$file) {
+            if ('css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) continue;
+            $source = $authoredByPath[$file['path']]['content'] ?? $authoredByPath[$file['metadata']['page_stylesheet_of'] ?? '']['content'] ?? $file['content'];
+            $native = array_fill_keys($file['metadata']['native_selectors'] ?? array(), true);
+            $file['content'] = $transformer->transformStyleRules($source, static function (string $prelude, string $body) use ($native): string {
+                $remaining = array_filter(CssStylesheetTransformer::splitSelectorList($prelude) ?? array(), static function (string $selector) use ($native): bool {
+                    $selector = preg_replace('#/\*.*?\*/#s', '', trim($selector)) ?? $selector;
+                    return !isset($native[trim($selector)]);
+                });
+                return array() === $remaining ? '' : implode(',', $remaining) . '{' . $body . '}';
+            });
+        }
+        unset($file);
         $assets = array();
         $scripts = $this->allScriptContents($files);
         foreach ($files as $document) {
@@ -2052,18 +2174,21 @@ final class ArtifactCompiler
             $ownership = $this->fileOwnership($document);
             $documentFiles = $files;
             $parts = array();
-            foreach ($this->stylesheetAssetsForSource($document['content'], $sourcePath, $documentFiles) as $stylesheet) {
-                $content = $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $documentFiles);
-                foreach ($files as $file) {
-                    if (($file['metadata']['page_stylesheet_of'] ?? null) === $stylesheet['path']
-                        && $this->fileOwnership($file) === $ownership) {
-                        $content .= "\n" . $file['content'];
-                    }
+            $stylesheets = $this->stylesheetAssetsForSource($document['content'], $sourcePath, $documentFiles);
+            foreach ($stylesheets as $stylesheet) {
+                $unit = array($this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $documentFiles));
+                $deltas = array_filter($files, fn(array $file): bool =>
+                    ($file['metadata']['page_stylesheet_of'] ?? null) === $stylesheet['path'] && $this->fileOwnership($file) === $ownership
+                );
+                usort($deltas, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
+                foreach ($deltas as $delta) {
+                    $unit[] = $this->compatibilityStylesheetContent($delta['content'], $delta['path'], $documentFiles);
                 }
+                $content = implode("\n", $unit);
                 $media = trim((string) ($stylesheet['media'] ?? ''));
                 $parts[] = '' === $media ? $content : '@media ' . $media . '{' . $content . '}';
             }
-            $asset = $this->wordpressCompat->asset($documentFiles, implode("\n", $parts), $scripts);
+            $asset = $this->wordpressCompat->asset($documentFiles, $transformer->concatenateWithoutRedundantRules($parts), $scripts);
             if (null === $asset) continue;
             // Content-identical replay can still have different route ownership.
             // Keep the existing page-asset contract instead of promoting a
@@ -2357,6 +2482,12 @@ final class ArtifactCompiler
         };
         $projections = array_map($reconcileAttributeStateMarkers, $projections);
         $primaryProjections = array_map($reconcileAttributeStateMarkers, $primaryProjections);
+        $nativeByContent = array();
+        foreach ($projections as $projection) {
+            foreach ($projection['native_selectors'] ?? array() as $selector) {
+                $nativeByContent[$projection['path']][$projection['content']][$selector] = true;
+            }
+        }
         $primaryByPath = array();
         foreach ( $primaryProjections as $projection ) {
             if ( is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null) ) {
@@ -2454,7 +2585,13 @@ final class ArtifactCompiler
             // contain a generic selector that still matches the lowered block
             // (e.g. a grid's default two-column rule), while the page projection
             // carries the source's later attribute-specific responsive winner.
-            $output[] = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $transformer->concatenateWithoutRedundantRules($sharedStylesheets) ))));
+            $native = array();
+            foreach (array_merge(array_keys($sharedByPath[$path] ?? array()), $authoritativeContent) as $content) {
+                $native += $nativeByContent[$path][$content] ?? array();
+            }
+            $projectedFile = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $transformer->concatenateWithoutRedundantRules($sharedStylesheets) ))));
+            $projectedFile['metadata']['native_selectors'] = array_keys($native);
+            $output[] = $projectedFile;
             foreach ( $pages as $owner => $pageStylesheets ) {
                 $delta = $transformer->rulesAbsentFrom($pageStylesheets, $sharedStylesheets, true);
                 if ( '' === trim($delta) ) {
@@ -2463,6 +2600,11 @@ final class ArtifactCompiler
                 $pageFile = $this->projectedStylesheetFile($file, $this->pageStylesheetPath($path, (string) $owner, $reserved), implode('', $preambles) . $delta);
                 $pageFile['metadata']['compilation'] = array( 'scope' => 'page', 'id' => (string) $owner );
                 $pageFile['metadata']['page_stylesheet_of'] = $path;
+                $pageNative = $native;
+                foreach ($pageStylesheets as $content) {
+                    $pageNative += $nativeByContent[$path][$content] ?? array();
+                }
+                $pageFile['metadata']['native_selectors'] = array_keys($pageNative);
                 $output[] = $pageFile;
             }
         }
@@ -4292,9 +4434,9 @@ final class ArtifactCompiler
      * The first navigation label that targets the front page.
      *
      * These are the same anchors navigation_links are built from: a
-     * core/navigation-link comment, else an anchor inside nav. A fragment is
-     * an in-page jump, so a hash-less label wins. A label that is only the
-     * shared site name is not the page name.
+     * core/navigation-link comment, else an anchor inside nav. Fragment links
+     * name a section of the front page, never the page itself. A label that is
+     * only the shared site name is not the page name.
      *
      * @param array<int, array<string, mixed>> $files
      * @param list<string> $siteNameSegments
@@ -4303,7 +4445,6 @@ final class ArtifactCompiler
     {
         $siteName = implode(' ', $siteNameSegments);
         $plain = '';
-        $any = '';
         foreach ( $files as $file ) {
             if ( ! is_array($file) || 'html' !== ($file['kind'] ?? '') ) {
                 continue;
@@ -4320,16 +4461,13 @@ final class ArtifactCompiler
                 if ( ( ! is_string($fragment) || '' === $fragment ) && '' === $plain ) {
                     $plain = $label;
                 }
-                if ( '' === $any ) {
-                    $any = $label;
-                }
                 if ( '' !== $plain ) {
                     return $plain;
                 }
             }
         }
 
-        return '' !== $plain ? $plain : $any;
+        return $plain;
     }
 
     /**
@@ -4676,7 +4814,7 @@ final class ArtifactCompiler
         $assets = array();
         $unsupportedStylesheets = $this->unsupportedStylesheetPaths($entryHtml, $entryPath);
         $documentLinkMedia = $this->documentLinkMedia($files);
-        $caseDistinctTargets = $this->caseDistinctTargetPaths($files);
+        $portableTargets = $this->portableTargetPaths($files);
         foreach ( $files as $file ) {
             if ( $entryPath === $file['path'] || ArtifactNormalizer::CAPTURE_REPORT_ROLE === $file['role'] || $this->isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
                 continue;
@@ -4684,7 +4822,7 @@ final class ArtifactCompiler
             $asset = array(
                 'source'           => $file['source'] ?? 'artifact',
                 'path'             => $file['path'],
-                'target_path'      => $caseDistinctTargets[$file['path']] ?? $file['path'],
+                'target_path'      => $portableTargets[$file['path']] ?? $file['path'],
                 'kind'             => $file['kind'],
                 'bytes'            => $file['bytes'],
                 'media_type'       => $file['mime_type'],
@@ -4834,19 +4972,26 @@ final class ArtifactCompiler
     }
 
     /**
-     * Theme asset targets follow the site plan's case-insensitive collision
-     * policy: two captured files whose paths differ only by letter case would
-     * land in one file on a case-insensitive filesystem, so the plan rejects
-     * them. Give every later spelling in such a group a numbered target
-     * (`photo-2.png`) that no other file uses in any case. The byte-order-first
-     * spelling keeps its name, so the outcome does not depend on file order.
+     * Theme asset targets must be portable to any WordPress host:
+     *
+     * - No path segment contains `..`. Hosts such as WordPress.com's `_static/??`
+     *   stylesheet concatenator reject such paths, so runs of dots collapse to
+     *   one (`_..x.css` becomes `_.x.css`) and the extension is kept.
+     * - Targets follow the site plan's case-insensitive collision policy: two
+     *   files whose targets differ only by letter case would land in one file
+     *   on a case-insensitive filesystem, so the plan rejects them.
+     *
+     * Files are grouped by their lowercased collapsed path. Within a group, an
+     * already portable path keeps its name (byte-order-first when several do),
+     * and every other file gets a numbered target (`photo-2.png`) that no other
+     * file uses in any case. The outcome does not depend on file order.
      * Source paths stay as captured: references resolve by exact source path,
      * and each asset's token hashes its own target.
      *
      * @param array<int, array<string, mixed>> $files
      * @return array<string, string> Source path to target path, for renamed files only.
      */
-    private function caseDistinctTargetPaths(array $files): array
+    private function portableTargetPaths(array $files): array
     {
         $groups = array();
         $reserved = array();
@@ -4856,23 +5001,34 @@ final class ArtifactCompiler
                 continue;
             }
             $reserved[strtolower($path)] = true;
-            $groups[strtolower($path)][$path] = true;
+            $collapsed = self::collapseDotRuns($path);
+            $groups[strtolower($collapsed)][$path] = $collapsed;
         }
         $targets = array();
         ksort($groups, SORT_STRING);
         foreach ( $groups as $spellings ) {
-            if ( count($spellings) < 2 ) {
-                continue;
-            }
-            $paths = array_keys($spellings);
-            sort($paths, SORT_STRING);
-            foreach ( array_slice($paths, 1) as $path ) {
-                $target = ArtifactNormalizer::dedupePath((string) $path, $reserved, true);
+            $paths = array_map('strval', array_keys($spellings));
+            // Portable spellings first, then byte order.
+            usort($paths, static fn(string $left, string $right): int => (($left !== $spellings[$left]) <=> ($right !== $spellings[$right])) ?: strcmp($left, $right));
+            foreach ( $paths as $index => $path ) {
+                if ( 0 === $index && $path === $spellings[$path] ) {
+                    continue;
+                }
+                $target = ArtifactNormalizer::dedupePath($spellings[$path], $reserved, true);
                 $reserved[strtolower($target)] = true;
-                $targets[(string) $path] = $target;
+                $targets[$path] = $target;
             }
         }
         return $targets;
+    }
+
+    /**
+     * Collapse every run of two or more dots to a single dot, so no path
+     * segment contains `..`.
+     */
+    private static function collapseDotRuns(string $path): string
+    {
+        return preg_replace('/\.{2,}/', '.', $path) ?? $path;
     }
 
     /**
@@ -5125,7 +5281,9 @@ final class ArtifactCompiler
                 if (isset($components[$identity])) $component['occurrences'] = (int) ($components[$identity]['occurrences'] ?? 1) + (int) ($component['occurrences'] ?? 1);
                 $components[$identity] = $component;
             }
-            foreach ($fact['classes'] as $class => $count) $classes[$class] = (int) ($classes[$class] ?? 0) + (int) $count;
+            // PHP stores an all-digit class token as an int array key; read it
+            // back as the string the source authored. See blocks-engine#3098.
+            foreach ($fact['classes'] as $classKey => $count) { $class = (string) $classKey; $classes[$class] = (int) ($classes[$class] ?? 0) + (int) $count; }
         }
         return array('components' => array_values($components), 'classes' => $classes);
     }
@@ -5135,7 +5293,10 @@ final class ArtifactCompiler
     {
         $components = $facts['components'];
 
-        foreach ( $facts['classes'] as $class => $count ) {
+        foreach ( $facts['classes'] as $classKey => $count ) {
+            // PHP stores an all-digit class token as an int array key; read it
+            // back as the string the source authored. See blocks-engine#3098.
+            $class = (string) $classKey;
             if ( $count < 2 && ! preg_match('/(?:card|grid|hero|nav|header|footer|feature|testimonial|pricing|product|gallery|section)/', $class) ) {
                 continue;
             }

@@ -192,7 +192,7 @@ $assert(
 );
 
 $important = $transform('<style>a.cta:hover{padding:1rem!important}.cta:hover{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
-$assert(str_contains($css($important), '> :where(.wp-block-button__link):hover{padding:1rem!important}') && strpos($css($important), 'padding:1rem!important') < strpos($css($important), 'padding:2rem'), 'projected selectors preserve !important declarations and authored cascade order');
+$assert(str_contains($css($important), '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0):hover{padding:1rem!important}') && strpos($css($important), 'padding:1rem!important') < strpos($css($important), 'padding:2rem'), 'projected selectors preserve !important declarations and authored cascade order');
 
 $shared = $transform('<style>.shared{margin:1px}p.shared{color:green}*{color:blue}</style><a class="shared cta" href="/go" style="padding:1px;background:#000">Go</a><button class="shared" style="padding:1px;background:#000">Send</button><p class="shared wp-block-button">Other</p>');
 $sharedCss = $css($shared);
@@ -213,7 +213,7 @@ $collisionResult = $transform($collision);
 $assert('' !== $match[0] && str_contains($css($collisionResult), 'blocks-engine-source-p-' . $match[1] . '-' . ($match[2] + 1)), 'marker collisions select the deterministic next candidate');
 
 $nested = $transform('<style>@media (min-width:1px){@supports (display:grid){p + a.cta:hover{padding:1rem}}}</style><p>Before</p><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
-$assert(str_contains($css($nested), '@media') && str_contains($css($nested), '@supports') && str_contains($css($nested), '> :where(.wp-block-button__link):hover'), 'nested media and supports rules preserve declarations while projecting selectors');
+$assert(str_contains($css($nested), '@media') && str_contains($css($nested), '@supports') && str_contains($css($nested), '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0):hover'), 'nested media and supports rules preserve declarations while projecting selectors');
 
 $rootChildren = $transform('<style>body > *{position:relative;z-index:1}section{color:red}</style><section id="hero"><h1>Hero</h1></section><section id="features"><h2>Features</h2></section>');
 $rootChildrenMarkup = (string) ($rootChildren['serialized_blocks'] ?? '');
@@ -360,7 +360,7 @@ $assert(
 
 $zeroWidthControl = $transform('<style>.skip{position:absolute;left:50%;width:0;height:0;padding:0 24px}</style><button class="skip">Skip</button>');
 $zeroWidthControlCss = $css($zeroWidthControl);
-$assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0;height:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link){padding:0 24px}'), 'control dimensions and positioning stay on the native wrapper while inner paint remains on the button link');
+$assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0;height:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){padding:0 24px}'), 'control dimensions and positioning stay on the native wrapper while inner paint remains on the button link');
 
 $heroLayers = $transform('<style>.hero{position:relative;min-height:46rem}.hero-image,.hero-overlay{position:absolute;inset:0}.hero-copy{position:relative}</style><section class="hero"><img class="hero-image" src="hero.jpg" alt="Hero"><div class="hero-overlay"></div><div class="hero-copy"><h1>Visible hero copy</h1></div></section>');
 $heroLayersCss = $css($heroLayers);
@@ -401,17 +401,17 @@ $assert(str_contains($directControlMarkup, 'control-cluster') && str_contains($d
 $navCta = $transform('<style>a.btn.btn-primary.nav-cta{display:inline-flex;align-items:center;gap:8px;font-family:monospace;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:9px 20px;border-radius:6px;background:#e8a020;color:#050d1a}.nav-cta:hover{background:#f0ac22}.nav-cta:focus{outline:2px solid #fff}</style><main><a class="btn btn-primary nav-cta" href="#cta">Get Early Access</a></main>');
 $navCtaMarkup = (string) ($navCta['serialized_blocks'] ?? '');
 $navCtaCss = $css($navCta);
-$assert(str_contains($navCtaMarkup, 'blocks-engine-control-') && str_contains($navCtaCss, '> :where(.wp-block-button__link){display:inline-flex') && str_contains($navCtaCss, 'font-family:monospace') && str_contains($navCtaCss, 'padding:9px 20px') && str_contains($navCtaCss, 'background:#e8a020') && str_contains($navCtaCss, ':hover{background:#f0ac22}') && str_contains($navCtaCss, ':focus{outline:2px solid #fff}') && 'pass' === ($navCta['source_reports']['wp_block_validity']['status'] ?? ''), 'class-bearing source anchors project compound, typography, paint, and pseudo-state selectors onto valid core/button links');
+$assert(str_contains($navCtaMarkup, 'blocks-engine-control-') && str_contains($navCtaCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){display:inline-flex') && str_contains($navCtaCss, 'font-family:monospace') && str_contains($navCtaCss, 'padding:9px 20px') && str_contains($navCtaCss, 'background:#e8a020') && str_contains($navCtaCss, ':hover{background:#f0ac22}') && str_contains($navCtaCss, ':focus{outline:2px solid #fff}') && 'pass' === ($navCta['source_reports']['wp_block_validity']['status'] ?? ''), 'class-bearing source anchors project compound, typography, paint, and pseudo-state selectors onto valid core/button links');
 
 $nestedLabelButton = $transform('<style>.contact{display:inline-flex;padding:9px 20px;border-radius:999px;background:#001b2e;color:#000}.contact-label{background-color:transparent;color:#eeffff;font:400 15.75px/1 helvetica}</style><a class="contact" href="#contact"><span class="contact-label">Contacts</span></a>');
 $nestedLabelButtonCss = $css($nestedLabelButton);
 $nestedLabelButtonMarkup = (string) ($nestedLabelButton['serialized_blocks'] ?? '');
-$assert(str_contains($nestedLabelButtonMarkup, '<mark ') && str_contains($nestedLabelButtonMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($nestedLabelButtonCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($nestedLabelButtonCss, 'background-color:transparent') && ! str_contains($nestedLabelButtonCss, '> :where(.wp-block-button__link){background-color:transparent') && ! str_contains($nestedLabelButtonCss, 'color:#000!important') && 'pass' === ($nestedLabelButton['source_reports']['wp_block_validity']['status'] ?? ''), 'button label typography and paint stay on its RichText carrier instead of repainting the native control');
+$assert(str_contains($nestedLabelButtonMarkup, '<mark ') && str_contains($nestedLabelButtonMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($nestedLabelButtonCss, ':where(.blocks-engine-role-richtext.blocks-engine-subject.blocks-engine-subject-class-') && str_contains($nestedLabelButtonCss, 'background-color:transparent') && ! str_contains($nestedLabelButtonCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){background-color:transparent') && ! str_contains($nestedLabelButtonCss, 'color:#000!important') && 'pass' === ($nestedLabelButton['source_reports']['wp_block_validity']['status'] ?? ''), 'button label typography and paint stay on its RichText carrier instead of repainting the native control');
 
 $controlMargin = $transform('<style>.nav-cta{margin-left:24px;font-family:monospace}</style><main><a class="nav-cta" href="#cta" style="display:inline-flex;padding:9px 20px;background:#e8a020">Get Early Access</a></main>');
 $controlMarginCss = $css($controlMargin);
 $controlMarginOuterClass = (string) ($controlMargin['blocks'][0]['attrs']['className'] ?? '');
-$assert(! isset($controlMargin['blocks'][0]['attrs']['style']['spacing']['margin']['left']) && str_contains($controlMarginOuterClass, 'blocks-engine-control-') && str_contains($controlMarginCss, '> :where(.wp-block-button__link){font-family:monospace}') && str_contains($controlMarginCss, 'margin-left:24px') && ! str_contains($controlMarginCss, '> :where(.wp-block-button__link){margin-left:24px'), 'control margins use the carrier while typography remains on its link');
+$assert(! isset($controlMargin['blocks'][0]['attrs']['style']['spacing']['margin']['left']) && str_contains($controlMarginOuterClass, 'blocks-engine-control-') && str_contains($controlMarginCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){font-family:monospace}') && str_contains($controlMarginCss, 'margin-left:24px') && ! str_contains($controlMarginCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){margin-left:24px'), 'control margins use the carrier while typography remains on its link');
 
 $textLockupLogo = $transform('<style>.brand{font-size:19.2px;font-weight:400;letter-spacing:.02em;text-transform:uppercase;text-decoration:none;line-height:1;display:inline-flex;align-items:center;gap:.5rem;white-space:nowrap}.brand .mark{display:inline-grid;place-items:center;width:1.9em;height:1.9em;border-radius:50%;background:#f15a36;color:#fff;font-size:.72em;letter-spacing:.02em}.brand .word span{color:#f8d849}</style><a class="brand" href="#hero"><span class="mark">SC</span><span class="word">SUPER<span>COACHING</span></span></a>');
 $textLockupLogoMarkup = (string) ($textLockupLogo['serialized_blocks'] ?? '');
@@ -444,7 +444,7 @@ $decorativeMarkLogoCss = $css($decorativeMarkLogo);
 $assert(
     'core/buttons' === ($decorativeMarkLogo['blocks'][0]['blockName'] ?? '')
         && 'core/button' === ($decorativeMarkLogo['blocks'][0]['innerBlocks'][0]['blockName'] ?? '')
-        && str_contains($decorativeMarkLogoMarkup, '<span class="brand-mark" aria-hidden="true"')
+        && 1 === preg_match('/<span class="brand-mark[ "][^>]*aria-hidden="true"/', $decorativeMarkLogoMarkup)
         && str_contains($decorativeMarkLogoMarkup, 'style="border-radius:0;background-color:transparent;padding-top:0;padding-right:0;padding-bottom:0;padding-left:0"')
         && str_contains($decorativeMarkLogoCss, 'border-radius:0 !important')
         && 'pass' === ($decorativeMarkLogo['source_reports']['wp_block_validity']['status'] ?? ''),
@@ -549,7 +549,7 @@ $buttonRichTextMarkerMarkup = (string) ($buttonRichTextMarker['serialized_blocks
 $buttonRichTextMarkerCss = $css($buttonRichTextMarker);
 preg_match('/data-blocks-engine-richtext-marker="([^"]+)"/', $buttonRichTextMarkerMarkup, $buttonRichTextMarkerMatch);
 $buttonRichTextMarkerValue = $buttonRichTextMarkerMatch[1] ?? '';
-$assert(str_contains($buttonRichTextMarkerMarkup, '<!-- wp:button') && '' !== $buttonRichTextMarkerValue && str_contains($buttonRichTextMarkerMarkup, '<span class="brand-mark" data-blocks-engine-richtext-marker="' . $buttonRichTextMarkerValue) && str_contains($buttonRichTextMarkerCss, 'span[data-blocks-engine-richtext-marker="' . $buttonRichTextMarkerValue . '"]') && str_contains($buttonRichTextMarkerCss, 'display:grid;place-items:center;width:30px;height:30px') && ! str_contains($buttonRichTextMarkerMarkup, 'blocks-engine-semantic-') && ! str_contains($buttonRichTextMarkerMarkup, '<!-- wp:html') && 'pass' === ($buttonRichTextMarker['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-addressed display-grid spans inside promoted control RichText retain matching marker carriers and valid nested span topology');
+$assert(str_contains($buttonRichTextMarkerMarkup, '<!-- wp:button') && '' !== $buttonRichTextMarkerValue && 1 === preg_match('/<span class="brand-mark blocks-engine-role-richtext blocks-engine-subject [^"]*" data-blocks-engine-richtext-marker="' . preg_quote($buttonRichTextMarkerValue, '/') . '"/', $buttonRichTextMarkerMarkup) && str_contains($buttonRichTextMarkerCss, ':where(.blocks-engine-role-richtext.blocks-engine-subject.blocks-engine-subject-class-') && ! str_contains($buttonRichTextMarkerCss, $buttonRichTextMarkerValue) && str_contains($buttonRichTextMarkerCss, 'display:grid;place-items:center;width:30px;height:30px') && ! str_contains($buttonRichTextMarkerMarkup, 'blocks-engine-semantic-') && ! str_contains($buttonRichTextMarkerMarkup, '<!-- wp:html') && 'pass' === ($buttonRichTextMarker['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-addressed display-grid spans inside promoted control RichText retain matching marker carriers and valid nested span topology');
 
 $svgLogo = $transform('<style>.logo{display:inline-flex;align-items:center;gap:.6rem}.logo-mark{width:38px;height:38px;display:grid;place-items:center;flex:none}.logo-mark svg{width:22px;height:22px}</style><header><a class="logo" href="/" aria-label="Home"><span class="logo-mark"><svg viewBox="0 0 38 38" aria-hidden="true"><circle cx="19" cy="19" r="18"/></svg></span><span class="logo-text">Block Party</span></a></header>');
 $svgLogoMarkup = (string) ($svgLogo['serialized_blocks'] ?? '');
@@ -637,7 +637,7 @@ $assert(2 === preg_match_all('/<p class="[^"]*\bblocks-engine-synthetic-paragrap
 $richTextPill = $transform('<style>p .pill{padding:2px 8px;border:1px solid #999}</style><p>Read <span class="pill">more</span>.</p>');
 $richTextPillMarkup = (string) ($richTextPill['serialized_blocks'] ?? '');
 $richTextPillCss = $css($richTextPill);
-$assert(str_contains($richTextPillMarkup, '<mark class="pill"') && str_contains($richTextPillMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($richTextPillCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($richTextPill['source_reports']['wp_block_validity']['status'] ?? ''), 'RichText-contained selector hooks survive through valid mark formatting and projected CSS');
+$assert(str_contains($richTextPillMarkup, '<mark class="pill blocks-engine-role-richtext ') && str_contains($richTextPillMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($richTextPillCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($richTextPill['source_reports']['wp_block_validity']['status'] ?? ''), 'RichText-contained selector hooks survive through valid mark formatting and projected CSS');
 
 $standaloneInlineLeaves = $transform('<strong class="metric-value">+150</strong><span class="metric-label">Properties</span>');
 $standaloneInlineLeavesMarkup = (string) ($standaloneInlineLeaves['serialized_blocks'] ?? '');
@@ -710,16 +710,16 @@ $assert(
 
 $markStaticLonghand = $transform('<style>.hl{background-color:gold}</style><p><span class="hl">Static longhand</span></p>');
 $markStaticLonghandMarkup = (string) ($markStaticLonghand['serialized_blocks'] ?? '');
-$assert(str_contains($markStaticLonghandMarkup, '<mark class="hl"') && str_contains($markStaticLonghandMarkup, 'background-color:gold') && ! str_contains($markStaticLonghandMarkup, 'background-color:transparent'), 'authored static longhand background survives RichText mark projection');
+$assert(str_contains($markStaticLonghandMarkup, '<mark class="hl blocks-engine-role-richtext ') && str_contains($markStaticLonghandMarkup, 'background-color:gold') && ! str_contains($markStaticLonghandMarkup, 'background-color:transparent'), 'authored static longhand background survives RichText mark projection');
 
 $markStaticShorthand = $transform('<style>.hl{background:gold}</style><p><span class="hl">Static shorthand</span></p>');
 $markStaticShorthandMarkup = (string) ($markStaticShorthand['serialized_blocks'] ?? '');
-$assert(str_contains($markStaticShorthandMarkup, '<mark class="hl"') && str_contains($markStaticShorthandMarkup, 'background:gold') && ! str_contains($markStaticShorthandMarkup, 'background-color:transparent'), 'authored static shorthand background survives RichText mark projection');
+$assert(str_contains($markStaticShorthandMarkup, '<mark class="hl blocks-engine-role-richtext ') && str_contains($markStaticShorthandMarkup, 'background:gold') && ! str_contains($markStaticShorthandMarkup, 'background-color:transparent'), 'authored static shorthand background survives RichText mark projection');
 
 $markConditionalLonghand = $transform('<style>@media(min-width:1px){.hl{background-color:gold}}</style><p><span class="hl">Conditional longhand</span></p>');
 $markConditionalLonghandMarkup = (string) ($markConditionalLonghand['serialized_blocks'] ?? '');
 $markConditionalLonghandCss = $css($markConditionalLonghand);
-$assert(str_contains($markConditionalLonghandMarkup, '<mark class="hl"') && str_contains($markConditionalLonghandCss, '@media(min-width:1px)') && str_contains($markConditionalLonghandCss, 'background-color:gold') && ! str_contains($markConditionalLonghandMarkup, 'background-color:transparent'), 'authored conditional longhand background survives RichText mark projection');
+$assert(str_contains($markConditionalLonghandMarkup, '<mark class="hl blocks-engine-role-richtext ') && str_contains($markConditionalLonghandCss, '@media(min-width:1px)') && str_contains($markConditionalLonghandCss, 'background-color:gold') && ! str_contains($markConditionalLonghandMarkup, 'background-color:transparent'), 'authored conditional longhand background survives RichText mark projection');
 
 $markInlineLonghand = $transform('<p><span class="hl" style="background-color:gold">Inline longhand</span></p>');
 $markInlineLonghandMarkup = (string) ($markInlineLonghand['serialized_blocks'] ?? '');
@@ -731,11 +731,11 @@ $assert(str_contains($richTextPunctuationMarkup, '&quot;') && str_contains($rich
 
 $standaloneBadge = $transform('<style>.card .badge{display:inline-block;margin-top:1rem;padding:.25rem .7rem;border:1px solid #999;border-radius:999px;background:#eee;color:#6040cc}</style><article class="card"><h2>Feature</h2><span class="badge">Stable</span></article>');
 $standaloneBadgeMarkup = (string) ($standaloneBadge['serialized_blocks'] ?? '');
-$assert(str_contains($standaloneBadgeMarkup, '<mark style="') && str_contains($standaloneBadgeMarkup, 'display:inline-block') && str_contains($standaloneBadgeMarkup, 'padding:.25rem .7rem') && str_contains($standaloneBadgeMarkup, 'border-radius:999px') && str_contains($standaloneBadgeMarkup, 'background:#eee') && 'pass' === ($standaloneBadge['source_reports']['wp_block_validity']['status'] ?? ''), 'standalone RichText styling hooks carry static visual declarations without depending on runtime selector markers');
+$assert(1 === preg_match('/<mark (?:class="blocks-engine-role-richtext [^"]*" )?style="/', $standaloneBadgeMarkup) && str_contains($standaloneBadgeMarkup, 'display:inline-block') && str_contains($standaloneBadgeMarkup, 'padding:.25rem .7rem') && str_contains($standaloneBadgeMarkup, 'border-radius:999px') && str_contains($standaloneBadgeMarkup, 'background:#eee') && 'pass' === ($standaloneBadge['source_reports']['wp_block_validity']['status'] ?? ''), 'standalone RichText styling hooks carry static visual declarations without depending on runtime selector markers');
 
 $inlineStat = $transform('<style>.stat-num{font-size:4rem}.stat-num .suffix{font-size:2rem;color:#6040cc}</style><div class="stat-num"><span data-count="43">43</span><span class="suffix">%</span></div>');
 $inlineStatMarkup = (string) ($inlineStat['serialized_blocks'] ?? '');
-$assert(1 === substr_count($inlineStatMarkup, '<!-- wp:paragraph') && str_contains($inlineStatMarkup, '>43</span><mark class="suffix"') && str_contains($inlineStatMarkup, 'font-size:2rem') && str_contains($inlineStatMarkup, '>%</mark>'), 'non-structural inline metrics and suffixes remain in one styled RichText line');
+$assert(1 === substr_count($inlineStatMarkup, '<!-- wp:paragraph') && str_contains($inlineStatMarkup, '>43</span><mark class="suffix blocks-engine-role-richtext ') && str_contains($inlineStatMarkup, 'font-size:2rem') && str_contains($inlineStatMarkup, '>%</mark>'), 'non-structural inline metrics and suffixes remain in one styled RichText line');
 
 $gradientText = $transform('<style>:root{--hero:linear-gradient(90deg,#26f,#f56)}h1 .grad{background:var(--hero);background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent}</style><h1>Open <span class="grad">forever</span></h1>');
 $gradientTextMarkup = (string) ($gradientText['serialized_blocks'] ?? '');
@@ -768,13 +768,13 @@ $assert(str_contains($gridRichTextMarkup, '<!-- wp:group {"className":"artifact-
 $selectorIdentity = $transform('<style>.roster-card .stamp{color:#6040cc}.roster-card .stamp:hover{color:#123456}.roster-card a.view{display:inline-flex;align-items:center;gap:6px}.roster-card a.view:hover{color:#123456}</style><div class="roster-card"><p><span class="stamp" id="release-stamp" data-kind="release">New</span></p><a class="view" id="view-release" data-kind="release-link" href="/release" target="_blank" rel="noopener">View release</a><a href="/plain">Plain link</a></div>');
 $selectorIdentityMarkup = (string) ($selectorIdentity['serialized_blocks'] ?? '');
 $selectorIdentityCss = $css($selectorIdentity);
-$assert(str_contains($selectorIdentityMarkup, '<mark class="stamp" id="release-stamp" data-kind="release"') && str_contains($selectorIdentityMarkup, '--blocks-engine-richtext-marker:') && str_contains($selectorIdentityCss, ':hover{color:#123456}') && 'pass' === ($selectorIdentity['source_reports']['wp_block_validity']['status'] ?? ''), 'selector-addressable RichText spans retain safe class, id, and data identity on their valid mark carrier through pseudo-state projection');
+$assert(1 === preg_match('/<mark class="stamp blocks-engine-role-richtext[^"]*" id="release-stamp" data-kind="release"/', $selectorIdentityMarkup) && str_contains($selectorIdentityMarkup, '--blocks-engine-richtext-marker:') && str_contains($selectorIdentityCss, ':hover{color:#123456}') && 'pass' === ($selectorIdentity['source_reports']['wp_block_validity']['status'] ?? ''), 'selector-addressable RichText spans retain safe class, id, and data identity on their valid mark carrier through pseudo-state projection');
 $assert(str_contains($selectorIdentityMarkup, '<a class="view" id="view-release" data-kind="release-link" href="/release" target="_blank" rel="noopener">View release</a>') && str_contains($selectorIdentityMarkup, '<p class="blocks-engine-synthetic-paragraph">') && ! str_contains($selectorIdentityMarkup, '<p class="view') && ! str_contains($selectorIdentityMarkup, '<p id="view-release"') && str_contains($selectorIdentityCss, '.roster-card a.view{display:inline-flex;align-items:center;gap:6px}') && str_contains($selectorIdentityCss, '.roster-card a.view:hover{color:#123456}'), 'non-button anchor class, id, and data identity belong only to the inner link while its synthetic paragraph retains independent presentation');
 
 $linkedRichTextMarker = ( new HtmlTransformer() )->transform('<style>.shell .label{font-size:25px;color:#222}</style><div class="shell"><a href="/"><span class="label">Brand</span></a></div>')->toArray();
 $linkedRichTextMarkerMarkup = (string) ($linkedRichTextMarker['serialized_blocks'] ?? '');
 $linkedRichTextMarkerCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $linkedRichTextMarker['assets'] ?? array()));
-$assert(str_contains($linkedRichTextMarkerMarkup, '<a href="/"><mark class="label" style="--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($linkedRichTextMarkerCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($linkedRichTextMarker['source_reports']['wp_block_validity']['status'] ?? ''), 'selector-addressed spans nested in non-button links retain valid RichText marker carriers');
+$assert(1 === preg_match('/<a href="\/"><mark class="label blocks-engine-role-richtext[^"]*" style="--blocks-engine-richtext-marker:blocks-engine-richtext-/', $linkedRichTextMarkerMarkup) && str_contains($linkedRichTextMarkerCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($linkedRichTextMarker['source_reports']['wp_block_validity']['status'] ?? ''), 'selector-addressed spans nested in non-button links retain valid RichText marker carriers');
 
 $resetRoleButton = ( new HtmlTransformer() )->transform('<style>a{background:0 0;border:0}.label{font-size:25px}</style><a role="button"><span class="label">Contact</span></a>')->toArray();
 $resetRoleButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $resetRoleButton['assets'] ?? array()));

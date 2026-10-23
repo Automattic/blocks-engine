@@ -37,7 +37,10 @@ materialization. Ordinary descriptive metadata retains its existing routing.
   values. Event-handler attributes and embedded URL attributes use the owning
   declaration/asset contract instead of opaque attribute strings.
 - Executable inline scripts and styles bind declared canonical assets. The
-  emitted bootstrap prints their bodies inline, preserving parser-time behavior.
+  emitted bootstrap prints script bodies inline, preserving parser-time behavior.
+  A style row renders as `<link rel="stylesheet" href="<asset token>">` in its
+  source position, carrying its `media`, `id`, `class`, `nonce`, `title` and `data-*` attributes; the CSS bytes
+  live only in the written theme file, never in `functions.php`.
   External scripts and links retain their source semantics and token-bound URLs.
   Inert inline script data retains its body and the existing document metadata
   body hash, bounded to one MiB. Head script declarations must match the existing

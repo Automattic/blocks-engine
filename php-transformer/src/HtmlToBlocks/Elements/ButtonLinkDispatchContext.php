@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -29,6 +30,12 @@ final class ButtonLinkDispatchContext
         private readonly ?ButtonLinkLeftovers $leftovers = null,
         private readonly Runtime $runtime = new Runtime()
     ) {
+    }
+
+    /** The anchor's markup as paragraph RichText {@see StyleResolver::richTextSerializationSource()}. */
+    public function richTextOuterHtml(DOMElement $element): string
+    {
+        return SourceDom::outerHtml($this->presentationResolver instanceof StyleResolver ? $this->presentationResolver->richTextSerializationSource($element) : $element);
     }
 
     public function isRuntimeDomTarget(DOMElement $element): bool
@@ -143,6 +150,11 @@ final class ButtonLinkDispatchContext
     public function hasBlockContentChildren(DOMElement $element): bool
     {
         return $this->sourceElementClassifier->hasBlockContentChildren($element);
+    }
+
+    public function hasBlockLevelDescendant(DOMElement $element): bool
+    {
+        return $this->sourceElementClassifier->hasBlockLevelDescendant($element);
     }
 
     public function isInlineContentElement(string $tagName): bool

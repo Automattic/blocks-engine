@@ -48,7 +48,7 @@ $assert(
     $right
 );
 $assert(
-    str_contains($rightCss, '.' . $inlineClass . '{display:inline-block}'),
+    str_contains($rightCss, '.' . $inlineClass . '{display:contents}'),
     'the inline-level synthetic figure ships its display rule',
     $rightCss
 );
@@ -61,11 +61,11 @@ $assert(
     $center
 );
 
-// Left alignment is what a block figure already does, so nothing changes.
+// Even with left alignment, an inline wrapper must keep its percentage basis.
 list( $left, ) = $transform('<main><div style="text-align:left"><a><img src="/a.jpg" alt="P"></a></div></main>');
 $assert(
-    ! str_contains($left, $inlineClass),
-    'a left-aligned image is left as an ordinary block figure',
+    str_contains($left, $inlineClass),
+    'an image in a transparent inline wrapper keeps its source sizing basis',
     $left
 );
 
@@ -85,6 +85,15 @@ $assert(
     'an authored figure is never marked synthetic',
     $authored
 );
+
+foreach (require dirname(__DIR__) . '/fixtures/synthetic-inline-image-percentage.php' as $fixture) {
+    list($blocks, $css) = $transform('<style>' . $fixture['css'] . '</style>' . $fixture['html']);
+    if (in_array($fixture['name'], array('clamped percentage width', 'percentage max-width'), true)) {
+        $assert(str_contains($blocks, $inlineClass), $fixture['name'] . ' uses the transparent inline figure', $blocks);
+        $assert(str_contains($css, '.' . $inlineClass . '{display:contents}'), $fixture['name'] . ' ships transparent sizing', $css);
+        $assert(str_contains($css, '.' . $inlineClass . ' img{display:inline}'), $fixture['name'] . ' retains an inline image', $css);
+    }
+}
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "synthetic image figure inline flow FAILED: {$passes} passed, {$failures} failed\n");

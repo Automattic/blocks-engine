@@ -7,7 +7,13 @@ const { chromium } = await import(playwrightPath);
 const fixture = JSON.parse(readFileSync(`${tmpdir()}/runtime-dialog-trigger-button.json`, 'utf8'));
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
-await page.setContent(`<style>${fixture.css}</style>${fixture.html}<script>${fixture.script}</script>`);
+// The panel holds a native navigation block. WordPress renders each
+// navigation-link as an anchor, which is all the dialog script reaches for.
+const rendered = fixture.html.replace(/<!-- wp:navigation-link (\{.*?\}) \/-->/g, (match, json) => {
+  const link = JSON.parse(json);
+  return `<a href="${link.url}">${link.label}</a>`;
+});
+await page.setContent(`<style>${fixture.css}</style>${rendered}<script>${fixture.script}</script>`);
 
 await page.setViewportSize({ width: 390, height: 844 });
 const mobile = page.locator('#menu-toggle-mobile');

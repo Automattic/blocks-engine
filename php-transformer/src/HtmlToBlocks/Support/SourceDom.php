@@ -13,6 +13,7 @@ use Closure;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
+use DOMText;
 
 /**
  * The engine's shared DOM reading vocabulary.
@@ -38,6 +39,12 @@ use DOMNode;
  */
 final class SourceDom
 {
+    /**
+     * Upper bound for an inline SVG data image kept in preserved HTML. Matches
+     * the data URL budget the document head applies to embedded links.
+     */
+    public const MAX_SVG_DATA_IMAGE_URL_BYTES = 1048576;
+
     public static function innerHtml(DOMElement $element): string
     {
         $element = self::canonicalizedSerializationClone($element);
@@ -108,6 +115,71 @@ final class SourceDom
         }
 
         return $html;
+    }
+
+    /**
+     * The element, or a detached clone of it without the whitespace that its
+     * flex and grid containers never paint.
+     *
+     * A flex or grid container blockifies its children: each contiguous text
+     * run becomes an anonymous item, and white space at the start and end of
+     * an item is not rendered. RichText edits under `white-space: pre-wrap`,
+     * so a serialized boundary space would be painted in the editor only.
+     * Applies to the element itself and to each descendant container;
+     * inline-layout content keeps its whitespace.
+     *
+     * @param callable(DOMElement): bool $blockifiesChildren
+     */
+    public static function withoutBlockifiedBoundaryWhitespace(DOMElement $element, callable $blockifiesChildren): DOMElement
+    {
+        $sources = array( $element );
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            $sources[] = $descendant;
+        }
+        $clone = null;
+        foreach ( $sources as $index => $source ) {
+            $trims = array();
+            foreach ( $source->childNodes as $position => $child ) {
+                if ( ! $child instanceof DOMText || $child instanceof \DOMCdataSection ) {
+                    continue;
+                }
+                $text = $child->data;
+                if ( ! self::adjacentTextRun($child, 'previousSibling') ) {
+                    $text = ltrim($text, " \t\n\r\f");
+                }
+                if ( ! self::adjacentTextRun($child, 'nextSibling') ) {
+                    $text = rtrim($text, " \t\n\r\f");
+                }
+                if ( $text !== $child->data ) {
+                    $trims[$position] = $text;
+                }
+            }
+            if ( array() === $trims || ! $blockifiesChildren($source) ) {
+                continue;
+            }
+            $clone ??= $element->cloneNode(true);
+            $target = 0 === $index ? $clone : $clone->getElementsByTagName('*')->item($index - 1);
+            foreach ( $trims as $position => $text ) {
+                $node = $target?->childNodes->item($position);
+                if ( $node instanceof DOMText ) {
+                    $node->data = $text;
+                }
+            }
+        }
+
+        return $clone instanceof DOMElement ? $clone : $element;
+    }
+
+    /** Whether a text node continues into a sibling text node (comments are transparent). */
+    private static function adjacentTextRun(DOMText $text, string $direction): bool
+    {
+        for ( $node = $text->{$direction}; $node instanceof DOMNode; $node = $node->{$direction} ) {
+            if ( XML_COMMENT_NODE !== $node->nodeType ) {
+                return $node instanceof DOMText;
+            }
+        }
+
+        return false;
     }
 
     public static function outerHtml(DOMElement $element): string
@@ -229,6 +301,27 @@ final class SourceDom
         }
 
         return '' !== self::namedFragmentTargetId($element);
+    }
+
+    /**
+     * An anchor that renders nothing and goes nowhere: no `href` to navigate,
+     * no `id`/`name` to be a fragment target, no children, no text. Beside
+     * the empty inline scaffolding it usually accompanies (an empty `<span>`
+     * from the same widget), it is a non-rendering inline element, not a
+     * lost link.
+     */
+    public static function isEmptyNonNavigatingAnchor(DOMElement $element): bool
+    {
+        if ( 'a' !== strtolower($element->tagName)
+            || 0 !== self::childElementCount($element)
+            || '' !== trim($element->textContent ?? '')
+            || '' !== LinkUrlSanitizer::sanitize(self::attr($element, 'href'))
+            || '' !== self::namedFragmentTargetId($element)
+        ) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -660,6 +753,43 @@ final class SourceDom
     }
 
     /**
+     * Whether a text element's every `<img>` is an inline image beside its text
+     * that RichText carries as its `core/image` object format: a real, safe
+     * source sitting directly in the element or inside links and inline
+     * formatting. Image-only content and interactive elements keep their own
+     * routes.
+     * An image inside any other host (a custom element, a `<picture>`) keeps
+     * the host's own semantics, so the element does not qualify.
+     */
+    public static function carriesOnlyRichTextInlineImages(DOMElement $element): bool
+    {
+        $images = $element->getElementsByTagName('img');
+        // Interactive elements (links, buttons, role-bearing controls) keep
+        // their own routes; this is about plain text carriers only.
+        if ( 0 === $images->length
+            || '' === trim(str_replace("\u{00A0}", ' ', $element->textContent))
+            || $element->hasAttribute('role')
+            || in_array(strtolower($element->tagName), array( 'a', 'button', 'label', 'summary' ), true) ) {
+            return false;
+        }
+
+        foreach ( $images as $image ) {
+            if ( ! self::isRichTextImageObject($image) || ! self::hasOnlySafeFallbackAttributes($image) ) {
+                return false;
+            }
+            for ( $parent = $image->parentNode; $parent !== $element; $parent = $parent->parentNode ) {
+                if ( ! $parent instanceof DOMElement
+                    || ! in_array(strtolower($parent->tagName), array( 'a', 'span', 'strong', 'em', 'b', 'i', 'small', 'mark', 'sub', 'sup' ), true)
+                    || ! self::hasOnlySafeFallbackAttributes($parent) ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * An `<img>` that RichText can carry as-is: a real `src` (not a `data:`
      * placeholder) and no lazy-load source attribute that still has to be
      * resolved into it.
@@ -692,6 +822,8 @@ final class SourceDom
      */
     private static function hasOnlySafeFallbackAttributes(DOMElement $element): bool
     {
+        $tag = strtolower($element->tagName);
+        $insidePicture = self::isInsidePicture($element);
         foreach ( $element->attributes ?? array() as $attribute ) {
             $name  = strtolower($attribute->nodeName);
             $value = (string) $attribute->nodeValue;
@@ -700,13 +832,13 @@ final class SourceDom
             }
             if ( 'srcset' === $name ) {
                 foreach ( SrcsetParser::parse($value) as $candidate ) {
-                    if ( ! self::safeFallbackUrl($candidate['url'], 'src') ) {
+                    if ( ! self::safeFallbackUrl($candidate['url'], 'srcset', $tag, $insidePicture) ) {
                         return false;
                     }
                 }
                 continue;
             }
-            if ( self::isFallbackUrlAttribute($name) && ! self::safeFallbackUrl($value, $name) ) {
+            if ( self::isFallbackUrlAttribute($name) && ! self::safeFallbackUrl($value, $name, $tag, $insidePicture) ) {
                 return false;
             }
         }
@@ -796,22 +928,31 @@ final class SourceDom
         $html = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $html) ?? '';
         $html = preg_replace('@<link\b[^>]*\/?>@si', '', $html) ?? '';
         $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
+        $source = $html;
         $html = preg_replace_callback(
             '/\s+([a-zA-Z_:][\w:.-]*)\s*=\s*("([^"]*)"|\'([^\']*)\'|([^\s>]+))/i',
-            function (array $matches): string {
-                $attribute = strtolower($matches[1]);
-                $value = $matches[3] ?? $matches[4] ?? $matches[5] ?? '';
+            function (array $matches) use ($source): string {
+                $attribute = strtolower($matches[1][0]);
+                $value = $matches[3][0] ?? $matches[4][0] ?? $matches[5][0] ?? '';
+                // Only an image-loading attribute can widen the URL policy,
+                // so the owning element is resolved just for those.
+                $context = in_array($attribute, array( 'src', 'srcset' ), true)
+                    ? self::serializedAttributeOwner($source, (int) $matches[0][1])
+                    : array( 'tag' => '', 'inside_picture' => false );
                 if ( 'srcset' === $attribute ) {
-                    $srcset = self::safeFallbackSrcset($value);
+                    $srcset = self::safeFallbackSrcset($value, $context['tag'], $context['inside_picture']);
                     return '' === $srcset
                         ? ''
-                        : ' ' . $matches[1] . '="' . htmlspecialchars($srcset, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                        : ' ' . $matches[1][0] . '="' . htmlspecialchars($srcset, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
                 }
-                return self::isFallbackUrlAttribute($attribute) && ! self::safeFallbackUrl($value, $attribute)
+                return self::isFallbackUrlAttribute($attribute) && ! self::safeFallbackUrl($value, $attribute, $context['tag'], $context['inside_picture'])
                     ? ''
-                    : $matches[0];
+                    : $matches[0][0];
             },
-            $html
+            $html,
+            -1,
+            $count,
+            PREG_OFFSET_CAPTURE | PREG_UNMATCHED_AS_NULL
         ) ?? '';
         $html = preg_replace_callback('@<meta\b[^>]*>@i', function (array $matches): string {
             $tag = $matches[0];
@@ -839,11 +980,11 @@ final class SourceDom
      * Keep only safe srcset candidates while retaining their source-selection
      * descriptors. The URL policy deliberately matches fallback image `src`.
      */
-    public static function safeFallbackSrcset(string $srcset): string
+    public static function safeFallbackSrcset(string $srcset, string $tag = '', bool $insidePicture = false): string
     {
         $candidates = array();
         foreach ( SrcsetParser::parse($srcset) as $candidate ) {
-            if ( self::safeFallbackUrl($candidate['url'], 'src') ) {
+            if ( self::safeFallbackUrl($candidate['url'], 'srcset', $tag, $insidePicture) ) {
                 $candidates[] = $candidate['url'] . ( '' !== $candidate['descriptor'] ? ' ' . $candidate['descriptor'] : '' );
             }
         }
@@ -851,8 +992,20 @@ final class SourceDom
         return implode(', ', $candidates);
     }
 
-    public static function safeFallbackUrl(string $url, string $attribute): bool
+    /**
+     * The single URL policy for attributes kept on preserved source HTML.
+     *
+     * `$tag` and `$insidePicture` name the element that owns the attribute.
+     * Image-loading attributes ({@see self::isImageLoadingUrlAttribute()})
+     * additionally accept a bounded `data:image/svg+xml` URL: an SVG loaded
+     * as an image renders in secure static mode, with no script and no
+     * external fetch. Every other attribute or element (iframe, object,
+     * embed, links, form actions) keeps rejecting it. Raster base64 data
+     * images keep their existing `src`/`srcset` policy.
+     */
+    public static function safeFallbackUrl(string $url, string $attribute, string $tag = '', bool $insidePicture = false): bool
     {
+        $attribute = strtolower($attribute);
         $normalized = strtolower(preg_replace('/[\x00-\x20\x7f]+/', '', html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
         for ( $index = 0; $index < 2 && str_contains($normalized, '%'); ++$index ) {
             $normalized = rawurldecode($normalized);
@@ -865,7 +1018,86 @@ final class SourceDom
             return true;
         }
 
-        return 'src' === $attribute && (bool) preg_match('#^data:image/(?:avif|gif|jpeg|png|webp);base64,[a-z0-9+/=]+$#i', $normalized);
+        if ( self::isImageLoadingUrlAttribute($tag, $attribute, $insidePicture) && self::isSafeSvgDataImageUrl($url) ) {
+            return true;
+        }
+
+        return in_array($attribute, array( 'src', 'srcset' ), true) && (bool) preg_match('#^data:image/(?:avif|gif|jpeg|png|webp);base64,[a-z0-9+/=]+$#i', $normalized);
+    }
+
+    /**
+     * Attributes whose URL the browser only ever loads as an image: `img`
+     * src/srcset, and `source` src/srcset when the source feeds a `picture`.
+     */
+    public static function isImageLoadingUrlAttribute(string $tag, string $attribute, bool $insidePicture = false): bool
+    {
+        if ( ! in_array(strtolower($attribute), array( 'src', 'srcset' ), true) ) {
+            return false;
+        }
+        $tag = strtolower($tag);
+
+        return 'img' === $tag || ( 'source' === $tag && $insidePicture );
+    }
+
+    /**
+     * A size-bounded `data:image/svg+xml` URL, percent-encoded or base64.
+     */
+    public static function isSafeSvgDataImageUrl(string $url): bool
+    {
+        $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if ( '' === $url || strlen($url) > self::MAX_SVG_DATA_IMAGE_URL_BYTES ) {
+            return false;
+        }
+        if ( ! preg_match('#^data:image/svg\+xml((?:;[a-z0-9._+-]+(?:=[a-z0-9._+-]+)?)*),(.+)$#is', $url, $parts) ) {
+            return false;
+        }
+        if ( preg_match('/;base64$/i', $parts[1]) ) {
+            $payload = (string) preg_replace('/\s+/', '', $parts[2]);
+            return 1 === preg_match('#^[a-z0-9+/]+={0,2}$#i', $payload) && false !== base64_decode($payload, true);
+        }
+        if ( str_contains(strtolower($parts[1]), 'base64') ) {
+            return false;
+        }
+
+        // Percent-encoded payloads may not carry raw control characters.
+        return 1 !== preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/', $parts[2]);
+    }
+
+    /** True when a `<source>` (or any element) sits directly in a `<picture>`. */
+    public static function isInsidePicture(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+
+        return $parent instanceof DOMElement && 'picture' === strtolower($parent->tagName);
+    }
+
+    /**
+     * The tag that owns an attribute found at `$offset` of serialized HTML,
+     * and whether that tag is inside an open `<picture>`. An attribute-like
+     * run outside a start tag resolves to no owner, so it keeps the strict
+     * policy.
+     *
+     * @return array{tag: string, inside_picture: bool}
+     */
+    private static function serializedAttributeOwner(string $html, int $offset): array
+    {
+        $none = array( 'tag' => '', 'inside_picture' => false );
+        $start = strrpos(substr($html, 0, $offset), '<');
+        if ( false === $start ) {
+            return $none;
+        }
+        $head = substr($html, $start, $offset - $start);
+        if ( ! preg_match('/^<([a-zA-Z][\w:-]*)(?:\s+[^\s"\'>\/=]+(?:\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s"\'>]+))?)*\s*$/', $head, $match) ) {
+            return $none;
+        }
+        $tag = strtolower($match[1]);
+        $insidePicture = false;
+        if ( 'source' === $tag ) {
+            $before = substr($html, 0, $start);
+            $insidePicture = preg_match_all('/<picture\b/i', $before) > preg_match_all('/<\/picture\s*>/i', $before);
+        }
+
+        return array( 'tag' => $tag, 'inside_picture' => $insidePicture );
     }
 
     /**
@@ -959,6 +1191,12 @@ final class SourceDom
         return false;
     }
 
+    /** Inert metadata descendants are not authored page content. */
+    public static function hasNonAuthoredAncestor(DOMElement $element): bool
+    {
+        return self::hasAncestorTag($element, array( 'template', 'script', 'style', 'noscript' ));
+    }
+
     public static function hasSourceNavigationSignal(DOMElement $element): bool
     {
         if ( MenuVocabulary::isMenuLandmark($element) ) {
@@ -995,6 +1233,29 @@ final class SourceDom
     /**
      * @return array<int, array<string, string>>
      */
+    /**
+     * Whether the element is a standalone run of text: it holds only text, and
+     * some of it, with no inline event handlers, and its parent holds no loose
+     * text beside it, so it stands alone as one block's content.
+     */
+    public static function isStandaloneTextLeaf(DOMElement $element): bool
+    {
+        if ( '' === trim($element->textContent) || array() !== self::eventMetadata($element) ) {
+            return false;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                return false;
+            }
+        }
+        foreach ( $element->parentNode?->childNodes ?? array() as $sibling ) {
+            if ( $sibling instanceof DOMText && '' !== trim($sibling->textContent) ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public static function eventMetadata(DOMElement $element): array
     {
         $events = array();
@@ -1073,6 +1334,28 @@ final class SourceDom
         }
 
         return true;
+    }
+
+    /** Definitions-only SVGs must stay in the page, not in an image document. */
+    public static function isDefinitionsOnlySvg(DOMElement $element): bool
+    {
+        if ('svg' !== strtolower($element->tagName)) {
+            return false;
+        }
+        $hasDefinitions = false;
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                $tag = strtolower($child->tagName);
+                if ('defs' === $tag) {
+                    $hasDefinitions = $hasDefinitions || 0 < $child->getElementsByTagName('*')->length;
+                } elseif (!in_array($tag, array('title', 'desc', 'metadata'), true)) {
+                    return false;
+                }
+            } elseif (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) {
+                return false;
+            }
+        }
+        return $hasDefinitions;
     }
 
     /**
@@ -1220,6 +1503,72 @@ final class SourceDom
         return $images->item(0);
     }
 
+    /** Whether a subtree contains native media with a captured source. */
+    public static function hasRenderableMediaContent(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            $tag = strtolower($descendant->tagName);
+            if ( 'picture' === $tag && self::pictureHasRenderableSource($descendant) ) {
+                return true;
+            }
+            if ( in_array($tag, array( 'img', 'video' ), true) ) {
+                if ( '' !== trim(self::attr($descendant, 'src'))
+                    || ( 'img' === $tag && '' !== trim(self::attr($descendant, 'srcset')) )
+                ) {
+                    return true;
+                }
+                if ( 'video' === $tag ) {
+                    foreach ( $descendant->childNodes as $source ) {
+                        if ( $source instanceof DOMElement && 'source' === strtolower($source->tagName) && '' !== trim(self::attr($source, 'src')) ) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether a textless custom host contains only passive, nonempty graphics. */
+    public static function staticGraphicOnlyCustomElement(DOMElement $element): bool
+    {
+        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') ) {
+            return false;
+        }
+
+        $hasGraphic = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $tag = strtolower($child->tagName);
+            if ( 'svg' === $tag ) {
+                if ( ! self::svgHasDrawableContent($child) || ! self::isSafeInlineSvgMarkup(self::outerHtml($child)) ) {
+                    return false;
+                }
+            } elseif ( 'img' === $tag ) {
+                if ( '' === trim(self::attr($child, 'src')) && '' === trim(self::attr($child, 'srcset')) ) {
+                    return false;
+                }
+            } elseif ( 'picture' === $tag ) {
+                if ( ! self::pictureHasRenderableSource($child) ) {
+                    return false;
+                }
+                foreach ( $child->getElementsByTagName('*') as $descendant ) {
+                    if ( ! in_array(strtolower($descendant->tagName), array( 'img', 'source' ), true) ) {
+                        return false;
+                    }
+                }
+            } else {
+                return false;
+            }
+            $hasGraphic = true;
+        }
+
+        return $hasGraphic;
+    }
+
     /**
      * Whether $container is $element or one of its ancestors. Shared DOM
      * ancestry helper; consumed by form dispatch and navigation suppression.
@@ -1339,7 +1688,10 @@ final class SourceDom
 
     private static function isSafeImageSourceUrl(string $url): bool
     {
-        if ( ! self::safeFallbackUrl($url, 'src') ) {
+        if ( self::isSafeSvgDataImageUrl($url) ) {
+            return true;
+        }
+        if ( ! self::safeFallbackUrl($url, 'src', 'img') ) {
             return false;
         }
         $normalized = strtolower(preg_replace('/[\x00-\x20\x7f]+/', '', html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
@@ -1359,5 +1711,67 @@ final class SourceDom
 
         return in_array($scheme[1], array( 'http', 'https' ), true)
             || (bool) preg_match('#^data:image/(?:avif|gif|jpeg|png|webp);base64,[a-z0-9+/=]+$#i', $normalized);
+    }
+
+    public static function hasAriaHiddenAncestor(DOMElement $element): bool
+    {
+        for ( $candidate = $element; $candidate instanceof DOMElement; $candidate = $candidate->parentNode instanceof DOMElement ? $candidate->parentNode : null ) {
+            if ( 'true' === strtolower(trim(self::attr($candidate, 'aria-hidden'))) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    public static function descendantElements(DOMElement $element): array
+    {
+        $descendants = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $descendants[] = $child;
+            foreach ( self::descendantElements($child) as $grandchild ) {
+                $descendants[] = $grandchild;
+            }
+        }
+
+        return $descendants;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function safeDataAttributes(DOMElement $element): array
+    {
+        $data = array();
+        foreach ( self::htmlAttributes($element) as $name => $value ) {
+            if ( preg_match('/^data-[a-z0-9_-]+$/i', $name) && strlen($value) <= 300 && ! preg_match('/javascript\s*:/i', $value) ) {
+                $data[$name] = $value;
+            }
+        }
+
+        return $data;
+    }
+
+    public static function belongsToTable(DOMElement $element, DOMElement $table): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'table' !== strtolower($node->tagName) ) {
+                continue;
+            }
+
+            return $node->isSameNode($table);
+        }
+
+        return false;
+    }
+
+    public static function sourceElementIdentity(DOMElement $element): string
+    {
+        return $element->getNodePath() ?? '';
     }
 }

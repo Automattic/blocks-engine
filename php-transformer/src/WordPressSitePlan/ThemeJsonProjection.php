@@ -132,7 +132,7 @@ final class ThemeJsonProjection
         $selected = $this->sharedDefaults($selected, $assets, $documentPaths);
         $responsiveBreakpoints = ResponsiveBreakpoints::fromAssets($assets);
         $theme = $this->theme($selected, $presets, $this->fontFaces($assets), $responsiveBreakpoints['viewport'], $system);
-        if (null !== $system) $theme = $this->withSystem($theme, $system, $presets, $this->authoredElementProperties($deliveryAssets));
+        if (null !== $system) $theme = $this->withSystem($theme, $system, $presets, $this->authoredElementProperties($deliveryAssets, $variables));
 
         return array('assets' => $deliveryAssets, 'theme' => $theme, 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets, 'responsive_breakpoints' => $responsiveBreakpoints['report']);
     }
@@ -205,17 +205,23 @@ final class ThemeJsonProjection
         $variables = array();
         $conflicts = array();
         $coverage = array();
+        $scoped = array();
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$variables, &$conflicts, &$coverage, $asset): void {
+            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$variables, &$conflicts, &$coverage, &$scoped, $asset): void {
                 if (str_starts_with(ltrim($prelude), '@') || !preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER)) return;
                 foreach ($matches as $match) {
                     $name = (string) $match[1];
                     $value = trim((string) $match[2]);
+                    // Identical scoped copies (including editor mirrors) do
+                    // not change a root value. Different copies still veto it.
+                    if (!in_array(strtolower(trim($prelude)), array(':root', 'html'), true)) {
+                        $scoped[$name][$value] = true;
+                        continue;
+                    }
                     if (isset($variables[$name]) && $variables[$name] !== $value) $conflicts[$name] = true;
                     $variables[$name] = $value;
-                    if (!in_array(strtolower(trim($prelude)), array(':root', 'html'), true)) $conflicts[$name] = true;
                     foreach ($ancestors as $ancestor) if (1 !== preg_match('/^@layer(?:\s|$)/', $ancestor)) $conflicts[$name] = true;
                     foreach ($asset['scopes'] ?? array(array('kind' => 'global')) as $scope) {
                         if ('global' === ($scope['kind'] ?? null)) $coverage[$name]['global'] = true;
@@ -224,11 +230,13 @@ final class ThemeJsonProjection
                 }
             });
         }
-        foreach ($variables as $name => $_) {
+        foreach ($variables as $name => $value) {
+            foreach ($scoped[$name] ?? array() as $other => $_) if ($other !== $value) $conflicts[$name] = true;
             if (!empty($coverage[$name]['global'])) continue;
             if (array() === $documentPaths) $conflicts[$name] = true;
             foreach ($documentPaths as $path) if (!isset($coverage[$name]['documents'][$path])) $conflicts[$name] = true;
         }
+        foreach ($scoped as $name => $_) if (!isset($variables[$name])) $conflicts[$name] = true;
         // A route-dependent variable is unresolved, including when a use has a
         // fallback: that fallback does not win where the variable is defined.
         foreach ($conflicts as $name => $_) $variables[$name] = 'var(' . $name . ')';
@@ -407,18 +415,22 @@ final class ThemeJsonProjection
      * sameElementValue()); otherwise the property stays source-owned.
      *
      * @param array<int,array<string,mixed>> $assets
+     * @param array<string,string> $variables Unambiguous source root values.
      * @return array<string,list<string>>
      */
-    private function authoredElementProperties(array $assets): array
+    private function authoredElementProperties(array $assets, array $variables): array
     {
         $authored = array();
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body) use (&$authored): void {
+            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body) use (&$authored, $variables): void {
                 $targets = $this->targets($prelude);
                 if (null === $targets) return;
-                foreach ($this->declarations($body) as $name => $value) foreach ($targets as $target) $authored[$target . "\n" . $name][] = $value;
+                foreach ($this->declarations($body) as $name => $value) {
+                    if ('font-family' === $name) $value = $this->resolveVariableReferences($value, $variables);
+                    foreach ($targets as $target) $authored[$target . "\n" . $name][] = $value;
+                }
             });
         }
         return $authored;
@@ -464,6 +476,9 @@ final class ThemeJsonProjection
         if (isset($system->root['background'])) $styles['color']['background'] ??= $color($system->root['background']);
         if (isset($system->root['color'])) $styles['color']['text'] ??= $color($system->root['color']);
         if (isset($system->root['font_family'])) $styles['typography']['fontFamily'] ??= $family($system->root['font_family']);
+        // A link or heading colour becomes an element default only when it
+        // reads on the background just chosen for the theme root.
+        $system = $system->withElementColorsReadableOn(self::rootBackground($styles, $system));
         $size = fn(string $value): string => null !== ($slug = $system->fontSizeSlug($value)) ? 'var:preset|font-size|' . $slug : $value;
         $paths = array(
             'color' => array(array('color', 'text'), $color),
@@ -506,6 +521,23 @@ final class ThemeJsonProjection
         $theme['settings'] = $settings;
         $theme['styles'] = $styles;
         return $theme;
+    }
+
+    /**
+     * The colour the projected `styles.color.background` paints: its preset's
+     * value or its literal colour, or the user agent's white canvas when the
+     * theme states none (as DesignUsageCollector measures it). Null when the
+     * value is not an opaque colour this can resolve.
+     *
+     * @param array<string,mixed> $styles
+     */
+    private static function rootBackground(array $styles, DesignSystem $system): ?string
+    {
+        $value = $styles['color']['background'] ?? null;
+        if (null === $value) return '#ffffff';
+        if (!is_string($value)) return null;
+        if (1 === preg_match('/^var:preset\|color\|([A-Za-z0-9_-]+)$/', $value, $match)) $value = (string) $system->color($match[1]);
+        return CssColor::opaque($value) ? CssColor::hex($value) : null;
     }
 
     /**

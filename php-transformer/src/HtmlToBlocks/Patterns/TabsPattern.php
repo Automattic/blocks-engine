@@ -13,7 +13,11 @@ final class TabsPattern implements PatternRecognizerInterface
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $converter = $context->recursiveConverter();
-        if ( null === $converter || $this->hasRuntimeHeavyDescendant($element) ) {
+        // A captured selectable-set region keeps its forms as boxes with their
+        // submission semantics stripped by the projector sanitizer, so they do
+        // not veto the tabs fallback for that region.
+        $inertForms = 'true' === SourceDom::attr($element, 'data-blocks-engine-captured-selectable-set') ? array( 'form' ) : array();
+        if ( null === $converter || $this->hasRuntimeHeavyDescendant($element, $inertForms) ) {
             return null;
         }
 

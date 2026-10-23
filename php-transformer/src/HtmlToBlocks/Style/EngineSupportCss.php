@@ -3,11 +3,14 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConversionPrelude;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LinkWrapperPropagator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
+use Automattic\BlocksEngine\PhpTransformer\Support\EditorInnerBlocksLayer;
 
 /**
  * Marker-class engine-support CSS gated on serialized block markup.
@@ -41,7 +44,7 @@ final class EngineSupportCss
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
-    public const LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS = 'blocks-engine-layout-shell-editor-inner-blocks';
+    public const LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS = EditorInnerBlocksLayer::LAYOUT_SHELL_CLASS;
 
     /**
      * @return list<string>
@@ -165,7 +168,12 @@ final class EngineSupportCss
             $parts[] = ':root :where(.wp-block-image)>a{object-fit:inherit;object-position:inherit;border-radius:inherit}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS) ) {
-            $parts[] = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '{display:inline-block}';
+            // This figure has no source box. Remove its layout box so image
+            // percentages keep the source containing block, rather than a
+            // cyclic shrink-to-fit basis. Keep the image itself inline too.
+            $inlineFigure = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS;
+            $parts[] = $inlineFigure . '{display:contents}'
+                . $inlineFigure . ' img{display:inline}';
         }
         if ( str_contains($serializedBlocks, self::BACKGROUND_IMAGE_CLASS) ) {
             // The source painted this image as a background, where the element's
@@ -344,6 +352,15 @@ final class EngineSupportCss
     public function coreOverrideCss(string $serializedBlocks): array
     {
         $parts = array();
+        if ( str_contains($serializedBlocks, ElementConversionPrelude::SCRIPT_NAVIGATION_CLASS) ) {
+            // Core copies the menu's classes onto its list, so a script-set
+            // state class on the menu would never reach the copy. A source
+            // list keeps its items; a source of bare links keeps them as the
+            // menu's own items.
+            $menu = '.wp-block-navigation.' . ElementConversionPrelude::SCRIPT_NAVIGATION_CLASS;
+            $parts[] = $menu . '>.wp-block-navigation__container,'
+                . $menu . ':not(.blocks-engine-list-navigation)>.wp-block-navigation__container>.wp-block-navigation-item{display:contents!important}';
+        }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             // Keep the display baseline at Core's weight, not above authored rules.
             // The overlay list follows core's own wrap setting, so a native
@@ -403,12 +420,12 @@ final class EngineSupportCss
                 . "\n" . ':root .blocks-engine-layout-table-cell .blocks-engine-synthetic-image-figure-inline{display:contents;margin:0}'
                 . "\n" . '.blocks-engine-layout-table-cell :where(.blocks-engine-synthetic-image-figure-inline) img{display:inline;max-width:none;vertical-align:baseline}';
         }
-        if ( str_contains($serializedBlocks, HtmlCompilation::PROPAGATED_LINK_CARRIER_CLASS) ) {
+        if ( str_contains($serializedBlocks, LinkWrapperPropagator::PROPAGATED_LINK_CARRIER_CLASS) ) {
             // A propagated card link wraps all of the block's source children.
             // Layout-transparent, so the source element's flex/grid row still
             // lays out those children directly; the link stays clickable
             // through them.
-            $parts[] = ':root :where(.' . HtmlCompilation::PROPAGATED_LINK_CARRIER_CLASS . ')>a:only-child{display:contents}';
+            $parts[] = ':root :where(.' . LinkWrapperPropagator::PROPAGATED_LINK_CARRIER_CLASS . ')>a:only-child{display:contents}';
         }
         if ( str_contains($serializedBlocks, FallbackEmitter::LINK_CONTENTS_CLASS) ) {
             // A source link restored around frozen component content adds only

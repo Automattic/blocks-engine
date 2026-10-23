@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ProjectedNavigationConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -64,7 +65,58 @@ final class NavigationPatternContext
     }
 
     /** Source list identity also survives when its landmark owns another block. */
-    public function navigationListHostIdentity(DOMElement $element): string
+    public function navigationListHostIdentity(DOMElement $element, ?DOMElement $list = null, ?string $rowGap = null): string
+    {
+        $boxMarker = $this->navigationListBoxMarker($list);
+        if ('' !== $boxMarker && null !== $rowGap && !$this->declaresColumns($list)) {
+            // Core's flow layout does not render blockGap as a horizontal gap.
+            // This projected list box supplies the flex row, so carry its gap
+            // through the same support-style serializer as other rendered boxes.
+            $gapStyle = array('spacing' => array('blockGap' => $rowGap));
+            $this->projectSourceToNativeTarget($list, '.wp-block-navigation.' . $boxMarker,
+                $this->styleResolver->styleAttributeMapper()->serialize($gapStyle)['style']);
+        }
+        $identity = $this->sourceListHostIdentity($element);
+
+        return trim($identity . ' ' . $boxMarker);
+    }
+
+    /** Marker for the native root that renders a source list's own box. */
+    private function navigationListBoxMarker(?DOMElement $list): string
+    {
+        if (null === $this->session || !$list instanceof DOMElement || !$this->styleResolver instanceof StyleResolver) return '';
+        $columns = $this->declaresColumns($list);
+        if (!$columns && !array_filter(array('display', 'overflow', 'overflow-x', 'overflow-y'), fn(string $property): bool => !$this->styleResolver->declaredPresentation($list, $property)->isEmpty())) {
+            return '';
+        }
+
+        return $this->session->authorSelectorProjectionState()->installNavigationListBoxSubject($list->getNodePath() ?? '', $columns ? 'block' : 'flex');
+    }
+
+    /**
+     * Whether an author rule lays the source list's items out in columns.
+     * Columns apply only to a block container, so such a list keeps a block
+     * box where shown; any other shown list is the native root's flex row.
+     * Read from the author rules: the resting cascade models no column layout.
+     */
+    private function declaresColumns(DOMElement $list): bool
+    {
+        $styles = $this->session->authorStyleAnalysis();
+        foreach ($styles->styleRules() as $rule) {
+            $columns = array_filter(array_intersect_key($rule['declarations'] ?? array(), array_flip(array('columns', 'column-count', 'column-width'))),
+                static fn (string $value): bool => 1 !== preg_match('/^\s*auto(?:\s+auto)?\s*(?:!\s*important\s*)?$/i', $value));
+            if (array() === $columns) continue;
+            foreach ($rule['selectors'] ?? array() as $record) {
+                $parsed = $record['parsed'] ?? array();
+                if (!($parsed['supported'] ?? false)) continue;
+                $match = $styles->selectorMatchCache()->matches($list, $record['selector'], $parsed);
+                if (($match['supported'] ?? false) && ($match['matches'] ?? false)) return true;
+            }
+        }
+        return false;
+    }
+
+    private function sourceListHostIdentity(DOMElement $element): string
     {
         if (null === $this->session || !in_array(strtolower($element->tagName), array('ul', 'ol'), true)) return '';
         $styles = $this->session->authorStyleAnalysis();
@@ -134,6 +186,39 @@ final class NavigationPatternContext
             $this->session?->sourceStyleResolutionState()->pseudoElementRules() ?? array(),
             fn (DOMElement $element, string $selector): bool => $this->styleResolver->matchesCssSelector($element, $selector)
         );
+    }
+
+    /** @return array<string, string> */
+    public function resolvedDeclarations(DOMElement $element): array
+    {
+        return $this->styleResolver?->cssDeclarations($this->resolvedStyle($element)) ?? array();
+    }
+
+    /** Horizontal border-box extent of a content-free box; unknown lengths refuse carry. */
+    public function emptyBoxWidth(DOMElement $element): ?float
+    {
+        if (null === $this->styleResolver) return null;
+        $declarations = $this->resolvedDeclarations($element);
+        $mapped = $this->styleResolver->styleAttributeMapper()->map($declarations)['style'];
+        $extent = 0.0;
+        foreach (array('left', 'right') as $side) {
+            $padding = CssLength::toPx((string) ($mapped['spacing']['padding'][$side] ?? '0'));
+            $border = $mapped['border'][$side] ?? $mapped['border'] ?? array();
+            $borderWidth = in_array($border['style'] ?? 'none', array('none', 'hidden'), true)
+                ? 0.0 : CssLength::toPx((string) ($border['width'] ?? 'medium'));
+            if (null === $padding || null === $borderWidth) return null;
+            $extent += $padding + $borderWidth;
+        }
+        $widthValue = $declarations['width'] ?? 'auto';
+        $width = 'auto' === $widthValue ? 0.0 : CssLength::toPx($widthValue);
+        if (null === $width) return null;
+        return 'border-box' === $this->resolvedBoxSizing($element)
+            ? max($extent, $width) : $extent + $width;
+    }
+
+    public function resolvedBoxSizing(DOMElement $element): string
+    {
+        return (string) ($this->styleResolver?->referenceViewportAuthorDeclarations($element, array('box-sizing'))['box-sizing'] ?? 'content-box');
     }
 
     public function resolvedStyle(DOMElement $element): string
@@ -258,6 +343,33 @@ final class NavigationPatternContext
         return $marker;
     }
 
+    /** @var array<string, array{marker: string, target: string, source?: string}> */
+    private array $pendingNavigationSubjects = array();
+
+    /**
+     * Candidate link construction can be abandoned by a later sibling. Only
+     * publish a correspondence when its native carrier is actually emitted;
+     * equal markers in another header do not prove this source path converted.
+     *
+     * @param list<array<string, mixed>> $blocks
+     */
+    public function recordNavigationSubjects(array $blocks, DOMElement $source): void
+    {
+        $markup = (string) json_encode($blocks);
+        $root = $source->getNodePath() ?? '';
+        foreach ($this->pendingNavigationSubjects as $path => $subject) {
+            if ($path !== $root && !str_starts_with($path, $root . '/')) continue;
+            $marker = $subject['marker'];
+            if (1 !== preg_match('/(?<![A-Za-z0-9_-])' . preg_quote($marker, '/') . '(?![A-Za-z0-9_-])/', $markup)) continue;
+            $this->session?->authorSelectorProjectionState()->installNavigationSubject($path, $subject['target']);
+            if (isset($subject['source'])) {
+                // Restore the source anchor's initial stacking below authored
+                // paint, but only when Core really supplies its replacement.
+                $this->sourceTargetProjection?->record($subject['source'], '.wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)', 'z-index:auto');
+            }
+        }
+    }
+
     /** The source anchor remains a distinct CSS subject inside Core's item. */
     public function navigationAnchorSubjectMarker(DOMElement $anchor, ?DOMElement $item = null): string
     {
@@ -270,11 +382,7 @@ final class NavigationPatternContext
         }
         if (!$presented) return '';
         $marker = $this->navigationSubjectMarker($anchor, 'anchor');
-        $this->session->authorSelectorProjectionState()->installNavigationSubject($anchor->getNodePath() ?? '', '.wp-block-navigation .wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)');
-        // Core's synthesized content stacking can change antialiased surface
-        // paint on an anchor that is a flex item. Restore the source initial
-        // value below every projected author rule and explicit inline value.
-        $this->sourceTargetProjection?->record(SourceDom::elementSelector($anchor), '.wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)', 'z-index:auto');
+        $this->pendingNavigationSubjects[$anchor->getNodePath() ?? ''] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)', 'source' => SourceDom::elementSelector($anchor));
         return $marker;
     }
 
@@ -328,7 +436,7 @@ final class NavigationPatternContext
     {
         if (!$this->session instanceof HtmlTransformerSession) return '';
         $marker = $this->navigationSubjectMarker($item, 'item');
-        $this->session->authorSelectorProjectionState()->installNavigationSubject($item->getNodePath() ?? '', '.wp-block-navigation .wp-block-navigation-item.' . $marker);
+        $this->pendingNavigationSubjects[$item->getNodePath() ?? ''] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item.' . $marker);
         return $marker;
     }
 
@@ -338,7 +446,11 @@ final class NavigationPatternContext
         if (!$this->session instanceof HtmlTransformerSession) return array();
         $boxes = array();
         for ($node = $anchor->parentNode; $node instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
-            if (!in_array(strtolower($node->tagName), array('div', 'span'), true)) return array();
+            $tag = strtolower($node->tagName);
+            // A `<label>` holding the link is an inline box like a span; Core's
+            // anchor cannot sit inside a label, so it keeps its paint as one.
+            if ('label' === $tag) $tag = 'span';
+            if (!in_array($tag, array('div', 'span'), true)) return array();
             $children = array();
             foreach ($node->childNodes as $child) {
                 if ($child instanceof DOMElement) $children[] = $child;
@@ -346,11 +458,11 @@ final class NavigationPatternContext
             }
             if (1 !== count($children)) return array();
             $marker = $this->navigationSubjectMarker($node, 'box');
-            $boxes[] = array('tag' => strtolower($node->tagName), 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node))));
+            $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node))));
         }
         $node = $anchor->parentNode;
         foreach ($boxes as $box) {
-            $this->session->authorSelectorProjectionState()->installNavigationSubject($node->getNodePath() ?? '', '.wp-block-navigation .wp-block-navigation-item .' . $box['marker']);
+            $this->pendingNavigationSubjects[$node->getNodePath() ?? ''] = array('marker' => $box['marker'], 'target' => '.wp-block-navigation .wp-block-navigation-item .' . $box['marker']);
             $node = $node->parentNode;
         }
         return array_reverse($boxes);
@@ -401,7 +513,7 @@ final class NavigationPatternContext
         }
         $markup = $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($svg));
         if ('' === $markup || !SourceDom::isSafeSvgContent($markup)) return '';
-        foreach ($subjects as [$path, $marker]) $this->session->authorSelectorProjectionState()->installNavigationSubject($path, '.wp-block-navigation .wp-block-navigation-item .' . $marker);
+        foreach ($subjects as [$path, $marker]) $this->pendingNavigationSubjects[$path] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item .' . $marker);
         return $markup;
     }
 
@@ -569,7 +681,19 @@ final class NavigationPatternContext
 
     public function overlayMenu(DOMElement $element): string
     {
-        return $this->navigationToggleSuppressor?->navigationOverlayMenu($element) ?? 'never';
+        $overlayMenu = $this->navigationToggleSuppressor?->navigationOverlayMenu($element) ?? 'never';
+
+        // A script that addresses both the menu and its toggle keeps that
+        // toggle and opens the menu itself. Core's overlay would add a second
+        // toggle and hide the links where the script never looks.
+        if ( 'mobile' === $overlayMenu && $this->isRuntimeDomTarget($element) ) {
+            $toggle = $this->navigationToggleSuppressor?->navigationToggleControl($element);
+            if ( $toggle instanceof DOMElement && $this->isRuntimeDomTarget($toggle) ) {
+                return 'never';
+            }
+        }
+
+        return $overlayMenu;
     }
 
     public function capturedMenuFold(DOMElement $row): ?CapturedMenuDialogFold

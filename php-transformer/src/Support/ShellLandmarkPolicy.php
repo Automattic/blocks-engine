@@ -49,6 +49,16 @@ final class ShellLandmarkPolicy
         return in_array(strtolower($tagName), self::GLOBAL_SHELL_LANDMARK_TAGS, true);
     }
 
+    /**
+     * Sectioning content regions own their header/footer: a landmark inside one
+     * is section-level, never page chrome. `main` is not listed: whether it is
+     * a content region depends on whether it also wraps the page header.
+     */
+    public static function isContentRegionTag(string $tagName): bool
+    {
+        return in_array(strtolower($tagName), array( 'article', 'aside', 'section' ), true);
+    }
+
     public static function isSemanticGroupTag(string $tagName): bool
     {
         return in_array(strtolower($tagName), self::SEMANTIC_GROUP_TAGS, true);

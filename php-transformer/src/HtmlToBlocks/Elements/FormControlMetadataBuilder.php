@@ -137,7 +137,8 @@ final class FormControlMetadataBuilder
 
         // Copy a control already owns — its label, its field description — is
         // carried by the control manifest, so it must not also surface here.
-        $claimedLabels = array();
+        // A honeypot's label and field-container copy are decoys, not context.
+        $claimedLabels = FormControlClassifier::honeypotCopyElements($form);
         $claimedTexts = array();
         foreach ( $form->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement || ! FormControlClassifier::isControlElement($node) ) {
@@ -381,6 +382,10 @@ final class FormControlMetadataBuilder
             'rows'             => $this->effectiveRows($control),
             'description'      => $description['description'],
         ), static fn (string $value): bool => '' !== $value);
+
+        if ( isset($description['classes']) ) {
+            $metadata['description_classes'] = $description['classes'];
+        }
 
         // An accessible name from aria-label or aria-labelledby is not a rendered
         // label box beside the control. A provider that always renders its own
@@ -690,7 +695,7 @@ final class FormControlMetadataBuilder
      * candidate in that wrapper cannot be safely attributed either, so it is
      * reported as ambiguous rather than guessed at.
      *
-     * @return array{description: string, ambiguous: array<int, string>}
+     * @return array{description: string, classes?: array<int, string>, ambiguous: array<int, string>}
      */
     private function describeControl(DOMElement $control, ?DOMElement $labelElement): array
     {
@@ -708,7 +713,11 @@ final class FormControlMetadataBuilder
 
             $candidates = $this->descriptionCandidates($wrapper, $control, $labelElement);
             if ( 1 === count($candidates) ) {
-                return array( 'description' => $this->collapsedElementText($candidates[0]), 'ambiguous' => array() );
+                return array(
+                    'description' => $this->collapsedElementText($candidates[0]),
+                    'classes' => SourceDom::boundedClassTokens(SourceDom::attr($candidates[0], 'class'), 16),
+                    'ambiguous' => array(),
+                );
             }
             if ( 1 < count($candidates) ) {
                 return array(
@@ -733,8 +742,12 @@ final class FormControlMetadataBuilder
     {
         $candidates = array();
         $listbox = $this->ownedListboxPanel($control);
+        $honeypotCopy = FormControlClassifier::honeypotCopyElements($wrapper);
         foreach ( $wrapper->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
+                continue;
+            }
+            if ( $this->isControlOwnedCopy($node, $this->collapsedElementText($node), $honeypotCopy, array()) ) {
                 continue;
             }
             if ( $listbox instanceof DOMElement && $this->isOwnedListboxCopy($node, $listbox) ) {
@@ -791,7 +804,9 @@ final class FormControlMetadataBuilder
 
     private function classNames(DOMElement $element): string
     {
-        return implode(' ', SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'), 16));
+        $classes = SourceDom::attr($element, 'class');
+        // Bound by the authored attribute, not a prefix that can drop variant classes.
+        return implode(' ', SourceDom::boundedClassTokens($classes, strlen($classes)));
     }
 
     public function submitText(DOMElement $control, string $fallback): string

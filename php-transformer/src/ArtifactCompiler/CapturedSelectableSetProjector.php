@@ -27,6 +27,8 @@ final class CapturedSelectableSetProjector
     private const MAX_MEMBERS_PER_SET = 32;
     private const MAX_REGION_BYTES = 65536;
     private const MAX_SET_INLINE_BYTES = 262144;
+    private const FORM_SUBMISSION_ATTRIBUTES = array('action', 'method', 'enctype', 'target', 'novalidate', 'accept-charset');
+    private const CONTROL_SUBMISSION_ATTRIBUTES = array('formaction', 'formmethod', 'formenctype', 'formtarget', 'formnovalidate');
     private const GRAPHIC_HOST_TAGS = array(
         'svg', 'g', 'path', 'text', 'tspan', 'rect', 'circle', 'ellipse',
         'polygon', 'polyline', 'line', 'use', 'image', 'foreignobject', 'canvas', 'area',
@@ -1013,14 +1015,20 @@ final class CapturedSelectableSetProjector
                 $node->parentNode?->removeChild($node);
             }
         }
-        foreach ($xpath->query('//form') ?: array() as $form) {
-            if (! $form instanceof DOMElement || ! $form->parentNode) {
+        // A captured form keeps its element box (class, id, style, data-*) and
+        // children so source rules targeting its children keep matching; only
+        // its submission semantics are dropped, on the form and on any control
+        // that overrides them.
+        foreach (iterator_to_array($xpath->query('//*') ?: array()) as $element) {
+            if (! $element instanceof DOMElement) {
                 continue;
             }
-            while ($form->firstChild) {
-                $form->parentNode->insertBefore($form->firstChild, $form);
+            $submission = 'form' === strtolower($element->tagName) ? self::FORM_SUBMISSION_ATTRIBUTES : self::CONTROL_SUBMISSION_ATTRIBUTES;
+            foreach (iterator_to_array($element->attributes) as $attribute) {
+                if (in_array(strtolower($attribute->name), $submission, true)) {
+                    $element->removeAttribute($attribute->name);
+                }
             }
-            $form->parentNode->removeChild($form);
         }
         foreach ($xpath->query('//*') ?: array() as $element) {
             if (! $element instanceof DOMElement) {

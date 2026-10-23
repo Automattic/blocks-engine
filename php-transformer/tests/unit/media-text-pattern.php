@@ -74,12 +74,12 @@ $pattern = new MediaTextPattern();
 $matchMethod = new ReflectionMethod(MediaTextPattern::class, 'match');
 $matchParameters = $matchMethod->getParameters();
 $assertSame(
-    array( 'element', 'fallbacks', 'convertChildren', 'convertElement', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock', 'fullPresentationStyle', 'documentRootFontSize' ),
+    array( 'element', 'fallbacks', 'convertChildren', 'convertElement', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock', 'fullPresentationStyle', 'documentRootFontSize', 'imageFixedPixelSize' ),
     array_map(static fn (ReflectionParameter $parameter): string => $parameter->getName(), $matchParameters),
     'match callback parameter names remain frozen.'
 );
 $assertSame(
-    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable' ),
+    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', '?callable' ),
     array_map(static fn (ReflectionParameter $parameter): string => (string) $parameter->getType(), $matchParameters),
     'match callback parameter types remain frozen.'
 );
