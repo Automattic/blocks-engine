@@ -9,8 +9,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationOpenerPresentation;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -27,7 +25,6 @@ final class ProjectedNavigationConverter implements ElementConverter
     public function __construct(
         private readonly NavigationToggleSuppressor $navigationToggleSuppressor,
         private readonly StyleResolver $styleResolver,
-        private readonly SourceBlockAttributeProjector $sourceBlockAttributeProjector,
         private readonly HtmlTransformerSession $session,
         private readonly Closure $recognizePatterns,
         private readonly SourceBlockCreator $createBlock,
@@ -76,8 +73,7 @@ final class ProjectedNavigationConverter implements ElementConverter
                     $nativeClassNames,
                     (string) ($block['attrs']['className'] ?? ''),
                     $this->responsiveNavigationToggleMarker($projectedNavigation),
-                    $this->responsiveNavigationOverlayMarker($projectedNavigation),
-                    $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext())
+                    $this->responsiveNavigationOverlayMarker($projectedNavigation)
                 );
                 $block['attrs']['overlayMenu'] = $this->navigationToggleSuppressor->projectedOverlayMenu($element);
                 $block['attrs'] = $this->withSourceOpener($block['attrs'], $projectedNavigation);
@@ -90,13 +86,18 @@ final class ProjectedNavigationConverter implements ElementConverter
                 if ( ! $element->hasAttribute('aria-controls') ) {
                     return ConversionOutcome::handled($block);
                 }
-                return ConversionOutcome::handled($this->createBlock->createBlock(
+                $replacement = $this->createBlock->createBlock(
                     'core/navigation',
                     $block['attrs'],
                     $block['innerBlocks'] ?? array(),
                     $element,
                     $projectedNavigation
-                ));
+                );
+                // Keep the control's hidden-state provenance, but not its CSS
+                // identity. Attribute selectors and transforms describe the
+                // superseded button, never an ancestor of Core's fixed sheet.
+                $replacement['attrs']['className'] = $block['attrs']['className'];
+                return ConversionOutcome::handled($replacement);
             }
         }
 
@@ -285,10 +286,11 @@ final class ProjectedNavigationConverter implements ElementConverter
                 $extraRules .= $this->nativeNavigationBoundPanelCss($host, $navigation);
             }
         }
-        // A mobile-only drawer opens in place under its header, like the
-        // captured panel of an always-overlay control. It can open only where
-        // its button shows, so the rules stay inside the collapsed range.
-        $drawerRules = '' === $absentAbove || $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle)
+        // A superseded burger uses Core's viewport overlay, not the source
+        // dropdown's header-bound geometry. Other mobile-only drawers retain
+        // their existing panel projection within the collapsed range.
+        $drawerRules = $this->navigationToggleSuppressor->projectedNavigationTargetForControl($toggle) instanceof DOMElement
+            || '' === $absentAbove || $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle)
             ? ''
             : $this->nativeNavigationBoundPanelCss($host, $navigation);
         if ( $always ) {
@@ -813,8 +815,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             return $host;
         }
 
-        $host[] = 'width:fit-content!important';
-        $host[] = 'height:fit-content!important';
+        // The leaf opener owns the burger's visual box, not this host.
         $host[] = 'min-width:0!important';
         $host[] = 'min-height:0!important';
         if ( ! $always ) {
@@ -1027,14 +1028,5 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return (float) $matches[1] >= 24;
-    }
-
-    private function sourceBlockAttributeProjectionContext(): SourceBlockAttributeProjectionContext
-    {
-        return new SourceBlockAttributeProjectionContext(
-            $this->session->authorStyleAnalysis(),
-            $this->session->authorSelectorProjectionState(),
-            $this->session->generatedSupportStylesheetState()
-        );
     }
 }

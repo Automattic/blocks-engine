@@ -634,7 +634,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->projectedNavigation = new ProjectedNavigationConverter(
             $this->navigationToggleSuppressor,
             $this->styleResolver,
-            $this->sourceBlockAttributeProjector,
             $this->session,
             fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
             $this,
