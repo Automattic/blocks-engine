@@ -1040,6 +1040,7 @@ PHP;
             if (!$part && is_array($document['content_decision'] ?? null)) {
                 $row['content_decision'] = $document['content_decision'];
                 if (is_string($document['publication_timestamp'] ?? null)) $row['publication_timestamp'] = $document['publication_timestamp'];
+                if (is_string($document['publication_local_time'] ?? null)) $row['publication_local_time'] = $document['publication_local_time'];
             }
             if ( ! $part ) $row['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $references, $routes, $canonical);
             $rows[] = $row;
@@ -2773,6 +2774,7 @@ PHP;
         $entryRoot = self::entryRootFromDocuments($documents);
         $routes = array();
         $evidenceByIndex = array();
+        $localTimesByIndex = array();
         $structuredTypes = array();
         $pageEvidenceByIndex = array();
         foreach ($documents as $index => $document) {
@@ -2781,7 +2783,8 @@ PHP;
             $path = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path'] ? $metadata['route_path'] : self::pageRoutePath((string) $document['source_path'], $entryRoot);
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
             $structuredTypes[$index] = self::structuredPageTypes($document);
-            $evidenceByIndex[$index] = $this->publicationEvidence($document);
+            $localTimesByIndex[$index] = array();
+            $evidenceByIndex[$index] = $this->publicationEvidence($document, $localTimesByIndex[$index]);
             $pageTypes = array_intersect(array('WebPage', 'AboutPage', 'ContactPage', 'CollectionPage'), $structuredTypes[$index]);
             if (!array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $structuredTypes[$index]) && $pageTypes) {
                 $evidenceByIndex[$index] = array();
@@ -2878,6 +2881,9 @@ PHP;
             $timestamp = self::preferredPublicationTimestamp($evidence);
             if (null !== $timestamp) {
                 $document['publication_timestamp'] = $timestamp;
+                if (isset($localTimesByIndex[$index][$timestamp])) {
+                    $document['publication_local_time'] = $localTimesByIndex[$index][$timestamp];
+                }
             }
         }
         unset($document);
@@ -2993,19 +2999,25 @@ PHP;
         }
         return array_values(array_unique($types));
     }
-    /** @param array<string,mixed> $document @return array<int,array<string,string>> */
-    private function publicationEvidence(array $document): array
+    /** @param array<string,mixed> $document @param array<string,string> $localTimes Non-zero-offset representations keyed by UTC instant. @return array<int,array<string,string>> */
+    private function publicationEvidence(array $document, array &$localTimes): array
     {
         $html = is_string($document['html'] ?? null) ? $document['html'] : '';
         if ('' === trim($html) && is_string($document['block_markup'] ?? null)) $html = $document['block_markup'];
         $evidence = array(); $add = static function (array &$rows, string $source, ?string $value = null): void { if (count($rows) >= 16) return; $row = array('source' => $source); if (null !== $value) $row['publication_timestamp'] = $value; $rows[] = $row; };
-        $timestamp = static fn(string $value): ?string => self::normalizePublicationTimestamp($value);
+        // Keep offset candidates separate from evidence: a plain <time> must
+        // neither select the publication instant nor affect post inference.
+        $timestamp = static function (string $value) use (&$localTimes): ?string {
+            $date = self::normalizePublicationTimestamp($value, $localTime);
+            if (null !== $date && null !== $localTime) $localTimes[$date] ??= $localTime;
+            return $date;
+        };
         foreach (($document['document_metadata']['meta'] ?? array()) as $meta) if (is_array($meta) && is_string($meta['content'] ?? null) && in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('article:published_time', 'article:published', 'pubdate', 'publishdate', 'date', 'dc.date.issued', 'dc.date', 'parsely-pub-date', 'releasedate'), true)) if (null !== ($date = $timestamp($meta['content']))) $add($evidence, 'meta:' . strtolower((string) ($meta['property'] ?? $meta['name'])), $date);
-        foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if ('datePublished' === ($attributes['itemprop'] ?? null)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
+        foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if ('time' === ($node['name'] ?? null) && is_string($attributes['datetime'] ?? null)) $timestamp(html_entity_decode($attributes['datetime'], ENT_QUOTES | ENT_HTML5, 'UTF-8')); if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if ('datePublished' === ($attributes['itemprop'] ?? null)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
         foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : self::pageRoutePath((string) $document['source_path'], self::entryRootFromDocuments(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
-        foreach ($this->visiblePublicationEvidence($html) as $row) {
+        foreach ($this->visiblePublicationEvidence($html, $timestamp) as $row) {
             $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         }
         foreach (($document['document_metadata']['meta'] ?? array()) as $meta) {
@@ -3025,7 +3037,7 @@ PHP;
         return array_values($unique);
     }
     /** @return array<int,array<string,string>> */
-    private function visiblePublicationEvidence(string $html): array
+    private function visiblePublicationEvidence(string $html, callable $timestamp): array
     {
         $rows = array();
         foreach ($this->publicationHtmlFragments($html) as $fragment) {
@@ -3038,6 +3050,7 @@ PHP;
                     continue;
                 }
                 $text = self::elementInnerText($fragment, (string) $node['name'], $node['inner_offset']);
+                $timestamp(trim(preg_replace('/\s+/', ' ', $text) ?? $text));
                 $parsed = self::parseVisiblePublicationTimestamp($text);
                 if (null !== $parsed) {
                     $rows[] = array('source' => 'html:visible-date', 'publication_timestamp' => $parsed);
@@ -6151,13 +6164,18 @@ PHP;
         if (isset($document['publication_timestamp']) && (!self::utcTimestamp($document['publication_timestamp']) || !in_array($document['publication_timestamp'], $timestamps, true))) throw new InvalidArgumentException('WordPress site plan publication timestamp is invalid.');
     }
     private static function utcTimestamp(mixed $value): bool { if (!is_string($value) || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $value)) return false; try { return (new \DateTimeImmutable($value))->format('Y-m-d\\TH:i:s\\Z') === $value; } catch (\Exception) { return false; } }
-    private static function normalizePublicationTimestamp(string $value): ?string
+    private static function normalizePublicationTimestamp(string $value, ?string &$localTime = null): ?string
     {
+        $localTime = null;
         $format = null; $input = $value;
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) $format = '!Y-m-d';
         elseif (preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/', $value, $match)) { $input = $match[1] . ('Z' === $match[2] ? '+00:00' : $match[2]); $format = '!Y-m-d\\TH:i:sP'; }
         if (null === $format) return null;
-        return self::utcFromFormat($format, $input);
+        $timestamp = self::utcFromFormat($format, $input);
+        // The same validated, seconds-precision input used for UTC conversion
+        // retains its explicit offset; date-only and zero-offset values do not.
+        if (null !== $timestamp && '!Y-m-d' !== $format && !in_array(substr($input, -6), array('+00:00', '-00:00'), true)) $localTime = $input;
+        return $timestamp;
     }
     private static function parseVisiblePublicationTimestamp(string $value): ?string
     {
