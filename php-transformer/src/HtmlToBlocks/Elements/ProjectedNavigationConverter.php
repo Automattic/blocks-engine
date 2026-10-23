@@ -416,7 +416,12 @@ final class ProjectedNavigationConverter implements ElementConverter
         $align = match ($alignment) { 'right' => 'flex-end', 'center' => 'center', default => 'flex-start' };
         $rule = $open . ' .wp-block-navigation__container,' . $open . ' .wp-block-navigation__submenu-container{align-items:' . $align . '!important;text-align:' . $alignment . '!important}'
             . $open . ' .wp-block-navigation__submenu-container{padding-inline:0!important;margin-inline:0!important}'
-            . $open . ' .wp-block-navigation-item,' . $open . ' .wp-block-navigation-item__content{text-align:' . $alignment . '!important}';
+            . $open . ' .wp-block-navigation-item,' . $open . ' .wp-block-navigation-item__content{text-align:' . $alignment . '!important}'
+            // Retained desktop item/link classes and generated presentation
+            // carriers can set align-self on the LI or center a nested flex
+            // wrapper. Let the overlay's cross-axis alignment flow through the
+            // entire item chain, including childless top-level links.
+            . $open . ' .wp-block-navigation-item,' . $open . ' .wp-block-navigation-item *{align-self:auto!important;align-items:inherit!important}';
         $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay($marker, $rule);
 
         return $marker;

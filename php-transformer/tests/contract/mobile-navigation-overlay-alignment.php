@@ -11,9 +11,11 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 // padding:0 16px and align-items:flex-end; its list and links use text-align:end.
 // Desktop submenus are centered. Keep only those conflicting rules, the
 // two-layout header and the labelled checkbox from the burger-slot contract.
-$links = '<ul><li><label><input type="checkbox"><a href="/services">Services</a><ul><li><a href="/support">Technical support</a></li><li><a href="/compare">Compare tools</a></li></ul></label></li><li><a href="/about">About</a></li></ul>';
+$links = '<ul><li class="block-header-item"><label><input type="checkbox"><a href="/services">Services</a><ul><li class="block-header-item"><a class="item-content" href="/support">Technical support</a></li><li><a href="/compare">Compare tools</a></li></ul></label></li><li class="block-header-item"><label><div class="item-content-wrapper"><a class="item-content" href="/about">About</a></div></label></li></ul>';
 $css = <<<'CSS'
 .mobile-row{display:none}
+.block-header-item,.item-content{align-self:center}
+.item-content-wrapper{display:flex;align-items:center}
 nav ul ul{display:flex;align-items:center;text-align:center;padding:16px 24px}
 .burger{width:24px;height:18px;transform:rotate(0deg)}
 [data-qa="header-burger"]{translate:0;rotate:0deg;scale:1;perspective:1000px;filter:blur(0);backdrop-filter:blur(0);contain:paint;container-type:inline-size;will-change:transform}
@@ -91,6 +93,23 @@ foreach (array('absolute', 'fixed') as $position) {
     $link = $dom->createElement('a');
     $link->setAttribute('class', 'wp-block-navigation-item__content');
     $item->appendChild($link);
+    // Use retained source classes alongside the native classes, just as the
+    // rendered navigation does. Include a childless top-level item's wrappers.
+    $item->setAttribute('class', 'wp-block-navigation-item block-header-item');
+    $link->setAttribute('class', 'wp-block-navigation-item__content item-content');
+    $leaf = $dom->createElement('li');
+    $leaf->setAttribute('class', 'wp-block-navigation-item block-header-item');
+    $list->appendChild($leaf);
+    $label = $dom->createElement('span');
+    $leaf->appendChild($label);
+    $wrapper = $dom->createElement('div');
+    $wrapper->setAttribute('class', 'item-content-wrapper');
+    $label->appendChild($wrapper);
+    $leafLink = $dom->createElement('a');
+    $leafLink->setAttribute('class', 'wp-block-navigation-item__content item-content');
+    $wrapper->appendChild($leafLink);
+    $alignmentTargets = array($item, $link, $leaf, $label, $wrapper, $leafLink);
+    $alignmentReset = array();
     ($row ?? $dom->documentElement)->appendChild($host);
     $forbidden = 'transform|translate|rotate|scale|perspective|filter|backdrop-filter|contain|container-type|will-change|width|height';
     $openerSized = false;
@@ -101,9 +120,16 @@ foreach (array('absolute', 'fixed') as $position) {
     $singleGutter = false;
     foreach ($result['assets'] ?? array() as $asset) {
         if ('css' !== ($asset['kind'] ?? '')) continue;
-        (new CssStylesheetTransformer())->visitStyleRules((string) ($asset['content'] ?? ''), static function (string $selector, string $body) use ($host, $overlay, $opener, $forbidden, $position, &$failures, &$openerSized, $list, $submenu, $item, $link, &$gutter, &$submenuAligned, &$desktopCentered, &$submenuUnindented, &$singleGutter): void {
+        (new CssStylesheetTransformer())->visitStyleRules((string) ($asset['content'] ?? ''), static function (string $selector, string $body) use ($host, $overlay, $opener, $forbidden, $position, &$failures, &$openerSized, $list, $submenu, $item, $link, &$gutter, &$submenuAligned, &$desktopCentered, &$submenuUnindented, &$singleGutter, $alignmentTargets, &$alignmentReset): void {
             foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $selector) {
                 $parsed = CssSelectorMatcher::parse($selector);
+                foreach ($alignmentTargets as $index => $target) {
+                    if ((CssSelectorMatcher::matches($target, $parsed, true)['matches'] ?? false)
+                        && str_contains($body, 'align-self:auto!important')
+                        && str_contains($body, 'align-items:inherit!important')) {
+                        $alignmentReset[$index] = true;
+                    }
+                }
                 if ((CssSelectorMatcher::matches($overlay, $parsed, true)['matches'] ?? false) && str_contains($body, 'padding-inline:0!important')) $singleGutter = true;
                 if ((CssSelectorMatcher::matches($submenu, $parsed, true)['matches'] ?? false) && str_contains($body, 'padding-inline:0!important') && str_contains($body, 'margin-inline:0!important')) $submenuUnindented = true;
                 foreach (array($submenu, $item, $link) as $target) {
@@ -118,6 +144,13 @@ foreach (array('absolute', 'fixed') as $position) {
                 // closes the overlay; do not delete desktop styles.
                 $overlay->setAttribute('class', 'wp-block-navigation__responsive-container');
                 if ((CssSelectorMatcher::matches($submenu, $parsed, true)['matches'] ?? false) && str_contains($body, 'text-align:center')) $desktopCentered = true;
+                foreach ($alignmentTargets as $target) {
+                    if ((CssSelectorMatcher::matches($target, $parsed, true)['matches'] ?? false)
+                        && str_contains($body, 'align-self:auto!important')
+                        && str_contains($body, 'align-items:inherit!important')) {
+                        $failures[] = "$position: overlay alignment reset must not replace closed/desktop item alignment.";
+                    }
+                }
                 $overlay->setAttribute('class', 'wp-block-navigation__responsive-container is-menu-open');
                 foreach (array($host, $overlay) as $target) {
                     if ((CssSelectorMatcher::matches($target, $parsed, true)['matches'] ?? false)
@@ -131,6 +164,12 @@ foreach (array('absolute', 'fixed') as $position) {
                 }
             }
         });
+    }
+    if (count($alignmentReset) !== count($alignmentTargets)) {
+        $failures[] = "$position: submenu and childless top-level items, links and wrappers must reset desktop self/item alignment inside the open overlay.";
+    }
+    if (!str_contains($artifact, 'align-self:center')) {
+        $failures[] = "$position: regression fixture must retain the conflicting desktop item alignment.";
     }
     if (!$gutter) $failures[] = "$position: the open list must receive the source panel's 16px gutter.";
     if (!$singleGutter) $failures[] = "$position: the source gutter must replace, not double Core's inline overlay padding.";
