@@ -39,6 +39,7 @@ final class RouteStateProjector
      */
     public function project(array $files): array
     {
+        $files = self::bindRetainedLabels($files);
         foreach ($files as &$file) {
             if ('html' !== ($file['kind'] ?? null) || ! is_string($file['content'] ?? null)) {
                 continue;
@@ -48,6 +49,79 @@ final class RouteStateProjector
         unset($file);
 
         return array('files' => $files);
+    }
+
+    /**
+     * Compare the same single-link label across captures. Only a demonstrated
+     * current/resting pair can own a binding; unrelated label differences remain
+     * authored content. The binding travels with labelMarkup and its saved HTML.
+     */
+    private static function bindRetainedLabels(array $files): array
+    {
+        $documents = array();
+        $groups = array();
+        foreach ($files as $index => $file) {
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !str_contains($file['content'], '<label')) continue;
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $previous = libxml_use_internal_errors(true);
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            libxml_clear_errors(); libxml_use_internal_errors($previous);
+            if (!$loaded) continue;
+            $documents[$index] = $document;
+            foreach ((new DOMXPath($document))->query('//nav//label[.//input]') ?: array() as $label) {
+                if (!$label instanceof DOMElement || 1 !== $label->getElementsByTagName('a')->length) continue;
+                $link = $label->getElementsByTagName('a')->item(0);
+                if (!$link instanceof DOMElement || !$link->hasAttribute('href')) continue;
+                $nodes = array(); $shape = array(); $current = false;
+                foreach ($label->getElementsByTagName('*') as $node) {
+                    if ('input' === strtolower($node->tagName)) continue;
+                    $nodes[] = $node; $shape[] = $node->tagName;
+                    foreach ($node->attributes as $attribute) {
+                        if (('class' === $attribute->name || str_starts_with($attribute->name, 'data-')) && !str_starts_with($attribute->name, 'data-blocks-engine-') && MenuVocabulary::containsCurrentStateToken($attribute->value)) $current = true;
+                        if ('aria-current' === $attribute->name && !in_array(strtolower($attribute->value), array('', 'false'), true)) $current = true;
+                    }
+                }
+                // Translation and authored content are not route state. Peers
+                // must keep the same link text as well as structural ownership.
+                $href = trim($link->getAttribute('href'));
+                if ('' === $href || ArtifactPath::namesSection($href) || str_starts_with($href, '//') || preg_match('~^[a-z][a-z0-9+.-]*:~i', $href)) continue;
+                $target = str_starts_with($href, '/') ? ltrim(ArtifactPath::stripQueryAndFragment($href), '/') : ArtifactPath::resolveRelativePath($href, (string) ($file['path'] ?? ''));
+                $key = $target . ':' . implode('/', $shape) . ':' . trim($label->textContent);
+                $groups[$key][] = array('index' => $index, 'nodes' => $nodes, 'current' => $current);
+            }
+        }
+        $changed = array();
+        foreach ($groups as $rows) {
+            $resting = array_values(array_filter($rows, static fn(array $row): bool => !$row['current']));
+            $selected = array_values(array_filter($rows, static fn(array $row): bool => $row['current']));
+            if (array() === $resting || array() === $selected) continue;
+            foreach ($rows[0]['nodes'] as $position => $unused) {
+                $names = array();
+                foreach ($rows as $row) foreach ($row['nodes'][$position]->attributes as $attr) $names[$attr->name] = true;
+                $binding = array('rest' => array(), 'current' => array());
+                foreach (array_keys($names) as $name) {
+                    if (!in_array($name, array('class', 'style', 'aria-current'), true) && !str_starts_with($name, 'data-')) continue;
+                    if (str_starts_with($name, 'data-blocks-engine-')) continue;
+                    $values = static function (array $peers) use ($position, $name): array {
+                        return array_values(array_unique(array_map(static fn(array $row): ?string => $row['nodes'][$position]->hasAttribute($name) ? $row['nodes'][$position]->getAttribute($name) : null, $peers), SORT_REGULAR));
+                    };
+                    $rest = $values($resting); $active = $values($selected);
+                    if (1 !== count($rest) || 1 !== count($active) || $rest === $active) continue;
+                    $binding['rest'][$name] = $rest[0]; $binding['current'][$name] = $active[0];
+                }
+                if (array() === $binding['rest']) continue;
+                foreach ($rows as $row) {
+                    $node = $row['nodes'][$position];
+                    foreach ($binding['rest'] as $name => $value) {
+                        if (null === $value) $node->removeAttribute($name); else $node->setAttribute($name, $value);
+                    }
+                    $node->setAttribute('data-blocks-engine-route-state', (string) json_encode($binding, JSON_UNESCAPED_SLASHES));
+                    $changed[$row['index']] = true;
+                }
+            }
+        }
+        foreach (array_keys($changed) as $index) $files[$index]['content'] = HtmlSerialization::documentHtml($documents[$index]);
+        return $files;
     }
 
     public static function normalize(string $html): string

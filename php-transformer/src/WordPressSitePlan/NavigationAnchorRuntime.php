@@ -6,6 +6,32 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 /** Keep explicit anchor inline priority on Core's dynamic anchor, not its LI. */
 final class NavigationAnchorRuntime
 {
+    /** Retained native labels use the same served-route ownership as menu links. */
+    public static function retainedLabelSource(): string
+    {
+        return <<<'PHP'
+add_filter( 'render_block', static function ( string $content, array $block ): string {
+    if ( ! isset( $block['attrs']['labelMarkup'] ) || ! str_contains( $content, 'data-blocks-engine-route-state' ) ) return $content;
+    $links = new WP_HTML_Tag_Processor( $content ); $url = '';
+    while ( $links->next_tag( 'A' ) ) { $url = (string) $links->get_attribute( 'href' ); break; }
+    $document = get_queried_object_id();
+    $served = is_front_page() ? '/' : ( $document && 'page' === get_post_type( $document ) ? '/' . trim( (string) get_page_uri( $document ), '/' ) : null );
+    $current = '' !== $url && '/' === $url[0] && ! str_starts_with( $url, '//' ) && ! str_contains( $url, '#' ) && null !== $served && '/' . trim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) === $served;
+    $processor = new WP_HTML_Tag_Processor( $content );
+    while ( $processor->next_tag() ) {
+        $binding = json_decode( (string) $processor->get_attribute( 'data-blocks-engine-route-state' ), true );
+        if ( ! is_array( $binding ) ) continue;
+        foreach ( $binding[ $current ? 'current' : 'rest' ] ?? array() as $name => $value ) {
+            if ( ! in_array( $name, array( 'class', 'style', 'aria-current' ), true ) && ! preg_match( '/^data-[a-z0-9_.:-]+$/D', $name ) ) continue;
+            if ( null === $value ) $processor->remove_attribute( $name ); else $processor->set_attribute( $name, $value );
+        }
+        $processor->remove_attribute( 'data-blocks-engine-route-state' );
+    }
+    return $processor->get_updated_html();
+}, 10, 2 );
+PHP;
+    }
+
     public static function source(): string
     {
         return <<<'PHP'
