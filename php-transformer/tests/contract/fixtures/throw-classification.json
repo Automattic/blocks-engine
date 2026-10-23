@@ -294,6 +294,7 @@
       "InvalidArgumentException('Form layout graph exceeds its variant limit.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph has a dangling parent.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph has a parent cycle.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Form layout graph in-flow child count is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph node identity is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph node is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph parents must precede their children.')": {"class": "integrity", "count": 1},

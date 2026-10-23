@@ -1,5 +1,24 @@
 # Form Presentation Graph
 
+## Companion layout graph: direct child counts
+
+`generic/computed-layout-graph/v3` container nodes optionally carry
+`in_flow_children: int` (non-negative). It counts direct element children,
+excluding resolved base `display:none` and `position:absolute|fixed` boxes,
+plus non-whitespace direct text runs (anonymous flex items). Non-authored
+controls and honeypot-owned copy containers excluded by existing form projection
+are excluded here too. It uses the
+layout graph's existing bounded source-CSS cascade, not browser geometry;
+conditional variants do not change this base count. Control nodes do not
+carry it, and graphs omitting it remain valid.
+
+The count includes siblings omitted from the control topology and is independent
+of emitted-node `order` and the fallback HTML excerpt limit. Existing graph
+limits (128 nodes, depth 16, 16 rules per node) still apply to CSS evidence;
+`truncated` continues to signal exceeded analysis limits. The child count itself
+is not capped by the graph node limit or the roughly 2,000-byte HTML excerpt.
+
+
 `generic/computed-form-presentation/v2` is an optional `generic/forms/v1` payload member. It carries bounded source-CSS facts for controls, associated labels, and identified inline SVG descendants. It is not a provider recipe and never assigns visual semantics such as "globe" or "chevron".
 
 Control metadata in `generic/forms/v1` also carries source presentation hooks outside this graph. `description` is the resolved field helper text. When exactly one description element resolves, `description_classes` is its ordered list of class tokens (bounded to 16), for example `["sub", "hidden-util"]`; a resolved element without classes yields `[]`. With no resolved description or ambiguous candidates, the key is absent. Consumers can use these tokens to preserve visually hidden helper copy instead of rendering it visibly. Existing label hooks (`label_class` and button `label_classes`) are unchanged; unlike those space-separated strings, `description_classes` is a token array. This additive metadata does not change block output.
