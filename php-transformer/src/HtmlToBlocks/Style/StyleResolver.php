@@ -1943,7 +1943,7 @@ final class StyleResolver implements ElementPresentationResolver
      * The box also neutralizes core block-library's responsive
      * `.wp-block-image img{max-width:100%}` clamp when the source leaves
      * max-width at its initial `none` AND the width is derived -- not
-     * carried --: no native width while the height is fixed, so the browser
+     * carried --: no native width while the height is fixed or viewport-scoped, so the browser
      * sizes the width from that height through the aspect (or intrinsic)
      * ratio. There the clamp is what distorts or crops the image (issue
      * #3320); an image the source itself clamps keeps core's default.
@@ -1992,7 +1992,7 @@ final class StyleResolver implements ElementPresentationResolver
         // `.wp-block-image img{max-width:100%}`. That clamp assumes the source
         // clamps too. When the source's computed max-width is the initial
         // `none` -- no author rule constrains the image -- and the width is
-        // not carried natively while the height is, the browser derives the
+        // not carried natively while the height is carried or responsive, the browser derives the
         // width from that fixed height through the aspect (or intrinsic)
         // ratio, exactly as the source did; core's clamp is then the one
         // declaration that breaks the box, because it snaps the width to the
@@ -2005,7 +2005,7 @@ final class StyleResolver implements ElementPresentationResolver
         // `width:100%`) keeps core's responsive default untouched.
         if (
             '' === $nativeWidth
-            && '' !== $nativeHeight
+            && ('' !== $nativeHeight || $this->imageHasViewportDerivedWidth($image))
             && ! isset($box['max-width'])
             && ! $this->imageAxisVariesByViewport($image, 'max-width')
             && $this->imageComputedMaxWidthIsNone($declarations)
@@ -2029,6 +2029,33 @@ final class StyleResolver implements ElementPresentationResolver
         );
 
         return $className;
+    }
+
+    /**
+     * A responsive height cannot be carried as one native block attribute.
+     * It still derives an auto width in the browser, including a percentage
+     * height supplied by a definite wrapper. Read the same resolved viewport
+     * cascades that kept that height out of the native attributes; do not pin
+     * either dimension to a reference viewport's value.
+     */
+    private function imageHasViewportDerivedWidth(DOMElement $image): bool
+    {
+        if (! $this->imageAxisVariesByViewport($image, 'height')) {
+            return false;
+        }
+        foreach (array(
+            $this->referenceViewportAuthorDeclarations($image, array('width', 'height')),
+            $this->collapsedViewportAuthorDeclarations($image, array('width', 'height')),
+        ) as $declarations) {
+            $width = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->resolveStructuralCssVariablesInValue($declarations['width'] ?? '', $image)));
+            $height = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->resolveStructuralCssVariablesInValue($declarations['height'] ?? '', $image)));
+            if ('auto' === $width && '' !== $height
+                && ! in_array($height, array('auto', 'initial', 'unset', 'inherit', 'revert', 'revert-layer'), true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Whether the cascade leaves this image's max-width at its initial `none`. */

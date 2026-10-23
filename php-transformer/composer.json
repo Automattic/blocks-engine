@@ -225,6 +225,7 @@
       "php tests/contract/selector-match-cache-signature.php",
       "php tests/contract/selector-match-cache-compact.php",
       "php tests/contract/height-derived-image-max-width.php",
+      "php tests/contract/viewport-height-derived-image-max-width.php",
       "@test:unit"
     ],
     "test:unit": [
