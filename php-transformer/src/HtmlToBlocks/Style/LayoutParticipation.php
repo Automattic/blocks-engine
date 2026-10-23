@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /**
@@ -39,7 +40,8 @@ final class LayoutParticipation
         public readonly string $context,
         public readonly string $sourceDisplay,
         public readonly bool $positioned,
-        public readonly bool $sourceIsNativeControl = false
+        public readonly bool $sourceIsNativeControl = false,
+        public readonly bool $sourceWrappersAreNative = false
     ) {}
 
     public static function resolve(DOMElement $element, StyleResolver $styleResolver): self
@@ -81,8 +83,25 @@ final class LayoutParticipation
             $context,
             $sourceDisplay,
             $positioned,
-            in_array(strtolower($element->tagName), array( 'button', 'input' ), true)
+            in_array(strtolower($element->tagName), array( 'button', 'input' ), true),
+            self::hasNativeButtonSaveWrappers($element)
         );
+    }
+
+    /**
+     * Source markup that is already core's button save output
+     * (`.wp-block-buttons > .wp-block-button > link`) keeps both wrappers as
+     * the source's own boxes. None of them is synthesized, so nothing moves
+     * the link's own geometry onto a wrapper.
+     */
+    private static function hasNativeButtonSaveWrappers(DOMElement $element): bool
+    {
+        $button = $element->parentNode;
+        $buttons = $button instanceof DOMElement ? $button->parentNode : null;
+
+        return $button instanceof DOMElement && $buttons instanceof DOMElement
+            && SourceDom::hasClass($button, 'wp-block-button')
+            && SourceDom::hasClass($buttons, 'wp-block-buttons');
     }
 
     public function isLayoutItem(): bool
@@ -146,7 +165,7 @@ final class LayoutParticipation
         if ( $this->positioned ) {
             return self::BOX_BUTTON_WRAPPER;
         }
-        if ( $this->isInline() || $this->flattensInnerSaveWrapper() ) {
+        if ( $this->sourceWrappersAreNative || $this->isInline() || $this->flattensInnerSaveWrapper() ) {
             return self::BOX_LINK;
         }
 
