@@ -112,9 +112,11 @@ final class NavigationToggleSuppressor
                 // A visible in-flow menu with the same destinations already owns
                 // the overlay. Projecting a non-dialog collapsed copy onto a
                 // CSS glyph toggle would emit a second navigation in the toggle's
-                // slot. Dialog and hash-anchor overlays still occupy the control.
+                // slot. Out-of-flow panels cannot host an in-row opener, so
+                // they, dialogs and hash-anchor overlays still occupy the control.
                 if ( ! $isDialogProjection
                     && ! $this->isProjectableHashAnchorMenuToggle($control)
+                    && ! $this->isOutOfFlowNavigationPanel($relationship['target'])
                     && $this->hasEquivalentSourceNavigationVariant($relationship['navigation']) ) {
                     continue;
                 }
@@ -124,6 +126,33 @@ final class NavigationToggleSuppressor
                 $this->recordProjectedNavigationRelationship($control, $relationship['target'], $relationship['navigation']);
             }
         }
+    }
+
+    /** A collapsed panel cannot host the replacement opener in the header row. */
+    private function isOutOfFlowNavigationPanel(DOMElement $target): bool
+    {
+        $declarations = $this->styleResolver->collapsedViewportAuthorDeclarations($target, array('position'));
+        $position = strtolower(CssValueInspector::withoutImportant(trim((string) ($declarations['position'] ?? ''))));
+
+        return in_array($position, array('absolute', 'fixed'), true);
+    }
+
+    /** Responsive clipping belongs to the collapsed cascade, not the resting one. */
+    private function isCollapsedOutOfFlowPanel(DOMElement $target): bool
+    {
+        if ( $this->isSemanticDialog($target) || ! $this->isOutOfFlowNavigationPanel($target) ) {
+            return false;
+        }
+        $declarations = $this->styleResolver->collapsedViewportAuthorDeclarations($target, array('visibility', 'max-height'));
+        foreach ( $declarations as $property => $value ) {
+            $value = strtolower(CssValueInspector::withoutImportant(trim($value)));
+            if ( ('visibility' === $property && 'hidden' === $value)
+                || ('max-height' === $property && in_array($value, array('0', '0px'), true)) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function recordProjectedNavigationRelationship(DOMElement $control, DOMElement $target, DOMElement $navigation): void
@@ -201,7 +230,9 @@ final class NavigationToggleSuppressor
             $dialogCandidates = array();
             $navigationCandidates = array();
             foreach ( $scope->getElementsByTagName('*') as $candidate ) {
-                if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($control) ) {
+                // A desktop-hidden mobile row can contain both the opener
+                // and panel; it is their layout owner, never the panel itself.
+                if ( ! $candidate instanceof DOMElement || SourceDom::elementContains($candidate, $control) ) {
                     continue;
                 }
 
@@ -315,7 +346,7 @@ final class NavigationToggleSuppressor
 
     private function hiddenNavigationInControlledTarget(DOMElement $target): ?DOMElement
     {
-        if ( ! $this->sourceElementIsHidden($target) ) {
+        if ( ! $this->sourceElementIsHidden($target) && ! $this->isCollapsedOutOfFlowPanel($target) ) {
             return null;
         }
 

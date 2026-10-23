@@ -237,9 +237,21 @@ final class ProjectedNavigationConverter implements ElementConverter
         // that differ only in where they collapse keep separate rules.
         $collapseBoundary = $always ? '' : $this->sourceCollapseBoundary($navigation, $toggle);
         $absentAbove = $always ? '' : $this->sourceAbsentAboveBoundary($navigation, $toggle);
-        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . $extra . (null === $source ? '' : serialize($source)) . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary ) . ( '' === $absentAbove ? '' : ';absent:' . $absentAbove )), 0, 12);
+        // A projected menu replaces the toggle as a grid/flex item, not only
+        // as a DOM occurrence. Carry its authored row slot on the host; putting
+        // this on Core's leaf opener would place it inside the nav instead.
+        $slotDeclarations = array();
+        if ( $this->navigationToggleSuppressor->projectedNavigationTargetForControl($toggle) instanceof DOMElement ) {
+            foreach ( $this->styleResolver->collapsedViewportAuthorDeclarations($toggle, array('grid-area', 'grid-column', 'grid-row', 'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end', 'order', 'align-self', 'justify-self')) as $property => $value ) {
+                $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant(trim($value)), $toggle);
+                if ( '' !== $value && ! preg_match('/[{}<>;]|var\(/i', $value) ) {
+                    $slotDeclarations[] = $property . ':' . $value . '!important';
+                }
+            }
+        }
+        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . implode(';', $slotDeclarations) . $extra . (null === $source ? '' : serialize($source)) . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary ) . ( '' === $absentAbove ? '' : ';absent:' . $absentAbove )), 0, 12);
         $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation.' . $marker;
-        $hostRule = $host . '{' . implode(';', $this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations, array() !== $placement)) . '}';
+        $hostRule = $host . '{' . implode(';', array_merge($this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations, array() !== $placement), $slotDeclarations)) . '}';
         $openRule = $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $openDeclarations) . '}';
         if ( array() !== $placement ) {
             $openRule .= $this->nativeNavigationTogglePlacementEditorReset($host, $placement);
