@@ -48,7 +48,7 @@ $assert(1 === preg_match('/@media \(max-width:767px\)\{\.' . preg_quote($splitCl
 
 // 3. Unscoped sizing is unchanged: no media rules are added.
 $plain = $transform('<style>' . $rules . '</style>' . $markup);
-$assert(str_contains($plain['serialized_blocks'], 'width:var(--logged-out-icon-size,26px)!important'), 'unscoped sizing still rides the inline style');
+$assert(1 === preg_match('/width:var\(--logged-out-icon-size,26px\)\s*!important/', $plain['serialized_blocks']), 'unscoped sizing still rides the inline style');
 $assert(!preg_match('/@media[^{]*\{\.be-inline-geometry-/', $css($plain)), 'no media-scoped carrier is emitted without media-scoped sizing');
 
 // 4. Media rules that do not size the icon change nothing.
