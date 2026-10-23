@@ -165,6 +165,12 @@ final class AuthorStylesheetProjector
         $svgImageRule = '' === $svgImagePrelude
             ? ''
             : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
+        $svgImageRule .= $this->flexItemImageBoxRule(
+            $prelude,
+            $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations, true),
+            $declarations,
+            $context
+        );
         $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context) . $this->separatorBorderRule($prelude, $declarations, $context);
         $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context)
             . $this->navigationListBoxRule($prelude, $declarations, $context);
@@ -2407,7 +2413,7 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, string> $declarations */
-    private function projectAuthorImageSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, string $tagName = 'img', array $declarations = array()): string
+    private function projectAuthorImageSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, string $tagName = 'img', array $declarations = array(), bool $flexBox = false): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors ) {
@@ -2420,7 +2426,7 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
-            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && ('svg' !== $tagName || $this->isProjectableFillSvg($element, $declarations))));
+            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && ('svg' !== $tagName || ($flexBox && $this->styleResolver->imageIsFlexOrGridItem($element)) || $this->isProjectableFillSvg($element, $declarations))));
             if ( array() === $imageMatches ) {
                 continue;
             }
@@ -2628,12 +2634,15 @@ final class AuthorStylesheetProjector
      */
     private function flexItemImageBoxRule(string $prelude, string $imagePrelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
-        if ( ! $this->selectsFlexItemImage($prelude, $context) ) {
+        if ( '' === $imagePrelude || ! $this->selectsFlexItemImage($prelude, $context) ) {
             return '';
         }
         $box = array();
-        foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'align-self', 'justify-self' ) as $property ) {
-            $value = trim((string) ($declarations[$property] ?? ''));
+        foreach ( $declarations as $property => $declaration ) {
+            if ( ! NativeImageLeafPresentation::isBoxProperty($property) ) {
+                continue;
+            }
+            $value = trim($declaration);
             if ( '' !== $value && 1 !== preg_match('~[{}<>;]|/\*~', $value) ) {
                 $box[] = $property . ':' . $value;
             }
@@ -2661,7 +2670,7 @@ final class AuthorStylesheetProjector
                 continue;
             }
             foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
-                if ( 'img' === strtolower($element->tagName) && $this->styleResolver->imageIsFlexOrGridItem($element) ) {
+                if ( in_array(strtolower($element->tagName), array( 'img', 'svg' ), true) && $this->styleResolver->imageIsFlexOrGridItem($element) ) {
                     return true;
                 }
             }
