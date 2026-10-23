@@ -455,12 +455,13 @@ $assert(str_contains($frontSharedRendered, '<a class="wp-block-navigation-item__
 // disposable second theme materializes the corroborated taxonomy fixture, the
 // bootstrap's emitted rewrite rules register through init, and the actual
 // source page-2 path is resolved the way WordPress resolves a request.
-$taxonomyArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+$postRouteFixture = require dirname(__DIR__) . '/contract/fixtures/post-route-rewrites-spare-pages.php';
+$taxonomyArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array_merge($postRouteFixture['files'], array(
     'index.html' => '<main><h1>Home</h1></main>',
     array('path' => 'archives/field-notes.html', 'content' => '<main><h1>Field Notes</h1><article><h2><a href="/stories/one">One</a></h2><p>One summary.</p></article><article><h2><a href="/stories/two">Two</a></h2><p>Two summary.</p></article></main>', 'metadata' => array('route_path' => '/journal/category/field-notes')),
     array('path' => 'stories/one.html', 'content' => '<article><h1>One</h1><p>Full one.</p><a href="/journal/category/field-notes">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
     array('path' => 'stories/two.html', 'content' => '<article><h1>Two</h1><p>Full two.</p><a href="/journal/category/field-notes">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
-)))->toArray();
+))))->toArray();
 $taxonomyPlan = $taxonomyArtifact['source_reports']['wordpress_site_plan'] ?? array();
 $assert(1 === count($taxonomyPlan['taxonomy_entities'] ?? array()) && '/journal/category/field-notes' === ($taxonomyPlan['taxonomy_entities'][0]['archive']['source_route'] ?? null), 'The taxonomy fixture projects one corroborated term on its source route.');
 $taxonomyTheme = $theme . '-taxonomy';
@@ -495,6 +496,29 @@ $resolveRequest = static function (string $path): array {
     $request->parse_request('');
     return $request->query_vars;
 };
+// #3360: generated post rewrites must leave hierarchical pages to core,
+// including a child whose slug also belongs to a default-locale root page.
+$fixtureIds = array();
+foreach ($postRouteFixture['files'] as $file) {
+    if (!is_array($file)) continue;
+    $route = $file['metadata']['route_path'];
+    $type = $file['metadata']['post_type'];
+    $id = wp_insert_post(array(
+        'post_type' => $type, 'post_status' => 'publish',
+        'post_title' => $route, 'post_name' => basename($route),
+        'post_parent' => 'page' === $type ? ($fixtureIds[dirname($route)] ?? 0) : 0,
+    ), true);
+    if (is_wp_error($id)) throw new RuntimeException($id->get_error_message());
+    $fixtureIds[$route] = $id;
+    $pageIds['post-route-' . $route] = $id;
+}
+flush_rewrite_rules(false);
+foreach ($fixtureIds as $route => $id) {
+    $assert($id === url_to_postid(home_url($route . '/')), 'Source route resolves to its own post or page: ' . $route);
+    $routeQuery = new WP_Query($resolveRequest($route . '/'));
+    $assert($id === $routeQuery->get_queried_object_id() && !$routeQuery->is_404(), 'Core request resolves the intended object: ' . $route);
+    if ('page' === get_post_type($id)) $assert($routeQuery->is_page(), 'Child routes retain native page query semantics.');
+}
 $baseRouteVars = $resolveRequest('/journal/category/field-notes/');
 $pageTwoVars = $resolveRequest('/journal/category/field-notes/page/2/');
 $zeroPageVars = $resolveRequest('/journal/category/field-notes/page/0/');

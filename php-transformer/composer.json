@@ -75,6 +75,7 @@
       "@test:packaging"
     ],
     "test:canonical": [
+      "php tests/contract/post-route-rewrites-spare-pages.php",
       "php tests/contract/menu-toggle-without-core-navigation.php",
       "php tests/contract/mobile-navigation-replaces-burger-slot.php",
       "php tests/contract/mobile-navigation-collapse-breakpoint.php",
