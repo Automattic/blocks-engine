@@ -163,6 +163,30 @@ $source = '.small{padding:20px}@media(min-width:768px){.wide{padding:32px}}';
 $projection = '.small:not(.control){padding:20px}@media(min-width:768px){.wide{padding:32px}}';
 $assert($projection === $transformer->rulesAbsentFrom(array($projection), array($source), true), 'a later page delta retains responsive rules after its rewritten base rule, preserving cascade order');
 $assert('' === $transformer->rulesAbsentFrom(array($source), array($source), true), 'an unchanged projection still needs no page stylesheet');
+$shared = 'footer.sitewide ul a{color:#036;font-weight:700}';
+$assert('' === $transformer->rulesAbsentFrom(array($shared), array($shared), true), 'reduced multi-page footer projections do not repeat shared stylesheet rules');
+$delta = $transformer->rulesAbsentFrom(
+    array('.link.page-a{color:red}.unrelated{margin:0}.link.page-a{color:blue}.tail{padding:0}'),
+    array('.link{color:black}.unrelated{margin:0}.link.page-a{color:blue}.tail{padding:0}'),
+    true
+);
+$assert('.link.page-a{color:red}.link.page-a{color:blue}' === $delta, 'cascade-preserving page deltas retain changed rules and later selector/property overrides, not unrelated suffix rules');
+
+// A shared rule re-emitted for interacting with a changed rule loads later
+// too, so a shared responsive rule it originally lost to must follow it.
+$transitive = $transformer->rulesAbsentFrom(
+    array('.control:not(.engine){left:0}.item{left:1px;grid-row:1}.label{opacity:.8}@media (max-width:600px){.item--compact{grid-row:2}}'),
+    array('.control{left:0}.item{left:1px;grid-row:1}.label{opacity:.8}@media (max-width:600px){.item--compact{grid-row:2}}'),
+    true
+);
+$assert('.control:not(.engine){left:0}.item{left:1px;grid-row:1}@media (max-width:600px){.item--compact{grid-row:2}}' === $transitive, 'a rule overriding a re-emitted shared rule is re-emitted after it, while a rule sharing no property stays shared');
+// Shorthands and their longhands (vendor-prefixed or not) set the same values.
+$shorthand = $transformer->rulesAbsentFrom(
+    array('.field.page-a{border:0}.field--error{border-color:red}.field--stack{-webkit-flex-direction:column}.panel.page-a{flex:1}'),
+    array('.field{border:1px solid}.field--error{border-color:red}.field--stack{-webkit-flex-direction:column}.panel{flex:1}'),
+    true
+);
+$assert('.field.page-a{border:0}.field--error{border-color:red}.panel.page-a{flex:1}' === $shorthand, 'a later longhand of a changed shorthand stays after it; an unrelated family before the change does not');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssStylesheetTransformer unit tests: {$failures} failed, {$passes} passed\n");

@@ -173,9 +173,11 @@ final class CssStylesheetTransformer
      * The rules of `$stylesheets`, in order and each once, that do not occur
      * with the same text inside the same conditional group rules in `$present`.
      * Malformed input yields the stylesheets unchanged.
-     * When preserving cascade for a later-loaded page projection, keep the
-     * suffix after the first changed rule: unchanged later rules may need to
-     * outrank that rule even though they already exist in the shared sheet.
+     * When preserving cascade for a later-loaded page projection, also keep
+     * every later shared rule that may set a property an already kept rule
+     * sets: the page stylesheet loads after the shared one, so a kept rule
+     * would otherwise outrank the later shared rule it originally lost to.
+     * Kept shared rules count too, since re-emitting one moves it later.
      *
      * @param list<string> $stylesheets
      * @param list<string> $present
@@ -196,21 +198,59 @@ final class CssStylesheetTransformer
             }
         }
         $kept = array();
-        $changed = false;
+        $keptProperties = array();
         foreach ( $stylesheets as $stylesheet ) {
             $units = array();
             $this->collectRuleUnits($stylesheet, array(), $units);
             foreach ( $units as $unit ) {
                 $key = self::ruleUnitKey($unit);
-                if ( $unit['dedupable'] && isset($seen[ $key ]) && ! ($preserveCascade && $changed) ) {
-                    continue;
+                $properties = $preserveCascade ? self::cascadePropertyFamilies($unit['text']) : array();
+                if ( ! $unit['dedupable'] || ! isset($seen[ $key ]) || self::cascadeFamiliesOverlap($properties, $keptProperties) ) {
+                    $kept[] = $unit;
+                    $keptProperties += $properties;
                 }
-                $changed = true;
                 $seen[ $key ] = true;
-                $kept[] = $unit;
             }
         }
         return $this->serializeRuleUnits($kept);
+    }
+
+    /**
+     * The cascade families a rule unit declares: a property, without vendor
+     * prefix, reduced to the shorthand that also sets it, so a shorthand and
+     * its longhands share a family. Custom properties are their own family.
+     * A rule whose declarations cannot be read (or that sets `all`) reports
+     * the wildcard family, which overlaps every other.
+     *
+     * @return array<string, true>
+     */
+    private static function cascadePropertyFamilies(string $rule): array
+    {
+        $brace = strpos($rule, '{');
+        if ( false !== $brace && '' === trim(substr(trim($rule), $brace + 1, -1)) ) {
+            return array();
+        }
+        if ( false === $brace || ! str_ends_with(trim($rule), '}') || ! preg_match_all('/(?:^|[;{}])\\s*(-{0,2}[a-zA-Z_][a-zA-Z0-9_-]*)\\s*:/', substr($rule, $brace + 1), $matches) ) {
+            return array( '*' => true );
+        }
+        $aliases = array( 'top' => 'inset', 'right' => 'inset', 'bottom' => 'inset', 'left' => 'inset', 'row' => 'gap', 'column' => 'gap', 'align' => 'place', 'justify' => 'place', 'inline' => 'size', 'block' => 'size', 'width' => 'size', 'height' => 'size', 'min' => 'size', 'max' => 'size', 'line' => 'font', 'columns' => 'gap' );
+        $families = array();
+        foreach ( $matches[1] as $property ) {
+            $property = strtolower($property);
+            if ( str_starts_with($property, '--') ) {
+                $families[ $property ] = true;
+                continue;
+            }
+            $root = explode('-', (string) preg_replace('/^-(?:webkit|moz|ms|o)-/', '', $property))[0];
+            $families[ 'all' === $root ? '*' : ( $aliases[ $root ] ?? $root ) ] = true;
+        }
+        return $families;
+    }
+
+    /** @param array<string, true> $families @param array<string, true> $kept */
+    private static function cascadeFamiliesOverlap(array $families, array $kept): bool
+    {
+        return array() !== $families && array() !== $kept && ( isset($families['*']) || isset($kept['*']) || array() !== array_intersect_key($families, $kept) );
     }
 
     /** @param array{context: list<string>, text: string, dedupable: bool} $unit */
