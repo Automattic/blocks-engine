@@ -1939,6 +1939,14 @@ final class StyleResolver implements ElementPresentationResolver
      * the same author-stated-auto detection the caller already ran to
      * suppress the native attribute, rather than re-deriving it from the
      * declarations a second time.
+     *
+     * The box also neutralizes core block-library's responsive
+     * `.wp-block-image img{max-width:100%}` clamp when the source leaves
+     * max-width at its initial `none` AND the width is derived -- not
+     * carried --: no native width while the height is fixed, so the browser
+     * sizes the width from that height through the aspect (or intrinsic)
+     * ratio. There the clamp is what distorts or crops the image (issue
+     * #3320); an image the source itself clamps keeps core's default.
      */
     public function imageBoxConstraintClassName(
         DOMElement $image,
@@ -1980,6 +1988,30 @@ final class StyleResolver implements ElementPresentationResolver
                 $box[$property] = $value;
             }
         }
+        // Core block-library CSS clamps every image with
+        // `.wp-block-image img{max-width:100%}`. That clamp assumes the source
+        // clamps too. When the source's computed max-width is the initial
+        // `none` -- no author rule constrains the image -- and the width is
+        // not carried natively while the height is, the browser derives the
+        // width from that fixed height through the aspect (or intrinsic)
+        // ratio, exactly as the source did; core's clamp is then the one
+        // declaration that breaks the box, because it snaps the width to the
+        // container while the height stays fixed, distorting or cropping the
+        // image (`height:82px;width:auto;aspect-ratio:82/82;object-fit:cover`
+        // in a 69px container renders 69x82 instead of the source's 82x82).
+        // Restate the source's `none` on the carrier so the derived width
+        // keeps overflowing the way the source let it. An image the source
+        // itself clamps (an author `max-width`, or a carried width such as
+        // `width:100%`) keeps core's responsive default untouched.
+        if (
+            '' === $nativeWidth
+            && '' !== $nativeHeight
+            && ! isset($box['max-width'])
+            && ! $this->imageAxisVariesByViewport($image, 'max-width')
+            && $this->imageComputedMaxWidthIsNone($declarations)
+        ) {
+            $box['max-width'] = 'none';
+        }
         if (array() === $box) {
             return '';
         }
@@ -1997,6 +2029,14 @@ final class StyleResolver implements ElementPresentationResolver
         );
 
         return $className;
+    }
+
+    /** Whether the cascade leaves this image's max-width at its initial `none`. */
+    private function imageComputedMaxWidthIsNone(array $declarations): bool
+    {
+        $value = strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['max-width']['value'] ?? ''))));
+
+        return '' === $value || 'none' === $value;
     }
 
     /**
