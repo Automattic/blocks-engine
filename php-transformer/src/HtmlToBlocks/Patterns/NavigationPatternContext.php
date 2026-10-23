@@ -722,6 +722,12 @@ final class NavigationPatternContext
         return $this->projectedNavigation?->responsiveNavigationToggleMarker($element) ?? '';
     }
 
+    /** @return array<string, mixed> */
+    public function responsiveOverlayAttributes(DOMElement $element): array
+    {
+        return $this->projectedNavigation?->responsiveNavigationOverlayAttributes($element) ?? array();
+    }
+
     public function responsiveOverlayMarker(DOMElement $element): string
     {
         return $this->projectedNavigation?->responsiveNavigationOverlayMarker($element) ?? '';
