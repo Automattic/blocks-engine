@@ -3432,7 +3432,9 @@ final class StyleResolver implements ElementPresentationResolver
 
         $declarations = array();
         foreach ($cascade as $property => $entry) {
-            $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
+            if ("\0all" !== $property) {
+                $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
+            }
         }
 
         return $declarations;
@@ -3480,23 +3482,28 @@ final class StyleResolver implements ElementPresentationResolver
             $value = $this->flexShorthandGrowFactor($value);
         }
 
-        $current = $cascade[$property] ?? null;
-        if (is_array($current)) {
-            if ($current['important'] && ! $important) {
-                return;
+        $incoming = array( 'important' => $important, 'inline' => $inline, 'specificity' => $specificity, 'sequence' => $sequence );
+        $resetsAll = 'all' === $property && $this->isCssAllResetValue($value);
+        // `all:unset|initial|revert` resets every longhand except custom
+        // properties, direction and unicode-bidi. A winning reset removes the
+        // weaker declarations and keeps blocking weaker later ones; the keyword
+        // itself is never serialized.
+        $resetExempt = str_starts_with($property, '--') || in_array($property, array( 'direction', 'unicode-bidi' ), true);
+        if ( ! $resetsAll && ! $resetExempt && isset($cascade["\0all"]) && $this->mediaTextCascadeEntryOutranks($cascade["\0all"], $incoming) ) {
+            return;
+        }
+        $current = $resetsAll ? ( $cascade["\0all"] ?? null ) : ( $cascade[$property] ?? null );
+        if (is_array($current) && $this->mediaTextCascadeEntryOutranks($current, $incoming)) {
+            return;
+        }
+        if ($resetsAll) {
+            foreach ( $cascade as $existing => $entry ) {
+                if ( "\0all" !== $existing && ! str_starts_with((string) $existing, '--') && ! in_array($existing, array( 'direction', 'unicode-bidi' ), true) && ! $this->mediaTextCascadeEntryOutranks($entry, $incoming) ) {
+                    unset($cascade[$existing]);
+                }
             }
-            if ($current['important'] === $important) {
-                $specificityComparison = $this->compareMediaTextSpecificity($current['specificity'], $specificity);
-                if (0 < $specificityComparison) {
-                    return;
-                }
-                if (0 === $specificityComparison && $current['sequence'] > $sequence) {
-                    return;
-                }
-                if (0 === $specificityComparison && $current['sequence'] === $sequence && $current['inline'] && ! $inline) {
-                    return;
-                }
-            }
+            $cascade["\0all"] = $incoming + array( 'value' => $value );
+            return;
         }
 
         $cascade[$property] = array(
@@ -3506,6 +3513,28 @@ final class StyleResolver implements ElementPresentationResolver
             'specificity' => $specificity,
             'sequence' => $sequence,
         );
+    }
+
+    /**
+     * Whether an existing cascade entry beats an incoming declaration:
+     * importance, then specificity, then order (inline wins a tie).
+     *
+     * @param array{important: bool, inline: bool, specificity: array<int, int>, sequence: int} $current
+     * @param array{important: bool, inline: bool, specificity: array<int, int>, sequence: int} $incoming
+     */
+    private function mediaTextCascadeEntryOutranks(array $current, array $incoming): bool
+    {
+        if ( $current['important'] !== $incoming['important'] ) {
+            return $current['important'];
+        }
+        $specificityComparison = $this->compareMediaTextSpecificity($current['specificity'], $incoming['specificity']);
+        if ( 0 !== $specificityComparison ) {
+            return 0 < $specificityComparison;
+        }
+        if ( $current['sequence'] !== $incoming['sequence'] ) {
+            return $current['sequence'] > $incoming['sequence'];
+        }
+        return $current['inline'] && ! $incoming['inline'];
     }
 
     /**
@@ -4200,7 +4229,9 @@ final class StyleResolver implements ElementPresentationResolver
 
         $declarations = array();
         foreach ( $cascade as $property => $entry ) {
-            $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
+            if ( "\0all" !== $property ) {
+                $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
+            }
         }
 
         return $this->cssDeclarationString($declarations);
