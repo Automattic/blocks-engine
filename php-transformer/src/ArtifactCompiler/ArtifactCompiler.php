@@ -5535,7 +5535,9 @@ final class ArtifactCompiler
     {
         $base = preg_replace('/\.[A-Za-z0-9]+$/', '', basename($path));
         $base = '' === $base || null === $base ? 'document' : $base;
-        $slug = $this->sanitizeKey(str_replace(array('_', '.'), '-', $base));
+        // Underscores stay: WordPress keeps them in post slugs, so a source URL
+        // with one must not move onto a dashed spelling after the import.
+        $slug = $this->sanitizeKey(str_replace('.', '-', $base));
         if ( 'index' === $slug && '' !== $entryPath && $path === $entryPath ) {
             return 'home';
         }

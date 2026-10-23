@@ -3905,7 +3905,15 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function isLabelledCheckboxToggle(DOMElement $input): bool
     {
         $id = trim($this->attr($input, 'id'));
-        if ( 'input' !== strtolower($input->tagName) || 'checkbox' !== strtolower($this->attr($input, 'type')) || '' === $id ) {
+        if ( 'input' !== strtolower($input->tagName) || 'checkbox' !== strtolower($this->attr($input, 'type')) ) {
+            return false;
+        }
+        // An enclosing label can bind a submenu checkbox without an id/for pair.
+        // Only the input is runtime chrome; the label still owns its destinations.
+        if ( $input->parentNode instanceof DOMElement && 'label' === strtolower($input->parentNode->tagName) ) {
+            return true;
+        }
+        if ( '' === $id ) {
             return false;
         }
         foreach ( $input->ownerDocument?->getElementsByTagName('label') ?? array() as $label ) {

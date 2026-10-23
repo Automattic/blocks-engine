@@ -444,6 +444,25 @@ PHP;
         unset($template);
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $bindingTemplates, $paginationOwners);
         $pages = $this->pageHierarchy($pages, $routeMap);
+        $templateOwners = array();
+        foreach ($pages as $page) if (empty($page['entrypoint'])) $templateOwners[self::routeTemplateKey($page)][] = $page['source_path'];
+        // Colliding terminal slugs get a readable route-qualified template
+        // (`page-north-about`), as an editor would name it; a short route hash
+        // disambiguates only when the readable key is itself taken.
+        $claimedTemplates = $templateOwners;
+        foreach ($pages as &$page) {
+            $key = self::routeTemplateKey($page);
+            if (empty($page['entrypoint']) && 1 < count($templateOwners[$key] ?? array())) {
+                $prefix = 'page' === ($page['post_type'] ?? null) ? 'page-' : 'single-' . $page['post_type'] . '-';
+                $routeSlug = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower(trim((string) $page['route']['path'], '/'))), '-');
+                $template = $prefix . ('' === $routeSlug ? $page['slug'] : $routeSlug);
+                if ($template === $key || isset($claimedTemplates[$template])) $template .= '-' . substr(hash('sha256', (string) $page['route']['path']), 0, 8);
+                $claimedTemplates[$template] = true;
+                $page['route_template'] = $template;
+                $page['metadata']['post_meta']['_wp_page_template'] = $template;
+            }
+        }
+        unset($page);
         $surfaceSources = array_fill_keys(array_column($surfaces, 'source_path'), true);
         foreach ($assets as &$asset) {
             if ('page' === ($asset['compilation']['scope'] ?? null) && isset($surfaceSources[$asset['compilation']['id'] ?? ''])) $asset['compilation'] = array('scope' => 'shared');
@@ -515,6 +534,7 @@ PHP;
         $assets = self::placeSharedStylesheetProjections($assets, $pages);
         $assets = self::mergeIdenticalPageStylesheets($assets, array_merge($pages, $parts, $frameParts));
         $tokens = $this->tokens($assets);
+        foreach ($pages as $page) if (isset($page['route_template'])) $themeProjection['theme']['customTemplates'][] = array('name' => $page['route_template'], 'title' => $page['title'], 'postTypes' => array($page['post_type']));
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
@@ -776,6 +796,7 @@ PHP;
         }
         $partSlugs = array();
         $overrideTemplateSlugs = self::overrideTemplateSlugs($plan['template_parts'], array_column(array_filter($plan['templates'], static fn(array $template): bool => array_key_exists('shell_frame', $template)), 'slug'));
+        foreach ($plan['pages'] as $page) if (isset($page['route_template'])) $overrideTemplateSlugs[$page['route_template']] = true;
         foreach ( $plan['template_parts'] as $part ) {
             self::assertDocument($part, 'template part', true, $tokens);
             if ($part['content_hash'] !== self::contentHash($part['canonical_block_markup'])) throw new InvalidArgumentException('WordPress site plan template part has a stale content hash.');
@@ -3148,8 +3169,9 @@ PHP;
      *
      * A collision here is information about two pages, not about the plan: a
      * CMS that slugifies author-written titles into filenames routinely emits
-     * two paths that derive one slug (a duplicated page whose copy kept a
-     * trailing `_`), and aborting costs every other page in the site. So the
+     * two paths that derive one slug (one name captured with two extensions,
+     * `about.html` beside `about.htm`), and aborting costs every other page in
+     * the site. So the
      * first occurrence in document order keeps the route and later ones take a
      * deterministic `-2`, `-3` suffix, exactly as WordPress resolves a
      * duplicate `post_name`, with one warning naming both source paths.
@@ -3184,7 +3206,8 @@ PHP;
         foreach ($derived as $order => $path) if (!$explicit[$order] && !empty($documents[$order]['entrypoint']) && !isset($taken[$path])) { $taken[$path] = (string) $documents[$order]['source_path']; $reserved[$order] = true; }
         // Every first claimant keeps its own route before any suffix is handed
         // out, so a renamed duplicate cannot take the route a later page derived
-        // for itself: `x_` beside a real `x` and `x-2` becomes `/x-3`, not `/x-2`.
+        // for itself: `about.htm` beside a real `about.html` and a page that
+        // derived `/about-2` becomes `/about-3`, not `/about-2`.
         foreach ($derived as $order => $path) if (!isset($reserved[$order]) && !isset($taken[$path])) { $taken[$path] = (string) $documents[$order]['source_path']; $reserved[$order] = true; }
         $routes = array();
         foreach ($documents as $order => $document) {
@@ -3338,10 +3361,16 @@ PHP;
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
     private function routesForPages(array $pages): array { $routes = array(); foreach ($pages as $page) $routes[] = array('kind' => 'route', 'source_path' => $page['source_path'], 'target_path' => $page['route']['path'], 'target_slug' => $page['slug'], 'title' => $page['title'], 'parent_source_path' => $page['parent_source_path'], 'source_relation' => !empty($page['synthetic']) ? 'synthetic_parent' : (!empty($page['entrypoint']) ? 'entrypoint' : 'document'), 'order' => count($routes)); return $routes; }
 
+    /** One key for placement, exclusions, template registration and assignment. */
+    public static function routeTemplateKey(array $page): string
+    {
+        return $page['route_template'] ?? (!empty($page['entrypoint']) ? 'front-page' : ('page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug']));
+    }
+
     /** @param array<string,mixed> $part */
     private static function shellPartAppliesToOverride(array $part, string $slug): bool
     {
-        if (!preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug) || in_array($slug, $part['placement']['excluded_template_slugs'] ?? array(), true)) return false;
+        if (!preg_match('/^(?:page|single)-[a-z0-9_-]+$/', $slug) || in_array($slug, $part['placement']['excluded_template_slugs'] ?? array(), true)) return false;
         $type = $part['placement']['post_type'] ?? null;
         return null === $type || str_starts_with($slug, 'page' === $type ? 'page-' : 'single-' . $type . '-');
     }
@@ -3358,9 +3387,9 @@ PHP;
         $slugs = array();
         foreach ($parts as $part) {
             foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (is_string($slug)) $slugs[$slug] = true;
-            foreach (array_keys($part['placement']['template_wrappers'] ?? array()) as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $slugs[$slug] = true;
+            foreach (array_keys($part['placement']['template_wrappers'] ?? array()) as $slug) if (preg_match('/^(?:page|single)-[a-z0-9_-]+$/', $slug)) $slugs[$slug] = true;
         }
-        foreach ($frameSlugs as $slug) if (is_string($slug) && preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $slugs[$slug] = true;
+        foreach ($frameSlugs as $slug) if (is_string($slug) && preg_match('/^(?:page|single)-[a-z0-9_-]+$/', $slug)) $slugs[$slug] = true;
         return $slugs;
     }
 
@@ -3424,7 +3453,8 @@ PHP;
          $templates[] = $make('404', 'templates/404.html', $markup('404'));
         if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page'));
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
-        $overrides = array_filter(self::overrideTemplateSlugs($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
+        $overrides = array_filter(self::overrideTemplateSlugs($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
+        foreach ($pages as $page) if (isset($page['route_template'])) $overrides[$page['route_template']] = true;
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
         foreach ($templates as &$template) if (isset($frames[$template['slug']])) $template['shell_frame'] = $frames[$template['slug']]['shells']; unset($template);
          $explicitSlugs = array_fill_keys(array_map(static fn(array $surface): string => $surface['template_surface']['slug'], $surfaces), true);
@@ -4702,7 +4732,7 @@ PHP;
     // derivation and validation agree on the same web root without shared state.
     /** @internal Shared artifact-root semantics for document-head asset resolution. */
     public static function entryRootFromDocuments(array $documents): string { foreach ($documents as $document) { if (is_array($document) && (!empty($document['entrypoint']) || 'entrypoint' === ($document['source_relation'] ?? null)) && is_string($document['source_path'] ?? null)) { $dir = str_replace('\\', '/', dirname($document['source_path'])); return in_array($dir, array('.', '/', ''), true) ? '' : $dir; } } return ''; }
-    private static function canonicalRoutePath(string $path): string { if (!preg_match('~^/(?:[a-z0-9-]+(?:/[a-z0-9-]+)*)?$~', $path)) throw new InvalidArgumentException('WordPress site plan has an unsafe explicit page route.'); return $path; }
+    private static function canonicalRoutePath(string $path): string { if (!preg_match('~^/(?:[a-z0-9_-]+(?:/[a-z0-9_-]+)*)?$~', $path)) throw new InvalidArgumentException('WordPress site plan has an unsafe explicit page route.'); return $path; }
     private static function parentRoutePath(string $path): string { $parent = dirname($path); return '.' === $parent || '/' === $parent ? '/' : '/' . trim($parent, '/'); }
     /** @return array<int,string> */
     private static function routeAncestors(string $path): array { $ancestors = array(); for ($parent = self::parentRoutePath($path); '/' !== $parent; $parent = self::parentRoutePath($parent)) $ancestors[] = $parent; return array_reverse($ancestors); }
@@ -4888,6 +4918,12 @@ PHP;
             $lines[] = "    return \$match[2];";
             $lines[] = "}, 10, 2 );";
             break;
+        }
+        foreach (array_merge($templates, $parts, $pages) as $document) {
+            if (str_contains((string) ($document['canonical_block_markup'] ?? ''), 'data-blocks-engine-route-state')) {
+                $lines[] = NavigationAnchorRuntime::retainedLabelSource();
+                break;
+            }
         }
         $hasNavigationLink = false;
         foreach (array_merge($templates, $parts, $pages) as $document) {
@@ -6164,7 +6200,7 @@ PHP;
         $base = '/' === $expected ? '/index' : $expected;
         return 1 === preg_match('~^' . preg_quote($base, '~') . '-([0-9]+)$~', $path, $suffix) && (int) $suffix[1] >= 2;
     }
-    private static function assertRoute(array $page, string $entryRoot = ''): void { $route = $page['route'] ?? null; $expected = is_string($page['metadata']['route_path'] ?? null) && '' !== $page['metadata']['route_path'] ? self::canonicalRoutePath($page['metadata']['route_path']) : self::pageRoutePath($page['source_path'], $entryRoot); if (!is_array($route) || !is_string($route['path'] ?? null) || !preg_match('~^/(?:[a-z0-9-]+(?:/[a-z0-9-]+)*)?$~', $route['path']) || !is_string($route['parent_path'] ?? null) || !is_string($route['slug'] ?? null) || self::parentRoutePath($route['path']) !== $route['parent_path'] || self::routeSlug($route['path']) !== $route['slug'] || (!isset($page['synthetic']) && !self::isDerivedRoute($route['path'], $expected)) || (isset($page['synthetic']) && (true !== $page['synthetic'] || !str_starts_with((string) ($page['source_path'] ?? ''), 'wordpress-site-plan/routes/')))) throw new InvalidArgumentException('WordPress site plan page route is invalid.'); }
+    private static function assertRoute(array $page, string $entryRoot = ''): void { $route = $page['route'] ?? null; $expected = is_string($page['metadata']['route_path'] ?? null) && '' !== $page['metadata']['route_path'] ? self::canonicalRoutePath($page['metadata']['route_path']) : self::pageRoutePath($page['source_path'], $entryRoot); if (!is_array($route) || !is_string($route['path'] ?? null) || !preg_match('~^/(?:[a-z0-9_-]+(?:/[a-z0-9_-]+)*)?$~', $route['path']) || !is_string($route['parent_path'] ?? null) || !is_string($route['slug'] ?? null) || self::parentRoutePath($route['path']) !== $route['parent_path'] || self::routeSlug($route['path']) !== $route['slug'] || (!isset($page['synthetic']) && !self::isDerivedRoute($route['path'], $expected)) || (isset($page['synthetic']) && (true !== $page['synthetic'] || !str_starts_with((string) ($page['source_path'] ?? ''), 'wordpress-site-plan/routes/')))) throw new InvalidArgumentException('WordPress site plan page route is invalid.'); }
     /** @param array<string,string> $tokens */
     private static function assertDocument(mixed $document, string $kind, bool $part, array $tokens): void { if(!is_array($document)||!self::safePath($document['source_path']??null)||!is_string($document['slug']??null)||!is_string($document['title']??null)||!is_string($document['post_type']??null)||!is_string($document['parent_source_path']??null)||!is_bool($document['entrypoint']??null)||!is_string($document['canonical_block_markup']??null)||''===trim($document['canonical_block_markup'])||!is_array($document['metadata']??null)||!is_array($document['document_metadata']??null)||!is_array($document['provenance']??null)||!self::hash($document['reconciliation_identity']??null)||!self::hash($document['content_hash']??null)||($part&&(!is_string($document['area']??null)||''===$document['area']||!is_array($document['placement']??null)))||(!$part&&(null!==($document['area']??null)||null!==($document['placement']??null))))throw new InvalidArgumentException("WordPress site plan {$kind} is structurally invalid.");if($part&&$document['reconciliation_identity']!==self::identity('template-part',$document['source_path'],'parts/'.$document['slug'].'.html'))throw new InvalidArgumentException('WordPress site plan template part identity is invalid.');if($part&&in_array($document['placement']['kind']??null,array('entry_shell','shared_shell'),true)&&(!is_string($document['placement']['source_path']??null)||!is_array($document['placement']['template_slugs']??null)||array()=== $document['placement']['template_slugs']))throw new InvalidArgumentException('WordPress site plan template part placement is invalid.');if(!$part)self::assertContentDecision($document);self::assertDocumentMetadata($document['document_metadata'],$tokens,$document['source_path'],$kind);self::assertTokens($document['canonical_block_markup'],$tokens);self::assertNoLocalBrowserReferences($document['canonical_block_markup'],$document['source_path'],$kind); }
     /** @param array<string,mixed> $document */
@@ -6383,6 +6419,6 @@ PHP;
     /** @param array<string,mixed> $data */
     public static function value(array $data, string $key, string $default = ''): string { return is_string($data[$key] ?? null) ? $data[$key] : $default; }
     private static function explicitUrl(mixed $url): bool { return is_string($url) && (preg_match('~^(?:[a-z][a-z0-9+.-]*:|//)~i', $url) === 1 || self::routeUrl($url)); }
-    private static function routeUrl(mixed $url): bool { return is_string($url) && preg_match('~^/(?:[a-z0-9-]+(?:/[a-z0-9-]+)*)?(?:[?#].*)?$~', $url) === 1; }
+    private static function routeUrl(mixed $url): bool { return is_string($url) && preg_match('~^/(?:[a-z0-9_-]+(?:/[a-z0-9_-]+)*)?(?:[?#].*)?$~', $url) === 1; }
     private static function safePath(mixed $path): bool { if (!is_string($path) || '' === $path || str_contains($path, "\0") || str_starts_with($path, '/') || str_starts_with($path, '\\') || preg_match('/^[A-Za-z]:/', $path)) return false; foreach (explode('/', str_replace('\\', '/', $path)) as $segment) if ('' === $segment || '.' === $segment || '..' === $segment) return false; return true; }
 }
