@@ -454,6 +454,32 @@ final class AuthorStylesheetProjector
             }));
         };
         $projectedPrelude = $selectControls($this->rewriteSelectorPrelude($prelude, $context, false, null === $controls && $this->allowsSubjectArms($prelude, $body), true));
+        // Centered source dropdown boxes are desktop presentation, not Core's
+        // open-overlay stack. Keep the authored rule outside that stack rather
+        // than relying on a later, higher-specificity alignment override.
+        if ( preg_match('/(?:^|;)\s*(?:text-align|align-items|justify-content)\s*:\s*center\b/i', $body) ) {
+            $submenuOnly = true;
+            $found = false;
+            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                $parsed = $context->sourceStyles->parsedSelector($selector);
+                foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                    $lists = 0;
+                    $inNavigation = false;
+                    for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+                        if ( in_array(strtolower($node->tagName), array('ul', 'ol'), true) ) ++$lists;
+                        if ( 'nav' === strtolower($node->tagName) ) $inNavigation = true;
+                    }
+                    $found = true;
+                    if ( ! $inNavigation || $lists < 2 ) $submenuOnly = false;
+                }
+            }
+            if ( $found && $submenuOnly ) {
+                $projectedPrelude = implode(',', array_map(
+                    static fn (string $selector): string => $selector . ':not(:where(.wp-block-navigation__responsive-container.is-menu-open *))',
+                    CssStylesheetTransformer::splitSelectorList($projectedPrelude) ?? array()
+                ));
+            }
+        }
         $authoredBody = $body;
         $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context);
         $nativeButtonCompatRule = $this->nativeButtonLinkCompatRule($prelude, $authoredBody, $context);

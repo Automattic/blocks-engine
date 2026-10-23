@@ -1176,6 +1176,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function withResponsiveOverlayMarker(array $attrs, DOMElement $element, ?NavigationPatternContext $navigationContext): array
     {
         $marker = $navigationContext?->responsiveOverlayMarker($element) ?? '';
+        $attrs = array_replace_recursive($attrs, $navigationContext?->responsiveOverlayAttributes($element) ?? array());
 
         return '' === $marker ? $attrs : $this->withClassName($attrs, $marker);
     }
