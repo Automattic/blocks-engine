@@ -48,8 +48,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   covers. A colour used through an authored custom property (`var()`)
  *   counts like a literal, since usage records the value each element
  *   renders. `base` and `contrast` are still chosen from area alone.
- * - Font sizes: sizes within 0.5px merge. The 8 heaviest are kept and
- *   ordered by size.
+ * - Font sizes: sizes within 0.5px merge. The 8 heaviest keep their
+ *   original names and representatives; missing heading sizes are additive.
  * - Spacing: positive absolute lengths merge only when they are the same
  *   pixel length. The 10 heaviest are kept and ordered by size.
  * - Widths: centred `max-width` containers; the heaviest is the content
@@ -135,7 +135,7 @@ final class DesignSystem
      * @param list<array{slug:string,name:string,size:string,px:float,weight:int}> $spacing
      * @param array{content?:array{value:string,px:float},wide?:array{value:string,px:float}} $layout
      * @param array<string,mixed> $root Root values every document agrees on.
-     * @param array<string,mixed> $elements Link and heading values every document agrees on.
+     * @param array<string,mixed> $elements Shared element values and proven no-op per-level heading typography.
      * @param list<string> $literalColors Painted opaque colours the palette bound left without a token, heaviest first.
      */
     private function __construct(
@@ -163,7 +163,7 @@ final class DesignSystem
 
         $textByColor = $backgroundByColor = $ctaByColor = $prominence = $sizeWeights = $bodySizeWeights = $spacingRows = $widthRows = array();
         $familyWeights = $familyStacks = $headingFamilyWeights = $headingFamilyProminence = $bodyFamilyWeights = array();
-        $textOnBackground = array();
+        $textOnBackground = $headingSizes = array();
         $rootPx = array();
         foreach ($usageBySource as $usage) {
             $px = (float) ($usage['root_font_size_px'] ?? 16);
@@ -229,7 +229,10 @@ final class DesignSystem
         $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root);
         $literalColors = array_keys(array_diff_key($prominence, array_flip(array_column($colors, 'color'))));
         usort($literalColors, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: strcmp($a, $b));
-        $fontSizes = self::fontSizes($sizeWeights, $bodySizeWeights, $rootFontPx);
+        foreach ($usageBySource as $usage) foreach ($usage['heading_typography'] ?? array() as $heading) {
+            if (($heading['size_px'] ?? 0) > 0) $headingSizes[CssLength::format((float) $heading['size_px'])] = 1;
+        }
+        $fontSizes = self::fontSizes($sizeWeights, $bodySizeWeights, $rootFontPx, $headingSizes);
         $fontFamilies = self::fontFamilies($familyWeights, $familyStacks, $headingFamilyWeights, $bodyFamilyWeights, self::familyKey((string) ($root['font_family'] ?? '')), self::unanimousHeadingFamily($usageBySource), $headingFamilyProminence);
         $spacing = self::spacing($spacingRows);
         $layout = self::layout($widthRows);
@@ -714,9 +717,10 @@ final class DesignSystem
     /**
      * @param array<string,int> $weights Pixel size => text mass.
      * @param array<string,int> $bodyWeights
+     * @param array<string,int> $headingSizes Rendered heading sizes appended after the baseline scale.
      * @return list<array{slug:string,name:string,size:string,px:float,weight:int}>
      */
-    private static function fontSizes(array $weights, array $bodyWeights, float $rootPx): array
+    private static function fontSizes(array $weights, array $bodyWeights, float $rootPx, array $headingSizes = array()): array
     {
         $clusters = self::clusterLengths($weights, self::FONT_SIZE_TOLERANCE_PX);
         if (array() === $clusters) return array();
@@ -738,6 +742,14 @@ final class DesignSystem
             $step = $index - $medium;
             $slug = 0 === $step ? 'medium' : ((abs($step) > 1 ? str_repeat('x', abs($step) - 1) . '-' : '') . ($step < 0 ? 'small' : 'large'));
             $sizes[] = array('slug' => $slug, 'name' => ucwords(str_replace('-', ' ', (string) preg_replace_callback('/^x+(?=-)/', static fn(array $m): string => strtoupper($m[0]), $slug))), 'size' => self::lengthText($cluster['px'], $rootPx), 'px' => $cluster['px'], 'weight' => $cluster['weight']);
+        }
+        // Do not re-cluster or rename the established scale: existing source
+        // bindings must keep exactly the same value when headings are added.
+        uksort($headingSizes, static fn(string $a, string $b): int => (float) $a <=> (float) $b);
+        foreach ($headingSizes as $px => $weight) {
+            foreach ($sizes as $size) if (abs($size['px'] - (float) $px) <= self::EXACT_PX) continue 2;
+            $slug = 'heading-' . str_replace('.', '-', (string) $px);
+            $sizes[] = array('slug' => $slug, 'name' => 'Heading ' . $px, 'size' => self::lengthText((float) $px, $rootPx), 'px' => (float) $px, 'weight' => $weight);
         }
         return $sizes;
     }
@@ -944,7 +956,7 @@ final class DesignSystem
      */
     private static function unanimousElements(array $usageBySource, self $system): array
     {
-        $values = array();
+        $values = $headingTypography = array();
         $conditional = array();
         foreach ($usageBySource as $usage) foreach ($usage['root']['conditional'] ?? array() as $family) $conditional[(string) $family] = true;
         // A media-conditional variant of the property makes the element render
@@ -1002,6 +1014,22 @@ final class DesignSystem
                 if (1 === preg_match('/^h[1-6]$/', $element) && ($elements['heading'][$field] ?? null) === $value) continue;
                 $elements[$element][$field] = $value;
             }
+        }
+        // Text runs cannot prove ownership: a heading may contain styled
+        // descendants or inherit its typography. Require every heading's own
+        // matched declarations to agree before adding an element default.
+        foreach ($usageBySource as $usage) foreach ($usage['heading_typography'] ?? array() as $row) {
+            foreach (array('font_size', 'font_weight', 'line_height') as $field) $headingTypography['h' . $row['level']][$field][(string) ($row[$field] ?? '')] = true;
+        }
+        foreach ($elements as $element => &$fields) {
+            if ('heading' === $element || preg_match('/^h[1-6]$/', $element)) unset($fields['font_size'], $fields['font_weight'], $fields['line_height']);
+        }
+        unset($fields);
+        foreach ($headingTypography as $level => $fields) foreach ($fields as $field => $observed) {
+            if (1 !== count($observed)) continue;
+            $value = (string) array_key_first($observed);
+            $value = 'line_height' === $field ? $value : $token($field, $value);
+            if (null !== $value && '' !== $value) $elements[$level][$field] = $value;
         }
         // Black text on a document is the user agent's default, not a design
         // choice the theme should state for buttons.

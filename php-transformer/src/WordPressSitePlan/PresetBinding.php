@@ -665,6 +665,10 @@ final class PresetBinding
         );
         foreach ($typography as $key => [$attribute, $property, $presetClass]) {
             if ($isLink || isset($attributes->{$attribute})) continue;
+            // The responsive typography carrier owns the base and media
+            // declarations. A core size class is !important and would freeze
+            // it at one step; bind its stylesheet declarations instead.
+            if ('fontSize' === $key && str_contains($classes, 'blocks-engine-responsive-typography-')) continue;
             $literal = $style->typography->{$key} ?? null;
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
