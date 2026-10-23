@@ -3594,20 +3594,22 @@ $assert(str_contains($navbarSerialized, 'Studio'), 'navbar brand/logo is preserv
 $assert(0 === $countBlockName($navbarBlocks, 'core/button'), 'navbar hamburger toggle is dropped instead of emitted as a dead core/button');
 $assert(! str_contains($navbarSerialized, 'burger'), 'navbar hamburger toggle chrome class is not emitted into block output');
 
-// A non-converting nav cannot replace its source hamburger with a native overlay.
-// Keep the control rather than silently deleting the source menu affordance.
+// Regression (#232): broaden #221 — a hamburger toggle associated with a nav that
+// does NOT convert to core/navigation (e.g. its list has a non-link item) must STILL
+// be dropped, never emitted as an always-visible dead core/button the source hid
+// behind responsive CSS/JS the importer cannot carry ("added UI" defect).
 $nonConvertingNavbar = ( new HtmlTransformer() )->transform(
     '<header><a class="brand" href="/">Studio</a><nav class="primary" aria-label="Primary"><ul class="primary-menu"><li>Plain announcement copy</li><li><a href="/music">Music</a></li></ul></nav><button class="burger" aria-label="Toggle menu" aria-controls="primary-menu" aria-expanded="false"><span></span><span></span></button></header>'
 )->toArray();
 $nonConvertingBlocks = $nonConvertingNavbar['blocks'] ?? array();
 $nonConvertingSerialized = (string) ($nonConvertingNavbar['serialized_blocks'] ?? '');
-$assert(1 === $countBlockName($nonConvertingBlocks, 'core/button'), 'hamburger toggle for a non-converting nav is retained without a replacement overlay');
-$assert(str_contains($nonConvertingSerialized, 'burger'), 'non-converting navbar retains its source toggle identity');
+$assert(0 === $countBlockName($nonConvertingBlocks, 'core/button'), 'hamburger toggle for a non-converting nav is dropped rather than emitted as a dead core/button');
+$assert(! str_contains($nonConvertingSerialized, 'burger'), 'non-converting navbar hamburger toggle chrome class is not emitted into block output');
 $assert(str_contains($nonConvertingSerialized, 'Studio'), 'non-converting navbar preserves the brand/logo content');
 
 // Negative (#232): a labelless toggle-shaped control with no associated navigation in
 // scope must NOT be over-suppressed by the broadened rule — it still converts to
-// core/button (only hamburgers replaced by native navigation are dropped).
+// core/button (only navigation-associated dead hamburgers are dropped).
 $standaloneToggle = ( new HtmlTransformer() )->transform(
     '<section class="widget"><button aria-controls="panel" aria-expanded="false"><span></span><span></span></button></section>'
 )->toArray();

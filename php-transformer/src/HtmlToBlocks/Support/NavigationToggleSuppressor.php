@@ -437,8 +437,8 @@ final class NavigationToggleSuppressor
 
     /**
      * A JS-only hamburger menu-toggle that is redundant chrome whenever it is
-     * associated with a source menu that converts to core/navigation and owns
-     * the replacement responsive overlay.
+     * associated with a source navigation menu — whether or not that menu
+     * converts to core/navigation.
      *
      * The toggle is detected GENERICALLY by structural/semantic signals — never
      * by a specific class string — so any framework's hamburger is recognized:
@@ -446,8 +446,10 @@ final class NavigationToggleSuppressor
      * aria-expanded whose visible content is empty/decorative bars (only empty
      * spans or an icon, no text label), or an input-free <label> containing a
      * nested stack of CSS-drawn bars. It is suppressed when it opens, lives
-     * inside, or sits beside a convertible navigation menu. That menu ships its
-     * own responsive overlay hamburger; otherwise the source control is kept. Real
+     * inside, or sits beside a source navigation menu. A converted menu already
+     * ships its own responsive overlay hamburger; a menu that does NOT convert
+     * still must not gain an always-visible dead hamburger the source hid behind
+     * responsive CSS/JS the importer cannot carry (the "added UI" defect). Real
      * labeled buttons, and toggle-shaped controls with no associated navigation,
      * still convert to core/button normally.
      */
@@ -1205,8 +1207,10 @@ final class NavigationToggleSuppressor
     /**
      * Whether the toggle is associated with a source navigation menu: it opens
      * one via aria-controls, lives inside a navigation landmark, or sits beside a
-     * navigation menu within its enclosing landmark. Only convertible menus can
-     * replace the source toggle with a native overlay.
+     * navigation menu within its enclosing landmark. Association does NOT require
+     * the menu to convert to core/navigation — a navbar whose links fail to
+     * convert must still drop its dead hamburger rather than emit it as an
+     * always-visible core/button.
      */
     private function hasAssociatedNavigationMenu(DOMElement $toggle): bool
     {
@@ -1219,33 +1223,14 @@ final class NavigationToggleSuppressor
             $target = $this->elementWithId($toggle, $controlledId);
             if ( $target instanceof DOMElement
                 && ! $target->isSameNode($toggle)
-                && ! $this->isInsideOwnDisclosurePanel($toggle, $target) ) {
-                if ( $this->convertsToCoreNavigation($target) ) {
-                    return true;
-                }
-                foreach ( $target->getElementsByTagName('*') as $navigation ) {
-                    if ( $navigation instanceof DOMElement && $this->convertsToCoreNavigation($navigation) ) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        // An empty landmark around a summary/icon can sit beside the actual
-        // menu. Match the same unique enclosing navigation used by overlay ownership.
-        for ( $container = $toggle->parentNode; $container instanceof DOMElement && 'body' !== strtolower($container->tagName); $container = $container->parentNode ) {
-            foreach ( $container->getElementsByTagName('*') as $navigation ) {
-                if ( $navigation instanceof DOMElement
-                    && ! $this->isInsideOwnDisclosurePanel($toggle, $navigation)
-                    && $this->convertsToCoreNavigation($navigation)
-                    && $this->isUniqueNavigationInScope($container, $navigation) ) {
-                    return true;
-                }
+                && ! $this->isInsideOwnDisclosurePanel($toggle, $target)
+                && $this->isAssociatedNavigationTarget($target) ) {
+                return true;
             }
         }
 
         $scope = $this->menuToggleScope($toggle);
-        if ( $this->convertsToCoreNavigation($scope) ) {
+        if ( $this->isNavigationLandmark($scope) ) {
             return true;
         }
 
@@ -1258,7 +1243,7 @@ final class NavigationToggleSuppressor
                 continue;
             }
 
-            if ( $this->convertsToCoreNavigation($candidate) ) {
+            if ( $this->isAssociatedNavigationTarget($candidate) ) {
                 return true;
             }
         }
@@ -1888,21 +1873,7 @@ final class NavigationToggleSuppressor
             array( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern::class )
         );
 
-        return $this->coreNavigationRecognitions[$element] = null !== $navigation && $this->containsCoreNavigation($navigation->block());
-    }
-
-    /** Navigation recognition may retain a landmark group around the native menu. */
-    private function containsCoreNavigation(array $block): bool
-    {
-        if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
-            return true;
-        }
-        foreach ( $block['innerBlocks'] ?? array() as $child ) {
-            if ( $this->containsCoreNavigation($child) ) {
-                return true;
-            }
-        }
-        return false;
+        return $this->coreNavigationRecognitions[$element] = null !== $navigation && 'core/navigation' === ($navigation->block()['blockName'] ?? '');
     }
 
     private function elementWithId(DOMElement $context, string $id): ?DOMElement

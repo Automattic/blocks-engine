@@ -75,6 +75,7 @@
       "@test:packaging"
     ],
     "test:canonical": [
+      "php tests/contract/menu-toggle-without-core-navigation.php",
       "php tests/contract/namespace-resolution.php",
       "php tests/contract/layer-direction.php",
       "php tests/contract/navigation-anchor-layered-color.php",
