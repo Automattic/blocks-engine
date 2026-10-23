@@ -4,12 +4,9 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\AssetReferenceCanonicalizer;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\NavigationAnchorRuntime;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
-// Investigation fixture for #3279, not a claim that sharing is implemented.
-// Keep route state until a generic retained-label route-state contract exists.
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
 };
@@ -19,35 +16,114 @@ $compile = static fn(array $files): array => (new ArtifactCompiler())->compile(a
 $headers = static fn(array $plan): array => array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === $part['area']));
 $plan = $compile($files);
 WordPressSitePlan::assertValid($plan);
-$assert(3 === count($plan['pages']) && array() === $headers($plan), 'Three retained-label state variants currently produce no shared header.');
-$extraction = new ShellExtraction(new WordPressSitePlan());
-$identities = array();
+$assert(3 === count($plan['pages']) && 1 === count($headers($plan)), 'Three routes must share one header, not three selected-state identities.');
+$header = $headers($plan)[0]['canonical_block_markup'];
+$assert(3 === substr_count($header, '<!-- wp:custom/authored-input '), 'All native controls survive in the shared header.');
+$assert(str_contains($header, 'data-blocks-engine-route-state'), 'Resting labels carry the navigation route-state binding in saved HTML and labelMarkup.');
 foreach ($plan['pages'] as $page) {
-    $markup = $page['canonical_block_markup'];
-    $rows = $extraction->shellCandidates(array('source_path' => $page['source_path']), new AssetReferenceCanonicalizer(array()), array(), $markup);
-    $rows = array_values(array_filter($rows, static fn(array $row): bool => 'header' === $row['area']));
-    $assert(1 === count($rows), 'Landmark discovery finds exactly one header per page.');
-    $identities[] = $rows[0]['identity_markup'];
-    $assert(3 === substr_count($markup, '<!-- wp:custom/authored-input ') && str_contains($markup, '"labelMarkup":') && 1 === substr_count($markup, 'class="item item--active"'), 'Captured controls and the route-specific label state survive conversion.');
-    $assert(str_contains($markup, 'Page body.'), 'Body content remains intact.');
+    $assert(!str_contains($page['canonical_block_markup'], 'wp:custom/authored-input') && str_contains($page['canonical_block_markup'], 'Page body.'), 'Header is shared; body is page-owned.');
 }
-$assert(3 === count(array_unique($identities)), 'The difference survives shell identity normalization.');
-$diagnostic = current(array_filter($plan['diagnostics'], static fn(array $row): bool => 'header' === ($row['area'] ?? null) && 'non_equivalent' === ($row['provenance']['reason'] ?? null)));
-$assert(is_array($diagnostic) && 3 === count($diagnostic['provenance']['sources']), 'The grouping decision reports non-equivalent candidates, not missing landmarks.');
 
-// Control: changing only the captured state to resting yields one header.
-$resting = array_map(static fn(string $html): string => str_replace(array(' item--active', 'data-key="active-'), array('', 'data-key="'), $html), $files);
-$control = $compile($resting);
-WordPressSitePlan::assertValid($control);
-$assert(1 === count($headers($control)), 'Identical retained control labels can already share a header.');
+// A small DOM-backed stand-in for the WordPress HTML API, so this contract
+// executes the generated filter without installing or booting WordPress.
+class WP_HTML_Tag_Processor
+{
+    private DOMDocument $document;
+    private array $nodes;
+    private int $position = -1;
+    public function __construct(string $html) {
+        $this->document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $this->document->loadHTML('<?xml encoding="UTF-8"><html><body>' . $html . '</body></html>');
+        libxml_clear_errors(); libxml_use_internal_errors($previous);
+        $this->nodes = iterator_to_array((new DOMXPath($this->document))->query('//body//*'));
+    }
+    public function next_tag(?string $tag = null): bool {
+        while (isset($this->nodes[++$this->position])) if (null === $tag || strtolower($tag) === strtolower($this->nodes[$this->position]->tagName)) return true;
+        return false;
+    }
+    public function get_attribute(string $name): ?string { $node = $this->nodes[$this->position]; return $node->hasAttribute($name) ? $node->getAttribute($name) : null; }
+    public function set_attribute(string $name, string $value): void { $this->nodes[$this->position]->setAttribute($name, $value); }
+    public function remove_attribute(string $name): void { $this->nodes[$this->position]->removeAttribute($name); }
+    public function get_updated_html(): string {
+        $html = ''; foreach ($this->document->getElementsByTagName('body')->item(0)->childNodes as $node) $html .= $this->document->saveHTML($node);
+        return $html;
+    }
+}
+$filters = array();
+function add_filter(string $name, callable $callback, int $priority = 10, int $arguments = 1): void { $GLOBALS['filters'][$name][] = $callback; }
+function get_queried_object_id(): int { return 1; }
+function is_front_page(): bool { return '/' === $GLOBALS['served']; }
+function get_post_type(int $id): string { return 'page'; }
+function get_page_uri(int $id): string { return trim($GLOBALS['served'], '/'); }
+eval(NavigationAnchorRuntime::retainedLabelSource());
+$bootstrap = current(array_filter($plan['writes'], static fn(array $write): bool => 'functions.php' === $write['target_path']));
+$assert(str_contains($bootstrap['payload']['data'], NavigationAnchorRuntime::retainedLabelSource()), 'Generated theme installs the retained-label navigation binding.');
+$render = static function (string $markup): string {
+    preg_match_all('/<!-- wp:custom\/authored-input (\{.*?\}) -->.*?<label\b.*?<\/label>/s', $markup, $matches, PREG_SET_ORDER);
+    $output = '';
+    foreach ($matches as $match) {
+        $attrs = json_decode($match[1], true);
+        if (str_contains($attrs['labelMarkup'], 'class="item item--active"') || str_contains($attrs['labelMarkup'], 'data-key="active-')) throw new RuntimeException('Serialized labels must rest just like saved HTML.');
+        $html = substr($match[0], strpos($match[0], '<label'));
+        foreach ($GLOBALS['filters']['render_block'] as $filter) $html = $filter($html, array('attrs' => $attrs));
+        $output .= $html;
+    }
+    return $output;
+};
+foreach (array('/' => 'index', '/about' => 'about', '/work' => 'work', '/new-route' => null) as $route => $expected) {
+    $GLOBALS['served'] = $route;
+    $rendered = $render($header);
+    $assert((null === $expected ? 0 : 1) === substr_count($rendered, 'class="item item--active"'), 'Only the served route is current: ' . $route);
+    if (null !== $expected) $assert(str_contains($rendered, 'data-key="active-' . $expected . '"'), 'The current data attribute round-trips on ' . $route);
+    $assert(!str_contains($rendered, 'data-blocks-engine-route-state'), 'Binding transport does not leak into served markup.');
+}
+$styledFiles = array_map(static fn(string $html): string => str_replace(array('class="item item--active"', 'class="item"'), array('class="item item--active" style="color:red"', 'class="item" style="color:blue"'), $html), $files);
+$styledPlan = $compile($styledFiles);
+$assert(1 === count($headers($styledPlan)), 'Cross-capture resting presentation also normalizes retained label styles.');
+$GLOBALS['served'] = '/about';
+$styledRender = $render($headers($styledPlan)[0]['canonical_block_markup']);
+$assert(1 === substr_count($styledRender, 'style="color:red"') && 2 === substr_count($styledRender, 'style="color:blue"'), 'Only the current route receives selected presentation.');
+$edited = str_replace('href="/about"', 'href="/changed"', $header);
+$assert(!str_contains($render($edited), 'class="item item--active"'), 'Editing a menu URL does not keep a captured current marker.');
 
-// Separately reproduce the issue's hypothetical href-only gap. This is not
-// the cause in the sampled capture: every source header there has the same
-// href list. Sharing these targets needs a route-dependent value contract.
+// Both excluded routes have the same terminal slug. The dominant header is
+// still shared, but neither excluded route can claim the other's template.
+$collision = array();
+$fixtureRoot = __DIR__ . '/fixtures/route-template-collision/';
+foreach (array('index.html', 'work.html', 'north/about.html', 'south/about.html') as $path) $collision[$path] = file_get_contents($fixtureRoot . $path);
+$collisionPlan = $compile($collision);
+WordPressSitePlan::assertValid($collisionPlan);
+$sharedCollision = $collision;
+preg_match('/<header>.*?<\/header>/', $collision['index.html'], $sharedHeader);
+foreach (array('north/about.html', 'south/about.html') as $path) $sharedCollision[$path] = preg_replace('/<header\b.*?<\/header>/', $sharedHeader[0], $sharedCollision[$path]);
+$sharedCollisionPlan = $compile($sharedCollision);
+WordPressSitePlan::assertValid($sharedCollisionPlan);
+$assert(1 === count($headers($sharedCollisionPlan)), 'Routes sharing a terminal slug also share one identical header part.');
+foreach ($sharedCollisionPlan['pages'] as $page) if (in_array($page['source_path'], array('north/about.html', 'south/about.html'), true)) {
+    $template = current(array_filter($sharedCollisionPlan['templates'], static fn(array $template): bool => $page['route_template'] === $template['slug']));
+    $assert(str_contains($template['canonical_block_markup'], '"slug":"header"'), 'Each colliding route custom template uses the shared header.');
+}
+$assert(1 === count(array_filter($headers($collisionPlan), static fn(array $part): bool => 'header' === $part['slug'])), 'Slug collisions must not veto shared header extraction; substantive variants remain separate.');
+$themeWrite = current(array_filter($collisionPlan['writes'], static fn(array $write): bool => 'theme.json' === $write['target_path']));
+$theme = json_decode($themeWrite['payload']['data'], true);
+$keys = array();
+foreach ($collisionPlan['pages'] as $page) {
+    if (!in_array($page['source_path'], array('north/about.html', 'south/about.html'), true)) continue;
+    $key = $page['route_template'] ?? '';
+    $assert('' !== $key && $key === ($page['metadata']['post_meta']['_wp_page_template'] ?? null), 'Every colliding page has a native custom template assignment.');
+    $keys[] = $key;
+    $assert(in_array($key, array_column($collisionPlan['templates'], 'slug'), true), 'Assigned custom template exists.');
+    $assert(in_array($key, array_column($theme['customTemplates'] ?? array(), 'name'), true), 'Assigned custom template is registered in theme.json.');
+}
+$assert(2 === count(array_unique($keys)), 'Same terminal slug under different parents gets distinct template keys.');
+$dominant = current(array_filter($headers($collisionPlan), static fn(array $part): bool => 'header' === $part['slug']));
+$assert(array() === array_diff($keys, $dominant['placement']['excluded_template_slugs'] ?? array()), 'Each variant exclusion uses the same route-qualified key as its assignment.');
+foreach ($collisionPlan['templates'] as $template) if (in_array($template['slug'], $keys, true)) $assert(!str_contains($template['canonical_block_markup'], '"slug":"header"'), 'Excluded routes do not inherit the dominant header.');
+$assert('page-work' === WordPressSitePlan::routeTemplateKey(current(array_filter($collisionPlan['pages'], static fn(array $page): bool => 'work.html' === $page['source_path']))), 'Non-colliding routes retain page-slug behavior.');
+
+// Unbound varying URLs remain authored content, not route-state differences.
 $links = array();
 foreach (array('index', 'about', 'work') as $slug) $links[$slug . '.html'] = '<header><a href="/">Site</a><nav><a href="https://example.org/alternate/' . $slug . '">Alternate</a></nav></header><main><h1>' . $slug . '</h1><p>Page body.</p></main>';
-$linkPlan = $compile($links);
-WordPressSitePlan::assertValid($linkPlan);
-$assert(array() === $headers($linkPlan), 'Unbound per-page targets must not freeze the first page\'s URL into a shared header.');
-
-echo "retained-label-shell investigation contract passed\n";
+$assert(array() === $headers($compile($links)), 'Unbound per-page targets must not freeze the first page URL into a shared header.');
+echo "retained-label-shell contract passed\n";

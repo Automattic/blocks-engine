@@ -615,8 +615,8 @@ final class ShellExtraction
                 foreach ($pages as $page) {
                     if (!empty($page['synthetic']) || !isset($part['provenance']['sources'][$page['source_path'] ?? ''])) continue;
                     if (!empty($page['entrypoint'])) $selected = in_array('front-page', $part['placement']['template_slugs'] ?? array(), true);
-                    elseif ('post' === ($page['post_type'] ?? null)) $selected = in_array('single', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded['single-' . ($page['slug'] ?? '')]);
-                    else $selected = in_array('page', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded['page-' . ($page['slug'] ?? '')]);
+                    elseif ('post' === ($page['post_type'] ?? null)) $selected = in_array('single', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded[WordPressSitePlan::routeTemplateKey($page)]);
+                    else $selected = in_array('page', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded[WordPressSitePlan::routeTemplateKey($page)]);
                     if ($selected) $sourcePaths[] = (string) $page['source_path'];
                 }
             }
@@ -1063,7 +1063,7 @@ final class ShellExtraction
                 // shell; excluded routes get their own override templates.
                 $templateSlugs[] = 'post' === ($page['post_type'] ?? null) ? 'single' : 'page';
                 if (!$selected) {
-                    $slug = 'page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug'];
+                    $slug = WordPressSitePlan::routeTemplateKey($page);
                     if (isset($overrides[$slug])) {
                         $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell exclusions cannot be assigned distinct route templates.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'route_template_ambiguous', $candidates));
                         continue 2;
@@ -1116,7 +1116,7 @@ final class ShellExtraction
                 if (1 !== count($ranges)) continue;
                 $wrapper = self::soleChromeWrapper($pages[$index]['canonical_block_markup'], $ranges[0]);
                 if (null === $wrapper) continue;
-                $slug = !empty($pages[$index]['entrypoint']) ? 'front-page' : ('post' === ($pages[$index]['post_type'] ?? null) ? 'single-' . $pages[$index]['post_type'] . '-' . $pages[$index]['slug'] : 'page-' . $pages[$index]['slug']);
+                $slug = WordPressSitePlan::routeTemplateKey($pages[$index]);
                 $templateWrappers[$slug] = array('opening' => $wrapper['opening'], 'closing' => $wrapper['closing']);
                 if ('page' === ($pages[$index]['post_type'] ?? null) && empty($pages[$index]['entrypoint'])) $pageWrappers[$index] = $templateWrappers[$slug];
                 $withoutShells[$index] = $wrapper['page'];
@@ -1186,7 +1186,7 @@ final class ShellExtraction
                         // shell; excluded routes get their own override templates.
                         $templateSlugs[] = 'post' === ($page['post_type'] ?? null) ? 'single' : 'page';
                         if (!$selected) {
-                            $slug = 'page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug'];
+                            $slug = WordPressSitePlan::routeTemplateKey($page);
                             if (isset($overrides[$slug])) {
                                 $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell exclusions cannot be assigned distinct route templates.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'route_template_ambiguous', $candidates));
                                 continue 2;
@@ -1711,7 +1711,7 @@ final class ShellExtraction
         foreach ($split as $index => $frame) {
             $page = $pages[$index];
             $shared = null !== $generic && isset($inner[$index]) && self::frameIdentity($frame) === self::frameIdentity($generic);
-            $slug = !empty($page['entrypoint']) ? 'front-page' : ($shared ? 'page' : 'page-' . $page['slug']);
+            $slug = !empty($page['entrypoint']) ? 'front-page' : ($shared ? 'page' : WordPressSitePlan::routeTemplateKey($page));
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
             $frames[$slug] = array('opening' => $frame['opening'], 'closing' => $frame['closing'], 'shells' => array_values(array_unique($slugs[1])));
             $pages[$index]['canonical_block_markup'] = $frame['content'];
@@ -1730,7 +1730,7 @@ final class ShellExtraction
         }
         // A page that keeps its chrome in its own content must not also get the
         // generic frame, so it renders through a plain route template.
-        if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames['page-' . $page['slug']] = array('opening' => '', 'closing' => '', 'shells' => array());
+        if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames[WordPressSitePlan::routeTemplateKey($page)] = array('opening' => '', 'closing' => '', 'shells' => array());
         return array('pages' => $pages, 'frames' => $frames, 'generic_source' => $genericSource);
     }
 
@@ -2075,7 +2075,7 @@ final class ShellExtraction
                 // shell; excluded routes get their own override templates.
                 $templateSlugs[] = 'post' === ($page['post_type'] ?? null) ? 'single' : 'page';
                 if (!$selected) {
-                    $slug = 'page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug'];
+                    $slug = WordPressSitePlan::routeTemplateKey($page);
                     if (isset($overrides[$slug])) return null;
                     $overrides[$slug] = $index;
                 }
