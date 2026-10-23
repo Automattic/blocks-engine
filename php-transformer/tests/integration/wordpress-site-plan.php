@@ -499,6 +499,10 @@ $resolveRequest = static function (string $path): array {
 // #3360: generated post rewrites must leave hierarchical pages to core,
 // including a child whose slug also belongs to a default-locale root page.
 $fixtureIds = array();
+$fixtureIdentities = array();
+foreach ($taxonomyPlan['pages'] as $plannedPage) {
+    $fixtureIdentities[$plannedPage['route']['path']] = $plannedPage['reconciliation_identity'];
+}
 foreach ($postRouteFixture['files'] as $file) {
     if (!is_array($file)) continue;
     $route = $file['metadata']['route_path'];
@@ -509,16 +513,23 @@ foreach ($postRouteFixture['files'] as $file) {
         'post_parent' => 'page' === $type ? ($fixtureIds[dirname($route)] ?? 0) : 0,
     ), true);
     if (is_wp_error($id)) throw new RuntimeException($id->get_error_message());
+    update_post_meta($id, '_blocks_engine_reconciliation_identity', $fixtureIdentities[$route]);
     $fixtureIds[$route] = $id;
     $pageIds['post-route-' . $route] = $id;
 }
+$assert('first-note' === get_post_field('post_name', $fixtureIds['/north/first-note']) && 'first-note-2' === get_post_field('post_name', $fixtureIds['/south/first-note']), 'WordPress assigns unique post names to shared source slugs.');
 flush_rewrite_rules(false);
 foreach ($fixtureIds as $route => $id) {
     $assert($id === url_to_postid(home_url($route . '/')), 'Source route resolves to its own post or page: ' . $route);
-    $routeQuery = new WP_Query($resolveRequest($route . '/'));
+    $routeVars = $resolveRequest($route . '/');
+    if ('post' === get_post_type($id)) $assert($id === ($routeVars['p'] ?? null) && !isset($routeVars['name']), 'Post request resolves by identity to p, never name: ' . $route);
+    $routeQuery = new WP_Query($routeVars);
     $assert($id === $routeQuery->get_queried_object_id() && !$routeQuery->is_404(), 'Core request resolves the intended object: ' . $route);
     if ('page' === get_post_type($id)) $assert($routeQuery->is_page(), 'Child routes retain native page query semantics.');
 }
+delete_post_meta($fixtureIds['/south/first-note'], '_blocks_engine_reconciliation_identity');
+$assert('404' === ($resolveRequest('/south/first-note/')['error'] ?? null), 'A missing identity owner produces a native 404 instead of the other locale post.');
+$assert(0 === url_to_postid(home_url('/south/first-note/')), 'Direct URL lookup also refuses a route without an identity owner.');
 $baseRouteVars = $resolveRequest('/journal/category/field-notes/');
 $pageTwoVars = $resolveRequest('/journal/category/field-notes/page/2/');
 $zeroPageVars = $resolveRequest('/journal/category/field-notes/page/0/');

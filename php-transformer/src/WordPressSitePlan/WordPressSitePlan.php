@@ -5088,16 +5088,28 @@ PHP;
         ksort($postRouteParents);
         if (array() !== $postRoutePaths) {
             $lines[] = '$blocks_engine_post_routes = ' . var_export($postRoutePaths, true) . ';';
+            $lines[] = "add_filter( 'query_vars', static function ( array \$vars ): array { \$vars[] = 'blocks_engine_post_route'; return \$vars; } );";
+            $lines[] = "\$blocks_engine_resolve_post_route = static function ( array \$vars ) use ( \$blocks_engine_post_routes ): array {";
+            $lines[] = "    if ( ! isset( \$vars['blocks_engine_post_route'] ) ) return \$vars;";
+            $lines[] = "    \$identity = array_search( \$vars['blocks_engine_post_route'], \$blocks_engine_post_routes, true );";
+            $lines[] = "    \$ids = false === \$identity ? array() : get_posts( array( 'post_type' => 'post', 'post_status' => 'publish', 'numberposts' => 1, 'fields' => 'ids', 'meta_key' => '_blocks_engine_reconciliation_identity', 'meta_value' => \$identity ) );";
+            $lines[] = "    return empty( \$ids ) ? array( 'error' => '404' ) : array( 'p' => (int) \$ids[0] );";
+            $lines[] = "};";
+            $lines[] = "add_filter( 'request', \$blocks_engine_resolve_post_route );";
+            // url_to_postid() constructs WP_Query directly, bypassing request.
+            $lines[] = "add_action( 'parse_query', static function ( WP_Query \$query ) use ( \$blocks_engine_resolve_post_route ): void {";
+            $lines[] = "    if ( isset( \$query->query_vars['blocks_engine_post_route'] ) ) \$query->parse_query( \$blocks_engine_resolve_post_route( \$query->query_vars ) );";
+            $lines[] = "} );";
             $lines[] = "add_action( 'init', static function () use ( \$blocks_engine_post_routes ): void {";
             foreach ($postRouteParents as $parent => $slugs) {
                 // Only shipped posts may shadow core's hierarchical page rules.
                 // A numeric parent (`/2019/<slug>/`) is an int key.
                 sort($slugs, SORT_STRING);
                 $quotedSlugs = array_map(static fn(string $slug): string => preg_quote($slug, '/'), array_unique($slugs));
-                $pattern = '^' . preg_quote((string) $parent, '/') . '/(' . implode('|', $quotedSlugs) . ')/?$';
-                $lines[] = "    add_rewrite_rule( " . var_export($pattern, true) . ", 'index.php?name=\$matches[1]', 'top' );";
+                $pattern = '^(' . preg_quote((string) $parent, '/') . '/(?:' . implode('|', $quotedSlugs) . '))/?$';
+                $lines[] = "    add_rewrite_rule( " . var_export($pattern, true) . ", 'index.php?blocks_engine_post_route=\$matches[1]', 'top' );";
             }
-            $lines[] = "    \$signature = hash( 'sha256', wp_json_encode( \$blocks_engine_post_routes ) );";
+            $lines[] = "    \$signature = hash( 'sha256', 'identity-routes-v2:' . wp_json_encode( \$blocks_engine_post_routes ) );";
             $lines[] = "    if ( \$signature !== get_option( 'blocks_engine_post_route_signature' ) ) {";
             $lines[] = "        update_option( 'blocks_engine_post_route_signature', \$signature );";
             $lines[] = "        flush_rewrite_rules( false );";

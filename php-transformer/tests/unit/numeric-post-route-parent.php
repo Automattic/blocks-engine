@@ -45,8 +45,8 @@ if (is_array($plan)) {
             $bootstrap = (string) ($write['payload']['data'] ?? '');
         }
     }
-    $assert(str_contains($bootstrap, "add_rewrite_rule( '^2019/(first)/?\$'"), 'numeric parent gets its post rewrite rule');
-    $assert(str_contains($bootstrap, "add_rewrite_rule( '^news/(second)/?\$'"), 'named parent keeps its post rewrite rule');
+    $assert(str_contains($bootstrap, "add_rewrite_rule( '^(2019/(?:first))/?\$'"), 'numeric parent gets its post rewrite rule');
+    $assert(str_contains($bootstrap, "add_rewrite_rule( '^(news/(?:second))/?\$'"), 'named parent keeps its post rewrite rule');
 }
 
 if ($failures > 0) {

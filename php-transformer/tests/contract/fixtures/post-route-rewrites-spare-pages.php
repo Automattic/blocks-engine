@@ -13,6 +13,7 @@ foreach (array(
     '/south/careers' => 'page',
     '/south/contact' => 'page',
     '/south/third-note' => 'post',
+    '/south/first-note' => 'post',
     '/edition-v1' => 'page',
     '/edition-v1/release-v2' => 'post',
 ) as $route => $type) {
