@@ -90,6 +90,17 @@ $assert(array( 'src' => 'large.jpg', 'srcset' => 'small.jpg 480w, large.jpg 1920
 $assert(array( 'src' => 'small.jpg', 'srcset' => 'small.jpg 1x, retina.jpg 2x' ) === ($linkedDensity['blocks'][0]['attrs']['metadata']['blocksEngineImageSelection'] ?? null), 'a lowered density family keeps its candidates without inventing sizes');
 $lazyFamily = ( new HtmlTransformer() )->transform('<img src="a-600.webp" srcset="a-600.webp 600w, a-600.webp 2048w" sizes="100vw" loading="lazy" style="width:100%" alt="Lazy">')->toArray();
 $assert('lazy' === ($lazyFamily['blocks'][0]['attrs']['metadata']['blocksEngineImageSelection']['loading'] ?? null), 'the authored loading travels with the selection that decides which fetch fixes a shared candidate density');
+// The HTML spec applies the sizes `auto` keyword only to lazy-loaded images;
+// any other image ignores a leading `auto` and uses the rest of the list.
+$autoSelection = static function (string $sizes, string $loading): array {
+    $markup = '<img src="photo.jpg" srcset="photo.jpg 400w, photo-large.jpg 800w" sizes="' . $sizes . '"' . ( '' === $loading ? '' : ' loading="' . $loading . '"' ) . ' style="width:100%" alt="Example image">';
+
+    return ( new HtmlTransformer() )->transform($markup)->toArray()['blocks'][0]['attrs']['metadata']['blocksEngineImageSelection'] ?? array();
+};
+$assert(!array_key_exists('sizes', $autoSelection('auto', 'eager')), 'an eager image drops a bare sizes auto because the keyword applies only to lazy loading');
+$assert('50vw' === ($autoSelection('auto, 50vw', 'eager')['sizes'] ?? null), 'an eager image keeps the list after a leading auto, 50vw');
+$assert(!array_key_exists('sizes', $autoSelection('AUTO', '')), 'the auto keyword is matched case-insensitively and dropped without a loading attribute');
+$assert('auto' === ($autoSelection('auto', 'lazy')['sizes'] ?? null), 'a lazy image keeps its authored sizes auto');
 $plainImage = ( new HtmlTransformer() )->transform('<img src="plain.jpg" alt="Plain">')->toArray();
 $assert(!isset($plainImage['blocks'][0]['attrs']['metadata']), 'an image without an authored family carries no selection');
 $densityWithoutWidth = ( new HtmlTransformer() )->transform('<img src="small.jpg" srcset="small.jpg 1x, large.jpg 2x" alt="Density">')->toArray();

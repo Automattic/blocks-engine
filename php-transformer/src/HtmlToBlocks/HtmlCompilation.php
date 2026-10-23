@@ -10852,11 +10852,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return array();
         }
         $loading = strtolower(trim($this->attr($image, 'loading')));
+        $sizes   = trim($this->attr($image, 'sizes'));
+
+        // The HTML spec applies the `auto` keyword only to lazy-loaded images;
+        // any other image ignores a leading `auto` and uses the rest of the
+        // list (`auto, 50vw` is `50vw`, a bare `auto` is no sizes at all).
+        if ( 'lazy' !== $loading ) {
+            $sizes = (string) preg_replace('/^auto(?:\s*,\s*|$)/i', '', $sizes, 1);
+        }
 
         return array_filter(array(
             'src'     => $src,
             'srcset'  => SrcsetParser::rewrite($this->attr($image, 'srcset'), fn (string $url): string => $this->resolvedAssetImageUrl($url)),
-            'sizes'   => trim($this->attr($image, 'sizes')),
+            'sizes'   => $sizes,
             'loading' => in_array($loading, array( 'lazy', 'eager' ), true) ? $loading : '',
         ), static fn (string $value): bool => '' !== $value);
     }
