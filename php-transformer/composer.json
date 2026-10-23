@@ -180,6 +180,7 @@
       "php tests/contract/page-stylesheet-dead-richtext-markers.php",
       "php tests/contract/richtext-subject-arm-scaling.php",
       "php tests/contract/frontend-stylesheet-without-editor-rules.php",
+      "php tests/contract/editor-rich-text-nowrap.php",
       "php tests/contract/shared-author-stylesheet-scaling.php",
       "php tests/contract/context-seeded-markers.php",
       "php tests/contract/shared-chrome-paint-order-root.php",
