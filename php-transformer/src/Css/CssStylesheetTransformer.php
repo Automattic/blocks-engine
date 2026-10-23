@@ -174,8 +174,10 @@ final class CssStylesheetTransformer
      * with the same text inside the same conditional group rules in `$present`.
      * Malformed input yields the stylesheets unchanged.
      * When preserving cascade for a later-loaded page projection, also keep
-     * later shared rules that target the same selectors and properties as a
-     * changed rule, so their ordering continues to determine the cascade.
+     * every later shared rule that may set a property an already kept rule
+     * sets: the page stylesheet loads after the shared one, so a kept rule
+     * would otherwise outrank the later shared rule it originally lost to.
+     * Kept shared rules count too, since re-emitting one moves it later.
      *
      * @param list<string> $stylesheets
      * @param list<string> $present
@@ -196,27 +198,16 @@ final class CssStylesheetTransformer
             }
         }
         $kept = array();
-        $changedUnits = array();
+        $keptProperties = array();
         foreach ( $stylesheets as $stylesheet ) {
             $units = array();
             $this->collectRuleUnits($stylesheet, array(), $units);
             foreach ( $units as $unit ) {
                 $key = self::ruleUnitKey($unit);
-                $isChanged = ! $unit['dedupable'] || ! isset($seen[ $key ]);
-                $interacts = false;
-                if ( $preserveCascade && ! $isChanged ) {
-                    foreach ( $changedUnits as $changedUnit ) {
-                        if ( self::rulesMayInteract($unit['text'], $changedUnit['text']) ) {
-                            $interacts = true;
-                            break;
-                        }
-                    }
-                }
-                if ( $isChanged || $interacts ) {
+                $properties = $preserveCascade ? self::cascadePropertyFamilies($unit['text']) : array();
+                if ( ! $unit['dedupable'] || ! isset($seen[ $key ]) || self::cascadeFamiliesOverlap($properties, $keptProperties) ) {
                     $kept[] = $unit;
-                }
-                if ( $isChanged ) {
-                    $changedUnits[] = $unit;
+                    $keptProperties += $properties;
                 }
                 $seen[ $key ] = true;
             }
@@ -224,20 +215,42 @@ final class CssStylesheetTransformer
         return $this->serializeRuleUnits($kept);
     }
 
-    private static function rulesMayInteract(string $left, string $right): bool
+    /**
+     * The cascade families a rule unit declares: a property, without vendor
+     * prefix, reduced to the shorthand that also sets it, so a shorthand and
+     * its longhands share a family. Custom properties are their own family.
+     * A rule whose declarations cannot be read (or that sets `all`) reports
+     * the wildcard family, which overlaps every other.
+     *
+     * @return array<string, true>
+     */
+    private static function cascadePropertyFamilies(string $rule): array
     {
-        $parse = static function (string $rule): ?array {
-            $brace = strpos($rule, '{');
-            if ( false === $brace || ! str_ends_with(trim($rule), '}') ) {
-                return null;
+        $brace = strpos($rule, '{');
+        if ( false !== $brace && '' === trim(substr(trim($rule), $brace + 1, -1)) ) {
+            return array();
+        }
+        if ( false === $brace || ! str_ends_with(trim($rule), '}') || ! preg_match_all('/(?:^|[;{}])\\s*(-{0,2}[a-zA-Z_][a-zA-Z0-9_-]*)\\s*:/', substr($rule, $brace + 1), $matches) ) {
+            return array( '*' => true );
+        }
+        $aliases = array( 'top' => 'inset', 'right' => 'inset', 'bottom' => 'inset', 'left' => 'inset', 'row' => 'gap', 'column' => 'gap', 'align' => 'place', 'justify' => 'place', 'inline' => 'size', 'block' => 'size', 'width' => 'size', 'height' => 'size', 'min' => 'size', 'max' => 'size', 'line' => 'font', 'columns' => 'gap' );
+        $families = array();
+        foreach ( $matches[1] as $property ) {
+            $property = strtolower($property);
+            if ( str_starts_with($property, '--') ) {
+                $families[ $property ] = true;
+                continue;
             }
-            $selectors = array_map('trim', self::splitSelectorList(substr($rule, 0, $brace)) ?? array());
-            preg_match_all('/(?:^|;)\\s*([a-zA-Z_-][a-zA-Z0-9_-]*)\\s*:/', substr($rule, $brace + 1), $matches);
-            return array($selectors, array_map('strtolower', $matches[1]));
-        };
-        $a = $parse($left);
-        $b = $parse($right);
-        return null !== $a && null !== $b && ((bool) array_intersect($a[0], $b[0]) || (bool) array_intersect($a[1], $b[1]));
+            $root = explode('-', (string) preg_replace('/^-(?:webkit|moz|ms|o)-/', '', $property))[0];
+            $families[ 'all' === $root ? '*' : ( $aliases[ $root ] ?? $root ) ] = true;
+        }
+        return $families;
+    }
+
+    /** @param array<string, true> $families @param array<string, true> $kept */
+    private static function cascadeFamiliesOverlap(array $families, array $kept): bool
+    {
+        return array() !== $families && array() !== $kept && ( isset($families['*']) || isset($kept['*']) || array() !== array_intersect_key($families, $kept) );
     }
 
     /** @param array{context: list<string>, text: string, dedupable: bool} $unit */
