@@ -4099,29 +4099,17 @@ final class StyleResolver implements ElementPresentationResolver
             return $inlineStyle;
         }
 
-        $declarations = array();
-        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
-            $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
-        }
-
-        if ( array() === $declarations ) {
-            $cache->mergedStyles[$cacheKey] = $inlineStyle;
-            return $inlineStyle;
-        }
-
-        $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($inlineStyle));
-        $cache->mergedStyles[$cacheKey] = $this->cssDeclarationString($declarations);
+        // Recognition can decide whether to read stylesheet presentation, but
+        // anything projected from it must use the authored cascade winner.
+        $cache->mergedStyles[$cacheKey] = $this->specificityResolvedPresentationStyle($element);
 
         return $cache->mergedStyles[$cacheKey];
     }
 
     /**
-     * Resolve the authored resting cascade for navigation recognition.
-     *
-     * General presentation merging intentionally follows source order only,
-     * but navigation link colour becomes a rendered carrier and therefore must
-     * use the browser winner. A later low-specificity item class cannot replace
-     * an earlier, stronger menu-anchor rule.
+     * Resolve the authored resting cascade for recognition and presentation.
+     * A later low-specificity rule cannot replace an earlier, stronger rule
+     * when its declarations become rendered block attributes.
      */
     public function specificityResolvedPresentationStyle(DOMElement $element): string
     {
