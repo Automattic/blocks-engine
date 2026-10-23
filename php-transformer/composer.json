@@ -76,6 +76,7 @@
     ],
     "test:canonical": [
       "php tests/contract/namespace-resolution.php",
+      "php tests/contract/site-plan-media-library-destination.php",
       "php tests/contract/layer-direction.php",
       "php tests/contract/navigation-anchor-layered-color.php",
       "php tests/contract/accessible-link-retained-descendant-styles.php",

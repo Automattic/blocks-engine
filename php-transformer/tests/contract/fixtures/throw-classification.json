@@ -607,9 +607,12 @@
       "unique($sources,$document['source_path'],'source document')": {"class": "integrity", "count": 1},
       "unique($templateTargets,$template['target_path'],'template target')": {"class": "integrity", "count": 1},
       "unique($tokens,$reference['token'],'reference token')": {"class": "integrity", "count": 1},
-      "unique($writeTargets,$write['target_path'],'write target',(string)($write['source_path']??''))": {"class": "integrity", "count": 1}
+      "unique($writeTargets,$write['target_path'],'write target',(string)($write['source_path']??''))": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Asset consumers or destination are stale.')": {"class": "integrity", "count": 1}
     },
     "src/WordPressSitePlan/WordPressSitePlanResolver.php": {
+      "InvalidArgumentException('Attachment resolutions must be a token map.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Invalid attachment resolution or non-media asset token.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Asset publication reference token is not declared.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('WordPress site plan cannot prove dynamic client asset references.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('WordPress site plan contains unresolved reference tokens.')": {"class": "integrity", "count": 1},

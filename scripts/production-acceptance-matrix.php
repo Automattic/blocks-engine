@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 const ACCEPTANCE_SCHEMA = 'blocks-engine/figma-wordpress-acceptance/v2';
-const SITE_PLAN_SCHEMA = 'blocks-engine/wordpress-site-plan/v2';
+const SITE_PLAN_SCHEMA = 'blocks-engine/wordpress-site-plan/v3';
 const FIXTURE_IDS = array('fse-pilot-build-theme', 'twenty-twenty-five-community', 'fisiostetic');
 const PARITY_STAGES = array(
     'figma_html_desktop_parity' => 'figma_html',
@@ -292,7 +292,7 @@ function acceptance_help(): void {
     echo <<<'HELP'
 Usage: php scripts/production-acceptance-matrix.php --manifest=acceptance.json [--profile=production|manifest] [--output=artifacts/figma-wordpress-acceptance]
 
-The manifest supplies private .fig inputs and generic external provider commands. Provider commands may use {fig} and {fixture_output}; they must write versioned stage evidence and a wordpress-site-plan/v2 JSON file. The generated summary contains only repository-relative evidence references, never input paths or URLs.
+The manifest supplies private .fig inputs and generic external provider commands. Provider commands may use {fig} and {fixture_output}; they must write versioned stage evidence and a wordpress-site-plan/v3 JSON file. The generated summary contains only repository-relative evidence references, never input paths or URLs.
 
 The default production profile requires fixture ids: fse-pilot-build-theme, twenty-twenty-five-community, fisiostetic.
 The manifest profile evaluates every supplied fixture id and supports arbitrary .fig files.

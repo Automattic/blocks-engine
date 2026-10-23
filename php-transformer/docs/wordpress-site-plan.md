@@ -1,6 +1,6 @@
-# WordPress Site Plan v2
+# WordPress Site Plan v3
 
-`blocks-engine/wordpress-site-plan/v2` is a destination-independent materialization contract. A consumer resolves it with `WordPressSitePlanResolver` and combines the resolved plan with its own materialization receipt. Destination IDs, paths outside declared writes, and product report formats remain consumer-owned.
+`blocks-engine/wordpress-site-plan/v3` is a destination-independent materialization contract. A consumer resolves it with `WordPressSitePlanResolver` and combines the resolved plan with its own materialization receipt. Destination IDs, paths outside declared writes, and product report formats remain consumer-owned.
 
 ## Omitted Pages
 
@@ -168,6 +168,16 @@ order unchanged: a page's slice of a shared stylesheet, its compatibility
 replay or its editor state is then one file for all the pages that produce it,
 instead of one copy per page. Consumers must enqueue such an asset for each
 scope, as they already do for an asset scoped by the pages that link it.
+
+## Asset consumers and destinations
+
+Every asset row carries `consumers`, `destination` and `theme_write_reasons`, derived from where its token lands in final block markup and stylesheet writes, not from source selectors:
+
+- `consumers[]`: `{kind: "block", document_kind, document, block_name, block_path, attribute_path, count}` for pages, templates, template parts and synced patterns (`attribute_path` is `url` for a core/image `<img src>`, `innerHTML` for saved markup, otherwise the dotted attribute path), or `{kind: "stylesheet", target_path, count}` for CSS writes.
+- `destination`: `media_library` when any block consumes the asset, otherwise `theme`.
+- `theme_write_reasons[]`: for `media_library` assets, one `{reason: "attachment_url_required", target_path, count}` per stylesheet consumer. Theme CSS has no portable reference to uploads, so the theme write is kept unless the publisher resolves the asset.
+
+`WordPressSitePlanResolver::resolve()` accepts `attachment_resolutions` (`token => {id, url}`, positive integer id, absolute http(s) URL) for `media_library` assets only. A resolved asset loses its theme write; every reference, including stylesheets, resolves to the attachment URL; and image blocks carry core attachment attributes: `id` + `url` (core/image, plus the `wp-image-<id>` class) and core/cover, `mediaId` + `mediaUrl` (core/media-text), and `style.background.backgroundImage` `{id, url, source: "file"}`. The resolved plan records the map under `resolution.attachment_resolutions`. Without attachment resolutions the output is byte-identical to theme-URL resolution.
 
 Meta rows preserve `charset`, `name`, `property`, `http_equiv`, and `content`. Link rows preserve `rel`, `type`, `media`, `integrity`, `crossorigin`, `referrerpolicy`, `as`, `fetchpriority`, and `sizes`. Script rows preserve `type`, `integrity`, `crossorigin`, `referrerpolicy`, and `fetchpriority`, plus independent booleans for `async`, `defer`, `module`, and `nomodule`. Explicitly present empty values are retained as `''` so consumers can distinguish them from absent attributes, except `crossorigin`: its empty or boolean HTML state is normalized to `anonymous`, matching browser CORS semantics. `effective_loading` records browser loading semantics: `async` wins over `defer`; non-async module scripts are `defer`; other scripts are `blocking`. Inline scripts carry `source_kind: inline` and `body_hash`, not their source body.
 
