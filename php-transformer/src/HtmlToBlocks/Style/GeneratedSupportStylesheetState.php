@@ -291,6 +291,14 @@ final class GeneratedSupportStylesheetState
         return $this->navigationLinkLeadingIcons[$className] ?? '';
     }
 
+    /** @var array<string, array{box: string, glyph: string}> */
+    private array $navigationSubmenuIconGeometry = array();
+
+    public function registerNavigationSubmenuIconGeometry(string $className, string $box, string $glyph): void
+    {
+        $this->navigationSubmenuIconGeometry[$className] = array('box' => $box, 'glyph' => $glyph);
+    }
+
     public function registerNavigationSubmenuBackground(string $className, string $color): void
     {
         $this->navigationSubmenuBackgrounds[$className] = $color;
@@ -369,6 +377,15 @@ final class GeneratedSupportStylesheetState
     public function conditionalAfterAuthorCss(string $serializedBlocks): array
     {
         $parts = array();
+        foreach ($this->navigationSubmenuIconGeometry as $className => $geometry) {
+            if (str_contains($serializedBlocks, $className)) {
+                // Core owns overlay spacing; this bridge is only for the
+                // non-overlay menu. Do not alter its accessible toggle markup.
+                $selector = '.wp-block-navigation .wp-block-navigation-item.' . $className . ':not(.is-menu-open *)>.wp-block-navigation__submenu-icon';
+                $parts[] = $selector . '{' . $geometry['box'] . '}';
+                $parts[] = $selector . '>svg{' . $geometry['glyph'] . '}';
+            }
+        }
         foreach ($this->navigationSubmenuBackgrounds as $className => $color) {
             if (str_contains($serializedBlocks, $className)) {
                 $parts[] = '.wp-block-navigation-item.' . $className . '>.wp-block-navigation__submenu-container{background-color:' . $color . '}';

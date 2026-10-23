@@ -2742,6 +2742,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             if (array() !== $boxes) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['boxes'] = $boxes;
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' ' . $navigationContext->navigationItemSubjectMarker($item));
         }
+        if ( $submenuContainer instanceof DOMElement ) {
+            $itemAttrs = $this->withClassName($itemAttrs, $navigationContext?->submenuIconGeometryMarker($item, $anchor, $submenuContainer) ?? '');
+        }
         $submenuAttrs = $submenuContainer instanceof DOMElement ? $this->withoutCoreNavigationClasses($presentationAttributes($submenuContainer)) : array();
         $sourceAnchor = '' === $subjectMarker ? trim($anchor->getAttribute('id')) : '';
         if ( '' === $sourceAnchor ) {
