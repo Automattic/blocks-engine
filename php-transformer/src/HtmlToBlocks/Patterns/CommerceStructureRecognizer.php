@@ -329,7 +329,15 @@ final class CommerceStructureRecognizer
             || (bool) preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style);
     }
 
-    /** The card's title link supplies its authored URL identity when available. */
+    /**
+     * The card's title link supplies its authored URL identity when available.
+     * A link to a directory index names its directory ("/products/blue-shirt/index.html"
+     * → "blue-shirt"), a page file names itself without its extension
+     * ("/products/blue-shirt.html" → "blue-shirt"), and a bare directory names
+     * itself ("/products/blue-shirt/" → "blue-shirt"). A path that reduces to
+     * nothing ("/index.html" at the root) is skipped like an empty path so the
+     * next candidate link can still supply the slug.
+     */
     private function productLinkSlug(DOMElement $card, string $name): ?string
     {
         foreach ( $card->getElementsByTagName('a') as $link ) {
@@ -341,9 +349,20 @@ final class CommerceStructureRecognizer
                 continue;
             }
             $path = parse_url($href, PHP_URL_PATH);
-            if ( is_string($path) && '' !== trim($path, '/') ) {
-                return rawurldecode(basename(rtrim($path, '/')));
+            if ( ! is_string($path) || '' === trim($path, '/') ) {
+                continue;
             }
+            $directory = rtrim((string) preg_replace('/(?:^|\/)index\.(?:html?|php)$/i', '', rtrim($path, '/')), '/');
+            $base = basename($directory);
+            if ( '' === $base ) {
+                continue;
+            }
+            $base = (string) preg_replace('/\.(?:html?|php)$/i', '', $base);
+            if ( '' === $base ) {
+                continue;
+            }
+
+            return rawurldecode($base);
         }
 
         return null;
