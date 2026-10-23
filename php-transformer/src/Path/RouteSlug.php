@@ -21,7 +21,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\Path;
  * distinct words stay distinct and the slug stays readable.
  *
  * WordPress percent-encodes what it cannot fold, which the canonical route
- * grammar (`[a-z0-9-]`) cannot carry. A segment that folds away to nothing
+ * grammar (`[a-z0-9_-]`) cannot carry. A segment that folds away to nothing
  * therefore keeps a stable token derived from its own bytes, the same way
  * WordPress falls back to the post ID when a title sanitizes to an empty slug.
  * That token is deterministic: the same segment always derives the same route.
@@ -41,8 +41,9 @@ final class RouteSlug
      * accents, lowercase, turn the separators an author writes (dots, the
      * non-breaking space, the dashes a word processor substitutes) into `-`,
      * drop the punctuation WordPress drops, collapse whitespace runs, and trim.
-     * Two departures, both forced by the canonical route grammar (`[a-z0-9-]`):
-     * `_` becomes `-` where WordPress keeps it, and what WordPress would
+     * Underscores stay: WordPress keeps them in post slugs, and rewriting one
+     * moves a source URL that still answers. One departure remains, forced by
+     * the canonical route grammar (`[a-z0-9_-]`): what WordPress would
      * percent-encode is dropped here and recovered as a derived token when it
      * was the whole segment. WordPress's HTML-entity pass is left out: a source
      * path segment is a file name, not markup, and that pass would eat every
@@ -54,7 +55,7 @@ final class RouteSlug
         $folded = strtolower(self::removeAccents($segment));
         $folded = str_replace(array('.', "\u{00a0}", "\u{2011}", "\u{2013}", "\u{2014}"), '-', $folded);
         $folded = (string) preg_replace('/[^a-z0-9 _-]/', '', $folded);
-        $folded = (string) preg_replace('/[\s_]+/', '-', $folded);
+        $folded = (string) preg_replace('/\s+/', '-', $folded);
         $folded = trim((string) preg_replace('/-+/', '-', $folded), '-');
         return '' === $folded ? self::DERIVED_TOKEN_PREFIX . substr(hash('sha256', $segment), 0, self::DERIVED_TOKEN_LENGTH) : $folded;
     }

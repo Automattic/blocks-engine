@@ -170,7 +170,7 @@ final class DocumentHeadContext
             }
             if ('meta' !== $row['tag']) {
                 $reference = $row['asset_reference'] ?? $row['url'] ?? null;
-                $route = 'link' === $row['tag'] && self::isRouteLink($row['attributes']) && is_string($reference) && preg_match('~^/(?:[a-z0-9-]+(?:/[a-z0-9-]+)*)?(?:[?#].*)?$~', $reference);
+                $route = 'link' === $row['tag'] && self::isRouteLink($row['attributes']) && is_string($reference) && preg_match('~^/(?:[a-z0-9_-]+(?:/[a-z0-9_-]+)*)?(?:[?#].*)?$~', $reference);
                 // A data: URL carries its own bytes, so a link has no write to bind.
                 // Scripts keep the script-loading contract, which requires a write or HTTP(S) URL.
                 $embedded = 'link' === $row['tag'] && is_string($reference) && 1 === preg_match('~^data:~i', $reference);
