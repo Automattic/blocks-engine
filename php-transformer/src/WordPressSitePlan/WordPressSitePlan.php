@@ -2061,18 +2061,28 @@ PHP;
             $sharedAsset['_stylesheet_projection_origins'] = array(self::stylesheetProjectionOrigin($asset));
             $asset = self::withRewrittenTextContent($asset, $route);
             $projected[] = $asset;
-            // The target and token are content-addressed, and the scope is global,
-            // so one emission covers every page. Keep it only when relative url()
-            // resolution and the enqueue contract agree. Otherwise the same text
-            // means different bytes once url() resolves, so this projection gets
-            // its own deterministic suffixed target, token and identity.
-            $sharedKey = strtolower((string) $sharedAsset['path']);
-            foreach ($emittedShared[$sharedKey] ?? array() as $emitted) {
-                if ($emitted['content'] === $shared && $emitted['contract'] === self::sharedChromeContract($sharedAsset) && self::sharedChromeOriginsAgree($shared, $emitted['origin'], (string) $sharedAsset['reference_origin'], $references)) {
-                    $projected[$emitted['index']]['_stylesheet_projection_origins'][] = self::stylesheetProjectionOrigin($asset);
-                    continue 2;
+            // Media/target contracts and relative URL resolution must agree:
+            // otherwise the slices cannot share a resource or reference origin.
+            // Consolidate compatible chrome slices at the planning boundary,
+            // before tokens and enqueue instances are consumed. Keep their
+            // existing cascade order; only earlier identical rules are redundant.
+            foreach ($emittedShared as $emissions) {
+                foreach ($emissions as $emitted) {
+                    $index = $emitted['index'];
+                    $existing = $projected[$index];
+                    if ($emitted['contract'] !== self::sharedChromeContract($sharedAsset)
+                        || !self::sharedChromeOriginsAgree($shared, $emitted['origin'], (string) $sharedAsset['reference_origin'], $references)) continue;
+                    $combined = (new CssStylesheetTransformer())->concatenateWithoutRedundantRules(array($existing['content'], $shared));
+                    $existing = self::withRewrittenTextContent($existing, $combined);
+                    $existing['path'] = $existing['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', self::sharedChromeContract($existing) . "\0" . $combined), 0, 16) . '.css';
+                    $existing['token'] = 'asset-' . substr(hash('sha256', $existing['target_path']), 0, 16);
+                    $existing['reconciliation_identity'] = self::identity('asset', $existing['source_path'], $existing['target_path']);
+                    $existing['_stylesheet_projection_origins'][] = self::stylesheetProjectionOrigin($asset);
+                    $projected[$index] = $existing;
+                    continue 3;
                 }
             }
+            $sharedKey = strtolower((string) $sharedAsset['path']);
             if (isset($emittedShared[$sharedKey])) {
                 $collidingTarget = (string) $sharedAsset['target_path'];
                 $sharedAsset['path'] = $sharedAsset['target_path'] = substr($collidingTarget, 0, -strlen('.css')) . '-' . (count($emittedShared[$sharedKey]) + 1) . '.css';
@@ -2080,7 +2090,7 @@ PHP;
                 $sharedAsset['reconciliation_identity'] = self::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
                 $collisions[] = array('source_path' => (string) $sharedAsset['source_path'], 'colliding_source_path' => (string) $projected[$emittedShared[$sharedKey][0]['index']]['source_path'], 'target_path' => $collidingTarget, 'resolved_target_path' => (string) $sharedAsset['target_path']);
             }
-            $emittedShared[$sharedKey][] = array('content' => $shared, 'origin' => (string) $sharedAsset['reference_origin'], 'contract' => self::sharedChromeContract($sharedAsset), 'index' => count($projected));
+            $emittedShared[$sharedKey][] = array('origin' => (string) $sharedAsset['reference_origin'], 'contract' => self::sharedChromeContract($sharedAsset), 'index' => count($projected));
             $projected[] = $sharedAsset;
         }
         return $projected;

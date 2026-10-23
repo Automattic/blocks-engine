@@ -60,7 +60,7 @@ $chrome = array_values(array_filter($plan['assets'] ?? array(), static fn (array
 $chromeCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $chrome));
 $dead = array_diff($markers($chromeCss), array_keys($live));
 $assert(array() === $dead, 'Global chrome stylesheets name no rich-text marker absent from emitted markup: ' . implode(', ', $dead));
-$assert(2 === count($chrome), 'Route copies of the header no longer each ship their own global chrome stylesheet; got ' . count($chrome) . '.');
+$assert(1 === count($chrome), 'Route copies of the header no longer each ship their own global chrome stylesheet; got ' . count($chrome) . '.');
 
 // The marked header label keeps its hidden-text rule, and `.sr-only` still
 // reaches any other element carrying the class.
