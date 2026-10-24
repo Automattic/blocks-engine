@@ -1582,6 +1582,14 @@ PHP;
         return false;
     }
 
+    /** Projected native menu state survives even when no captured item is current. */
+    private static function selectorTargetsRuntimeNavigationState(string $selector): bool
+    {
+        $positive = self::positiveSelector($selector);
+        return 1 === preg_match('/\\.wp-block-navigation(?![\\w-])/', $positive)
+            && 1 === preg_match('/\\[\\s*aria-current\\b|\\.current-menu-item(?![\\w-])/', $positive);
+    }
+
     /**
      * Compile the generated-class test once per projection. Every selector of
      * the site stylesheet is checked against every shared-part class, so one
@@ -1938,12 +1946,14 @@ PHP;
         $context = array('class' => array(), 'id' => array());
         $detachedRoots = array();
         $chromeElements = array();
+        $hasSharedNavigation = false;
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
             // A one-page inline part still lives under its authored page layout.
             // Its ancestor-scoped rules belong to that page, not global chrome.
             if ('inline_shared_shell' === ($part['placement']['kind'] ?? '') && 1 === count($part['placement']['source_paths'] ?? array())) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
+            $hasSharedNavigation = $hasSharedNavigation || 1 === preg_match('/<!--\s*wp:navigation(?:\s|\/|-->)/', $markup);
             // A source-tag marker names every element of its tag on every page
             // under any author CSS, not this chrome: a rule reaching it only
             // through such a marker (`p{…}` from one page's own stylesheet)
@@ -2000,9 +2010,15 @@ PHP;
             }
         } while ($grown);
         foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
-        if (array() === $classes && array() === $authored['class'] && array() === $authored['id']) return $assets;
+        if (!$hasSharedNavigation && array() === $classes && array() === $authored['class'] && array() === $authored['id']) return $assets;
         $classMatcher = self::generatedClassMatcher($classes);
-        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher) || self::selectorTargetsAuthoredChrome($selector, $authored, $context);
+        // Current state is assigned by core on the served route, not saved in
+        // the shared part. Projected selectors using only native navigation
+        // hooks therefore have no authored/generated class to claim them.
+        // Lift them with the menu rather than the capture's matching leaf.
+        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher)
+            || self::selectorTargetsAuthoredChrome($selector, $authored, $context)
+            || ($hasSharedNavigation && self::selectorTargetsRuntimeNavigationState($selector));
         $reanchor = static fn (string $selector): string => self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots));
 
         $projected = array();
@@ -4969,15 +4985,15 @@ PHP;
             $markup = (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? '');
             // Require the navigation container alongside a link, not merely the
             // link comment text, so the filter is only emitted where core/navigation
-            // actually renders a navigation-link item: a bare "wp:navigation-link"
-            // substring can appear in unrelated JSON/attribute contexts that never
-            // reach render_block_core_navigation_link(). Entity inner markup is
+            // actually renders a native navigation item: bare block-name
+            // substrings can appear in unrelated JSON/attribute contexts that never
+            // reach the core navigation renderers. Entity inner markup is
             // the link list for a referencing navigation block.
-            if (str_contains($markup, 'wp:navigation-link') && (str_contains($markup, 'wp:navigation ') || isset($document['token']))) { $hasNavigationLink = true; break; }
+            if ((str_contains($markup, 'wp:navigation-link') || str_contains($markup, 'wp:navigation-submenu')) && (str_contains($markup, 'wp:navigation ') || isset($document['token']))) { $hasNavigationLink = true; break; }
         }
         if ($hasNavigationLink) {
-            // core/navigation-link is fully dynamic: render_block_core_navigation_link()
-            // ignores saved content and only adds aria-current="page" when its own
+            // Core's navigation-link and navigation-submenu renderers only add
+            // aria-current="page" when their own
             // id/kind match the queried object, which never happens for the "custom"
             // kind links this engine emits. When navigation is inlined per page, the
             // current item is already marked with the blocks-engine-current-navigation-item
@@ -4987,8 +5003,11 @@ PHP;
             // link's own canonical route URL against the page currently being served.
             // Either signal recovers the semantic and the source's/engine's own
             // [aria-current] styling hook at render time.
-            $lines[] = "add_filter( 'render_block_core/navigation-link', static function ( string \$content, array \$block ): string {";
-            $lines[] = "    if ( str_contains( \$content, 'aria-current' ) ) return \$content;";
+            // Both native item blocks use the same URL resolution. A submenu's
+            // descendants can already be current; inspect only its own first anchor.
+            foreach (array('navigation-link', 'navigation-submenu') as $navigationBlock) {
+            $lines[] = "add_filter( 'render_block_core/{$navigationBlock}', static function ( string \$content, array \$block ): string {";
+            $lines[] = "    if ( ! preg_match( '/<a\\b[^>]*>/', \$content, \$anchor ) || str_contains( \$anchor[0], 'aria-current' ) ) return \$content;";
             $lines[] = "    \$current = str_contains( (string) ( \$block['attrs']['className'] ?? '' ), 'blocks-engine-current-navigation-item' );";
             $lines[] = "    if ( ! \$current ) {";
             $lines[] = "        \$url = is_string( \$block['attrs']['url'] ?? null ) ? trim( (string) \$block['attrs']['url'] ) : '';";
@@ -5000,8 +5019,13 @@ PHP;
             $lines[] = "        }";
             $lines[] = "    }";
             $lines[] = "    if ( ! \$current ) return \$content;";
+            if ('navigation-submenu' === $navigationBlock) {
+                // Only the outer item is current, never a descendant or ancestor.
+                $lines[] = "    \$content = preg_replace_callback( '/^<li\\b[^>]*\\bclass=\"([^\"]*)\"/', static function ( array \$match ): string { return in_array( 'current-menu-item', preg_split( '/\\s+/', \$match[1] ), true ) ? \$match[0] : substr( \$match[0], 0, -1 ) . ' current-menu-item\"'; }, \$content, 1 ) ?? \$content;";
+            }
             $lines[] = "    return preg_replace( '/(<a\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^\"]*\")/', '\$1 aria-current=\"page\"', \$content, 1 ) ?? \$content;";
             $lines[] = "}, 10, 2 );";
+            }
         }
         foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
             if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineRuntimeAttributes')) {
