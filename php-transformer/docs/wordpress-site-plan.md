@@ -106,8 +106,8 @@ permalink.
 The additive `taxonomy_entities` list contains only proven native term/archive
 relationships. The producer recognizes a captured category document only when
 its canonical route has category-archive form, its visible heading names a
-bounded slug on that route, it links to multiple canonical source documents
-classified as posts, and those article documents link back to that exact route
+bounded slug on that route, it links to at least one canonical source document
+classified as a post, and those article documents link back to that exact route
 with the same visible term name. Thus the route is one evidence source, not a
 guessing rule. Uncorroborated collection candidates remain ordinary documents
 and produce `wordpress_site_plan_taxonomy_archive_unproven` when they list
@@ -118,6 +118,32 @@ corroborated archives claiming one term slug produce
 entity that could fail the whole plan. Link evidence counts only when it is
 root-relative or absolute on the declared source origin, so an unrelated
 external link can never corroborate local term membership.
+
+Hierarchical routes (`/category/parent/child`, at any depth) use the leaf as
+`slug` and carry an optional `parent` string naming the immediate parent's slug
+in the same taxonomy. Top-level entities omit `parent`. The parent must itself
+have a proven archive at the immediate ancestor route; otherwise the child
+stays unproven with `wordpress_site_plan_taxonomy_archive_unproven_parent`
+naming the missing parent route. This also applies if a parent's native query
+presentation is declined. Leaf slugs are unique across the taxonomy, not just
+within one parent. Child membership and numbered captures use the same proof
+as top-level archives. Validation rejects absent, self-referential, malformed,
+or route-detached parents, independently of entity order.
+
+The original two-member threshold (introduced in `0535c3e5`) had no documented
+single-member false-positive case. Reciprocal matching-label links, canonical
+post classification, and same-origin checks remain mandatory. Single-card
+query conversion is allowed only for proven taxonomy archives; ordinary
+listing inference still requires multiple cards.
+
+SSI's current `materialize_taxonomy_entities()` does not read `parent`: it
+inserts terms with only `slug`. To persist this hierarchy, SSI must resolve the
+optional parent slug to a term ID in the same taxonomy (parents first, or in a
+second pass), pass that ID as WordPress's `parent` argument on insertion, and
+reconcile existing terms' parent IDs with ownership/conflict protection,
+rollback, and receipts. Missing `parent` means a root term. The plan field is a
+slug, not a WordPress database ID. SSI's existing exact archive-route rewrites
+already accept nested source paths and need no route-contract change.
 
 Each emitted `taxonomy_term` records its bounded canonical post source paths,
 the archive source identity and route, captured presentation markup, and native
