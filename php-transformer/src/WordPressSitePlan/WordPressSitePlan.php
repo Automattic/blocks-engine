@@ -374,7 +374,7 @@ PHP;
             $projectedTaxonomyEntities[] = $taxonomyEntity;
             foreach ($taxonomyProjection['pagination_source_paths_by_archive'][$archiveSource] ?? array() as $paginationSource) $paginationOwnerBySource[$paginationSource] = $archiveSource;
         }
-        $taxonomyProjection['entities'] = $projectedTaxonomyEntities;
+        $taxonomyProjection['entities'] = TaxonomyProjection::retainProvenParents($projectedTaxonomyEntities, $taxonomyProjection['diagnostics']);
         if (array() !== $paginationOwnerBySource) {
             foreach ($assets as &$asset) {
                 $owner = $asset['compilation'] ?? null;
@@ -579,7 +579,7 @@ PHP;
                  continue 2;
              }
          }
-         $taxonomyProjection['entities'] = $projectedTaxonomyEntities;
+         $taxonomyProjection['entities'] = TaxonomyProjection::retainProvenParents($projectedTaxonomyEntities, $taxonomyProjection['diagnostics']);
          unset($taxonomyEntity);
          $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single'], $taxonomyProjection['entities'], $shellFrames['frames']);
          foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if ('category-' . $taxonomyEntity['slug'] === ($template['slug'] ?? null)) {
@@ -3908,7 +3908,7 @@ PHP;
                 continue;
             }
             $posts = $postsByArchive[$page['source_path']] ?? ($postsByParent[$page['route']['path']] ?? array());
-            if (count($posts) < 2 || !is_string($page['canonical_block_markup'] ?? null) || str_contains($page['canonical_block_markup'], '<!-- wp:query')) {
+            if (count($posts) < (isset($postsByArchive[$page['source_path']]) ? 1 : 2) || !is_string($page['canonical_block_markup'] ?? null) || str_contains($page['canonical_block_markup'], '<!-- wp:query')) {
                 continue;
             }
             $sourceListingMarkup = $page['canonical_block_markup'];
@@ -3936,11 +3936,11 @@ PHP;
             if (array() !== array_diff_key(NavigationEntityProjection::renderedMenus($page['canonical_block_markup']), NavigationEntityProjection::renderedMenus($replaced))) continue;
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = self::contentHash($replaced);
-            $firstCard = ($this->listingCardRanges($sourceListingMarkup, $posts) ?? array())[0] ?? null;
+            $firstCard = ($this->listingCardRanges($sourceListingMarkup, $posts, isset($postsByArchive[$page['source_path']]) ? 1 : 2) ?? array())[0] ?? null;
             $parent = is_array($firstCard) ? self::parentBlockRange($sourceListingMarkup, $firstCard) : null;
             if (is_array($parent)) $this->listingQueryContainers[] = substr($sourceListingMarkup, $parent['offset'], $parent['length']);
             foreach ($fields as $source => $values) $postMeta[$source] = ($postMeta[$source] ?? array()) + $values;
-            foreach ($this->listingCardRanges($sourceListingMarkup, $posts) ?? array() as $card) {
+            foreach ($this->listingCardRanges($sourceListingMarkup, $posts, isset($postsByArchive[$page['source_path']]) ? 1 : 2) ?? array() as $card) {
                 if (str_contains($replaced, '<!-- wp:post-featured-image')) {
                     $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
                     foreach (self::blockRanges($cardMarkup) as $leaf) {
@@ -4022,7 +4022,7 @@ PHP;
     /** @param array<int,array<string,mixed>> $posts */
     private function replaceListingMarkup(string $markup, array $posts, array &$fields = array(), bool $inheritQuery = false): ?string
     {
-        $cards = $this->listingCardRanges($markup, $posts);
+        $cards = $this->listingCardRanges($markup, $posts, $inheritQuery ? 1 : 2);
         if (null === $cards) {
             return $this->replaceListingArchives($markup, $posts);
         }
@@ -4044,7 +4044,7 @@ PHP;
      * @param array<int,array<string,mixed>> $posts
      * @return array<int,array{offset:int,length:int,route:string,post:array<string,mixed>}>|null
      */
-    private function listingCardRanges(string $markup, array $posts): ?array
+    private function listingCardRanges(string $markup, array $posts, int $minimumCards = 2): ?array
     {
         $routes = array();
         foreach ($posts as $post) {
@@ -4079,7 +4079,7 @@ PHP;
                 $cards[] = $exclusive;
             }
         }
-        if (count($cards) < 2) {
+        if (count($cards) < $minimumCards) {
             return null;
         }
         usort($cards, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
@@ -6530,12 +6530,23 @@ PHP;
     private static function assertTaxonomyEntities(array $entities, array $pagesBySource): void
     {
         $seen = array();
+        $byTerm = array();
+        foreach ($entities as $entity) if (is_array($entity) && is_string($entity['taxonomy'] ?? null) && is_string($entity['slug'] ?? null)) $byTerm[$entity['taxonomy'] . ':' . $entity['slug']] = $entity;
         if (count($entities) > 256) throw new InvalidArgumentException('WordPress site plan taxonomy entity count exceeds its bound.');
         foreach ($entities as $entity) {
             if (!is_array($entity) || 'taxonomy_term' !== ($entity['kind'] ?? null) || !in_array($entity['taxonomy'] ?? null, array('category', 'post_tag'), true) || !is_string($entity['slug'] ?? null) || !preg_match('/^[a-z0-9][a-z0-9-]{0,199}$/', $entity['slug']) || !is_string($entity['name'] ?? null) || '' === trim($entity['name'])) throw new InvalidArgumentException('WordPress site plan taxonomy entity is structurally invalid.');
             self::unique($seen, $entity['taxonomy'] . ':' . $entity['slug'], 'taxonomy term');
             $archive = $entity['archive'] ?? null;
             if (!is_array($archive) || !self::safePath($archive['source_path'] ?? null) || !is_string($archive['source_route'] ?? null) || !preg_match('~^/[a-z0-9-]+(?:/[a-z0-9-]+)*$~', $archive['source_route']) || !is_string($archive['presentation_markup'] ?? null) || strlen($archive['presentation_markup']) > 1000000 || !str_contains($archive['presentation_markup'], '<!-- wp:query ') || !str_contains($archive['presentation_markup'], '"inherit":true') || !str_contains($archive['presentation_markup'], '<!-- wp:query-pagination ') || !str_contains($archive['presentation_markup'], '<!-- wp:query-no-results -->') || ($archive['query'] ?? null) !== array('post_type' => 'post', 'taxonomy' => $entity['taxonomy'], 'term' => $entity['slug'])) throw new InvalidArgumentException('WordPress site plan taxonomy archive is structurally invalid.');
+            if (basename($archive['source_route']) !== $entity['slug']) throw new InvalidArgumentException('WordPress site plan taxonomy slug does not match its archive route.');
+            if (array_key_exists('parent', $entity)) {
+                $parent = $entity['parent'];
+                if ('category' !== $entity['taxonomy'] || !is_string($parent) || !preg_match('/^[a-z0-9][a-z0-9-]{0,199}$/', $parent) || $parent === $entity['slug']) throw new InvalidArgumentException('WordPress site plan taxonomy parent is structurally invalid.');
+                $parentEntity = $byTerm[$entity['taxonomy'] . ':' . $parent] ?? null;
+                if (!is_array($parentEntity) || ($parentEntity['archive']['source_route'] ?? null) !== dirname($archive['source_route'])) throw new InvalidArgumentException('WordPress site plan taxonomy parent is not a proven immediate ancestor.');
+            } elseif ('category' === $entity['taxonomy'] && preg_match('~(?:^|/)category/[^/]+/[^/]+~', $archive['source_route'])) {
+                throw new InvalidArgumentException('WordPress site plan hierarchical category lacks its parent.');
+            }
             if (isset($archive['document_head'])) DocumentHeadContext::assertValid($archive['document_head']);
             $archivePage = $pagesBySource[$archive['source_path']] ?? null;
             if (!is_array($archivePage) || ($archivePage['route']['path'] ?? null) !== $archive['source_route']) throw new InvalidArgumentException('WordPress site plan taxonomy archive route is detached from its source page.');

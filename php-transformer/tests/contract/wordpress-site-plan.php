@@ -125,7 +125,7 @@ foreach ($insufficientPaginatedArtifact['files'] as &$insufficientFile) if (is_a
 }
 unset($insufficientFile);
 $insufficientPaginatedPlan = (new ArtifactCompiler())->compile($insufficientPaginatedArtifact)->toArray()['source_reports']['wordpress_site_plan'];
-$assert(array() === $insufficientPaginatedPlan['taxonomy_entities'] && !in_array('archives/field-notes-page-two.html', array_column($insufficientPaginatedPlan['pages'], 'source_path'), true) && in_array('wordpress_site_plan_taxonomy_archive_unproven', array_column($insufficientPaginatedPlan['diagnostics'], 'code'), true), 'Insufficient distinct reciprocal members still decline taxonomy ownership, but pagination is not an ordinary page.');
+$assert(1 === count($insufficientPaginatedPlan['taxonomy_entities']) && array('stories/first.html') === $insufficientPaginatedPlan['taxonomy_entities'][0]['membership_source_paths'] && !in_array('archives/field-notes-page-two.html', array_column($insufficientPaginatedPlan['pages'], 'source_path'), true), 'A single distinct reciprocal member proves ownership even when repeated on pagination; pagination is not an ordinary page.');
 $declinedPresentationArtifact = $paginatedTaxonomyArtifact;
 foreach ($declinedPresentationArtifact['files'] as &$declinedFile) if (is_array($declinedFile)) {
     if ('archives/field-notes.html' === ($declinedFile['path'] ?? null)) $declinedFile['content'] = '<main><h1>Field Notes</h1><nav><a href="/stories/first">First story</a><a href="/stories/second">Second story</a></nav></main>';

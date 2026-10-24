@@ -29,7 +29,7 @@ final class TaxonomyProjection
         foreach ($documents as $archive) {
             $source = $archive['source_path'] ?? null;
             $route = is_string($source) ? ($routeBySource[$source] ?? null) : null;
-            if (!is_string($source) || !is_string($route) || !preg_match('~(?:^|/)category/[^/]+$~', $route)) continue;
+            if (!is_string($source) || !is_string($route) || !preg_match('~(?:^|/)category/([^/]+(?:/[^/]+)*)$~', $route, $categoryMatch) || preg_match('~/page/[1-9][0-9]{0,5}$~', $route)) continue;
             $slug = basename($route);
             if (!self::supportedTermSpelling($route, $slug)) {
                 $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_unsupported_spelling', 'severity' => 'info', 'message' => 'A captured category route or slug spelling is outside the canonical term vocabulary, so the collection stays explicitly unproven.', 'source_path' => $source, 'source_route' => $route);
@@ -84,19 +84,31 @@ final class TaxonomyProjection
                 }
             }
             $members = array_values(array_unique($members));
-            if (count($members) < 2) {
-                if (array() !== $listedDocuments) $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_unproven', 'severity' => 'info', 'message' => 'A captured category collection lacked matching article return links, source labels, or multiple post members.', 'source_path' => $source, 'source_route' => $route);
+            if (array() === $members) {
+                if (array() !== $listedDocuments) $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_unproven', 'severity' => 'info', 'message' => 'A captured category collection lacked matching article return links, source labels, or post members.', 'source_path' => $source, 'source_route' => $route);
                 continue;
             }
-            $corroboratedBySlug['category:' . $slug][] = array('source' => $source, 'route' => $route, 'slug' => $slug, 'heading' => $heading, 'members' => $members, 'archive' => $archive, 'pagination_sources' => array_keys($paginationSources));
+            $corroboratedBySlug['category:' . $slug][] = array('source' => $source, 'route' => $route, 'slug' => $slug, 'heading' => $heading, 'members' => $members, 'archive' => $archive, 'pagination_sources' => array_keys($paginationSources), 'parent_route' => str_contains($categoryMatch[1], '/') ? dirname($route) : null);
         }
         $paginationSourcesByArchive = array();
+        $candidatesByRoute = array();
         foreach ($corroboratedBySlug as $group) {
             if (1 < count($group)) {
                 foreach ($group as $candidate) $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_ambiguous_term', 'severity' => 'info', 'message' => 'More than one captured category archive claims the same term slug, so none of them can prove ownership of that term.', 'source_path' => $candidate['source'], 'source_route' => $candidate['route']);
                 continue;
             }
-            $candidate = $group[0];
+            $candidatesByRoute[$group[0]['route']] = $group[0];
+        }
+        // Parents precede descendants regardless of source-document order.
+        uksort($candidatesByRoute, static fn(string $a, string $b): int => substr_count($a, '/') <=> substr_count($b, '/') ?: strcmp($a, $b));
+        $provenRoutes = array();
+        foreach ($candidatesByRoute as $candidate) {
+            $parentRoute = $candidate['parent_route'];
+            if (null !== $parentRoute && !isset($provenRoutes[$parentRoute])) {
+                $diagnostics[] = self::missingParentDiagnostic($candidate['source'], $candidate['route'], $parentRoute);
+                continue;
+            }
+            $provenRoutes[$candidate['route']] = true;
             sort($candidate['members'], SORT_STRING);
             if (array() !== $candidate['pagination_sources']) $paginationSourcesByArchive[$candidate['source']] = $candidate['pagination_sources'];
             $archive = array(
@@ -105,14 +117,38 @@ final class TaxonomyProjection
                 'presentation_markup' => (string) ($candidate['archive']['block_markup'] ?? ''),
                 'query' => array('post_type' => 'post', 'taxonomy' => 'category', 'term' => $candidate['slug']),
             );
-            $entities[] = array(
+            $entity = array(
                 'kind' => 'taxonomy_term', 'taxonomy' => 'category', 'slug' => $candidate['slug'], 'name' => $candidate['heading'],
                 'membership_source_paths' => $candidate['members'],
                 'archive' => $archive,
                 'evidence' => array('membership' => true, 'name' => true, 'archive' => true),
             );
+            if (null !== $parentRoute) $entity['parent'] = basename($parentRoute);
+            $entities[] = $entity;
         }
         return array('entities' => $entities, 'diagnostics' => $diagnostics, 'pagination_source_paths_by_archive' => $paginationSourcesByArchive);
+    }
+
+    /** Remove descendants if a parent's native query presentation was subsequently declined. */
+    public static function retainProvenParents(array $entities, array &$diagnostics): array
+    {
+        $byTerm = array();
+        foreach ($entities as $entity) $byTerm[$entity['taxonomy'] . ':' . $entity['slug']] = $entity;
+        do {
+            $changed = false;
+            foreach ($byTerm as $key => $entity) {
+                if (!isset($entity['parent']) || isset($byTerm[$entity['taxonomy'] . ':' . $entity['parent']])) continue;
+                $diagnostics[] = self::missingParentDiagnostic($entity['archive']['source_path'], $entity['archive']['source_route'], dirname($entity['archive']['source_route']));
+                unset($byTerm[$key]);
+                $changed = true;
+            }
+        } while ($changed);
+        return array_values($byTerm);
+    }
+
+    private static function missingParentDiagnostic(string $source, string $route, string $parentRoute): array
+    {
+        return array('code' => 'wordpress_site_plan_taxonomy_archive_unproven_parent', 'severity' => 'info', 'message' => 'The category archive stays unproven because its parent archive ' . $parentRoute . ' is not proven.', 'source_path' => $source, 'source_route' => $route);
     }
 
     /** Resolve only aliases declared by the exact source document and canonical route tables. */
