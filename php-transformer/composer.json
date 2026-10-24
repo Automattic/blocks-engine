@@ -810,6 +810,7 @@
       "php tests/unit/form-step-track.php",
       "php tests/unit/form-layout-flex-flow.php",
       "php tests/unit/form-layout-in-flow-children.php",
+      "php tests/unit/form-layout-empty-box.php",
       "php tests/unit/form-layout-gap-longhands.php",
       "php tests/unit/form-layout-hoisted-wrapper-presentation.php",
       "php tests/unit/form-control-topology-group-label.php",

@@ -36,6 +36,12 @@ final class FormLayoutGraphBuilder
     // Cascade layers are not unlayered flex/grid structure, but a field-list
     // gap still has to reach the provider form that owns the stacked fields.
     private const SPACING_PROPERTIES = array( 'gap', 'row-gap', 'column-gap' );
+    // An element holding any of these paints content even without text, so
+    // it is never an empty box.
+    private const VISIBLE_CONTENT_TAGS = array( 'audio', 'br', 'button', 'canvas', 'embed', 'hr', 'iframe', 'img', 'input', 'link', 'meta', 'meter', 'noscript', 'object', 'picture', 'progress', 'script', 'select', 'style', 'svg', 'template', 'textarea', 'video' );
+    // Non-replaced inline boxes ignore `height`, so they reserve no block space.
+    private const INLINE_TAGS = array( 'a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'code', 'data', 'dfn', 'em', 'i', 'kbd', 'label', 'mark', 'q', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var' );
+    private const EMPTY_BOX_KEYS = array( 'content', 'in_flow', 'reserves_space' );
 
     private array $diagnostics = array();
     private bool $truncated = false;
@@ -84,6 +90,8 @@ final class FormLayoutGraphBuilder
         // The graph root is outside the topology depth coordinate; its children are depth zero.
         $this->collect($form, null, 0, -1, $controls, $relevant, $entries, $wrapper);
         if ( null !== $structure ) {
+            // Taken before empty boxes join: they are layout evidence only,
+            // and block conversion keeps treating them as flow content.
             $structure = $entries;
         }
         // Child counts include boxes omitted from the control/copy topology.
@@ -137,6 +145,16 @@ final class FormLayoutGraphBuilder
         );
         $this->diagnostics = array_merge($this->diagnostics, $customPropertyAnalysis['diagnostics']);
         $this->truncated = $this->truncated || $customPropertyAnalysis['truncated'];
+
+        // Empty in-flow boxes between fields (a reserved validation slot)
+        // occupy space without content. They take their own `empty-N`
+        // coordinate, so existing wrapper, control and context ids are stable.
+        $emptyBoxes = $this->emptyBoxes($form, $entries, $controls, $relevant, $analysis['rules'], self::MAX_NODES - count($entries));
+        if ( array() !== $emptyBoxes ) {
+            $entries = array();
+            $wrapper = 0;
+            $this->collect($form, null, 0, -1, $controls, $relevant, $entries, $wrapper, $emptyBoxes);
+        }
         $nodes = array();
         $presentationBuilder = new FormPresentationGraphBuilder(scopeElements: array_column($entries, 'element'));
         $variants = array();
@@ -169,6 +187,9 @@ final class FormLayoutGraphBuilder
                 continue;
             }
             $nodes[$entry['id']] = $this->node($entry, $layout, $this->provenance($base, null));
+            if ( 'empty_box' === $entry['kind'] ) {
+                $nodes[$entry['id']] += $this->emptyBoxFacts($entry['element'], $layout);
+            }
             // Base facts declared `!important` override every conflicting rule
             // and later runtime style toggles, unlike a plain declaration.
             $important = array_values(array_filter(array_keys($base), static fn (string $property): bool => true === ($base[$property]['important'] ?? false) && isset($layout[self::layoutKey($property)])));
@@ -318,10 +339,13 @@ final class FormLayoutGraphBuilder
             if ( is_array($node) && null !== ($node['parent'] ?? null) && ! isset($ids[$node['parent']]) ) {
                 throw new InvalidArgumentException('Form layout graph parents must precede their children.');
             }
-            if ( ! is_array($node) || ! is_string($node['id'] ?? null) || isset($ids[$node['id']]) || ! in_array($node['kind'] ?? null, array( 'container', 'control' ), true) || ! is_int($node['order'] ?? null) || ! is_array($node['source'] ?? null) || ! is_string($node['source']['tag'] ?? null) || ! is_array($node['source']['classes'] ?? null) || ! is_array($node['layout'] ?? null) || ! is_array($node['provenance'] ?? null) || (isset($node['sizing']) && ! is_array($node['sizing'])) ) {
+            if ( is_array($node) && null !== ($node['parent'] ?? null) && 'empty_box' === $ids[$node['parent']] ) {
+                throw new InvalidArgumentException('Form layout graph empty boxes are leaves.');
+            }
+            if ( ! is_array($node) || ! is_string($node['id'] ?? null) || isset($ids[$node['id']]) || ! in_array($node['kind'] ?? null, $v3 ? array( 'container', 'control', 'empty_box' ) : array( 'container', 'control' ), true) || ! is_int($node['order'] ?? null) || ! is_array($node['source'] ?? null) || ! is_string($node['source']['tag'] ?? null) || ! is_array($node['source']['classes'] ?? null) || ! is_array($node['layout'] ?? null) || ! is_array($node['provenance'] ?? null) || (isset($node['sizing']) && ! is_array($node['sizing'])) ) {
                 throw new InvalidArgumentException('Form layout graph node is invalid.');
             }
-            $ids[$node['id']] = true;
+            $ids[$node['id']] = $node['kind'];
             if ('generic/computed-layout-graph/v3' === $schema) {
                 if (!is_string($node['source']['selector'] ?? null) || '' === trim($node['source']['selector']) || strlen($node['source']['selector']) > 2048 || count($node['source']['classes']) > 64) throw new InvalidArgumentException('Form source element identity is invalid.');
                 if (isset($node['presentation'])) {
@@ -381,12 +405,18 @@ final class FormLayoutGraphBuilder
     private static function assertNodeIdentity(array $node, int $classLimit, bool $v3): void
     {
         $nodeKeys = array( 'id', 'kind', 'parent', 'order', 'source', 'layout', 'provenance', 'sizing' );
-        if ( $v3 ) array_push($nodeKeys, 'presentation', 'important', 'in_flow_children');
+        if ( $v3 ) array_push($nodeKeys, 'presentation', 'important', 'in_flow_children', ...self::EMPTY_BOX_KEYS);
+        // Empty boxes carry exactly their content classification and flow facts.
+        $emptyBox = 'empty_box' === ($node['kind'] ?? null);
+        $emptyKeys = array_intersect(array_keys($node), self::EMPTY_BOX_KEYS);
+        if ( ($emptyBox ? count($emptyKeys) !== count(self::EMPTY_BOX_KEYS) : array() !== $emptyKeys) || ($emptyBox && ('no_visible_content' !== $node['content'] || ! is_bool($node['in_flow']) || ! is_bool($node['reserves_space']) || ($node['reserves_space'] && ! $node['in_flow']) || isset($node['sizing']))) ) {
+            throw new InvalidArgumentException('Form layout graph empty box is invalid.');
+        }
         if ( array_key_exists('in_flow_children', $node) && ( 'container' !== ($node['kind'] ?? null) || ! is_int($node['in_flow_children']) || $node['in_flow_children'] < 0 ) ) {
             throw new InvalidArgumentException('Form layout graph in-flow child count is invalid.');
         }
         $id = $node['id'] ?? null;
-        if ( array_diff(array_keys($node), $nodeKeys) || ! is_string($id) || 1 !== preg_match($v3 ? '/^(?:form|wrapper-[0-9]+|control-[0-9]+|context-[0-9]+)$/D' : '/^(?:form|wrapper-[0-9]+|control-[0-9]+)$/D', $id) || (str_starts_with($id, 'context-') && 'container' !== ($node['kind'] ?? null)) || ! is_int($node['order'] ?? null) || $node['order'] < 0 ) {
+        if ( array_diff(array_keys($node), $nodeKeys) || ! is_string($id) || 1 !== preg_match($v3 ? '/^(?:form|wrapper-[0-9]+|control-[0-9]+|context-[0-9]+|empty-[0-9]+)$/D' : '/^(?:form|wrapper-[0-9]+|control-[0-9]+)$/D', $id) || (str_starts_with($id, 'context-') && 'container' !== ($node['kind'] ?? null)) || (str_starts_with($id, 'empty-') !== $emptyBox) || ! is_int($node['order'] ?? null) || $node['order'] < 0 ) {
             throw new InvalidArgumentException('Form layout graph node identity is invalid.');
         }
         $source = $node['source'] ?? null;
@@ -443,17 +473,22 @@ final class FormLayoutGraphBuilder
         return false;
     }
 
-    /** @param array<string, int> $controls @param array<string, bool> $relevant @param list<array<string, mixed>> $entries */
-    private function collect(DOMElement $element, ?string $parent, int $order, int $depth, array $controls, array $relevant, array &$entries, int &$wrapper): void
+    /** @param array<string, int> $controls @param array<string, bool> $relevant @param list<array<string, mixed>> $entries @param array<string, int> $emptyBoxes */
+    private function collect(DOMElement $element, ?string $parent, int $order, int $depth, array $controls, array $relevant, array &$entries, int &$wrapper, array $emptyBoxes = array()): void
     {
         $path = $element->getNodePath();
         $root = null === $parent;
-        if ( ! $root && ! isset($controls[$path]) && ! isset($relevant[$path]) ) {
+        if ( ! $root && ! isset($controls[$path]) && ! isset($relevant[$path]) && ! isset($emptyBoxes[$path]) ) {
             return;
         }
         if ( $depth > self::MAX_DEPTH || count($entries) >= self::MAX_NODES ) {
             $this->truncated = true;
             $this->diagnostics[] = 'node_or_depth_limit';
+            return;
+        }
+        if ( ! $root && isset($emptyBoxes[$path]) ) {
+            // An empty box is a leaf: nothing inside it is form structure.
+            $entries[] = array( 'id' => 'empty-' . $emptyBoxes[$path], 'kind' => 'empty_box', 'parent' => $parent, 'order' => $order, 'element' => $element );
             return;
         }
         $id = $root ? 'form' : (isset($controls[$path]) ? 'control-' . $controls[$path] : ($this->nodeIds[$path] ?? (array() === $this->nodeIds ? 'wrapper-' : 'context-') . $wrapper++));
@@ -464,11 +499,91 @@ final class FormLayoutGraphBuilder
                 continue;
             }
             $before = count($entries);
-            $this->collect($child, $id, $childOrder, $depth + 1, $controls, $relevant, $entries, $wrapper);
+            $this->collect($child, $id, $childOrder, $depth + 1, $controls, $relevant, $entries, $wrapper, $emptyBoxes);
             if ( count($entries) > $before ) {
                 ++$childOrder;
             }
         }
+    }
+
+    /**
+     * Direct children of collected containers that render no visible content,
+     * hold no control, and declare a height or min-height (base or
+     * conditional), keyed by node path to their `empty-N` coordinate.
+     *
+     * @param list<array<string, mixed>> $entries
+     * @param array<string, int> $controls
+     * @param array<string, bool> $relevant
+     * @param list<array<string, mixed>> $rules
+     * @return array<string, int>
+     */
+    private function emptyBoxes(DOMElement $form, array $entries, array $controls, array $relevant, array $rules, int $budget): array
+    {
+        $containers = array();
+        foreach ( $entries as $entry ) {
+            if ( 'container' === $entry['kind'] ) $containers[$entry['element']->getNodePath()] = true;
+        }
+        $boxes = array();
+        // Document order gives each box a stable coordinate.
+        foreach ( $form->getElementsByTagName('*') as $child ) {
+            if ( ! $child instanceof DOMElement || ! $child->parentNode instanceof DOMElement || ! isset($containers[$child->parentNode->getNodePath()]) || isset($controls[$child->getNodePath()]) || isset($relevant[$child->getNodePath()]) || ! self::hasNoVisibleContent($child) ) {
+                continue;
+            }
+            $matched = $this->matched($child, $rules);
+            $sized = isset($matched['base']['height']) || isset($matched['base']['min-height']);
+            foreach ( $matched['conditional'] as $facts ) {
+                $sized = $sized || isset($facts['height']) || isset($facts['min-height']);
+            }
+            if ( ! $sized ) continue;
+            $depth = -1;
+            for ( $node = $child; $node instanceof DOMElement && $node !== $form; $node = $node->parentNode ) ++$depth;
+            if ( $depth > self::MAX_DEPTH ) continue;
+            if ( count($boxes) >= $budget ) {
+                $this->truncated = true;
+                $this->diagnostics[] = 'empty_box_limit';
+                break;
+            }
+            $boxes[$child->getNodePath()] = count($boxes);
+        }
+        return $boxes;
+    }
+
+    /** No text (beyond whitespace and no-break spaces) and no content-painting descendants. */
+    private static function hasNoVisibleContent(DOMElement $element): bool
+    {
+        if ( in_array(strtolower($element->tagName), self::VISIBLE_CONTENT_TAGS, true) || '' !== preg_replace('/[\s\x{00A0}\x{200B}\x{FEFF}]+/u', '', $element->textContent) ) {
+            return false;
+        }
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( in_array(strtolower($descendant->tagName), self::VISIBLE_CONTENT_TAGS, true) ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Base-cascade facts a consumer needs to decide whether an empty box takes
+     * space. Conditional changes stay on the node's variants.
+     *
+     * @param array<string, string> $layout
+     * @return array{content: string, in_flow: bool, reserves_space: bool}
+     */
+    private function emptyBoxFacts(DOMElement $element, array $layout): array
+    {
+        $display = strtolower(trim($layout['display'] ?? ''));
+        if ( '' === $display ) {
+            $display = $element->hasAttribute('hidden') ? 'none' : (in_array(strtolower($element->tagName), self::INLINE_TAGS, true) ? 'inline' : 'block');
+        }
+        $inFlow = ! in_array($display, array( 'none', 'contents' ), true) && ! in_array(strtolower(trim($layout['position'] ?? '')), array( 'absolute', 'fixed' ), true);
+        $sized = false;
+        foreach ( array( 'height', 'min_height' ) as $key ) {
+            $value = strtolower(trim($layout[$key] ?? ''));
+            if ( 1 === preg_match('/^(\d+(?:\.\d*)?|\.\d+)(px|r?em|pt|pc|cm|mm|in|q|ex|ch|r?lh|[sld]?v(?:h|w|min|max)|vb|vi)$/D', $value, $match) && (float) $match[1] > 0 ) {
+                $sized = true;
+            }
+        }
+        return array( 'content' => 'no_visible_content', 'in_flow' => $inFlow, 'reserves_space' => $inFlow && $sized && 'inline' !== $display );
     }
 
     /** @param list<array<string, mixed>> $entries */

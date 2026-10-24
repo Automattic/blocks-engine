@@ -292,6 +292,8 @@
       "InvalidArgumentException('Form layout graph envelope is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph exceeds its node limit.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph exceeds its variant limit.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Form layout graph empty box is invalid.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Form layout graph empty boxes are leaves.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph has a dangling parent.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph has a parent cycle.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph in-flow child count is invalid.')": {"class": "integrity", "count": 1},

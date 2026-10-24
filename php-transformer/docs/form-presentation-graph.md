@@ -18,6 +18,29 @@ limits (128 nodes, depth 16, 16 rules per node) still apply to CSS evidence;
 `truncated` continues to signal exceeded analysis limits. The child count itself
 is not capped by the graph node limit or the roughly 2,000-byte HTML excerpt.
 
+## Companion layout graph: empty boxes
+
+A direct child of a graph container that holds no control, no text beyond
+whitespace or no-break spaces, and no content-painting element (image, SVG,
+media, control, rule), yet declares a `height` or `min-height` in the base
+cascade or a conditional variant, is a v3 node with `kind: "empty_box"` and id
+`empty-N` (document order). A reserved validation slot is the typical case.
+Its `parent` and `order` place it among the field rows; `layout`, `provenance`
+and `variants` carry its `display`, `position`, `height` and `min-height` like
+any node. It also carries:
+
+- `content: "no_visible_content"`;
+- `in_flow: bool`, false for a resolved base `display:none|contents`, the
+  `hidden` attribute without an authored display, or `position:absolute|fixed`;
+- `reserves_space: bool`, true only when in flow, not a non-replaced inline box,
+  and the base `height` or `min-height` is a positive absolute or viewport length.
+
+Empty boxes are leaves and never take `presentation`, `sizing` or
+`in_flow_children`. Their separate coordinate leaves wrapper, control and
+context ids unchanged. They count toward the 128-node limit only after all
+other structure; a dropped box sets `truncated` with an `empty_box_limit`
+diagnostic. Slots with visible text are not empty boxes.
+
 
 `generic/computed-form-presentation/v2` is an optional `generic/forms/v1` payload member. It carries bounded source-CSS facts for controls, associated labels, and identified inline SVG descendants. It is not a provider recipe and never assigns visual semantics such as "globe" or "chevron".
 
