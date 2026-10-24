@@ -5594,25 +5594,30 @@ PHP;
                 $sourceRanges = self::blockRanges($sourceMarkup); $canonicalRanges = self::blockRanges($markup);
                 $sourceMatches = array_values(array_filter($sourceRanges, static fn(array $range): bool => $isAnchorSource($sourceMarkup, $range)));
                 if (isset($anchor['source_occurrence_count']) && $anchor['source_occurrence_count'] !== count($sourceMatches)) throw new InvalidArgumentException('A runtime entity binding source anchor is ambiguous after reprojection.');
-                $candidates = array(); foreach ($sourceRanges as $index => $sourceRange) { $canonicalRange = $canonicalRanges[$index] ?? null; if ($isAnchorSource($sourceMarkup, $sourceRange) && $anchor['source_occurrence'] === self::occurrenceAtOffset($sourceMarkup, substr($sourceMarkup, $sourceRange['offset'], $sourceRange['length']), $sourceRange['offset']) && is_array($canonicalRange) && $search === substr($markup, $canonicalRange['offset'], $canonicalRange['length']) && !isset($claimedOffsets[$canonicalRange['offset']])) $candidates[] = array('source' => $sourceRange, 'canonical' => $canonicalRange); }
-                if (array() === $candidates) {
-                    $sourceMatches = array_values(array_filter(self::blockRanges($sourceMarkup), static fn(array $range): bool => $isAnchorSource($sourceMarkup, $range)));
-                    $canonicalMatches = array_values(array_filter(self::blockRanges($markup), static fn(array $range): bool => $search === substr($markup, $range['offset'], $range['length'])));
-                    $unclaimedCanonical = array_values(array_filter($canonicalMatches, static fn(array $range): bool => !isset($claimedOffsets[$range['offset']])));
-                    if (1 === count($sourceMatches) && 1 === count($unclaimedCanonical)) {
-                        $candidates[] = array('source' => $sourceMatches[0], 'canonical' => $unclaimedCanonical[0]);
-                    } elseif (count($sourceMatches) === count($canonicalMatches) && array() !== $canonicalMatches) {
-                        $occurrence = is_int($anchor['source_occurrence'] ?? null) ? $anchor['source_occurrence'] : (is_int($identity['source_occurrence'] ?? null) ? $identity['source_occurrence'] : null);
-                        $index = is_int($occurrence) ? $occurrence - 1 : null;
-                        if (is_int($index) && isset($sourceMatches[$index], $canonicalMatches[$index]) && !isset($claimedOffsets[$canonicalMatches[$index]['offset']])) {
-                            $candidates[] = array('source' => $sourceMatches[$index], 'canonical' => $canonicalMatches[$index]);
-                        }
+                $canonicalMatches = array_values(array_filter($canonicalRanges, static fn(array $range): bool => $search === substr($markup, $range['offset'], $range['length'])));
+                $candidates = array();
+                // Shell extraction changes raw block indexes, not the occurrence
+                // order of equal blocks. Prefer equal-sized match sets by ordinal.
+                if (count($sourceMatches) === count($canonicalMatches) && array() !== $canonicalMatches) {
+                    $occurrence = is_int($anchor['source_occurrence'] ?? null) ? $anchor['source_occurrence'] : (is_int($identity['source_occurrence'] ?? null) ? $identity['source_occurrence'] : null);
+                    $index = is_int($occurrence) ? $occurrence - 1 : null;
+                    if (is_int($index) && isset($sourceMatches[$index], $canonicalMatches[$index]) && !isset($claimedOffsets[$canonicalMatches[$index]['offset']])) {
+                        $candidates[] = array('source' => $sourceMatches[$index], 'canonical' => $canonicalMatches[$index]);
                     }
+                } else {
+                    // Distinct source blocks can canonicalize to the same markup
+                    // (e.g. route aliases). Preserve their positional disambiguation.
+                    foreach ($sourceRanges as $index => $sourceRange) {
+                        $canonicalRange = $canonicalRanges[$index] ?? null;
+                        if ($isAnchorSource($sourceMarkup, $sourceRange) && $anchor['source_occurrence'] === self::occurrenceAtOffset($sourceMarkup, substr($sourceMarkup, $sourceRange['offset'], $sourceRange['length']), $sourceRange['offset']) && is_array($canonicalRange) && $search === substr($markup, $canonicalRange['offset'], $canonicalRange['length']) && !isset($claimedOffsets[$canonicalRange['offset']])) $candidates[] = array('source' => $sourceRange, 'canonical' => $canonicalRange);
+                    }
+                    $unclaimedCanonical = array_values(array_filter($canonicalMatches, static fn(array $range): bool => !isset($claimedOffsets[$range['offset']])));
+                    if (array() === $candidates && 1 === count($sourceMatches) && 1 === count($unclaimedCanonical)) $candidates[] = array('source' => $sourceMatches[0], 'canonical' => $unclaimedCanonical[0]);
                 }
                 // No unclaimed emitted block carries this markup at all: the anchor
                 // is gone, so the binding is dropped. An unclaimed match that cannot
                 // be told apart stays ambiguous and fails closed below.
-                if (array() === $candidates && array() === array_filter(self::blockRanges($markup), static fn(array $range): bool => !isset($claimedOffsets[$range['offset']]) && $search === substr($markup, $range['offset'], $range['length']))) {
+                if (array() === $candidates && array() === array_filter($canonicalMatches, static fn(array $range): bool => !isset($claimedOffsets[$range['offset']]))) {
                     foreach ($members as $member) $unanchored[] = array('declaration' => $member['declaration'], 'entity' => $member['entity'], 'binding' => $member['binding'], 'reason_code' => 'anchor_not_emitted');
                     continue;
                 }

@@ -190,6 +190,7 @@
       "php tests/contract/theme-preference-ownership-artifact.php",
       "php tests/contract/generated-block-document-identity.php",
       "php tests/contract/shared-shell-entity-bindings.php",
+      "php tests/contract/binding-anchor-shell-shift.php",
       "php tests/contract/unanchored-runtime-entity-binding.php",
       "php tests/contract/form-control-not-menu-toggle.php",
       "php tests/contract/svg-checkable-control.php",
