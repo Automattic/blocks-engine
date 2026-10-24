@@ -5843,6 +5843,17 @@ PHP;
             }
             $offset = $match[0][1] + strlen($match[0][0]);
         }
+        // Route tokens and relative links retain their existing mapping. Only
+        // absolute item destinations need URL serialization before shell/menu
+        // identity is computed; emission uses these same attributes.
+        $content = preg_replace_callback('/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match): string {
+            $attrs = json_decode($match[1], true);
+            if (!is_array($attrs) || !is_string($attrs['url'] ?? null)) return $match[0];
+            $url = \Automattic\BlocksEngine\PhpTransformer\Support\NavigationUrl::serialize($attrs['url']);
+            if ($url === $attrs['url']) return $match[0];
+            $attrs['url'] = $url;
+            return str_replace($match[1], json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), $match[0]);
+        }, $content) ?? $content;
         $content = $this->unresolvedNavigationLinks($content, $origin, $routes);
         return null === $this->presetBinding ? $content : $this->presetBinding->bind($content);
     }
