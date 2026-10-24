@@ -337,9 +337,9 @@ PHP;
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
-        // Test ownership with the same canonical listing projection used by
-        // the final plan. Pagination captures are suppressed only when their
-        // base archive can actually become a native inherited Query Loop.
+        // Test native taxonomy ownership with the same canonical listing
+        // projection used by the final plan. Membership proof sees all captures
+        // before pagination views are suppressed, even if that proof declines.
         $routeBySource = array_column($routeMap, 'target_path', 'source_path');
         foreach ($pages as &$page) {
             $path = $routeBySource[$page['source_path']] ?? null;
@@ -376,8 +376,6 @@ PHP;
         }
         $taxonomyProjection['entities'] = $projectedTaxonomyEntities;
         if (array() !== $paginationOwnerBySource) {
-            $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($paginationOwnerBySource[$document['source_path'] ?? ''])));
-            $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($paginationOwnerBySource[$page['source_path'] ?? ''])));
             foreach ($assets as &$asset) {
                 $owner = $asset['compilation'] ?? null;
                 if ('page' === ($owner['scope'] ?? null) && isset($paginationOwnerBySource[$owner['id'] ?? ''])) $asset['compilation']['id'] = $paginationOwnerBySource[$owner['id']];
@@ -387,13 +385,21 @@ PHP;
         // Taxonomy membership must see numbered captures before they are
         // suppressed. They are views of a listing, never standalone content.
         $paginationSources = array();
-        $compiledBySource = array_column($documents, null, 'source_path');
+        $paginationDiagnostics = array();
         foreach ($pages as $page) {
             $route = $routeBySource[$page['source_path']] ?? '';
-            // Leave legacy taxonomy ambiguity recovery to its existing proof;
-            // explicit CollectionPage evidence does not need that heuristic.
-            $collection = in_array('CollectionPage', self::structuredPageTypes($compiledBySource[$page['source_path']] ?? array()), true);
-            if (empty($page['entrypoint']) && preg_match('~/page/[1-9][0-9]*$~', $route) && ($collection || !preg_match('~/(?:category|tag)/~', $route))) $paginationSources[$page['source_path']] = true;
+            $parent = self::paginationParentRoute($route);
+            if (!empty($page['entrypoint']) || null === $parent) continue;
+            $paginationSources[$page['source_path']] = true;
+            $paginationDiagnostics[] = array(
+                'code' => 'wordpress_site_plan_pagination_suppressed',
+                'severity' => 'info',
+                'message' => 'A pagination capture is a view of its parent, not a standalone document.',
+                'source_path' => $page['source_path'],
+                'source_route' => $route,
+                'parent_route' => $parent,
+                'reason_code' => str_contains($route, '/comment-page-') ? 'comment_pagination' : 'listing_pagination',
+            );
         }
         // A suppressed numbered capture repeats its listing's chrome. Record the
         // listing that owns it so the runtime entities it shares with that
@@ -404,8 +410,8 @@ PHP;
         // numbered capture still sits beside it in the source tree.
         $surfaceSources = array_fill_keys(array_column($surfaces, 'source_path'), true);
         foreach (array_keys($paginationSources) as $source) {
-            $owner = $sourceByRoute[rtrim((string) preg_replace('~/page/[1-9][0-9]*$~', '', $routeBySource[$source] ?? ''), '/')] ?? null;
-            $sibling = preg_replace('~/page/[1-9][0-9]*(/index\.html?)$~i', '$1', $source);
+            $owner = $sourceByRoute[rtrim((string) self::paginationParentRoute($routeBySource[$source] ?? ''), '/')] ?? null;
+            $sibling = preg_replace('~/(?:page/[1-9][0-9]*|comment-page-[1-9][0-9]*)(/index\.html?)$~i', '$1', $source);
             if (!is_string($owner) && is_string($sibling) && isset($surfaceSources[$sibling])) $owner = $sibling;
             if (is_string($owner) && $owner !== $source && !isset($paginationSources[$owner])) $paginationOwners[$source] = $owner;
         }
@@ -615,7 +621,7 @@ PHP;
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $taxonomyProjection['entities']), $assetWrites);
         $unitFindings = $this->unitFindingDiagnostics();
-        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->duplicateViewportDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $eventDiagnostics);
+        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->duplicateViewportDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
         $factoredRuntimeDeclarations = RuntimeDeclarations::factor($runtimeDeclarations);
@@ -2848,6 +2854,14 @@ PHP;
         }
         return true;
     }
+    /** Return the owning route for a positive numbered pagination view. */
+    private static function paginationParentRoute(string $route): ?string
+    {
+        if (!preg_match('~/(?:page/[1-9][0-9]*|comment-page-[1-9][0-9]*)/?$~', $route, $match, PREG_OFFSET_CAPTURE)) return null;
+        $parent = substr($route, 0, $match[0][1]);
+        return '' === $parent ? '/' : $parent;
+    }
+
     /** @param mixed $documents @return array<int,array<string,mixed>> */
     private function decideDocuments(mixed $documents): array
     {
@@ -2865,7 +2879,9 @@ PHP;
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
             $structuredTypes[$index] = self::structuredPageTypes($document);
             $localTimesByIndex[$index] = array();
-            $evidenceByIndex[$index] = $this->publicationEvidence($document, $localTimesByIndex[$index]);
+            // Repeated article metadata on pagination is not an independent
+            // publication and must not vote in listing or dated-site inference.
+            $evidenceByIndex[$index] = null === self::paginationParentRoute($routes[$index]) ? $this->publicationEvidence($document, $localTimesByIndex[$index]) : array();
             $pageTypes = array_intersect(array('WebPage', 'AboutPage', 'ContactPage', 'CollectionPage'), $structuredTypes[$index]);
             if (!array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $structuredTypes[$index]) && $pageTypes) {
                 $evidenceByIndex[$index] = array();
@@ -2954,7 +2970,7 @@ PHP;
             $pageEvidence = $pageEvidenceByIndex[$index] ?? array();
             if (array() !== $pageEvidence) $evidence = $pageEvidence;
             $postType = $explicit ?? ((!empty($document['entrypoint']) || array() !== $pageEvidence || array() === $evidence) ? 'page' : 'post');
-            if (null === $explicit && 'post' === $postType) {
+            if (null === $explicit && 'post' === $postType && null === self::paginationParentRoute($route)) {
                 // Meta-only documents are the ambiguous candidates, not votes
                 // against a dated permalink pattern. Stronger undated posts
                 // do vote against it, even when listing inference drops a date.
