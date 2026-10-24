@@ -323,7 +323,11 @@ PHP;
         $surfaces = $this->templateSurfaces($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
         $routeMap = $this->canonicalRoutes($documents, $input->routes);
+        // Both native archive kinds use the same listing, template and resource pipeline.
         $taxonomyProjection = TaxonomyProjection::project($documents, $routeMap, $this->sourceOrigin);
+        $authorProjection = AuthorProjection::project($documents, $routeMap, $this->sourceOrigin);
+        foreach (array('entities', 'diagnostics') as $key) $taxonomyProjection[$key] = array_merge($taxonomyProjection[$key], $authorProjection[$key]);
+        $taxonomyProjection['pagination_source_paths_by_archive'] += $authorProjection['pagination_source_paths_by_archive'];
         $this->routeSources = array();
         $this->routeTargets = array();
         $this->routeReferenceCache = array();
@@ -368,7 +372,7 @@ PHP;
         foreach ($taxonomyProjection['entities'] as $taxonomyEntity) {
             $archiveSource = $taxonomyEntity['archive']['source_path'];
             if (!str_contains((string) ($preflightBySource[$archiveSource]['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
-                $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_taxonomy_archive_query_unproven', 'severity' => 'info', 'message' => 'The captured category presentation could not be converted to an inherited native query loop.', 'source_path' => $archiveSource, 'source_route' => $taxonomyEntity['archive']['source_route']);
+                $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_query_unproven', 'severity' => 'info', 'message' => 'The captured archive presentation could not be converted to an inherited native query loop.', 'source_path' => $archiveSource, 'source_route' => $taxonomyEntity['archive']['source_route']);
                 continue;
             }
             $projectedTaxonomyEntities[] = $taxonomyEntity;
@@ -571,7 +575,7 @@ PHP;
          foreach ($taxonomyProjection['entities'] as $taxonomyEntity) {
              foreach ($pages as $page) if (($page['source_path'] ?? null) === ($taxonomyEntity['archive']['source_path'] ?? null)) {
                  if (!str_contains((string) ($page['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
-                     $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_taxonomy_archive_query_unproven', 'severity' => 'info', 'message' => 'The captured category presentation could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
+                     $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_query_unproven', 'severity' => 'info', 'message' => 'The captured archive presentation could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
                      continue 2;
                  }
                  $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
@@ -582,7 +586,7 @@ PHP;
          $taxonomyProjection['entities'] = TaxonomyProjection::retainProvenParents($projectedTaxonomyEntities, $taxonomyProjection['diagnostics']);
          unset($taxonomyEntity);
          $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single'], $taxonomyProjection['entities'], $shellFrames['frames']);
-         foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if ('category-' . $taxonomyEntity['slug'] === ($template['slug'] ?? null)) {
+         foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if (self::archiveTemplateSlug($taxonomyEntity) === ($template['slug'] ?? null)) {
              $taxonomyEntity['archive']['presentation_markup'] = $template['canonical_block_markup'];
              continue 2;
          }
@@ -639,7 +643,8 @@ PHP;
             'writes' => $writes,
             'operations' => $operations,
             'routes' => $routes,
-            'taxonomy_entities' => $taxonomyProjection['entities'],
+            'taxonomy_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'taxonomy_term' === $entity['kind'])),
+            'author_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'author' === $entity['kind'])),
             'navigation_links' => $input->navigationLinks,
             'menus' => $menus,
             'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array(), self::uniqueSourceCssBytes($compiled['assets'] ?? array()))))),
@@ -739,7 +744,7 @@ PHP;
         if ( self::SCHEMA !== ($plan['schema'] ?? null) ) {
             throw new InvalidArgumentException('WordPress site plan has an unsupported schema.');
         }
-        foreach ( array('plan_identity', 'source', 'pages', 'templates', 'template_parts', 'assets', 'reference_tokens', 'reference_semantics', 'writes', 'operations', 'routes', 'taxonomy_entities', 'navigation_links', 'menus', 'theme', 'visual_repair', 'runtime_declarations', 'runtime_entity_records', 'diagnostics', 'quality', 'reporting') as $key ) {
+        foreach ( array('plan_identity', 'source', 'pages', 'templates', 'template_parts', 'assets', 'reference_tokens', 'reference_semantics', 'writes', 'operations', 'routes', 'taxonomy_entities', 'author_entities', 'navigation_links', 'menus', 'theme', 'visual_repair', 'runtime_declarations', 'runtime_entity_records', 'diagnostics', 'quality', 'reporting') as $key ) {
             if ( ! is_array($plan[$key] ?? null) ) {
                 throw new InvalidArgumentException(sprintf('WordPress site plan %s must be an array.', $key));
             }
@@ -823,6 +828,7 @@ PHP;
             $pagesBySource[$page['source_path']] = $page;
         }
         self::assertTaxonomyEntities($plan['taxonomy_entities'], $pagesBySource);
+        self::assertAuthorEntities($plan['author_entities'], $pagesBySource);
         $expectedCandidatePages = self::attachWholePageCandidates(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), $plan['runtime_declarations'], $records);
         foreach ($plan['pages'] as $index => $page) if (($expectedCandidatePages[$index]['whole_page_candidates'] ?? null) !== ($page['whole_page_candidates'] ?? null)) throw new InvalidArgumentException('Whole-page candidates are stale, duplicated, or detached from their canonical source pages.');
         foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
@@ -861,10 +867,10 @@ PHP;
             self::assertTokens($template['canonical_block_markup'], $tokens);
             self::assertNoLocalBrowserReferences($template['canonical_block_markup']);
         }
-        foreach ($plan['taxonomy_entities'] as $entity) {
-            $templateSlug = 'category-' . $entity['slug'];
+        foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
+            $templateSlug = self::archiveTemplateSlug($entity);
             $archiveTemplates = array_values(array_filter($plan['templates'], static fn(array $template): bool => $templateSlug === ($template['slug'] ?? null)));
-            if (1 !== count($archiveTemplates) || ($archiveTemplates[0]['source_path'] ?? null) !== $entity['archive']['source_path'] || ($archiveTemplates[0]['canonical_block_markup'] ?? null) !== $entity['archive']['presentation_markup']) throw new InvalidArgumentException('WordPress site plan taxonomy entity lacks its source-owned archive template.');
+            if (1 !== count($archiveTemplates) || ($archiveTemplates[0]['source_path'] ?? null) !== $entity['archive']['source_path'] || ($archiveTemplates[0]['canonical_block_markup'] ?? null) !== $entity['archive']['presentation_markup']) throw new InvalidArgumentException('WordPress site plan native archive entity lacks its source-owned archive template.');
         }
         $writeTargets = array();
         $writesByTarget = array();
@@ -892,9 +898,12 @@ PHP;
             }
             $boundTemplates = in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true) ? $part['placement']['template_slugs'] : array();
             if (in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true)) foreach (array_keys($overrideTemplateSlugs) as $slug) if (self::shellPartAppliesToOverride($part, $slug)) $boundTemplates[] = $slug;
-            if (in_array('archive', $part['placement']['template_slugs'] ?? array(), true)) foreach ($plan['taxonomy_entities'] as $entity) $boundTemplates[] = 'category-' . $entity['slug'];
+            if (in_array('archive', $part['placement']['template_slugs'] ?? array(), true)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
+                $boundTemplates[] = self::archiveTemplateSlug($entity);
+                if ('author' === $entity['kind']) $boundTemplates[] = 'author';
+            }
             if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach ($plan['templates'] as $template) if (in_array($part['slug'], $template['shell_frame'] ?? array(), true)) $boundTemplates[] = $template['slug'];
-            if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach ($plan['taxonomy_entities'] as $entity) if (in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true)) foreach ($plan['templates'] as $template) if ('category-' . $entity['slug'] === ($template['slug'] ?? null) && str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) $boundTemplates[] = $template['slug'];
+            if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) if (in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true)) foreach ($plan['templates'] as $template) if ((self::archiveTemplateSlug($entity) === ($template['slug'] ?? null) || ('author' === $entity['kind'] && 'author' === ($template['slug'] ?? null) && $template['source_path'] === $entity['archive']['source_path'])) && str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) $boundTemplates[] = $template['slug'];
             foreach ( $plan['templates'] as $template ) {
                 $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
                 if (in_array($template['slug'], $boundTemplates, true) && 1 !== $references) throw new InvalidArgumentException('WordPress site plan template part binding is invalid.');
@@ -3263,8 +3272,8 @@ PHP;
      * Two identities are not the plan's to rename, and both are reserved before
      * any derived route is assigned: an authored `metadata.route_path`, where
      * two explicit values naming one route are a contradiction that still fails
-     * closed, and the entrypoint, which must keep `/` or the site has no front
-     * page.
+     * closed (except author claims, which are diagnosed and withheld), and the
+     * entrypoint, which must keep `/` or the site has no front page.
      *
      * @param mixed $documents @param array<int,array<string,mixed>> $legacyRoutes @return array<int,array<string,mixed>>
      */
@@ -3284,7 +3293,13 @@ PHP;
         }
         $taken = array(); $reserved = array();
         foreach ($derived as $order => $path) if ($explicit[$order]) {
-            if (isset($taken[$path])) throw new InvalidArgumentException(sprintf('WordPress site plan has colliding page routes: %s and %s both declare %s.', $taken[$path], (string) $documents[$order]['source_path'], $path));
+            if (isset($taken[$path])) {
+                // Duplicate author claims are evidence ambiguity, not permission
+                // to rename an author. Keep both captures as fallback documents;
+                // AuthorProjection sees their original claim and withholds both.
+                if (preg_match('~^/author/[^/]+$~', $path)) continue;
+                throw new InvalidArgumentException(sprintf('WordPress site plan has colliding page routes: %s and %s both declare %s.', $taken[$path], (string) $documents[$order]['source_path'], $path));
+            }
             $taken[$path] = (string) $documents[$order]['source_path']; $reserved[$order] = true;
         }
         foreach ($derived as $order => $path) if (!$explicit[$order] && !empty($documents[$order]['entrypoint']) && !isset($taken[$path])) { $taken[$path] = (string) $documents[$order]['source_path']; $reserved[$order] = true; }
@@ -3306,6 +3321,7 @@ PHP;
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
             $previous = $legacy[$sourcePath] ?? array();
             $routes[] = array('kind' => 'route', 'source_path' => $document['source_path'], 'target_path' => $path, 'target_slug' => self::value($document, 'slug', self::routeSlug($path)), 'title' => self::value($document, 'title'), 'parent_source_path' => self::value($metadata, 'parent_source_path'), 'source_relation' => !empty($document['entrypoint']) ? 'entrypoint' : ($previous['source_relation'] ?? 'document'), 'order' => $order);
+            if (preg_match('~^/author/[^/]+$~', $derived[$order])) $routes[array_key_last($routes)]['source_claim_path'] = $derived[$order];
         }
         return $routes;
     }
@@ -3550,9 +3566,9 @@ PHP;
              $templates[] = array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'source_path' => $surface['source_path'], 'template_surface' => $declaration, 'provenance' => $surface['provenance'] ?? array(), 'reconciliation_identity' => self::identity('template', $surface['source_path'], $target), 'content_hash' => self::contentHash($content));
          }
          foreach ($taxonomyEntities as $entity) {
-             $slug = 'category-' . $entity['slug'];
+             $slug = self::archiveTemplateSlug($entity);
              $target = 'templates/' . $slug . '.html';
-             if (array_filter($templates, static fn(array $template): bool => $template['slug'] === $slug)) throw new InvalidArgumentException('A taxonomy archive template collides with a declared template.');
+             if (array_filter($templates, static fn(array $template): bool => $template['slug'] === $slug)) throw new InvalidArgumentException('A native archive template collides with a declared template.');
              $content = (string) $entity['archive']['presentation_markup'];
              $before = ''; $after = '';
               foreach ($bound as $part) {
@@ -3572,10 +3588,23 @@ PHP;
              $content = $before . $content . "\n" . $after;
              $template = $make($slug, $target, $content);
              $template['source_path'] = $entity['archive']['source_path'];
-             $template['taxonomy_archive'] = array('taxonomy' => $entity['taxonomy'], 'slug' => $entity['slug'], 'source_route' => $entity['archive']['source_route']);
+             if ('author' === $entity['kind']) $template['author_archive'] = array('slug' => $entity['slug'], 'source_route' => $entity['archive']['source_route']);
+             else $template['taxonomy_archive'] = array('taxonomy' => $entity['taxonomy'], 'slug' => $entity['slug'], 'source_route' => $entity['archive']['source_route']);
              $template['reconciliation_identity'] = self::identity('template', $template['source_path'], $target);
              $template['content_hash'] = self::contentHash($content);
              $templates[] = $template;
+         }
+         // The first proven author supplies the native author fallback as well
+         // as its source-specific template. Other authors retain their own
+         // captured presentations through WordPress's author-nicename hierarchy.
+         if (!array_filter($templates, static fn(array $template): bool => 'author' === $template['slug'])) {
+             foreach ($templates as $template) if (isset($template['author_archive'])) {
+                 $template['slug'] = 'author';
+                 $template['target_path'] = 'templates/author.html';
+                 $template['reconciliation_identity'] = self::identity('template', $template['source_path'], $template['target_path']);
+                 $templates[] = $template;
+                 break;
+             }
          }
          return $templates;
     }
@@ -4058,6 +4087,8 @@ PHP;
             $exclusive = null;
             foreach ($ranges as $range) {
                 $slice = substr($markup, $range['offset'], $range['length']);
+                // A single reciprocal card must not swallow the archive heading.
+                if (1 === count($routes) && preg_match('/<h1\b/i', $slice)) continue;
                 $anchors = $this->listingAnchors($slice);
                 $hits = false;
                 $others = false;
@@ -4843,9 +4874,10 @@ PHP;
         if ('' !== $headContext) $lines[] = $headContext;
         $fields = ListingFieldProjection::bootstrap($pages);
         if ('' !== $fields) $lines[] = $fields;
-        if (array() !== $taxonomyEntities) {
+        if (array_filter($taxonomyEntities, static fn(array $entity): bool => 'taxonomy_term' === $entity['kind'])) {
             $termRoutes = array();
             foreach ($taxonomyEntities as $entity) {
+                if ('author' === $entity['kind']) continue; // Core owns author rewrites.
                 $taxonomy = (string) $entity['taxonomy'];
                 $slug = (string) $entity['slug'];
                 $sourceRoute = (string) $entity['archive']['source_route'];
@@ -6143,7 +6175,7 @@ PHP;
         if (!is_array($theme) || 3 !== ($theme['version'] ?? null) || !is_array($theme['settings'] ?? null) || !is_array($theme['styles'] ?? null)) throw new InvalidArgumentException('WordPress site plan theme.json shape is unsupported.');
         $bootstrap = $writes['functions.php'] ?? null;
         $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations'], $plan['runtime_declarations']);
-        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages'], $plan['menus'], $plan['taxonomy_entities']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
+        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages'], $plan['menus'], array_merge($plan['taxonomy_entities'], $plan['author_entities'])) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
         if (DocumentRootContext::needsCanvas($plan['pages'])) {
             $canvas = $writes['document-canvas.php'] ?? null;
             if (!is_array($canvas) || 'theme_scaffold' !== ($canvas['kind'] ?? null) || 'wordpress-site-plan/document-canvas.php' !== ($canvas['source_path'] ?? null) || DocumentRootContext::canvas() !== ($canvas['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan document canvas is invalid.');
@@ -6526,7 +6558,37 @@ PHP;
     }
     /** @param array<string,mixed> $source */
     private static function assertSource(array $source): void { if ('blocks-engine/php-transformer/compiled-site/v1' !== ($source['schema'] ?? null) || !is_string($source['source_hash'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $source['source_hash']) || !is_string($source['entry_path'] ?? null) || !is_array($source['provenance'] ?? null) || (isset($source['source_documents']) && (!is_array($source['source_documents']) || !array_is_list($source['source_documents']) || count($source['source_documents']) > 5000))) throw new InvalidArgumentException('WordPress site plan source identity is invalid.'); }
-    /** @param array<int,mixed> $rows @param array<int,string> $fields @param array<int,string> $optional */
+    /** Source-owned native templates share the taxonomy presentation path. */
+    private static function archiveTemplateSlug(array $entity): string
+    {
+        return ('author' === $entity['kind'] ? 'author-' : 'category-') . $entity['slug'];
+    }
+
+    private static function assertAuthorEntities(array $entities, array $pagesBySource): void
+    {
+        if (!array_is_list($entities) || count($entities) > 256) throw new InvalidArgumentException('WordPress site plan author entity count or list is invalid.');
+        $slugs = array();
+        $claimed = array();
+        foreach ($entities as $entity) {
+            if (!is_array($entity) || 'author' !== ($entity['kind'] ?? null) || !is_string($entity['slug'] ?? null) || !preg_match('/^[a-z0-9][a-z0-9-]{0,49}$/', $entity['slug']) || !is_string($entity['name'] ?? null) || '' === trim($entity['name'])) throw new InvalidArgumentException('WordPress site plan author entity is structurally invalid.');
+            self::unique($slugs, $entity['slug'], 'author nicename');
+            $archive = $entity['archive'] ?? null;
+            if (!is_array($archive) || !self::safePath($archive['source_path'] ?? null) || ($archive['source_route'] ?? null) !== '/author/' . $entity['slug'] || ($archive['query'] ?? null) !== array('post_type' => 'post', 'author' => $entity['slug']) || !is_string($archive['presentation_markup'] ?? null) || strlen($archive['presentation_markup']) > 1000000 || !str_contains($archive['presentation_markup'], '<!-- wp:query ') || !str_contains($archive['presentation_markup'], '"inherit":true') || !str_contains($archive['presentation_markup'], '<!-- wp:query-pagination ') || !str_contains($archive['presentation_markup'], '<!-- wp:query-no-results -->')) throw new InvalidArgumentException('WordPress site plan author archive is structurally invalid.');
+            if (($pagesBySource[$archive['source_path']]['route']['path'] ?? null) !== $archive['source_route']) throw new InvalidArgumentException('WordPress site plan author archive is detached from its source.');
+            if (isset($archive['document_head'])) DocumentHeadContext::assertValid($archive['document_head']);
+            $members = $entity['membership_source_paths'] ?? null;
+            if (!is_array($members) || !array_is_list($members) || array() === $members || count($members) > 10000) throw new InvalidArgumentException('WordPress site plan author membership list is invalid.');
+            $sorted = $members;
+            sort($sorted, SORT_STRING);
+            if ($members !== $sorted) throw new InvalidArgumentException('WordPress site plan author membership must be sorted.');
+            foreach ($members as $source) {
+                if (!is_string($source) || 'post' !== ($pagesBySource[$source]['post_type'] ?? null)) throw new InvalidArgumentException('WordPress site plan author membership must name a canonical post.');
+                self::unique($claimed, $source, 'post author membership');
+            }
+            if (($entity['evidence'] ?? null) !== array('membership' => true, 'name' => true, 'archive' => true)) throw new InvalidArgumentException('WordPress site plan author evidence is invalid.');
+        }
+    }
+
     private static function assertTaxonomyEntities(array $entities, array $pagesBySource): void
     {
         $seen = array();
