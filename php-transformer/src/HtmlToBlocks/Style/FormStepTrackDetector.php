@@ -48,7 +48,8 @@ final class FormStepTrackDetector
         }
         $children = array();
         foreach ( $graph['nodes'] as $node ) {
-            if ( is_string($node['parent'] ?? null) ) {
+            // An empty spacing box is neither a step panel nor navigation.
+            if ( is_string($node['parent'] ?? null) && 'empty_box' !== ($node['kind'] ?? null) ) {
                 $children[$node['parent']][] = $node['id'];
             }
         }
