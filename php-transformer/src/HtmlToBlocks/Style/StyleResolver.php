@@ -33,7 +33,7 @@ final class StyleResolver implements ElementPresentationResolver
 {
     /** @var list<array<string, mixed>> */
     private array $viewportAuthorRuleSource = array();
-    /** @var array<string, array{rules: list<array<string, mixed>>, parsed: array<string, array<string, mixed>>}> */
+    /** @var array<string, array{rules: list<array<string, mixed>>, parsed: array<string, array<string, mixed>>, declaring: array<string, list<array<string, mixed>>>}> */
     private array $viewportAuthorRules = array();
     /** Viewport the desktop cascade is evaluated at: the capture's desktop reference. */
     private const DESKTOP_REFERENCE_WIDTH = 1440.0;
@@ -858,7 +858,8 @@ final class StyleResolver implements ElementPresentationResolver
     private function authorDeclarationsAtViewport(DOMElement $element, array $properties, float $viewportWidth): array
     {
         $authorStyles = $this->context->authorStyles();
-        ['rules' => $rules, 'parsed' => $parsedBySelector] = $this->viewportAuthorRules($authorStyles->styleRules(), $viewportWidth);
+        ['parsed' => $parsedBySelector] = $this->viewportAuthorRules($authorStyles->styleRules(), $viewportWidth);
+        $rules = $this->viewportAuthorRulesDeclaring($viewportWidth, $properties);
         $selectorCache = $authorStyles->selectorMatchCache();
         $matches = static function (string $selector) use ($element, $selectorCache, $parsedBySelector): bool {
             $match = $selectorCache->matches($element, $selector, $parsedBySelector[ $selector ] ?? array());
@@ -927,7 +928,34 @@ final class StyleResolver implements ElementPresentationResolver
             );
         }
 
-        return $this->viewportAuthorRules[ $key ] = array( 'rules' => $rules, 'parsed' => $parsedBySelector );
+        return $this->viewportAuthorRules[ $key ] = array( 'rules' => $rules, 'parsed' => $parsedBySelector, 'declaring' => array() );
+    }
+
+    /**
+     * The viewport rules that declare at least one requested property.
+     *
+     * A rule declaring none of them cannot contribute a fact, so matching its
+     * selectors against every element asked about is wasted work. Callers ask
+     * about a handful of fixed property sets, so each filtered list is built
+     * once per rule set, viewport and property set.
+     *
+     * @param list<string> $properties
+     * @return list<array<string, mixed>>
+     */
+    private function viewportAuthorRulesDeclaring(float $viewportWidth, array $properties): array
+    {
+        $key = (string) $viewportWidth;
+        $set = implode("\0", $properties);
+        if ( isset($this->viewportAuthorRules[ $key ]['declaring'][ $set ]) ) {
+            return $this->viewportAuthorRules[ $key ]['declaring'][ $set ];
+        }
+        $requested = array_flip($properties);
+        $rules = array_values(array_filter(
+            $this->viewportAuthorRules[ $key ]['rules'],
+            static fn(array $rule): bool => array() !== array_intersect_key($rule['declarations'], $requested)
+        ));
+
+        return $this->viewportAuthorRules[ $key ]['declaring'][ $set ] = $rules;
     }
 
     /** Authored control correspondence, retaining query stacks and cascade winners.
