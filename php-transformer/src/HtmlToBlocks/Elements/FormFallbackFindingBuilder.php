@@ -81,7 +81,7 @@ final class FormFallbackFindingBuilder
             'binding'          => $binding,
             'controls'         => $controls,
             'control_topology' => $controlTopology,
-            'sibling_relations' => (new FormControlTopologyBuilder())->directLabelControlPairs($element),
+            'sibling_relations' => (new FormControlTopologyBuilder())->directLabelControlPairs($element, $layoutGraph),
             'layout_graph'     => $layoutGraph,
             'presentation_graph' => $presentationGraph,
             'control_count'    => count($controls),

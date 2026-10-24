@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 use InvalidArgumentException;
 
@@ -132,20 +133,25 @@ final class FormControlTopologyBuilder
         }
         $seen = array();
         foreach ( $relations['pairs'] as $pair ) {
-            if ( ! is_array($pair) || array( 'control' ) !== array_keys($pair) || ! is_int($pair['control']) || $pair['control'] < 0 || $pair['control'] >= $controlCount || isset($seen[$pair['control']]) ) {
+            if ( ! is_array($pair) || array_diff(array_keys($pair), array( 'control', 'parent', 'order' )) || ! is_int($pair['control'] ?? null) || $pair['control'] < 0 || $pair['control'] >= $controlCount || isset($seen[$pair['control']]) ) {
                 throw new InvalidArgumentException('Form sibling relations must reference unique flat controls.');
+            }
+            if ( array_key_exists('parent', $pair) || array_key_exists('order', $pair) ) {
+                if ( ! is_string($pair['parent'] ?? null) || 1 !== preg_match('/^(?:form|wrapper-[0-9]+|context-[0-9]+)$/D', $pair['parent']) || ! in_array($pair['order'] ?? null, array( array( 'control', 'label' ), array( 'label', 'control' ) ), true) ) {
+                    throw new InvalidArgumentException('Form sibling relation parent or order is invalid.');
+                }
             }
             $seen[$pair['control']] = true;
         }
     }
 
     /**
-     * Preserve only directly adjacent label/control pairs. A provider that wraps
-     * controls can then transpose its parent's proven source gap inside the field.
+     * Preserve legacy root pairs and relate associated sibling labels to their
+     * retained layout parent. No label nodes are added to either bounded tree.
      *
      * @return array<string, mixed>
      */
-    public function directLabelControlPairs(DOMElement $form): array
+    public function directLabelControlPairs(DOMElement $form, ?array $layoutGraph = null): array
     {
         $indexes = array();
         foreach ( $this->controls($form) as $index => $control ) {
@@ -168,6 +174,40 @@ final class FormControlTopologyBuilder
             }
             $previousWasLabel = 'label' === strtolower($child->tagName);
         }
+
+        // Keep legacy root pairs intact. Enrich associated labels at any
+        // retained layout parent without inserting nodes or renumbering wrappers.
+        $layoutGraph ??= (new FormLayoutGraphBuilder())->build($form, array());
+        $parents = array();
+        foreach ( $layoutGraph['nodes'] as $node ) {
+            if ( 'container' === $node['kind'] ) $parents[$node['source']['selector']] = $node['id'];
+        }
+        $byControl = array_column($pairs, null, 'control');
+        foreach ( $this->controls($form) as $index => $control ) {
+            $parent = $control->parentNode;
+            $id = $control->getAttribute('id');
+            if ( '' === $id || ! $parent instanceof DOMElement || ! isset($parents[SourceDom::elementSelector($parent)]) ) continue;
+            $label = null;
+            $order = array( 'control', 'label' );
+            $controlSeen = false;
+            foreach ( $parent->childNodes as $child ) {
+                if ( $child === $control ) $controlSeen = true;
+                if ( $child instanceof DOMElement && 'label' === strtolower($child->tagName) && $child->getAttribute('for') === $id ) {
+                    $label = $child;
+                    $order = $controlSeen ? array( 'control', 'label' ) : array( 'label', 'control' );
+                    break;
+                }
+            }
+            if ( null === $label ) continue;
+            if ( ! isset($byControl[$index]) && count($byControl) >= self::MAX_NODES ) {
+                $truncated = true;
+                continue;
+            }
+            $byControl[$index] = array( 'control' => $index, 'parent' => $parents[SourceDom::elementSelector($parent)], 'order' => $order );
+        }
+        ksort($byControl);
+        $pairs = array_values($byControl);
+        $truncated = $truncated || $layoutGraph['truncated'];
 
         return array(
             'schema'    => 'generic/form-sibling-relations/v1',

@@ -284,6 +284,7 @@
       "InvalidArgumentException('Form control topology node is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form control topology sibling order must be unique.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form control topology wrapper hooks are unsafe.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Form sibling relation parent or order is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form sibling relations envelope is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form sibling relations must reference unique flat controls.')": {"class": "integrity", "count": 1}
     },
