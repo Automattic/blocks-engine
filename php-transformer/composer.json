@@ -801,6 +801,7 @@
       "php tests/unit/button-block-level-grid-item-fill.php",
       "php tests/unit/hidden-positioned-layer-opacity.php",
       "php tests/unit/unreachable-text-trap-controls.php",
+      "php tests/unit/invisible-unreachable-text-trap.php",
       "php tests/unit/form-step-track.php",
       "php tests/unit/form-layout-flex-flow.php",
       "php tests/unit/form-layout-in-flow-children.php",

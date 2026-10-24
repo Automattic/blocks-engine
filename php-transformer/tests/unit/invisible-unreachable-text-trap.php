@@ -1,0 +1,68 @@
+<?php
+declare(strict_types=1);
+
+require dirname(__DIR__, 2) . '/vendor/autoload.php';
+
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+
+$failures = 0;
+$assert = static function (bool $condition, string $message) use (&$failures): void {
+    if ( ! $condition ) {
+        ++$failures;
+        fwrite(STDERR, 'FAIL: ' . $message . PHP_EOL);
+    }
+};
+
+$parse = static function (string $html): DOMElement {
+    $document = new DOMDocument();
+    $document->loadHTML('<body>' . $html . '</body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+    $form = $document->getElementsByTagName('form')->item(0);
+    if ( ! $form instanceof DOMElement ) {
+        throw new RuntimeException('No form parsed');
+    }
+    return $form;
+};
+
+// Exact acceptance markup from #3370, without aria-hidden.
+$fixture = '<div class="field" style="opacity:0;position:absolute;z-index:-999;pointer-events:none">'
+    . '<label for="trap">trap</label><input type="text" name="trap" id="trap" tabindex="-1" autocomplete="off">'
+    . '</div>';
+$form = $parse('<form>' . $fixture . '</form>');
+$assert(array() === FormControlClassifier::controlElements($form), 'acceptance fixture yields no extracted control');
+$copy = FormControlClassifier::honeypotCopyElements($form);
+$assert(in_array($form->getElementsByTagName('label')->item(0), $copy, true), 'trap owns its label instead of leaving it as copy');
+$assert(in_array($form->getElementsByTagName('div')->item(0), $copy, true), 'trap owns its field container copy');
+
+foreach (array(
+    'tabbable' => str_replace('tabindex="-1"', 'tabindex="0"', $fixture),
+    'no tabindex' => str_replace(' tabindex="-1"', '', $fixture),
+    'pointer reachable' => str_replace(';pointer-events:none', '', $fixture),
+    'visible' => str_replace('opacity:0;', '', $fixture),
+    'checkbox proxy' => str_replace('type="text"', 'type="checkbox"', $fixture),
+    'radio proxy' => str_replace('type="text"', 'type="radio"', $fixture),
+) as $case => $markup) {
+    $form = $parse('<form>' . $markup . '</form>');
+    $assert(1 === count(FormControlClassifier::controlElements($form)), $case . ' stays authored');
+    $assert(array() === FormControlClassifier::honeypotCopyElements($form), $case . ' keeps its label and copy');
+}
+
+foreach (array('text', 'email', 'url', 'tel', 'search', 'number', 'textarea') as $type) {
+    $control = 'textarea' === $type ? '<textarea name="trap" tabindex="-2" style="opacity:0;pointer-events:none"></textarea>'
+        : '<input type="' . $type . '" name="trap" tabindex="-2" style="opacity:0;pointer-events:none">';
+    $form = $parse('<form>' . $control . '</form>');
+    $assert(array() === FormControlClassifier::controlElements($form), $type . ' supports signals on the control itself and any negative tabindex');
+}
+
+foreach (array('form', 'fieldset', 'outer ancestor') as $boundary) {
+    $style = ' style="opacity:0;pointer-events:none"';
+    $control = '<input name="real" tabindex="-1">';
+    $html = match ($boundary) {
+        'form' => '<form' . $style . '>' . $control . '</form>',
+        'fieldset' => '<form><fieldset' . $style . '>' . $control . '</fieldset></form>',
+        default => '<div' . $style . '><form><div>' . $control . '</div></form></div>',
+    };
+    $assert(1 === count(FormControlClassifier::controlElements($parse($html))), $boundary . ' is not a field container signal');
+}
+
+fwrite(STDOUT, "invisible unreachable text trap: {$failures} failures\n");
+exit($failures > 0 ? 1 : 0);
