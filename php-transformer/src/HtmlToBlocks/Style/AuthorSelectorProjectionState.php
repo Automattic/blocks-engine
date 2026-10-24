@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Closure;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
@@ -236,7 +237,13 @@ final class AuthorSelectorProjectionState
         if (1 === preg_match('/\[\s*aria-current\b/i', $selector)) return true;
         preg_match_all('/\.((?:\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
         foreach ($classes[1] as $class) {
-            if (isset($this->currentNavigationClasses[stripslashes($class)])) return true;
+            // Recognize class-only router state before a captured current item
+            // has been visited. Otherwise its conditional paint alone creates
+            // a source subject marker that none of its resting peers receives.
+            // A container named current-menu is not an item-state signal.
+            if (isset($this->currentNavigationClasses[stripslashes($class)])
+                || (MenuVocabulary::containsCurrentStateToken(stripslashes($class))
+                    && (!MenuVocabulary::containsMenuToken(stripslashes($class)) || str_contains($class, 'item')))) return true;
         }
         return false;
     }
