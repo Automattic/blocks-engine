@@ -179,7 +179,7 @@ The result envelope includes generic `metrics` for wrapper reporting: `input_byt
 
 `source_reports.html.source_provenance` exposes bounded source context for converted blocks: selector, safe source attributes, sanitized source fragment, ancestor context, nearby heading text, safe `data-*` attributes, and generic structure hints such as card-like or grid-like wrappers. `source_reports.html.structure_signals` records those card/grid/static layout hints separately so callers can inspect them without relying on block attributes.
 
-`source_reports.conversion_report` exposes a compact generic projection for wrappers that previously reconstructed report slices from lower-level result fields. It includes fallback diagnostics, sanitized fallback context, event attribute projections, source/selector summaries, asset references, navigation candidates, presentation and structure signals, and metrics. Routes, navigation, menus, and theme writes are self-contained in `wordpress-site-plan/v2`; callers still own media imports, navigation entity creation, visual repair policy, and acceptance gates.
+`source_reports.conversion_report` exposes a compact generic projection for wrappers that previously reconstructed report slices from lower-level result fields. It includes fallback diagnostics, sanitized fallback context, event attribute projections, source/selector summaries, asset references, navigation candidates, presentation and structure signals, and metrics. Routes, navigation, menus, and theme writes are self-contained in `wordpress-site-plan/v3`; callers still own media imports, navigation entity creation, visual repair policy, and acceptance gates.
 
 ### Core Block Inventories
 
@@ -187,7 +187,7 @@ HTML conversion coverage and `source_reports.conversion_report` distinguish thre
 
 Visual parity tooling should use the product-neutral report/config contracts in `docs/contracts/visual-parity-report.md`. The report covers source and target render metadata, viewports, optional screenshot paths, DOM candidate matches, computed-style deltas, optional visual diff metrics, severity, selector evidence, and recommendations. Button, menu, card, and form fields are modeled as generic UI facts rather than product-specific entities.
 
-WordPress materializers that consume the self-contained `wordpress-site-plan/v2` contract should use `WordPressSitePlan\WordPressSitePlanView::fromResult()`. It preserves the exact canonical plan plus Gutenberg gaps, companion-plugin payload, font materialization metadata, and plan diagnostics while omitting the duplicated compiled-site, root asset, document, and block projections.
+WordPress materializers that consume the self-contained `wordpress-site-plan/v3` contract should use `WordPressSitePlan\WordPressSitePlanView::fromResult()`. It preserves the exact canonical plan plus Gutenberg gaps, companion-plugin payload, font materialization metadata, and plan diagnostics while omitting the duplicated compiled-site, root asset, document, and block projections.
 
 Capture tools describe what they observed in a rendered source (document variants, dialog and disclosure bindings, galleries, collection filters, glyph colour) with the producer-neutral capture-evidence vocabulary: `data-blocks-engine-capture-*` attributes and classes plus `blocks-engine-capture/*` sidecar schemas, published as `Contract\CaptureEvidence` and documented in [Capture evidence](docs/contracts/capture-evidence.md). Any capture producer may emit it.
 
@@ -215,7 +215,7 @@ Unsupported or unsafe artifact inputs are reported through diagnostics instead o
 
 ## WordPress Site Plans
 
-`WordPressSitePlan` projects a self-contained `blocks-engine/wordpress-site-plan/v2` materialization contract from a compiler result. Its normalized document metadata and generic reporting summaries let a consumer project reports from a resolved plan plus its own receipt, without reading the compiler envelope or source files. See [WordPress Site Plan v2](docs/wordpress-site-plan.md) for the metadata shape, ordering, supported attributes, and resolver boundary.
+`WordPressSitePlan` projects a self-contained `blocks-engine/wordpress-site-plan/v3` materialization contract from a compiler result. Its normalized document metadata and generic reporting summaries let a consumer project reports from a resolved plan plus its own receipt, without reading the compiler envelope or source files. See [WordPress Site Plan v3](docs/wordpress-site-plan.md) for the metadata shape, ordering, supported attributes, and resolver boundary.
 
 ## Parity Checks
 

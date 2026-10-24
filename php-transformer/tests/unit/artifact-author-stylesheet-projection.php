@@ -567,7 +567,7 @@ foreach ($multiPageWordPressAssets as $planAsset) {
 $multiPageScopeSources = array_map(static fn (array $scope): string => (string) ($scope['source_path'] ?? ''), $multiPagePlanSharedScopes);
 $multiPageHasPageCopy = array() !== array_map(static fn (array $asset): string => (string) $asset['path'], array_values(array_filter($multiPage['assets'] ?? array(), static fn (array $asset): bool => 1 === preg_match('#^shared\.page-[a-f0-9]{12}\.css$#', (string) ($asset['path'] ?? '')))));
 $assert(array(array('kind' => 'global')) === $multiPagePlanSharedScopes && ! $multiPageHasPageCopy, 'an identically projected shared stylesheet linked by every page is emitted once, site-wide across its consuming pages, with no per-page copy');
-$assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
+$assert('blocks-engine/wordpress-site-plan/v3' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
 
 // A text-only inline-block span in a flex row is first routed as an inline
 // layout carrier, then adopted as its own paragraph block carrying subject

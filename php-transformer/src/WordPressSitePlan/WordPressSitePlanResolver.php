@@ -24,24 +24,28 @@ final class WordPressSitePlanResolver
         $capabilities = self::normalizeRuntimeCapabilities($context['runtime_capabilities'] ?? array());
         $unsupportedOptional = self::unsupportedOptionalCapabilities($plan['runtime_declarations'], $capabilities);
         $themeUri = self::normalizeThemeUri($context['theme_uri'] ?? null);
-        $references = self::references($plan['reference_tokens'], $themeUri);
-        foreach ($plan['pages'] as &$page) $page['resolved_block_markup'] = self::resolvePayload($page['canonical_block_markup'], $references);
+        $attachments = self::normalizeAttachments($context['attachment_resolutions'] ?? array(), $plan['assets']);
+        $references = self::references($plan['reference_tokens'], $themeUri, $attachments);
+        foreach ($plan['pages'] as &$page) $page['resolved_block_markup'] = self::resolveMarkup($page['canonical_block_markup'], $references, $attachments);
         unset($page);
-        foreach ($plan['template_parts'] as &$part) $part['resolved_block_markup'] = self::resolvePayload($part['canonical_block_markup'], $references);
+        foreach ($plan['template_parts'] as &$part) $part['resolved_block_markup'] = self::resolveMarkup($part['canonical_block_markup'], $references, $attachments);
         unset($part);
-        foreach ($plan['templates'] as &$template) $template['resolved_block_markup'] = self::resolvePayload($template['canonical_block_markup'], $references);
+        foreach ($plan['templates'] as &$template) $template['resolved_block_markup'] = self::resolveMarkup($template['canonical_block_markup'], $references, $attachments);
         unset($template);
         foreach ($plan['menus'] as &$menu) if (is_string($menu['block_markup'] ?? null)) $menu['resolved_block_markup'] = self::resolvePayload($menu['block_markup'], $references);
         unset($menu);
-        if (isset($plan['synced_patterns'])) foreach ($plan['synced_patterns'] as &$pattern) $pattern['resolved_block_markup'] = self::resolvePayload($pattern['canonical_block_markup'], $references);
+        if (isset($plan['synced_patterns'])) foreach ($plan['synced_patterns'] as &$pattern) $pattern['resolved_block_markup'] = self::resolveMarkup($pattern['canonical_block_markup'], $references, $attachments);
         unset($pattern);
         // Provider bindings replace page or shared template part markup, so their
         // anchors must use the same destination projection as the document
         // materialized by consumers.
         $bindingDocuments = array_merge($plan['pages'], $plan['template_parts'], $plan['synced_patterns'] ?? array(), $plan['templates']);
-        $plan['runtime_declarations'] = self::resolveEntityBindings($plan['runtime_declarations'], $bindingDocuments, $references);
-        $plan['runtime_entity_resolution'] = self::resolveManifestEntities($plan['runtime_declarations'], $plan['runtime_entity_records'], $bindingDocuments, $references);
-        foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) { $write['canonical_payload'] = $write['payload']['data']; $write['canonical_payload_hash'] = WordPressSitePlan::contentHash($write['canonical_payload']); $write['payload']['data'] = self::resolveWritePayload($write['canonical_payload'], $plan['reference_tokens'], $themeUri, $write['target_path']); $write['payload_hash'] = WordPressSitePlan::contentHash($write['payload']['data']); }
+        $plan['runtime_declarations'] = self::resolveEntityBindings($plan['runtime_declarations'], $bindingDocuments, $references, true, $attachments);
+        $plan['runtime_entity_resolution'] = self::resolveManifestEntities($plan['runtime_declarations'], $plan['runtime_entity_records'], $bindingDocuments, $references, $attachments);
+        $resolvedTargets = array();
+        foreach ($plan['assets'] as $asset) if (isset($attachments[$asset['token']])) $resolvedTargets[$asset['target_path']] = true;
+        $plan['writes'] = array_values(array_filter($plan['writes'], static fn(array $write): bool => !isset($resolvedTargets[$write['target_path']])));
+        foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) { $write['canonical_payload'] = $write['payload']['data']; $write['canonical_payload_hash'] = WordPressSitePlan::contentHash($write['canonical_payload']); $write['payload']['data'] = self::resolveWritePayload($write['canonical_payload'], $plan['reference_tokens'], $themeUri, $write['target_path'], $attachments); $write['payload_hash'] = WordPressSitePlan::contentHash($write['payload']['data']); }
         unset($write);
         foreach (array('pages', 'template_parts') as $documents) foreach ($plan[$documents] as &$document) foreach (array('links', 'scripts') as $kind) { if (!is_array($document['document_metadata'][$kind] ?? null)) continue; foreach ($document['document_metadata'][$kind] as &$declaration) if (is_string($declaration['asset_reference'] ?? null)) $declaration['resolved_url'] = self::resolvePayload($declaration['asset_reference'], $references); }
         unset($declaration, $document);
@@ -49,9 +53,66 @@ final class WordPressSitePlanResolver
             if (isset($element['asset_reference'])) $page['document_metadata']['head']['elements'][$index]['resolved_url'] = self::resolvePayload($element['asset_reference'], $references);
         }
         unset($page);
-        $plan['resolution'] = array('schema' => self::RESOLUTION_SCHEMA, 'theme_uri' => $themeUri, 'runtime_capabilities' => $capabilities, 'asset_publication_references' => self::publicationReferences($plan['runtime_declarations'], $plan['reference_tokens'], $plan['writes'], $themeUri), 'unsupported_optional_capabilities' => $unsupportedOptional);
+        $plan['resolution'] = array('schema' => self::RESOLUTION_SCHEMA, 'theme_uri' => $themeUri, 'runtime_capabilities' => $capabilities, 'asset_publication_references' => self::publicationReferences($plan['runtime_declarations'], $plan['reference_tokens'], $plan['writes'], $themeUri, $attachments), 'unsupported_optional_capabilities' => $unsupportedOptional);
+        if (array() !== $attachments) $plan['resolution']['attachment_resolutions'] = $attachments;
         WordPressSitePlan::assertValid($plan);
         return $plan;
+    }
+
+    /** @param mixed $value @param array<int,array<string,mixed>> $assets @return array<string,array{id:int,url:string}> */
+    public static function normalizeAttachments(mixed $value, array $assets): array
+    {
+        if (!is_array($value)) throw new InvalidArgumentException('Attachment resolutions must be a token map.');
+        $byToken = array_column($assets, null, 'token');
+        foreach ($value as $token => $attachment) {
+            $url = is_array($attachment) ? ($attachment['url'] ?? null) : null;
+            $parts = is_string($url) ? parse_url($url) : false;
+            if ('media_library' !== ($byToken[$token]['destination'] ?? null) || !is_array($attachment) || array_diff(array_keys($attachment), array('id', 'url')) || !is_int($attachment['id'] ?? null) || $attachment['id'] < 1 || !is_string($url) || preg_match('/[\x00-\x20\x7f"\'<>\\\\]/', $url) || !is_array($parts) || !in_array($parts['scheme'] ?? null, array('http', 'https'), true) || empty($parts['host']) || isset($parts['user']) || isset($parts['pass'])) throw new InvalidArgumentException('Invalid attachment resolution or non-media asset token.');
+        }
+        ksort($value, SORT_STRING);
+        return $value;
+    }
+
+    /** Project only changed blocks; the no-attachment path is the original byte substitution. */
+    public static function resolveMarkup(string $markup, array $references, array $attachments = array()): string
+    {
+        if (array() === $attachments) return self::resolvePayload($markup, $references);
+        $runtime = new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime();
+        $visit = static function (array $blocks) use (&$visit, $runtime, $attachments): array {
+            foreach ($blocks as &$block) {
+                $attrs = &$block['attrs'];
+                $name = $block['blockName'];
+                $field = 'core/media-text' === $name ? 'mediaUrl' : 'url';
+                $url = $attrs[$field] ?? '';
+                if ('core/image' === $name && preg_match('/<img\b[^>]*\bsrc=["\']([^"\']*)["\']/i', $block['innerHTML'], $match)) $url = html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5);
+                foreach ($attachments as $token => $attachment) {
+                    $canonical = WordPressSitePlan::TOKEN_PREFIX . $token . '}}';
+                    if ($url === $canonical && in_array($name, array('core/image', 'core/cover', 'core/media-text'), true)) {
+                        $attrs['core/media-text' === $name ? 'mediaId' : 'id'] = $attachment['id'];
+                        $attrs[$field] = $canonical;
+                        if ('core/image' === $name) {
+                            $addClass = static fn(string $html): string => (string) preg_replace_callback('/<img\b[^>]*>/i', static function (array $match) use ($attachment): string {
+                                $tag = (string) preg_replace('/\bwp-image-\d+\b/', '', $match[0]);
+                                if (preg_match('/\bclass=(["\'])(.*?)\1/s', $tag)) return (string) preg_replace('/\bclass=(["\'])(.*?)\1/s', 'class=$1$2 wp-image-' . $attachment['id'] . '$1', $tag, 1);
+                                return substr($tag, 0, 4) . ' class="wp-image-' . $attachment['id'] . '"' . substr($tag, 4);
+                            }, $html, 1);
+                            $block['innerHTML'] = $addClass($block['innerHTML']);
+                            foreach ($block['innerContent'] as &$piece) if (is_string($piece)) $piece = $addClass($piece);
+                            unset($piece);
+                        }
+                    }
+                    if (($attrs['style']['background']['backgroundImage']['url'] ?? null) === $canonical) {
+                        $attrs['style']['background']['backgroundImage']['id'] = $attachment['id'];
+                        $attrs['style']['background']['backgroundImage']['source'] = 'file';
+                    }
+                }
+                unset($attrs);
+                $block['innerBlocks'] = $visit($block['innerBlocks']);
+            }
+            unset($block);
+            return $blocks;
+        };
+        return self::resolvePayload($runtime->serializeBlocks($visit($runtime->parseBlocks($markup))), $references);
     }
 
     /** @param array<string,string> $references */
@@ -62,10 +123,11 @@ final class WordPressSitePlanResolver
         return $resolved;
     }
     /** @param array<int,array<string,mixed>> $tokens */
-    public static function resolveWritePayload(string $content, array $tokens, string $themeUri, string $targetPath): string
+    public static function resolveWritePayload(string $content, array $tokens, string $themeUri, string $targetPath, array $attachments = array()): string
     {
+        if (array() !== $attachments && (str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/'))) return self::resolveMarkup($content, self::references($tokens, $themeUri, $attachments), $attachments);
         if ('functions.php' === $targetPath || str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/')) return $content;
-        return self::resolvePayload($content, self::referencesForWrite($tokens, $themeUri, $targetPath));
+        return self::resolvePayload($content, self::referencesForWrite($tokens, $themeUri, $targetPath, $attachments));
     }
     /**
      * The bytes `resolveWritePayload()` will publish, when they do not depend on
@@ -82,14 +144,14 @@ final class WordPressSitePlanResolver
         return str_contains($resolved, WordPressSitePlan::TOKEN_PREFIX) ? null : $resolved;
     }
     /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $pages @param array<string,string> $references @return array<int,array<string,mixed>> */
-    private static function resolveEntityBindings(array $declarations, array $pages, array $references, bool $normalize = true): array
+    private static function resolveEntityBindings(array $declarations, array $pages, array $references, bool $normalize = true, array $attachments = array()): array
     {
         $pagesBySource = array_column($pages, null, 'source_path');
         foreach ($declarations as $declarationIndex => $declaration) {
             if (!is_array($declaration['payload']['entities'] ?? null)) continue;
             foreach ($declaration['payload']['entities'] as $entityIndex => $entity) {
                 if (!is_array($entity['bindings'] ?? null)) continue;
-                $entity = WordPressSitePlan::mapItemTemplateMarkup($entity, static fn(string $markup): string => self::resolvePayload($markup, $references));
+                $entity = WordPressSitePlan::mapItemTemplateMarkup($entity, static fn(string $markup): string => self::resolveMarkup($markup, $references, $attachments));
                 $declarations[$declarationIndex]['payload']['entities'][$entityIndex] = $entity;
                 foreach ($entity['bindings'] as $bindingIndex => $binding) {
                     if (!is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? null) || !is_string($binding['source_path'] ?? null) || !is_string($binding['search_block_markup'] ?? null) || !is_int($binding['occurrence'] ?? null)) continue;
@@ -100,11 +162,11 @@ final class WordPressSitePlanResolver
                     $blockIndex = null;
                     foreach (self::blockRanges($canonical) as $index => $range) if ($range['offset'] === $canonicalOffset && $binding['search_block_markup'] === substr($canonical, $range['offset'], $range['length'])) { $blockIndex = $index; break; }
                     if (!is_int($blockIndex)) throw new InvalidArgumentException('WordPress site plan runtime binding cannot be resolved from its canonical source document anchor.');
-                    $search = self::resolvePayload($binding['search_block_markup'], $references);
+                    $search = self::resolveMarkup($binding['search_block_markup'], $references, $attachments);
                     // A token can change byte length, and filtered malformed ranges can
                     // shift a serialized block index. Project the canonical byte prefix
                     // instead of assuming indexes remain numerically stable.
-                    $resolvedOffset = strlen(self::resolvePayload(substr($canonical, 0, $canonicalOffset), $references));
+                    $resolvedOffset = strlen(self::resolveMarkup(substr($canonical, 0, $canonicalOffset), $references, $attachments));
                     $range = null;
                     foreach (self::blockRanges($resolved) as $index => $candidate) if ($candidate['offset'] === $resolvedOffset && $search === substr($resolved, $candidate['offset'], $candidate['length'])) { $range = $candidate; $blockIndex = $index; break; }
                     if (!is_array($range)) throw new InvalidArgumentException('WordPress site plan runtime binding resolved anchor is detached from its source document.');
@@ -120,14 +182,14 @@ final class WordPressSitePlanResolver
         return $normalize ? RuntimeDeclarations::normalizeList($declarations) : $declarations;
     }
     /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $records @param array<int,array<string,mixed>> $pages @param array<string,string> $references @return array<int,array<string,mixed>> */
-    private static function resolveManifestEntities(array $declarations, array $records, array $pages, array $references): array
+    private static function resolveManifestEntities(array $declarations, array $records, array $pages, array $references, array $attachments = array()): array
     {
         $resolved = array();
         foreach ($declarations as $declaration) {
             $payload = $declaration['payload'] ?? null;
             if (!is_array($payload) || RuntimeEntityManifest::SCHEMA !== ($payload['schema'] ?? null)) continue;
             $entities = RuntimeEntityManifest::resolve($payload, $records);
-            $expanded = self::resolveEntityBindings(array(array('payload' => array('entities' => $entities))), $pages, $references, false);
+            $expanded = self::resolveEntityBindings(array(array('payload' => array('entities' => $entities))), $pages, $references, false, $attachments);
             $resolved[] = array('reconciliation_identity' => $declaration['reconciliation_identity'], 'kind' => $declaration['kind'], 'type' => $declaration['type'] ?? null, 'entity_schema' => $payload['entity_schema'], 'entities' => $expanded[0]['payload']['entities']);
         }
         return $resolved;
@@ -162,16 +224,16 @@ final class WordPressSitePlanResolver
         return strtolower($parts['scheme']) . '://' . $authority . rtrim($path, '/');
     }
     /** @param array<int,array<string,mixed>> $tokens @return array<string,string> */
-    public static function references(array $tokens, string $themeUri): array { $references = array(); foreach ($tokens as $reference) if (is_array($reference) && is_string($reference['token'] ?? null) && is_string($reference['target_path'] ?? null)) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = $themeUri . '/' . $reference['target_path']; return $references; }
+    public static function references(array $tokens, string $themeUri, array $attachments = array()): array { $references = array(); foreach ($tokens as $reference) if (is_array($reference) && is_string($reference['token'] ?? null) && is_string($reference['target_path'] ?? null)) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = $attachments[$reference['token']]['url'] ?? $themeUri . '/' . $reference['target_path']; return $references; }
     /** @param array<int,array<string,mixed>> $tokens @return array<string,string> */
-    public static function referencesForWrite(array $tokens, string $themeUri, string $origin): array
+    public static function referencesForWrite(array $tokens, string $themeUri, string $origin, array $attachments = array()): array
     {
         // Block template files are parsed relative to the rendered page, not this
         // file. Their canonical tokens are resolved by the generated theme runtime.
         if (str_starts_with($origin, 'templates/') || str_starts_with($origin, 'parts/')) return array();
-        if (!str_ends_with(strtolower($origin), '.css')) return self::references($tokens, $themeUri);
+        if (!str_ends_with(strtolower($origin), '.css')) return self::references($tokens, $themeUri, $attachments);
         $references = array();
-        foreach ($tokens as $reference) if (is_array($reference) && is_string($reference['token'] ?? null) && is_string($reference['target_path'] ?? null)) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = self::relativePath($origin, $reference['target_path']);
+        foreach ($tokens as $reference) if (is_array($reference) && is_string($reference['token'] ?? null) && is_string($reference['target_path'] ?? null)) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = $attachments[$reference['token']]['url'] ?? self::relativePath($origin, $reference['target_path']);
         return $references;
     }
     private static function relativePath(string $origin, string $target): string
@@ -193,11 +255,11 @@ final class WordPressSitePlanResolver
         sort($unsupported, SORT_STRING); return $unsupported;
     }
     /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $tokens @param array<int,array<string,mixed>> $writes @return array<int,array<string,mixed>> */
-    public static function publicationReferences(array $declarations, array $tokens, array $writes, string $themeUri): array
+    public static function publicationReferences(array $declarations, array $tokens, array $writes, string $themeUri, array $attachments = array()): array
     {
         $writesByIdentity = array_column($writes, null, 'reconciliation_identity');
         $resolved = array();
-        foreach ($declarations as $declaration) if ('asset_publication' === ($declaration['kind'] ?? null)) foreach ($declaration['reference_targets'] as $target) { $canonical = WordPressSitePlan::TOKEN_PREFIX . $target['token'] . '}}'; $write = $writesByIdentity[$target['write_reconciliation_identity']] ?? null; $references = is_array($write) && is_string($write['target_path'] ?? null) ? self::referencesForWrite($tokens, $themeUri, $write['target_path']) : array(); $url = $references[$canonical] ?? null; if (!is_string($url)) throw new InvalidArgumentException('Asset publication reference token is not declared.'); $resolved[] = array('declaration_reconciliation_identity' => $declaration['reconciliation_identity'], 'target_path' => $target['target_path'], 'write_reconciliation_identity' => $target['write_reconciliation_identity'], 'canonical_token' => $canonical, 'count' => $target['count'], 'context' => $target['context'], 'expected_resolved_url' => $url); }
+        foreach ($declarations as $declaration) if ('asset_publication' === ($declaration['kind'] ?? null)) foreach ($declaration['reference_targets'] as $target) { $canonical = WordPressSitePlan::TOKEN_PREFIX . $target['token'] . '}}'; $write = $writesByIdentity[$target['write_reconciliation_identity']] ?? null; $references = is_array($write) && is_string($write['target_path'] ?? null) ? self::referencesForWrite($tokens, $themeUri, $write['target_path'], $attachments) : array(); $url = $references[$canonical] ?? null; if (!is_string($url)) throw new InvalidArgumentException('Asset publication reference token is not declared.'); $resolved[] = array('declaration_reconciliation_identity' => $declaration['reconciliation_identity'], 'target_path' => $target['target_path'], 'write_reconciliation_identity' => $target['write_reconciliation_identity'], 'canonical_token' => $canonical, 'count' => $target['count'], 'context' => $target['context'], 'expected_resolved_url' => $url); }
         return $resolved;
     }
 }
