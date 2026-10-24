@@ -115,6 +115,24 @@ final class WordPressSitePlanResolver
         return self::resolvePayload($runtime->serializeBlocks($visit($runtime->parseBlocks($markup))), $references);
     }
 
+    /**
+     * Project a canonical byte offset into the resolved document. Token-only
+     * resolution is prefix-local. Attachment resolution re-serializes blocks,
+     * so a prefix ending inside an open parent block would not serialize like
+     * the whole document; mark the offset and resolve the whole document instead.
+     *
+     * @param array<string,string> $references @param array<string,array{id:int,url:string}> $attachments
+     */
+    private static function resolvedOffset(string $canonical, int $offset, string $resolved, array $references, array $attachments): ?int
+    {
+        if (array() === $attachments) return strlen(self::resolveMarkup(substr($canonical, 0, $offset), $references));
+        $marker = '<!-- blocks-engine-binding-anchor-' . bin2hex(random_bytes(8)) . ' -->';
+        $marked = self::resolveMarkup(substr($canonical, 0, $offset) . $marker . substr($canonical, $offset), $references, $attachments);
+        $position = strpos($marked, $marker);
+        if (false === $position || substr_count($marked, $marker) !== 1 || str_replace($marker, '', $marked) !== $resolved) return null;
+        return $position;
+    }
+
     /** @param array<string,string> $references */
     public static function resolvePayload(string $content, array $references): string
     {
@@ -166,7 +184,7 @@ final class WordPressSitePlanResolver
                     // A token can change byte length, and filtered malformed ranges can
                     // shift a serialized block index. Project the canonical byte prefix
                     // instead of assuming indexes remain numerically stable.
-                    $resolvedOffset = strlen(self::resolveMarkup(substr($canonical, 0, $canonicalOffset), $references, $attachments));
+                    $resolvedOffset = self::resolvedOffset($canonical, $canonicalOffset, $resolved, $references, $attachments);
                     $range = null;
                     foreach (self::blockRanges($resolved) as $index => $candidate) if ($candidate['offset'] === $resolvedOffset && $search === substr($resolved, $candidate['offset'], $candidate['length'])) { $range = $candidate; $blockIndex = $index; break; }
                     if (!is_array($range)) throw new InvalidArgumentException('WordPress site plan runtime binding resolved anchor is detached from its source document.');
