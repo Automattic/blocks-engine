@@ -133,11 +133,12 @@ final class TaxonomyProjection
     public static function retainProvenParents(array $entities, array &$diagnostics): array
     {
         $byTerm = array();
-        foreach ($entities as $entity) $byTerm[$entity['taxonomy'] . ':' . $entity['slug']] = $entity;
+        // Authors share the archive pipeline but have no term hierarchy.
+        foreach ($entities as $entity) $byTerm[($entity['taxonomy'] ?? $entity['kind']) . ':' . $entity['slug']] = $entity;
         do {
             $changed = false;
             foreach ($byTerm as $key => $entity) {
-                if (!isset($entity['parent']) || isset($byTerm[$entity['taxonomy'] . ':' . $entity['parent']])) continue;
+                if (!isset($entity['parent']) || isset($byTerm[($entity['taxonomy'] ?? $entity['kind']) . ':' . $entity['parent']])) continue;
                 $diagnostics[] = self::missingParentDiagnostic($entity['archive']['source_path'], $entity['archive']['source_route'], dirname($entity['archive']['source_route']));
                 unset($byTerm[$key]);
                 $changed = true;
