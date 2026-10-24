@@ -95,9 +95,11 @@ final class AuthorStylesheetProjector
     {
         $parts = str_contains($body, '{') ? (new CssStylesheetTransformer())->splitStyleRuleBody($body) : array();
         $hasNestedRules = array_filter($parts, static fn (array $part): bool => isset($part['prelude']));
+        $hasButtonSubjects = (bool) preg_match('/(?:^|[;{])\s*(?:align-self|justify-self|place-self)\s*:/i', $body)
+            && array() !== $this->buttonSizeSubjects($prelude, $context);
         $hasMargins = $hasNestedRules && array_filter(
             $this->styleResolver->verbatimCssDeclarations($body),
-            static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'),
+            static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-') || ($hasButtonSubjects && in_array($name, array('align-self', 'justify-self', 'place-self'), true)),
             ARRAY_FILTER_USE_KEY
         );
         if ( $hasMargins ) {
@@ -130,7 +132,9 @@ final class AuthorStylesheetProjector
         );
         $body = $projection['body'];
         $declarations = $projection['declarations'];
-        $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
+        // Margins and self-alignment position the outer box in its parent.
+        // Keep them out of surface projection, including attribute-ancestry arms.
+        $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-') || ($hasButtonSubjects && in_array($name, array('align-self', 'justify-self', 'place-self'), true)), ARRAY_FILTER_USE_KEY);
         $mediaTextImagePrelude = $this->projectMediaTextImagePrelude($prelude, $context);
         if ( '' !== $mediaTextImagePrelude ) {
             return $mediaTextImagePrelude . '{' . $body . '}';
@@ -161,6 +165,12 @@ final class AuthorStylesheetProjector
         $svgImageRule = '' === $svgImagePrelude
             ? ''
             : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
+        $svgImageRule .= $this->flexItemImageBoxRule(
+            $prelude,
+            $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations, true),
+            $declarations,
+            $context
+        );
         $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context) . $this->separatorBorderRule($prelude, $declarations, $context);
         $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context)
             . $this->navigationListBoxRule($prelude, $declarations, $context);
@@ -189,7 +199,9 @@ final class AuthorStylesheetProjector
     {
         $css .= $this->visuallyHiddenSourceSelectorRule($prelude, $css, $body);
 
-        return $css . $this->editorPositionRules($css) . $this->editorShellChildCombinatorVariants($css) . $this->editorEmptyRichTextVariants($css);
+        $css .= $this->editorOverrideRules($css);
+
+        return $css . $this->editorShellChildCombinatorVariants($css) . $this->editorEmptyRichTextVariants($css);
     }
 
     /**
@@ -254,14 +266,17 @@ final class AuthorStylesheetProjector
         return preg_replace('/\s+/', ' ', trim($selector)) ?? trim($selector);
     }
 
-    private function editorPositionRules(string $css): string
+    private function editorOverrideRules(string $css): string
     {
         return ( new CssStylesheetTransformer() )->transformStyleRules(
             $css,
             function (string $prelude, string $body): string {
-                $position = trim((string) ($this->styleResolver->cssDeclarations($body)['position'] ?? ''));
+                $declarations = $this->styleResolver->cssDeclarations($body);
+                $position = trim((string) ($declarations['position'] ?? ''));
+                $whiteSpace = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $declarations['white-space'] ?? '') ?? ''));
+                $nowrap = in_array($whiteSpace, array('nowrap', 'pre'), true);
                 $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-                if ( '' === $position || null === $selectors ) {
+                if ( ( '' === $position && ! $nowrap ) || null === $selectors ) {
                     return '';
                 }
                 $editorSelectors = array();
@@ -286,15 +301,23 @@ final class AuthorStylesheetProjector
                     // (sticky headers, FABs) over the document being edited.
                     // Absolute layers still need the override so hero overlays
                     // keep stacking; leave relative/sticky unforced.
-                    return '';
+                    $position = '';
+                }
+                // Core adds `position:relative` to the actual editor block
+                // root. Preserve source visual layers without changing
+                // ordinary relative or sticky editing surfaces.
+                $overrides = '' === $position ? '' : 'position:' . $position . ( 'absolute' === strtolower($position) ? '!important' : '' ) . ';';
+                // RichText's inline white-space:pre-wrap must keep preserving
+                // typed spaces. Override only its wrapping longhand, not the
+                // whitespace-collapse half of the shorthand. Scoping keeps
+                // the authored frontend declarations untouched.
+                if ( $nowrap ) {
+                    $overrides .= 'text-wrap-mode:nowrap!important';
                 }
 
-                return array() === $editorSelectors
+                return array() === $editorSelectors || '' === $overrides
                     ? ''
-                    // Core adds `position:relative` to the actual editor block
-                    // root. Preserve source visual layers without changing
-                    // ordinary relative or sticky editing surfaces.
-                    : implode(',', $editorSelectors) . '{position:' . $position . ( 'absolute' === strtolower($position) ? '!important' : '' ) . '}';
+                    : implode(',', $editorSelectors) . '{' . rtrim($overrides, ';') . '}';
             }
         );
     }
@@ -454,6 +477,32 @@ final class AuthorStylesheetProjector
             }));
         };
         $projectedPrelude = $selectControls($this->rewriteSelectorPrelude($prelude, $context, false, null === $controls && $this->allowsSubjectArms($prelude, $body), true));
+        // Centered source dropdown boxes are desktop presentation, not Core's
+        // open-overlay stack. Keep the authored rule outside that stack rather
+        // than relying on a later, higher-specificity alignment override.
+        if ( preg_match('/(?:^|;)\s*(?:text-align|align-items|justify-content)\s*:\s*center\b/i', $body) ) {
+            $submenuOnly = true;
+            $found = false;
+            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                $parsed = $context->sourceStyles->parsedSelector($selector);
+                foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                    $lists = 0;
+                    $inNavigation = false;
+                    for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+                        if ( in_array(strtolower($node->tagName), array('ul', 'ol'), true) ) ++$lists;
+                        if ( 'nav' === strtolower($node->tagName) ) $inNavigation = true;
+                    }
+                    $found = true;
+                    if ( ! $inNavigation || $lists < 2 ) $submenuOnly = false;
+                }
+            }
+            if ( $found && $submenuOnly ) {
+                $projectedPrelude = implode(',', array_map(
+                    static fn (string $selector): string => $selector . ':not(:where(.wp-block-navigation__responsive-container.is-menu-open *))',
+                    CssStylesheetTransformer::splitSelectorList($projectedPrelude) ?? array()
+                ));
+            }
+        }
         $authoredBody = $body;
         $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context);
         $nativeButtonCompatRule = $this->nativeButtonLinkCompatRule($prelude, $authoredBody, $context);
@@ -1579,7 +1628,7 @@ final class AuthorStylesheetProjector
             if ( ! $parsed['supported'] ) {
                 $projectedControls = $this->projectUnsupportedFunctionalControlSelector($selector, $context, $controlWrapper);
                 if ( array() === $projectedControls ) {
-                    $rewritten[] = $this->projectSourceClassSelector($this->projectImageLinkIdentitySelector($selector, $context), $context);
+                    $rewritten[] = $this->rewriteSourceTagTypes($this->projectImageLinkIdentitySelector($selector, $context), $parsed, $context);
                 } else {
                     array_push($rewritten, ...$projectedControls);
                 }
@@ -1628,7 +1677,7 @@ final class AuthorStylesheetProjector
             if (array() === $otherSubjects) continue;
             $matches = $otherSubjects;
 
-            $attributeAncestryProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $matches, $context);
+            $attributeAncestryProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $matches, $context, $controlWrapper);
             if ( null !== $attributeAncestryProjection ) {
                 array_push($rewritten, ...$attributeAncestryProjection);
                 continue;
@@ -2242,7 +2291,7 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
-    private function projectSourceAttributeAncestrySelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?array
+    private function projectSourceAttributeAncestrySelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): ?array
     {
         if (SourceAttributeSubjects::retainsDataPredicates($parsed, $context->authorStyles)) return null;
         $rightmost = $parsed['rightmost_compound_span'] ?? null;
@@ -2297,6 +2346,11 @@ final class AuthorStylesheetProjector
             }
             $shims = $this->selectorSpecificityShims($parsed, $context);
             if ( '' !== $context->selectorProjections->controlMarker($element->getNodePath() ?? '') ) {
+                if ( $controlWrapper && LayoutParticipation::BOX_LINK !== LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox() ) {
+                    // Outer box spacing belongs to the layout item, not its link.
+                    $projected[] = $scope . ':where(' . $target . ')' . $shims . ':where(.wp-block-buttons)';
+                    continue;
+                }
                 // A source control converted to core/button carries its marker on
                 // the generated core/buttons wrapper, and on core/button when that
                 // block is built from the control itself. The authored surface is
@@ -2372,7 +2426,7 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, string> $declarations */
-    private function projectAuthorImageSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, string $tagName = 'img', array $declarations = array()): string
+    private function projectAuthorImageSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, string $tagName = 'img', array $declarations = array(), bool $flexBox = false): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors ) {
@@ -2385,7 +2439,7 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
-            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && ('svg' !== $tagName || $this->isProjectableFillSvg($element, $declarations))));
+            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && ('svg' !== $tagName || ($flexBox && $this->styleResolver->imageIsFlexOrGridItem($element)) || $this->isProjectableFillSvg($element, $declarations))));
             if ( array() === $imageMatches ) {
                 continue;
             }
@@ -2593,12 +2647,15 @@ final class AuthorStylesheetProjector
      */
     private function flexItemImageBoxRule(string $prelude, string $imagePrelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
-        if ( ! $this->selectsFlexItemImage($prelude, $context) ) {
+        if ( '' === $imagePrelude || ! $this->selectsFlexItemImage($prelude, $context) ) {
             return '';
         }
         $box = array();
-        foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'align-self', 'justify-self' ) as $property ) {
-            $value = trim((string) ($declarations[$property] ?? ''));
+        foreach ( $declarations as $property => $declaration ) {
+            if ( ! NativeImageLeafPresentation::isBoxProperty($property) ) {
+                continue;
+            }
+            $value = trim($declaration);
             if ( '' !== $value && 1 !== preg_match('~[{}<>;]|/\*~', $value) ) {
                 $box[] = $property . ':' . $value;
             }
@@ -2626,7 +2683,7 @@ final class AuthorStylesheetProjector
                 continue;
             }
             foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
-                if ( 'img' === strtolower($element->tagName) && $this->styleResolver->imageIsFlexOrGridItem($element) ) {
+                if ( in_array(strtolower($element->tagName), array( 'img', 'svg' ), true) && $this->styleResolver->imageIsFlexOrGridItem($element) ) {
                     return true;
                 }
             }
@@ -2663,7 +2720,7 @@ final class AuthorStylesheetProjector
      */
     private function rewriteSourceTagTypes(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, string $rightmostInsertion = '', array $replacements = array()): string
     {
-        foreach ( $parsed['type_spans'] as $typeSpan ) {
+        foreach ( array_merge($parsed['type_spans'], CssSelectorMatcher::functionalTypeSpans($selector)) as $typeSpan ) {
             // A caller that already replaced the compound holding this type has
             // decided where that type goes; the marker must not take it back.
             foreach ( $replacements as $replacementStart => $replacement ) {

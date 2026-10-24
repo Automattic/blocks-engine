@@ -281,6 +281,18 @@ final class AuthorSelectorSemanticPreparer
     {
         foreach ( $authorSelectors as $authorSelector ) {
             $parsed = $authorSelector['parsed'];
+            // Current-route paint is projected onto Core's runtime item. A
+            // captured attribute marker would become part of the anchor's
+            // identity before navigation lowering can publish its subjects.
+            if ($projections->selectsCurrentNavigationState($authorSelector['selector'])) {
+                $matches = $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $parsed);
+                $navigationOnly = array() !== $matches;
+                foreach ($matches as $element) {
+                    $navigationOnly = $navigationOnly && 'a' === strtolower($element->tagName)
+                        && $this->ancestorElement($element, 'li') instanceof DOMElement;
+                }
+                if ($navigationOnly) continue;
+            }
             // Attribute-carrying native hosts and document roots remain live
             // source subjects; a captured-state marker would freeze their CSS.
             if (SourceAttributeSubjects::retainsDataPredicates($parsed, $authorStyles)) continue;

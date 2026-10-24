@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Closure;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
@@ -236,7 +237,13 @@ final class AuthorSelectorProjectionState
         if (1 === preg_match('/\[\s*aria-current\b/i', $selector)) return true;
         preg_match_all('/\.((?:\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
         foreach ($classes[1] as $class) {
-            if (isset($this->currentNavigationClasses[stripslashes($class)])) return true;
+            // Recognize class-only router state before a captured current item
+            // has been visited. Otherwise its conditional paint alone creates
+            // a source subject marker that none of its resting peers receives.
+            // A container named current-menu is not an item-state signal.
+            if (isset($this->currentNavigationClasses[stripslashes($class)])
+                || (MenuVocabulary::containsCurrentStateToken(stripslashes($class))
+                    && (!MenuVocabulary::containsMenuToken(stripslashes($class)) || str_contains($class, 'item')))) return true;
         }
         return false;
     }
@@ -249,7 +256,14 @@ final class AuthorSelectorProjectionState
      */
     public static function currentNavigationSubject(string $subject): string
     {
-        return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:has(.wp-block-navigation-item__content[aria-current])', $subject, 1);
+        // The captured item's marker is not a runtime constraint: another
+        // item must receive this paint when Core renders another route.
+        // Source boxes restored around the anchor are not necessarily direct
+        // children of the LI, so target Core's current anchor as a descendant.
+        if (str_contains($subject, '.wp-block-navigation-item__content')) {
+            return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item .wp-block-navigation-item__content[aria-current="page"]', $subject, 1);
+        }
+        return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:has(.wp-block-navigation-item__content[aria-current="page"])', $subject, 1);
     }
 
     /** @var array<string,string> Source anchor paths whose identity belongs to Core's rendered a, not li. */

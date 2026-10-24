@@ -112,9 +112,11 @@ final class NavigationToggleSuppressor
                 // A visible in-flow menu with the same destinations already owns
                 // the overlay. Projecting a non-dialog collapsed copy onto a
                 // CSS glyph toggle would emit a second navigation in the toggle's
-                // slot. Dialog and hash-anchor overlays still occupy the control.
+                // slot. Out-of-flow panels cannot host an in-row opener, so
+                // they, dialogs and hash-anchor overlays still occupy the control.
                 if ( ! $isDialogProjection
                     && ! $this->isProjectableHashAnchorMenuToggle($control)
+                    && ! $this->isOutOfFlowNavigationPanel($relationship['target'])
                     && $this->hasEquivalentSourceNavigationVariant($relationship['navigation']) ) {
                     continue;
                 }
@@ -124,6 +126,33 @@ final class NavigationToggleSuppressor
                 $this->recordProjectedNavigationRelationship($control, $relationship['target'], $relationship['navigation']);
             }
         }
+    }
+
+    /** A collapsed panel cannot host the replacement opener in the header row. */
+    private function isOutOfFlowNavigationPanel(DOMElement $target): bool
+    {
+        $declarations = $this->styleResolver->collapsedViewportAuthorDeclarations($target, array('position'));
+        $position = strtolower(CssValueInspector::withoutImportant(trim((string) ($declarations['position'] ?? ''))));
+
+        return in_array($position, array('absolute', 'fixed'), true);
+    }
+
+    /** Responsive clipping belongs to the collapsed cascade, not the resting one. */
+    private function isCollapsedOutOfFlowPanel(DOMElement $target): bool
+    {
+        if ( $this->isSemanticDialog($target) || ! $this->isOutOfFlowNavigationPanel($target) ) {
+            return false;
+        }
+        $declarations = $this->styleResolver->collapsedViewportAuthorDeclarations($target, array('visibility', 'max-height'));
+        foreach ( $declarations as $property => $value ) {
+            $value = strtolower(CssValueInspector::withoutImportant(trim($value)));
+            if ( ('visibility' === $property && 'hidden' === $value)
+                || ('max-height' === $property && in_array($value, array('0', '0px'), true)) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function recordProjectedNavigationRelationship(DOMElement $control, DOMElement $target, DOMElement $navigation): void
@@ -201,7 +230,9 @@ final class NavigationToggleSuppressor
             $dialogCandidates = array();
             $navigationCandidates = array();
             foreach ( $scope->getElementsByTagName('*') as $candidate ) {
-                if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($control) ) {
+                // A desktop-hidden mobile row can contain both the opener
+                // and panel; it is their layout owner, never the panel itself.
+                if ( ! $candidate instanceof DOMElement || SourceDom::elementContains($candidate, $control) ) {
                     continue;
                 }
 
@@ -315,7 +346,7 @@ final class NavigationToggleSuppressor
 
     private function hiddenNavigationInControlledTarget(DOMElement $target): ?DOMElement
     {
-        if ( ! $this->sourceElementIsHidden($target) ) {
+        if ( ! $this->sourceElementIsHidden($target) && ! $this->isCollapsedOutOfFlowPanel($target) ) {
             return null;
         }
 
@@ -1606,8 +1637,9 @@ final class NavigationToggleSuppressor
      * ancestor that also holds the toggle (a wrapper that holds both cannot
      * be what collapses one behind the other); the menu reads hidden at a
      * width when every link has some element on its path set to `none`. The
-     * toggle side is the path from the toggle up to the first ancestor that
-     * holds a menu link. Every width those queries name is a candidate, and
+     * toggle side includes its ancestors up to the document body: a shared
+     * mobile-layout wrapper can hide both the toggle and its closed panel
+     * above the source breakpoint. Every width those queries name is a candidate, and
      * the boundary is the widest candidate at which the menu reads hidden
      * while it reads visible one pixel wider. When the menu's `display` never
      * switches (a panel hidden by a transform, a clip or an off-canvas
@@ -1659,15 +1691,11 @@ final class NavigationToggleSuppressor
         foreach ( $menuLinks as $link ) {
             $menuPaths[] = $pathAbove($link, static fn (DOMElement $node): bool => SourceDom::elementContains($node, $toggle) || $node->isSameNode($toggle));
         }
-        $togglePath = $pathAbove($toggle, static function (DOMElement $node) use ($menuLinks): bool {
-            foreach ( $menuLinks as $link ) {
-                if ( SourceDom::elementContains($node, $link) || $node->isSameNode($link) ) {
-                    return true;
-                }
-            }
-
-            return false;
-        });
+        // Unlike the menu path, the fallback tests the opener's effective
+        // visibility, including a shared responsive layout wrapper. Do not
+        // add that wrapper to the menu paths: hiding both is not evidence
+        // that an inline menu collapses behind its toggle.
+        $togglePath = $pathAbove($toggle, static fn (DOMElement $node): bool => false);
 
         $candidates = array();
         foreach ( array_merge(array_merge(array(), ...$menuPaths), $togglePath) as $element ) {

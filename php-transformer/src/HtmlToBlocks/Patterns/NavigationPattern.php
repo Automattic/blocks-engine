@@ -1176,6 +1176,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function withResponsiveOverlayMarker(array $attrs, DOMElement $element, ?NavigationPatternContext $navigationContext): array
     {
         $marker = $navigationContext?->responsiveOverlayMarker($element) ?? '';
+        $attrs = array_replace_recursive($attrs, $navigationContext?->responsiveOverlayAttributes($element) ?? array());
 
         return '' === $marker ? $attrs : $this->withClassName($attrs, $marker);
     }
@@ -2741,6 +2742,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ($isCurrentNavigationItem) foreach ($boxes as $index => $box) $boxes[$index]['className'] = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $box['className']))['className'] ?? '');
             if (array() !== $boxes) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['boxes'] = $boxes;
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' ' . $navigationContext->navigationItemSubjectMarker($item));
+        }
+        if ( $submenuContainer instanceof DOMElement ) {
+            $itemAttrs = $this->withClassName($itemAttrs, $navigationContext?->submenuIconGeometryMarker($item, $anchor, $submenuContainer) ?? '');
         }
         $submenuAttrs = $submenuContainer instanceof DOMElement ? $this->withoutCoreNavigationClasses($presentationAttributes($submenuContainer)) : array();
         $sourceAnchor = '' === $subjectMarker ? trim($anchor->getAttribute('id')) : '';

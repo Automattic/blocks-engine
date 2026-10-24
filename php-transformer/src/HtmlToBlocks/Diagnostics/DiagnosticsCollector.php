@@ -93,6 +93,7 @@ final class DiagnosticsCollector
                     'products'                        => $fallback['products'] ?? null,
                     'controls'                        => $fallback['controls'] ?? null,
                     'form'                            => $fallback['form'] ?? null,
+                    'form_intent'                     => $fallback['form_intent'] ?? null,
                     // The same finding as its fallback row: a consumer
                     // reconciling the diagnostic needs the producer identity.
                     'fallback_identity'               => $fallback['fallback_identity'] ?? null,

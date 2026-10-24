@@ -115,6 +115,67 @@ final class CssSelectorMatcher
         );
     }
 
+    /**
+     * Type tokens inside selector-taking functions, measured against the source.
+     * Keep these separate from type_spans: its consumers use outer compound
+     * indexes to identify the selector's subject. This lexical walk also works
+     * for :has() and relative selectors outside the static matcher's subset.
+     *
+     * @return list<array{start:int,end:int,name:string}>
+     */
+    public static function functionalTypeSpans(string $selector): array
+    {
+        $spans = array();
+        $state = CssSyntaxScanner::state();
+        $length = strlen($selector);
+        for ( $offset = 0; $offset < $length; ) {
+            if ( ':' === $selector[$offset] && CssSyntaxScanner::isTopLevel($state) ) {
+                $nameEnd = $offset + 1;
+                $name = self::identifier($selector, $nameEnd);
+                if ( null !== $name && '(' === ($selector[$nameEnd] ?? '') ) {
+                    $closing = self::matchingParenthesis($selector, $nameEnd);
+                    if ( null === $closing ) {
+                        break;
+                    }
+                    if ( in_array(strtolower($name), array( 'not', 'is', 'where', 'has' ), true) ) {
+                        $argument = substr($selector, $nameEnd + 1, $closing - $nameEnd - 1);
+                        $alternatives = CssStylesheetTransformer::splitSelectorList($argument) ?? array();
+                        $cursor = 0;
+                        foreach ( $alternatives as $alternative ) {
+                            $start = strpos($argument, $alternative, $cursor);
+                            if ( false === $start ) {
+                                continue;
+                            }
+                            $cursor = $start + strlen($alternative);
+                            $base = $nameEnd + 1 + $start;
+                            // Blank a relative combinator without changing byte offsets.
+                            $relative = preg_replace('/^(\s*)[>+~]/', '$1 ', $alternative);
+                            $tokens = CssSelectorTokenizer::tokenize($relative);
+                            foreach ( $tokens['compound_spans'] as $compoundSpan ) {
+                                $typeStart = $compoundSpan['start'];
+                                self::skipIgnorable($relative, $typeStart);
+                                $typeEnd = $typeStart;
+                                $type = self::identifier($relative, $typeEnd);
+                                if ( null !== $type ) {
+                                    $spans[] = array( 'start' => $base + $typeStart, 'end' => $base + $typeEnd, 'name' => $type );
+                                }
+                            }
+                            foreach ( self::functionalTypeSpans($alternative) as $span ) {
+                                $span['start'] += $base;
+                                $span['end'] += $base;
+                                $spans[] = $span;
+                            }
+                        }
+                    }
+                    $offset = $closing + 1;
+                    continue;
+                }
+            }
+            $offset = CssSyntaxScanner::consume($selector, $offset, $state) ?? ($offset + 1);
+        }
+        return $spans;
+    }
+
     /** @param array<string, mixed> $selector */
     public static function specificity(array $selector): int
     {

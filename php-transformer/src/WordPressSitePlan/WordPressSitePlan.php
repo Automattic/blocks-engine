@@ -1601,6 +1601,14 @@ PHP;
         return false;
     }
 
+    /** Projected native menu state survives even when no captured item is current. */
+    private static function selectorTargetsRuntimeNavigationState(string $selector): bool
+    {
+        $positive = self::positiveSelector($selector);
+        return 1 === preg_match('/\\.wp-block-navigation(?![\\w-])/', $positive)
+            && 1 === preg_match('/\\[\\s*aria-current\\b|\\.current-menu-item(?![\\w-])/', $positive);
+    }
+
     /**
      * Compile the generated-class test once per projection. Every selector of
      * the site stylesheet is checked against every shared-part class, so one
@@ -1957,18 +1965,25 @@ PHP;
         $context = array('class' => array(), 'id' => array());
         $detachedRoots = array();
         $chromeElements = array();
+        $hasSharedNavigation = false;
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
             // A one-page inline part still lives under its authored page layout.
             // Its ancestor-scoped rules belong to that page, not global chrome.
             if ('inline_shared_shell' === ($part['placement']['kind'] ?? '') && 1 === count($part['placement']['source_paths'] ?? array())) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
+            $hasSharedNavigation = $hasSharedNavigation || 1 === preg_match('/<!--\s*wp:navigation(?:\s|\/|-->)/', $markup);
             // A source-tag marker names every element of its tag on every page
             // under any author CSS, not this chrome: a rule reaching it only
             // through such a marker (`p{…}` from one page's own stylesheet)
             // must stay where its stylesheet applies rather than become global.
             // Each page's own type rules already reach the chrome's elements.
             if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) if (!str_starts_with((string) EngineMarker::markerKind($class), 'source-')) $classes[$class] = true;
+            // Geometry carriers are content-addressed instance CSS, not document
+            // markers. Structural shell dedupe can choose a different carrier
+            // from the adopting page's capture; its rules must follow the part
+            // just like generated attribute and semantic marker rules do.
+            if (preg_match_all('/\bbe-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?\b/', $markup, $matches)) foreach ($matches[0] as $class) $classes[$class] = true;
             // The chrome's own authored hooks: rules written for them styled it
             // on every page, so they follow it into the shared part.
             foreach (self::authoredChromeElementHooks($markup) as $element) {
@@ -2014,9 +2029,15 @@ PHP;
             }
         } while ($grown);
         foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
-        if (array() === $classes && array() === $authored['class'] && array() === $authored['id']) return $assets;
+        if (!$hasSharedNavigation && array() === $classes && array() === $authored['class'] && array() === $authored['id']) return $assets;
         $classMatcher = self::generatedClassMatcher($classes);
-        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher) || self::selectorTargetsAuthoredChrome($selector, $authored, $context);
+        // Current state is assigned by core on the served route, not saved in
+        // the shared part. Projected selectors using only native navigation
+        // hooks therefore have no authored/generated class to claim them.
+        // Lift them with the menu rather than the capture's matching leaf.
+        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher)
+            || self::selectorTargetsAuthoredChrome($selector, $authored, $context)
+            || ($hasSharedNavigation && self::selectorTargetsRuntimeNavigationState($selector));
         $reanchor = static fn (string $selector): string => self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots));
 
         $projected = array();
@@ -2080,18 +2101,28 @@ PHP;
             $sharedAsset['_stylesheet_projection_origins'] = array(self::stylesheetProjectionOrigin($asset));
             $asset = self::withRewrittenTextContent($asset, $route);
             $projected[] = $asset;
-            // The target and token are content-addressed, and the scope is global,
-            // so one emission covers every page. Keep it only when relative url()
-            // resolution and the enqueue contract agree. Otherwise the same text
-            // means different bytes once url() resolves, so this projection gets
-            // its own deterministic suffixed target, token and identity.
-            $sharedKey = strtolower((string) $sharedAsset['path']);
-            foreach ($emittedShared[$sharedKey] ?? array() as $emitted) {
-                if ($emitted['content'] === $shared && $emitted['contract'] === self::sharedChromeContract($sharedAsset) && self::sharedChromeOriginsAgree($shared, $emitted['origin'], (string) $sharedAsset['reference_origin'], $references)) {
-                    $projected[$emitted['index']]['_stylesheet_projection_origins'][] = self::stylesheetProjectionOrigin($asset);
-                    continue 2;
+            // Media/target contracts and relative URL resolution must agree:
+            // otherwise the slices cannot share a resource or reference origin.
+            // Consolidate compatible chrome slices at the planning boundary,
+            // before tokens and enqueue instances are consumed. Keep their
+            // existing cascade order; only earlier identical rules are redundant.
+            foreach ($emittedShared as $emissions) {
+                foreach ($emissions as $emitted) {
+                    $index = $emitted['index'];
+                    $existing = $projected[$index];
+                    if ($emitted['contract'] !== self::sharedChromeContract($sharedAsset)
+                        || !self::sharedChromeOriginsAgree($shared, $emitted['origin'], (string) $sharedAsset['reference_origin'], $references)) continue;
+                    $combined = (new CssStylesheetTransformer())->concatenateWithoutRedundantRules(array($existing['content'], $shared));
+                    $existing = self::withRewrittenTextContent($existing, $combined);
+                    $existing['path'] = $existing['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', self::sharedChromeContract($existing) . "\0" . $combined), 0, 16) . '.css';
+                    $existing['token'] = 'asset-' . substr(hash('sha256', $existing['target_path']), 0, 16);
+                    $existing['reconciliation_identity'] = self::identity('asset', $existing['source_path'], $existing['target_path']);
+                    $existing['_stylesheet_projection_origins'][] = self::stylesheetProjectionOrigin($asset);
+                    $projected[$index] = $existing;
+                    continue 3;
                 }
             }
+            $sharedKey = strtolower((string) $sharedAsset['path']);
             if (isset($emittedShared[$sharedKey])) {
                 $collidingTarget = (string) $sharedAsset['target_path'];
                 $sharedAsset['path'] = $sharedAsset['target_path'] = substr($collidingTarget, 0, -strlen('.css')) . '-' . (count($emittedShared[$sharedKey]) + 1) . '.css';
@@ -2099,7 +2130,7 @@ PHP;
                 $sharedAsset['reconciliation_identity'] = self::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
                 $collisions[] = array('source_path' => (string) $sharedAsset['source_path'], 'colliding_source_path' => (string) $projected[$emittedShared[$sharedKey][0]['index']]['source_path'], 'target_path' => $collidingTarget, 'resolved_target_path' => (string) $sharedAsset['target_path']);
             }
-            $emittedShared[$sharedKey][] = array('content' => $shared, 'origin' => (string) $sharedAsset['reference_origin'], 'contract' => self::sharedChromeContract($sharedAsset), 'index' => count($projected));
+            $emittedShared[$sharedKey][] = array('origin' => (string) $sharedAsset['reference_origin'], 'contract' => self::sharedChromeContract($sharedAsset), 'index' => count($projected));
             $projected[] = $sharedAsset;
         }
         return $projected;
@@ -2807,6 +2838,16 @@ PHP;
         }
         return array_keys($linked);
     }
+    /** @param array<int,array<string,string>> $evidence */
+    private static function hasOnlyPublishTimeMeta(array $evidence): bool
+    {
+        if (array() === $evidence) return false;
+        foreach ($evidence as $row) {
+            $source = $row['source'] ?? '';
+            if (!str_starts_with($source, 'meta:') || 'meta:og:url-dated' === $source || !isset($row['publication_timestamp'])) return false;
+        }
+        return true;
+    }
     /** @param mixed $documents @return array<int,array<string,mixed>> */
     private function decideDocuments(mixed $documents): array
     {
@@ -2847,6 +2888,9 @@ PHP;
                 $listings[$parent] = true;
             }
         }
+        $metaOnlyPosts = array();
+        $inferredPostCount = 0;
+        $datedPostCount = 0;
         foreach ($documents as $index => &$document) {
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
             // A collection becomes an archive template only on a route WordPress
@@ -2910,6 +2954,17 @@ PHP;
             $pageEvidence = $pageEvidenceByIndex[$index] ?? array();
             if (array() !== $pageEvidence) $evidence = $pageEvidence;
             $postType = $explicit ?? ((!empty($document['entrypoint']) || array() !== $pageEvidence || array() === $evidence) ? 'page' : 'post');
+            if (null === $explicit && 'post' === $postType) {
+                // Meta-only documents are the ambiguous candidates, not votes
+                // against a dated permalink pattern. Stronger undated posts
+                // do vote against it, even when listing inference drops a date.
+                if (self::hasOnlyPublishTimeMeta($evidenceByIndex[$index])) {
+                    $metaOnlyPosts[] = $index;
+                } else {
+                    ++$inferredPostCount;
+                    if (in_array('route:dated', array_column($evidenceByIndex[$index], 'source'), true)) ++$datedPostCount;
+                }
+            }
             $surface = $this->templateSurface($metadata['template_surface'] ?? null, (string) ($document['source_path'] ?? ''));
             if (null !== $surface) {
                 $document['template_surface'] = $surface;
@@ -2927,6 +2982,19 @@ PHP;
             }
         }
         unset($document);
+        // Decide from the complete site's inferred posts, independently of
+        // document order. Declarations and stronger publication evidence are
+        // never overridden by the site's permalink pattern. The dated pattern
+        // must also be the site's dominant post shape: dated posts outnumber
+        // the meta-only candidates, so one dated URL on a `/slug/` blog never
+        // turns its undated posts into pages.
+        if ($datedPostCount > 0 && $datedPostCount === $inferredPostCount && $datedPostCount > count($metaOnlyPosts)) {
+            foreach ($metaOnlyPosts as $index) {
+                $documents[$index]['metadata']['post_type'] = 'page';
+                $documents[$index]['content_decision']['post_type'] = 'page';
+                $documents[$index]['content_decision']['evidence'][] = array('source' => 'site:dated-post-routes');
+            }
+        }
         return $documents;
     }
     /** @return array<string,mixed>|null */
@@ -4936,15 +5004,15 @@ PHP;
             $markup = (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? '');
             // Require the navigation container alongside a link, not merely the
             // link comment text, so the filter is only emitted where core/navigation
-            // actually renders a navigation-link item: a bare "wp:navigation-link"
-            // substring can appear in unrelated JSON/attribute contexts that never
-            // reach render_block_core_navigation_link(). Entity inner markup is
+            // actually renders a native navigation item: bare block-name
+            // substrings can appear in unrelated JSON/attribute contexts that never
+            // reach the core navigation renderers. Entity inner markup is
             // the link list for a referencing navigation block.
-            if (str_contains($markup, 'wp:navigation-link') && (str_contains($markup, 'wp:navigation ') || isset($document['token']))) { $hasNavigationLink = true; break; }
+            if ((str_contains($markup, 'wp:navigation-link') || str_contains($markup, 'wp:navigation-submenu')) && (str_contains($markup, 'wp:navigation ') || isset($document['token']))) { $hasNavigationLink = true; break; }
         }
         if ($hasNavigationLink) {
-            // core/navigation-link is fully dynamic: render_block_core_navigation_link()
-            // ignores saved content and only adds aria-current="page" when its own
+            // Core's navigation-link and navigation-submenu renderers only add
+            // aria-current="page" when their own
             // id/kind match the queried object, which never happens for the "custom"
             // kind links this engine emits. When navigation is inlined per page, the
             // current item is already marked with the blocks-engine-current-navigation-item
@@ -4954,8 +5022,11 @@ PHP;
             // link's own canonical route URL against the page currently being served.
             // Either signal recovers the semantic and the source's/engine's own
             // [aria-current] styling hook at render time.
-            $lines[] = "add_filter( 'render_block_core/navigation-link', static function ( string \$content, array \$block ): string {";
-            $lines[] = "    if ( str_contains( \$content, 'aria-current' ) ) return \$content;";
+            // Both native item blocks use the same URL resolution. A submenu's
+            // descendants can already be current; inspect only its own first anchor.
+            foreach (array('navigation-link', 'navigation-submenu') as $navigationBlock) {
+            $lines[] = "add_filter( 'render_block_core/{$navigationBlock}', static function ( string \$content, array \$block ): string {";
+            $lines[] = "    if ( ! preg_match( '/<a\\b[^>]*>/', \$content, \$anchor ) || str_contains( \$anchor[0], 'aria-current' ) ) return \$content;";
             $lines[] = "    \$current = str_contains( (string) ( \$block['attrs']['className'] ?? '' ), 'blocks-engine-current-navigation-item' );";
             $lines[] = "    if ( ! \$current ) {";
             $lines[] = "        \$url = is_string( \$block['attrs']['url'] ?? null ) ? trim( (string) \$block['attrs']['url'] ) : '';";
@@ -4967,8 +5038,13 @@ PHP;
             $lines[] = "        }";
             $lines[] = "    }";
             $lines[] = "    if ( ! \$current ) return \$content;";
+            if ('navigation-submenu' === $navigationBlock) {
+                // Only the outer item is current, never a descendant or ancestor.
+                $lines[] = "    \$content = preg_replace_callback( '/^<li\\b[^>]*\\bclass=\"([^\"]*)\"/', static function ( array \$match ): string { return in_array( 'current-menu-item', preg_split( '/\\s+/', \$match[1] ), true ) ? \$match[0] : substr( \$match[0], 0, -1 ) . ' current-menu-item\"'; }, \$content, 1 ) ?? \$content;";
+            }
             $lines[] = "    return preg_replace( '/(<a\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^\"]*\")/', '\$1 aria-current=\"page\"', \$content, 1 ) ?? \$content;";
             $lines[] = "}, 10, 2 );";
+            }
         }
         foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
             if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineRuntimeAttributes')) {
@@ -5053,20 +5129,46 @@ PHP;
             $postRoutePaths[$identity] = $path;
             $parent = trim((string) ($page['route']['parent_path'] ?? ''), '/');
             if ('' !== $parent) {
-                $postRouteParents[$parent] = true;
+                $postRouteParents[$parent][] = basename($path);
             }
         }
         ksort($postRoutePaths);
         ksort($postRouteParents);
         if (array() !== $postRoutePaths) {
             $lines[] = '$blocks_engine_post_routes = ' . var_export($postRoutePaths, true) . ';';
+            // WP::parse_request() reads public vars through query_vars; the
+            // rewrite tag below also registers it on \$wp for url_to_postid().
+            $lines[] = "add_filter( 'query_vars', static function ( array \$vars ): array { \$vars[] = 'blocks_engine_post_route'; return array_values( array_unique( \$vars ) ); } );";
+            $lines[] = "\$blocks_engine_resolve_post_route = static function ( array \$vars ) use ( \$blocks_engine_post_routes ): array {";
+            $lines[] = "    if ( ! isset( \$vars['blocks_engine_post_route'] ) ) return \$vars;";
+            $lines[] = "    \$identity = array_search( \$vars['blocks_engine_post_route'], \$blocks_engine_post_routes, true );";
+            // A route outside this inventory is a 404 unless a later resolver
+            // owns it, so the route var stays for that resolver to claim.
+            $lines[] = "    if ( false === \$identity ) return array( 'error' => '404', 'blocks_engine_post_route' => \$vars['blocks_engine_post_route'] );";
+            $lines[] = "    \$ids = get_posts( array( 'post_type' => 'post', 'post_status' => 'publish', 'numberposts' => 1, 'fields' => 'ids', 'meta_key' => '_blocks_engine_reconciliation_identity', 'meta_value' => \$identity ) );";
+            $lines[] = "    return empty( \$ids ) ? array( 'error' => '404' ) : array( 'p' => (int) \$ids[0] );";
+            $lines[] = "};";
+            $lines[] = "add_filter( 'request', \$blocks_engine_resolve_post_route );";
+            // url_to_postid() constructs WP_Query directly, bypassing request.
+            $lines[] = "add_action( 'parse_query', static function ( WP_Query \$query ) use ( \$blocks_engine_resolve_post_route ): void {";
+            // Re-parse only when resolution changes the request, so a route left
+            // as a claimable 404 does not re-enter parse_query indefinitely.
+            $lines[] = "    if ( ! isset( \$query->query['blocks_engine_post_route'] ) ) return;";
+            $lines[] = "    \$resolved = \$blocks_engine_resolve_post_route( \$query->query );";
+            $lines[] = "    if ( \$resolved !== \$query->query ) \$query->parse_query( \$resolved );";
+            $lines[] = "} );";
             $lines[] = "add_action( 'init', static function () use ( \$blocks_engine_post_routes ): void {";
-            foreach (array_keys($postRouteParents) as $parent) {
+            // url_to_postid() matches only \$wp->public_query_vars.
+            $lines[] = "    add_rewrite_tag( '%blocks_engine_post_route%', '(.+)' );";
+            foreach ($postRouteParents as $parent => $slugs) {
+                // Only shipped posts may shadow core's hierarchical page rules.
                 // A numeric parent (`/2019/<slug>/`) is an int key.
-                $pattern = '^' . preg_quote((string) $parent, '/') . '/([^/]+)/?$';
-                $lines[] = "    add_rewrite_rule( " . var_export($pattern, true) . ", 'index.php?name=\$matches[1]', 'top' );";
+                sort($slugs, SORT_STRING);
+                $quotedSlugs = array_map(static fn(string $slug): string => preg_quote($slug, '/'), array_unique($slugs));
+                $pattern = '^(' . preg_quote((string) $parent, '/') . '/(?:' . implode('|', $quotedSlugs) . '))/?$';
+                $lines[] = "    add_rewrite_rule( " . var_export($pattern, true) . ", 'index.php?blocks_engine_post_route=\$matches[1]', 'top' );";
             }
-            $lines[] = "    \$signature = hash( 'sha256', wp_json_encode( \$blocks_engine_post_routes ) );";
+            $lines[] = "    \$signature = hash( 'sha256', 'identity-routes-v2:' . wp_json_encode( \$blocks_engine_post_routes ) );";
             $lines[] = "    if ( \$signature !== get_option( 'blocks_engine_post_route_signature' ) ) {";
             $lines[] = "        update_option( 'blocks_engine_post_route_signature', \$signature );";
             $lines[] = "        flush_rewrite_rules( false );";
@@ -5760,6 +5862,17 @@ PHP;
             }
             $offset = $match[0][1] + strlen($match[0][0]);
         }
+        // Route tokens and relative links retain their existing mapping. Only
+        // absolute item destinations need URL serialization before shell/menu
+        // identity is computed; emission uses these same attributes.
+        $content = preg_replace_callback('/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match): string {
+            $attrs = json_decode($match[1], true);
+            if (!is_array($attrs) || !is_string($attrs['url'] ?? null)) return $match[0];
+            $url = \Automattic\BlocksEngine\PhpTransformer\Support\NavigationUrl::serialize($attrs['url']);
+            if ($url === $attrs['url']) return $match[0];
+            $attrs['url'] = $url;
+            return str_replace($match[1], json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), $match[0]);
+        }, $content) ?? $content;
         $content = $this->unresolvedNavigationLinks($content, $origin, $routes);
         return null === $this->presetBinding ? $content : $this->presetBinding->bind($content);
     }

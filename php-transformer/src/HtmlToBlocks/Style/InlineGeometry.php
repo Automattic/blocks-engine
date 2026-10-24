@@ -352,11 +352,11 @@ final class InlineGeometry
     {
         // The synthetic figure is display:contents. Box spacing and item
         // alignment therefore belong to the rendered image, not its wrapper.
-        $resolved = ($this->structuralPresentationDeclarations)($element);
-        $box = array_filter($resolved, static fn (string $property): bool =>
-            'margin' === $property || str_starts_with($property, 'margin-')
-            || 'padding' === $property || str_starts_with($property, 'padding-')
-            || in_array($property, array( 'align-self', 'justify-self', 'place-self' ), true), ARRAY_FILTER_USE_KEY);
+        // Stylesheet-owned boxes are projected at each rule's cascade position,
+        // including media conditions. Do not freeze their desktop values into
+        // an unconditional important carrier.
+        $resolved = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
+        $box = array_filter($resolved, NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY);
         if ( array() === $box ) {
             return '';
         }

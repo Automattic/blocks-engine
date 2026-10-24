@@ -746,7 +746,7 @@ $assert(
         && ! str_contains($dynamicCurrentCss, $staticCurrentSelector)
         && str_contains((string) ($dynamicCurrentLinks[0]['attrs']['className'] ?? ''), 'blocks-engine-navigation-anchor-')
         && array() !== $dynamicCurrentRules[1]
-        && array() === array_filter($dynamicCurrentRules[1], static fn (string $selector): bool => ! str_contains($selector, '[aria-current]'))
+        && array() === array_filter($dynamicCurrentRules[1], static fn (string $selector): bool => ! str_contains($selector, '[aria-current="page"]'))
         && str_contains($dynamicCurrentCss, '.wp-block-navigation.current-menu'
             . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:hover')
         && str_contains($dynamicCurrentCss, '{color:#00cc44}'),

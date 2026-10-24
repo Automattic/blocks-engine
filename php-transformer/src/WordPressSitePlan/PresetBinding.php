@@ -76,7 +76,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  * - the source renders the property differently under a media condition
  *   (breakpoint or colour scheme), unless every such value matches the same
  *   token;
- * - elements with the block's class list render different values.
+ * - elements with the block's class list render different values, when
+ *   binding a class-driven value or resolving a non-plain literal. A plain
+ *   inline colour is block-local evidence, independent of those observations.
  */
 final class PresetBinding
 {
@@ -624,7 +626,16 @@ final class PresetBinding
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
             $added = array($flagClass, sprintf($presetClass, '%s'));
-            $slug = $this->presetSlug('color', $literal, $observed[$observedProperty] ?? null, $reason);
+            $observation = $observed[$observedProperty] ?? null;
+            if (is_string($literal) && null !== CssColor::parse($literal)) {
+                // A plain inline colour belongs to this block, not every
+                // element sharing its author classes. Ordinary breakpoint
+                // rules cannot override it. safe() still checks all reachable
+                // !important, state and style-text rules; removeDeclaration()
+                // below proves that the literal really is serialized inline.
+                $observation = null;
+            }
+            $slug = $this->presetSlug('color', $literal, $observation, $reason);
             $safe = null !== $slug && $this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason);
             if (!$safe && is_string($literal) && ($this->rendersThroughClass($name, $property, $literal, $tokens) || ('state_variant' === $reason && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)))) {
                 // A preset class would mask the hover colour; the button

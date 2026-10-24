@@ -164,6 +164,18 @@ final class FallbackEmitter
 
         // Sanitize the subtree markup that becomes the editable, server-rendered
         // content. Nothing to carry => keep the existing fallback behavior.
+        // Styled custom-element hosts are part of the component's render
+        // contract: dropping them breaks host-scoped selectors and inline paint.
+        // Decide before serialization so content-sensitive identity and naming
+        // use the same projected root as an explicit preserveRoot request.
+        if (str_contains($element->tagName, '-')) {
+            foreach (array('class', 'id', 'style') as $attribute) {
+                if ('' !== trim($element->getAttribute($attribute))) {
+                    $preserveRoot = true;
+                    break;
+                }
+            }
+        }
         $projected = $this->sourceTagProjectedClone($element);
         $content = $this->sanitizeHtmlString(
             $projected instanceof DOMElement

@@ -343,6 +343,63 @@ final class NavigationPatternContext
         return $marker;
     }
 
+    /**
+     * Carry a replaced disclosure glyph's own box, not the label or panel box.
+     * Only a unique SVG outside the link and submenu is an unambiguous trigger.
+     */
+    public function submenuIconGeometryMarker(DOMElement $item, DOMElement $anchor, DOMElement $submenu): string
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver || ! $this->session instanceof HtmlTransformerSession ) return '';
+        $candidates = array();
+        foreach ( $item->getElementsByTagName('svg') as $svg ) {
+            $excluded = false;
+            for ( $node = $svg; $node instanceof DOMElement; $node = $node->parentNode ) {
+                if ( $node->isSameNode($anchor) || $node->isSameNode($submenu) ) $excluded = true;
+                if ( $node->isSameNode($item) ) break;
+            }
+            if ( ! $excluded ) $candidates[] = $svg;
+        }
+        if ( 1 !== count($candidates) ) return '';
+        $svg = $candidates[0];
+        $container = $svg->parentNode;
+        if ( ! $container instanceof DOMElement || $container->isSameNode($item) || $container->isSameNode($anchor->parentNode) ) return '';
+
+        $properties = array('margin', 'padding', 'border', 'border-width', 'width', 'height', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width', 'box-sizing');
+        $box = $this->styleResolver->referenceViewportAuthorDeclarations($container, $properties);
+        $glyph = $this->styleResolver->referenceViewportAuthorDeclarations($svg, $properties);
+        // CSS dimensions override the SVG's presentational width/height hints.
+        foreach ( array('width', 'height') as $dimension ) {
+            if ( ! isset($glyph[$dimension]) ) $glyph[$dimension] = $svg->getAttribute($dimension) . 'px';
+        }
+        $safe = static function (array $values) use ($properties): array {
+            $result = array();
+            foreach ( $properties as $property ) {
+                $value = trim((string) ($values[$property] ?? ''));
+                if ( 'border' === $property && 1 === preg_match('/^(0|[0-9]*\\.?[0-9]+px)\\s+solid\\s+(?:transparent|#0000)$/D', $value, $border) ) {
+                    $result[$property] = $border[1] . ' solid transparent';
+                } elseif ( 1 === preg_match('/^(?:(?:0|[0-9]*\\.?[0-9]+px)(?:\\s+(?:0|[0-9]*\\.?[0-9]+px)){0,3}|auto|border-box|content-box)$/D', $value) ) {
+                    $result[$property] = $value;
+                }
+            }
+            return $result;
+        };
+        $box = $safe($box);
+        $glyph = $safe($glyph);
+        if ( ! isset($glyph['width'], $glyph['height']) || array() === $box ) return '';
+        $serialize = static function (array $values): string {
+            $css = '';
+            foreach ( $values as $property => $value ) $css .= $property . ':' . $value . ';';
+            return $css;
+        };
+        // Auto sizing lets the source glyph margins and container border form
+        // an intrinsic box when the author did not specify an explicit width.
+        $box = array_merge(array('width' => 'auto', 'height' => 'auto', 'margin' => '0', 'padding' => '0', 'border' => '0 solid transparent', 'box-sizing' => 'content-box', 'flex-shrink' => '0', 'display' => 'flex', 'align-items' => 'center', 'justify-content' => 'center'), $box);
+        $glyph = array_merge(array('margin' => '0', 'padding' => '0', 'flex-shrink' => '0'), $glyph);
+        $marker = 'blocks-engine-submenu-icon-' . substr(hash('sha256', $serialize($box) . $serialize($glyph)), 0, 16);
+        $this->session->generatedSupportStylesheetState()->registerNavigationSubmenuIconGeometry($marker, $serialize($box), $serialize($glyph));
+        return $marker;
+    }
+
     /** @var array<string, array{marker: string, target: string, source?: string}> */
     private array $pendingNavigationSubjects = array();
 
@@ -487,8 +544,8 @@ final class NavigationPatternContext
             if ($sibling instanceof DOMElement) ++$position;
         }
         $projections = $this->session->authorSelectorProjectionState();
-        $classes = array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class));
-        $identity = array(strtolower($element->tagName), $element->getAttribute('id'), implode(' ', $classes), $element->getAttribute('style'), $element->getAttribute('href'), $position, $rules);
+        $classes = array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class) && !$projections->selectsCurrentNavigationState('.' . $class));
+        $identity = array(strtolower($element->tagName), $element->getAttribute('id'), implode(' ', $classes), $element->getAttribute('style'), \Automattic\BlocksEngine\PhpTransformer\Support\NavigationUrl::serialize($element->getAttribute('href')), $position, $rules);
         return $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-' . $kind, (string) json_encode($identity));
     }
 
@@ -720,6 +777,12 @@ final class NavigationPatternContext
     public function responsiveToggleMarker(DOMElement $element): string
     {
         return $this->projectedNavigation?->responsiveNavigationToggleMarker($element) ?? '';
+    }
+
+    /** @return array<string, mixed> */
+    public function responsiveOverlayAttributes(DOMElement $element): array
+    {
+        return $this->projectedNavigation?->responsiveNavigationOverlayAttributes($element) ?? array();
     }
 
     public function responsiveOverlayMarker(DOMElement $element): string
