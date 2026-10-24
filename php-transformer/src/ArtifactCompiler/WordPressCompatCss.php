@@ -231,7 +231,7 @@ final class WordPressCompatCss
             '/(\.wp-block-navigation-item(?:__content)?)(?![\w-])((?:\.[A-Za-z_][\w-]*|\[[^\]]*\])*)/',
             static function (array $match): string {
                 $served = '.wp-block-navigation-item' === $match[1]
-                    ? ':has(> .wp-block-navigation-item__content[aria-current])'
+                    ? ':has(.wp-block-navigation-item__content[aria-current="page"])'
                     : '[aria-current]';
                 $tail = (string) preg_replace_callback(
                     '/\.([A-Za-z_][\w-]*)/',
@@ -456,7 +456,7 @@ final class WordPressCompatCss
             && MenuVocabulary::containsCurrentStateToken($state[1][0])) {
             $offset = $state[0][1];
             return array(substr($selector, 0, $offset)
-                . '.wp-block-navigation-item > .wp-block-navigation-item__content[aria-current="page"]'
+                . '.wp-block-navigation-item .wp-block-navigation-item__content[aria-current="page"]'
                 . substr($selector, $offset + strlen($state[0][0])));
         }
         if ( ! preg_match('/(^|[\s>+~])a(?=$|[\s:.#\[])/', $selector, $anchorMatch, PREG_OFFSET_CAPTURE) ) {

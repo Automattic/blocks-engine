@@ -258,10 +258,12 @@ final class AuthorSelectorProjectionState
     {
         // The captured item's marker is not a runtime constraint: another
         // item must receive this paint when Core renders another route.
+        // Source boxes restored around the anchor are not necessarily direct
+        // children of the LI, so target Core's current anchor as a descendant.
         if (str_contains($subject, '.wp-block-navigation-item__content')) {
-            return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item:has(>.wp-block-navigation-item__content[aria-current]) > .wp-block-navigation-item__content', $subject, 1);
+            return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item .wp-block-navigation-item__content[aria-current="page"]', $subject, 1);
         }
-        return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:has(.wp-block-navigation-item__content[aria-current])', $subject, 1);
+        return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:has(.wp-block-navigation-item__content[aria-current="page"])', $subject, 1);
     }
 
     /** @var array<string,string> Source anchor paths whose identity belongs to Core's rendered a, not li. */
