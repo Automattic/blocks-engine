@@ -1628,7 +1628,7 @@ final class AuthorStylesheetProjector
             if ( ! $parsed['supported'] ) {
                 $projectedControls = $this->projectUnsupportedFunctionalControlSelector($selector, $context, $controlWrapper);
                 if ( array() === $projectedControls ) {
-                    $rewritten[] = $this->projectSourceClassSelector($this->projectImageLinkIdentitySelector($selector, $context), $context);
+                    $rewritten[] = $this->rewriteSourceTagTypes($this->projectImageLinkIdentitySelector($selector, $context), $parsed, $context);
                 } else {
                     array_push($rewritten, ...$projectedControls);
                 }
@@ -2720,7 +2720,7 @@ final class AuthorStylesheetProjector
      */
     private function rewriteSourceTagTypes(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, string $rightmostInsertion = '', array $replacements = array()): string
     {
-        foreach ( $parsed['type_spans'] as $typeSpan ) {
+        foreach ( array_merge($parsed['type_spans'], CssSelectorMatcher::functionalTypeSpans($selector)) as $typeSpan ) {
             // A caller that already replaced the compound holding this type has
             // decided where that type goes; the marker must not take it back.
             foreach ( $replacements as $replacementStart => $replacement ) {
