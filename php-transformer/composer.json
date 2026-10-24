@@ -349,6 +349,7 @@
       "php tests/unit/navigation-opener-presentation.php",
       "php tests/unit/navigation-overlay-source-breakpoint.php",
       "php tests/unit/navigation-toggle-recognition-memo.php",
+      "php tests/unit/collapsed-viewport-declaring-rules.php",
       "php tests/unit/projected-branch-compression.php",
       "php tests/unit/core-block-capability-matrix.php",
       "php tests/unit/core-block-snapshot-validity.php",
