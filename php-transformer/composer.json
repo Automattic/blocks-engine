@@ -76,6 +76,7 @@
     ],
     "test:canonical": [
       "php tests/contract/navigation-current-item-shared-menu.php",
+      "php tests/contract/navigation-equivalent-url-shared-menu.php",
       "php tests/contract/preset-binding-exact-palette-literal.php",
       "php tests/contract/post-route-rewrites-spare-pages.php",
       "php tests/contract/menu-toggle-without-core-navigation.php",
