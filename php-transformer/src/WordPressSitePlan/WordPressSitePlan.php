@@ -1582,6 +1582,14 @@ PHP;
         return false;
     }
 
+    /** Projected native menu state survives even when no captured item is current. */
+    private static function selectorTargetsRuntimeNavigationState(string $selector): bool
+    {
+        $positive = self::positiveSelector($selector);
+        return 1 === preg_match('/\\.wp-block-navigation(?![\\w-])/', $positive)
+            && 1 === preg_match('/\\[\\s*aria-current\\b|\\.current-menu-item(?![\\w-])/', $positive);
+    }
+
     /**
      * Compile the generated-class test once per projection. Every selector of
      * the site stylesheet is checked against every shared-part class, so one
@@ -1938,12 +1946,14 @@ PHP;
         $context = array('class' => array(), 'id' => array());
         $detachedRoots = array();
         $chromeElements = array();
+        $hasSharedNavigation = false;
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
             // A one-page inline part still lives under its authored page layout.
             // Its ancestor-scoped rules belong to that page, not global chrome.
             if ('inline_shared_shell' === ($part['placement']['kind'] ?? '') && 1 === count($part['placement']['source_paths'] ?? array())) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
+            $hasSharedNavigation = $hasSharedNavigation || 1 === preg_match('/<!--\s*wp:navigation(?:\s|\/|-->)/', $markup);
             // A source-tag marker names every element of its tag on every page
             // under any author CSS, not this chrome: a rule reaching it only
             // through such a marker (`p{…}` from one page's own stylesheet)
@@ -2000,9 +2010,15 @@ PHP;
             }
         } while ($grown);
         foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
-        if (array() === $classes && array() === $authored['class'] && array() === $authored['id']) return $assets;
+        if (!$hasSharedNavigation && array() === $classes && array() === $authored['class'] && array() === $authored['id']) return $assets;
         $classMatcher = self::generatedClassMatcher($classes);
-        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher) || self::selectorTargetsAuthoredChrome($selector, $authored, $context);
+        // Current state is assigned by core on the served route, not saved in
+        // the shared part. Projected selectors using only native navigation
+        // hooks therefore have no authored/generated class to claim them.
+        // Lift them with the menu rather than the capture's matching leaf.
+        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher)
+            || self::selectorTargetsAuthoredChrome($selector, $authored, $context)
+            || ($hasSharedNavigation && self::selectorTargetsRuntimeNavigationState($selector));
         $reanchor = static fn (string $selector): string => self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots));
 
         $projected = array();
