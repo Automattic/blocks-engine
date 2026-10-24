@@ -1950,6 +1950,11 @@ PHP;
             // must stay where its stylesheet applies rather than become global.
             // Each page's own type rules already reach the chrome's elements.
             if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) if (!str_starts_with((string) EngineMarker::markerKind($class), 'source-')) $classes[$class] = true;
+            // Geometry carriers are content-addressed instance CSS, not document
+            // markers. Structural shell dedupe can choose a different carrier
+            // from the adopting page's capture; its rules must follow the part
+            // just like generated attribute and semantic marker rules do.
+            if (preg_match_all('/\bbe-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?\b/', $markup, $matches)) foreach ($matches[0] as $class) $classes[$class] = true;
             // The chrome's own authored hooks: rules written for them styled it
             // on every page, so they follow it into the shared part.
             foreach (self::authoredChromeElementHooks($markup) as $element) {
