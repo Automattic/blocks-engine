@@ -915,12 +915,94 @@ final class ShellExtraction
     }
 
     /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
-    public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), bool $partitionTypes = true): array
+    public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), bool $partitionTypes = true, bool $partitionHeaders = true): array
     {
         $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
         $parts = array(); $diagnostics = array(); $unremovable = array();
         $areas = array('footer', 'header');
         while (null !== ($area = array_shift($areas))) {
+            // A multilingual capture has independent shell populations. A
+            // dominant language must not leave every other language's header
+            // inline, nor supply its menu as their template fallback.
+            $languages = array();
+            foreach ($pages as $index => $page) {
+                if (!empty($page['synthetic'])) continue;
+                $language = strtolower((string) ($page['document_metadata']['root_attributes']['lang'] ?? ''));
+                $languages[$language][] = $index;
+            }
+            if ($partitionHeaders && 'header' === $area && count($languages) > 1 && !isset($languages['']) && !isset($reservedSlugs[$area])) {
+                // Document language is not shell identity: translated posts
+                // can still carry the original header. Join them to the pages
+                // with that header, not to a different locale's fallback.
+                $populations = array();
+                $entryIdentity = null;
+                foreach ($pages as $index => $page) {
+                    if (!empty($page['synthetic'])) continue;
+                    $headers = array_values(array_filter($page['shell_candidates'] ?? array(), static fn(array $candidate): bool => 'header' === $candidate['area']));
+                    if (1 !== count($headers)) continue;
+                    $identity = hash('sha256', $headers[0]['identity_markup'] ?? $headers[0]['markup']);
+                    $populations[$identity][] = $index;
+                    if (!empty($page['entrypoint'])) $entryIdentity = $identity;
+                }
+                foreach ($populations as $identity => $indexes) {
+                    $language = strtolower((string) ($pages[$indexes[0]]['document_metadata']['root_attributes']['lang'] ?? ''));
+                    $subset = array();
+                    foreach ($indexes as $index) {
+                        $subset[$index] = $pages[$index];
+                        $subset[$index]['shell_candidates'] = array_values(array_filter($pages[$index]['shell_candidates'] ?? array(), static fn(array $candidate): bool => 'header' === $candidate['area']));
+                    }
+                    $populationReserved = $reservedSlugs;
+                    unset($populationReserved['header']);
+                    $resolved = $this->sharedShells($subset, $populationReserved, $runtimeDeclarations, $runtimeEntityRecords, $partitionTypes, false);
+                    $runtimeDeclarations = $resolved['runtime_declarations'];
+                    $adoptedSources = array();
+                    foreach ($resolved['pages'] as $index => $page) {
+                        if ($page['canonical_block_markup'] !== $subset[$index]['canonical_block_markup']) $adoptedSources[] = $page['source_path'];
+                    }
+                    // Language parts are placed at the authored position. This
+                    // avoids installing a locale's shell on unrelated routes.
+                    $renames = array();
+                    foreach ($resolved['parts'] as &$part) {
+                        $old = $part['slug'];
+                        $slug = $old . ($identity === $entryIdentity ? '' : '-' . explode('-', $language)[0]);
+                        for ($suffix = 2; isset($reservedSlugs[$slug]); ++$suffix) $slug = $old . '-' . $language . '-' . $suffix;
+                        $reservedSlugs[$slug] = true;
+                        $renames[$old] = $slug;
+                        $oldSource = $part['source_path'];
+                        $part['slug'] = $slug;
+                        $part['source_path'] = 'wordpress-site-plan/shared/' . $slug . '#header';
+                        $part['placement'] = array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => $adoptedSources);
+                        $part['document_metadata']['source_context']['source_path'] = $part['source_path'];
+                        $part['reconciliation_identity'] = WordPressSitePlan::identity('template-part', $part['source_path'], 'parts/' . $slug . '.html');
+                        foreach ($runtimeDeclarations as &$declaration) {
+                            if (!isset($declaration['payload']['entities'])) continue;
+                            foreach ($declaration['payload']['entities'] as &$entity) {
+                                if (($entity['source_path'] ?? null) === $oldSource) $entity['source_path'] = $part['source_path'];
+                                foreach ($entity['bindings'] ?? array() as $key => $binding) {
+                                    if (($binding['source_path'] ?? null) === $oldSource) $entity['bindings'][$key]['source_path'] = $part['source_path'];
+                                }
+                            }
+                            unset($entity, $declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
+                        }
+                        unset($declaration);
+                    }
+                    unset($part);
+                    foreach ($resolved['pages'] as $index => $page) {
+                        $markup = $page['canonical_block_markup'];
+                        foreach ($renames as $old => $slug) {
+                            $markup = str_replace('"slug":"' . $old . '"', '"slug":"' . $slug . '"', $markup);
+                            if (in_array($page['source_path'], $adoptedSources, true) && !str_contains($markup, '"slug":"' . $slug . '"')) $markup = '<!-- wp:template-part {"slug":"' . $slug . '","tagName":"div"} /-->' . $markup;
+                        }
+                        $page['canonical_block_markup'] = $markup;
+                        $page['content_hash'] = WordPressSitePlan::contentHash($markup);
+                        $pages[$index] = $page;
+                    }
+                    array_push($parts, ...$resolved['parts']);
+                    array_push($diagnostics, ...$resolved['diagnostics']);
+                    $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
+                }
+                continue;
+            }
             $candidates = array(); $clusters = array(); $excluded = array(); $overrides = array();
             $templateSlugs = array(); $excludedTemplateSlugs = array();
             if ('footer' === $area && array_reduce($pages, static fn(bool $found, array $page): bool => $found || (bool) array_filter($page['shell_candidates'] ?? array(), static fn(array $candidate): bool => 'footer' === ($candidate['area'] ?? null) && !empty($candidate['wrapper_contract_shell'])), false)) {
