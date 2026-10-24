@@ -58,10 +58,12 @@ final class FormControlLabel
     }
 
     /**
-     * Markup rendered by a client framework routinely omits both `id` and `for`
-     * and states the association by position alone: one label and one control
-     * inside the same field wrapper. That is the only association the source
-     * makes, so read it instead of reporting the control as unlabelled.
+     * Markup rendered by a client framework routinely states the association
+     * by position alone: one label and one control inside the same field
+     * wrapper, with no `for`, or with a `for` that names no element (matching
+     * is case-sensitive). That is the only association the source makes, so
+     * read it instead of reporting the control as unlabelled. A `for` that
+     * resolves to another element opts the label out.
      */
     private static function fieldWrapperLabel(DOMElement $control): ?DOMElement
     {
@@ -79,8 +81,11 @@ final class FormControlLabel
 
             $labels = array();
             foreach ( $wrapper->getElementsByTagName('label') as $label ) {
-                if ( $label instanceof DOMElement && '' === SourceDom::attr($label, 'for') ) {
-                    $labels[] = $label;
+                if ( $label instanceof DOMElement ) {
+                    $targetId = SourceDom::attr($label, 'for');
+                    if ( '' === $targetId || null === $label->ownerDocument->getElementById($targetId) ) {
+                        $labels[] = $label;
+                    }
                 }
             }
             if ( 1 === count($labels) ) {

@@ -208,22 +208,43 @@ final class FormControlClassifier
     }
 
     /**
-     * A free-text field hidden from assistive technology on itself and removed
-     * from the tab order cannot be reached by a person, so it is a bot trap.
+     * An untabbable free-text field is a trap when aria-hidden on itself, or
+     * invisible and non-interactive on itself or its immediate field container.
      * Choice and select value carriers share those attributes beside their
      * visible widget, so only free-text entry qualifies.
      */
     private static function isUnreachableTextTrap(DOMElement $control): bool
     {
-        if ( 'true' !== strtolower(trim($control->getAttribute('aria-hidden')))
-            || ! is_numeric(trim($control->getAttribute('tabindex')))
+        if ( ! is_numeric(trim($control->getAttribute('tabindex')))
             || 0 <= (int) trim($control->getAttribute('tabindex')) ) {
             return false;
         }
         $tag = strtolower($control->tagName);
 
-        return 'textarea' === $tag || ( 'input' === $tag
-            && in_array(self::controlType($control), array( 'text', 'email', 'url', 'tel', 'search', 'number' ), true) );
+        if ( 'textarea' !== $tag && ( 'input' !== $tag
+            || ! in_array(self::controlType($control), array( 'text', 'email', 'url', 'tel', 'search', 'number' ), true) ) ) {
+            return false;
+        }
+        if ( 'true' === strtolower(trim($control->getAttribute('aria-hidden'))) ) {
+            return true;
+        }
+        foreach ( array( $control, $control->parentNode ) as $element ) {
+            if ( ! $element instanceof DOMElement
+                || in_array(strtolower($element->tagName), array( 'form', 'fieldset', 'body', 'html' ), true) ) {
+                continue;
+            }
+            $declarations = array_column(
+                CssRuleAnalyzer::declarations($element->getAttribute('style'), array( 'opacity', 'pointer-events' )),
+                'value',
+                'name'
+            );
+            if ( '0' === CssValueInspector::comparable((string) ( $declarations['opacity'] ?? '' ))
+                && 'none' === CssValueInspector::comparable((string) ( $declarations['pointer-events'] ?? '' )) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -231,9 +252,9 @@ final class FormControlClassifier
      * the tab order, and hidden or moved off-screen by inline style — all
      * three together on the control itself, or all three together on the label
      * that wraps it. A field carrying only some of the signals stays authored
-     * except for an aria-hidden-plus-untabbable free-text trap, which needs
-     * no style (see `isUnreachableTextTrap()`). Form providers bring their own
-     * spam protection, so a honeypot is left out of form extraction entirely:
+     * except for an untabbable free-text trap that is aria-hidden or carries
+     * invisible, non-interactive inline styling (see `isUnreachableTextTrap()`).
+     * Form providers bring their own spam protection, so a honeypot is left out of form extraction entirely:
      * no field, and no unrepresented label text.
      */
     public static function isHoneypotControl(DOMElement $control): bool
