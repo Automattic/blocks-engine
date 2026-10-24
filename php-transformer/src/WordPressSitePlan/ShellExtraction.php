@@ -921,6 +921,57 @@ final class ShellExtraction
         $parts = array(); $diagnostics = array(); $unremovable = array();
         $areas = array('footer', 'header');
         while (null !== ($area = array_shift($areas))) {
+            // A multilingual capture has independent shell populations. A
+            // dominant language must not leave every other language's header
+            // inline, nor supply its menu as their template fallback.
+            $languages = array();
+            foreach ($pages as $index => $page) {
+                if (!empty($page['synthetic'])) continue;
+                $language = strtolower((string) ($page['document_metadata']['root_attributes']['lang'] ?? ''));
+                $languages[$language][] = $index;
+            }
+            if ('header' === $area && count($languages) > 1 && !isset($languages[''])) {
+                $entryLanguage = array_key_first($languages);
+                foreach ($languages as $language => $indexes) foreach ($indexes as $index) {
+                    if (!empty($pages[$index]['entrypoint'])) $entryLanguage = $language;
+                }
+                foreach ($languages as $language => $indexes) {
+                    $subset = array();
+                    foreach ($indexes as $index) {
+                        $subset[$index] = $pages[$index];
+                        $subset[$index]['shell_candidates'] = array_values(array_filter($pages[$index]['shell_candidates'] ?? array(), static fn(array $candidate): bool => 'header' === $candidate['area']));
+                    }
+                    $resolved = $this->sharedShells($subset, $reservedSlugs, $runtimeDeclarations, $runtimeEntityRecords, $partitionTypes);
+                    // Language parts are placed at the authored position. This
+                    // avoids installing a locale's shell on unrelated routes.
+                    $renames = array();
+                    foreach ($resolved['parts'] as &$part) {
+                        $old = $part['slug'];
+                        $slug = $old . ($language === $entryLanguage ? '' : '-' . explode('-', $language)[0]);
+                        for ($suffix = 2; isset($reservedSlugs[$slug]); ++$suffix) $slug = $old . '-' . $language . '-' . $suffix;
+                        $reservedSlugs[$slug] = true;
+                        $renames[$old] = $slug;
+                        $part['slug'] = $slug;
+                        $part['source_path'] = 'wordpress-site-plan/shared/' . $slug . '#header';
+                        $part['placement'] = array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => array_column($subset, 'source_path'));
+                        $part['document_metadata']['source_context']['source_path'] = $part['source_path'];
+                        $part['reconciliation_identity'] = WordPressSitePlan::identity('template-part', $part['source_path'], 'parts/' . $slug . '.html');
+                    }
+                    unset($part);
+                    foreach ($resolved['pages'] as $index => $page) {
+                        $markup = $page['canonical_block_markup'];
+                        foreach ($renames as $old => $slug) {
+                            $markup = str_replace('"slug":"' . $old . '"', '"slug":"' . $slug . '"', $markup);
+                            if (!str_contains($markup, '"slug":"' . $slug . '"')) $markup = '<!-- wp:template-part {"slug":"' . $slug . '","tagName":"div"} /-->' . $markup;
+                        }
+                        $pages[$index]['canonical_block_markup'] = $markup;
+                        $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
+                    }
+                    array_push($parts, ...$resolved['parts']);
+                    array_push($diagnostics, ...$resolved['diagnostics']);
+                }
+                continue;
+            }
             $candidates = array(); $clusters = array(); $excluded = array(); $overrides = array();
             $templateSlugs = array(); $excludedTemplateSlugs = array();
             if ('footer' === $area && array_reduce($pages, static fn(bool $found, array $page): bool => $found || (bool) array_filter($page['shell_candidates'] ?? array(), static fn(array $candidate): bool => 'footer' === ($candidate['area'] ?? null) && !empty($candidate['wrapper_contract_shell'])), false)) {

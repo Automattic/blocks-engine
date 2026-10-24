@@ -256,6 +256,11 @@ final class AuthorSelectorProjectionState
      */
     public static function currentNavigationSubject(string $subject): string
     {
+        // The captured item's marker is not a runtime constraint: another
+        // item must receive this paint when Core renders another route.
+        if (str_contains($subject, '.wp-block-navigation-item__content')) {
+            return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item:has(>.wp-block-navigation-item__content[aria-current]) > .wp-block-navigation-item__content', $subject, 1);
+        }
         return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:has(.wp-block-navigation-item__content[aria-current])', $subject, 1);
     }
 
