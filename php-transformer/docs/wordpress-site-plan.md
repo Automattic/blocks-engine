@@ -101,6 +101,53 @@ materializer applies its configured post permalink policy. This preserves the
 source route for deterministic references without claiming it is a post
 permalink.
 
+## Author Archives
+
+The additive, required `author_entities` list contains at most 256 proven authors:
+
+```js
+author_entities: [{
+  kind: 'author',
+  slug: 'adam', // nicename: ^[a-z0-9][a-z0-9-]{0,49}$
+  name: 'Adam Zieliński',
+  membership_source_paths: ['stories/first.html', 'stories/second.html'],
+  archive: {
+    source_path: 'author/adam/index.html',
+    source_route: '/author/adam',
+    presentation_markup: '<!-- wp:query ... -->...',
+    query: { post_type: 'post', author: 'adam' }
+  },
+  evidence: { membership: true, name: true, archive: true }
+}]
+```
+
+The slug equals the archive route leaf. The name is the exact archive heading
+name (a single named element beside prefix text, such as
+`Author: <span>Adam Zieliński</span>`, names the author). At least one canonical
+post listed by the archive must link back with that exact name. Membership
+contains posts only, is unique and sorted, and is bounded to 10,000 source paths.
+Link resolution, source-file aliases, same-origin restrictions and heading
+extraction are shared with taxonomy proof. Matching numbered archive captures
+can contribute reciprocal members; pagination captures remain suppressed views.
+
+Duplicate slug claims produce `wordpress_site_plan_author_archive_ambiguous_slug`;
+a post claimed by multiple proven authors produces
+`wordpress_site_plan_author_membership_ambiguous`. Conflicting authors are
+withheld entirely, without guessing either identity or membership. Unproven
+archives remain ordinary documents with
+`wordpress_site_plan_author_archive_unproven`. A presentation that cannot become
+a native inherited query emits `wordpress_site_plan_author_archive_query_unproven`
+and is not projected.
+
+Proven archives follow the category presentation path into native WordPress
+`author` fallback template and `author-<slug>` source-specific templates, retaining
+source-owned shell and head resources. As with category entities, the canonical
+archive document remains presentation evidence in the plan: consumers must not
+materialize its `archive.source_path` as a frozen page. Consumers create users
+with the nicename and display name and assign each member post to that user.
+Core's author rewrite owns `/author/<slug>/` and pagination; no custom author
+rewrite is registered. New posts then appear through the inherited native query.
+
 ## Taxonomy Archives
 
 The additive `taxonomy_entities` list contains only proven native term/archive

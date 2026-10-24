@@ -240,7 +240,8 @@ final class DocumentHeadContext
             $sourcePath = is_array($entity) ? ($entity['archive']['source_path'] ?? null) : null;
             $taxonomy = is_array($entity) ? ($entity['taxonomy'] ?? null) : null;
             $slug = is_array($entity) ? ($entity['slug'] ?? null) : null;
-            if (is_string($sourcePath) && is_string($taxonomy) && is_string($slug)) $taxonomyArchives[$sourcePath] = array('taxonomy' => $taxonomy, 'term_slug' => $slug);
+            if ('author' === ($entity['kind'] ?? null) && is_string($sourcePath) && is_string($slug)) $taxonomyArchives[$sourcePath] = array('author_slug' => $slug);
+            elseif (is_string($sourcePath) && is_string($taxonomy) && is_string($slug)) $taxonomyArchives[$sourcePath] = array('taxonomy' => $taxonomy, 'term_slug' => $slug);
         }
         foreach ($pages as $page) {
             if (!isset($page['document_metadata']['head']) || !empty($page['synthetic'])) continue;
@@ -280,6 +281,8 @@ add_filter( 'template_include', static function ( $template ) use ( $blocks_engi
     foreach ( $blocks_engine_document_heads as $row ) {
         if ( isset( $row['taxonomy'], $row['term_slug'] ) ) {
             if ( ! is_object( $queried_term ) || ( $queried_term->taxonomy ?? '' ) !== $row['taxonomy'] || ( $queried_term->slug ?? '' ) !== $row['term_slug'] ) continue;
+        } elseif ( isset( $row['author_slug'] ) ) {
+            if ( ! is_author() || ! is_object( $queried_term ) || ( $queried_term->user_nicename ?? '' ) !== $row['author_slug'] ) continue;
         } elseif ( '' !== $identity ? $identity !== $row['identity'] : !( ( $row['front_page'] && is_front_page() ) || ( 0 !== $id && 'page' === get_post_type( $id ) && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) continue;
         if ( $row['viewport'] ) remove_action( 'wp_head', '_block_template_viewport_meta_tag', 0 );
         add_action( 'wp_enqueue_scripts', static function () use ( $row ): void {
