@@ -210,7 +210,13 @@ final class TaxonomyProjection
         try {
             if (!$document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return '';
             $heading = $document->getElementsByTagName('h1')->item(0);
-            return $heading instanceof \DOMNode ? trim(preg_replace('/\s+/u', ' ', $heading->textContent) ?? '') : '';
+            if (!$heading instanceof \DOMElement) return '';
+            $text = static fn(\DOMNode $node): string => trim(preg_replace('/\s+/u', ' ', $node->textContent) ?? '');
+            // A source that marks the term name as its own element inside the
+            // heading (an archive prefix beside it) names the term with that element.
+            $named = array_values(array_filter(iterator_to_array($heading->childNodes), static fn(\DOMNode $node): bool => $node instanceof \DOMElement && '' !== $text($node)));
+            $hasOwnText = '' !== trim(implode('', array_map(static fn(\DOMNode $node): string => $node instanceof \DOMText ? $node->textContent : '', iterator_to_array($heading->childNodes))));
+            return 1 === count($named) && $hasOwnText ? $text($named[0]) : $text($heading);
         } finally {
             libxml_clear_errors();
             libxml_use_internal_errors($previous);
