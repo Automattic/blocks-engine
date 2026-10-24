@@ -199,7 +199,9 @@ final class AuthorStylesheetProjector
     {
         $css .= $this->visuallyHiddenSourceSelectorRule($prelude, $css, $body);
 
-        return $css . $this->editorPositionRules($css) . $this->editorShellChildCombinatorVariants($css) . $this->editorEmptyRichTextVariants($css);
+        $css .= $this->editorOverrideRules($css);
+
+        return $css . $this->editorShellChildCombinatorVariants($css) . $this->editorEmptyRichTextVariants($css);
     }
 
     /**
@@ -264,14 +266,17 @@ final class AuthorStylesheetProjector
         return preg_replace('/\s+/', ' ', trim($selector)) ?? trim($selector);
     }
 
-    private function editorPositionRules(string $css): string
+    private function editorOverrideRules(string $css): string
     {
         return ( new CssStylesheetTransformer() )->transformStyleRules(
             $css,
             function (string $prelude, string $body): string {
-                $position = trim((string) ($this->styleResolver->cssDeclarations($body)['position'] ?? ''));
+                $declarations = $this->styleResolver->cssDeclarations($body);
+                $position = trim((string) ($declarations['position'] ?? ''));
+                $whiteSpace = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $declarations['white-space'] ?? '') ?? ''));
+                $nowrap = in_array($whiteSpace, array('nowrap', 'pre'), true);
                 $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-                if ( '' === $position || null === $selectors ) {
+                if ( ( '' === $position && ! $nowrap ) || null === $selectors ) {
                     return '';
                 }
                 $editorSelectors = array();
@@ -296,15 +301,23 @@ final class AuthorStylesheetProjector
                     // (sticky headers, FABs) over the document being edited.
                     // Absolute layers still need the override so hero overlays
                     // keep stacking; leave relative/sticky unforced.
-                    return '';
+                    $position = '';
+                }
+                // Core adds `position:relative` to the actual editor block
+                // root. Preserve source visual layers without changing
+                // ordinary relative or sticky editing surfaces.
+                $overrides = '' === $position ? '' : 'position:' . $position . ( 'absolute' === strtolower($position) ? '!important' : '' ) . ';';
+                // RichText's inline white-space:pre-wrap must keep preserving
+                // typed spaces. Override only its wrapping longhand, not the
+                // whitespace-collapse half of the shorthand. Scoping keeps
+                // the authored frontend declarations untouched.
+                if ( $nowrap ) {
+                    $overrides .= 'text-wrap-mode:nowrap!important';
                 }
 
-                return array() === $editorSelectors
+                return array() === $editorSelectors || '' === $overrides
                     ? ''
-                    // Core adds `position:relative` to the actual editor block
-                    // root. Preserve source visual layers without changing
-                    // ordinary relative or sticky editing surfaces.
-                    : implode(',', $editorSelectors) . '{position:' . $position . ( 'absolute' === strtolower($position) ? '!important' : '' ) . '}';
+                    : implode(',', $editorSelectors) . '{' . rtrim($overrides, ';') . '}';
             }
         );
     }
