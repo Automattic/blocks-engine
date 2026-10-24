@@ -84,7 +84,15 @@ final class ReciprocalArchiveProof
         $previous = libxml_use_internal_errors(true);
         try {
             if (!$document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return '';
-            $heading = $document->getElementsByTagName('h1')->item(0);
+            // The page banner (a header outside sectioning content) carries site
+            // identity, so the archive is named by the first heading outside it.
+            $heading = null;
+            foreach ($document->getElementsByTagName('h1') as $candidate) {
+                if (!self::inPageBanner($candidate)) {
+                    $heading = $candidate;
+                    break;
+                }
+            }
             if (!$heading instanceof \DOMElement) return '';
             $text = static fn(\DOMNode $node): string => trim(preg_replace('/\s+/u', ' ', $node->textContent) ?? '');
             // A single named element beside prefix text owns the archive name.
@@ -95,5 +103,17 @@ final class ReciprocalArchiveProof
             libxml_clear_errors();
             libxml_use_internal_errors($previous);
         }
+    }
+
+    /** A header is the page banner unless it sits inside article, aside, main, nav or section content. */
+    private static function inPageBanner(\DOMNode $node): bool
+    {
+        $banner = false;
+        for ($ancestor = $node->parentNode; $ancestor instanceof \DOMElement; $ancestor = $ancestor->parentNode) {
+            $tag = strtolower($ancestor->tagName);
+            if (in_array($tag, array('article', 'aside', 'main', 'nav', 'section'), true)) return false;
+            if ('header' === $tag) $banner = true;
+        }
+        return $banner;
     }
 }
