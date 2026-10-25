@@ -147,6 +147,7 @@ final class HtmlFragmentIncludes
             $offset = 0;
             $height = 0;
             $uses = 0;
+            $sources = array();
             foreach ($directives[$path] as $directive) {
                 $position = $directive['offset'];
                 $target = $root . substr($directive['virtual'], 1);
@@ -154,6 +155,8 @@ final class HtmlFragmentIncludes
                 if (++$count > self::MAX_INCLUDES) throw new InvalidArgumentException('html_include_count_exceeded: ' . $path);
                 $referenced[$target] = true;
                 $fragment = $resolve($target, $stack);
+                $sources[$target] = $fragment['content'];
+                $sources += $fragment['sources'];
                 $uses += 1 + $fragment['uses'];
                 $height = max($height, 1 + $fragment['height']);
                 $prefix = substr($source, $offset, $position - $offset);
@@ -162,7 +165,7 @@ final class HtmlFragmentIncludes
                 $offset = $position + $directive['length'];
             }
             if (strlen($result) + strlen($source) - $offset > $limits['max_file_bytes']) throw new InvalidArgumentException('html_include_file_budget_exceeded: ' . $path);
-            return $resolved[$path] = array('content' => $result . substr($source, $offset), 'height' => $height, 'uses' => $uses);
+            return $resolved[$path] = array('content' => $result . substr($source, $offset), 'height' => $height, 'uses' => $uses, 'sources' => $sources);
         };
         try {
             foreach ($files as &$file) {
@@ -171,9 +174,11 @@ final class HtmlFragmentIncludes
                     $count = 0;
                     $referencedBefore = $referenced;
                     try {
-                        $file['content'] = $resolve($path, array())['content'];
+                        $document = $resolve($path, array());
+                        $file['content'] = $document['content'];
                         if (!isset($file['metadata']['compilation'])) $file['metadata']['compilation'] = array('scope' => 'page', 'id' => $path);
                         $file['metadata']['compilation']['resolved_html_includes'] = true;
+                        $file['metadata']['compilation']['html_include_sources'] = $document['sources'];
                         unset($file['content_base64'], $file['payload_reference']);
                     } catch (InvalidArgumentException $error) {
                         $code = self::degradedCode($error);
