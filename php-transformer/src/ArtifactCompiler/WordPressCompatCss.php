@@ -474,7 +474,7 @@ final class WordPressCompatCss
         $mapped = preg_replace('/(\s*[>+~]?\s*)a:last-child\b/', '$1.wp-block-navigation-item:last-child > .wp-block-navigation-item__content', (string) $mapped);
         $mapped = preg_replace('/(\s*[>+~]?\s*)a:nth-child\(([^)]*)\)/', '$1.wp-block-navigation-item:nth-child($2) > .wp-block-navigation-item__content', (string) $mapped);
         $mapped = preg_replace('/(^|\s*[>+~]\s*|\s+)a(?![A-Za-z0-9_-])/', '$1.wp-block-navigation-item__content', (string) $mapped);
-        $mapped = (string) $mapped;
+        $mapped = $this->withoutNavigationLabelSpan((string) $mapped);
 
         $selectors = array();
         $directWrapper = $this->addNavigationClassToLastPrefixCompound($mapped, $anchorStart);
@@ -487,6 +487,23 @@ final class WordPressCompatCss
         }
 
         return array_keys($selectors);
+    }
+
+    /**
+     * Core wraps each navigation label in its own span. A source `a span`
+     * rule targets authored spans inside the link, so once `a` maps to the
+     * item content, its type `span` must not also match that engine-owned
+     * wrapper. `:not(:where())` keeps the selector's specificity unchanged.
+     */
+    private function withoutNavigationLabelSpan(string $selector): string
+    {
+        $anchor = strrpos($selector, '.wp-block-navigation-item__content');
+        if ( false === $anchor ) {
+            return $selector;
+        }
+        $head = substr($selector, 0, $anchor);
+        $tail = substr($selector, $anchor);
+        return $head . (preg_replace('/(^|[\s>+~])span(?![A-Za-z0-9_-])/', '$1span:not(:where(.wp-block-navigation-item__label))', $tail) ?? $tail);
     }
 
     /**
@@ -534,6 +551,7 @@ final class WordPressCompatCss
         ) ?? $tail;
         $tail = preg_replace('/(^|[\s>+~])li(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item', $tail) ?? $tail;
         $tail = preg_replace('/(^|[\s>+~])a(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item__content', $tail) ?? $tail;
+        $tail = $this->withoutNavigationLabelSpan($tail);
         $runtimeTail = ' .wp-block-navigation__container' . $tail;
         $scope = $listClasses . '.wp-block-navigation';
 
