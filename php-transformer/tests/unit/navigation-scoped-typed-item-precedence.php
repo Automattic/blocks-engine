@@ -87,7 +87,7 @@ foreach ( preg_split('/}\s*/', $candidateCss) ?: array() as $rule ) {
         array_push($typedSelectors, ...array_map('trim', explode(',', substr(trim($rule), 0, -strlen('{display:block')))));
     }
 }
-$native = array_filter($typedSelectors, static fn (string $selector): bool => 1 === preg_match('/^:root :where\(\[data-blocks-engine-capture-device-document="mobile"\]\) \.wp-block-navigation \.wp-block-navigation-item\.blocks-engine-navigation-item-[a-f0-9]{12}-\d+:not\(/', $selector));
+$native = array_filter($typedSelectors, static fn (string $selector): bool => 1 === preg_match('/^:root :where\(\[data-be-d="mobile"\]\) \.wp-block-navigation \.wp-block-navigation-item\.blocks-engine-navigation-item-[a-f0-9]{12}-\d+:not\(/', $selector));
 $assert(
     3 === count($native),
     'each rendered item takes the scoped native subject baseline',
@@ -104,7 +104,7 @@ $assert(
     json_encode($leakDisplays)
 );
 $assert(
-    1 !== preg_match('/:root (?!:where\(\[data-blocks-engine-capture-device-document="desktop"\]\) )[^{}]*\.wp-block-navigation-item\.blocks-engine-navigation-item-[^{}]*\{display:table/', $leakCss),
+    1 !== preg_match('/:root (?!:where\(\[data-be-d="desktop"\]\) )[^{}]*\.wp-block-navigation-item\.blocks-engine-navigation-item-[^{}]*\{display:table/', $leakCss),
     'no unscoped native item selector carries the desktop declaration',
     ''
 );

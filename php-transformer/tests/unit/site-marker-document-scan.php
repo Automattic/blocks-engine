@@ -33,15 +33,15 @@ $expected = static function (string $css, array $files): array {
 };
 
 $files = array(
-    array( 'kind' => 'html', 'path' => 'a.html', 'content' => '<p class="blocks-engine-specificity-site-0">a</p>' ),
-    array( 'kind' => 'html', 'path' => 'b.html', 'content' => '<p class="blocks-engine-specificity-class-site-0 blocks-engine-specificity-class-site-1">b</p>' ),
+    array( 'kind' => 'html', 'path' => 'a.html', 'content' => '<p class="be-t-0">a</p>' ),
+    array( 'kind' => 'html', 'path' => 'b.html', 'content' => '<p class="be-c-0 be-c-1">b</p>' ),
     array( 'kind' => 'css', 'path' => 'x.css', 'content' => '.x{}' ),
 );
 $stylesheets = array(
     '.plain{color:red}',
-    '.blocks-engine-specificity-site-1{color:red}',
-    '.blocks-engine-specificity-class-site-2,.blocks-engine-specificity-class-site-3{}',
-    '.blocks-engine-specificity-id-site-0{}',
+    '.be-t-1{color:red}',
+    '.be-c-2,.be-c-3{}',
+    '.be-i-0{}',
 );
 
 // One instance projects every stylesheet against the same documents, as the
@@ -51,13 +51,13 @@ foreach ( $stylesheets as $css ) {
     $compat->projectNavigationStylesheet($css, $files);
     $assert($expected($css, $files) === $shims($compat), 'site markers for ' . $css);
 }
-$assert(array( 'blocks-engine-specificity-site-1', 'blocks-engine-specificity-class-site-2', 'blocks-engine-specificity-id-site-1' ) === $shims($compat), 'a stylesheet collision moves to the next free marker');
+$assert(array( 'be-t-1', 'be-c-2', 'be-i-1' ) === $shims($compat), 'a stylesheet collision moves to the next free marker');
 
 // A different document set is scanned again.
 $changed = $files;
-$changed[0]['content'] = '<p class="blocks-engine-specificity-site-0 blocks-engine-specificity-site-1">a</p>';
+$changed[0]['content'] = '<p class="be-t-0 be-t-1">a</p>';
 $compat->projectNavigationStylesheet('.plain{}', $changed);
 $assert($expected('.plain{}', $changed) === $shims($compat), 'site markers follow changed documents');
-$assert('blocks-engine-specificity-site-2' === $shims($compat)[0], 'changed documents move the marker');
+$assert('be-t-2' === $shims($compat)[0], 'changed documents move the marker');
 
 echo "Site marker document scan tests passed ({$count} assertions)\n";

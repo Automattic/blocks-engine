@@ -60,7 +60,7 @@ foreach ($stylesheets as $asset) {
 
 // The reset still reaches every element, and the authored rules are unchanged.
 $all = implode("\n", array_map(static fn (array $asset): string => (string) $asset['content'], $stylesheets));
-$assert(str_contains($all, '*:not(:where(.blocks-engine-role-richtext)):not(.blocks-engine-specificity-class-site-0),:where(.blocks-engine-role-richtext.blocks-engine-subject):not(.blocks-engine-specificity-class-site-0){margin:0}'), 'The reset excludes the hidden label through the richtext role class and reaches it through the subject arm.');
+$assert(str_contains($all, '*:not(:where(.blocks-engine-role-richtext)):not(.be-c-0),:where(.blocks-engine-role-richtext.blocks-engine-subject):not(.be-c-0){margin:0}'), 'The reset excludes the hidden label through the richtext role class and reaches it through the subject arm.');
 $assert(str_contains($all, '.cta{border:1px solid}'), 'Authored chrome rules are unchanged.');
 foreach (array('padding:2em', 'padding:1em') as $body) {
     $assert(str_contains($all, $body), 'The route rule `' . $body . '` is kept.');

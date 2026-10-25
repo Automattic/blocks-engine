@@ -108,7 +108,7 @@ $assert(
     json_encode($placement)
 );
 $assert(
-    1 === count($placement) && str_contains($placement[0], '):not(blocks-engine-specificity-site-0)#menu'),
+    1 === count($placement) && str_contains($placement[0], '):not(be-t-0)#menu'),
     'the moved type keeps its specificity through the type shim',
     json_encode($placement)
 );
@@ -132,7 +132,7 @@ $assert(
 );
 $linkColor = $selectorsDeclaring($floatedRules, 'color:#666');
 $assert(
-    4 === count($linkColor) && array() === array_filter($linkColor, static fn(string $selector): bool => !str_contains($selector, '.wp-block-navigation-item.blocks-engine-navigation-anchor-') || !str_contains($selector, ':where(.wp-block-navigation-item__content)') || 2 !== substr_count($selector, ':not(#blocks-engine-specificity-id-site-0)')),
+    4 === count($linkColor) && array() === array_filter($linkColor, static fn(string $selector): bool => !str_contains($selector, '.wp-block-navigation-item.blocks-engine-navigation-anchor-') || !str_contains($selector, ':where(.wp-block-navigation-item__content)') || 2 !== substr_count($selector, ':not(#be-i-0)')),
     'an anchor rule under the list reaches exactly its four native anchor subjects with the source ancestor specificity',
     json_encode($linkColor)
 );

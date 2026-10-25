@@ -38,7 +38,7 @@ $assert(
     $css
 );
 $assert(
-    str_contains($css, 'wp-block-button__link):not(blocks-engine-specificity-site-0){width:100%!important'),
+    str_contains($css, 'wp-block-button__link):not(be-t-0){width:100%!important'),
     '2: inner link still fills the wrapper',
     $css
 );

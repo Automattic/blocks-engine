@@ -87,11 +87,11 @@ preg_match('/blocks-engine-source-nav-[A-Za-z0-9-]+/', $navigationOpener[1] ?? '
 $navMarker = $markerMatch[0] ?? '';
 $assert('' !== $navMarker && 4 === substr_count($directMarkup, '<!-- wp:navigation-link '), 'the direct-anchor menu becomes a core/navigation with one navigation-link per source anchor');
 
-$scope = '.menu :where(.' . $navMarker . '):not(blocks-engine-specificity-site-0) ';
+$scope = '.menu :where(.' . $navMarker . '):not(be-t-0) ';
 $item = ':where(.wp-block-navigation-item)';
 // The rendered anchor keeps the authored type specificity through the same
 // shim every projected type selector receives.
-$anchor = '>:where(.wp-block-navigation-item__content):not(blocks-engine-specificity-site-0)';
+$anchor = '>:where(.wp-block-navigation-item__content):not(be-t-0)';
 
 $borderSelectors = $selectorsDeclaring($directRules, 'border-radius:999px');
 $assert(
@@ -323,7 +323,7 @@ $assert(
 );
 preg_match('/<!-- wp:navigation (\{.*?\}) -->/s', $hooksMarkup, $hooksOpener);
 preg_match('/blocks-engine-source-nav-[A-Za-z0-9-]+/', $hooksOpener[1] ?? '', $hooksMarkerMatch);
-$hooksScope = '.menu :where(.' . ($hooksMarkerMatch[0] ?? '') . '):not(blocks-engine-specificity-site-0) ';
+$hooksScope = '.menu :where(.' . ($hooksMarkerMatch[0] ?? '') . '):not(be-t-0) ';
 $hooksRules = $rules($css($hooks));
 $assert(
     array( $hooksScope . $item . '.lang:last-child' . $anchor ) === $selectorsDeclaring($hooksRules, 'border:1px solid #999'),
@@ -404,7 +404,7 @@ $soleWrapperCss = $css($soleWrapper);
 $soleWrapperBorder = $selectorsDeclaring($rules($soleWrapperCss), 'border:1px solid #999');
 preg_match('/blocks-engine-source-nav-[A-Za-z0-9-]+/', $soleWrapperCss, $soleWrapperMarker);
 $assert(
-    array( ':where(.' . ($soleWrapperMarker[0] ?? '') . '):not(blocks-engine-specificity-site-0) a:last-child' ) === $soleWrapperBorder
+    array( ':where(.' . ($soleWrapperMarker[0] ?? '') . '):not(be-t-0) a:last-child' ) === $soleWrapperBorder
         && array( '.links a:last-child' ) === $selectorsDeclaring($rules($soleWrapperCss), 'color:#000'),
     'a wrapped menu keeps the authored selectors exactly: ' . json_encode(array( $soleWrapperBorder, $selectorsDeclaring($rules($soleWrapperCss), 'color:#000') ))
 );
@@ -423,7 +423,7 @@ $twoMenusBorder = $selectorsDeclaring($rules($twoMenusCss), 'border:1px solid #9
 preg_match('/blocks-engine-source-nav-[A-Za-z0-9-]+/', $twoMenusCss, $twoMenusMarker);
 $assert(2 === substr_count((string) ($twoMenus['serialized_blocks'] ?? ''), '<!-- wp:navigation '), 'both menus become core/navigation blocks');
 $assert(
-    array( '.site :where(.' . ($twoMenusMarker[0] ?? '') . '):not(blocks-engine-specificity-site-0) a:last-child' ) === $twoMenusBorder,
+    array( '.site :where(.' . ($twoMenusMarker[0] ?? '') . '):not(be-t-0) a:last-child' ) === $twoMenusBorder,
     'a rule reaching a direct-anchor menu and a list-backed menu keeps the authored selector exactly, so the list-backed menu is unchanged: ' . json_encode($twoMenusBorder)
 );
 
@@ -474,7 +474,7 @@ $assert(
 preg_match('/<!-- wp:navigation (\{.*?\}) -->/s', $kindsMarkup, $kindsOpener);
 preg_match('/blocks-engine-source-nav-[A-Za-z0-9-]+/', $kindsOpener[1] ?? '', $kindsMarkerMatch);
 $kindsMarker = $kindsMarkerMatch[0] ?? '';
-$kindsScope = '.menu :where(.' . $kindsMarker . '):not(blocks-engine-specificity-site-0)';
+$kindsScope = '.menu :where(.' . $kindsMarker . '):not(be-t-0)';
 $kindsRules = $rules($css($kinds));
 $content = '>:where(.wp-block-navigation-item__content)';
 $bareBorder = $selectorsDeclaring($kindsRules, 'border:1px solid #999');
