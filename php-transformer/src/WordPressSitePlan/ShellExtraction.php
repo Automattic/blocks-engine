@@ -115,6 +115,49 @@ final class ShellExtraction
         return array('pages' => $pages, 'chrome' => $chrome, 'diagnostics' => $diagnostics);
     }
 
+    /**
+     * Isolated artifacts prove equal source landmarks across routes. Compare and
+     * emit that shell, not page-cascade projections; retain page ranges for removal.
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $artifacts
+     * @return array<int,array<string,mixed>>
+     */
+    public function withSourceSharedShellIdentity(array $pages, array $artifacts, array $runtimeDeclarations = array(), array $runtimeEntityRecords = array()): array
+    {
+        $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
+        $identities = array();
+        foreach ($pages as $page) foreach ($page['shell_candidates'] ?? array() as $candidate) {
+            $identities[$candidate['area']][$candidate['identity_markup'] ?? $candidate['markup']] = true;
+        }
+        foreach ($pages as &$page) {
+            if (!is_array($page['shell_candidates'] ?? null)) continue;
+            foreach ($page['shell_candidates'] as &$candidate) {
+                // Already-equivalent compiled shells keep their existing
+                // context-sensitive support assets and presentation intact.
+                if (count($identities[$candidate['area']]) < 2) continue;
+                // Runtime-bound source blocks must retain the exact compiled
+                // payload their bindings address; the hoister owns those shells.
+                if (isset($candidate['offset'], $candidate['length'])) {
+                    $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($candidate));
+                    if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
+                }
+                $matches = array_values(array_filter($artifacts, static fn(array $artifact): bool =>
+                    ($artifact['area'] ?? null) === $candidate['area']
+                    && !empty($artifact['placement']['equal_source_identity'])
+                    && in_array($page['source_path'], $artifact['placement']['source_paths'] ?? array(), true)
+                ));
+                // Responsive variants have their own structural extraction path.
+                if (1 !== count($matches)) continue;
+                $markup = (string) $matches[0]['canonical_block_markup'];
+                $candidate['identity_markup'] = self::normalizeNestedChromeMarkup($markup);
+                $candidate['template_part_markup'] = self::landmarkPartMarkup(self::withoutCurrentNavigationState($markup), $candidate['area']);
+            }
+            unset($candidate);
+        }
+        unset($page);
+        return $pages;
+    }
+
     private static function documentChromeIdentity(string $markup): string
     {
         // Only generated identity is ignored; authored ids, classes and all

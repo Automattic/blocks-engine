@@ -3517,7 +3517,7 @@ final class ArtifactCompiler
         $authorStylesheetProjections = array();
         $runtimeScriptProjections = array();
         foreach (array('header', 'footer') as $area) {
-            $variantCount = null; $canonicalMarkups = array();
+            $variantCount = null; $canonicalMarkups = array(); $equalSource = array();
             $sourcePath = isset($documents[$entryPath]) ? $entryPath : (string) array_key_first($documents);
             foreach ($documents as $document) {
                 $count = count($document['rows'][$area]);
@@ -3526,11 +3526,22 @@ final class ArtifactCompiler
             }
             if (null === $variantCount) continue;
             for ($variant = 0; $variant < $variantCount; ++$variant) {
-                $identities = self::normalizeSourceShellRootClasses(array_map(static fn(array $document): string => $document['rows'][$area][$variant]['identity'], $documents));
+                $sourceIdentities = array_map(static fn(array $document): string => $document['rows'][$area][$variant]['identity'], $documents);
+                $equalSource[$variant] = 1 === count(array_unique($sourceIdentities));
+                $identities = self::normalizeSourceShellRootClasses($sourceIdentities);
                 if (1 !== count(array_unique($identities))) continue 2;
                 $canonicalMarkups[$variant] = $identities[$sourcePath];
             }
             $head = preg_match('/<head\b[^>]*>(.*?)<\/head>/is', $documents[$sourcePath]['content'], $headMatch) ? $headMatch[1] : '';
+            // A route-only stylesheet must not seed the shared part, even when
+            // that route happens to be the entrypoint. Its carried stylesheet
+            // remains route-owned; only common style sources shape this shell.
+            $head = preg_replace_callback('/<(?:link\b[^>]*|style\b[^>]*>.*?<\/style)\s*>/is', static function (array $match) use ($documents): string {
+                foreach ($documents as $document) {
+                    if (!str_contains($document['content'], $match[0])) return '';
+                }
+                return $match[0];
+            }, $head) ?? $head;
             foreach ($documents[$sourcePath]['rows'][$area] as $variant => $row) {
                 $synthetic = '<!doctype html><html><head>' . $head . '</head><body>' . $canonicalMarkups[$variant] . '</body></html>';
                 $compiled = $this->compileHtmlDocumentBlocks($synthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true);
@@ -3543,7 +3554,7 @@ final class ArtifactCompiler
                     'source_paths' => array_keys($documents),
                     'source_hash' => hash('sha256', $canonicalMarkups[$variant]),
                     'variant' => $variant + 1,
-                    'placement' => array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => array_keys($documents), 'variant' => $variant + 1),
+                    'placement' => array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => array_keys($documents), 'variant' => $variant + 1, 'equal_source_identity' => $equalSource[$variant]),
                 ));
                 foreach ($compiled['assets'] as $asset) {
                     if (!is_array($asset)) continue;
