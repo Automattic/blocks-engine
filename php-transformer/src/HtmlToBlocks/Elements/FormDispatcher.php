@@ -37,7 +37,10 @@ final class FormDispatcher
         }
 
         $hasChoiceGroups = FormControlClassifier::hasCapturedChoiceGroups($element);
-        if ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) {
+        // A control without a prose summary (date, time, ...) keeps the exact
+        // preserved form on the page; the finding still carries the readable tree.
+        $summarizable = FormControlClassifier::controlsHaveProseSummaries($element);
+        if ( $summarizable && ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) ) {
             $composition = $this->context->compose($element, $fallbacks);
             if ( null !== $composition ) {
                 // The composed block already reported this subtree's findings;
@@ -51,7 +54,7 @@ final class FormDispatcher
         }
 
         $readableFormBlock = $this->context->buildReadableFormBlock($element, false, $fallbacks);
-        if ( null !== $readableFormBlock && ! $this->context->requiresPreservation($element) ) {
+        if ( null !== $readableFormBlock && ! $this->context->requiresPreservation($element) && $summarizable ) {
             if ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) {
                 $fallbacks[] = $this->context->buildFallbackFinding($element, $readableFormBlock);
             }

@@ -396,8 +396,40 @@ final class FormControlClassifier
         return false;
     }
 
+    /**
+     * Whether a degraded page can summarize the control as prose. Other
+     * readable controls stay native inputs in the readable tree only.
+     */
+    public static function hasProseSummary(DOMElement $control): bool
+    {
+        $tagName = strtolower($control->tagName);
+        if ( in_array($tagName, array( 'select', 'textarea', 'button' ), true) ) {
+            return true;
+        }
+
+        return 'input' === $tagName && in_array(self::controlType($control), array( 'checkbox', 'email', 'number', 'password', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url' ), true);
+    }
+
+    /** Whether every control in the form has a prose summary. */
+    public static function controlsHaveProseSummaries(DOMElement $form): bool
+    {
+        foreach ( self::controlElements($form) as $control ) {
+            if ( ! self::hasProseSummary($control) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public static function isReadableControl(DOMElement $control): bool
     {
+        // Formless controls lower straight onto the page, so they need a prose
+        // summary. Form controls are gated by the form dispatcher instead.
+        if ( ! self::hasFormAncestor($control) && ! self::hasProseSummary($control) ) {
+            return false;
+        }
+
         $tagName = strtolower($control->tagName);
         if ( in_array($tagName, array( 'select', 'textarea' ), true) ) {
             return true;

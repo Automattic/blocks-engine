@@ -111,8 +111,7 @@ final class ReadableFormControlBlockConverter
                 $forceNative = true;
             }
             // Types without a dedicated prose degradation remain native inputs.
-            $hasSummary = in_array(FormControlClassifier::controlType($element), array('checkbox', 'email', 'number', 'password', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url'), true);
-            $inputBlock = $this->authoredBlockConverter->input($element, $label, false, $forceNative || ! $hasSummary);
+            $inputBlock = $this->authoredBlockConverter->input($element, $label, false, $forceNative || ! FormControlClassifier::hasProseSummary($element));
             if ( null !== $inputBlock ) {
                 return $inputBlock;
             }
