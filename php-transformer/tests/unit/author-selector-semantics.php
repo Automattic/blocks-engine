@@ -446,7 +446,7 @@ $assert(
         && 'core/button' === ($decorativeMarkLogo['blocks'][0]['innerBlocks'][0]['blockName'] ?? '')
         && 1 === preg_match('/<span class="brand-mark[ "][^>]*aria-hidden="true"/', $decorativeMarkLogoMarkup)
         && str_contains($decorativeMarkLogoMarkup, 'style="border-radius:0;background-color:transparent;padding-top:0;padding-right:0;padding-bottom:0;padding-left:0"')
-        && str_contains($decorativeMarkLogoCss, 'border-radius:0 !important')
+        && ! str_contains($decorativeMarkLogoCss, 'border-radius:0 !important')
         && 'pass' === ($decorativeMarkLogo['source_reports']['wp_block_validity']['status'] ?? ''),
     'logo anchors with direct decorative marks retain the neutral structured button path',
     $decorativeMarkLogoMarkup

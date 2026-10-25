@@ -2093,7 +2093,7 @@ $outlineButton = ( new HtmlTransformer() )->transform(
 $outlineButtonMarkup = (string) ($outlineButton['serialized_blocks'] ?? '');
 $outlineButtonCss = implode("\n", array_column($outlineButton['assets'] ?? array(), 'content'));
 $assert(str_contains($outlineButtonMarkup, '<!-- wp:button'), 'styled anchor with presentational span materializes as core/button');
-$assert(str_contains($outlineButtonCss, 'background-color:transparent'), 'outline button carries transparent background to suppress default theme fill');
+$assert(str_contains($outlineButtonMarkup, 'background-color:transparent'), 'outline button carries transparent background to suppress default theme fill');
 $assert(! str_contains($outlineButtonCss, 'border-radius:0'), 'outline button does not infer a square radius from its border declarations');
 $assert(! str_contains($outlineButtonMarkup, '<div class="wp-block-button btn btn-secondary'), 'outline button with native styles avoids duplicating source button chrome on the outer wrapper');
 $assert(! str_contains($outlineButtonMarkup, '<span>Tickets</span>'), 'button label unwraps presentational span to avoid nested default styling');
@@ -2315,7 +2315,7 @@ $roundedOutlineButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $roundedOutlineButtonMarkup = (string) ($roundedOutlineButton['serialized_blocks'] ?? '');
 $roundedOutlineButtonCss = implode("\n", array_column($roundedOutlineButton['assets'] ?? array(), 'content'));
-$assert(str_contains($roundedOutlineButtonCss, 'border-radius:12px !important'), 'outline button carries an explicit source border radius');
+$assert(str_contains($roundedOutlineButtonMarkup, 'border-radius:12px'), 'outline button carries an explicit source border radius');
 $assert(! str_contains($roundedOutlineButtonCss, 'border-radius:0!important'), 'outline button does not override an explicit source border radius');
 
 $wrapperOwnedButton = ( new HtmlTransformer() )->transform(
@@ -2326,10 +2326,10 @@ $wrapperOwnedButtonCss = implode("\n", array_column($wrapperOwnedButton['assets'
 $assert(str_contains($wrapperOwnedButtonMarkup, '<!-- wp:button'), 'button-like wrapper with a single simple anchor materializes as core/button');
 $assert(str_contains($wrapperOwnedButtonMarkup, 'href="/start"'), 'button-like wrapper preserves the nested anchor URL on the native button');
 $assert(str_contains($wrapperOwnedButtonMarkup, 'Start free'), 'button-like wrapper preserves the nested anchor label');
-$assert(str_contains($wrapperOwnedButtonCss, 'background-color:#2563eb !important'), 'button-like wrapper carries wrapper-owned fill color to the native button chrome');
-$assert(str_contains($wrapperOwnedButtonCss, 'color:#ffffff !important'), 'button-like wrapper carries wrapper-owned text color to the native button chrome');
-$assert(str_contains($wrapperOwnedButtonCss, 'border-radius:999px !important'), 'button-like wrapper carries wrapper-owned radius to the native button chrome');
-$assert(str_contains($wrapperOwnedButtonCss, 'padding-top:14px !important'), 'button-like wrapper carries wrapper-owned padding to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'background-color:#2563eb'), 'button-like wrapper carries wrapper-owned fill color to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'color:#ffffff'), 'button-like wrapper carries wrapper-owned text color to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'border-radius:999px'), 'button-like wrapper carries wrapper-owned radius to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'padding-top:14px'), 'button-like wrapper carries wrapper-owned padding to the native button chrome');
 $assert('pass' === ($wrapperOwnedButton['source_reports']['wp_block_validity']['status'] ?? ''), 'button-like wrapper conversion emits valid native button markup');
 
 $fullWidthButton = ( new HtmlTransformer() )->transform(
@@ -2747,7 +2747,7 @@ $buttonCustomFontSizeMarkup = (string) ($buttonCustomFontSizeResult['serialized_
 $buttonCustomFontSizeCss = implode("\n", array_column($buttonCustomFontSizeResult['assets'] ?? array(), 'content'));
 $assert(str_contains($buttonCustomFontSizeMarkup, 'has-custom-font-size'), 'button custom font-size emits the WordPress support class core/button save() puts on its link');
 $assert(str_contains($buttonCustomFontSizeMarkup, 'font-size:1rem'), 'button custom font-size serializes inline on the link, where unlayered Global Styles cannot outrank it');
-$assert(str_contains($buttonCustomFontSizeCss, 'font-size:1rem !important'), 'button custom font-size preserves the declaration through the carrier');
+$assert(! str_contains($buttonCustomFontSizeCss, 'font-size:1rem !important'), 'button custom font-size is not duplicated on the wrapper carrier');
 $assert('pass' === ($buttonCustomFontSizeResult['source_reports']['wp_block_validity']['status'] ?? ''), 'button custom font-size serialization passes generated WordPress block validity checks');
 
 $rubyResult = ( new HtmlTransformer() )->transform(
