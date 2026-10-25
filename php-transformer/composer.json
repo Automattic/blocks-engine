@@ -79,6 +79,7 @@
       "php tests/contract/navigation-equivalent-url-shared-menu.php",
       "php tests/contract/navigation-submenu-current-parent.php",
       "php tests/contract/preset-binding-exact-palette-literal.php",
+      "php tests/contract/preset-slug-kebab-case-stability.php",
       "php tests/contract/post-route-rewrites-spare-pages.php",
       "php tests/contract/menu-toggle-without-core-navigation.php",
       "php tests/contract/mobile-navigation-replaces-burger-slot.php",

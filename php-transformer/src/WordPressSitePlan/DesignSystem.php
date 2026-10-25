@@ -748,7 +748,12 @@ final class DesignSystem
         uksort($headingSizes, static fn(string $a, string $b): int => (float) $a <=> (float) $b);
         foreach ($headingSizes as $px => $weight) {
             foreach ($sizes as $size) if (abs($size['px'] - (float) $px) <= self::EXACT_PX) continue 2;
-            $slug = 'heading-' . str_replace('.', '-', (string) $px);
+            // The slug must stay unchanged by the kebab-case that derives the
+            // editor's preset class, and that kebab-case splits letters from
+            // digits: "heading-28px" would save as has-heading-28px-font-size
+            // and re-render as has-heading-28-px-font-size, so the editor
+            // rejects the block. Keep the bare number, decimals dashed.
+            $slug = 'heading-' . str_replace('.', '-', rtrim((string) $px, 'px'));
             $sizes[] = array('slug' => $slug, 'name' => 'Heading ' . $px, 'size' => self::lengthText((float) $px, $rootPx), 'px' => (float) $px, 'weight' => $weight);
         }
         return $sizes;
