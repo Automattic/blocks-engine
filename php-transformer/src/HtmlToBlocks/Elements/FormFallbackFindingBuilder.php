@@ -13,6 +13,9 @@ use DOMElement;
 /** Builds the provider-materializable diagnostic for a form-like element. */
 final class FormFallbackFindingBuilder
 {
+    /** @var list<string> Canonical selectors for the accepted source groups. */
+    private array $choiceGroupSelectors = array();
+
     public function __construct(
         private readonly FormFallbackFindingContext $context,
         private readonly FormControlMetadataBuilder $metadataBuilder,
@@ -77,7 +80,11 @@ final class FormFallbackFindingBuilder
             'context'          => $this->context->sourceContext($element),
             'classification'   => $this->context->classifyFallbackSubtree($element),
             'events'           => SourceDom::eventMetadata($element),
-            'readable_blocks'  => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
+            // Top-level block annotations (never attrs): form_control_index
+            // addresses controls[], form_choice_group_index addresses
+            // choice_groups[]. Page provenance resolution removes both before
+            // serialization; providers can replace blocks without order guesses.
+            'readable_blocks'  => null !== $readableFormBlock ? $this->identifyChoiceGroups(array( $readableFormBlock ), $choiceGroups) : array(),
             'binding'          => $binding,
             'controls'         => $controls,
             'control_topology' => $controlTopology,
@@ -105,10 +112,34 @@ final class FormFallbackFindingBuilder
         return $this->context->buildFallbackDiagnostic($finding);
     }
 
+    /**
+     * Match captured groups by source identity, not their tree position.
+     * @param list<array<string, mixed>> $blocks
+     * @param list<array<string, mixed>> $groups
+     * @return list<array<string, mixed>>
+     */
+    private function identifyChoiceGroups(array $blocks, array $groups): array
+    {
+        foreach ($blocks as &$block) {
+            foreach ($groups as $index => $group) {
+                if (isset($block['_source_anchor_selector']) && $block['_source_anchor_selector'] === ($this->choiceGroupSelectors[$index] ?? null)) {
+                    $block['form_choice_group_index'] = $index;
+                    break;
+                }
+            }
+            if (!empty($block['innerBlocks'])) {
+                $block['innerBlocks'] = $this->identifyChoiceGroups($block['innerBlocks'], $groups);
+            }
+        }
+        unset($block);
+        return $blocks;
+    }
+
     /** @return array<int, array<string, mixed>> */
     private function choiceGroups(DOMElement $form): array
     {
         $groups = array();
+        $this->choiceGroupSelectors = array();
         foreach ( $form->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement || 'true' !== strtolower($element->getAttribute('data-blocks-engine-choice-group')) ) {
                 continue;
@@ -133,6 +164,7 @@ final class FormFallbackFindingBuilder
                 if ( ! array_key_exists('source_value', $choices[array_key_last($choices)]) ) $choices[array_key_last($choices)]['source_value'] = null;
             }
             if ( count($choices) < 2 ) continue;
+            $this->choiceGroupSelectors[] = SourceDom::elementSelector($element);
             $groups[] = array(
                 // The group is a flat record of named source facts (see
                 // `CapturedChoiceGroupProjector::boundedGroup()`). Nested values

@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 
@@ -14,6 +15,9 @@ final class ReadableFormBlockBuilder
 {
     /** @var array<string, mixed>|null */
     private ?array $layoutGraph = null;
+
+    /** @var array<string, int> */
+    private array $controlIndices = array();
 
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
@@ -58,7 +62,9 @@ final class ReadableFormBlockBuilder
             return null;
         }
 
-        foreach ( FormControlClassifier::controlElements($form) as $control ) {
+        $this->controlIndices = array();
+        foreach ( FormControlClassifier::controlElements($form) as $index => $control ) {
+            $this->controlIndices[(string) $control->getNodePath()] = $index;
             if ( array() !== ($this->eventMetadata)($control) || ! FormControlClassifier::isReadableControl($control) ) {
                 return null;
             }
@@ -133,7 +139,10 @@ final class ReadableFormBlockBuilder
             }
             $entry = $entriesByPath[ (string) $node->getNodePath() ] ?? null;
             if ( null === $entry ) {
-                if ( $this->isFlowContent($node) ) {
+                if ('legend' === strtolower($node->tagName)) {
+                    $legend = $this->controlBlockConverter->convert($node);
+                    if (null !== $legend) $blocks[] = $legend;
+                } elseif ( $this->isFlowContent($node) ) {
                     array_push($blocks, ...(($this->convertFlowContent)($node, $fallbacks)));
                 }
                 continue;
@@ -154,18 +163,25 @@ final class ReadableFormBlockBuilder
                 continue;
             }
             $ownedLabel = 'label' === strtolower($element->tagName) && '' !== $this->metadataBuilder->labelText($element);
-            $ownsShell = ! $ownedLabel && ($element->hasAttributes() || isset($graphNodes[$entry['id']]));
+            $isFieldset = 'fieldset' === strtolower($element->tagName);
+            $ownsShell = ! $ownedLabel && ($isFieldset || $element->hasAttributes() || isset($graphNodes[$entry['id']]));
             $elements = array($element);
             $descendants = $children[$entry['id']] ?? array();
             // One layout-shell can retain a consecutive source wrapper chain.
             // Keeping each DOM wrapper as a separate block inflates form entity
             // nesting past the runtime declaration bound without adding editability.
-            if ($ownsShell) {
+            if ($ownsShell && ! $isFieldset) {
                 while (1 === count($descendants) && 'control' !== $descendants[0]['kind']) {
+                    // Hoisting through authored flow content would discard it.
+                    $hasFlow = false;
+                    foreach ($elements[count($elements) - 1]->childNodes as $child) {
+                        if ($child instanceof DOMElement && ! $child->isSameNode($descendants[0]['element'])) $hasFlow = true;
+                    }
+                    if ($hasFlow) break;
                     $next = $descendants[0];
                     $nextElement = $next['element'];
                     $nextOwnedLabel = 'label' === strtolower($nextElement->tagName) && '' !== $this->metadataBuilder->labelText($nextElement);
-                    if ($nextOwnedLabel || (! $nextElement->hasAttributes() && ! isset($graphNodes[$next['id']]))) break;
+                    if ('fieldset' === strtolower($nextElement->tagName) || $nextOwnedLabel || (! $nextElement->hasAttributes() && ! isset($graphNodes[$next['id']]))) break;
                     $elements[] = $nextElement;
                     $descendants = $children[$next['id']] ?? array();
                 }
@@ -174,10 +190,20 @@ final class ReadableFormBlockBuilder
             if ( array() === $inner ) {
                 continue;
             }
+            if ($isFieldset) {
+                $blocks[] = $this->createBlock->createBlock('core/group', ($this->presentationAttributes)($element), $inner, $element);
+                continue;
+            }
             // A one-control container can own paint, inherited variables and sizing.
             // Text-bearing labels are already represented by the authored control.
             if ( 2 <= count($inner) || $ownsShell ) {
-                $blocks[] = ($this->layoutShellBlockForElements)($elements, $inner, $element);
+                $shell = ($this->layoutShellBlockForElements)($elements, $inner, $element);
+                foreach ($elements as $source) {
+                    if ('true' === strtolower($source->getAttribute('data-blocks-engine-choice-group'))) {
+                        $shell['_source_anchor_selector'] = SourceDom::elementSelector($source);
+                    }
+                }
+                $blocks[] = $shell;
                 continue;
             }
 
@@ -232,6 +258,7 @@ final class ReadableFormBlockBuilder
             return null;
         }
 
+        $readableControlBlock['form_control_index'] = $this->controlIndices[(string) $control->getNodePath()];
         return $readableControlBlock;
     }
 }

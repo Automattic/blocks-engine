@@ -86,6 +86,14 @@ final class ReadableFormControlBlockConverter
             return ($this->htmlPreservationBlock)($element);
         }
 
+        // Prose summaries cannot carry an associated label's inline markup.
+        // Keep the native labelled control when it owns links or formatting.
+        if (null !== $label) {
+            foreach (array('a', 'em', 'strong', 'b', 'i', 'u', 's', 'mark') as $inlineTag) {
+                if (0 < $label->getElementsByTagName($inlineTag)->length) $forceNative = true;
+            }
+        }
+
         if ( 'select' === $tagName ) {
             $selectBlock = $this->authoredBlockConverter->select($element, $forceNative, $label);
             if ( null !== $selectBlock ) {
@@ -102,7 +110,9 @@ final class ReadableFormControlBlockConverter
                 && array() === FormControlClassifier::controlElements($externalLabel)) {
                 $forceNative = true;
             }
-            $inputBlock = $this->authoredBlockConverter->input($element, $label, false, $forceNative);
+            // Types without a dedicated prose degradation remain native inputs.
+            $hasSummary = in_array(FormControlClassifier::controlType($element), array('checkbox', 'email', 'number', 'password', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url'), true);
+            $inputBlock = $this->authoredBlockConverter->input($element, $label, false, $forceNative || ! $hasSummary);
             if ( null !== $inputBlock ) {
                 return $inputBlock;
             }
@@ -193,7 +203,7 @@ final class ReadableFormControlBlockConverter
         }
 
         return '' !== $label
-            ? $this->createBlock->createBlock('core/paragraph', array( 'content' => $label ), array(), $element)
+            ? $this->createBlock->createBlock('core/paragraph', array_merge(($this->presentationAttributes)($element), array( 'content' => $label )), array(), $element)
             : null;
     }
 

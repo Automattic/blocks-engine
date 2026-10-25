@@ -2443,12 +2443,11 @@ $standaloneControlBlocks = $standaloneControls['blocks'][0]['innerBlocks'] ?? ar
 $assert(array() === ($standaloneControls['fallbacks'] ?? array()), 'standalone readable controls convert without unsupported-element fallback');
 $assert('core/paragraph' === ($standaloneControlBlocks[0]['blockName'] ?? ''), 'standalone non-runtime input converts to readable paragraph');
 $assert('custom/authored-label' === ($standaloneControlBlocks[1]['blockName'] ?? '') && 'product-sort' === ($standaloneControlBlocks[1]['attrs']['htmlFor'] ?? ''), 'source select label remains a sibling editable associated label');
-$assert('core/group' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'standalone static select retains the legacy structural group boundary');
-$assert('custom/authored-select' === ($standaloneControlBlocks[2]['innerBlocks'][0]['blockName'] ?? ''), 'standalone non-runtime select uses an authored-select editable native-control block inside its compatibility wrapper');
+$assert('custom/authored-select' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'standalone static select is a native-control block without a synthetic wrapper');
 $authoredSelectBlocks = array_values(array_filter($standaloneControls['source_reports']['generated_blocks'] ?? array(), static fn (array $block): bool => 'authored-select' === ($block['name'] ?? '')));
 $authoredSelectCss = (string) ($authoredSelectBlocks[0]['assets']['style.css'] ?? '');
 $assert(str_contains($authoredSelectCss, '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}') && ! str_contains($authoredSelectCss, '!important'), 'authored-select companion wrapper CSS preserves display contents without important declarations');
-$assert('core/group' === ($standaloneControlBlocks[3]['blockName'] ?? '') && 'custom/authored-select' === ($standaloneControlBlocks[3]['innerBlocks'][0]['blockName'] ?? ''), 'runtime-targeted select stays a native authored select');
+$assert('custom/authored-select' === ($standaloneControlBlocks[3]['blockName'] ?? ''), 'runtime-targeted select stays a native authored select without a synthetic wrapper');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<option value="" selected disabled>Choose an order</option>'), 'compact select preserves selected placeholder option state');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select id="product-sort" name="products" placeholder="Sort products" class="catalog-sort">'), 'compact select preserves native id, name, placeholder, and CSS selector identity');
 $assert(1 === substr_count((string) ($standaloneControls['serialized_blocks'] ?? ''), '>Sort products</label>') && str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<label for="product-sort"'), 'styled select emits its source associated label exactly once without a duplicate wrapping label');
@@ -2494,9 +2493,7 @@ $gridSelect = ( new HtmlTransformer() )->transform(
     array('static_css' => '.control-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.catalog-sort{width:100%;padding:8px}')
 )->toArray();
 $gridSelectBlock = $gridSelect['blocks'][0]['innerBlocks'][0] ?? array();
-$gridSelectDefinition = $gridSelect['source_reports']['generated_blocks'][0] ?? array();
-$assert('custom/layout-shell' === ($gridSelect['blocks'][0]['blockName'] ?? '') && 2 === count($gridSelect['blocks'][0]['attrs']['wrappers'] ?? array()) && 'custom/authored-select' === ($gridSelectBlock['blockName'] ?? ''), 'styled select retains its direct native control through structural wrapper normalization');
-$assert(str_contains((string) ($gridSelectDefinition['assets']['style.css'] ?? ''), 'display:contents'), 'compact select wrapper stylesheet flattens the compatibility group for authored grid and flex item sizing');
+$assert('core/group' === ($gridSelect['blocks'][0]['blockName'] ?? '') && 'grid' === ($gridSelect['blocks'][0]['attrs']['layout']['type'] ?? '') && 'custom/authored-select' === ($gridSelectBlock['blockName'] ?? ''), 'source grid directly contains its native select without a compatibility wrapper');
 
 $standaloneSearch = ( new HtmlTransformer() )->transform(
     '<div class="site-search"><input type="search" name="s" placeholder="Search articles" aria-label="Search articles"></div>'

@@ -40,7 +40,11 @@ final class FormDispatcher
         if ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) {
             $composition = $this->context->compose($element, $fallbacks);
             if ( null !== $composition ) {
-                $fallbacks[] = $this->context->buildFallbackFinding($element, $composition['block'], $composition['slot']);
+                // The composed block already reported this subtree's findings;
+                // the readable tree is only the provider substitution input.
+                $readableFallbacks = array();
+                $readable = $this->context->buildReadableFormBlock($element, true, $readableFallbacks);
+                $fallbacks[] = $this->context->buildFallbackFinding($element, $readable, $composition['slot']);
                 $this->context->recordForm($element, $composition['block']);
                 return $composition['block'];
             }
