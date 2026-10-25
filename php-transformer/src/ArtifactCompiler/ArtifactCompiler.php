@@ -3642,6 +3642,17 @@ final class ArtifactCompiler
             $payload = is_string($asset['visual_payload'] ?? null) ? $asset['visual_payload'] : (is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? ''));
             $assetPayloadsByPath[$path][hash('sha256', $payload)] = true;
         }
+        $titleCounts = array();
+        foreach ( $artifact['files'] as $file ) {
+            if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
+                continue;
+            }
+            $declaration = HtmlTagScanner::scan((string) ($file['content'] ?? ''), 'title')[0] ?? null;
+            if ( null !== $declaration ) {
+                $key = trim(html_entity_decode(strip_tags($declaration['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                $titleCounts[$key] = ($titleCounts[$key] ?? 0) + 1;
+            }
+        }
         $sharedTitle = $this->sharedDocumentTitleSegment($artifact['files']);
         $siteNameSegments = $sharedTitle['segments'];
         $siteNameEdge = $sharedTitle['edge'];
@@ -3651,7 +3662,7 @@ final class ArtifactCompiler
         foreach ( $artifact['files'] as $file ) {
             if ( $entryPath === ($file['path'] ?? '') ) {
                 $entryHtml = (string) ($file['content'] ?? '');
-                $entryTitle = $this->titleFromHtml($entryHtml, $entryPath, $entryPath, '', $siteNameSegments, $siteNameEdge, $entryNavigationLabel);
+                $entryTitle = $this->titleFromHtml($entryHtml, $entryPath, $entryPath, '', $siteNameSegments, $siteNameEdge, $entryNavigationLabel, '', $titleCounts, $artifact['files']);
                 $entryTitles = HtmlTagScanner::scan($entryHtml, 'title');
                 if ( isset($entryTitles[0]) ) {
                     $entryDocumentTitle = $entryTitles[0]['content'];
@@ -3665,7 +3676,7 @@ final class ArtifactCompiler
             }
 
             $path = (string) ($file['path'] ?? '');
-            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle, $siteNameSegments, $siteNameEdge, $entryNavigationLabel, $entryDocumentTitle);
+            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle, $siteNameSegments, $siteNameEdge, $entryNavigationLabel, $entryDocumentTitle, $titleCounts, $artifact['files']);
             $slug = $this->slugFromPath($path, $entryPath);
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
@@ -4271,7 +4282,8 @@ final class ArtifactCompiler
      * several segments long is stripped whole while page-specific segments
      * stay. Returns no segments when there is no such run, or when all titles
      * are identical (a single-page app that never updates its title). The
-     * edge is which end of the title the run was found on.
+     * edge is which end of the title the run was found on. Each distinct
+     * title votes once so routes serving a stale title cannot dominate.
      *
      * @param array<int, array<string, mixed>> $files
      * @return array{segments: list<string>, edge: string}
@@ -4294,6 +4306,9 @@ final class ArtifactCompiler
         if ( count($titles) < 2 || 1 === count(array_unique($titles)) ) {
             return array('segments' => array(), 'edge' => '');
         }
+        // A stale title repeated by many routes is one vote, not a site-name
+        // run of its own (which could otherwise swallow the actual brand).
+        $titles = array_values(array_unique($titles));
         $majority = intdiv(count($titles), 2) + 1;
         $sharedRun = static function (array $titles, bool $leading) use ($majority): array {
             $counts = array();
@@ -4334,8 +4349,10 @@ final class ArtifactCompiler
      *                                       front page, when the compiled site
      *                                       has one.
      * @param string       $entryDocumentTitle The front page's original head title.
+     * @param array<string, int> $titleCounts Route counts for each document title.
+     * @param array<int, array<string, mixed>> $files Site files for inbound labels.
      */
-    private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = '', array $siteNameSegments = array(), string $siteNameEdge = '', string $navigationLabel = '', string $entryDocumentTitle = ''): string
+    private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = '', array $siteNameSegments = array(), string $siteNameEdge = '', string $navigationLabel = '', string $entryDocumentTitle = '', array $titleCounts = array(), array $files = array()): string
     {
         $normalize = static function (string $titleHtml): string {
             $titleHtml = preg_replace('/<\s*(?:br|\/?\s*(?:div|h[1-6]|p|li|ul|ol|section|article|header|footer|blockquote))\b[^>]*>/i', ' ', $titleHtml) ?? $titleHtml;
@@ -4364,6 +4381,31 @@ final class ArtifactCompiler
         };
 
         $titleDeclaration = HtmlTagScanner::scan($html, 'title')[0] ?? null;
+        $titleKey = null !== $titleDeclaration ? trim(html_entity_decode(strip_tags($titleDeclaration['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : '';
+        if ( ($titleCounts[$titleKey] ?? 0) > 1 ) {
+            // A title served verbatim by multiple routes cannot identify one.
+            // Read headings in content order, not heading-level priority, and
+            // never let a shell heading displace the route's inbound label.
+            // Without a <main> landmark, read the body minus page chrome.
+            if ( preg_match('/<main\b[^>]*>(.*?)<\/main\s*>/is', $html, $mainMatch) ) {
+                $main = $mainMatch[1];
+            } else {
+                $main = preg_match('/<body\b[^>]*>(.*)<\/body\s*>/is', $html, $bodyMatch) ? $bodyMatch[1] : $html;
+                $main = preg_replace('/<(header|nav|footer|aside)\b[^>]*>.*?<\/\1\s*>/is', '', $main) ?? $main;
+            }
+            if ( preg_match_all('/<h([1-6])\b[^>]*>(.*?)<\/h\1>/is', $main, $headings) ) {
+                foreach ( $headings[2] as $heading ) {
+                    if ( ! $this->headingIsHyperlinkChrome($heading) ) {
+                        $label = $normalize($this->withoutOtherLanguageText($heading, $html));
+                        if ( '' !== $label ) {
+                            return $label;
+                        }
+                    }
+                }
+            }
+            $label = $this->inboundPageLabel($files, $path);
+            return '' !== $label ? $label : $this->titleFromPath($path);
+        }
         if ( array() !== $siteNameSegments && null !== $titleDeclaration ) {
             $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, $normalize($titleDeclaration['content'])) ?: array();
             $length = count($siteNameSegments);
@@ -4447,6 +4489,34 @@ final class ArtifactCompiler
         );
 
         return is_string($filtered) && '' !== trim(strip_tags($filtered)) ? $filtered : $headingHtml;
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
+    private function inboundPageLabel(array $files, string $path): string
+    {
+        $routeKey = static fn (string $value): string => rtrim(preg_replace('#(?:^|/)index\.html?$#i', '/', $value) ?? $value, '/');
+        foreach ( $files as $file ) {
+            $sourcePath = (string) ($file['path'] ?? '');
+            if ( 'html' !== ($file['kind'] ?? '') || $sourcePath === $path ) {
+                continue;
+            }
+            preg_match_all('/(<a\b[^>]*>)(.*?)<\/a\s*>/is', (string) ($file['content'] ?? ''), $anchors, PREG_SET_ORDER);
+            foreach ( $anchors as $anchor ) {
+                $href = html_entity_decode($this->htmlAttribute($anchor[1], 'href'), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                if ( '' === $href || preg_match('#^(?:[a-z][a-z0-9+.-]*:|//|\#)#i', $href) || null !== parse_url($href, PHP_URL_FRAGMENT) ) {
+                    continue;
+                }
+                $target = $this->stylesheetPathFromHref($href, $sourcePath, $files);
+                if ( $routeKey($target) !== $routeKey($path) ) {
+                    continue;
+                }
+                $label = trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($anchor[2]), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+                if ( '' !== $label ) {
+                    return $label;
+                }
+            }
+        }
+        return '';
     }
 
     private function headingIsHyperlinkChrome(string $headingHtml): bool
