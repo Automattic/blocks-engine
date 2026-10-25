@@ -10985,6 +10985,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'linkClass'       => $this->mergeClassNames(
                 $this->attr($link, 'class'),
                 $this->styleResolver->inlineCustomPropertyCarrierClassName($link),
+                $this->styleResolver->inlineGeometryClassName($link, array_values(array_diff(
+                    array_keys($this->styleResolver->cssDeclarations(SourceDom::attr($link, 'style'))),
+                    array('display')
+                ))),
                 ...$this->session->authorSelectorProjectionState()->semanticMarkersForPath($link->getNodePath() ?? '')
             ),
         );
@@ -11295,7 +11299,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function imagePresentationAttributes(DOMElement $image, ?DOMElement $figure): array
     {
         $inlineImagePlacement = array_keys(array_filter($this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style')), NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
-        $attrs = $this->styleResolver->presentationAttributes($figure ?? $image, $figure instanceof DOMElement ? array() : $inlineImagePlacement);
+        $link = $image->parentNode;
+        $syntheticLinkedFigure = ! $figure instanceof DOMElement && $link instanceof DOMElement && 'a' === strtolower($link->tagName);
+        $imageBoxProperties = $syntheticLinkedFigure
+            ? array_keys(array_filter($this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style')), NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY))
+            : array();
+        $attrs = $this->styleResolver->presentationAttributes($figure ?? $image, $figure instanceof DOMElement ? array() : array_merge($inlineImagePlacement, $imageBoxProperties));
+        if ( $syntheticLinkedFigure ) {
+            // The figure replaces the link in its parent's layout. The image's
+            // percentage box and crop still belong to the leaf inside that link.
+            $attrs['className'] = $this->mergeClassNames(
+                (string) ($attrs['className'] ?? ''),
+                $this->styleResolver->inlineGeometryClassName($link),
+                $this->styleResolver->syntheticFlexImageBoxClassName($image)
+            );
+        }
         $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->imageLeafPlacementClassName($image));
         if ( $figure instanceof DOMElement ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageFigureClassName($figure), $this->nonCoreImageClassName($image), ...$this->authorSemanticMarkersForElement($image));
