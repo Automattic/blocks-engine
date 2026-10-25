@@ -264,8 +264,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         $label = $this->directSectionLabel($element);
         $listSource = $this->navigationListSource($element);
         $splitLandmarkOwnership = $this->shouldSplitLandmarkOwnership($element, $listSource, $navigationContext);
-        // Under split landmark ownership core/navigation stands in for the list
-        // and a core/group keeps the `nav`; the list is then the element whose
+        // Under split ownership core/navigation stands in for the list
+        // and a core/group keeps the wrapper; the list is then the element whose
         // classes and declarations the navigation block carries.
         $navigationSource = $splitLandmarkOwnership && $listSource instanceof DOMElement ? $listSource : $element;
         $navigationAttrs = $label instanceof DOMElement
@@ -373,7 +373,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $createBlock(
                         'core/group',
                         $this->withClassName(
-                            array_merge($presentationAttributes($element), array( 'tagName' => 'nav' )),
+                            array_merge($presentationAttributes($element), array( 'tagName' => strtolower($element->tagName) )),
                             'mobile' === ($navigationAttrs['overlayMenu'] ?? '') ? self::SIDEBAR_NAVIGATION_CARRIER_CLASS : ''
                         ),
                         array( $navigation ),
@@ -1679,22 +1679,32 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     /**
      * Core repeats a navigation block's class list on generated descendants.
-     * Distinct authored display boxes and out-of-flow landmarks need their own
-     * host; otherwise the list's inline formatting or rail placement also acts
+     * Wrappers and lists with separate ids, distinct authored display boxes,
+     * and out-of-flow landmarks need their own host; otherwise list identity is
+     * lost or the list's inline formatting or rail placement also acts
      * on the landmark that contains it.
      */
     private function shouldSplitLandmarkOwnership(DOMElement $element, ?DOMElement $listSource, ?NavigationPatternContext $navigationContext): bool
     {
         if ( ! $listSource instanceof DOMElement
             || $listSource->isSameNode($element)
-            || 'nav' !== strtolower($element->tagName)
             || ! $navigationContext instanceof NavigationPatternContext
         ) {
             return false;
         }
 
-        return $navigationContext->hasDistinctDisplayBoxes($element, $listSource)
-            || $navigationContext->isOutOfFlow($element);
+        // Two authored ids cannot share a single native anchor. Keep the
+        // wrapper as a carrier and let core/navigation own the source list,
+        // including its editor-anchor identity and source correspondence.
+        if ( '' !== trim(SourceDom::attr($element, 'id'))
+            && '' !== trim(SourceDom::attr($listSource, 'id'))
+        ) {
+            return true;
+        }
+
+        return 'nav' === strtolower($element->tagName)
+            && ( $navigationContext->hasDistinctDisplayBoxes($element, $listSource)
+                || $navigationContext->isOutOfFlow($element) );
     }
 
     /** A list's direct items keep the authored anchor cascade in the stylesheet. */
