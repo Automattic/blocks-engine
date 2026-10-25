@@ -2285,6 +2285,23 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
+            $groupLists = $this->unlabelledGroupLists($item);
+            if ( null !== $groupLists ) {
+                foreach ( $groupLists as $groupList ) {
+                    $groupBlocks = $this->navigationBlocksFromList($groupList, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $collected);
+                    if ( array() === $groupBlocks ) {
+                        // A group whose items cannot lower — it holds a
+                        // paragraph, a form, anything that is not a menu
+                        // item — still owns that content. Declining the whole
+                        // menu leaves every element to the native list path
+                        // that renders it instead of discarding it.
+                        return array();
+                    }
+                    array_push($blocks, ...$groupBlocks);
+                }
+                continue;
+            }
+
             $block = $this->navigationBlockFromItem($item, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $collected);
             if ( null === $block ) {
                 // An item whose only content is a nameless image link — the
@@ -3956,6 +3973,42 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $hasToggle ? $list : null;
+    }
+
+    /**
+     * The nested lists an `li` holds as an unlabelled group: the item carries
+     * no anchor, no toggle and no other content of its own, so the group has
+     * no name a submenu could show. Site builders emit this shape for a menu
+     * group without a parent link (`<li><ul><li><a href="/b">B</a></li></ul></li>`),
+     * and the item lowering used to read it as an anchor-less item and reject
+     * the whole menu, which stopped toggle navigation recognition for the
+     * landmark.
+     *
+     * The group is flattened rather than lowered to a core/navigation-submenu:
+     * a submenu needs an accessible label for its disclosure toggle and this
+     * group has none, so its items join the parent level in source order with
+     * their destinations kept — the same menu a flat list of them would make.
+     * A group that also holds non-navigation content (a paragraph, a form) is
+     * not matched here; the item then declines and the landmark stays on the
+     * native list path that renders that content.
+     *
+     * @return list<DOMElement>|null The nested lists, or null when the item is
+     *                               not an unlabelled group.
+     */
+    private function unlabelledGroupLists(DOMElement $item): ?array
+    {
+        $lists = array();
+        foreach ( $item->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                return null;
+            }
+            $lists[] = $child;
+        }
+
+        return array() === $lists ? null : $lists;
     }
 
     private function containsDialogCloseTarget(DOMElement $element): bool
