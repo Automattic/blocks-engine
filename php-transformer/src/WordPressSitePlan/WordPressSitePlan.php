@@ -341,9 +341,9 @@ PHP;
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
-        // Test native taxonomy ownership with the same canonical listing
-        // projection used by the final plan. Membership proof sees all captures
-        // before pagination views are suppressed, even if that proof declines.
+        // Probe presentation with the final plan's canonical listing projection.
+        // Entity ownership is already proven independently and must survive a
+        // declined presentation, including ownership of numbered captures.
         $routeBySource = array_column($routeMap, 'target_path', 'source_path');
         foreach ($pages as &$page) {
             $path = $routeBySource[$page['source_path']] ?? null;
@@ -372,8 +372,7 @@ PHP;
         foreach ($taxonomyProjection['entities'] as $taxonomyEntity) {
             $archiveSource = $taxonomyEntity['archive']['source_path'];
             if (!str_contains((string) ($preflightBySource[$archiveSource]['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
-                $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_query_unproven', 'severity' => 'info', 'message' => 'The captured archive presentation could not be converted to an inherited native query loop.', 'source_path' => $archiveSource, 'source_route' => $taxonomyEntity['archive']['source_route']);
-                continue;
+                unset($taxonomyEntity['archive']['presentation_markup']);
             }
             $projectedTaxonomyEntities[] = $taxonomyEntity;
             foreach ($taxonomyProjection['pagination_source_paths_by_archive'][$archiveSource] ?? array() as $paginationSource) $paginationOwnerBySource[$paginationSource] = $archiveSource;
@@ -578,10 +577,11 @@ PHP;
          foreach ($taxonomyProjection['entities'] as $taxonomyEntity) {
              foreach ($pages as $page) if (($page['source_path'] ?? null) === ($taxonomyEntity['archive']['source_path'] ?? null)) {
                  if (!str_contains((string) ($page['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
-                     $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_query_unproven', 'severity' => 'info', 'message' => 'The captured archive presentation could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
-                     continue 2;
+                     unset($taxonomyEntity['archive']['presentation_markup']);
+                     $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_presentation_template_hierarchy', 'severity' => 'info', 'message' => 'The captured archive presentation fell back to the WordPress template hierarchy because it could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
+                 } else {
+                     $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
                  }
-                 $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
                  $projectedTaxonomyEntities[] = $taxonomyEntity;
                  continue 2;
              }
@@ -594,6 +594,20 @@ PHP;
              continue 2;
          }
          unset($taxonomyEntity);
+        // Archive documents remain working presentation inputs until templates
+        // are settled, but native archive routes must never materialize pages.
+        $archiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
+        $workingPages = array_column($pages, null, 'source_path');
+        $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($archiveSources[$page['source_path']])));
+        foreach ($pages as &$page) {
+            while (isset($archiveSources[$page['parent_source_path']])) {
+                $page['parent_source_path'] = $workingPages[$page['parent_source_path']]['parent_source_path'];
+            }
+        }
+        unset($page);
+        $routes = $this->routesForPages($pages);
+        $emittedMarkup = implode("\n", self::markups(array_merge($pages, $parts, $templates, $syncedPatterns)));
+        $menus = array_values(array_filter($menus, static fn(array $menu): bool => !isset($menu['token']) || str_contains($emittedMarkup, self::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}')));
         $operations = $this->operations($pages);
         $assets = self::withVariantScopedIdSelectors($assets);
         // Stylesheet values equal to a token follow it too: links inside
@@ -658,7 +672,7 @@ PHP;
             'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics),
             // A dropped or rewritten unit is a warning on the plan, the same as withFindings().
             'quality' => array('status' => self::statusWithFindings($data['status'], $unitFindings), 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $input->coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy),
-            'reporting' => $this->reporting($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), $surfaces),
+            'reporting' => $this->reporting($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), array_merge($surfaces, array_values(array_column(array_filter($templates, static fn(array $template): bool => isset($archiveSources[$template['source_path'] ?? ''])), null, 'source_path')))),
         );
         $plan['reference_semantics']['navigation_entities'] = NavigationEntityProjection::REFERENCE_CONTRACT;
         if (array() !== $syncedPatterns) {
@@ -830,12 +844,19 @@ PHP;
             self::unique($documentIdentities, $page['reconciliation_identity'], 'page reconciliation identity');
             $pagesBySource[$page['source_path']] = $page;
         }
+        $archiveDocuments = array();
+        foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
+            $source = $entity['archive']['source_path'] ?? '';
+            $route = $entity['archive']['source_route'] ?? '';
+            if (!isset($sourceCatalog[$source]) || isset($pagesBySource[$source])) throw new InvalidArgumentException('WordPress site plan native archive must name a captured source without a materialized page.');
+            $archiveDocuments[$source] = array('source_path' => $source, 'post_type' => 'page', 'route' => array('path' => $route), 'reconciliation_identity' => self::identity('page', $source, $route));
+        }
         self::assertTaxonomyEntities($plan['taxonomy_entities'], $pagesBySource);
         self::assertAuthorEntities($plan['author_entities'], $pagesBySource);
         $expectedCandidatePages = self::attachWholePageCandidates(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), $plan['runtime_declarations'], $records);
         foreach ($plan['pages'] as $index => $page) if (($expectedCandidatePages[$index]['whole_page_candidates'] ?? null) !== ($page['whole_page_candidates'] ?? null)) throw new InvalidArgumentException('Whole-page candidates are stale, duplicated, or detached from their canonical source pages.');
         foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
-            $page = $pagesBySource[$scope['source_path']] ?? null;
+            $page = $pagesBySource[$scope['source_path']] ?? $archiveDocuments[$scope['source_path']] ?? null;
             if (!is_array($page) || $scope['kind'] !== ('post' === $page['post_type'] ? 'post' : 'page') || $scope['route_path'] !== trim($page['route']['path'], '/') || $scope['reconciliation_identity'] !== $page['reconciliation_identity'] || $scope['front_page'] !== ('/' === $page['route']['path'])) throw new InvalidArgumentException('A page asset scope does not match its canonical page.');
         }
         // A document position holds exactly one stylesheet instance, across
@@ -844,7 +865,7 @@ PHP;
         foreach ($plan['assets'] as $asset) {
             if (isset($asset['stylesheet_instances']) && ('css' !== $asset['kind'] || !is_array($asset['stylesheet_instances']))) throw new InvalidArgumentException('Only stylesheet resources may declare ordered instances.');
             foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
-                if (!is_array($instance) || array('source_path', 'order', 'media', 'type') !== array_keys($instance) || !isset($pagesBySource[$instance['source_path'] ?? '']) || !is_int($instance['order'] ?? null) || $instance['order'] < 0 || !is_string($instance['media'] ?? null) || !is_string($instance['type'] ?? null)) throw new InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.');
+                if (!is_array($instance) || array('source_path', 'order', 'media', 'type') !== array_keys($instance) || (!isset($pagesBySource[$instance['source_path'] ?? '']) && !isset($archiveDocuments[$instance['source_path'] ?? ''])) || !is_int($instance['order'] ?? null) || $instance['order'] < 0 || !is_string($instance['media'] ?? null) || !is_string($instance['type'] ?? null)) throw new InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.');
                 // A frontend-only and an editor-only copy share their position:
                 // each context still replays exactly one resource there.
                 foreach (array('frontend', 'editor') as $context) {
@@ -873,6 +894,10 @@ PHP;
         foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
             $templateSlug = self::archiveTemplateSlug($entity);
             $archiveTemplates = array_values(array_filter($plan['templates'], static fn(array $template): bool => $templateSlug === ($template['slug'] ?? null)));
+            if (!array_key_exists('presentation_markup', $entity['archive'])) {
+                if (array() !== $archiveTemplates) throw new InvalidArgumentException('WordPress site plan fallback archive must not have a per-entity template.');
+                continue;
+            }
             if (1 !== count($archiveTemplates) || ($archiveTemplates[0]['source_path'] ?? null) !== $entity['archive']['source_path'] || ($archiveTemplates[0]['canonical_block_markup'] ?? null) !== $entity['archive']['presentation_markup']) throw new InvalidArgumentException('WordPress site plan native archive entity lacks its source-owned archive template.');
         }
         $writeTargets = array();
@@ -3576,6 +3601,7 @@ PHP;
              $templates[] = array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'source_path' => $surface['source_path'], 'template_surface' => $declaration, 'provenance' => $surface['provenance'] ?? array(), 'reconciliation_identity' => self::identity('template', $surface['source_path'], $target), 'content_hash' => self::contentHash($content));
          }
          foreach ($taxonomyEntities as $entity) {
+             if (!array_key_exists('presentation_markup', $entity['archive'])) continue;
              $slug = self::archiveTemplateSlug($entity);
              $target = 'templates/' . $slug . '.html';
              if (array_filter($templates, static fn(array $template): bool => $template['slug'] === $slug)) throw new InvalidArgumentException('A native archive template collides with a declared template.');
@@ -6584,8 +6610,7 @@ PHP;
             if (!is_array($entity) || 'author' !== ($entity['kind'] ?? null) || !is_string($entity['slug'] ?? null) || !preg_match('/^[a-z0-9][a-z0-9-]{0,49}$/', $entity['slug']) || !is_string($entity['name'] ?? null) || '' === trim($entity['name'])) throw new InvalidArgumentException('WordPress site plan author entity is structurally invalid.');
             self::unique($slugs, $entity['slug'], 'author nicename');
             $archive = $entity['archive'] ?? null;
-            if (!is_array($archive) || !self::safePath($archive['source_path'] ?? null) || ($archive['source_route'] ?? null) !== '/author/' . $entity['slug'] || ($archive['query'] ?? null) !== array('post_type' => 'post', 'author' => $entity['slug']) || !is_string($archive['presentation_markup'] ?? null) || strlen($archive['presentation_markup']) > 1000000 || !str_contains($archive['presentation_markup'], '<!-- wp:query ') || !str_contains($archive['presentation_markup'], '"inherit":true') || !str_contains($archive['presentation_markup'], '<!-- wp:query-pagination ') || !str_contains($archive['presentation_markup'], '<!-- wp:query-no-results -->')) throw new InvalidArgumentException('WordPress site plan author archive is structurally invalid.');
-            if (($pagesBySource[$archive['source_path']]['route']['path'] ?? null) !== $archive['source_route']) throw new InvalidArgumentException('WordPress site plan author archive is detached from its source.');
+            if (!is_array($archive) || !self::safePath($archive['source_path'] ?? null) || ($archive['source_route'] ?? null) !== '/author/' . $entity['slug'] || ($archive['query'] ?? null) !== array('post_type' => 'post', 'author' => $entity['slug']) || !self::validArchivePresentation($archive)) throw new InvalidArgumentException('WordPress site plan author archive is structurally invalid.');
             if (isset($archive['document_head'])) DocumentHeadContext::assertValid($archive['document_head']);
             $members = $entity['membership_source_paths'] ?? null;
             if (!is_array($members) || !array_is_list($members) || array() === $members || count($members) > 10000) throw new InvalidArgumentException('WordPress site plan author membership list is invalid.');
@@ -6600,6 +6625,18 @@ PHP;
         }
     }
 
+    /** Presentation is optional; when present it must be an inherited archive query. */
+    private static function validArchivePresentation(array $archive): bool
+    {
+        if (!array_key_exists('presentation_markup', $archive)) return true;
+        $markup = $archive['presentation_markup'];
+        return is_string($markup) && strlen($markup) <= 1000000
+            && str_contains($markup, '<!-- wp:query ')
+            && str_contains($markup, '"inherit":true')
+            && str_contains($markup, '<!-- wp:query-pagination ')
+            && str_contains($markup, '<!-- wp:query-no-results -->');
+    }
+
     private static function assertTaxonomyEntities(array $entities, array $pagesBySource): void
     {
         $seen = array();
@@ -6610,7 +6647,7 @@ PHP;
             if (!is_array($entity) || 'taxonomy_term' !== ($entity['kind'] ?? null) || !in_array($entity['taxonomy'] ?? null, array('category', 'post_tag'), true) || !is_string($entity['slug'] ?? null) || !preg_match('/^[a-z0-9][a-z0-9-]{0,199}$/', $entity['slug']) || !is_string($entity['name'] ?? null) || '' === trim($entity['name'])) throw new InvalidArgumentException('WordPress site plan taxonomy entity is structurally invalid.');
             self::unique($seen, $entity['taxonomy'] . ':' . $entity['slug'], 'taxonomy term');
             $archive = $entity['archive'] ?? null;
-            if (!is_array($archive) || !self::safePath($archive['source_path'] ?? null) || !is_string($archive['source_route'] ?? null) || !preg_match('~^/[a-z0-9-]+(?:/[a-z0-9-]+)*$~', $archive['source_route']) || !is_string($archive['presentation_markup'] ?? null) || strlen($archive['presentation_markup']) > 1000000 || !str_contains($archive['presentation_markup'], '<!-- wp:query ') || !str_contains($archive['presentation_markup'], '"inherit":true') || !str_contains($archive['presentation_markup'], '<!-- wp:query-pagination ') || !str_contains($archive['presentation_markup'], '<!-- wp:query-no-results -->') || ($archive['query'] ?? null) !== array('post_type' => 'post', 'taxonomy' => $entity['taxonomy'], 'term' => $entity['slug'])) throw new InvalidArgumentException('WordPress site plan taxonomy archive is structurally invalid.');
+            if (!is_array($archive) || !self::safePath($archive['source_path'] ?? null) || !is_string($archive['source_route'] ?? null) || !preg_match('~^/[a-z0-9-]+(?:/[a-z0-9-]+)*$~', $archive['source_route']) || !self::validArchivePresentation($archive) || ($archive['query'] ?? null) !== array('post_type' => 'post', 'taxonomy' => $entity['taxonomy'], 'term' => $entity['slug'])) throw new InvalidArgumentException('WordPress site plan taxonomy archive is structurally invalid.');
             if (basename($archive['source_route']) !== $entity['slug']) throw new InvalidArgumentException('WordPress site plan taxonomy slug does not match its archive route.');
             if (array_key_exists('parent', $entity)) {
                 $parent = $entity['parent'];
@@ -6621,8 +6658,6 @@ PHP;
                 throw new InvalidArgumentException('WordPress site plan hierarchical category lacks its parent.');
             }
             if (isset($archive['document_head'])) DocumentHeadContext::assertValid($archive['document_head']);
-            $archivePage = $pagesBySource[$archive['source_path']] ?? null;
-            if (!is_array($archivePage) || ($archivePage['route']['path'] ?? null) !== $archive['source_route']) throw new InvalidArgumentException('WordPress site plan taxonomy archive route is detached from its source page.');
             $members = $entity['membership_source_paths'] ?? null;
             if (!is_array($members) || !array_is_list($members) || array() === $members || count($members) > 10000) throw new InvalidArgumentException('WordPress site plan taxonomy membership list is structurally invalid.');
             $memberSet = array();

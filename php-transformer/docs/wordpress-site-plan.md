@@ -136,14 +136,17 @@ a post claimed by multiple proven authors produces
 withheld entirely, without guessing either identity or membership. Unproven
 archives remain ordinary documents with
 `wordpress_site_plan_author_archive_unproven`. A presentation that cannot become
-a native inherited query emits `wordpress_site_plan_author_archive_query_unproven`
-and is not projected.
+a native inherited query keeps the author and membership, omits
+`archive.presentation_markup`, and emits the info diagnostic
+`wordpress_site_plan_author_archive_presentation_template_hierarchy` with the
+source path and route. No per-author template is emitted; WordPress's template
+hierarchy serves the archive.
 
 Proven archives follow the category presentation path into native WordPress
 `author` fallback template and `author-<slug>` source-specific templates, retaining
 source-owned shell and head resources. As with category entities, the canonical
-archive document remains presentation evidence in the plan: consumers must not
-materialize its `archive.source_path` as a frozen page. Consumers create users
+archive document remains source evidence in the plan, but its source path and
+pagination sources are absent from `pages`, `routes`, and page operations. Consumers create users
 with the nicename and display name and assign each member post to that user.
 Core's author rewrite owns `/author/<slug>/` and pagination; no custom author
 rewrite is registered. New posts then appear through the inherited native query.
@@ -171,8 +174,8 @@ Hierarchical routes (`/category/parent/child`, at any depth) use the leaf as
 in the same taxonomy. Top-level entities omit `parent`. The parent must itself
 have a proven archive at the immediate ancestor route; otherwise the child
 stays unproven with `wordpress_site_plan_taxonomy_archive_unproven_parent`
-naming the missing parent route. This also applies if a parent's native query
-presentation is declined. Leaf slugs are unique across the taxonomy, not just
+naming the missing parent route. Presentation failure does not invalidate a
+proven parent or its descendants. Leaf slugs are unique across the taxonomy, not just
 within one parent. Child membership and numbered captures use the same proof
 as top-level archives. Validation rejects absent, self-referential, malformed,
 or route-detached parents, independently of entity order.
@@ -193,7 +196,7 @@ slug, not a WordPress database ID. SSI's existing exact archive-route rewrites
 already accept nested source paths and need no route-contract change.
 
 Each emitted `taxonomy_term` records its bounded canonical post source paths,
-the archive source identity and route, captured presentation markup, and native
+the archive source identity and route, optional captured presentation markup, and native
 query scope (`post_type`, taxonomy, and term). A consumer materializes the term
 and memberships and uses the archive document as presentation evidence, not as
 a frozen page owner. The generated theme scaffold retains an exact rewrite and
@@ -201,6 +204,15 @@ term-link mapping for the source route, and rewrites the source route's
 `/page/N` suffix onto the same native term query with `paged` for bounded
 positive page numbers, without changing the destination's global category/tag
 base. Future posts belong to WordPress's native archive query.
+
+If presentation cannot become an inherited Query Loop, the term keeps its name,
+parent, membership, and pagination ownership but omits `presentation_markup` and
+its per-term template. The info diagnostic
+`wordpress_site_plan_taxonomy_archive_presentation_template_hierarchy` records
+the source path and route; WordPress's template hierarchy serves the archive.
+Neither projected nor fallback archive sources materialize as plan pages, and
+page ancestry skips archive sources so every nonempty `parent_source_path`
+names a materialized page.
 
 The producer-only HTTP acceptance serves a resolved generated theme in a
 disposable WordPress 7.1 runtime without SSI. It follows the rendered base-page

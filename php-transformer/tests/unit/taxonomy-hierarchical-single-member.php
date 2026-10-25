@@ -64,7 +64,7 @@ $validateEntities = new ReflectionMethod(WordPressSitePlan::class, 'assertTaxono
 $validateEntities->invoke(null, array_reverse($plan['taxonomy_entities']), array_column($plan['pages'], null, 'source_path'));
 $diagnostics = array();
 $retained = TaxonomyProjection::retainProvenParents(array_values(array_filter($result['entities'], static fn(array $entity): bool => 'performing' !== $entity['slug'])), $diagnostics);
-$assert(!in_array('acting', array_column($retained, 'slug'), true) && !in_array('meisner', array_column($retained, 'slug'), true), 'Declined parent presentation prunes all descendants.');
+$assert(!in_array('acting', array_column($retained, 'slug'), true) && !in_array('meisner', array_column($retained, 'slug'), true), 'Missing proven parent entities prune all descendants, independently of presentation.');
 foreach (array(null, 'absent', 'meisner', 42) as $invalidParent) {
     $invalid = $plan;
     foreach ($invalid['taxonomy_entities'] as &$entity) if ('acting' === $entity['slug']) $entity['parent'] = $invalidParent;
