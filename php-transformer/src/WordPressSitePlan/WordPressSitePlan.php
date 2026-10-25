@@ -4953,14 +4953,15 @@ PHP;
         foreach (array_merge($templates, $parts) as $document) if (str_contains((string) ($document['canonical_block_markup'] ?? ''), self::TOKEN_PREFIX)) foreach ($tokens as $token) if (is_string($token['token'] ?? null) && is_string($token['target_path'] ?? null)) $templateAssetTokens[self::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
         if (array() !== $templateAssetTokens) {
             $lines[] = '$blocks_engine_template_asset_tokens = ' . var_export($templateAssetTokens, true) . ';';
-            $lines[] = '$blocks_engine_resolve_template_assets = static function ( string $content ) use ( $blocks_engine_template_asset_tokens ): string {';
+            $lines[] = '$blocks_engine_template_attachment_ids = array();';
+            $lines[] = '$blocks_engine_resolve_template_assets = static function ( string $content ) use ( $blocks_engine_template_asset_tokens, $blocks_engine_template_attachment_ids ): string {';
             // A file-system path and a URL path are different encodings of the
             // same name: a literal `%` (or a `+`, which some serving layers
             // decode to a space) in a captured file name resolves on some hosts
             // and 404s on others once the server URL-decodes the request path.
             // Percent-encode every segment in the emitted URL only, leaving the
             // on-disk path -- and therefore the theme-file lookup -- untouched.
-            $lines[] = "    \$references = array(); foreach ( \$blocks_engine_template_asset_tokens as \$token => \$path ) { \$uri = get_theme_file_uri( \$path ); \$references[ \$token ] = str_ends_with( \$uri, \$path ) ? substr( \$uri, 0, -strlen( \$path ) ) . implode( '/', array_map( 'rawurlencode', explode( '/', \$path ) ) ) : \$uri; }";
+            $lines[] = "    \$references = array(); foreach ( \$blocks_engine_template_asset_tokens as \$token => \$path ) { if ( isset( \$blocks_engine_template_attachment_ids[ \$token ] ) ) { \$references[ \$token ] = wp_get_attachment_url( \$blocks_engine_template_attachment_ids[ \$token ] ) ?: ''; continue; } \$uri = get_theme_file_uri( \$path ); \$references[ \$token ] = str_ends_with( \$uri, \$path ) ? substr( \$uri, 0, -strlen( \$path ) ) . implode( '/', array_map( 'rawurlencode', explode( '/', \$path ) ) ) : \$uri; }";
             $lines[] = '    return strtr( $content, $references );';
             $lines[] = '};';
             $lines[] = "add_filter( 'get_block_file_template', static function ( \$template, string \$id, string \$type ) use ( \$blocks_engine_resolve_template_assets ) { if ( \$template instanceof WP_Block_Template && \$template->has_theme_file && get_stylesheet() === \$template->theme ) \$template->content = \$blocks_engine_resolve_template_assets( \$template->content ); return \$template; }, 10, 3 );";
@@ -6175,7 +6176,7 @@ PHP;
         if (!is_array($theme) || 3 !== ($theme['version'] ?? null) || !is_array($theme['settings'] ?? null) || !is_array($theme['styles'] ?? null)) throw new InvalidArgumentException('WordPress site plan theme.json shape is unsupported.');
         $bootstrap = $writes['functions.php'] ?? null;
         $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations'], $plan['runtime_declarations']);
-        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages'], $plan['menus'], array_merge($plan['taxonomy_entities'], $plan['author_entities'])) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
+        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages'], $plan['menus'], array_merge($plan['taxonomy_entities'], $plan['author_entities'])) !== ($bootstrap['canonical_payload'] ?? $bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
         if (DocumentRootContext::needsCanvas($plan['pages'])) {
             $canvas = $writes['document-canvas.php'] ?? null;
             if (!is_array($canvas) || 'theme_scaffold' !== ($canvas['kind'] ?? null) || 'wordpress-site-plan/document-canvas.php' !== ($canvas['source_path'] ?? null) || DocumentRootContext::canvas() !== ($canvas['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan document canvas is invalid.');
