@@ -2731,6 +2731,12 @@ final class AuthorStylesheetProjector
             $marker = $context->selectorProjections->tagMarker((string) $typeSpan['name']);
             if ( '' !== $marker ) {
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => ':where(.' . $marker . ')' . $this->typeSpecificityShim($context) );
+            } elseif ( 'span' === strtolower((string) $typeSpan['name']) ) {
+                // Core's label span has no source identity. Even a dormant
+                // author rule (or an arm retained for unprojected subjects)
+                // must not acquire that engine-owned wrapper as a new match.
+                // Keep real source spans addressable, without adding weight.
+                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'span:not(:where(.wp-block-navigation-item__label))' );
             } elseif ( 'code' === strtolower((string) $typeSpan['name']) ) {
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'code:not(.' . $context->authorStyles->classSpecificityShim() . ')' );
             }

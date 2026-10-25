@@ -569,6 +569,7 @@
       "php tests/unit/navigation-list-host-ownership.php",
       "php tests/unit/navigation-list-box-properties.php",
       "php tests/unit/navigation-label-tag-identity.php",
+      "php tests/unit/navigation-label-wrapper-author-span.php",
       "php tests/unit/navigation-link-box-carry.php",
       "php tests/unit/navigation-link-line-height.php",
       "php tests/unit/navigation-nested-anchor-item-reset.php",
