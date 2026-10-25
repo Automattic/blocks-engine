@@ -351,6 +351,7 @@
       "php tests/unit/visually-hidden-authored-clip.php",
       "php tests/unit/collapsed-navigation-css-toggle.php",
       "php tests/unit/navigation-nested-list-inventory.php",
+      "php tests/unit/navigation-unlabelled-group-menu.php",
       "php tests/unit/navigation-opener-presentation.php",
       "php tests/unit/navigation-overlay-source-breakpoint.php",
       "php tests/unit/navigation-toggle-recognition-memo.php",
