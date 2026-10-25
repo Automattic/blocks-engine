@@ -2730,7 +2730,13 @@ final class AuthorStylesheetProjector
             }
             $marker = $context->selectorProjections->tagMarker((string) $typeSpan['name']);
             if ( '' !== $marker ) {
-                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => ':where(.' . $marker . ')' . $this->typeSpecificityShim($context) );
+                // In a negation, exclude both native tags and retagged source
+                // subjects. :is() keeps the original type weight; the marker
+                // arm contributes none, including inside a :not() list.
+                $value = ($typeSpan['negated'] ?? false)
+                    ? ':is(' . substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ',:where(.' . $marker . '))'
+                    : ':where(.' . $marker . ')' . $this->typeSpecificityShim($context);
+                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => $value );
             } elseif ( 'span' === strtolower((string) $typeSpan['name']) ) {
                 // Core's label span has no source identity. Even a dormant
                 // author rule (or an arm retained for unprojected subjects)

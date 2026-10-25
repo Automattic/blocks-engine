@@ -394,6 +394,12 @@ final class StylesheetAnalysisComposer
                 $parsed = CssSelectorMatcher::parse($selector);
                 $directSelector = preg_replace('/::[a-z-]+(?:\([^)]*\))?$/i', '', trim($selector)) ?? $selector;
                 $ruleSelectors[] = array('selector' => $selector, 'parsed' => $parsed, 'direct_child_parsed' => CssSelectorMatcher::parse($directSelector));
+                foreach ( CssSelectorMatcher::functionalTypeSpans($selector) as $typeSpan ) {
+                    $tagName = strtolower($typeSpan['name']);
+                    if ( ($typeSpan['negated'] ?? false) && in_array($tagName, array('input', 'button', 'select', 'textarea'), true) ) {
+                        $sourceTags[$tagName] = true;
+                    }
+                }
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
                     $tagName = strtolower($typeSpan['name']);
                     if ( in_array($tagName, array('div', 'figure', 'li', 'mark', 'nav', 'p'), true) ) {

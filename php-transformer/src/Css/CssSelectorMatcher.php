@@ -121,7 +121,7 @@ final class CssSelectorMatcher
      * indexes to identify the selector's subject. This lexical walk also works
      * for :has() and relative selectors outside the static matcher's subset.
      *
-     * @return list<array{start:int,end:int,name:string}>
+     * @return list<array{start:int,end:int,name:string,negated:bool}>
      */
     public static function functionalTypeSpans(string $selector): array
     {
@@ -157,7 +157,7 @@ final class CssSelectorMatcher
                                 $typeEnd = $typeStart;
                                 $type = self::identifier($relative, $typeEnd);
                                 if ( null !== $type ) {
-                                    $spans[] = array( 'start' => $base + $typeStart, 'end' => $base + $typeEnd, 'name' => $type );
+                                    $spans[] = array( 'start' => $base + $typeStart, 'end' => $base + $typeEnd, 'name' => $type, 'negated' => 'not' === strtolower($name) );
                                 }
                             }
                             foreach ( self::functionalTypeSpans($alternative) as $span ) {
