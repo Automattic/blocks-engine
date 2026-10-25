@@ -505,11 +505,14 @@ PHP;
         $shells['parts'] = $footerContent['parts'];
         $shells['diagnostics'] = array_merge($shells['diagnostics'], $footerContent['diagnostics']);
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
-        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($shells['pages'], $parts, $shells['runtime_declarations']);
+        $documentChrome = $this->shellExtraction->separateCaptureDocumentChrome($shells['pages'], $shells['runtime_declarations'], $runtimeEntityRecords);
+        $shells['diagnostics'] = array_merge($shells['diagnostics'], $documentChrome['diagnostics']);
+        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($documentChrome['pages'], $parts, $shells['runtime_declarations']);
         $pages = $shellFrames['pages'];
         // The generic page template is shared by routes that did not author it,
         // so the rules aimed at its markers are site-wide chrome rules.
         $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
+        foreach ($documentChrome['chrome'] as $chrome) $frameParts[] = array('slug' => 'document-chrome', 'placement' => array('kind' => 'shared_shell', 'template_slugs' => array('single')), 'canonical_block_markup' => $chrome);
         $assetTargetCollisions = array();
         // Rich-text markers some emitted markup still carries. A chrome rule
         // naming any other marker names an element extraction replaced (one
@@ -585,7 +588,7 @@ PHP;
          }
          $taxonomyProjection['entities'] = TaxonomyProjection::retainProvenParents($projectedTaxonomyEntities, $taxonomyProjection['diagnostics']);
          unset($taxonomyEntity);
-         $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single'], $taxonomyProjection['entities'], $shellFrames['frames']);
+         $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single'], $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome']);
          foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if (self::archiveTemplateSlug($taxonomyEntity) === ($template['slug'] ?? null)) {
              $taxonomyEntity['archive']['presentation_markup'] = $template['canonical_block_markup'];
              continue 2;
@@ -3501,9 +3504,10 @@ PHP;
      * @param array<int,array<string,mixed>> $routes
      * @param array<int,array<string,mixed>> $taxonomyEntities
      * @param array<string,array<string,mixed>> $frames
+     * @param array<string,string> $documentChrome Shared document chrome by template slug.
      * @return array<int,array<string,mixed>>
      */
-    private function templates(array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, array $routes = array(), ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array()): array
+    private function templates(array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, array $routes = array(), ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array()): array
      {
          $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)));
          usort($bound, static function (array $left, array $right): int {
@@ -3556,6 +3560,12 @@ PHP;
         $overrides = array_filter(self::overrideTemplateSlugs($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
         foreach ($pages as $page) if (isset($page['route_template'])) $overrides[$page['route_template']] = true;
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
+        foreach ($templates as &$template) {
+            if (!isset($documentChrome[$template['slug']])) continue;
+            $template['canonical_block_markup'] .= "\n" . $documentChrome[$template['slug']];
+            $template['content_hash'] = self::contentHash($template['canonical_block_markup']);
+        }
+        unset($template);
         foreach ($templates as &$template) if (isset($frames[$template['slug']])) $template['shell_frame'] = $frames[$template['slug']]['shells']; unset($template);
          $explicitSlugs = array_fill_keys(array_map(static fn(array $surface): string => $surface['template_surface']['slug'], $surfaces), true);
          $templates = array_values(array_filter($templates, static fn(array $template): bool => !isset($explicitSlugs[$template['slug']])));

@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
+use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 
 /**
@@ -25,6 +26,109 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
  */
 final class ShellExtraction
 {
+    /**
+     * Capture-document siblings after the root owning main are page chrome,
+     * not article content. Keep their device scope when moving them to the
+     * shared single template. Visibility is deliberately irrelevant: hidden
+     * blocks inside main (and ordinary authored wrappers) remain content.
+     * Runtime-bound siblings stay put rather than stranding their bindings.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @param array<int,array<string,mixed>> $runtimeEntityRecords
+     * @return array{pages:array<int,array<string,mixed>>,chrome:array<string,string>,diagnostics:array<int,array<string,mixed>>}
+     */
+    public function separateCaptureDocumentChrome(array $pages, array $runtimeDeclarations, array $runtimeEntityRecords = array()): array
+    {
+        $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
+        $chrome = array();
+        $variants = array();
+        $diagnostics = array();
+        $postCount = count(array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null)));
+        foreach ($pages as $index => $page) {
+            if ('post' !== ($page['post_type'] ?? null)) continue;
+            $markup = (string) ($page['canonical_block_markup'] ?? '');
+            $nodes = self::blockNodes($markup);
+            $removals = array();
+            foreach (self::topLevelNodeIds($nodes) as $id) {
+                $wrapper = $nodes[$id];
+                $children = $wrapper['children'];
+                if (count($children) < 2) continue;
+                $opening = substr($markup, $wrapper['offset'], $nodes[$children[0]]['offset'] - $wrapper['offset']);
+                if (!preg_match('/\bclass="([^"]*)"/', $opening, $match)) continue;
+                $classes = preg_split('/\s+/', $match[1]) ?: array();
+                if (array() === array_intersect($classes, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS))) continue;
+                $roots = array();
+                foreach ($children as $position => $child) {
+                    if (self::nodesHoldMain($markup, $nodes, array($child))) $roots[] = $position;
+                }
+                if (1 !== count($roots)) continue;
+                // The content root contains main; main itself is not the root.
+                // In a flat header/main/footer document the footer remains the
+                // shell extractor's responsibility, not a trailing scaffold.
+                $root = $nodes[$children[$roots[0]]];
+                if (preg_match('/"tagName"\s*:\s*"main"/', $root['attributes'])) continue;
+                $trailing = array_slice($children, $roots[0] + 1);
+                if (array() === $trailing) continue;
+                $closing = substr($markup, $nodes[$children[count($children) - 1]]['end'], $wrapper['end'] - $nodes[$children[count($children) - 1]]['end']);
+                $device = in_array(CaptureEvidence::MOBILE_DOCUMENT_CLASS, $classes, true) ? 'mobile' : 'desktop';
+                foreach ($trailing as $child) {
+                    $range = array('offset' => $nodes[$child]['offset'], 'length' => $nodes[$child]['end'] - $nodes[$child]['offset']);
+                    $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($range));
+                    if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
+                    $sibling = substr($markup, $range['offset'], $range['length']);
+                    // Compare complete sibling content, not just its outer shell:
+                    // avatar lists and other per-request data are not design.
+                    $identity = self::documentChromeIdentity($sibling);
+                    $variants[$device]['opening'] ??= $opening;
+                    $variants[$device]['closing'] ??= $closing;
+                    $variants[$device]['siblings'][$identity]['markup'] ??= $sibling;
+                    $variants[$device]['siblings'][$identity]['sources'][(string) $page['source_path']] = true;
+                    $removals[] = $range;
+                }
+            }
+            if (array() === $removals) continue;
+            usort($removals, static fn(array $a, array $b): int => $b['offset'] <=> $a['offset']);
+            foreach ($removals as $range) $markup = substr_replace($markup, '', $range['offset'], $range['length']);
+            $pages[$index]['canonical_block_markup'] = $markup;
+            $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
+        }
+        $shared = '';
+        foreach ($variants as $variant) {
+            $siblings = '';
+            foreach ($variant['siblings'] as $sibling) {
+                if (count($sibling['sources']) === $postCount) {
+                    $siblings .= $sibling['markup'];
+                    continue;
+                }
+                preg_match('/"anchor"\s*:\s*"([^"]+)"|\bid="([^"]+)"|\bclass="([^"]+)"/', $sibling['markup'], $label);
+                $anchor = $label[1] ?? '';
+                if ('' === $anchor) $anchor = $label[2] ?? '';
+                if ('' === $anchor) $anchor = $label[3] ?? 'unlabelled sibling';
+                foreach (array_keys($sibling['sources']) as $source) {
+                    $diagnostics[] = array('code' => 'wordpress_site_plan_document_chrome_varying_omitted', 'severity' => 'info', 'source_path' => $source, 'anchor_or_class' => $anchor, 'message' => 'Omitted per-post document chrome (' . $anchor . '); per-request output is not shared template design.');
+                }
+            }
+            if ('' !== $siblings) $shared .= $variant['opening'] . $siblings . $variant['closing'];
+        }
+        if ('' !== $shared) $chrome['single'] = $shared;
+        return array('pages' => $pages, 'chrome' => $chrome, 'diagnostics' => $diagnostics);
+    }
+
+    private static function documentChromeIdentity(string $markup): string
+    {
+        // Only generated identity is ignored; authored ids, classes and all
+        // content remain significant. Device variants are compared separately.
+        $markup = preg_replace('/be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
+        $markup = preg_replace('/' . preg_quote((string) DocumentVariantIds::suffixForClass(CaptureEvidence::MOBILE_DOCUMENT_CLASS), '/') . '\b/', '', $markup) ?? $markup;
+        $markup = preg_replace_callback('/("className"\s*:\s*"|\bclass=")([^"]*)"/', static function (array $match): string {
+            $classes = preg_split('/\s+/', trim($match[2])) ?: array();
+            sort($classes, SORT_STRING);
+            return $match[1] . implode(' ', $classes) . '"';
+        }, $markup) ?? $markup;
+        return $markup;
+    }
+
     /** @var array<string,array<int,array<string,mixed>>> Entities of this call's manifest declarations, by payload hash. */
     private array $manifestEntities = array();
 
