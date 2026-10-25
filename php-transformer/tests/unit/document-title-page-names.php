@@ -86,7 +86,7 @@ foreach ( array('|', '-', '–', '—', '·') as $separator ) {
             'index.php/index-query-2.html' => '<title>' . $homeTitle . '</title><main><h3>Bronze casting</h3></main>',
         );
         $expected = array(
-            'index.html' => 'Welcome',
+            'index.html' => 'Home Welcome', // The entry owns its title; copies do not.
             'about/index.html' => 'About My story',
             'blog/index.html' => 'Blog News',
             'index.php/index-query-1.html' => 'Opening night',

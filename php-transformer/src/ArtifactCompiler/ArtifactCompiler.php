@@ -4382,8 +4382,9 @@ final class ArtifactCompiler
 
         $titleDeclaration = HtmlTagScanner::scan($html, 'title')[0] ?? null;
         $titleKey = null !== $titleDeclaration ? trim(html_entity_decode(strip_tags($titleDeclaration['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : '';
-        if ( ($titleCounts[$titleKey] ?? 0) > 1 ) {
+        if ( $path !== $entryPath && ($titleCounts[$titleKey] ?? 0) > 1 ) {
             // A title served verbatim by multiple routes cannot identify one.
+            // The entry page owns its title; the routes that copy it do not.
             // Read headings in content order, not heading-level priority, and
             // never let a shell heading displace the route's inbound label.
             // Without a <main> landmark, read the body minus page chrome.
