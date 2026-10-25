@@ -73,10 +73,10 @@ final class WordPressSitePlanResolver
         return $value;
     }
 
-    /** Project only changed blocks; the no-attachment path is the original byte substitution. */
-    public static function resolveMarkup(string $markup, array $references, array $attachments = array()): string
+    /** Bind attachment IDs, then resolve URLs unless publishing portable theme markup. */
+    public static function resolveMarkup(string $markup, array $references, array $attachments = array(), bool $preserveTokens = false): string
     {
-        if (array() === $attachments) return self::resolvePayload($markup, $references);
+        if (array() === $attachments) return $preserveTokens ? $markup : self::resolvePayload($markup, $references);
         $runtime = new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime();
         $visit = static function (array $blocks) use (&$visit, $runtime, $attachments): array {
             foreach ($blocks as &$block) {
@@ -112,7 +112,8 @@ final class WordPressSitePlanResolver
             unset($block);
             return $blocks;
         };
-        return self::resolvePayload($runtime->serializeBlocks($visit($runtime->parseBlocks($markup))), $references);
+        $bound = $runtime->serializeBlocks($visit($runtime->parseBlocks($markup)));
+        return $preserveTokens ? $bound : self::resolvePayload($bound, $references);
     }
 
     /**
@@ -143,8 +144,15 @@ final class WordPressSitePlanResolver
     /** @param array<int,array<string,mixed>> $tokens */
     public static function resolveWritePayload(string $content, array $tokens, string $themeUri, string $targetPath, array $attachments = array()): string
     {
-        if (array() !== $attachments && (str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/'))) return self::resolveMarkup($content, self::references($tokens, $themeUri, $attachments), $attachments);
-        if ('functions.php' === $targetPath || str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/')) return $content;
+        if (array() !== $attachments && (str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/'))) return self::resolveMarkup($content, array(), $attachments, true);
+        if ('functions.php' === $targetPath) {
+            if (array() === $attachments) return $content;
+            // Publish only IDs: the generated runtime looks up URLs on the current host.
+            $ids = array();
+            foreach ($attachments as $token => $attachment) $ids[WordPressSitePlan::TOKEN_PREFIX . $token . '}}'] = $attachment['id'];
+            return str_replace('$blocks_engine_template_attachment_ids = array();', '$blocks_engine_template_attachment_ids = ' . var_export($ids, true) . ';', $content);
+        }
+        if (str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/')) return $content;
         return self::resolvePayload($content, self::referencesForWrite($tokens, $themeUri, $targetPath, $attachments));
     }
     /**
