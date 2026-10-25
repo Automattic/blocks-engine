@@ -81,11 +81,12 @@ final class ButtonLinkDispatcher
             return $this->paragraphHost($element);
         }
 
-        // A childless whitespace-only link still owns its destination and may
-        // own a CSS hitbox. Use the same native RichText host as other links;
-        // neither a duplicate sibling destination nor absent text proves that
-        // it is safe to omit. Keep media-bearing anchors on their own lowering.
-        if ( 0 === SourceDom::childElementCount($element)
+        // A whitespace-only link, including empty inline decoration, still
+        // owns its destination and may own a CSS-painted hitbox. Use the same
+        // native RichText host as other links; neither a duplicate sibling
+        // destination nor absent text proves that it is safe to omit. Keep
+        // media-bearing and flow-content anchors on their own lowering.
+        if ( $this->hasOnlyEmptyInlineDecoration($element)
             && '' === trim($element->textContent ?? '')
             && '' !== $this->context->safeLinkUrl(SourceDom::attr($element, 'href')) ) {
             return $this->paragraphHost($element);
@@ -129,6 +130,23 @@ final class ButtonLinkDispatcher
         // Its id remains on the inner link, the node that source selectors and
         // fragment navigation actually address.
         return $this->paragraphHost($element);
+    }
+
+    /**
+     * Empty inline descendants are CSS decoration, not media or inner blocks.
+     * Keep their source markup in the destination link's native RichText host.
+     */
+    private function hasOnlyEmptyInlineDecoration(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement
+                && ( ! $this->context->isInlineContentElement(strtolower($child->tagName))
+                    || ! $this->hasOnlyEmptyInlineDecoration($child) ) ) {
+                return false;
+            }
+        }
+
+        return '' === trim($element->textContent ?? '');
     }
 
     /**

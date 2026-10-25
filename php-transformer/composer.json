@@ -625,6 +625,7 @@
       "php tests/unit/named-fragment-target-geometry.php",
       "php tests/unit/empty-named-fragment-target.php",
       "php tests/unit/empty-hrefless-anchor.php",
+      "php tests/unit/textless-painted-anchor.php",
       "php tests/unit/button-wrapper-keyword-width.php",
       "php tests/unit/button-link-min-content.php",
       "php tests/unit/button-wrapper-inner-fill.php",
