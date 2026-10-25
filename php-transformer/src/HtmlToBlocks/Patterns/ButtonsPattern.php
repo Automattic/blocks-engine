@@ -783,7 +783,9 @@ final class ButtonsPattern
 
         if ( $isOutline ) {
             if ( array() !== $native ) {
-                $attrs['className'] = 'is-style-outline';
+                // Consume source chrome classes without discarding the wrapper's
+                // generated geometry (including positioned flex-item offsets).
+                $this->removeSourceControlClasses($attrs, $element);
             }
             $attrs['style']['color']['background'] = 'transparent';
         }

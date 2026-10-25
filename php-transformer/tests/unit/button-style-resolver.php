@@ -158,7 +158,7 @@ $explicitButton = ( new HtmlTransformer() )->transform(
 $explicitMarkup = (string) ($explicitButton['serialized_blocks'] ?? '');
 $explicitCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $explicitButton['assets'] ?? array()));
 $explicitButtonAttrs = $explicitButton['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs'] ?? array();
-$assert('#102030' === ($explicitButtonAttrs['style']['color']['text'] ?? null) && str_contains($explicitCss, 'color:#102030'), 'explicit anchor color remains authoritative over inherited color through CSS', $explicitMarkup);
+$assert('#102030' === ($explicitButtonAttrs['style']['color']['text'] ?? null) && str_contains($explicitMarkup, 'color:#102030'), 'explicit anchor color remains authoritative over inherited color on the link', $explicitMarkup);
 $assert(str_contains($explicitCss, 'text-align:end!important') && ! str_contains($explicitCss, 'text-align:start!important'), 'explicit anchor alignment remains authoritative over inherited alignment', $explicitCss);
 $assert('pass' === ($explicitButton['source_reports']['wp_block_validity']['status'] ?? ''), 'explicit native button remains editor-valid', json_encode($explicitButton['source_reports']['wp_block_validity'] ?? array()));
 

@@ -27,10 +27,10 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-background has-border-color wp-element-button\"" },
     { "path": "blocks.0.innerBlocks.0.attrs.style.color.background", "assert": "equals", "value": "#135e96" },
     { "path": "blocks.0.innerBlocks.0.attrs.style.border.radius", "assert": "equals", "value": "999px" },
-    { "path": "assets.0.content", "assert": "contains", "value": "background-color:#135e96 !important" },
-    { "path": "assets.0.content", "assert": "contains", "value": "border-width:2px !important" },
-    { "path": "assets.0.content", "assert": "contains", "value": "padding-top:14px !important" },
-    { "path": "assets.0.content", "assert": "contains", "value": "text-transform:uppercase !important" },
+    { "path": "assets.0.content", "assert": "not_contains", "value": "background-color:#135e96 !important" },
+    { "path": "assets.0.content", "assert": "not_contains", "value": "border-width:2px !important" },
+    { "path": "assets.0.content", "assert": "not_contains", "value": "padding-top:14px !important" },
+    { "path": "assets.0.content", "assert": "not_contains", "value": "text-transform:uppercase !important" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "background-color:#f7f7f7" }
   ]
 }

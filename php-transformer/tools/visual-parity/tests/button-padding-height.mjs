@@ -26,6 +26,27 @@ try {
             return { heights, trustTop };
         }, controls);
     };
+    const inlinePaint = readFileSync(path.join(root, 'tests/fixtures/button-inline-paint.html'), 'utf8');
+    const inlineOutput = transform(inlinePaint);
+    const buttonBox = async (html, selector) => {
+        await page.setContent(html);
+        return page.locator(selector).evaluate(element => {
+            const box = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return { width: box.width, height: box.height, padding: style.padding, background: style.backgroundColor };
+        });
+    };
+    const sourceBox = await buttonBox(inlinePaint, 'a');
+    const importedHtml = `<!doctype html><style>${wordpressButtonCss}${inlineOutput.css}</style>${inlineOutput.html}`;
+    const linkBox = await buttonBox(importedHtml, '.wp-block-button__link');
+    const wrapperBox = await buttonBox(importedHtml, '.wp-block-button');
+    console.log(`Inline button paint: source=${JSON.stringify(sourceBox)} link=${JSON.stringify(linkBox)} wrapper=${JSON.stringify(wrapperBox)}`);
+    for (const box of [linkBox, wrapperBox]) {
+        assert.ok(Math.abs(box.width - sourceBox.width) <= 1, 'button width matches source');
+        assert.ok(Math.abs(box.height - sourceBox.height) <= 1, 'button height matches source');
+    }
+    assert.equal(wrapperBox.padding, '0px', 'wrapper adds no padding');
+    assert.equal(wrapperBox.background, 'rgba(0, 0, 0, 0)', 'wrapper adds no paint');
     const before = await measure(source, '.row, button');
     const after = await measure(`<!doctype html><style>${wordpressButtonCss}${transformed.css}</style>${transformed.html}`, '.row, .wp-block-buttons, .wp-block-button, .wp-block-button__link');
     console.log(`Padded button geometry: source=${JSON.stringify(before)} transformed=${JSON.stringify(after)}`);
