@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
@@ -63,6 +64,25 @@ foreach (array('reduced' => $source, 'dormant' => $withoutSubtitles) as $case =>
     }
     if (3 !== $labels || ('reduced' === $case && 3 !== $subtitles)) {
         throw new RuntimeException('Expected native navigation labels and retained source subtitles.');
+    }
+}
+
+// Site imports compile through ArtifactCompiler, whose WordPress compatibility
+// pass maps `a` to the item content. Its `span` must skip the label wrapper too.
+$site = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'kind' => 'html', 'content' => $source))))->toArray();
+$siteCss = '';
+array_walk_recursive($site, static function ($value) use (&$siteCss): void {
+    if (is_string($value) && str_contains($value, 'wp-block-navigation-item__content')) {
+        $siteCss .= $value . "\n";
+    }
+});
+preg_match_all('/([^{}]*\.wp-block-navigation-item__content[^{}]*)\{[^}]*font:10px/', $siteCss, $subtitleRules);
+if (array() === $subtitleRules[1]) {
+    throw new RuntimeException('Site compile lost the source subtitle rule.');
+}
+foreach ($subtitleRules[1] as $selector) {
+    if (preg_match('/__content[^,]*\bspan(?!:not\(:where\(\.wp-block-navigation-item__label\)\))/', $selector)) {
+        throw new RuntimeException('Site compile lets an author span rule match the Core label: ' . trim($selector));
     }
 }
 echo "Navigation label wrappers exclude author span rules; source subtitles retain them\n";
