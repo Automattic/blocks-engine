@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
+use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 
 /**
@@ -119,7 +120,7 @@ final class ShellExtraction
         // Only generated identity is ignored; authored ids, classes and all
         // content remain significant. Device variants are compared separately.
         $markup = preg_replace('/be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
-        $markup = preg_replace('/--data-blocks-engine-capture-mobile\b/', '', $markup) ?? $markup;
+        $markup = preg_replace('/' . preg_quote((string) DocumentVariantIds::suffixForClass(CaptureEvidence::MOBILE_DOCUMENT_CLASS), '/') . '\b/', '', $markup) ?? $markup;
         $markup = preg_replace_callback('/("className"\s*:\s*"|\bclass=")([^"]*)"/', static function (array $match): string {
             $classes = preg_split('/\s+/', trim($match[2])) ?: array();
             sort($classes, SORT_STRING);
