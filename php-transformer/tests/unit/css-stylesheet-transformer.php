@@ -188,6 +188,46 @@ $shorthand = $transformer->rulesAbsentFrom(
 );
 $assert('.field.page-a{border:0}.field--error{border-color:red}.panel.page-a{flex:1}' === $shorthand, 'a later longhand of a changed shorthand stays after it; an unrelated family before the change does not');
 
+$compact = static fn(string $list): string => \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::compact($list);
+$assert('.catalog :is(.one,.two,.three)' === $compact('.catalog .one,.catalog .two,.catalog .three'), 'equal-weight compounds factor once');
+foreach ( array(
+    '.catalog .one,.catalog #two',
+    '.catalog .one::before,.catalog .two::before',
+    '.catalog .one:before,.catalog .two:before',
+    '.catalog .one:unknown,.catalog .two:unknown',
+    '.catalog .one:where(:unknown),.catalog .two:where(:unknown)',
+    '.catalog .one,.catalog .two.extra',
+    '.catalog .one\\:escaped,.catalog .two\\:escaped',
+) as $unsafe ) {
+    $assert($unsafe === $compact($unsafe), 'unsafe or unequal-weight arguments remain unchanged: ' . $unsafe);
+}
+$assert('.catalog :is(.one,.two),#unrelated' === $compact('.catalog .one,#unrelated,.catalog .two'), 'nonadjacent arms of one rule may fold without moving a rule');
+$fixture = file_get_contents(dirname(__DIR__) . '/fixtures/projected-selector-compaction.html');
+$output = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer())->transform($fixture)->toArray();
+$projectedCss = implode("\n", array_column($output['assets'], 'content'));
+$assert(str_contains($projectedCss, '.catalog :is(.tile-one,.tile-two,.tile-three){color:navy}') && strpos($projectedCss, '{color:maroon}') > strpos($projectedCss, '{color:navy}'), 'neutral projection fixture compacts and retains later cascade override');
+$assert('.catalog :is(:where(.one):not(.shim),:where(.two):not(.shim))' === $compact('.catalog :where(.one):not(.shim),.catalog :where(.two):not(.shim)'), 'neutral markers and equal-weight shims can factor');
+$unequalLogical = '.catalog :where(.one):not(.shim),.catalog :where(.two):not(#shim)';
+$assert($unequalLogical === $compact($unequalLogical), 'is maximum must not promote a class arm to ID specificity');
+$namespaceCss = '@namespace url(example);.catalog .one,.catalog .two{color:red}';
+$assert($namespaceCss === \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::stylesheet($namespaceCss), 'namespace-sensitive sheets remain unchanged');
+$splitRules = '.catalog .one{color:red}.catalog .other{color:blue}.catalog .two{color:red}';
+$assert($splitRules === \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::stylesheet($splitRules), 'identical declarations never merge across an intervening rule');
+$before = '.catalog .one,.catalog .two,.catalog .three';
+$after = $compact($before);
+$matcher = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::class;
+$document = new DOMDocument();
+$document->loadHTML('<main class="catalog"><p class="one"></p><p class="two"></p><p class="three"></p><p class="other"></p></main>');
+foreach ( $document->getElementsByTagName('p') as $element ) {
+    $oldMatch = false;
+    foreach ( explode(',', $before) as $arm ) {
+        $parsed = $matcher::parse($arm);
+        $oldMatch = $oldMatch || $matcher::matches($element, $parsed)['matches'];
+        $assert($matcher::specificityCounts($parsed) === $matcher::specificityCounts($matcher::parse($after)), 'factoring preserves the full specificity tuple');
+    }
+    $assert($oldMatch === $matcher::matches($element, $matcher::parse($after))['matches'], 'factored selector matches exactly the original union');
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssStylesheetTransformer unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

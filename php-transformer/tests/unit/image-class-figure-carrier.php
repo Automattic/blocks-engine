@@ -66,6 +66,8 @@ $assert('' !== $frontEnd, 'a front-end author stylesheet is emitted');
 
 /** Selectors (one per entry of a rule's selector list) matching $selectorPattern whose rule body contains every declaration. */
 $rules = static function (string $css, string $selectorPattern, array $declarations): array {
+    require_once dirname(__DIR__) . '/Support/expand-compacted-selectors.php';
+    $css = expandCompactedSelectors($css);
     $found = array();
     if ( preg_match_all('/([^{}]+)\{([^{}]*)\}/', $css, $matches, PREG_SET_ORDER) ) {
         foreach ( $matches as $match ) {

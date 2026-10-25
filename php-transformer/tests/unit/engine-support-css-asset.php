@@ -53,7 +53,7 @@ $authorOrder = ( new HtmlTransformer() )->transform(
 $authorAssets = $sourceAssets($authorOrder, 'author-css');
 $assert(1 === count($authorAssets), 'G2: transform emits exactly one author-css asset');
 $normalizedAuthorCss = preg_replace('/\s+/', '', (string) ($authorAssets[0]['content'] ?? '')) ?? '';
-$normalizedAuthorCss = preg_replace('/:root\.wp-block-navigation\.wp-block-navigation-item\.blocks-engine-navigation-anchor-[^{]+\{color:#fff\}/', '.desktop-nava{color:#fff}', $normalizedAuthorCss, -1, $navigationSubjectRules) ?? $normalizedAuthorCss;
+$normalizedAuthorCss = preg_replace('/:root\.wp-block-navigation(?:\.wp-block-navigation-item\.blocks-engine-navigation-anchor-|:is\()[^{]+\{color:#fff\}/', '.desktop-nava{color:#fff}', $normalizedAuthorCss, -1, $navigationSubjectRules) ?? $normalizedAuthorCss;
 $assert(1 === $navigationSubjectRules, 'G2: source anchor color stays in its original author rule position on the native subject');
 // The control marker's seed is an identity hash, not part of the contract.
 $normalizedAuthorCss = preg_replace('/blocks-engine-control-[a-f0-9]{12}-(\d+)/', 'blocks-engine-control-#-$1', $normalizedAuthorCss) ?? $normalizedAuthorCss;

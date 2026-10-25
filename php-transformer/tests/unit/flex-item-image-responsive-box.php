@@ -19,6 +19,8 @@ $assert = static function (bool $condition, string $message, string $context = '
 $css = static fn(array $out): string => implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter((array) ($out['assets'] ?? array()), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? ''))));
 // Offset of the first rule whose selector list holds $selector with exactly $body.
 $ruleAt = static function (string $sheet, string $selector, string $body): int|false {
+    require_once dirname(__DIR__) . '/Support/expand-compacted-selectors.php';
+    $sheet = expandCompactedSelectors($sheet);
     preg_match_all('/([^{}]+)\{([^{}]*)\}/', $sheet, $rules, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
     foreach ($rules as $rule) {
         if ($body === $rule[2][0] && in_array($selector, array_map('trim', explode(',', $rule[1][0])), true)) return $rule[0][1];
