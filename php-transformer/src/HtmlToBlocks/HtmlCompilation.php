@@ -698,7 +698,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
                 return $this->layoutShellBlockForElements($elements, $innerBlocks, $sourceElement);
             },
-            fn (array $elements): array => $this->layoutShellBlockForElements($elements, array(), $elements[0], true),
+            // A field box keeps the frames the author styles: attributes, or a tag the author's selectors address.
+            function (array $elements): ?array {
+                $styled = array_values(array_filter($elements, fn (DOMElement $element): bool => $element->hasAttributes() || '' !== $this->authorSelectorProjections()->tagMarker($element->tagName)));
+                return array() === $styled ? null : $this->layoutShellBlockForElements($styled, array(), $styled[0], true);
+            },
             fn (): array => $this->authorStyles()->stylesheetAssets(),
             fn (): string => $this->sourceStyles()->formLayoutCss(),
             function (DOMElement $element, array &$fallbacks): array {

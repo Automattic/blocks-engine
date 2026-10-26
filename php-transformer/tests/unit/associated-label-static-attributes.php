@@ -29,7 +29,11 @@ $candidate->loadHTML($page['canonical_block_markup'], LIBXML_NOERROR | LIBXML_NO
 $label = $candidate->getElementById('choice-caption');
 $sourceLabel = $original->getElementById('choice-caption');
 foreach (SourceDom::htmlAttributes($sourceLabel) as $name => $value) {
-    $assert($label->hasAttribute($name) && $value === $label->getAttribute($name), 'authored label host retains the actual ' . $name . ' subject');
+    // The class list also gains the source label type marker that rewritten `label` rules select.
+    $retained = 'class' === $name
+        ? array() === array_diff(explode(' ', $value), explode(' ', $label->getAttribute('class')))
+        : $value === $label->getAttribute($name);
+    $assert($label->hasAttribute($name) && $retained, 'authored label host retains the actual ' . $name . ' subject');
 }
 $assert('input' === $label->previousElementSibling?->tagName && 'choice' === $label->previousElementSibling?->getAttribute('id'), 'attribute preservation introduces no adjacency wrapper');
 $assert('label' === $candidate->getElementById('other')->previousElementSibling?->tagName, 'opposite source label order remains intact');
