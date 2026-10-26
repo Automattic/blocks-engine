@@ -216,6 +216,107 @@ final class CssStylesheetTransformer
     }
 
     /**
+     * Fold page-only positive identity-marker arms into an unambiguous shared
+     * rule, at its original cascade position. A carrier on any consuming page
+     * must have projected the very same arm on that rule. Missing page evidence
+     * is deliberately unsafe. Return equivalent page rules using the union so
+     * rulesAbsentFrom() can remove them without moving a cascade suffix.
+     *
+     * @param list<string> $shared
+     * @param array<string, list<string>> $pages All consuming page projections.
+     * @param array<string, string> $markup Canonical markup by page owner.
+     * @return array{shared: list<string>, pages: array<string, list<string>>}
+     */
+    public function foldPositiveMarkerArms(array $shared, array $pages, array $markup): array
+    {
+        $unchanged = array('shared' => $shared, 'pages' => $pages);
+        foreach (array_merge($shared, ...array_values($pages)) as $css) {
+            if (!$this->isWellFormedStylesheet($css)) return $unchanged;
+        }
+        $carriers = array();
+        foreach ($markup as $owner => $html) {
+            preg_match_all('/(?<![a-zA-Z0-9_-])blocks-engine-[a-z-]+-[a-f0-9]{12}-[0-9]+(?![a-zA-Z0-9_-])/', $html, $matches);
+            foreach (array_unique($matches[0]) as $marker) $carriers[$marker][$owner] = true;
+        }
+        // Only accept a literal marker in a positive :where() compound. This
+        // excludes marker negations, constant role classes, escapes and selector-list
+        // alternatives that could match without carrying the identity marker.
+        $markerOf = static function (string $arm): ?string {
+            $positive = preg_replace('/:not\((?:\.be-c-[0-9]+|be-t-[0-9]+)\)/', '', $arm);
+            if (str_contains($arm, '/*') || preg_match('/:(?:not|is|has)\s*\(/i', $positive)) return null;
+            return preg_match('/^:where\(\.(blocks-engine-[a-z-]+-[a-f0-9]{12}-[0-9]+)\)(?=$|[\s>+~.:#\[])/', $arm, $match) ? $match[1] : null;
+        };
+        $describe = static function (array $unit) use ($markerOf): ?array {
+            $brace = strpos($unit['text'], '{');
+            if (!$unit['dedupable'] || false === $brace) return null;
+            $prelude = trim(substr($unit['text'], 0, $brace));
+            if (str_starts_with($prelude, '@')) return null;
+            $arms = self::splitSelectorList($prelude);
+            if (null === $arms) return null;
+            $arms = array_map('trim', $arms);
+            $constant = array_values(array_filter($arms, static fn (string $arm): bool => null === $markerOf($arm)));
+            sort($constant);
+            return array('key' => serialize(array($unit['context'], substr($unit['text'], $brace), $constant)), 'arms' => $arms, 'brace' => $brace);
+        };
+        $sharedUnits = array();
+        foreach ($shared as $css) $this->collectRuleUnits($css, array(), $sharedUnits);
+        $index = array();
+        foreach ($sharedUnits as $i => $unit) {
+            $description = $describe($unit);
+            if (null !== $description) $index[$description['key']][] = $i;
+        }
+        $pageUnits = array();
+        $pageIndex = array();
+        foreach ($pages as $owner => $sheets) {
+            $pageUnits[$owner] = array();
+            foreach ($sheets as $css) $this->collectRuleUnits($css, array(), $pageUnits[$owner]);
+            foreach ($pageUnits[$owner] as $i => $unit) {
+                $description = $describe($unit);
+                if (null !== $description) $pageIndex[$owner][$description['key']][] = $i;
+            }
+        }
+        foreach ($index as $key => $matches) {
+            if (1 !== count($matches)) continue;
+            $i = $matches[0];
+            $base = $describe($sharedUnits[$i]);
+            $union = $base['arms'];
+            $candidates = array();
+            foreach ($pageIndex as $owner => $rules) {
+                if (1 !== count($rules[$key] ?? array())) continue;
+                $description = $describe($pageUnits[$owner][$rules[$key][0]]);
+                foreach (array_diff($description['arms'], $union) as $arm) {
+                    $marker = $markerOf($arm);
+                    if (null !== $marker) $candidates[$arm] = $marker;
+                }
+            }
+            foreach ($candidates as $arm => $marker) {
+                $safe = true;
+                if (array_diff_key($pages, $markup)) $safe = false;
+                foreach ($carriers[$marker] ?? array() as $owner => $_) {
+                    $rules = $pageIndex[$owner][$key] ?? array();
+                    if (1 !== count($rules) || !in_array($arm, $describe($pageUnits[$owner][$rules[0]])['arms'], true)) { $safe = false; break; }
+                }
+                if ($safe) $union[] = $arm;
+            }
+            if ($union === $base['arms']) continue;
+            $sharedUnits[$i]['text'] = implode(',', $union) . substr($sharedUnits[$i]['text'], $base['brace']);
+            foreach ($pageIndex as $owner => $rules) {
+                if (1 !== count($rules[$key] ?? array())) continue;
+                $j = $rules[$key][0];
+                $description = $describe($pageUnits[$owner][$j]);
+                // Leave the entire rule on the old delta path if any arm was
+                // not safe to fold; its later cascade dependencies still matter.
+                if (array() === array_diff($description['arms'], $union)) {
+                    $pageUnits[$owner][$j]['text'] = $sharedUnits[$i]['text'];
+                }
+            }
+        }
+        $result = array('shared' => array($this->serializeRuleUnits($sharedUnits)), 'pages' => array());
+        foreach ($pageUnits as $owner => $units) $result['pages'][$owner] = array($this->serializeRuleUnits($units));
+        return $result;
+    }
+
+    /**
      * The cascade families a rule unit declares: a property, without vendor
      * prefix, reduced to the shorthand that also sets it, so a shorthand and
      * its longhands share a family. Custom properties are their own family.
