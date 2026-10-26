@@ -172,6 +172,18 @@ final class EngineMarker
         return self::SUBJECT_TAG_PREFIX . (1 === preg_match('/^[a-z][a-z0-9-]*$/D', $tagName) ? $tagName : 'x' . substr(hash('sha256', $tagName), 0, 12));
     }
 
+    /**
+     * Compound matching a carrier that stands in for a source tag other than
+     * `$tagName`, e.g. a `<p>` lowered to a `<span>` carrier. A projected type
+     * selector for the carrier's own tag excludes it through
+     * `:not(:where(...))`, so the carrier matches the rules its source
+     * element matched and not those for real elements of its rendered tag.
+     */
+    public static function foreignSubjectCarrier(string $tagName): string
+    {
+        return '.' . self::SUBJECT_BASE_CLASS . ':not(.' . self::subjectTagClass($tagName) . ')';
+    }
+
     /** Class restating one source class token; hashed, so any token is a valid class. */
     public static function subjectClassClass(string $className): string
     {

@@ -497,7 +497,8 @@ final class WordPressCompatCss
      * Core wraps each navigation label in its own span. A source `a span`
      * rule targets authored spans inside the link, so once `a` maps to the
      * item content, its type `span` must not also match that engine-owned
-     * wrapper. `:not(:where())` keeps the selector's specificity unchanged.
+     * wrapper, nor a span carrier standing in for another source tag.
+     * `:not(:where())` keeps the selector's specificity unchanged.
      */
     private function withoutNavigationLabelSpan(string $selector): string
     {
@@ -507,7 +508,7 @@ final class WordPressCompatCss
         }
         $head = substr($selector, 0, $anchor);
         $tail = substr($selector, $anchor);
-        return $head . (preg_replace('/(^|[\s>+~])span(?![A-Za-z0-9_-])/', '$1span:not(:where(.wp-block-navigation-item__label))', $tail) ?? $tail);
+        return $head . (preg_replace('/(^|[\s>+~])span(?![A-Za-z0-9_-])/', '$1span:not(:where(.wp-block-navigation-item__label,' . EngineMarker::foreignSubjectCarrier('span') . '))', $tail) ?? $tail);
     }
 
     /**
