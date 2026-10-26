@@ -1488,12 +1488,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $this->imageDimensions ??= new ImageDimensionResolver($this->styleResolver);
     }
 
+    /** @var array<string, string> Source box modifiers retained across island reduction. */
+    private array $reducedButtonSourceBoxes = array();
+
     private function sourceBlockAttributeProjectionContext(): SourceBlockAttributeProjectionContext
     {
         return new SourceBlockAttributeProjectionContext(
             $this->authorStyles(),
             $this->authorSelectorProjections(),
-            $this->generatedSupportStyles()
+            $this->generatedSupportStyles(),
+            $this->reducedButtonSourceBoxes
         );
     }
 
@@ -1660,7 +1664,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->reconcileNativeListItemFallbacks($fallbacks, $blocks);
         $this->reconcileFormControlGroupFallbacks($body, $fallbacks);
         if (! $this->session->usesFallbackReductionMode()) {
-            $blocks = $this->reduceCoreHtmlFallbackBlocks($blocks);
+            $blocks = $this->reduceCoreHtmlFallbackBlocks($blocks, $body);
         }
         $this->runtimeIslands->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->interactionFallbackReporter->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
@@ -1854,7 +1858,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * @param array<int, array<string, mixed>> $blocks
      * @return array<int, array<string, mixed>>
      */
-    public function reduceCoreHtmlFallbackBlocks(array $blocks): array
+    public function reduceCoreHtmlFallbackBlocks(array $blocks, ?DOMElement $sourceRoot = null): array
     {
         $reduced = array();
         foreach ($blocks as $block) {
@@ -1867,7 +1871,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $html = is_string($block['attrs']['content'] ?? null)
                     ? $block['attrs']['content']
                     : (is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '');
-                $replacement = $this->safeFallbackFragmentBlocks($html);
+                $replacement = $this->safeFallbackFragmentBlocks($html, $sourceRoot);
                 array_push($reduced, ...($replacement ?? array($block)));
                 continue;
             }
@@ -1877,7 +1881,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $reducedChildren = array();
                 $childReplacements = array();
                 foreach ($children as $child) {
-                    $replacement = $this->reduceCoreHtmlFallbackBlocks(array($child));
+                    $replacement = $this->reduceCoreHtmlFallbackBlocks(array($child), $sourceRoot);
                     $childReplacements[] = $replacement;
                     array_push($reducedChildren, ...$replacement);
                 }
@@ -1906,7 +1910,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /**
      * @return array<int, array<string, mixed>>|null Null keeps the original island.
      */
-    private function safeFallbackFragmentBlocks(string $html): ?array
+    private function safeFallbackFragmentBlocks(string $html, ?DOMElement $sourceRoot = null): ?array
     {
         if ('' === trim($html)) {
             return array();
@@ -1927,7 +1931,25 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
+        // Island reduction reparses a detached fragment, so ancestor selectors
+        // no longer match. Resolve box modifiers against the original source
+        // and pass that evidence to the same button attribute projector.
+        $sourceBoxes = array();
+        if ( $loaded && $sourceRoot instanceof DOMElement ) {
+            foreach ( $document->getElementsByTagName('a') as $anchor ) {
+                if ( ! $anchor instanceof DOMElement || '' === $this->attr($anchor, 'id') ) {
+                    continue;
+                }
+                foreach ( $sourceRoot->getElementsByTagName('a') as $sourceAnchor ) {
+                    if ( $sourceAnchor instanceof DOMElement && $this->attr($sourceAnchor, 'id') === $this->attr($anchor, 'id') ) {
+                        $sourceBoxes[$this->attr($anchor, 'id')] = $this->sourceBlockAttributeProjector->layoutNeutralButtonSourceBoxClasses($sourceAnchor);
+                        break;
+                    }
+                }
+            }
+        }
         $fragmentCompilation = new self($this->runtime, $this->analysisCache);
+        $fragmentCompilation->reducedButtonSourceBoxes = $sourceBoxes;
         $result = $fragmentCompilation->transform($html, array('extract_global_shell' => false, 'fallback_reduction_mode' => true));
         $data = $result->toArray();
         $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : array();
