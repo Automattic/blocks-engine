@@ -693,7 +693,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->formRuntimeIslandRecorder,
             fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            // A form or fieldset the author lays out as flex or grid keeps that
+            // layout CSS-owned, like any other author layout container.
+            fn (DOMElement $element): array => $this->isAuthorOwnedLayout($element)
+                ? $this->cssOwnedGroupAttributes($element)
+                : $this->styleResolver->presentationAttributes($element),
             $this,
             function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
                 return $this->layoutShellBlockForElements($elements, $innerBlocks, $sourceElement);
