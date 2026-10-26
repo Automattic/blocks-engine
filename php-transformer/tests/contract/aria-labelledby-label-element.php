@@ -42,7 +42,7 @@ $walk = static function (array $blocks) use (&$walk, &$found): void {
 $walk((new Runtime())->parseBlocks($page));
 
 $assert(is_array($found) && 'Kind' === ($found['attrs']['content'] ?? null) && ! isset($found['attrs']['htmlFor']), 'The group caption stays an editable label block with its id: ' . substr($page, 0, 1200));
-$assert(1 === substr_count($page, '<label id="kind-label" class="caption">Kind</label>'), 'The group caption renders as the source label element, so aria-labelledby resolves.');
-$assert(! str_contains($page, '<label id="loose-label"') && str_contains($page, 'Loose caption'), 'A label nothing names keeps its paragraph conversion.');
+$assert(1 === preg_match_all('/<label id="kind-label" class="caption [^"]*">Kind<\/label>/', $page), 'The group caption renders as the source label element, so aria-labelledby resolves.');
+$assert(! str_contains($page, '<label id="loose-label"') && 1 === preg_match('/<p id="loose-label" class="[^"]*blocks-engine-source-label-[^"]*">Loose caption<\/p>/', $page), 'A label nothing names keeps its paragraph conversion and its source label marker.');
 
 echo "aria-labelledby label element contract passed.\n";
