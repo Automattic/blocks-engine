@@ -605,6 +605,19 @@ PHP;
             $parents = array_fill_keys(array_column($pages, 'parent_source_path'), true);
             $pages = array_values(array_filter($pages, static fn(array $page): bool => empty($page['synthetic']) || isset($parents[$page['source_path']])));
         } while (count($pages) !== $count);
+        // Asset projections already saw the working hierarchy. Drop every
+        // occurrence owned by a removed synthetic document at this boundary;
+        // routes, operations, head metadata and reporting are derived below
+        // from the surviving pages. Native archive resources remain owned by
+        // their archive documents and must not be removed with working pages.
+        $prunedSources = array_diff_key(array_filter($workingPages, static fn(array $page): bool => !empty($page['synthetic'])), array_column($pages, null, 'source_path'));
+        foreach ($assets as &$asset) {
+            foreach (array('stylesheet_instances', 'scopes', 'references') as $key) {
+                if (!isset($asset[$key])) continue;
+                $asset[$key] = array_values(array_filter($asset[$key], static fn(array $row): bool => !isset($prunedSources[$row['source_path'] ?? ''])));
+            }
+        }
+        unset($asset);
         foreach ($pages as $page) if (isset($page['route_template'])) $themeProjection['theme']['customTemplates'][] = array('name' => $page['route_template'], 'title' => $page['title'], 'postTypes' => array($page['post_type']));
         // Shell extraction needed the archive documents, but route overrides
         // belong only to documents that actually materialize in WordPress.
