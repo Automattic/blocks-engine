@@ -11535,7 +11535,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $imageBoxProperties = $syntheticLinkedFigure
             ? array_keys(array_filter($this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style')), NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY))
             : array();
-        $attrs = $this->styleResolver->presentationAttributes($figure ?? $image, $figure instanceof DOMElement ? array() : array_merge($inlineImagePlacement, $imageBoxProperties));
+        // A synthetic figure must not inherit the image's preferred ratio:
+        // imageBoxConstraintClassName() carries it on the painting leaf instead.
+        $attrs = $this->styleResolver->presentationAttributes($figure ?? $image, $figure instanceof DOMElement ? array() : array_merge($inlineImagePlacement, $imageBoxProperties, array('aspect-ratio')));
         if ( $syntheticLinkedFigure ) {
             // The figure replaces the link in its parent's layout. The image's
             // percentage box and crop still belong to the leaf inside that link.
