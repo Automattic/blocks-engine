@@ -27,6 +27,8 @@ export type CanonicalizeResult = {
   htmlIslandOccurrences: HtmlIslandOccurrence[];
   htmlIslandDistinctCount: number;
   htmlIslandOccurrencesTruncated: boolean;
+  /** Invalid blocks kept as written because their re-save drops content. */
+  preservedBlocks: string[];
   degraded: boolean;
 };
 
@@ -271,12 +273,48 @@ function commentAttrsAltered(
 // attributes (content etc.) never appear in comment attrs, so author intent
 // can't clobber them; createBlock() drops keys unknown to the current schema.
 //
+// The words and media sources a reader sees in serialized markup, counted.
+function visibleContent(markup: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  const sources = Array.from(markup.matchAll(/\ssrc="([^"]+)"/gu), (match) => `src:${match[1]}`);
+  const words = markup
+    .replace(/<!--[\s\S]*?-->/gu, ' ')
+    .replace(/<[^>]+>/gu, ' ')
+    .split(/\s+/u)
+    .filter(Boolean);
+  for (const item of [...sources, ...words]) counts.set(item, (counts.get(item) ?? 0) + 1);
+  return counts;
+}
+
+function dropsContent(before: string, after: string): boolean {
+  const kept = visibleContent(after);
+  for (const [item, count] of visibleContent(before)) {
+    if ((kept.get(item) ?? 0) < count) return true;
+  }
+  return false;
+}
+
+type BlockFixer = {
+  getBlockAttributes: WordpressBlocks['getBlockAttributes'];
+  createBlock: WordpressBlocks['createBlock'];
+  serialize: WordpressBlocks['serialize'];
+  preserved: string[];
+};
+
+//
+// An invalid block's re-save is rebuilt from its attributes and inner
+// blocks, so anything else its markup held is lost (a container's raw inner
+// HTML, for one). When that re-save would drop words or media the block
+// showed, the block is kept as written: serialize() emits an invalid block's
+// original source, which is what the editor itself does until a person
+// chooses to recover it.
+//
 function fixBlockRecursively(
   block: ParsedBlock,
   rawBlock: RawBlock | undefined,
-  getBlockAttributes: WordpressBlocks['getBlockAttributes'],
-  createBlock: WordpressBlocks['createBlock'],
+  fixer: BlockFixer,
 ): { block: ParsedBlock; wasFixed: boolean } {
+  const { getBlockAttributes, createBlock, serialize } = fixer;
   const fixedInnerBlocks = [];
 
   if (block.innerBlocks && block.innerBlocks.length > 0) {
@@ -295,12 +333,7 @@ function fixBlockRecursively(
       }
       const rawInnerBlock =
         rawIndex < rawInner.length ? rawInner[rawIndex++] : undefined;
-      const result = fixBlockRecursively(
-        innerBlock,
-        rawInnerBlock,
-        getBlockAttributes,
-        createBlock,
-      );
+      const result = fixBlockRecursively(innerBlock, rawInnerBlock, fixer);
       fixedInnerBlocks.push(result.block);
     }
   }
@@ -327,6 +360,11 @@ function fixBlockRecursively(
     attributes,
     fixedInnerBlocks.length > 0 ? fixedInnerBlocks : undefined,
   );
+
+  if (block.isValid === false && dropsContent(serialize([block]), serialize([fixedBlock]))) {
+    fixer.preserved.push(block.name);
+    return { block, wasFixed: false };
+  }
 
   return { block: fixedBlock, wasFixed: true };
 }
@@ -464,6 +502,7 @@ export function canonicalize(markup: string): CanonicalizeResult {
     const fixedIssues: string[] = [];
     collectIssues(blocks, fixedIssues);
 
+    const fixer: BlockFixer = { getBlockAttributes, createBlock, serialize, preserved: [] };
     let rawIndex = 0;
     const fixedBlocks = blocks.map((block) => {
       while (
@@ -474,12 +513,7 @@ export function canonicalize(markup: string): CanonicalizeResult {
       }
       const rawBlock =
         rawIndex < rawBlocks.length ? rawBlocks[rawIndex++] : undefined;
-      return fixBlockRecursively(
-        block,
-        rawBlock,
-        getBlockAttributes,
-        createBlock,
-      ).block;
+      return fixBlockRecursively(block, rawBlock, fixer).block;
     });
 
     let fixedHtml = serialize(fixedBlocks);
@@ -512,6 +546,7 @@ export function canonicalize(markup: string): CanonicalizeResult {
       changed: wasChanged,
       fixedIssues,
       ...inventory,
+      preservedBlocks: fixer.preserved,
       degraded: false,
     };
   } catch (error) {
@@ -527,6 +562,7 @@ export function canonicalize(markup: string): CanonicalizeResult {
       htmlIslandOccurrences: [],
       htmlIslandDistinctCount: 0,
       htmlIslandOccurrencesTruncated: false,
+      preservedBlocks: [],
       degraded: true,
     };
   }
