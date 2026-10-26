@@ -250,6 +250,7 @@
       "@test:unit"
     ],
     "test:unit": [
+      "php tests/unit/linked-image-whitespace-gap.php",
       "php tests/unit/capture-document-trailing-chrome.php",
       "php tests/unit/compact-engine-tokens.php",
       "php tests/unit/taxonomy-hierarchical-single-member.php",

@@ -23,6 +23,7 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
     public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
+    public const SYNTHETIC_IMAGE_GAP_CLASS = 'blocks-engine-synthetic-image-gap';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
@@ -61,6 +62,7 @@ final class SourceBlockAttributeProjector
             self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
+            self::SYNTHETIC_IMAGE_GAP_CLASS,
         ),
     );
 
@@ -108,6 +110,9 @@ final class SourceBlockAttributeProjector
             // so the alignment has nothing left to move.
             if ( $facts->syntheticImageFigureFollowsInlineFlow ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS);
+                if ( $this->hasCollapsedImageGap($sourceElement) ) {
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_GAP_CLASS);
+                }
             } elseif ( $this->sourceImageFillsParent($sourceElement) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS);
             }
@@ -226,6 +231,40 @@ final class SourceBlockAttributeProjector
             }
         }
         return ( new EditorListViewContainerNamer() )->apply($name, $attrs, $sourceElement);
+    }
+
+    /** Whitespace-only nodes are discarded by convertChildren(), not by the browser. */
+    private function hasCollapsedImageGap(DOMElement $image): bool
+    {
+        $item = $image;
+        if ( $image->parentNode instanceof DOMElement && 'a' === strtolower($image->parentNode->tagName) ) {
+            $item = $image->parentNode;
+        }
+        $sibling = $item->previousSibling;
+        $space = false;
+        while ( $sibling instanceof \DOMText || $sibling instanceof \DOMComment ) {
+            if ( $sibling instanceof \DOMText ) {
+                if ( ! preg_match('/^[\x20\t\r\n\f]*$/D', $sibling->textContent) ) return false;
+                $space = $space || '' !== $sibling->textContent;
+            }
+            $sibling = $sibling->previousSibling;
+        }
+        if ( ! $space || ! $sibling instanceof DOMElement ) return false;
+        foreach ( array($item, $sibling) as $element ) {
+            $tag = strtolower($element->tagName);
+            if ( 'img' !== $tag && ('a' !== $tag || 1 !== $element->getElementsByTagName('img')->length || '' !== trim($element->textContent)) ) return false;
+            $declarations = $this->styleResolver->resolvedPresentationDeclarations($element);
+            $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+            if ( ! in_array($display, array('', 'inline', 'inline-block'), true) ) return false;
+            if ( ! in_array(CssValueInspector::comparable((string) ($declarations['float'] ?? '')), array('', 'none'), true) ) return false;
+        }
+        // A real space in flex/grid does not create a layout item. Keep it that way.
+        $parent = $item->parentNode;
+        if ( $parent instanceof DOMElement ) {
+            $declarations = $this->styleResolver->resolvedPresentationDeclarations($parent);
+            if ( in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array('flex', 'inline-flex', 'grid', 'inline-grid'), true) ) return false;
+        }
+        return true;
     }
 
     private function sourceImageFillsParent(DOMElement $image): bool

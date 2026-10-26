@@ -318,6 +318,12 @@ final class EngineSupportCss
             // to choose typography.
             $parts[] = ':root :where(.wp-block-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_GAP_CLASS) ) {
+            // A collapsing space, not an estimated em/ch margin: the browser
+            // measures it in the parent font and can discard it at a line edge.
+            $parts[] = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_GAP_CLASS . '{font:inherit;letter-spacing:inherit;word-spacing:inherit}'
+                . ':root .' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_GAP_CLASS . '::before{content:" ";white-space:normal}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::CSS_OWNED_INLINE_FLOW_CLASS) ) {
             // Block delimiters may acquire whitespace when Gutenberg saves the
             // post. Flex owns the source's atomic inline flow without counting
