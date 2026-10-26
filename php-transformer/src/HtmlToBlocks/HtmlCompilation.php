@@ -7270,10 +7270,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        // A lone marked descendant needs an independent carrier. Phrasing-only
-        // sibling runs remain together in this RichText block so authored
-        // flex/grid child geometry is not replaced with block wrappers.
-        if ( $this->hasAuthorSemanticMarkedChild($element) || ( $this->hasRichTextMarkedDescendant($element) && 2 > $this->childElementCount($element) ) ) {
+        $content = $this->richTextMaterializer->content($element);
+        $withLowered = $this->richTextMaterializer->contentWithInlineSafeButtonsLowered($element, $content);
+
+        // A lone marked descendant normally needs an independent carrier.
+        // Inside a safe inline button it belongs to the paragraph's RichText,
+        // just as under a source <p>; splitting it off strands SVG descendants
+        // before the existing carrier and image materialization can run.
+        if ( $this->hasAuthorSemanticMarkedChild($element) || ( null === $withLowered && $this->hasRichTextMarkedDescendant($element) && 2 > $this->childElementCount($element) ) ) {
             return null;
         }
 
@@ -7282,8 +7286,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $structuredInlineItems, $element);
         }
 
-        $content = $this->richTextMaterializer->content($element);
-        if ( null !== $this->richTextMaterializer->contentWithInlineSafeButtonsLowered($element, $content) ) {
+        if ( null !== $withLowered ) {
             // Reuse label RichText preparation so wrapper hooks become carriers
             // before button marks are introduced (the normalizer avoids nesting
             // marks when replacing spans). Then use the paragraph primitives.
