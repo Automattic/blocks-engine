@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -176,6 +177,9 @@ final class FormControlClassifier
      */
     public static function isNonAuthoredControl(DOMElement $control): bool
     {
+        if ( false === ( NativeControlState::payload($control)['rendered'] ?? null ) ) {
+            return true;
+        }
         if ( 'hidden' === self::controlType($control) ) {
             return true;
         }
