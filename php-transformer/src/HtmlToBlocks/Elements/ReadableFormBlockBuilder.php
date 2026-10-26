@@ -39,12 +39,18 @@ final class ReadableFormBlockBuilder
 
     private ?DOMElement $form = null;
 
+    /** @var array<string, true> Node paths of the labels that name a control. */
+    private array $controlLabels = array();
+
+    /** @var array<string, true> Node paths of the elements some control's field box holds. */
+    private array $fieldBoxElements = array();
+
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
      * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed>       $layoutShellBlockForElements
-     * @param Closure(list<DOMElement>): array<string, mixed>                                               $fieldBoxShell
+     * @param Closure(list<DOMElement>): (array<string, mixed>|null)                                        $fieldBoxShell
      * @param Closure(): list<array<string, mixed>>|null                                                    $stylesheetAssets
      * @param Closure(): string|null                                                                        $formLayoutCss
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): list<array<string, mixed>>|null       $convertFlowContent
@@ -85,9 +91,15 @@ final class ReadableFormBlockBuilder
         }
 
         $this->controlIndices = array();
+        $this->controlLabels = array();
+        $this->fieldBoxElements = array();
         $this->form = $form;
         foreach ( FormControlClassifier::controlElements($form) as $index => $control ) {
             $this->controlIndices[(string) $control->getNodePath()] = $index;
+            $label = $this->metadataBuilder->labelElement($control);
+            if ( null !== $label ) {
+                $this->controlLabels[(string) $label->getNodePath()] = true;
+            }
             if ( array() !== ($this->eventMetadata)($control) || ! FormControlClassifier::isReadableControl($control) ) {
                 return null;
             }
@@ -155,7 +167,7 @@ final class ReadableFormBlockBuilder
         // Everything else in the form (an intro, a privacy note), in the graph
         // or not, is authored content at its source position, so it converts
         // as ordinary flow content instead of disappearing with the structure.
-        // Labels are the exception: each rides on the control it names.
+        // Labels that name a control are the exception: each rides on it.
         foreach ( $parent->childNodes as $node ) {
             if ( ! $node instanceof DOMElement ) {
                 continue;
@@ -234,7 +246,9 @@ final class ReadableFormBlockBuilder
             }
             // A one-control container can own paint, inherited variables and sizing.
             // Text-bearing labels are already represented by the authored control.
-            if ( 2 <= count($inner) || $ownsShell ) {
+            // A container in the control's field box is already its box's shell.
+            $inFieldBox = 1 === count($inner) && array() === array_filter($elements, fn (DOMElement $source): bool => ! isset($this->fieldBoxElements[(string) $source->getNodePath()]));
+            if ( ! $inFieldBox && ( 2 <= count($inner) || $ownsShell ) ) {
                 $shell = ($this->layoutShellBlockForElements)($elements, $inner, $element);
                 foreach ($elements as $source) {
                     if ('true' === strtolower($source->getAttribute('data-blocks-engine-choice-group'))) {
@@ -251,14 +265,18 @@ final class ReadableFormBlockBuilder
         return $blocks;
     }
 
-    /** Label text, wrapped or referenced, rides on the control it names. */
+    /**
+     * Label text, wrapped or referenced, rides on the control it names. A
+     * label that names no control (a caption over a row of fields) is
+     * authored content like any other.
+     */
     private function isFlowContent(DOMElement $element): bool
     {
         if ( null === $this->convertFlowContent ) {
             return false;
         }
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( 'label' === strtolower($node->tagName) ) {
+            if ( isset($this->controlLabels[(string) $node->getNodePath()]) ) {
                 return false;
             }
             if ( 'form' === strtolower($node->tagName) ) {
@@ -303,15 +321,19 @@ final class ReadableFormBlockBuilder
             'label' => null !== $label ? $this->controlBlockConverter->labelMarkup($label) : '',
         );
         $box = $this->fieldBox($control, $label);
-        if (array() !== $box) {
-            $readableControlBlock['_form_field_box'] = ($this->fieldBoxShell)($box);
+        $shell = array() === $box ? null : ($this->fieldBoxShell)($box);
+        if (null !== $shell) {
+            foreach ($box as $source) {
+                $this->fieldBoxElements[(string) $source->getNodePath()] = true;
+            }
+            $readableControlBlock['_form_field_box'] = $shell;
         }
         return $readableControlBlock;
     }
 
     /**
      * The elements that frame one field, outermost first: each ancestor that
-     * holds only this control and its label. A fieldset groups fields, so it
+     * holds only this control and its label. The shell keeps the styled ones. A fieldset groups fields, so it
      * bounds the box; so does any ancestor holding other content.
      *
      * @return list<DOMElement>
@@ -333,9 +355,7 @@ final class ReadableFormBlockBuilder
                     break 2;
                 }
             }
-            if ($node->hasAttributes()) {
-                array_unshift($box, $node);
-            }
+            array_unshift($box, $node);
             $path = $node;
         }
         return $box;

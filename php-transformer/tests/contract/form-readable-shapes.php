@@ -79,6 +79,24 @@ $plain = (new ArtifactCompiler())->compile(['entrypoint'=>'index.html','files'=>
 $form = null;
 $find($plain);
 $assert(str_contains(json_encode($form['readable_blocks'], JSON_UNESCAPED_SLASHES), '<a href=\\"/terms/\\">terms</a>'), 'Unstyled labels retain rich inline content too.');
+// A styled field box is stated once on the control's path, and a caption label
+// that names no control stays in the tree as content.
+$rowHtml = '<html><head><style>.half{float:left;width:50%}.group{padding-bottom:18px}</style></head><body><form><div class="group"><label>Name</label><div class="row"><div class="half"><input id="first"><label for="first">First</label></div><div class="half"><input id="last"><label for="last">Last</label></div></div></div><div class="group"><label for="email">Email</label><input id="email" type="email"></div><button type="submit">Send</button></form></body></html>';
+$form = null;
+$find((new ArtifactCompiler())->compile(['entrypoint'=>'index.html','files'=>['index.html'=>$rowHtml]])->toArray());
+$paths = [];
+$pathWalk = static function (array $blocks, array $classes) use (&$pathWalk, &$paths): void {
+    foreach ($blocks as $block) {
+        $own = array_map(static fn (array $wrapper): string => $wrapper['attributes']['class'] ?? '', $block['attrs']['wrappers'] ?? []);
+        if (isset($block['form_control_index'])) $paths[$block['form_control_index']] = array_merge($classes, $own);
+        $pathWalk($block['innerBlocks'] ?? [], array_merge($classes, $own));
+    }
+};
+$pathWalk($form['readable_blocks'], []);
+foreach ([0 => 'half', 1 => 'half', 2 => 'group'] as $index => $class) {
+    $assert(1 === count(array_keys($paths[$index] ?? [], $class)), 'Control ' . $index . ' sits in its .' . $class . ' field box once.');
+}
+$assert(str_contains(json_encode($form['readable_blocks']), '"Name"'), 'A caption label that names no control stays in the tree.');
 // Types without prose degradations still paint as native inputs, even unstyled.
 foreach (['date','time','datetime-local','month','week','color'] as $type) {
     $typed = (new ArtifactCompiler())->compile(['entrypoint'=>'index.html','files'=>['index.html'=>'<html><body><form><label>Value<input type="' . $type . '"></label><button type="submit">Send</button></form></body></html>']])->toArray();
