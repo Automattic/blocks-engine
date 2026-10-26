@@ -661,6 +661,19 @@ final class NavigationPatternContext
         return $this->styleResolver?->authorDeclaredValuesAtAnyViewport($element, $properties) ?? array();
     }
 
+    /** Whether the author cascade hides the element at every viewport its display rules distinguish. */
+    public function isDisplayNoneAtEveryViewport(DOMElement $element): bool
+    {
+        return $this->styleResolver?->isDisplayNoneAtEveryViewport($element) ?? true;
+    }
+
+    /** Whether the element is, or contains, the toggle recognized for this navigation. */
+    public function holdsNavigationToggle(DOMElement $navigation, DOMElement $element): bool
+    {
+        $toggle = $this->navigationToggleSuppressor?->navigationToggleControl($navigation);
+        return $toggle instanceof DOMElement && SourceDom::elementContains($element, $toggle);
+    }
+
     public function resolvedDisplay(DOMElement $element): string
     {
         return $this->styleResolver?->resolvedConditionalDisplay($element) ?? '';

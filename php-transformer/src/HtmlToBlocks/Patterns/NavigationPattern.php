@@ -2118,7 +2118,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            if ( $child instanceof DOMElement && $hasListBackedMenu && $this->isInertNavigationSupportChild($child, $navigationContext) ) {
+            if ( $child instanceof DOMElement && $hasListBackedMenu && $this->isInertNavigationSupportChild($child, $element, $navigationContext) ) {
                 continue;
             }
 
@@ -2209,7 +2209,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * neutral wrapper is equally safe only when every descendant is hidden from
      * assistive technology and cannot receive focus or navigate anywhere.
      */
-    private function isInertNavigationSupportChild(DOMElement $element, ?NavigationPatternContext $navigationContext): bool
+    private function isInertNavigationSupportChild(DOMElement $element, DOMElement $navigation, ?NavigationPatternContext $navigationContext): bool
     {
         if ( $navigationContext?->isRuntimeDomTarget($element)
             && '' === trim($element->textContent ?? '')
@@ -2223,7 +2223,16 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $style = strtolower($navigationContext->resolvedStyle($element));
-        if ( 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important)?\s*(?:;|$)/', $style)
+        // The resolved style is the base cascade. A base `display:none` that a
+        // media query lifts still renders at some viewport, so it is content,
+        // not support: only display hidden everywhere proves the sibling inert,
+        // unless it holds the navigation's recognized toggle (a mirrored jump
+        // menu), which the native responsive navigation supersedes.
+        $displayHidden = 1 === preg_match('/(?:^|;)\s*display\s*:\s*none\s*(?:!important)?\s*(?:;|$)/', $style)
+            && ( $navigationContext->isDisplayNoneAtEveryViewport($element)
+                || $navigationContext->holdsNavigationToggle($navigation, $element) );
+        if ( $displayHidden
+            || 1 === preg_match('/(?:^|;)\s*visibility\s*:\s*hidden\s*(?:!important)?\s*(?:;|$)/', $style)
             || (
                 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\s*(?:!important)?\s*(?:;|$)/', $style)
                 && 1 === preg_match('/(?:^|;)\s*overflow\s*:\s*hidden\s*(?:!important)?\s*(?:;|$)/', $style)
