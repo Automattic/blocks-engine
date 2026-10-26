@@ -5488,6 +5488,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
         foreach ($this->richTextAnchors($body) as $anchor) {
+            // Link styles are not a core link-format attribute. Carry their
+            // visual declarations inside the link, just like styled spans.
+            if ('' !== trim($this->attr($anchor, 'style'))) {
+                $this->replaceRichTextStylingHookWithMark($anchor);
+            }
             $anchor->removeAttribute('style');
         }
     }
@@ -5678,7 +5683,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function replaceRichTextStylingHookWithMark(DOMElement $element): bool
     {
-        if ( $element->getElementsByTagName('mark')->length > 0 ) {
+        $sourceIsLink = 'a' === strtolower($element->tagName);
+        if ( ! $sourceIsLink && $element->getElementsByTagName('mark')->length > 0 ) {
             return false;
         }
 
@@ -5708,6 +5714,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $declarations = $this->styleResolver->stripResponsiveClassOwnedDeclarations($element, $declarations);
         }
         $existingDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
+        if ( $sourceIsLink ) {
+            // Only authored inline values move inside links. Author link rules
+            // (including hover/media rules) must keep styling the link itself.
+            $declarations = array_intersect_key($existingDeclarations, $declarations);
+            if ( array() === $declarations ) {
+                return false;
+            }
+        }
         $marker = trim((string) ($existingDeclarations['--blocks-engine-richtext-marker'] ?? ''));
         if ( '' === $marker ) {
             $marker = trim($this->attr($element, 'data-blocks-engine-richtext-marker'));
@@ -5733,7 +5747,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $mark = $document->createElement('mark');
-        foreach ( $this->richTextSafeIdentityAttributes($element) as $name => $value ) {
+        foreach ( $sourceIsLink ? array() : $this->richTextSafeIdentityAttributes($element) as $name => $value ) {
             $mark->setAttribute($name, $value);
         }
         $mark->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
@@ -5754,7 +5768,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return true;
         }
 
-        $element->removeAttribute('class');
+        if ( ! $sourceIsLink ) {
+            $element->removeAttribute('class');
+        }
         $element->removeAttribute('style');
         $element->appendChild($mark);
         return true;
