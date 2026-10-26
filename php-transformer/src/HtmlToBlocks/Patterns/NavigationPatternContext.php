@@ -52,6 +52,20 @@ final class NavigationPatternContext
         )));
     }
 
+    /** Block children lowered to spans need the same identity as inline carriers. */
+    public function labelPresentationMarkers(DOMElement $element): array
+    {
+        $projections = $this->session?->authorSelectorProjectionState();
+        if (null !== $projections && 1 === preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName)
+            // Icon/label composites already project their box onto the item.
+            && 0 === $element->getElementsByTagName('svg')->length
+            && !$this->ownsLabelTypography($element) && $this->hasNavigationSubjectPresentation($element)) {
+            $path = $element->getNodePath() ?? '';
+            $projections->ensureSemanticMarker($path);
+        }
+        return $this->sourcePresentationMarkers($element);
+    }
+
     /**
      * core/navigation renders some source elements as something else: a direct
      * anchor inside a list item of its own, a source `<li>` as core's item
