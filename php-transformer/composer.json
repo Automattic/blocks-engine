@@ -503,6 +503,7 @@
       "php tests/unit/css-selector-matcher.php",
       "php tests/unit/complex-not-selector-matching.php",
       "php tests/unit/static-css-cascade.php",
+      "php tests/unit/projected-box-shorthand-cascade.php",
       "php tests/unit/inline-declaration-priority.php",
       "php tests/unit/author-selector-semantics.php",
       "php tests/unit/pseudo-element-attribute-hooks.php",
