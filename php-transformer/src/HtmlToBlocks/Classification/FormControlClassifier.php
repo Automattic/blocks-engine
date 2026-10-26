@@ -430,6 +430,13 @@ final class FormControlClassifier
             return false;
         }
 
+        // Inside a form every control belongs to the readable tree, so a
+        // provider can account for it by index; page lowering stays gated by
+        // hasProseSummary().
+        if ( self::hasFormAncestor($control) ) {
+            return true;
+        }
+
         $tagName = strtolower($control->tagName);
         if ( in_array($tagName, array( 'select', 'textarea' ), true) ) {
             return true;

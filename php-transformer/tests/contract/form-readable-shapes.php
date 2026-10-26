@@ -12,7 +12,7 @@ $find = static function (array $value) use (&$find, &$form): void {
 };
 $find($result);
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
-$assert(!empty($form['readable_blocks']), 'Readable tree must survive a date input.');
+$assert(!empty($form['readable_blocks']), 'Readable tree must survive every control type (date, file, reset, image).');
 $indices = [];
 $walk = static function (array $blocks) use (&$walk, &$indices, $assert): void {
     foreach ($blocks as $block) {
