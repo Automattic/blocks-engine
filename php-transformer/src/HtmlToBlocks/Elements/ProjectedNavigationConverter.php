@@ -149,16 +149,15 @@ final class ProjectedNavigationConverter implements ElementConverter
             return '';
         }
 
-        // A select supplies visibility evidence, not hamburger presentation.
-        // Keep Core's editable opener rather than painting it like a form field.
+        // A select supplies the opener's box, but not its form-field paint.
         $isJumpMenu = 'select' === strtolower($toggle->tagName);
-        $sourceDeclarations = $isJumpMenu ? array() : $this->styleResolver->resolvedPresentationDeclarations($toggle);
+        $sourceDeclarations = $this->styleResolver->resolvedPresentationDeclarations($toggle);
         $presentation = new NavigationOpenerPresentation($this->styleResolver, $this->svgMarkup);
         $source = $isJumpMenu ? null : $presentation->source($toggle);
         $declarations = array();
         $hasUsableWidth = false;
         $hasUsableHeight = false;
-        foreach ( array(
+        $geometryProperties = array(
             'box-sizing',
             'width',
             'height',
@@ -169,20 +168,27 @@ final class ProjectedNavigationConverter implements ElementConverter
             'padding-right',
             'padding-bottom',
             'padding-left',
+        );
+        // Button presentation already owns its margins; a select only supplies geometry.
+        if ( $isJumpMenu ) {
+            $geometryProperties = array_merge($geometryProperties, array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left'));
+            $sourceDeclarations = array_intersect_key(
+                array_replace($sourceDeclarations, $this->styleResolver->collapsedViewportAuthorDeclarations($toggle, $geometryProperties)),
+                array_flip($geometryProperties)
+            );
+        }
+        foreach ( array_merge($geometryProperties, array(
             'border-top-left-radius',
             'border-top-right-radius',
             'border-bottom-right-radius',
             'border-bottom-left-radius',
             'background-color',
             'color',
-        ) as $property ) {
+        )) as $property ) {
             $value = trim((string) ($sourceDeclarations[$property] ?? ''));
             if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
                 $comparable = CssValueInspector::withoutImportant($value);
-                if ( in_array($property, array( 'width', 'min-width' ), true) && in_array($comparable, array( 'auto', 'fit-content', 'max-content', 'min-content' ), true) ) {
-                    continue;
-                }
-                if ( in_array($property, array( 'height', 'min-height' ), true) && in_array($comparable, array( 'auto', 'fit-content', 'max-content', 'min-content' ), true) ) {
+                if ( in_array($property, array( 'width', 'min-width', 'height', 'min-height' ), true) && in_array($comparable, array( 'auto', 'fit-content', 'max-content', 'min-content' ), true) ) {
                     continue;
                 }
                 $hasUsableWidth = $hasUsableWidth || ( in_array($property, array( 'width', 'min-width' ), true) && $this->nativeNavigationToggleDimensionIsUsable($comparable) );
