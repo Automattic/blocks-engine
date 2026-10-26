@@ -519,7 +519,7 @@ final class CssSelectorMatcher
                         // A neutral native target can be a complete descendant
                         // path, or contain nested shims. Flattening it into one
                         // compound changes both its match and its specificity.
-                        if (($argument['supported'] ?? false) && (count($argument['compounds']) > 1 || !empty($leaf['not']) || !empty($leaf['any']) || !empty($leaf['first_child']) || !empty($leaf['last_child']) || null !== ($leaf['nth_child'] ?? null) || null !== ($leaf['nth_type'] ?? null))) {
+                        if (($argument['supported'] ?? false) && (count($argument['compounds']) > 1 || !empty($leaf['root']) || !empty($leaf['not']) || !empty($leaf['any']) || !empty($leaf['first_child']) || !empty($leaf['last_child']) || null !== ($leaf['nth_child'] ?? null) || null !== ($leaf['nth_type'] ?? null))) {
                             $group = self::parseSelectorListArgument($alternatives, 'where' === $lowerName);
                             if (null === $group) return null;
                             $compound['any'][] = $group;
@@ -582,7 +582,9 @@ final class CssSelectorMatcher
                     if ( '' === $argument ) {
                         return null;
                     }
-                    $negated = self::parseUncached($argument);
+                    $alternatives = CssStylesheetTransformer::splitSelectorList($argument);
+                    if (null === $alternatives) return null;
+                    $negated = self::parseUncached(count($alternatives) > 1 ? ':is(' . $argument . ')' : $argument);
                     if ( ! ($negated['supported'] ?? false) || null !== ($negated['pseudo_state_suffix_span'] ?? null) ) {
                         return null;
                     }

@@ -356,7 +356,7 @@ final class ArtifactCompiler
             $pageMarkup[(string) ($ownedBy(array(array()), (string) $sourcePath)[0]['owner'] ?? '')] = $document['serialized_blocks'];
         }
         $authoredFiles = $normalized['files'];
-        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup);
+        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics);
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
             $documentFiles = $normalized['files'];
@@ -2493,7 +2493,7 @@ final class ArtifactCompiler
      * @param string $primaryOwner The page that produced the primary projections, '' when they are site-wide.
      * @return array<int, array<string, mixed>>
      */
-    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = '', array $pageMarkup = array()): array
+    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = '', array $pageMarkup = array(), array &$projectionDiagnostics = array()): array
     {
         $attributeStateMarkers = array();
         foreach ($projections as $projection) {
@@ -2548,6 +2548,12 @@ final class ArtifactCompiler
             }
         }
         $transformer = new CssStylesheetTransformer();
+        $routeIdentities = array();
+        foreach ($files as $document) {
+            if ('html' !== ($document['kind'] ?? '')) continue;
+            $source = (string) $document['path'];
+            $routeIdentities[$this->fileOwnership($document)['id']] = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
+        }
         $reserved = array_fill_keys(array_column($files, 'path'), true);
         $output = array();
         foreach ( $files as $file ) {
@@ -2613,12 +2619,8 @@ final class ArtifactCompiler
                 }
             }
             $sharedStylesheets = array_merge(array_map('strval', array_keys($sharedByPath[$path] ?? array())), $stylesheets);
-            // A page's projection repeats every rule it did not rewrite. Only the
-            // rules missing from the site-wide copy go to a stylesheet the page
-            // alone loads. Place it after the site-wide copy: the latter may
-            // contain a generic selector that still matches the lowered block
-            // (e.g. a grid's default two-column rule), while the page projection
-            // carries the source's later attribute-specific responsive winner.
+            // Shared-shell projections are part of every route's stylesheet.
+            // Align the full route projection, never a trailing cascade delta.
             $native = array();
             foreach (array_merge(array_keys($sharedByPath[$path] ?? array()), $authoritativeContent) as $content) {
                 $native += $nativeByContent[$path][$content] ?? array();
@@ -2628,14 +2630,26 @@ final class ArtifactCompiler
             foreach ($ownersByPath[$path] ?? array() as $content => $owners) {
                 foreach ($owners as $owner => $_) $pageProjections[$owner][] = (string) $content;
             }
+            foreach ($pageProjections as &$contents) {
+                $contents = array($transformer->concatenateWithoutRedundantRules(array_merge(array_map('strval', array_keys($sharedByPath[$path] ?? array())), $contents)));
+            }
+            unset($contents);
+            $sharedStylesheets = array($transformer->concatenateWithoutRedundantRules($sharedStylesheets));
             $folded = $transformer->foldPositiveMarkerArms($sharedStylesheets, $pageProjections, $pageMarkup);
             $sharedStylesheets = $folded['shared'];
+            $fallbackSharedStylesheets = $sharedStylesheets;
             foreach ($pages as $owner => $_) $pages[$owner] = $folded['pages'][$owner] ?? $pages[$owner];
+            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $folded['pages'], $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null);
+            $sharedStylesheets = array($routed['stylesheet']);
+            foreach ($routed['scoped'] as $owner) unset($pages[$owner]);
+            foreach ($routed['reasons'] as $owner => $reason) {
+                $projectionDiagnostics[] = $this->diagnostic('author_stylesheet_route_scope_fallback', 'warning', $path . ' (' . $owner . '): ' . $reason);
+            }
             $projectedFile = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $transformer->concatenateWithoutRedundantRules($sharedStylesheets) ))));
             $projectedFile['metadata']['native_selectors'] = array_keys($native);
             $output[] = $projectedFile;
             foreach ( $pages as $owner => $pageStylesheets ) {
-                $delta = $transformer->rulesAbsentFrom($pageStylesheets, $sharedStylesheets, true);
+                $delta = $transformer->rulesAbsentFrom($pageStylesheets, $fallbackSharedStylesheets, true);
                 if ( '' === trim($delta) ) {
                     continue;
                 }
@@ -4162,7 +4176,8 @@ final class ArtifactCompiler
         }
         $titles = HtmlTagScanner::scan($html, 'title');
         $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
-        $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
+        $routeIdentity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $sourcePath, $sourcePath);
+        $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html, $routeIdentity), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
         if ( array() !== $projectedRootMarkers ) {
             $rootClasses = array_values(array_filter(preg_split('/\s+/', trim((string) ($metadata['root_attributes']['class'] ?? ''))) ?: array(), static fn(string $class): bool => '' !== $class));
             $metadata['root_attributes']['class'] = implode(' ', array_unique(array_merge($rootClasses, $projectedRootMarkers)));

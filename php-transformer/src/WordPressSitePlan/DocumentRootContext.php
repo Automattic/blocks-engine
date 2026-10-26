@@ -17,10 +17,17 @@ final class DocumentRootContext
     }
 
     /** @return array{root_attributes:array<string,string>,body_attributes:array<string,string>} */
-    public static function metadataFromHtml(string $html): array
+    public static function metadataFromHtml(string $html, string $routeIdentity = ''): array
     {
         $attributes = DocumentRootAttributes::forDocument($html);
+        if ('' !== $routeIdentity) $attributes['html']['class'] = trim(($attributes['html']['class'] ?? '') . ' ' . self::routeClass($routeIdentity));
         return array('root_attributes' => $attributes['html'], 'body_attributes' => $attributes['body']);
+    }
+
+    /** Stable document compilation identity, shared by CSS and root reconciliation. */
+    public static function routeClass(string $identity): string
+    {
+        return 'be-route-' . substr(hash('sha256', $identity), 0, 12);
     }
 
     public static function assertValid(mixed $attributes): void

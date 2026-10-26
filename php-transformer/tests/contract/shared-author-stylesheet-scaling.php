@@ -5,9 +5,8 @@ declare(strict_types=1);
  * Generated theme CSS must not grow with pages x elements (#2755).
  *
  * N pages sharing one layout and one stylesheet compile that stylesheet to one
- * site-wide asset plus, at most, one slice shared by every page that needs the
- * same extra rules. Each page still resolves the same styles under its own
- * enqueue sequence.
+ * site-wide asset with route-scoped variants in source order. Each page still
+ * resolves the same styles under its own enqueue sequence.
  */
 
 require_once __DIR__ . '/../../vendor/autoload.php';
@@ -65,9 +64,7 @@ $assert(array() !== ($small['plan']['pages'] ?? array()) && 10 === count($large[
 // Ten pages that share a layout must not even double what two pages need.
 $assert($large['css_bytes'] < 2 * $small['css_bytes'], 'ten pages sharing a stylesheet need less than twice the generated CSS of two pages', $small['css_bytes'] . ' vs ' . $large['css_bytes']);
 
-// The shared stylesheet compiles to one site-wide asset, the projection most
-// pages share, whose bytes do not depend on how many pages consume it, plus at
-// most one slice for the page that differs.
+// Shared author CSS stays in one site-wide asset, including route differences.
 $stylesheetAssets = static function (array $plan): array {
     $site = array();
     $slices = array();
@@ -86,10 +83,8 @@ $stylesheetAssets = static function (array $plan): array {
 [ $mediumSite, $mediumSlices ] = $stylesheetAssets($medium['plan']);
 [ $largeSite, $largeSlices ] = $stylesheetAssets($large['plan']);
 $assert(1 === count($mediumSite) && 1 === count($largeSite), 'the shared stylesheet compiles to one site-wide asset', (string) json_encode(array( count($mediumSite), count($largeSite) )));
-$assert(($mediumSite[0]['content'] ?? null) === ($largeSite[0]['content'] ?? ''), 'the site-wide asset is byte-identical however many pages consume it');
-$assert(count($largeSlices) <= 1 && count($largeSlices) === count($mediumSlices) && ($largeSlices[0]['content'] ?? null) === ($mediumSlices[0]['content'] ?? null), 'the page slice does not grow with the page count either', (string) count($largeSlices));
-$sliceScopes = array_map(static fn (array $scope): string => (string) ($scope['source_path'] ?? ''), $largeSlices[0]['scopes'] ?? array());
-$assert(array() === $largeSlices || array( 'a.html' ) === $sliceScopes, 'only the page whose own element a rule targets (#note-0) loads a slice', (string) json_encode($sliceScopes));
+$assert(!str_contains(implode('', array_column($large['plan']['assets'], 'source_path')), '.page-'), 'route variants never emit page-copy assets');
+$assert(array() === $largeSlices && array() === $mediumSlices, 'neither site needs page slices');
 
 // The control, the list and the shared chrome carry the same per-element
 // markers on every page; the per-page body class does not leak into them.
@@ -110,6 +105,7 @@ foreach ( $large['plan']['pages'] ?? array() as $planPage ) {
     }
     $document = new DOMDocument();
     @$document->loadHTML(StaticStyleParityRunner::candidateHtmlFromSerializedBlocks((string) ($planPage['canonical_block_markup'] ?? '')));
+    foreach ($planPage['document_metadata']['root_attributes'] ?? array() as $name => $value) $document->documentElement->setAttribute($name, $value);
     $cascade = new StaticCssCascade($document, $css);
     $probe = array();
     $button = $document->getElementsByTagName('a')->item(2) ?? $document->getElementsByTagName('button')->item(0);
@@ -186,7 +182,7 @@ $variedTen = $variedPlan(10);
 $twoAssets = $authoredAssets($variedTwo);
 $tenAssets = $authoredAssets($variedTen);
 $assert(1 === count($twoAssets) && 1 === count($tenAssets), 'the stylesheet compiles to one asset however different the pages are', (string) json_encode(array( array_keys($twoAssets), array_keys($tenAssets) )));
-$assert($twoAssets === $tenAssets, 'its bytes do not depend on the page count or on what the pages hold', strlen(implode('', $twoAssets)) . ' vs ' . strlen(implode('', $tenAssets)));
+$assert(strlen(implode('', $tenAssets)) < 2 * strlen(implode('', $twoAssets)), 'route lists grow without copying the stylesheet', strlen(implode('', $twoAssets)) . ' vs ' . strlen(implode('', $tenAssets)));
 $assert(! preg_match('/blocks-engine-(?:control|semantic)-[a-f0-9]{12}-\d+/', implode('', $tenAssets)), 'no arm of the shared stylesheet names a per-element marker', (string) (preg_match('/[^{}]*blocks-engine-(?:control|semantic)-[a-f0-9]{12}-\d+[^{}]*/', implode('', $tenAssets), $named) ? $named[0] : ''));
 
 $variedAssetsByTarget = array_column($variedTen['assets'] ?? array(), null, 'target_path');
@@ -198,6 +194,7 @@ foreach ( $variedTen['pages'] ?? array() as $planPage ) {
     }
     $document = new DOMDocument();
     @$document->loadHTML('<?xml encoding="UTF-8"><html><body>' . StaticStyleParityRunner::candidateHtmlFromSerializedBlocks((string) ($planPage['canonical_block_markup'] ?? '')) . '</body></html>');
+    foreach ($planPage['document_metadata']['root_attributes'] ?? array() as $name => $value) $document->documentElement->setAttribute($name, $value);
     $cascade = new StaticCssCascade($document, $sheet);
     $probe = array();
     foreach ( $document->getElementsByTagName('*') as $element ) {
@@ -267,6 +264,7 @@ foreach ($contextTen['pages'] as $planPage) {
     $assets = array_column($contextTen['assets'], null, 'target_path');
     $css = '';
     foreach (WordPressSitePlan::documentStylesheets($contextTen, $planPage['source_path']) as $sheet) $css .= "\n" . ($assets[$sheet['target_path']]['content'] ?? '');
+    foreach ($planPage['document_metadata']['root_attributes'] ?? array() as $name => $value) $document->documentElement->setAttribute($name, $value);
     $cascade = new StaticCssCascade($document, $css);
     foreach ($document->getElementsByTagName('*') as $element) {
         if (!$element instanceof DOMElement || !str_contains($element->getAttribute('class'), 'wp-block-buttons')) continue;
@@ -302,14 +300,118 @@ foreach ($projections as $owner => $sheets) {
 }
 
 // A reused identity is not proof of a shared match: both pages carry the
-// marker, but only one projected the arm. Keep that page's original delta.
+// marker, but only one projected the arm. Keep it out of the marker fold.
 $marker = 'blocks-engine-control-0123456789ab-0';
 $base = '.btn-group>.btn{z-index:1}.tail{z-index:2}';
 $extra = '.btn-group>.btn,:where(.' . $marker . ')>.wp-block-button__link{z-index:1}.tail{z-index:2}';
 $folded = $transformer->foldPositiveMarkerArms(array($base), array('a' => array($extra), 'b' => array($base)), array('a' => '<div class="' . $marker . '"></div>', 'b' => '<div class="' . $marker . '"></div>'));
 $assert(!str_contains(implode('', $folded['shared']), $marker), 'a marker carried by a non-projecting page is not folded');
-$delta = $transformer->rulesAbsentFrom($folded['pages']['a'], $folded['shared'], true);
-$assert(str_contains($delta, $marker) && str_contains($delta, '.tail{z-index:2}'), 'unsafe arm stays in its cascade-preserving page delta');
+$routed = $transformer->scopeRouteVariants($folded['shared'], $folded['pages']);
+$assert(str_contains($routed['stylesheet'], $marker) && 2 === count($routed['scoped']), 'an arm unsafe for marker folding can still be route scoped in place');
+
+// Real constant-arm variants, a dropped control override, and page-only
+// image bridge rules. Identical span routes must share one positive rule.
+$routeCss = 'html .sample{background-color:#123456}:root .sample{border-top-width:3px}'
+    . '@media(min-width:1px){button{padding:7px}.sample{color:red}.only{margin:9px}img{width:41px}}';
+for ($i = 0; $i < 100; ++$i) $routeCss .= '.cascade-tail-' . $i . '{color:#123456;padding:2px;border-top-width:1px;background-color:#fff}';
+$routeBodies = array(
+    '<button class="sample only">Probe</button>',
+    '<span class="sample">Probe</span>',
+    '<span class="sample">Probe</span>',
+    '<button class="sample only">Probe</button>',
+    '<button class="sample only">Probe</button><img src="photo.png" alt="Photo">',
+);
+$routeFiles = array();
+foreach ($routeBodies as $i => $body) $routeFiles[] = array('path' => chr(97 + $i) . '.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><title>Routes</title><link rel="stylesheet" href="base.css"></head><body><main>' . $body . '</main></body></html>');
+$routeSheet = array('path' => 'base.css', 'kind' => 'css', 'content' => $routeCss);
+$routeResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'a.html', 'files' => array_merge($routeFiles, array($routeSheet))))->toArray();
+$routePlan = $routeResult['source_reports']['wordpress_site_plan'];
+$routeAssets = $authoredAssets($routePlan);
+$routeText = implode('', $routeAssets);
+$assert(1 === count($routeAssets) && !str_contains(implode('', array_column($routePlan['assets'], 'source_path')), '.page-'), 'constant-arm variants, dropped rules and page-only rules need no copies');
+$classes = array();
+foreach ($routePlan['pages'] as $row) {
+    $class = Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($row['reconciliation_identity']);
+    $classes[$row['source_path']] = $class;
+    $assert(in_array($class, explode(' ', $row['document_metadata']['root_attributes']['class'] ?? ''), true), 'document root carries its reconciliation route class: ' . $row['source_path']);
+    $functions = array_column($routePlan['writes'], null, 'target_path')['functions.php']['payload']['data'];
+    $assert(str_contains($functions, $class) && str_contains($functions, 'blocksEngineDocumentContext') && str_contains($functions, 'language_attributes'), 'the same root registry reaches front end and editor: ' . $row['source_path']);
+}
+$group = ':where(:root:is(.' . $classes['b.html'] . ',.' . $classes['c.html'] . '))';
+$assert(str_contains($routeText, $group . ' .sample'), 'byte-identical constant-arm variants group both span routes');
+$assert(str_contains($routeText, 'html:where(:root:') && str_contains($routeText, ':root:where(:root:'), 'html and root scopes merge into the leftmost compound');
+$droppedOverride = false;
+$conditionalImage = false;
+$transformer->visitStyleRules($routeText, static function (string $prelude, string $body, array $context) use (&$droppedOverride, &$conditionalImage, $classes): void {
+    if (str_contains($body, 'padding:7px!important')) {
+        $droppedOverride = in_array('@media(min-width:1px)', $context, true) && str_contains($prelude, ':root:not(.' . $classes['b.html'] . ',.' . $classes['c.html'] . ')');
+    }
+    if (str_contains($prelude, '.wp-block-image') && str_contains($prelude, ':root:is(.' . $classes['e.html'] . ')')) $conditionalImage = in_array('@media(min-width:1px)', $context, true);
+});
+$assert($droppedOverride, 'the dropped override excludes both span routes at its original conditional position');
+$assert($conditionalImage, 'page-only image rules retain their at-rule context');
+$assert(str_contains($routeText, ':where(:root:is(.' . $classes['e.html'] . '))'), 'page-only image bridge has a positive route scope');
+
+// Each route is compared with its independent public compilation, including
+// editor wrapper selectors. Apply exactly the root attributes the theme uses.
+$probeStyles = static function (array $plan, array $row, bool $editor): array {
+    $assets = array_column($plan['assets'], null, 'target_path');
+    $css = '';
+    foreach (WordPressSitePlan::documentStylesheets($plan, $row['source_path']) as $sheet) $css .= "\n" . ($assets[$sheet['target_path']]['content'] ?? '');
+    $markup = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($row['canonical_block_markup']);
+    $dom = new DOMDocument();
+    @$dom->loadHTML('<html><body>' . ($editor ? '<div class="editor-styles-wrapper">' : '') . $markup . ($editor ? '</div>' : '') . '</body></html>');
+    foreach ($row['document_metadata']['root_attributes'] ?? array() as $name => $value) $dom->documentElement->setAttribute($name, $value);
+    $cascade = new StaticCssCascade($dom, $css);
+    $styles = array();
+    foreach ($dom->getElementsByTagName('*') as $element) {
+        if (!$element instanceof DOMElement) continue;
+        if ('img' === $element->tagName) {
+            $styles[] = $cascade->resolve($element, array('width', 'max-width', 'display'), array());
+        } elseif ('Probe' === trim($element->textContent) && in_array($element->tagName, array('p', 'span', 'a', 'button'), true)) {
+            $styles[] = $cascade->resolve($element, array('color', 'background-color', 'padding-top', 'border-top-width'), array());
+        }
+    }
+    return $styles;
+};
+foreach ($routePlan['pages'] as $row) {
+    $file = array_column($routeFiles, null, 'path')[$row['source_path']];
+    $alone = (new ArtifactCompiler())->compile(array('entrypoint' => $file['path'], 'files' => array($file, $routeSheet)))->toArray()['source_reports']['wordpress_site_plan'];
+    foreach (array(false, true) as $editor) {
+        $actual = $probeStyles($routePlan, $row, $editor);
+        $expected = $probeStyles($alone, $alone['pages'][0], $editor);
+        $assert(array() !== $actual && $expected === $actual, 'route computed-style parity ' . $row['source_path'] . ($editor ? ' editor' : ' front end'), json_encode(array($expected, $actual)));
+    }
+}
+echo 'Route fixture author CSS: ' . strlen($routeText) . ' bytes in ' . count($routeAssets) . " assets\n";
+
+// @namespace requires per-sheet fallback, without preventing another sheet
+// on the same route from using in-place variants.
+$unsafeSheet = array('path' => 'unsafe.css', 'kind' => 'css', 'content' => '@namespace svg url("http://www.w3.org/2000/svg");' . $routeCss);
+$fallbackFiles = $routeFiles;
+foreach ($fallbackFiles as &$file) $file['content'] = str_replace('</head>', '<link rel="stylesheet" href="unsafe.css"></head>', $file['content']);
+unset($file);
+$fallback = (new ArtifactCompiler())->compile(array('entrypoint' => 'a.html', 'files' => array_merge($fallbackFiles, array($routeSheet, $unsafeSheet))))->toArray();
+$findings = array_filter($fallback['diagnostics'], static fn (array $row): bool => 'author_stylesheet_route_scope_fallback' === ($row['code'] ?? '') && str_contains($row['message'], '@namespace') && str_contains($row['message'], 'unsafe.css'));
+$assert(array() !== $findings, 'unsafe stylesheet emits a page-attributed reason diagnostic');
+$fallbackAssets = $fallback['source_reports']['wordpress_site_plan']['assets'];
+$copies = array_filter($fallbackAssets, static fn (array $asset): bool => str_contains($asset['source_path'], '.page-'));
+$assert(array() !== $copies && array() === array_filter($copies, static fn (array $asset): bool => str_starts_with($asset['source_path'], 'base.page-')), 'fallback is restricted to the unsafe sheet');
+foreach (array(
+    array('.x::before{color:red}', '.y::before{color:red}', 'pseudo-element'),
+    array('.x{color:red}', '& .x{color:red}', 'relative'),
+    array('.x{color:red}', '.x{color:red', 'malformed'),
+) as [$base, $variant, $reason]) {
+    $routed = $transformer->scopeRouteVariants(array($base), array('unsafe' => array($variant)));
+    $assert(array() === $routed['scoped'] && str_contains($routed['reasons']['unsafe'] ?? '', $reason), 'unsafe route falls back: ' . $reason);
+}
+
+// Identical shared units are one fold match, rewritten at every occurrence.
+$marker = 'blocks-engine-control-0123456789ab-0';
+$unit = '.group>.btn{z-index:1}';
+$variant = '.group>.btn,:where(.' . $marker . '){z-index:1}';
+$duplicates = $transformer->foldPositiveMarkerArms(array($unit . '.between{z-index:2}' . $unit), array('a' => array($variant . '.between{z-index:2}' . $variant)), array('a' => '<p class="' . $marker . '">Probe</p>'));
+$assert(2 === substr_count(implode('', $duplicates['shared']), $marker), 'marker folding rewrites every byte-identical shared unit without moving it');
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "shared-author-stylesheet scaling FAILED: {$passes} passed, {$failures} failed\n");

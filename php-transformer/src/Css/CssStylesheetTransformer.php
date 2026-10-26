@@ -281,14 +281,15 @@ final class CssStylesheetTransformer
             }
         }
         foreach ($index as $key => $matches) {
-            if (1 !== count($matches)) continue;
+            if (1 !== count(array_unique(array_map(static fn (int $i): string => $sharedUnits[$i]['text'], $matches)))) continue;
             $i = $matches[0];
             $base = $describe($sharedUnits[$i]);
             $union = $base['arms'];
             $candidates = array();
             foreach ($pageIndex as $owner => $rules) {
-                if (1 !== count($rules[$key] ?? array())) continue;
-                $description = $describe($pageUnits[$owner][$rules[$key][0]]);
+                $pageMatches = $rules[$key] ?? array();
+                if (!$pageMatches || 1 !== count(array_unique(array_map(static fn (int $j): string => $pageUnits[$owner][$j]['text'], $pageMatches)))) continue;
+                $description = $describe($pageUnits[$owner][$pageMatches[0]]);
                 foreach (array_diff($description['arms'], $union) as $arm) {
                     $marker = $markerOf($arm);
                     if (null !== $marker) $candidates[$arm] = $marker;
@@ -299,26 +300,143 @@ final class CssStylesheetTransformer
                 if (array_diff_key($pages, $markup)) $safe = false;
                 foreach ($carriers[$marker] ?? array() as $owner => $_) {
                     $rules = $pageIndex[$owner][$key] ?? array();
-                    if (1 !== count($rules) || !in_array($arm, $describe($pageUnits[$owner][$rules[0]])['arms'], true)) { $safe = false; break; }
+                    if (!$rules) $safe = false;
+                    foreach ($rules as $j) if (!in_array($arm, $describe($pageUnits[$owner][$j])['arms'], true)) $safe = false;
+                    if (!$safe) break;
                 }
                 if ($safe) $union[] = $arm;
             }
             if ($union === $base['arms']) continue;
-            $sharedUnits[$i]['text'] = implode(',', $union) . substr($sharedUnits[$i]['text'], $base['brace']);
+            foreach ($matches as $match) $sharedUnits[$match]['text'] = implode(',', $union) . substr($sharedUnits[$match]['text'], $base['brace']);
             foreach ($pageIndex as $owner => $rules) {
-                if (1 !== count($rules[$key] ?? array())) continue;
-                $j = $rules[$key][0];
-                $description = $describe($pageUnits[$owner][$j]);
-                // Leave the entire rule on the old delta path if any arm was
-                // not safe to fold; its later cascade dependencies still matter.
-                if (array() === array_diff($description['arms'], $union)) {
-                    $pageUnits[$owner][$j]['text'] = $sharedUnits[$i]['text'];
+                foreach ($rules[$key] ?? array() as $j) {
+                    $description = $describe($pageUnits[$owner][$j]);
+                    if (array() === array_diff($description['arms'], $union)) {
+                        $pageUnits[$owner][$j]['text'] = $sharedUnits[$i]['text'];
+                    }
                 }
             }
         }
         $result = array('shared' => array($this->serializeRuleUnits($sharedUnits)), 'pages' => array());
         foreach ($pageUnits as $owner => $units) $result['pages'][$owner] = array($this->serializeRuleUnits($units));
         return $result;
+    }
+
+    /**
+     * Reconcile ordered page projections at the source cascade position.
+     * Unsupported pages are returned separately for the legacy copy path.
+     *
+     * @param list<string> $shared
+     * @param array<string,list<string>> $pages
+     * @param array<string,string> $routeIdentities Reconciliation identities by compilation owner.
+     * @return array{stylesheet:string, scoped:list<string>, reasons:array<string,string>}
+     */
+    public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null): array
+    {
+        $base = array();
+        foreach ($shared as $css) $this->collectRuleUnits($css, array(), $base);
+        $key = static function (array $unit): string {
+            $brace = strpos($unit['text'], '{');
+            return serialize(array($unit['context'], false === $brace || str_starts_with(ltrim($unit['text']), '@') ? trim($unit['text']) : substr($unit['text'], $brace)));
+        };
+        $positions = array();
+        foreach ($base as $i => $unit) $positions[$key($unit)][] = $i;
+        $changes = $insertions = $reasons = array();
+        $scoped = array();
+        foreach ($pages as $owner => $sheets) {
+            $units = array();
+            $reason = $unsafeReason;
+            foreach (array_merge($shared, $sheets) as $css) {
+                if (!$this->isWellFormedStylesheet($css)) $reason = 'malformed stylesheet';
+                if (preg_match('/@namespace\b/i', $css)) $reason = '@namespace';
+            }
+            if (null !== $reason) { $reasons[$owner] = $reason; continue; }
+            foreach ($sheets as $css) $this->collectRuleUnits($css, array(), $units);
+            $cursor = 0;
+            $localChanges = $localInsertions = array();
+            foreach ($units as $unit) {
+                $match = null;
+                foreach ($positions[$key($unit)] ?? array() as $position) {
+                    if ($position >= $cursor) { $match = $position; break; }
+                }
+                if (null === $match) {
+                    $localInsertions[$cursor][] = $unit;
+                    continue;
+                }
+                while ($cursor < $match) $localChanges[$cursor++] = null;
+                if (trim($unit['text']) !== trim($base[$match]['text'])) $localChanges[$match] = $unit;
+                $cursor = $match + 1;
+            }
+            while ($cursor < count($base)) $localChanges[$cursor++] = null;
+            // Validate every affected selector before committing any route edits.
+            foreach ($localChanges as $i => $variant) {
+                foreach (array_filter(array($base[$i], $variant)) as $unit) {
+                    $this->scopeRouteUnit($unit, array('be-route-probe'), true, $reason);
+                }
+            }
+            foreach ($localInsertions as $list) foreach ($list as $unit) {
+                $this->scopeRouteUnit($unit, array('be-route-probe'), true, $reason);
+            }
+            if (null !== $reason) { $reasons[$owner] = $reason; continue; }
+            $scoped[] = (string) $owner;
+            foreach ($localChanges as $i => $variant) $changes[$i][$owner] = $variant;
+            foreach ($localInsertions as $i => $list) $insertions[$i][$owner] = $list;
+        }
+        $output = array();
+        $routeClass = static fn ($owner): string => \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($routeIdentities[$owner] ?? (string) $owner);
+        $emitGroups = function (array $groups) use (&$output, $routeClass): void {
+            $texts = array();
+            foreach ($groups as $owner => $units) foreach ($units as $ordinal => $unit) {
+                $groupKey = serialize(array($ordinal, $unit));
+                $texts[$groupKey]['unit'] = $unit;
+                $texts[$groupKey]['routes'][] = $routeClass($owner);
+            }
+            foreach ($texts as $group) $output[] = $this->scopeRouteUnit($group['unit'], $group['routes'], true);
+        };
+        for ($i = 0; $i <= count($base); ++$i) {
+            $emitGroups($insertions[$i] ?? array());
+            if ($i === count($base)) break;
+            $variants = $changes[$i] ?? array();
+            $output[] = $variants ? $this->scopeRouteUnit($base[$i], array_map($routeClass, array_keys($variants)), false) : $base[$i];
+            $emitGroups(array_map(static fn ($unit): array => null === $unit ? array() : array($unit), $variants));
+        }
+        return array('stylesheet' => $this->serializeRuleUnits($output), 'scoped' => $scoped, 'reasons' => $reasons);
+    }
+
+    /** @param array{context:list<string>,text:string,dedupable:bool} $unit @param list<string> $routes */
+    private function scopeRouteUnit(array $unit, array $routes, bool $positive, ?string &$reason = null): array
+    {
+        $brace = strpos($unit['text'], '{');
+        if (false === $brace || str_starts_with(ltrim($unit['text']), '@') || !$unit['dedupable']) { $reason = 'non-selector rule cannot be route scoped'; return $unit; }
+        $arms = self::splitSelectorList(trim(substr($unit['text'], 0, $brace)));
+        if (null === $arms) { $reason = 'unparseable selector list'; return $unit; }
+        $scope = ':where(:root:' . ($positive ? 'is' : 'not') . '(' . implode(',', array_map(static fn (string $route): string => '.' . $route, $routes)) . '))';
+        $rootAlternatives = array();
+        foreach ($arms as &$arm) {
+            $arm = trim($arm);
+            $tokens = CssSelectorTokenizer::tokenize($arm);
+            if (!$tokens['supported'] || str_contains($arm, '&') || str_contains($arm, '|') || str_contains($arm, '/*')) { $reason = 'unparseable or relative selector'; return $unit; }
+            if (preg_match('/::|:(?:before|after|first-line|first-letter)\b/i', $arm)) { $reason = 'pseudo-element selector'; return $unit; }
+            if (!(CssSelectorMatcher::parse($arm)['supported'] ?? false)) { $reason = 'unparseable selector'; return $unit; }
+            $first = $tokens['compounds'][0];
+            if (preg_match('/^(?:html(?=[.#:\[]|$)|:root(?=[.#:\[]|$))/i', $first)) {
+                $end = $tokens['compound_spans'][0]['end'];
+                $arm = substr($arm, 0, $end) . $scope . substr($arm, $end);
+            } else {
+                // Root tests hidden in functional selectors can match html too.
+                if (preg_match('/(?<![\w-])(?:html|:root)\b/i', $first)) { $reason = 'functional root selector'; return $unit; }
+                // Class/universal/attribute arms may themselves match html.
+                // Retain that match as well as descendants without adding weight.
+                if (preg_match('/^[*.#\[:]/', $first)) {
+                    $end = $tokens['compound_spans'][0]['end'];
+                    $rootAlternatives[] = substr($arm, 0, $end) . $scope . substr($arm, $end);
+                }
+                $arm = $scope . ' ' . $arm;
+            }
+        }
+        unset($arm);
+        $unit['text'] = implode(',', array_merge($arms, $rootAlternatives)) . substr($unit['text'], $brace);
+        return $unit;
     }
 
     /**

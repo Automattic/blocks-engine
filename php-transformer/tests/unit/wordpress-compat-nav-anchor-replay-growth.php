@@ -64,7 +64,7 @@ foreach (array(array(1, 2), array(3, 2), array(3, 8)) as [$pages, $items]) {
         foreach ($result['assets'] as $asset) {
             if (isset($asset['stylesheet_parent'])) $parents[$asset['stylesheet_parent']] = true;
         }
-        $assert(isset($parents['site.css'], $parents['menu.css']), 'Multi-page growth fixture produces deltas for two different parent sheets.');
+        $assert(!isset($parents['site.css'], $parents['menu.css']), 'Both shared parent sheets keep their route variants in place.');
     }
     $plan = $result['source_reports']['wordpress_site_plan'];
     $sharedReplay = array_values(array_filter($plan['assets'], static fn (array $asset): bool => 'wordpress-compat' === ($asset['source'] ?? '')));
