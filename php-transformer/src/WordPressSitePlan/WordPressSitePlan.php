@@ -546,7 +546,6 @@ PHP;
         $assets = self::placeSharedStylesheetProjections($assets, $pages);
         $assets = self::mergeIdenticalPageStylesheets($assets, array_merge($pages, $parts, $frameParts));
         $tokens = $this->tokens($assets);
-        foreach ($pages as $page) if (isset($page['route_template'])) $themeProjection['theme']['customTemplates'][] = array('name' => $page['route_template'], 'title' => $page['title'], 'postTypes' => array($page['post_type']));
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
@@ -588,14 +587,8 @@ PHP;
          }
          $taxonomyProjection['entities'] = TaxonomyProjection::retainProvenParents($projectedTaxonomyEntities, $taxonomyProjection['diagnostics']);
          unset($taxonomyEntity);
-         $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single'], $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome']);
-         foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if (self::archiveTemplateSlug($taxonomyEntity) === ($template['slug'] ?? null)) {
-             $taxonomyEntity['archive']['presentation_markup'] = $template['canonical_block_markup'];
-             continue 2;
-         }
-         unset($taxonomyEntity);
-        // Archive documents remain working presentation inputs until templates
-        // are settled, but native archive routes must never materialize pages.
+        // Archive documents remain working inputs until their presentation is
+        // settled, but native archive routes must never materialize pages.
         $archiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
         $workingPages = array_column($pages, null, 'source_path');
         $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($archiveSources[$page['source_path']])));
@@ -605,6 +598,22 @@ PHP;
             }
         }
         unset($page);
+        // Prune from the leaves: removing an unused synthetic parent can make
+        // its own synthetic ancestor unused as well. Real documents stay put.
+        do {
+            $count = count($pages);
+            $parents = array_fill_keys(array_column($pages, 'parent_source_path'), true);
+            $pages = array_values(array_filter($pages, static fn(array $page): bool => empty($page['synthetic']) || isset($parents[$page['source_path']])));
+        } while (count($pages) !== $count);
+        foreach ($pages as $page) if (isset($page['route_template'])) $themeProjection['theme']['customTemplates'][] = array('name' => $page['route_template'], 'title' => $page['title'], 'postTypes' => array($page['post_type']));
+        // Shell extraction needed the archive documents, but route overrides
+        // belong only to documents that actually materialize in WordPress.
+        $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single'], $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome']);
+        foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if (self::archiveTemplateSlug($taxonomyEntity) === ($template['slug'] ?? null)) {
+            $taxonomyEntity['archive']['presentation_markup'] = $template['canonical_block_markup'];
+            continue 2;
+        }
+        unset($taxonomyEntity);
         $routes = $this->routesForPages($pages);
         $emittedMarkup = implode("\n", self::markups(array_merge($pages, $parts, $templates, $syncedPatterns)));
         $menus = array_values(array_filter($menus, static fn(array $menu): bool => !isset($menu['token']) || str_contains($emittedMarkup, self::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}')));
@@ -844,6 +853,9 @@ PHP;
             self::unique($documentIdentities, $page['reconciliation_identity'], 'page reconciliation identity');
             $pagesBySource[$page['source_path']] = $page;
         }
+        $pageParents = array_fill_keys(array_column($plan['pages'], 'parent_source_path'), true);
+        $pageTemplateKeys = array_fill_keys(array_map(self::routeTemplateKey(...), $plan['pages']), true);
+        foreach ($plan['pages'] as $page) if (!empty($page['synthetic']) && !isset($pageParents[$page['source_path']])) throw new InvalidArgumentException('WordPress site plan synthetic parent must have a materialized child.');
         $archiveDocuments = array();
         foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
             $source = $entity['archive']['source_path'] ?? '';
@@ -887,6 +899,7 @@ PHP;
                 throw new InvalidArgumentException('WordPress site plan template is structurally invalid.');
             }
             if (isset($template['template_surface']) && (!is_array($template['template_surface']) || !self::validTemplateSurface($template['template_surface'], $template['source_path'] ?? null, $sourceCatalog) || $template['slug'] !== $template['template_surface']['slug'] || !is_string($template['source_path'] ?? null) || !is_array($template['provenance'] ?? null))) throw new InvalidArgumentException('WordPress site plan declared template surface is structurally invalid.');
+            if (str_starts_with($template['slug'], 'page-') && !isset($pageTemplateKeys[$template['slug']])) throw new InvalidArgumentException('WordPress site plan page override must resolve to a materialized page.');
             self::unique($templateTargets, $template['target_path'], 'template target');
             self::assertTokens($template['canonical_block_markup'], $tokens);
             self::assertNoLocalBrowserReferences($template['canonical_block_markup']);
@@ -3584,6 +3597,8 @@ PHP;
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
         $overrides = array_filter(self::overrideTemplateSlugs($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
         foreach ($pages as $page) if (isset($page['route_template'])) $overrides[$page['route_template']] = true;
+        $liveOverrides = array_fill_keys(array_map(self::routeTemplateKey(...), $pages), true);
+        $overrides = array_intersect_key($overrides, $liveOverrides);
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
         foreach ($templates as &$template) {
             if (!isset($documentChrome[$template['slug']])) continue;
