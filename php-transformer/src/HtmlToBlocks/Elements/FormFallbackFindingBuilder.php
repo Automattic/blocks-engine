@@ -130,6 +130,21 @@ final class FormFallbackFindingBuilder
             if (!empty($block['innerBlocks'])) {
                 $block['innerBlocks'] = $this->identifyChoiceGroups($block['innerBlocks'], $groups);
             }
+            if ('group' === ($block['form_field']['kind'] ?? null)) {
+                // The legend is stated once, as the group's label.
+                foreach ($block['innerBlocks'] ?? array() as $child) {
+                    if (!empty($child['_form_legend'])) {
+                        $block['form_field']['label_attributes'] = array_diff_key($child['attrs'] ?? array(), array('content' => true));
+                    }
+                }
+                $block['innerBlocks'] = array_values(array_filter($block['innerBlocks'] ?? array(), static fn (array $child): bool => empty($child['_form_legend'])));
+                // A fieldset framing one captured choice group is that group's node.
+                $indexed = array_keys(array_filter($block['innerBlocks'], static fn (array $child): bool => isset($child['form_choice_group_index'])));
+                if (1 === count($indexed) && ! isset($block['form_choice_group_index'])) {
+                    $block['form_choice_group_index'] = $block['innerBlocks'][$indexed[0]]['form_choice_group_index'];
+                    unset($block['innerBlocks'][$indexed[0]]['form_choice_group_index']);
+                }
+            }
         }
         unset($block);
         return $blocks;

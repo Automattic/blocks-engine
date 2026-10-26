@@ -697,6 +697,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
                 return $this->layoutShellBlockForElements($elements, $innerBlocks, $sourceElement);
             },
+            fn (DOMElement $element): array => $this->layoutShellWrapper($element),
             fn (): array => $this->authorStyles()->stylesheetAssets(),
             fn (): string => $this->sourceStyles()->formLayoutCss(),
             function (DOMElement $element, array &$fallbacks): array {
@@ -3884,39 +3885,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function layoutShellBlockForElements(array $elements, array $innerBlocks, DOMElement $sourceElement): array
     {
-        $wrappers = array_map(function (DOMElement $element): array {
-            $sourceTagName = strtolower($element->tagName);
-            $tagName = str_contains($sourceTagName, '-') ? 'div' : $sourceTagName;
-            $attributes = $this->htmlAttributes($element);
-            $className = $this->layoutShellClassName($element);
-            if ( '' === $className ) {
-                unset($attributes['class']);
-            } else {
-                $attributes['class'] = $className;
-            }
-            foreach ( $attributes as $name => $value ) {
-                if ( LayoutShellBlockGenerator::isBooleanAttribute($name) ) {
-                    $attributes[$name] = true;
-                }
-            }
-            $opening = '<' . $tagName;
-            foreach ( $attributes as $name => $value ) {
-                if ( ! preg_match('/^[a-z_:][a-z0-9_.:-]*$/i', $name) ) {
-                    continue;
-                }
-                $opening .= true === $value
-                    ? ' ' . $name . '=""'
-                    : ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-            }
-            $opening .= '>';
-
-            return array(
-                'tagName' => $tagName,
-                'attributes' => $attributes,
-                'opening' => $opening,
-                'closing' => '</' . $tagName . '>',
-            );
-        }, $elements);
+        $wrappers = array_map(fn (DOMElement $element): array => $this->layoutShellWrapper($element), $elements);
         $blockName = $this->generatedBlocks()->blockName('layout-shell');
         $this->generatedBlocks()->register(LayoutShellBlockGenerator::class, (new LayoutShellBlockGenerator())->definition($blockName));
         $block = $this->createBlock(
@@ -3932,6 +3901,47 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $block['_layout_shell_wrappers'] = $wrappers;
 
         return $block;
+    }
+
+    /**
+     * One source element as a layout-shell wrapper: its tag, its static
+     * attributes and its projected class list.
+     *
+     * @return array{tagName: string, attributes: array<string, mixed>, opening: string, closing: string}
+     */
+    private function layoutShellWrapper(DOMElement $element): array
+    {
+        $sourceTagName = strtolower($element->tagName);
+        $tagName = str_contains($sourceTagName, '-') ? 'div' : $sourceTagName;
+        $attributes = $this->htmlAttributes($element);
+        $className = $this->layoutShellClassName($element);
+        if ( '' === $className ) {
+            unset($attributes['class']);
+        } else {
+            $attributes['class'] = $className;
+        }
+        foreach ( $attributes as $name => $value ) {
+            if ( LayoutShellBlockGenerator::isBooleanAttribute($name) ) {
+                $attributes[$name] = true;
+            }
+        }
+        $opening = '<' . $tagName;
+        foreach ( $attributes as $name => $value ) {
+            if ( ! preg_match('/^[a-z_:][a-z0-9_.:-]*$/i', $name) ) {
+                continue;
+            }
+            $opening .= true === $value
+                ? ' ' . $name . '=""'
+                : ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        $opening .= '>';
+
+        return array(
+            'tagName' => $tagName,
+            'attributes' => $attributes,
+            'opening' => $opening,
+            'closing' => '</' . $tagName . '>',
+        );
     }
 
     private function isSafeTransparentCustomElement(DOMElement $element, bool $allowMotionStructure = false): bool

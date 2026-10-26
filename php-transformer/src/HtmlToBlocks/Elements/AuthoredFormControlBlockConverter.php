@@ -55,6 +55,12 @@ final class AuthoredFormControlBlockConverter
         $this->editableLabelContent = $editableLabelContent ?? $this->richTextLabelContent;
     }
 
+    /** A label's inline rich text without the controls it wraps. */
+    public function labelMarkup(DOMElement $label): string
+    {
+        return ($this->richTextLabelContent)($label);
+    }
+
     public function labelContent(DOMElement $label): string
     {
         $content = ($this->editableLabelContent)($label);
