@@ -3616,6 +3616,26 @@ final class StyleResolver implements ElementPresentationResolver
             return;
         }
 
+        // Box shorthands reset their entire family, just as `all` does above.
+        // Keep stronger descendants, but serialize them after the shorthand.
+        $longhands = self::BOX_SHORTHAND_LONGHANDS[$property] ?? array();
+        $strongerLonghands = array();
+        foreach ($cascade as $existing => $entry) {
+            if (in_array($property, self::BOX_SHORTHAND_LONGHANDS[$existing] ?? array(), true)
+                && $this->mediaTextCascadeEntryOutranks($entry, $incoming)) {
+                return;
+            }
+        }
+        foreach ($cascade as $existing => $entry) {
+            if (in_array($existing, $longhands, true)) {
+                if ($this->mediaTextCascadeEntryOutranks($entry, $incoming)) {
+                    $strongerLonghands[$existing] = $entry;
+                }
+                unset($cascade[$existing]);
+            }
+        }
+        // Replacing a key must also replace its serialization position.
+        unset($cascade[$property]);
         $cascade[$property] = array(
             'value' => $value,
             'important' => $important,
@@ -3623,7 +3643,33 @@ final class StyleResolver implements ElementPresentationResolver
             'specificity' => $specificity,
             'sequence' => $sequence,
         );
+        // Preserve relative order among surviving descendants (including nested
+        // border shorthands), rather than the order of the family map.
+        $cascade += $strongerLonghands;
     }
+
+    /**
+     * Physical box shorthand reset families projected by this resolver.
+     * Include intermediate shorthands as well as terminal longhands so border
+     * resets compete at every level without parsing or expanding CSS values.
+     */
+    private const BOX_SHORTHAND_LONGHANDS = array(
+        'padding' => array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'),
+        'margin' => array('margin-top', 'margin-right', 'margin-bottom', 'margin-left'),
+        'inset' => array('top', 'right', 'bottom', 'left'),
+        'border' => array('border-top', 'border-right', 'border-bottom', 'border-left', 'border-width', 'border-style', 'border-color',
+            'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+            'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
+            'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color'),
+        'border-top' => array('border-top-width', 'border-top-style', 'border-top-color'),
+        'border-right' => array('border-right-width', 'border-right-style', 'border-right-color'),
+        'border-bottom' => array('border-bottom-width', 'border-bottom-style', 'border-bottom-color'),
+        'border-left' => array('border-left-width', 'border-left-style', 'border-left-color'),
+        'border-width' => array('border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width'),
+        'border-style' => array('border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style'),
+        'border-color' => array('border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color'),
+        'border-radius' => array('border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius'),
+    );
 
     /**
      * Whether an existing cascade entry beats an incoming declaration:
