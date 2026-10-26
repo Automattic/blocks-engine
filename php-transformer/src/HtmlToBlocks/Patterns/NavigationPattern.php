@@ -2670,7 +2670,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $markered = SourceDom::innerHtmlWithProjectedMarkers(
             $anchor,
             static fn (DOMElement $element): array => array_merge(
-                $navigationContext->sourcePresentationMarkers($element),
+                $navigationContext->labelPresentationMarkers($element),
                 $navigationContext->ownsLabelTypography($element) ? array( NavigationPatternContext::LABEL_TYPOGRAPHY_BOX_CLASS ) : array()
             )
         );
@@ -2687,16 +2687,18 @@ final class NavigationPattern implements PatternRecognizerInterface
         $html = preg_replace('/<span\b[^>]*>\s*<\/span>/i', '', $html) ?? $html;
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
         // A label is inline RichText, so block-level tags cannot survive. A block
-        // element that declares its own text presentation (a logo heading inside
-        // the brand link) is what paints the label, so it keeps its presentation
-        // hooks as an inline span; other block tags carry nothing and are dropped.
+        // element with projected author identity must keep those hooks on the
+        // same inline span carrier used for label typography. Presentation is
+        // not limited to text: a positioned child also needs its own subject.
         $html = preg_replace_callback(
             '/<(\/?)(' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b([^>]*)>/i',
             static function (array $match): string {
                 if ( '/' === $match[1] ) {
                     return '</' . strtolower($match[2]) . '>';
                 }
-                return str_contains($match[3], NavigationPatternContext::LABEL_TYPOGRAPHY_BOX_CLASS) && 'hr' !== strtolower($match[2]) ? '<span' . $match[3] . '>' : '<' . strtolower($match[2]) . '>';
+                $retained = str_contains($match[3], NavigationPatternContext::LABEL_TYPOGRAPHY_BOX_CLASS)
+                    || str_contains($match[3], 'blocks-engine-semantic-');
+                return $retained && 'hr' !== strtolower($match[2]) ? '<span' . $match[3] . '>' : '<' . strtolower($match[2]) . '>';
             },
             $html
         ) ?? $html;
