@@ -432,7 +432,7 @@ $assert(
     'core/paragraph' === ($textLockupLogoBlock['blockName'] ?? '')
     && ! str_contains($textLockupLogoMarkup, '<!-- wp:buttons')
     && ! str_contains($textLockupLogoMarkup, '<!-- wp:button')
-    && str_contains($textLockupLogoMarkup, '<a href="#hero">')
+    && str_contains($textLockupLogoMarkup, '<a class="brand" href="#hero">')
     && str_contains($textLockupLogoMarkup, 'SC')
     && str_contains($textLockupLogoMarkup, 'SUPER')
     && str_contains($textLockupLogoMarkup, 'COACHING')
@@ -443,8 +443,11 @@ $assert(
     && str_contains($textLockupLogoMarkup, 'background:#f15a36')
     && str_contains($textLockupLogoMarkup, 'color:#fff')
     && str_contains($textLockupLogoMarkup, 'color:#f8d849')
-    && '19.2px' === ($textLockupLogoBlock['attrs']['style']['typography']['fontSize'] ?? '')
-    && '400' === ($textLockupLogoBlock['attrs']['style']['typography']['fontWeight'] ?? '')
+    // The link keeps `.brand`, so its own rule sets its type; the host
+    // paragraph does not restate it a second time.
+    && ! isset($textLockupLogoBlock['attrs']['style']['typography']['fontSize'])
+    && ! isset($textLockupLogoBlock['attrs']['style']['typography']['fontWeight'])
+    && ! str_contains((string) ($textLockupLogoBlock['attrs']['className'] ?? ''), 'brand')
     && 'pass' === ($textLockupLogo['source_reports']['wp_block_validity']['status'] ?? ''),
     'classed-span text lockups use paragraphs and preserve the partial RichText-safe styling bound',
     $textLockupLogoMarkup

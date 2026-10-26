@@ -2808,7 +2808,7 @@ $linkedLogoBlock = $linkedLogoResult['blocks'][0] ?? array();
 $linkedLogoSerialized = (string) ($linkedLogoResult['serialized_blocks'] ?? '');
 $assert('core/paragraph' === ($linkedLogoBlock['blockName'] ?? ''), 'linked logo text converts to a paragraph block');
 $assert(! array_key_exists('content', is_array($linkedLogoBlock['attrs'] ?? null) ? $linkedLogoBlock['attrs'] : array()), 'paragraph source content is not serialized as a block comment attribute');
-$assert(str_contains($linkedLogoSerialized, '<p class="site-logo blocks-engine-synthetic-paragraph"><a href="/">Mara Vale</a></p>'), 'linked logo paragraph hoists link styling hooks to its marginless synthetic wrapper and keeps valid anchor markup');
+$assert(str_contains($linkedLogoSerialized, '<p class="blocks-engine-synthetic-paragraph"><a class="site-logo" href="/">Mara Vale</a></p>'), 'linked logo paragraph keeps the link styling hooks on the saved link inside its marginless synthetic wrapper');
 $assert(! str_contains($linkedLogoSerialized, '\\u003ca'), 'linked logo paragraph avoids raw anchor HTML in delimiter JSON');
 $assert('pass' === ($linkedLogoResult['source_reports']['wp_block_validity']['status'] ?? ''), 'linked logo paragraph passes generated block validity checks');
 
