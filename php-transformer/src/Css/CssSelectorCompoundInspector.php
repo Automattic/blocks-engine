@@ -6,6 +6,17 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
 /** Shared inspection helpers for parsed selector compounds. */
 final class CssSelectorCompoundInspector
 {
+    /**
+     * The subject (rightmost) compound, or an empty compound when there is none.
+     *
+     * @param array<int, array<string, mixed>> $compounds
+     * @return array<string, mixed>
+     */
+    public static function rightmost(array $compounds): array
+    {
+        return array() === $compounds ? array() : $compounds[array_key_last($compounds)];
+    }
+
     /** @param array<string, mixed> $compound @return list<string> */
     public static function dataAttributeNames(array $compound): array
     {

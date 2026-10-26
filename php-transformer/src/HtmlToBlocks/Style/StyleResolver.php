@@ -2016,6 +2016,15 @@ final class StyleResolver implements ElementPresentationResolver
                 $box[$property] = $value;
             }
         }
+        // The source image's preferred ratio belongs to the painting <img>,
+        // never core/image's container-wide <figure>. Native crop promotion
+        // already carries it; otherwise preserve it here, including free axes.
+        if (! $hasNativeAspectRatio && ($declarations['aspect-ratio']['inline'] ?? false)) {
+            $aspectRatio = $this->comparableImageShapeConstraintValue($declarations, 'aspect-ratio');
+            if ('' !== $aspectRatio) {
+                $box['aspect-ratio'] = $aspectRatio;
+            }
+        }
         // Core block-library CSS clamps every image with
         // `.wp-block-image img{max-width:100%}`. That clamp assumes the source
         // clamps too. When the source's computed max-width is the initial

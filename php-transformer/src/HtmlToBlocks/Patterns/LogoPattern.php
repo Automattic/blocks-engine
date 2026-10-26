@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InlineStackingClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LoweredLinkHost;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
@@ -101,6 +102,10 @@ final class LogoPattern implements PatternRecognizerInterface
         }
 
         $attrs = $presentationAttributes($element);
+        if ( 'a' === $tagName && str_starts_with($content, '<a') ) {
+            // The paragraph only hosts the saved link; the link keeps its classes.
+            $attrs = LoweredLinkHost::attributes($attrs, $element);
+        }
         if ( 'div' === $tagName ) {
             $attrs = array_replace_recursive(array(
                 'style' => array(
@@ -132,6 +137,10 @@ final class LogoPattern implements PatternRecognizerInterface
         }
 
         $attrs = array( 'href' => $href );
+        $class = LoweredLinkHost::classAttribute($anchor);
+        if ( '' !== $class ) {
+            $attrs = array( 'class' => $class ) + $attrs;
+        }
         foreach ( array( 'target', 'rel', 'title' ) as $name ) {
             if ( $anchor->hasAttribute($name) && '' !== trim($anchor->getAttribute($name)) ) {
                 $attrs[$name] = $anchor->getAttribute($name);
