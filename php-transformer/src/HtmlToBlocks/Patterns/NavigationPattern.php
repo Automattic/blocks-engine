@@ -356,6 +356,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $navigationSource, $navigationContext);
         $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($navigationSource, 'never' === ($navigationAttrs['overlayMenu'] ?? '') ? $listSource : null, 'default' === ($navigationAttrs['layout']['type'] ?? '') ? ($navigationAttrs['style']['spacing']['blockGap'] ?? null) : null) ?? '');
+        $navigationAttrs = $this->withSourceSubmenuIndicator($navigationAttrs, $element, $navigationContext);
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $navigationSource);
         // WordPress copies the emitted block's classes onto its inner list. Key
         // the container reset on the source's own classes; a class-less source
@@ -830,6 +831,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $cluster, $navigationContext);
         $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($cluster) ?? '');
+        $navigationAttrs = $this->withSourceSubmenuIndicator($navigationAttrs, $cluster, $navigationContext);
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $cluster);
         // The cluster's classes travel onto this block and, through WordPress,
         // onto its inner list; keep what the cluster states placed once.
@@ -996,6 +998,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             // overlay-only extras are not items and must not dilute them.
             $attrs = array_replace_recursive($attrs, $this->commonNavigationLinkTextAttributes($links));
             $linkSets[] = $links;
+            $attrs = $this->withSourceSubmenuIndicator($attrs, $row, $navigationContext);
             $children[] = $createBlock('core/navigation', $attrs, array_merge($links, $overlayExtras), $slot['elements'][0]);
         }
         if ( array() === $linkSets ) {
@@ -2769,6 +2772,24 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
+     * core/navigation draws its own submenu indicator (showSubmenuIcon
+     * defaults true) after each submenu's content. When a source submenu
+     * toggle already paints its indicator (a generated caret on the toggle),
+     * the import reproduces that indicator on core's content, and core's icon
+     * becomes a second one that wraps beside, or below, the toggle's box.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withSourceSubmenuIndicator(array $attrs, DOMElement $source, ?NavigationPatternContext $navigationContext): array
+    {
+        if ( true === ($navigationContext?->hasSubmenuToggleIndicatorWithin($source) ?? false) ) {
+            $attrs['showSubmenuIcon'] = false;
+        }
+        return $attrs;
+    }
+
+    /**
      * @param array<string, mixed> $baseAttrs
      * @return array<string, mixed>
      */
@@ -2802,7 +2823,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' ' . $navigationContext->navigationItemSubjectMarker($item));
         }
         if ( $submenuContainer instanceof DOMElement ) {
-            $itemAttrs = $this->withClassName($itemAttrs, $navigationContext?->submenuIconGeometryMarker($item, $anchor, $submenuContainer) ?? '');
+            $iconMarker = $navigationContext?->submenuIconGeometryMarker($item, $anchor, $submenuContainer) ?? '';
+            $itemAttrs = $this->withClassName($itemAttrs, $iconMarker);
+            // A separate source glyph is what core's icon stands in for. Without
+            // one, a toggle that paints its own indicator keeps it as its only one.
+            if ( '' === $iconMarker && ! $item->isSameNode($anchor) ) $navigationContext?->recordSubmenuToggleIndicator($anchor);
         }
         $submenuAttrs = $submenuContainer instanceof DOMElement ? $this->withoutCoreNavigationClasses($presentationAttributes($submenuContainer)) : array();
         $sourceAnchor = '' === $subjectMarker ? trim($anchor->getAttribute('id')) : '';
