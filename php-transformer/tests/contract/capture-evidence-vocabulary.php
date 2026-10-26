@@ -28,6 +28,9 @@ $constants = (new ReflectionClass(CaptureEvidence::class))->getConstants();
 $downstream = $constants['PUBLISHED_FOR_DOWNSTREAM'];
 unset($constants['PUBLISHED_FOR_DOWNSTREAM']);
 $failures = array();
+if ( 'data-blocks-engine-capture-inert-control' !== ($constants['INERT_CONTROL'] ?? null) ) {
+    $failures[] = 'CaptureEvidence::INERT_CONTROL must publish the capture-proven inert control attribute';
+}
 foreach ( $downstream as $name ) {
     if ( ! is_string($constants[$name] ?? null) ) {
         $failures[] = "PUBLISHED_FOR_DOWNSTREAM flags {$name}, which is not a published name";
