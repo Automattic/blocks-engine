@@ -288,6 +288,9 @@
       "InvalidArgumentException('Form sibling relations must reference unique flat controls.')": {"class": "integrity", "count": 1}
     },
     "src/HtmlToBlocks/Style/FormLayoutGraphBuilder.php": {
+      "InvalidArgumentException('Form layout graph label control reference is invalid.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Form layout graph label reference owner is invalid.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Form layout graph label identity is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph envelope has unknown keys.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph envelope is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form layout graph exceeds its node limit.')": {"class": "integrity", "count": 1},
