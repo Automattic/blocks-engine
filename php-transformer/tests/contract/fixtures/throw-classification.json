@@ -421,6 +421,8 @@
       "InvalidArgumentException('WordPress site plan synced patterns require explicit owned references.')": {"class": "integrity", "count": 1}
     },
     "src/WordPressSitePlan/WordPressSitePlan.php": {
+      "InvalidArgumentException('WordPress site plan page override must resolve to a materialized page.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('WordPress site plan synthetic parent must have a materialized child.')": {"class": "integrity", "count": 1},
       "DocumentIdentityException($failures)": {"class": "integrity", "count": 1},
       "DocumentIdentityException($identityFailures)": {"class": "integrity", "count": 1},
       "InvalidArgumentException(\"WordPress site plan resolved {$kind} payload is not canonical.\")": {"class": "integrity", "count": 1},
