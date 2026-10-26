@@ -72,7 +72,7 @@ $assert('/buy' === ($button['attrs']['url'] ?? ''), '14: styled anchor promotion
 $stylesheetButton = ( new HtmlTransformer() )->transform('<style>.primary-control{padding:12px 18px;border:2px solid #135e96;border-radius:6px;color:#135e96}</style><a class="primary-control" href="/buy">Buy tickets</a>', array())->toArray();
 $stylesheetButtonCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $stylesheetButton['assets'] ?? array()));
 $assert('core/button' === ($stylesheetButton['blocks'][0]['innerBlocks'][0]['blockName'] ?? ''), '15: resolved author CSS with a visible surface promotes an anchor', json_encode($stylesheetButton['blocks'] ?? array()));
-$assert(str_contains($stylesheetButtonCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){padding:12px 18px') && str_contains($stylesheetButtonCss, 'border:2px solid #135e96'), '16: true button author selectors style the rendered inner anchor', $stylesheetButtonCss);
+$assert(str_contains($stylesheetButtonCss, '> :where(.wp-block-button__link):not(be-t-0){padding:12px 18px') && str_contains($stylesheetButtonCss, 'border:2px solid #135e96'), '16: true button author selectors style the rendered inner anchor', $stylesheetButtonCss);
 $assert('pass' === ($stylesheetButton['source_reports']['wp_block_validity']['status'] ?? ''), '17: true button conversion remains editor-valid', json_encode($stylesheetButton['source_reports']['wp_block_validity'] ?? array()));
 
 $sizedButton = ( new HtmlTransformer() )->transform('<style>a{padding:0;border:0}.action-button{display:flex;width:134px;height:45px;border-top:1px solid #000;border-right:1px solid #000;border-bottom:1px solid #000;border-left:1px solid #000;border-radius:10px}</style><a class="action-button" href="/contact">Request appointment</a>', array())->toArray();
@@ -99,6 +99,8 @@ $assert('core/button' === ($fragmentCta['blocks'][0]['innerBlocks'][0]['blockNam
 $streamRow = ( new HtmlTransformer() )->transform('<style>.stream-btn{display:inline-flex;padding:10px 16px;background:#135e96;color:#fff;border-radius:4px}</style><div><a class="stream-btn" href="/listen">Listen live</a><a class="stream-btn" href="/schedule">View schedule</a></div>', array())->toArray();
 $streamRowCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $streamRow['assets'] ?? array()));
 $assert('core/buttons' === ($streamRow['blocks'][0]['blockName'] ?? '') && 2 === count($streamRow['blocks'][0]['innerBlocks'] ?? array()), '22: direct anchor CTA rows group explicit stylesheet surfaces as buttons', json_encode($streamRow['blocks'] ?? array()));
+require_once dirname(__DIR__) . '/Support/expand-compacted-selectors.php';
+$streamRowCss = expandCompactedSelectors($streamRowCss);
 $assert(2 === substr_count($streamRowCss, '> :where(.wp-block-button__link)') && str_contains($streamRowCss, '{display:inline-flex!important;padding:10px 16px;background:#135e96'), '23: direct anchor CTA stylesheet selectors remain on both rendered button links', $streamRowCss);
 
 $buttonResult = ( new HtmlTransformer() )->transform('<button style="padding:12px 18px;background:#135e96;color:#fff">Buy tickets</button>', array())->toArray();

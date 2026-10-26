@@ -31,6 +31,7 @@ final class FormControlMetadataBuilder
      * @param Closure(DOMElement): string $elementSelector
      * @param Closure(DOMElement): array<string, string>|null $typographyStyles Resolved snake_case typography
      *     facts for one element, through the form presentation graph's cascade.
+     * @param Closure(DOMElement): string|null $sourceTagMarker Existing source tag identity for a retagging provider.
      * @param Closure(DOMElement, DOMElement): (array<string, string>|null)|null $hiddenState The declaration
      *     that hides an element below a form boundary, if the source hides it unconditionally.
      */
@@ -38,7 +39,8 @@ final class FormControlMetadataBuilder
         private readonly Closure $elementSelector,
         private readonly ?Closure $presentationAttributes = null,
         private readonly ?Closure $typographyStyles = null,
-        private readonly ?Closure $hiddenState = null
+        private readonly ?Closure $hiddenState = null,
+        private readonly ?Closure $sourceTagMarker = null
     ) {
     }
 
@@ -50,6 +52,10 @@ final class FormControlMetadataBuilder
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
             $metadata = $this->control($control);
             if ( array() !== $metadata ) {
+                $marker = null !== $this->sourceTagMarker ? ($this->sourceTagMarker)($control) : '';
+                if ( '' !== $marker ) {
+                    $metadata['source_tag_marker'] = $marker;
+                }
                 $metadata['order'] = $order;
                 $controls[] = $metadata;
                 ++$order;

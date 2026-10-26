@@ -86,9 +86,9 @@ $assert(
     $positionedCss
 );
 $assert(
-    (bool) preg_match('/wp-block-button__link\):not\(blocks-engine-specificity-site-0\)\{[^}]*padding:8px 16px/', $positionedCss)
-        && (bool) preg_match('/wp-block-button__link\):not\(blocks-engine-specificity-site-0\)\{[^}]*background:#111/', $positionedCss)
-        && (bool) preg_match('/wp-block-button__link\):not\(blocks-engine-specificity-site-0\)\{[^}]*color:#fff/', $positionedCss),
+    (bool) preg_match('/wp-block-button__link\):not\(be-t-0\)\{[^}]*padding:8px 16px/', $positionedCss)
+        && (bool) preg_match('/wp-block-button__link\):not\(be-t-0\)\{[^}]*background:#111/', $positionedCss)
+        && (bool) preg_match('/wp-block-button__link\):not\(be-t-0\)\{[^}]*color:#fff/', $positionedCss),
     '4: colour, padding, and fill still project onto the inner link',
     $positionedCss
 );
@@ -148,10 +148,10 @@ $ordinary = ( new HtmlTransformer() )->transform(
 )->toArray();
 $ordinaryCss = $cssOf($ordinary);
 $assert(
-    (bool) preg_match('/wp-block-button__link\):not\(blocks-engine-specificity-site-0\)\{[^}]*padding:8px 16px/', $ordinaryCss)
-        && (bool) preg_match('/wp-block-button__link\):not\(blocks-engine-specificity-site-0\)\{[^}]*background:#135e96/', $ordinaryCss)
-        && (bool) preg_match('/wp-block-button__link\):not\(blocks-engine-specificity-site-0\)\{[^}]*color:#fff/', $ordinaryCss)
-        && (bool) preg_match('/wp-block-button__link\):not\(blocks-engine-specificity-site-0\)\{[^}]*font-weight:700/', $ordinaryCss),
+    (bool) preg_match('/wp-block-button__link\):not\(be-t-0\)\{[^}]*padding:8px 16px/', $ordinaryCss)
+        && (bool) preg_match('/wp-block-button__link\):not\(be-t-0\)\{[^}]*background:#135e96/', $ordinaryCss)
+        && (bool) preg_match('/wp-block-button__link\):not\(be-t-0\)\{[^}]*color:#fff/', $ordinaryCss)
+        && (bool) preg_match('/wp-block-button__link\):not\(be-t-0\)\{[^}]*font-weight:700/', $ordinaryCss),
     '9: an ordinary in-flow button still projects chrome onto its link',
     $ordinaryCss
 );

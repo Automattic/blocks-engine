@@ -134,6 +134,6 @@ $nativeProjection[2]['metadata']['native_selectors'] = array('.menu li a > img')
 $nativeAssets = $method->invoke(new ArtifactCompiler(), $nativeProjection, $nativeSource);
 $assert(!str_contains($nativeAssets[0]['content'], '.menu') && str_contains($nativeAssets[0]['content'], '.other'), 'Skip exactly the recorded native selector, independent of projected spelling.');
 $nativeProjection[2]['metadata']['native_selectors'] = array();
-$nativeProjection[2]['content'] = '.menu .wp-block-navigation-item:not(blocks-engine-specificity-site-0){margin-right:30px}';
+$nativeProjection[2]['content'] = '.menu .wp-block-navigation-item:not(be-t-0){margin-right:30px}';
 $nativeAssets = $method->invoke(new ArtifactCompiler(), $nativeProjection, $nativeSource);
 $assert(str_contains($nativeAssets[0]['content'], '.menu'), 'Native-looking projected text alone must not suppress authored replay.');

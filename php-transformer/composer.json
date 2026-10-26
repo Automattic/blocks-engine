@@ -75,6 +75,7 @@
       "@test:packaging"
     ],
     "test:canonical": [
+      "php tests/contract/form-readable-shapes.php",
       "php tests/contract/navigation-current-item-shared-menu.php",
       "php tests/contract/navigation-equivalent-url-shared-menu.php",
       "php tests/contract/navigation-submenu-current-parent.php",
@@ -250,9 +251,12 @@
     ],
     "test:unit": [
       "php tests/unit/capture-document-trailing-chrome.php",
+      "php tests/unit/compact-engine-tokens.php",
       "php tests/unit/taxonomy-hierarchical-single-member.php",
+      "php tests/unit/unproven-archive-presentation-keeps-entity.php",
       "php tests/unit/taxonomy-single-member-reciprocity.php",
       "php tests/unit/functional-source-tag-identity.php",
+      "php tests/unit/form-negated-source-tag-identity.php",
       "php tests/unit/html-fragment-includes-memory.php",
       "php tests/unit/layout-shell-label.php",
       "php tests/unit/semantic-heading-brand.php",

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 
 /** Materialize ordered stylesheet contributions into the run's asset contract. */
@@ -40,7 +42,7 @@ final class StylesheetAssetStage
     /** @param array<int, string> $cssParts */
     public function generated(array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void
     {
-        $css = trim(implode("\n\n", $cssParts));
+        $css = EngineMarker::compactDeviceScope(trim(implode("\n\n", $cssParts)));
         if ( '' === $css ) {
             return;
         }

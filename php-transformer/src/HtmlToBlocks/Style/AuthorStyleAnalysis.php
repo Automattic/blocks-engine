@@ -65,7 +65,7 @@ final class AuthorStyleAnalysis
         $this->selectorMatchCache = new CssSelectorMatchCache();
         // Ignore generated-looking markers while hashing each input separately,
         // preserving deterministic identities without duplicating large CSS.
-        $markerPattern = '/blocks-engine-(?:source-[a-z][a-z0-9-]*|control|table|media-text-image|specificity(?:-(?:class|id))?)-[a-f0-9]+-\d+/';
+        $markerPattern = '/(?:blocks-engine-(?:source-[a-z][a-z0-9-]*|control|table|media-text-image)-[a-f0-9]+-\d+|' . EngineMarker::specificityPatternBody() . ')/';
         $normalizedHtml = preg_match($markerPattern, $html) ? (preg_replace($markerPattern, '', $html) ?? '') : $html;
         $normalizedCss = preg_match($markerPattern, $combinedCss) ? (preg_replace($markerPattern, '', $combinedCss) ?? '') : $combinedCss;
         $seed = hash_init('sha256');
@@ -380,7 +380,7 @@ final class AuthorStyleAnalysis
     {
         $suffix = 0;
         do {
-            $marker = 'blocks-engine-' . $kind . '-site-' . $suffix++;
+            $marker = (EngineMarker::SPECIFICITY_PREFIXES[$kind] ?? 'blocks-engine-' . $kind . '-site-') . $suffix++;
             $collision = false;
             foreach ($avoidTexts as $text) {
                 if (str_contains($text, $marker)) {

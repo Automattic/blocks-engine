@@ -64,7 +64,7 @@ $trailingNestedSibling = false;
 $assert($trailingNestedSibling, 'a trailing nested media rule cannot consume the closing brace and later sibling selector');
 $relativeNestedMargin = $transform('<style>.shell{margin-left:0;&:not(.missing){margin-left:24px}margin-left:12px}</style><div class="shell"><p>Label</p></div>');
 $assert(
-    (bool) preg_match('/\.shell\{&:not\(\.missing\):not\(\.blocks-engine-specificity-class-[^)]+\)\{margin-left:24px\}\}/', $css($relativeNestedMargin)),
+    (bool) preg_match('/\.shell\{&:not\(\.missing\):not\(\.be-c-[^)]+\)\{margin-left:24px\}\}/', $css($relativeNestedMargin)),
     'relative nested selectors retain their host and receive the same margin priority as later parent declarations'
 );
 $behaviorStyledImage = $transform(
@@ -102,7 +102,7 @@ $assert(
 
 $paragraph = $transform('<style>p{color:red}span{color:blue}</style><span>Loose text</span><p>Paragraph</p>');
 $paragraphClass = (string) ($paragraph['blocks'][1]['attrs']['className'] ?? '');
-$assert('' !== $paragraphClass && str_contains($css($paragraph), ':where(.' . $paragraphClass . '):not(blocks-engine-specificity-') && ! str_contains($paragraph['serialized_blocks'], 'core/html'), 'p type selectors retain provenance and type specificity only on canonical p serialization');
+$assert('' !== $paragraphClass && str_contains($css($paragraph), ':where(.' . $paragraphClass . '):not(be-t-') && ! str_contains($paragraph['serialized_blocks'], 'core/html'), 'p type selectors retain provenance and type specificity only on canonical p serialization');
 
 $navigationShell = $transform('<style>nav{height:60px;padding:0 28px}.nav-links{display:flex}</style><header><nav><a class="nav-logo" href="/">Logo</a><ul class="nav-links"><li><a href="#one">One</a></li></ul></nav></header>');
 $navigationShellCss = $css($navigationShell);
@@ -110,7 +110,7 @@ $navigationShellBlock = $navigationShell['blocks'][0] ?? array();
 $navigationMenuBlock = $navigationShellBlock['innerBlocks'][1] ?? array();
 $navigationShellClass = (string) ($navigationShellBlock['attrs']['className'] ?? '');
 preg_match('/blocks-engine-source-nav-[^\s]+/', $navigationShellClass, $navigationShellMarker);
-$assert(isset($navigationShellMarker[0]) && ! str_contains((string) ($navigationMenuBlock['attrs']['className'] ?? ''), 'blocks-engine-source-nav-') && str_contains($navigationShellCss, ':where(.' . $navigationShellMarker[0] . '):not(blocks-engine-specificity-') && ! preg_match('/(^|[},])nav\s*\{/', $navigationShellCss), 'nav type selectors stay scoped to the canonical source navigation shell instead of matching nested core navigation markup');
+$assert(isset($navigationShellMarker[0]) && ! str_contains((string) ($navigationMenuBlock['attrs']['className'] ?? ''), 'blocks-engine-source-nav-') && str_contains($navigationShellCss, ':where(.' . $navigationShellMarker[0] . '):not(be-t-') && ! preg_match('/(^|[},])nav\s*\{/', $navigationShellCss), 'nav type selectors stay scoped to the canonical source navigation shell instead of matching nested core navigation markup');
 
 $responsiveDirectNavigation = $transform('<style>@layer utilities{.hidden{display:none}@media (min-width:1024px){.lg\\:flex{display:flex}}}</style><nav class="hidden lg:flex"><a href="#one">One</a></nav>');
 $responsiveDirectNavigationCss = $css($responsiveDirectNavigation);
@@ -180,25 +180,25 @@ $assert(strpos($orderCss, 'color:red') < strpos($orderCss, 'color:blue'), 'proje
 $specificity = $transform('<style>a.cta{color:red}.cta{color:blue}p{color:red}*{color:blue}.copy{color:green}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><p class="copy">Paragraph</p>');
 $specificityCss = $css($specificity);
 $specificityAuthorCss = strstr($specificityCss, "\n\n.blocks-engine-control-", true) ?: $specificityCss;
-$assert(str_contains($specificityAuthorCss, ':not(blocks-engine-specificity-') && strrpos($specificityAuthorCss, 'color:red') < strrpos($specificityAuthorCss, 'color:blue') && strrpos($specificityAuthorCss, 'color:blue') < strrpos($specificityAuthorCss, 'color:green'), 'type-specificity shims preserve the authored a.cta and p cascade ordering against later class and universal rules');
+$assert(str_contains($specificityAuthorCss, ':not(be-t-') && strrpos($specificityAuthorCss, 'color:red') < strrpos($specificityAuthorCss, 'color:blue') && strrpos($specificityAuthorCss, 'color:blue') < strrpos($specificityAuthorCss, 'color:green'), 'type-specificity shims preserve the authored a.cta and p cascade ordering against later class and universal rules');
 
 $layoutMargins = $transform('<style>.container {max-width:60rem;margin:0 auto}.hero-inner {margin-top:52px}.section-head p {margin-bottom:16px}</style><main class="container"><div class="hero-inner"><div class="section-head"><p>Copy</p></div></div></main>');
 $layoutMarginCss = $css($layoutMargins);
 $assert(
-    preg_match('/\.container:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin:0 auto\}/', $layoutMarginCss) === 1
-        && preg_match('/\.hero-inner:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin-top:52px\}/', $layoutMarginCss) === 1
+    preg_match('/\.container:not\(\.be-c-[^)]+\)\{margin:0 auto\}/', $layoutMarginCss) === 1
+        && preg_match('/\.hero-inner:not\(\.be-c-[^)]+\)\{margin-top:52px\}/', $layoutMarginCss) === 1
         && preg_match('/\.container\s*\{max-width:60rem\}/', $layoutMarginCss) === 1,
     'authored margin carriers outrank later WordPress flow-layout resets without increasing unrelated declaration specificity'
 );
 
 $important = $transform('<style>a.cta:hover{padding:1rem!important}.cta:hover{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
-$assert(str_contains($css($important), '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0):hover{padding:1rem!important}') && strpos($css($important), 'padding:1rem!important') < strpos($css($important), 'padding:2rem'), 'projected selectors preserve !important declarations and authored cascade order');
+$assert(str_contains($css($important), '> :where(.wp-block-button__link):not(be-t-0):hover{padding:1rem!important}') && strpos($css($important), 'padding:1rem!important') < strpos($css($important), 'padding:2rem'), 'projected selectors preserve !important declarations and authored cascade order');
 
 $shared = $transform('<style>.shared{margin:1px}p.shared{color:green}*{color:blue}</style><a class="shared cta" href="/go" style="padding:1px;background:#000">Go</a><button class="shared" style="padding:1px;background:#000">Send</button><p class="shared wp-block-button">Other</p>');
 $sharedCss = $css($shared);
 // Controls carry their kind's shared role class, so the exclusion arm is one
 // constant-size class per kind instead of a per-element enumeration.
-$assert(! str_contains($sharedCss, ':not(.wp-block-button)') && str_contains($sharedCss, '.shared:not(:where(.blocks-engine-role-control))') && 1 === substr_count($sharedCss, '{margin:1px}') && str_contains($sharedCss, ':not(blocks-engine-specificity-') && str_contains($sharedCss, '*:not(:where('), 'shared selectors exclude only matched control markers without changing specificity or excluding authored wp-block-button classes');
+$assert(! str_contains($sharedCss, ':not(.wp-block-button)') && str_contains($sharedCss, '.shared:not(:where(.blocks-engine-role-control))') && 1 === substr_count($sharedCss, '{margin:1px}') && str_contains($sharedCss, ':not(be-t-') && str_contains($sharedCss, '*:not(:where('), 'shared selectors exclude only matched control markers without changing specificity or excluding authored wp-block-button classes');
 
 $relations = $transform('<style>p{margin:0}p + a.cta{color:red}p ~ button.cta{color:blue}main > p + a.cta{padding:1rem}</style><main><p>Before</p><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button></main>');
 $relationCss = $css($relations);
@@ -213,7 +213,7 @@ $collisionResult = $transform($collision);
 $assert('' !== $match[0] && str_contains($css($collisionResult), 'blocks-engine-source-p-' . $match[1] . '-' . ($match[2] + 1)), 'marker collisions select the deterministic next candidate');
 
 $nested = $transform('<style>@media (min-width:1px){@supports (display:grid){p + a.cta:hover{padding:1rem}}}</style><p>Before</p><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
-$assert(str_contains($css($nested), '@media') && str_contains($css($nested), '@supports') && str_contains($css($nested), '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0):hover'), 'nested media and supports rules preserve declarations while projecting selectors');
+$assert(str_contains($css($nested), '@media') && str_contains($css($nested), '@supports') && str_contains($css($nested), '> :where(.wp-block-button__link):not(be-t-0):hover'), 'nested media and supports rules preserve declarations while projecting selectors');
 
 $rootChildren = $transform('<style>body > *{position:relative;z-index:1}section{color:red}</style><section id="hero"><h1>Hero</h1></section><section id="features"><h2>Features</h2></section>');
 $rootChildrenMarkup = (string) ($rootChildren['serialized_blocks'] ?? '');
@@ -301,7 +301,7 @@ $assert(
         && str_contains($functionalAttributeCss, ':where(.' . $functionalAttributeMarkers[0] . ')')
         && str_contains($functionalAttributeCss, 'padding-top:242px!important')
         && str_contains($functionalAttributeCss, 'padding-top:36px!important')
-        && str_contains($functionalAttributeCss, 'blocks-engine-specificity-id-site-')
+        && str_contains($functionalAttributeCss, 'be-i-')
         && 'pass' === ($functionalAttributeProjection['source_reports']['wp_block_validity']['status'] ?? ''),
     'functional :is() data-attribute predicates project onto only the matching block with preserved specificity and responsive declarations'
 );
@@ -360,12 +360,12 @@ $assert(
 
 $zeroWidthControl = $transform('<style>.skip{position:absolute;left:50%;width:0;height:0;padding:0 24px}</style><button class="skip">Skip</button>');
 $zeroWidthControlCss = $css($zeroWidthControl);
-$assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0;height:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){padding:0 24px}'), 'control dimensions and positioning stay on the native wrapper while inner paint remains on the button link');
+$assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0;height:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link):not(be-t-0){padding:0 24px}'), 'control dimensions and positioning stay on the native wrapper while inner paint remains on the button link');
 
 $heroLayers = $transform('<style>.hero{position:relative;min-height:46rem}.hero-image,.hero-overlay{position:absolute;inset:0}.hero-copy{position:relative}</style><section class="hero"><img class="hero-image" src="hero.jpg" alt="Hero"><div class="hero-overlay"></div><div class="hero-copy"><h1>Visible hero copy</h1></div></section>');
 $heroLayersCss = $css($heroLayers);
 $assert(
-    str_contains($heroLayersCss, ':root .editor-styles-wrapper .hero-image,:root .editor-styles-wrapper .hero-overlay{position:absolute!important}')
+    str_contains($heroLayersCss, ':root .editor-styles-wrapper :is(.hero-image,.hero-overlay){position:absolute!important}')
         && ! str_contains($heroLayersCss, 'block-editor-block-list__block:has(> .hero-image)')
         && str_contains($heroLayersCss, ':root .editor-styles-wrapper .hero-copy{position:relative}'),
     'editor canvas keeps authored absolute layers above Core block-root positioning without collapsing their source parent'
@@ -374,7 +374,7 @@ $stickyHeader = $transform('<style>.site-header{position:fixed;top:0;left:0;righ
 $stickyHeaderCss = $css($stickyHeader);
 $assert(
     ! str_contains($stickyHeaderCss, ':root .editor-styles-wrapper .site-header{position:fixed')
-        && str_contains($stickyHeaderCss, ':root .editor-styles-wrapper .hero-image,:root .editor-styles-wrapper .hero-overlay{position:absolute!important}'),
+        && str_contains($stickyHeaderCss, ':root .editor-styles-wrapper :is(.hero-image,.hero-overlay){position:absolute!important}'),
     'editor canvas does not re-force position:fixed site chrome over the document while absolute hero layers still beat Core positioning'
 );
 
@@ -401,17 +401,17 @@ $assert(str_contains($directControlMarkup, 'control-cluster') && str_contains($d
 $navCta = $transform('<style>a.btn.btn-primary.nav-cta{display:inline-flex;align-items:center;gap:8px;font-family:monospace;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:9px 20px;border-radius:6px;background:#e8a020;color:#050d1a}.nav-cta:hover{background:#f0ac22}.nav-cta:focus{outline:2px solid #fff}</style><main><a class="btn btn-primary nav-cta" href="#cta">Get Early Access</a></main>');
 $navCtaMarkup = (string) ($navCta['serialized_blocks'] ?? '');
 $navCtaCss = $css($navCta);
-$assert(str_contains($navCtaMarkup, 'blocks-engine-control-') && str_contains($navCtaCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){display:inline-flex') && str_contains($navCtaCss, 'font-family:monospace') && str_contains($navCtaCss, 'padding:9px 20px') && str_contains($navCtaCss, 'background:#e8a020') && str_contains($navCtaCss, ':hover{background:#f0ac22}') && str_contains($navCtaCss, ':focus{outline:2px solid #fff}') && 'pass' === ($navCta['source_reports']['wp_block_validity']['status'] ?? ''), 'class-bearing source anchors project compound, typography, paint, and pseudo-state selectors onto valid core/button links');
+$assert(str_contains($navCtaMarkup, 'blocks-engine-control-') && str_contains($navCtaCss, '> :where(.wp-block-button__link):not(be-t-0){display:inline-flex') && str_contains($navCtaCss, 'font-family:monospace') && str_contains($navCtaCss, 'padding:9px 20px') && str_contains($navCtaCss, 'background:#e8a020') && str_contains($navCtaCss, ':hover{background:#f0ac22}') && str_contains($navCtaCss, ':focus{outline:2px solid #fff}') && 'pass' === ($navCta['source_reports']['wp_block_validity']['status'] ?? ''), 'class-bearing source anchors project compound, typography, paint, and pseudo-state selectors onto valid core/button links');
 
 $nestedLabelButton = $transform('<style>.contact{display:inline-flex;padding:9px 20px;border-radius:999px;background:#001b2e;color:#000}.contact-label{background-color:transparent;color:#eeffff;font:400 15.75px/1 helvetica}</style><a class="contact" href="#contact"><span class="contact-label">Contacts</span></a>');
 $nestedLabelButtonCss = $css($nestedLabelButton);
 $nestedLabelButtonMarkup = (string) ($nestedLabelButton['serialized_blocks'] ?? '');
-$assert(str_contains($nestedLabelButtonMarkup, '<mark ') && str_contains($nestedLabelButtonMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($nestedLabelButtonCss, ':where(.blocks-engine-role-richtext.blocks-engine-subject.blocks-engine-subject-class-') && str_contains($nestedLabelButtonCss, 'background-color:transparent') && ! str_contains($nestedLabelButtonCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){background-color:transparent') && ! str_contains($nestedLabelButtonCss, 'color:#000!important') && 'pass' === ($nestedLabelButton['source_reports']['wp_block_validity']['status'] ?? ''), 'button label typography and paint stay on its RichText carrier instead of repainting the native control');
+$assert(str_contains($nestedLabelButtonMarkup, '<mark ') && str_contains($nestedLabelButtonMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($nestedLabelButtonCss, ':where(.blocks-engine-role-richtext.blocks-engine-subject.blocks-engine-subject-class-') && str_contains($nestedLabelButtonCss, 'background-color:transparent') && ! str_contains($nestedLabelButtonCss, '> :where(.wp-block-button__link):not(be-t-0){background-color:transparent') && ! str_contains($nestedLabelButtonCss, 'color:#000!important') && 'pass' === ($nestedLabelButton['source_reports']['wp_block_validity']['status'] ?? ''), 'button label typography and paint stay on its RichText carrier instead of repainting the native control');
 
 $controlMargin = $transform('<style>.nav-cta{margin-left:24px;font-family:monospace}</style><main><a class="nav-cta" href="#cta" style="display:inline-flex;padding:9px 20px;background:#e8a020">Get Early Access</a></main>');
 $controlMarginCss = $css($controlMargin);
 $controlMarginOuterClass = (string) ($controlMargin['blocks'][0]['attrs']['className'] ?? '');
-$assert(! isset($controlMargin['blocks'][0]['attrs']['style']['spacing']['margin']['left']) && str_contains($controlMarginOuterClass, 'blocks-engine-control-') && str_contains($controlMarginCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){font-family:monospace}') && str_contains($controlMarginCss, 'margin-left:24px') && ! str_contains($controlMarginCss, '> :where(.wp-block-button__link):not(blocks-engine-specificity-site-0){margin-left:24px'), 'control margins use the carrier while typography remains on its link');
+$assert(! isset($controlMargin['blocks'][0]['attrs']['style']['spacing']['margin']['left']) && str_contains($controlMarginOuterClass, 'blocks-engine-control-') && str_contains($controlMarginCss, '> :where(.wp-block-button__link):not(be-t-0){font-family:monospace}') && str_contains($controlMarginCss, 'margin-left:24px') && ! str_contains($controlMarginCss, '> :where(.wp-block-button__link):not(be-t-0){margin-left:24px'), 'control margins use the carrier while typography remains on its link');
 
 $textLockupLogo = $transform('<style>.brand{font-size:19.2px;font-weight:400;letter-spacing:.02em;text-transform:uppercase;text-decoration:none;line-height:1;display:inline-flex;align-items:center;gap:.5rem;white-space:nowrap}.brand .mark{display:inline-grid;place-items:center;width:1.9em;height:1.9em;border-radius:50%;background:#f15a36;color:#fff;font-size:.72em;letter-spacing:.02em}.brand .word span{color:#f8d849}</style><a class="brand" href="#hero"><span class="mark">SC</span><span class="word">SUPER<span>COACHING</span></span></a>');
 $textLockupLogoMarkup = (string) ($textLockupLogo['serialized_blocks'] ?? '');
@@ -598,7 +598,7 @@ $assert(str_contains($coexistingInlineFlowsMarkup, '<p class="blocks-engine-inli
 $groupInlineLeaves = $transform('<style>.stage-output{display:grid}.stage-output span{font-size:13px;display:inline-block;margin:2px}.stage-output strong{font-size:15px;display:block;margin:4px}</style><div class="stage-output"><span>Label</span><strong>Value</strong></div>');
 $groupInlineMarkup = (string) ($groupInlineLeaves['serialized_blocks'] ?? '');
 $groupInlineCss = $css($groupInlineLeaves);
-$assert(str_contains($groupInlineMarkup, '<div class="wp-block-group stage-output') && 1 === preg_match('/<p class="[^"]*\bblocks-engine-synthetic-paragraph\b[^"]*\bblocks-engine-semantic-[^"]*"[^>]*>Label<\/p>/', $groupInlineMarkup) && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>Value</strong></p>') && preg_match('/:where\(\.blocks-engine-semantic-[^)]*\)[^{,]*\{font-size:13px;display:inline-block\}/', $groupInlineCss) === 1 && preg_match('/:where\(\.blocks-engine-semantic-[^)]*\)(?::not\([^)]+\))*:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin:2px\}/', $groupInlineCss) === 1 && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > strong{font-size:15px;display:block}') && preg_match('/\.stage-output p\.blocks-engine-inline-layout-carrier > strong:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin:4px\}/', $groupInlineCss) === 1, 'native Group inline leaves retain projected typography, display, and reset-resistant margin declarations through their valid paragraph carriers');
+$assert(str_contains($groupInlineMarkup, '<div class="wp-block-group stage-output') && 1 === preg_match('/<p class="[^"]*\bblocks-engine-synthetic-paragraph\b[^"]*\bblocks-engine-semantic-[^"]*"[^>]*>Label<\/p>/', $groupInlineMarkup) && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>Value</strong></p>') && preg_match('/:where\(\.blocks-engine-semantic-[^)]*\)[^{,]*\{font-size:13px;display:inline-block\}/', $groupInlineCss) === 1 && preg_match('/:where\(\.blocks-engine-semantic-[^)]*\)(?::not\([^)]+\))*:not\(\.be-c-[^)]+\)\{margin:2px\}/', $groupInlineCss) === 1 && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > strong{font-size:15px;display:block}') && preg_match('/\.stage-output p\.blocks-engine-inline-layout-carrier > strong:not\(\.be-c-[^)]+\)\{margin:4px\}/', $groupInlineCss) === 1, 'native Group inline leaves retain projected typography, display, and reset-resistant margin declarations through their valid paragraph carriers');
 
 $typographyOnlyStructuralLeaves = $transform('<style>.typography-grid{display:grid}.typography-flex{display:flex}.typography-grid > strong{font-size:13px;font-weight:600;letter-spacing:.08em}.typography-flex > strong{font-size:15px;line-height:1.2}.maintenance-loop li > span{display:grid;place-items:center;width:30px;height:30px}</style><div class="typography-grid"><strong>Grid label</strong></div><div class="typography-flex"><strong>Flex label</strong></div><ol class="maintenance-loop"><li><span>1</span><div>Observe</div></li></ol><p>Ordinary <strong>prose</strong>.</p>');
 $typographyOnlyStructuralMarkup = (string) ($typographyOnlyStructuralLeaves['serialized_blocks'] ?? '');
@@ -792,12 +792,12 @@ $layeredUniversalReset = $transform('<style>@layer base{@media (min-width:1px){*
 $layeredUniversalResetCss = $css($layeredUniversalReset);
 $assert(
     str_contains($layeredUniversalResetCss, '@layer base{@media (min-width:1px){')
-        && 1 === preg_match('/:not\(\.blocks-engine-specificity-[^)]+\):after/', $layeredUniversalResetCss)
-        && 1 === preg_match('/:not\(\.blocks-engine-specificity-[^)]+\):before/', $layeredUniversalResetCss)
-        && 1 === preg_match('/:not\(\.blocks-engine-specificity-[^)]+\)::backdrop/', $layeredUniversalResetCss)
+        && 1 === preg_match('/:not\(\.be-c-[^)]+\):after/', $layeredUniversalResetCss)
+        && 1 === preg_match('/:not\(\.be-c-[^)]+\):before/', $layeredUniversalResetCss)
+        && 1 === preg_match('/:not\(\.be-c-[^)]+\)::backdrop/', $layeredUniversalResetCss)
         && str_contains($layeredUniversalResetCss, '{margin:0}')
-        && ! str_contains($layeredUniversalResetCss, ':after:not(.blocks-engine-specificity-')
-        && ! str_contains($layeredUniversalResetCss, ':before:not(.blocks-engine-specificity-'),
+        && ! str_contains($layeredUniversalResetCss, ':after:not(.be-c-')
+        && ! str_contains($layeredUniversalResetCss, ':before:not(.be-c-'),
     'layered conditional universal margin resets retain valid legacy and double-colon pseudo-element selectors'
 );
 

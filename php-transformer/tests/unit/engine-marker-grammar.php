@@ -38,7 +38,7 @@ foreach ( $kinds as $kind ) {
 }
 
 // Authored and engine utility classes are not document-scoped markers.
-foreach ( array('site-header', 'blocks-engine-list-navigation', 'blocks-engine-css-owned-layout', 'blocks-engine-specificity-class-site-0') as $class ) {
+foreach ( array('site-header', 'blocks-engine-list-navigation', 'blocks-engine-css-owned-layout', 'be-c-0') as $class ) {
     $assert(! EngineMarker::matchesAny($class), "grammar leaves {$class} alone");
 }
 

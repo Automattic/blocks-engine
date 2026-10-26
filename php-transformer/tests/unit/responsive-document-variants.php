@@ -226,7 +226,7 @@ $capturedPairCss = implode("\n", array_map(static fn (array $asset): string => '
 $assert(str_contains($capturedPairMarkup, 'id="hero--data-blocks-engine-capture-mobile"') && str_contains($capturedPairMarkup, 'id="hero"'), 'The captured mobile copy of a shared id renders suffixed beside the desktop bare id.');
 $assert(str_contains($capturedPairCss, ':where(.data-blocks-engine-capture-mobile-document) :is(#hero,#hero--data-blocks-engine-capture-mobile){position:absolute;padding-top:7px}'), 'A mobile-scoped id rule in a delivered stylesheet reaches the suffixed mobile copy with the source specificity.');
 $assert(1 === preg_match('/:where\(\.data-blocks-engine-capture-mobile-document\) :is\(#phone-only,#phone-only--data-blocks-engine-capture-mobile\)[^{,]*\{margin-top:3px\}/', $capturedPairCss), 'A mobile-only id keeps matching its bare id through the same rewrite.');
-$assert(!str_contains($capturedPairCss, '#blocks-engine-specificity-id-site-0--data-blocks-engine-capture-mobile'), 'Engine specificity shims are not treated as source ids.');
+$assert(!str_contains($capturedPairCss, '#be-i-0--data-blocks-engine-capture-mobile'), 'Engine specificity shims are not treated as source ids.');
 $assert(str_contains($capturedPairCss, '#hero{position:relative;padding-top:40px}') && !str_contains($capturedPairCss, '#hero--data-blocks-engine-capture-mobile{position:relative'), 'Desktop id rules are delivered unchanged.');
 foreach ((array) ($capturedPairPlan['assets'] ?? array()) as $asset) {
     if ('css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null)) {
@@ -238,7 +238,7 @@ $scope = ':where(.data-blocks-engine-capture-mobile-document)';
 $assert($scope . ' div:is(#a,#a--data-blocks-engine-capture-mobile).b > :is(#c,#c--data-blocks-engine-capture-mobile)::before' === DocumentVariantIds::scopeIdSelector($scope . ' div#a.b > #c::before'), 'Ids keep their position next to type, class and pseudo-element parts.');
 $assert($scope . ' :has(> #x--data-blocks-engine-capture-mobile)' === DocumentVariantIds::scopeIdSelector($scope . ' :has(> #x--data-blocks-engine-capture-mobile)'), 'An id that already carries the variant suffix is left alone.');
 $assert($scope . ' a[href="#top"]:is(#nav,#nav--data-blocks-engine-capture-mobile)' === DocumentVariantIds::scopeIdSelector($scope . ' a[href="#top"]#nav'), 'Fragments inside attribute values are not ids.');
-$assert($scope . ' :is(#a,#a--data-blocks-engine-capture-mobile):not(#blocks-engine-specificity-id-site-0)' === DocumentVariantIds::scopeIdSelector($scope . ' #a:not(#blocks-engine-specificity-id-site-0)'), 'Engine specificity shim ids stay as they are.');
+$assert($scope . ' :is(#a,#a--data-blocks-engine-capture-mobile):not(#be-i-0)' === DocumentVariantIds::scopeIdSelector($scope . ' #a:not(#be-i-0)'), 'Engine specificity shim ids stay as they are.');
 $assert('#a .b' === DocumentVariantIds::scopeIdSelector('#a .b') && ':where(.data-blocks-engine-capture-desktop-document) #a' === DocumentVariantIds::scopeIdSelector(':where(.data-blocks-engine-capture-desktop-document) #a'), 'Unscoped and desktop-scoped selectors keep their bare ids.');
 $assert('#a:not(.data-blocks-engine-capture-mobile-document)' === DocumentVariantIds::scopeIdSelector('#a:not(.data-blocks-engine-capture-mobile-document)'), 'A negated variant class does not scope the selector.');
 $assert('.site-document-variant-tablet :is(#a,#a--data-blocks-engine-capture-tablet)' === DocumentVariantIds::scopeIdSelector('.site-document-variant-tablet #a'), 'A named site document variant uses its own suffix.');

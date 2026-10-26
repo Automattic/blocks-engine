@@ -243,6 +243,12 @@ final class DocumentHeadContext
             if ('author' === ($entity['kind'] ?? null) && is_string($sourcePath) && is_string($slug)) $taxonomyArchives[$sourcePath] = array('author_slug' => $slug);
             elseif (is_string($sourcePath) && is_string($taxonomy) && is_string($slug)) $taxonomyArchives[$sourcePath] = array('taxonomy' => $taxonomy, 'term_slug' => $slug);
         }
+        // Native archives have source-owned heads but are not materialized pages.
+        foreach ($taxonomyEntities as $entity) {
+            if (!isset($entity['archive']['document_head'])) continue;
+            $archive = $entity['archive'];
+            $pages[] = array('source_path' => $archive['source_path'], 'post_type' => 'page', 'route' => array('path' => $archive['source_route']), 'reconciliation_identity' => WordPressSitePlan::identity('page', $archive['source_path'], $archive['source_route']), 'document_metadata' => array('head' => $archive['document_head']));
+        }
         foreach ($pages as $page) {
             if (!isset($page['document_metadata']['head']) || !empty($page['synthetic'])) continue;
             $head = $page['document_metadata']['head'];

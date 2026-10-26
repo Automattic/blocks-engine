@@ -81,8 +81,8 @@ $assert(array( 'Plan', 'Basic', 'Pro & Plus (selected)' ) === $echoes, 'unstyled
 $echoes = array();
 $styledSelect = $elementFrom('<select data-styled id="plan" name="plan"><option value="basic">Basic</option><option value="pro" selected>Pro</option></select>', 'select');
 $selectBlock = $converter->select($styledSelect);
-$authoredSelect = $selectBlock['innerBlocks'][0] ?? array();
-$assert('safe-plan' === ($selectBlock['attrs']['anchor'] ?? ''), 'styled-select-retains-wrapper-anchor-contract');
+$authoredSelect = $selectBlock;
+$assert('plan' === ($selectBlock['attrs']['id'] ?? ''), 'styled-select-owns-source-id-without-wrapper');
 $assert($registry->blockName(AuthoredSelectBlockGenerator::LOCAL_NAME) === ($authoredSelect['blockName'] ?? ''), 'styled-select-uses-authored-select-block');
 $assert('Pro (selected)' === ($authoredSelect['attrs']['selectedSummary'] ?? ''), 'styled-select-retains-selected-summary');
 $assert(str_contains((string) ($authoredSelect['innerHTML'] ?? ''), '<option value="pro" selected>Pro</option>'), 'styled-select-emits-native-option-markup');
@@ -93,7 +93,7 @@ $echoes = array();
 $requiredSelect = $elementFrom('<label class="block">Assistance required<select data-styled class="mt-1.5 w-full" required><option value="" selected disabled>Select a program</option><option value="food">Food &amp; housing</option></select></label>', 'select');
 $requiredLabel = $requiredSelect->parentNode instanceof DOMElement ? $requiredSelect->parentNode : null;
 $requiredBlock = $converter->select($requiredSelect, false, $requiredLabel);
-$authoredRequired = $requiredBlock['innerBlocks'][0] ?? array();
+$authoredRequired = $requiredBlock;
 $assert(true === ($authoredRequired['attrs']['required'] ?? false), 'required-select-retains-required-attribute');
 $assert('Assistance required' === ($authoredRequired['attrs']['label'] ?? ''), 'required-select-retains-wrapping-label');
 $assert(
