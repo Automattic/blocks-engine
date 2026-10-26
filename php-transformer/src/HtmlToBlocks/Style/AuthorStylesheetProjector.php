@@ -6,7 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -70,13 +69,13 @@ final class AuthorStylesheetProjector
         $ids = ScopedAnchorSelectorProjection::identities($context->authorStyles);
         $projected = EngineMarker::compactDeviceScope($projected);
         if ( array() !== $ids ) {
-            $hasNamespace = (bool) preg_match('/@namespace\b/i', $projected);
-            return (new CssStylesheetTransformer())->transformStyleRules($projected, static function (string $selector, string $body) use ($ids, $hasNamespace): string {
-                $selector = ScopedAnchorSelectorProjection::selector($selector, $ids);
-                return ($hasNamespace ? $selector : CssSelectorListCompactor::compact($selector)) . '{' . $body . '}';
+            return (new CssStylesheetTransformer())->transformStyleRules($projected, static function (string $selector, string $body) use ($ids): string {
+                return ScopedAnchorSelectorProjection::selector($selector, $ids) . '{' . $body . '}';
             });
         }
-        return CssSelectorListCompactor::stylesheet($projected);
+        // Keep arms explicit for the site-wide/page split and marker fold.
+        // Selector compaction belongs to the final asset serialization boundary.
+        return $projected;
     }
 
     /** @param list<string> $ancestors */

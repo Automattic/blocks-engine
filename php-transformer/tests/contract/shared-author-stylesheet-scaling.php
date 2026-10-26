@@ -243,36 +243,50 @@ $contextCss = '.btn-group>.btn{z-index:1}';
 for ($i = 0; $i < 160; ++$i) {
     $contextCss .= '.tail-' . $i . '{z-index:2;color:#123456;margin:0;padding:0}';
 }
-$contextPlan = static function (int $count) use ($contextCss): array {
+$contextPlan = static function (int $count, bool $duplicate = false) use ($contextCss): array {
     $files = array();
     for ($i = 0; $i < $count; ++$i) {
-        $html = '<!doctype html><html><head><title>Context ' . $i . '</title><link rel="stylesheet" href="base.css"></head><body><main><div class="btn-group context-' . $i . '"><button class="btn tail-159" type="button">Buy ' . $i . '</button></div></main></body></html>';
+        $buttons = '';
+        for ($k = 0; $k < 3; ++$k) {
+            $buttons .= '<button class="btn tail-159" type="button">Buy ' . $i . '.' . $k . '</button>';
+        }
+        $html = '<!doctype html><html><head><title>Context ' . $i . '</title><link rel="stylesheet" href="base.css"></head><body><main><div class="btn-group context-' . $i . '">' . $buttons . '</div></main></body></html>';
         $files[] = array('path' => chr(97 + $i) . '.html', 'kind' => 'html', 'content' => $html);
     }
-    $files[] = array('path' => 'base.css', 'kind' => 'css', 'content' => $contextCss);
+    $files[] = array('path' => 'base.css', 'kind' => 'css', 'content' => ($duplicate ? '.btn-group>.btn{z-index:1}' : '') . $contextCss);
     return (new ArtifactCompiler())->compile(array('entrypoint' => 'a.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
 };
 $contextTwo = $contextPlan(2);
 $contextTen = $contextPlan(10);
 $contextTwoAssets = $authoredAssets($contextTwo);
 $contextTenAssets = $authoredAssets($contextTen);
+$duplicatePlan = $contextPlan(3, true);
+$duplicateAssets = $authoredAssets($duplicatePlan);
+$assert(1 === count($duplicateAssets), 'byte-identical shared rules fold without page copies');
+$assert(str_contains(implode('', $contextTenAssets), ':is(:where(.blocks-engine-control-'), 'multi-marker folded arms compact at final serialization');
 $contextBytes = strlen(implode('', $contextTenAssets));
-// Baseline measured with folding disabled: 142,268 bytes for ten pages.
+// Same multi-marker fixture on the PR head: 35,613 bytes for ten pages.
+// Final serialization after the uncompacted fold: 28,485 bytes.
 $assert(1 === count($contextTwoAssets) && 1 === count($contextTenAssets), 'context-dependent arms fold without page copies', (string) json_encode(array_keys($contextTenAssets)));
-$assert($contextBytes - strlen(implode('', $contextTwoAssets)) < 6000, 'only per-page arm bytes grow, not the overlapping cascade suffix', (string) $contextBytes);
+$assert($contextBytes - strlen(implode('', $contextTwoAssets)) < 18000, 'only per-page arm bytes grow, not the overlapping cascade suffix', (string) $contextBytes);
 $assert((bool) preg_match('/blocks-engine-control-[a-f0-9]{12}-[0-9]+/', implode('', $contextTenAssets)), 'fixture exercises positive identity-marker arms');
-foreach ($contextTen['pages'] as $planPage) {
-    $document = new DOMDocument();
-    @$document->loadHTML(StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($planPage['canonical_block_markup']));
-    $assets = array_column($contextTen['assets'], null, 'target_path');
-    $css = '';
-    foreach (WordPressSitePlan::documentStylesheets($contextTen, $planPage['source_path']) as $sheet) $css .= "\n" . ($assets[$sheet['target_path']]['content'] ?? '');
-    $cascade = new StaticCssCascade($document, $css);
-    foreach ($document->getElementsByTagName('*') as $element) {
-        if (!$element instanceof DOMElement || !str_contains($element->getAttribute('class'), 'wp-block-buttons')) continue;
-        if (!str_starts_with(trim($element->textContent), 'Buy')) continue;
-        $style = $cascade->resolve($element, array('z-index', 'color'), array());
-        $assert('1' === (string) ($style['z-index'] ?? ''), 'folded rule retains the authored context-dependent value on ' . $planPage['source_path'], (string) json_encode($style));
+foreach (array($contextTen, $duplicatePlan) as $parityPlan) {
+    foreach ($parityPlan['pages'] as $planPage) {
+        $document = new DOMDocument();
+        @$document->loadHTML(StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($planPage['canonical_block_markup']));
+        $assets = array_column($parityPlan['assets'], null, 'target_path');
+        $css = '';
+        foreach (WordPressSitePlan::documentStylesheets($parityPlan, $planPage['source_path']) as $sheet) $css .= "\n" . ($assets[$sheet['target_path']]['content'] ?? '');
+        $cascade = new StaticCssCascade($document, $css);
+        $probes = 0;
+        foreach ($document->getElementsByTagName('*') as $element) {
+            if (!$element instanceof DOMElement || !str_contains($element->getAttribute('class'), 'wp-block-buttons')) continue;
+            if (!str_starts_with(trim($element->textContent), 'Buy')) continue;
+            ++$probes;
+            $style = $cascade->resolve($element, array('z-index', 'color'), array());
+            $assert('1' === (string) ($style['z-index'] ?? ''), 'folded rule retains the authored context-dependent value on ' . $planPage['source_path'], (string) json_encode($style));
+        }
+        $assert(3 === $probes, 'all three marker carriers are checked on ' . $planPage['source_path']);
     }
 }
 echo 'Context fixture author CSS: ' . $contextBytes . " bytes\n";
@@ -299,6 +313,19 @@ foreach ($projections as $owner => $sheets) {
     $oldStyle = (new StaticCssCascade($document, $before))->resolve($element, array('z-index'), array());
     $newStyle = (new StaticCssCascade($document, $after))->resolve($element, array('z-index'), array());
     $assert($oldStyle === $newStyle && '2' === (string) ($newStyle['z-index'] ?? ''), 'folding preserves the original enqueue cascade on page ' . $owner);
+}
+
+// Inspect the fold before redundant-rule serialization can erase duplicates.
+$duplicateShared = '.group>.btn{z-index:1}@media (min-width:1px){.other{color:red}}.group>.btn{z-index:1}';
+$duplicatePages = array();
+foreach ($projections as $owner => $sheets) {
+    $armRule = substr($sheets[0], 0, strpos($sheets[0], '}') + 1);
+    $duplicatePages[$owner] = array($armRule . '@media (min-width:1px){.other{color:red}}' . $armRule);
+}
+$duplicates = $transformer->foldPositiveMarkerArms(array($duplicateShared), $duplicatePages, $markup);
+$assert(2 === substr_count(implode('', $duplicates['shared']), ':where(.blocks-engine-control-5feceb66ffc8-0)'), 'both byte-identical shared copies are rewritten in place');
+foreach ($duplicatePages as $owner => $_) {
+    $assert('' === trim($transformer->rulesAbsentFrom($duplicates['pages'][$owner], $duplicates['shared'], true)), 'duplicate page copies disappear after folding on page ' . $owner);
 }
 
 // A reused identity is not proof of a shared match: both pages carry the

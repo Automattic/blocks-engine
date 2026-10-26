@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 
@@ -43,6 +44,9 @@ final class StylesheetAssetStage
     public function generated(array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void
     {
         $css = EngineMarker::compactDeviceScope(trim(implode("\n\n", $cssParts)));
+        if (in_array($source, array('author-css', 'editor-static-state'), true)) {
+            $css = CssSelectorListCompactor::stylesheet($css);
+        }
         if ( '' === $css ) {
             return;
         }
@@ -75,7 +79,7 @@ final class StylesheetAssetStage
     private function authorProjection(array $projection): void
     {
         $path = trim((string) ($projection['path'] ?? ''), '/');
-        $css = trim((string) ($projection['content'] ?? ''));
+        $css = CssSelectorListCompactor::stylesheet(trim((string) ($projection['content'] ?? '')));
         if ( '' === $path || '' === $css ) {
             return;
         }

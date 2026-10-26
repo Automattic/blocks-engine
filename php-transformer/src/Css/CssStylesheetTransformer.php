@@ -263,7 +263,7 @@ final class CssStylesheetTransformer
         $index = array();
         foreach ($sharedUnits as $i => $unit) {
             $description = $describe($unit);
-            if (null !== $description) $index[$description['key']][] = $i;
+            if (null !== $description) $index[$description['key']][$unit['text']][] = $i;
         }
         $pageUnits = array();
         $pageIndex = array();
@@ -272,18 +272,21 @@ final class CssStylesheetTransformer
             foreach ($sheets as $css) $this->collectRuleUnits($css, array(), $pageUnits[$owner]);
             foreach ($pageUnits[$owner] as $i => $unit) {
                 $description = $describe($unit);
-                if (null !== $description) $pageIndex[$owner][$description['key']][] = $i;
+                if (null !== $description) $pageIndex[$owner][$description['key']][$unit['text']][] = $i;
             }
         }
         foreach ($index as $key => $matches) {
             if (1 !== count($matches)) continue;
-            $i = $matches[0];
+            // Identical copies at the same context are one match, not an
+            // ambiguity. Different full texts under this key remain unsafe.
+            $copies = reset($matches);
+            $i = $copies[0];
             $base = $describe($sharedUnits[$i]);
             $union = $base['arms'];
             $candidates = array();
             foreach ($pageIndex as $owner => $rules) {
                 if (1 !== count($rules[$key] ?? array())) continue;
-                $description = $describe($pageUnits[$owner][$rules[$key][0]]);
+                $description = $describe($pageUnits[$owner][reset($rules[$key])[0]]);
                 foreach (array_diff($description['arms'], $union) as $arm) {
                     $marker = $markerOf($arm);
                     if (null !== $marker) $candidates[$arm] = $marker;
@@ -294,20 +297,22 @@ final class CssStylesheetTransformer
                 if (array_diff_key($pages, $markup)) $safe = false;
                 foreach ($carriers[$marker] ?? array() as $owner => $_) {
                     $rules = $pageIndex[$owner][$key] ?? array();
-                    if (1 !== count($rules) || !in_array($arm, $describe($pageUnits[$owner][$rules[0]])['arms'], true)) { $safe = false; break; }
+                    if (1 !== count($rules) || !in_array($arm, $describe($pageUnits[$owner][reset($rules)[0]])['arms'], true)) { $safe = false; break; }
                 }
                 if ($safe) $union[] = $arm;
             }
             if ($union === $base['arms']) continue;
-            $sharedUnits[$i]['text'] = implode(',', $union) . substr($sharedUnits[$i]['text'], $base['brace']);
+            $text = implode(',', $union) . substr($sharedUnits[$i]['text'], $base['brace']);
+            foreach ($copies as $copy) $sharedUnits[$copy]['text'] = $text;
             foreach ($pageIndex as $owner => $rules) {
                 if (1 !== count($rules[$key] ?? array())) continue;
-                $j = $rules[$key][0];
+                $pageCopies = reset($rules[$key]);
+                $j = $pageCopies[0];
                 $description = $describe($pageUnits[$owner][$j]);
                 // Leave the entire rule on the old delta path if any arm was
                 // not safe to fold; its later cascade dependencies still matter.
                 if (array() === array_diff($description['arms'], $union)) {
-                    $pageUnits[$owner][$j]['text'] = $sharedUnits[$i]['text'];
+                    foreach ($pageCopies as $copy) $pageUnits[$owner][$copy]['text'] = $text;
                 }
             }
         }

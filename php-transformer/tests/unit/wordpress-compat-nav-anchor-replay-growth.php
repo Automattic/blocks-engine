@@ -59,13 +59,8 @@ foreach (array(array(1, 2), array(3, 2), array(3, 8)) as [$pages, $items]) {
         $baseline ??= array($bytes, $alternatives);
         $assert($baseline === array($bytes, $alternatives), 'Replay size is independent of pages and elements.');
     }
-    if ($pages > 1) {
-        $parents = array();
-        foreach ($result['assets'] as $asset) {
-            if (isset($asset['stylesheet_parent'])) $parents[$asset['stylesheet_parent']] = true;
-        }
-        $assert(isset($parents['site.css'], $parents['menu.css']), 'Multi-page growth fixture produces deltas for two different parent sheets.');
-    }
+    // Positive image arms can now fold into their shared parents. Genuine
+    // route-owned deltas are covered explicitly by the two-parent fixture below.
     $plan = $result['source_reports']['wordpress_site_plan'];
     $sharedReplay = array_values(array_filter($plan['assets'], static fn (array $asset): bool => 'wordpress-compat' === ($asset['source'] ?? '')));
     $assert(1 === count($sharedReplay) && $pages === count($sharedReplay[0]['scopes']), 'Identical replay is one resource retaining all route scopes.');
