@@ -212,13 +212,45 @@ final class FormFallbackFindingBuilder
                 // into the form's fallback and runtime entity.
                 'group' => array_filter($config['group'], static fn (mixed $value, int|string $key): bool => is_string($key) && is_string($value), ARRAY_FILTER_USE_BOTH),
                 'choices' => $choices,
-                'observed_transition' => array(
-                    'selected_index' => null,
-                    'selected' => array_fill(0, count($choices), null),
-                ),
+                'observed_transition' => $this->sourceSelection($element, $choices),
             );
         }
 
         return $groups;
+    }
+
+    /**
+     * The selection the source document shows, read from each choice's own
+     * ARIA state. A choice that states none stays unknown (`null`).
+     *
+     * @param array<int, array<string, mixed>> $choices
+     * @return array{selected_index: ?int, selected: array<int, ?bool>}
+     */
+    private function sourceSelection(DOMElement $group, array $choices): array
+    {
+        $selected = array();
+        foreach ( $choices as $position => $choice ) {
+            // The capture binds the nth choice to the nth control of its tag and role.
+            $nodes = array();
+            foreach ( '' === ($choice['tag'] ?? '') ? array() : $group->getElementsByTagName((string) $choice['tag']) as $node ) {
+                if ( $node instanceof DOMElement && strtolower($node->getAttribute('role')) === strtolower((string) ($choice['role'] ?? '')) ) {
+                    $nodes[] = $node;
+                }
+            }
+            $node = $nodes[$choice['index']] ?? null;
+            $selected[$position] = null;
+            foreach ( array('aria-pressed', 'aria-checked', 'aria-selected') as $attribute ) {
+                if ( $node instanceof DOMElement && $node->hasAttribute($attribute) ) {
+                    $selected[$position] = 'true' === strtolower(trim($node->getAttribute($attribute)));
+                    break;
+                }
+            }
+        }
+        $chosen = array_keys($selected, true, true);
+
+        return array(
+            'selected_index' => 1 === count($chosen) ? $chosen[0] : null,
+            'selected' => $selected,
+        );
     }
 }
