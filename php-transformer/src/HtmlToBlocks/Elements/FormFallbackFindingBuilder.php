@@ -121,6 +121,15 @@ final class FormFallbackFindingBuilder
     private function identifyChoiceGroups(array $blocks, array $groups): array
     {
         foreach ($blocks as &$block) {
+            if (isset($block['_form_field_box'])) {
+                // The field's box encloses the control: a substituted field keeps it.
+                $shell = $block['_form_field_box'];
+                unset($block['_form_field_box']);
+                $shell['innerBlocks'] = array($block);
+                $shell['innerContent'] = array($shell['innerContent'][0] ?? '', null, $shell['innerContent'][1] ?? '');
+                $block = $shell;
+                continue;
+            }
             foreach ($groups as $index => $group) {
                 if (isset($block['_source_anchor_selector']) && $block['_source_anchor_selector'] === ($this->choiceGroupSelectors[$index] ?? null)) {
                     $block['form_choice_group_index'] = $index;
@@ -129,6 +138,37 @@ final class FormFallbackFindingBuilder
             }
             if (!empty($block['innerBlocks'])) {
                 $block['innerBlocks'] = $this->identifyChoiceGroups($block['innerBlocks'], $groups);
+            }
+            if ('group' === ($block['form_field']['kind'] ?? null)) {
+                // The legend is stated once, as the group's label.
+                foreach ($block['innerBlocks'] ?? array() as $child) {
+                    if (!empty($child['_form_legend'])) {
+                        $block['form_field']['label_attributes'] = array_diff_key($child['attrs'] ?? array(), array('content' => true));
+                    }
+                }
+                // Drop the legend's child slot along with the block, keeping innerContent aligned.
+                $children = array();
+                $content = array();
+                $slot = 0;
+                foreach ($block['innerContent'] ?? array() as $part) {
+                    if (null !== $part) {
+                        $content[] = $part;
+                        continue;
+                    }
+                    $child = $block['innerBlocks'][$slot++] ?? null;
+                    if (is_array($child) && empty($child['_form_legend'])) {
+                        $children[] = $child;
+                        $content[] = null;
+                    }
+                }
+                $block['innerBlocks'] = $children;
+                $block['innerContent'] = $content;
+                // A fieldset framing one captured choice group is that group's node.
+                $indexed = array_keys(array_filter($block['innerBlocks'], static fn (array $child): bool => isset($child['form_choice_group_index'])));
+                if (1 === count($indexed) && ! isset($block['form_choice_group_index'])) {
+                    $block['form_choice_group_index'] = $block['innerBlocks'][$indexed[0]]['form_choice_group_index'];
+                    unset($block['innerBlocks'][$indexed[0]]['form_choice_group_index']);
+                }
             }
         }
         unset($block);

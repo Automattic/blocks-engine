@@ -35,6 +35,12 @@ final class ReadableFormControlBlockConverter
     ) {
     }
 
+    /** A label or legend as inline rich text, links and emphasis kept. */
+    public function labelMarkup(DOMElement $label): string
+    {
+        return $this->authoredBlockConverter->labelMarkup($label);
+    }
+
     /**
      * @param DOMElement|null $label The element the source uses to label this control, when one was resolved.
      * @return array<string, mixed>|null

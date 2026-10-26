@@ -10,7 +10,25 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 
-/** Builds the readable static block representation of a form. */
+/**
+ * Builds the readable static block representation of a form.
+ *
+ * The tree doubles as the provider substitution input (`readable_blocks`).
+ * Each block that stands for a form field carries top-level annotations,
+ * never attrs, which page provenance resolution strips before serialization:
+ *
+ * - `form_control_index`: the control's position in the finding's `controls[]`.
+ * - `form_field`: the field a provider places its field block at. `kind` is
+ *   `control` on a control block, or `group` on the block of a `<fieldset>`.
+ *   `label` is the field's label (a group's legend) as inline rich text,
+ *   links and emphasis kept.
+ * - `_form_field_box`: a control's field box, the label and wrappers holding
+ *   only that control and its label, as an empty layout shell carrying their
+ *   presentation. The finding encloses the control in it, so a provider that
+ *   swaps its field in for the control keeps the field's box.
+ * - `_form_legend`: marks the block a legend lowered to on the page, so the
+ *   finding can state the legend once, as its group's label.
+ */
 final class ReadableFormBlockBuilder
 {
     /** @var array<string, mixed>|null */
@@ -19,11 +37,14 @@ final class ReadableFormBlockBuilder
     /** @var array<string, int> */
     private array $controlIndices = array();
 
+    private ?DOMElement $form = null;
+
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
      * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed>       $layoutShellBlockForElements
+     * @param Closure(list<DOMElement>): array<string, mixed>                                               $fieldBoxShell
      * @param Closure(): list<array<string, mixed>>|null                                                    $stylesheetAssets
      * @param Closure(): string|null                                                                        $formLayoutCss
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): list<array<string, mixed>>|null       $convertFlowContent
@@ -37,6 +58,7 @@ final class ReadableFormBlockBuilder
         private readonly Closure $presentationAttributes,
         private readonly SourceBlockCreator $createBlock,
         private readonly Closure $layoutShellBlockForElements,
+        private readonly Closure $fieldBoxShell,
         private readonly ?Closure $stylesheetAssets = null,
         private readonly ?Closure $formLayoutCss = null,
         private readonly ?Closure $convertFlowContent = null
@@ -63,6 +85,7 @@ final class ReadableFormBlockBuilder
         }
 
         $this->controlIndices = array();
+        $this->form = $form;
         foreach ( FormControlClassifier::controlElements($form) as $index => $control ) {
             $this->controlIndices[(string) $control->getNodePath()] = $index;
             if ( array() !== ($this->eventMetadata)($control) || ! FormControlClassifier::isReadableControl($control) ) {
@@ -141,7 +164,10 @@ final class ReadableFormBlockBuilder
             if ( null === $entry ) {
                 if ('legend' === strtolower($node->tagName)) {
                     $legend = $this->controlBlockConverter->convert($node);
-                    if (null !== $legend) $blocks[] = $legend;
+                    if (null !== $legend) {
+                        $legend['_form_legend'] = true;
+                        $blocks[] = $legend;
+                    }
                 } elseif ( $this->isFlowContent($node) ) {
                     array_push($blocks, ...(($this->convertFlowContent)($node, $fallbacks)));
                 }
@@ -191,7 +217,19 @@ final class ReadableFormBlockBuilder
                 continue;
             }
             if ($isFieldset) {
-                $blocks[] = $this->createBlock->createBlock('core/group', ($this->presentationAttributes)($element), $inner, $element);
+                $group = $this->createBlock->createBlock('core/group', ($this->presentationAttributes)($element), $inner, $element);
+                $legend = null;
+                foreach ($element->childNodes as $child) {
+                    if ($child instanceof DOMElement && 'legend' === strtolower($child->tagName)) {
+                        $legend = $child;
+                        break;
+                    }
+                }
+                $group['form_field'] = array(
+                    'kind' => 'group',
+                    'label' => null !== $legend ? $this->controlBlockConverter->labelMarkup($legend) : '',
+                );
+                $blocks[] = $group;
                 continue;
             }
             // A one-control container can own paint, inherited variables and sizing.
@@ -259,6 +297,57 @@ final class ReadableFormBlockBuilder
         }
 
         $readableControlBlock['form_control_index'] = $this->controlIndices[(string) $control->getNodePath()];
+        $label = $this->metadataBuilder->labelElement($control);
+        $readableControlBlock['form_field'] = array(
+            'kind' => 'control',
+            'label' => null !== $label ? $this->controlBlockConverter->labelMarkup($label) : '',
+        );
+        $box = $this->fieldBox($control, $label);
+        if (array() !== $box) {
+            $readableControlBlock['_form_field_box'] = ($this->fieldBoxShell)($box);
+        }
         return $readableControlBlock;
+    }
+
+    /**
+     * The elements that frame one field, outermost first: each ancestor that
+     * holds only this control and its label. A fieldset groups fields, so it
+     * bounds the box; so does any ancestor holding other content.
+     *
+     * @return list<DOMElement>
+     */
+    private function fieldBox(DOMElement $control, ?DOMElement $label): array
+    {
+        $box = array();
+        $path = $control;
+        for ($node = $control->parentNode; $node instanceof DOMElement && ! $node->isSameNode($this->form); $node = $node->parentNode) {
+            if ('fieldset' === strtolower($node->tagName) || 1 !== count(FormControlClassifier::controlElements($node))) {
+                break;
+            }
+            // A label's own children are its caption; a wrapper's must be the path or the label.
+            foreach (null !== $label && $node->isSameNode($label) ? array() : $node->childNodes as $child) {
+                if ($child instanceof DOMElement
+                    && ! $child->isSameNode($path)
+                    && ! (null !== $label && ($child->isSameNode($label) || $this->contains($child, $label)))
+                ) {
+                    break 2;
+                }
+            }
+            if ($node->hasAttributes()) {
+                array_unshift($box, $node);
+            }
+            $path = $node;
+        }
+        return $box;
+    }
+
+    private function contains(DOMElement $ancestor, DOMElement $node): bool
+    {
+        for ($parent = $node->parentNode; null !== $parent; $parent = $parent->parentNode) {
+            if ($parent->isSameNode($ancestor)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

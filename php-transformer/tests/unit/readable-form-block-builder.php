@@ -109,6 +109,7 @@ $builder = new ReadableFormBlockBuilder(
     $presentationAttributes,
     $createBlock,
     $layoutShellBlockForElements,
+    static fn (array $elements): array => array('blockName' => 'test/layout-shell', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => '', 'innerContent' => array('<div>', '</div>')),
     static fn (): array => array(
         array(
             'path' => 'style.css',
