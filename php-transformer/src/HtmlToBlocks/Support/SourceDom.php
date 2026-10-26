@@ -718,47 +718,6 @@ final class SourceDom
         return null;
     }
 
-    /**
-     * A heading whose only content is one or more images, each bare or the
-     * only content of one link: a logo title such as
-     * `<h3><a href="…"><img alt="Brand" src="…"></a></h3>`.
-     *
-     * Gutenberg's heading RichText holds such an `<img>` as its `core/image`
-     * object format and the `<a>` as its `core/link` format, keeping every
-     * image attribute, so the heading can stay a native, editable block.
-     * Text beside an image, `<picture>`, and lazy placeholder images do not
-     * qualify; they keep the conservative RichText fallback.
-     */
-    public static function isImageOnlyHeading(DOMElement $heading): bool
-    {
-        if ( 1 !== preg_match('/^h[1-6]$/', strtolower($heading->tagName)) ) {
-            return false;
-        }
-
-        $images = 0;
-        foreach ( $heading->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                return false;
-            }
-
-            $image = 'a' === strtolower($child->tagName) ? self::onlyChildElement($child, 'img') : $child;
-            if ( ! $image instanceof DOMElement
-                || ! self::isRichTextImageObject($image)
-                || ! self::hasOnlySafeFallbackAttributes($child)
-                || ! self::hasOnlySafeFallbackAttributes($image) ) {
-                return false;
-            }
-
-            ++$images;
-        }
-
-        return 0 < $images;
-    }
-
     /** A passive inline mark through which an image can use its native route. */
     public static function isInlineImageMark(DOMElement $element): bool
     {
