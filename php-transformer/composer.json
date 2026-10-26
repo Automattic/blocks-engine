@@ -542,6 +542,7 @@
       "php tests/unit/link-wrapped-component-content.php",
       "php tests/unit/decorated-heading-typography.php",
       "php tests/unit/lowered-paragraph-margin.php",
+      "php tests/unit/lowered-link-class.php",
       "php tests/unit/background-padding.php",
       "php tests/unit/artifact-author-stylesheet-projection.php",
       "php tests/unit/fallback-finding-normalizer.php",
