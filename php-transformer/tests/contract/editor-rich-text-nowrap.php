@@ -27,10 +27,16 @@ $assets = array();
 foreach ($plan['assets'] as $asset) {
     if ('css' === ($asset['kind'] ?? null)) $assets[$asset['target_path']] = (string) $asset['content'];
 }
-$frontend = $assets['assets/site.css'] ?? '';
-$editor = $assets['assets/site.editor.css'] ?? '';
-$assert('' !== $frontend && '' !== $editor, 'Both frontend and editor stylesheets must be emitted.');
-$assert(! str_contains($frontend, 'text-wrap-mode'), 'Frontend CSS must not receive the editor wrapping override.');
+// One stylesheet serves both contexts; the override is reachable only
+// through the editor canvas scope.
+$editor = $assets['assets/site.css'] ?? '';
+$assert(! isset($assets['assets/site.editor.css']), 'No editor copy of the stylesheet is emitted.');
+$frontend = '';
+(new CssStylesheetTransformer())->visitStyleRules($editor, static function (string $selector, string $body) use (&$frontend): void {
+    if (! str_contains($selector, 'editor-styles-wrapper')) $frontend .= $selector . '{' . $body . '}';
+});
+$assert('' !== $frontend, 'The stylesheet must be emitted.');
+$assert(! str_contains($frontend, 'text-wrap-mode'), 'Rules outside the editor canvas must not receive the editor wrapping override.');
 $assert(str_contains($frontend, 'white-space:nowrap') && str_contains($frontend, 'white-space:pre!important'), 'Frontend keeps authored whitespace declarations.');
 $assert(str_contains($frontend, 'grid-template-columns:min-content auto repeat(2,min-content)'), 'The fixture retains its intrinsic grid tracks.');
 

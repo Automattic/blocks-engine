@@ -43,8 +43,7 @@ $context = new WP_Block_Editor_Context(array('post' => $GLOBALS['post']));
 wp_scripts();
 $settings = get_block_editor_settings(array(), $context);
 $editorAssets = $settings['__unstableResolvedAssets']['styles'] ?? '';
-// A split stylesheet reaches the editor as its `.editor.css` copy.
-if (!preg_match('~/dark(?:\.editor)?\.css~', $editorAssets) || preg_match('~/(?:light|other)(?:\.editor)?\.css~', $editorAssets)) throw new RuntimeException('Editor iframe stylesheet activation differs from source defaults.');
+if (!preg_match('~/dark\.css~', $editorAssets) || preg_match('~/(?:light|other)\.css~', $editorAssets)) throw new RuntimeException('Editor iframe stylesheet activation differs from source defaults.');
 $editorCss = implode("\n", array_column($settings['styles'] ?? array(), 'css'));
 if (str_contains($editorCss, 'background:white') || str_contains($editorCss, 'background:red')) throw new RuntimeException('Inactive stylesheet leaked into editor defaults.');
 echo wp_json_encode(array('pages' => array_map('get_permalink', $ids), 'theme' => $theme, 'save_reload' => 'passed', 'editor_activation' => 'passed')) . "\n";

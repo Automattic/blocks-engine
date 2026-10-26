@@ -166,9 +166,8 @@ foreach ( array( 'index.html', 'd.html', 'a.html', 'b.html', 'c.html' ) as $sour
         $rows = array_values(array_filter(WordPressSitePlan::documentStylesheets($sliced, $source), static fn (array $row): bool => in_array($row['stylesheet_target'], array( 'both', $context ), true)));
         $sequence = array_column($rows, 'target_path');
         $at = array_search($siteCopy, $sequence, true);
-        if ( false === $at ) $at = array_search(preg_replace('/\.css$/', '.editor.css', $siteCopy), $sequence, true);
         $slice = array() === $own ? null : $own[0]['target_path'];
-        $sliceIn = null === $slice ? null : (in_array($slice, $sequence, true) ? $slice : preg_replace('/\.css$/', '.editor.css', $slice));
+        $sliceIn = $slice;
         $assert(false !== $at && count($own) <= 1 && (null === $sliceIn || ($sequence[$at + 1] ?? null) === $sliceIn), "{$source} enqueues its slice right after the site-wide copy ({$context})", (string) json_encode($sequence));
     }
 }

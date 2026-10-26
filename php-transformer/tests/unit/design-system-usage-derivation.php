@@ -123,7 +123,7 @@ foreach ($sourcePresetPlan['assets'] as $asset) {
     if ('css' !== ($asset['kind'] ?? null)) continue;
     $css = $asset['content'] ?? '';
     $assert(1 !== preg_match('/--wp--preset--[a-zA-Z0-9_-]+\\s*:/', $css), 'carried CSS never declares a generated preset');
-    if (str_contains($css, '.card{') && !str_contains($css, 'editor-styles-wrapper')) $sharedPresetCss .= $css;
+    if (str_contains($css, '.card{')) $sharedPresetCss .= $css;
 }
 $assert(1 === preg_match('/--be--source--preset--color--accent-2:(?:#F6CFF4|var\(--wp--preset--color--[a-z0-9-]+,#F6CFF4\))/', $sharedPresetCss), 'shared capture CSS keeps the source palette in its own namespace, optionally bound to its own token');
 foreach (array('color', 'background-color', 'border-color', 'gradient-background', 'font-size', 'font-family') as $suffix) {

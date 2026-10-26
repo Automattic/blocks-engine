@@ -12,7 +12,7 @@ assert.equal(palette.find(entry => entry.slug === 'accent-2').color, '#ffffff');
 // is load-order-sensitive: both source :root declarations and !important
 // preset utility classes must stay source-owned.
 const globalStyles = palette.map(({ slug, color }) => `:root{--wp--preset--color--${slug}:${color}}.has-${slug}-background-color{background-color:var(--wp--preset--color--${slug})!important}`).join('');
-const css = plan.assets.filter(asset => asset.kind === 'css' && !asset.content.includes('editor-styles-wrapper')).map(asset => asset.content).join('\n');
+const css = plan.assets.filter(asset => asset.kind === 'css' && asset.stylesheet_target !== 'editor').map(asset => asset.content).join('\n');
 assert.equal(plan.pages.length, 2);
 const browser = await chromium.launch({ headless: true });
 try {
