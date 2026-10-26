@@ -13,12 +13,18 @@ try {
             const glyph = [...anchor.querySelectorAll('p,span')].find(e => e.textContent.trim() === '>');
             const style = getComputedStyle(glyph);
             const rect = glyph.getBoundingClientRect();
-            return { position: style.position, left: style.left, top: style.top, transform: style.transform, x: rect.x, y: rect.y };
+            const real = getComputedStyle([...anchor.querySelectorAll('span')].find(e => e.textContent.trim() === 'My work'));
+            return { position: style.position, left: style.left, top: style.top, transform: style.transform, fontSize: style.fontSize, fontWeight: style.fontWeight, realFontSize: real.fontSize, realFontWeight: real.fontWeight, x: rect.x, y: rect.y };
         });
         assert.equal(measurement.position, 'absolute');
         assert.equal(measurement.left, '47px');
         assert.equal(measurement.top, '40px');
         assert.equal(measurement.transform, 'matrix(0, 1, -1, 0, 0, 0)');
+        // #3474: the chevron keeps the anchor's font; only real spans get `a span`.
+        assert.equal(measurement.fontSize, '18px');
+        assert.equal(measurement.fontWeight, '700');
+        assert.equal(measurement.realFontSize, '10px');
+        assert.equal(measurement.realFontWeight, '400');
         console.log(name, JSON.stringify(measurement));
     }
 } finally {

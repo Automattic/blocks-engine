@@ -2749,7 +2749,9 @@ final class AuthorStylesheetProjector
                 // author rule (or an arm retained for unprojected subjects)
                 // must not acquire that engine-owned wrapper as a new match.
                 // Keep real source spans addressable, without adding weight.
-                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'span:not(:where(.wp-block-navigation-item__label))' );
+                // A span carrier for another source tag (a lowered `<p>`)
+                // matches only that tag's rules, never those for real spans.
+                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'span:not(:where(.wp-block-navigation-item__label,' . EngineMarker::foreignSubjectCarrier('span') . '))' );
             } elseif ( 'code' === strtolower((string) $typeSpan['name']) ) {
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'code:not(.' . $context->authorStyles->classSpecificityShim() . ')' );
             }

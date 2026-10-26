@@ -11,7 +11,8 @@ use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 $source = <<<'HTML'
 <style>
 .menu .nav>li{position:relative;float:left}
-.menu .nav>li>a span{display:block;font-size:10px}
+.menu .nav>li>a{font:bold 18px sans-serif}
+.menu .nav>li>a span{display:block;font-size:10px;font-weight:400}
 .menu .nav>li>a p{position:absolute;left:47px;top:40px;transform:rotate(90deg);margin:0}
 </style>
 <header><div class="menu"><ul class="nav">
@@ -40,6 +41,22 @@ foreach (array('p', 'div', 'section', 'blockquote') as $tag) {
         $values = $cascade->resolve($span, array('position', 'left', 'top', 'transform'), array());
         if (array('position' => 'absolute', 'left' => '47px', 'top' => '40px', 'transform' => 'rotate(90deg)') != $values || !str_contains($css, $marker[0])) {
             throw new RuntimeException($tag . ': carrier lost projected author CSS: ' . json_encode($values));
+        }
+        // #3474: the carrier stands in for the source tag, so the author's
+        // `a span` rule (which the source chevron never matched) must not
+        // reach it, while a real source span in the same label still does.
+        $typography = array('font-size', 'font-weight');
+        $carrierTypography = array_filter($cascade->resolve($span, $typography, array()));
+        if (array() !== $carrierTypography) {
+            throw new RuntimeException($tag . ': carrier matched the author rule for real spans: ' . json_encode($carrierTypography));
+        }
+        $real = null;
+        foreach ($span->parentNode->childNodes as $sibling) {
+            if ($sibling instanceof DOMElement && 'My work' === trim($sibling->textContent)) $real = $sibling;
+        }
+        $realTypography = null === $real ? array() : $cascade->resolve($real, $typography, array());
+        if (array('font-size' => '10px', 'font-weight' => '400') != $realTypography) {
+            throw new RuntimeException($tag . ': real span lost the author span rule: ' . json_encode($realTypography));
         }
         $found = true;
     }
