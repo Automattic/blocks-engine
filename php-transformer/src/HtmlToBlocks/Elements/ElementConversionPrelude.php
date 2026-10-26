@@ -271,6 +271,10 @@ final class ElementConversionPrelude
         }
 
         foreach ( array( 'disabled', 'form', 'formaction', 'formenctype', 'formmethod', 'formnovalidate', 'formtarget', 'popovertarget', 'popovertargetaction', 'command', 'commandfor', 'aria-controls', 'aria-expanded', 'data-action', 'jsaction', 'onclick', 'onchange', 'onsubmit' ) as $attribute ) {
+            if ( 'true' === $button->getAttribute(CaptureEvidence::INERT_CONTROL)
+                && in_array($attribute, array( 'aria-controls', 'aria-expanded', 'data-action', 'jsaction', 'onclick', 'onchange', 'onsubmit' ), true) ) {
+                continue;
+            }
             if ( $button->hasAttribute($attribute) ) {
                 return true;
             }

@@ -141,6 +141,7 @@ See [Native control state](../native-control-state.md).
 | `data-blocks-engine-capture-choice-group` | attribute | integer | Config key of a choice group; its transitions are in the choice runtime. Stripped from projected markup. |
 | `data-blocks-engine-capture-choice-index` | attribute | integer | Capture-internal option index; stripped from projected choice markup. |
 | `data-blocks-engine-capture-choice-runtime` | attribute (flag) on `<script>` | ignored | The capture's choice-group runtime. Its `configs[key].transitions[index]` is the group's markup after selecting choice `index`. Retired when its body is the recognized runtime (below) and every marked group projects. |
+| `data-blocks-engine-capture-inert-control` | attribute on a control | `true` | Activation had no observable effect during capture. Treat as static markup, not lost behavior; stripped from output. Other values do not establish inertness. |
 | `data-blocks-engine-capture-native-control-state` | attribute | JSON, version 1 | Observed native control state facts. Never reaches output. |
 | `data-blocks-engine-capture-native-control-runtime` | attribute (flag) on `<script>` | ignored | The capture's native control helper. |
 

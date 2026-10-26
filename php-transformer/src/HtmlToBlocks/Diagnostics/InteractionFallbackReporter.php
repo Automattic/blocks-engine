@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -152,6 +153,12 @@ final class InteractionFallbackReporter
 
             if ( $emitted >= self::MAX_INTERACTION_CANDIDATES ) {
                 return;
+            }
+
+            // Capture observed that activation does nothing: static markup is
+            // intentional, not a loss of source behavior.
+            if ( 'true' === $element->getAttribute(CaptureEvidence::INERT_CONTROL) ) {
+                continue;
             }
 
             $signals = $this->interactionSignalEvidence($element);

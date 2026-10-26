@@ -543,6 +543,10 @@ final class FormControlClassifier
         }
 
         foreach ( self::UNSAFE_INLINE_BUTTON_ATTRIBUTES as $attribute ) {
+            if ( 'true' === $button->getAttribute(CaptureEvidence::INERT_CONTROL)
+                && in_array($attribute, array( 'aria-controls', 'aria-expanded', 'data-action', 'jsaction', 'onclick', 'onchange', 'onsubmit' ), true) ) {
+                continue;
+            }
             if ( $button->hasAttribute($attribute) ) {
                 return false;
             }

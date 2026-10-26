@@ -151,6 +151,9 @@ final class CaptureEvidence
 
     // Choice groups and native controls.
 
+    /** `true` when capture observed no effect from activating this control. */
+    public const INERT_CONTROL = 'data-blocks-engine-capture-inert-control';
+
     /** Config key of a choice group the capture's choice runtime replays. */
     public const CHOICE_GROUP = 'data-blocks-engine-capture-choice-group';
     /** Capture-internal option index; stripped from projected choice markup. */
