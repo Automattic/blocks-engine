@@ -46,6 +46,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeB
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DesignUsageCollector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\HostBlockGapEncoder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextInlinePolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedDialogConverter;
@@ -1667,6 +1668,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->commerceReporter->appendProductGridFallbacks($body, $fallbacks, $blocks);
         $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks);
         $this->commerceReporter->appendCartViewFallbacks($body, $fallbacks);
+        // Inserted into a theme the engine does not own, core's flow layout
+        // spaces group children with the host's block gap; encode the
+        // source spacing on the blocks instead.
+        if ( is_string($options['host_block_gap'] ?? null) && '' !== trim($options['host_block_gap']) ) {
+            $blocks = (new HostBlockGapEncoder(
+                $this->styleResolver,
+                $this->blockFactory,
+                fn (int $id): ?DOMElement => $this->transformationProvenance()->sourceElement($id),
+                $this->styleResolver->documentRootFontSize($body) ?? 16.0
+            ))->encode($blocks);
+        }
         // A fallback's readable tree is the content a provider puts on the page
         // in place of the preserved island, so its blocks need the same
         // generated stylesheet as the page's own blocks. Serialized first:
