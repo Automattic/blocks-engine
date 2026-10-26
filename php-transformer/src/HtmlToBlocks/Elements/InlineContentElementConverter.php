@@ -125,7 +125,9 @@ final class InlineContentElementConverter implements ElementConverter
             }
             $content = SourceDom::innerHtml($element);
             if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
-                $declarations = $this->context->richTextInlineVisualDeclarations($element);
+                // The carrier keeps the author's hooks, so a media rule keeps
+                // addressing it; an inline resting value would outrank that rule.
+                $declarations = $this->styleResolver->stripResponsiveClassOwnedDeclarations($element, $this->context->richTextInlineVisualDeclarations($element));
                 if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
                     $declarations['color'] = 'transparent';
                 }
