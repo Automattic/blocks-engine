@@ -137,7 +137,23 @@ final class FormFallbackFindingBuilder
                         $block['form_field']['label_attributes'] = array_diff_key($child['attrs'] ?? array(), array('content' => true));
                     }
                 }
-                $block['innerBlocks'] = array_values(array_filter($block['innerBlocks'] ?? array(), static fn (array $child): bool => empty($child['_form_legend'])));
+                // Drop the legend's child slot along with the block, keeping innerContent aligned.
+                $children = array();
+                $content = array();
+                $slot = 0;
+                foreach ($block['innerContent'] ?? array() as $part) {
+                    if (null !== $part) {
+                        $content[] = $part;
+                        continue;
+                    }
+                    $child = $block['innerBlocks'][$slot++] ?? null;
+                    if (is_array($child) && empty($child['_form_legend'])) {
+                        $children[] = $child;
+                        $content[] = null;
+                    }
+                }
+                $block['innerBlocks'] = $children;
+                $block['innerContent'] = $content;
                 // A fieldset framing one captured choice group is that group's node.
                 $indexed = array_keys(array_filter($block['innerBlocks'], static fn (array $child): bool => isset($child['form_choice_group_index'])));
                 if (1 === count($indexed) && ! isset($block['form_choice_group_index'])) {

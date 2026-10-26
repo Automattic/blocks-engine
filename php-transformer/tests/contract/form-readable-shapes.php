@@ -29,6 +29,7 @@ $fields = [];
 $fieldWalk = static function (array $blocks) use (&$fieldWalk, &$fields, $assert): void {
     foreach ($blocks as $block) {
         if (isset($block['form_field'])) $fields[] = $block;
+        $assert(count($block['innerBlocks'] ?? []) === count(array_filter($block['innerContent'] ?? [], 'is_null')), 'Every finding block keeps one innerContent slot per inner block.');
         if ('group' === ($block['form_field']['kind'] ?? null)) {
             foreach ($block['innerBlocks'] ?? [] as $child) $assert(!str_contains(json_encode($child), '"' . strip_tags($block['form_field']['label']) . '"'), 'A legend is stated once, as its group label.');
         }
