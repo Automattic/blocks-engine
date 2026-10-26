@@ -1667,6 +1667,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->commerceReporter->appendProductGridFallbacks($body, $fallbacks, $blocks);
         $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks);
         $this->commerceReporter->appendCartViewFallbacks($body, $fallbacks);
+        // A fallback's readable tree is the content a provider puts on the page
+        // in place of the preserved island, so its blocks need the same
+        // generated stylesheet as the page's own blocks. Serialized first:
+        // serializing resets the runtime diagnostics of the page serialization.
+        $readableMarkup = '';
+        foreach ($fallbacks as $fallback) {
+            if ( is_array($fallback['readable_blocks'] ?? null) && array() !== $fallback['readable_blocks'] ) {
+                $readableMarkup .= $this->runtime->serializeBlocks(self::withoutDefaultCommentAttributes($fallback['readable_blocks']));
+            }
+        }
         $serializedBlocks = $this->runtime->serializeBlocks(self::withoutDefaultCommentAttributes($blocks));
         $this->finalizeFallbackBindings($fallbacks, $blocks, $serializedBlocks);
         $reusableComponentRecognition = $this->reusableComponents()->report($this->materializedAssets()->assets());
@@ -1680,7 +1690,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $html,
             (string) ($options['static_css'] ?? ''),
             true !== ($options['skip_author_stylesheet_materialization'] ?? false),
-            $serializedBlocks,
+            $serializedBlocks . $readableMarkup,
             $sourceProvenance,
             $authorStylesheetProjections,
             is_string($options['author_layer_order'] ?? null) ? $options['author_layer_order'] : null

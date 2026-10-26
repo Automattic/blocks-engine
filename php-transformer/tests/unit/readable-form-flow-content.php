@@ -51,4 +51,15 @@ foreach (array_slice($groups[1], 0, 2) as $json) {
 }
 $assert(str_contains(json_encode($cardResult['assets'] ?? array(), JSON_UNESCAPED_SLASHES), 'flex-direction:column !important;gap:18px'), 'The form carries its authored column and gap.', $card);
 
+// A form kept as a runtime island ships its readable tree for a provider to
+// put on the page. That tree's generated layout classes need their rules in
+// the page stylesheet, though the page markup holds only the island.
+$islandResult = (new HtmlTransformer())->transform(
+    '<form method="post" style="display:flex;flex-direction:column;gap:22px;padding:28px;border:1px solid #ccc;border-radius:24px"><div style="display:flex;gap:16px"><label style="display:flex;flex-direction:column;gap:6px">Name<input name="n"></label><label style="display:flex;flex-direction:column;gap:6px">Email<input type="email" name="email"></label></div><label style="display:flex;flex-direction:column;gap:6px">Message<textarea name="m"></textarea></label><button type="submit">Send</button></form>'
+)->toArray();
+$islandRoot = (string) ($islandResult['fallbacks'][0]['readable_blocks'][0]['attrs']['className'] ?? '');
+$islandCss = implode("\n", array_column(array_filter($islandResult['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(1 === preg_match('/be-inline-geometry-[0-9a-f]{16}/', $islandRoot, $islandClass), 'The island form readable root carries a generated layout class.', $islandRoot);
+$assert(str_contains($islandCss, '.' . ($islandClass[0] ?? '') . '{display:flex !important;flex-direction:column !important;gap:22px !important}'), 'The readable root layout rule reaches the page stylesheet.', $islandCss);
+
 echo 'Readable form flow content tests: ' . $assertions . ' passed' . PHP_EOL;
