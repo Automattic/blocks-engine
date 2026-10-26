@@ -130,4 +130,12 @@ $form = null;
 $find((new ArtifactCompiler())->compile(['entrypoint'=>'index.html','files'=>['index.html'=>$fieldsetHtml]])->toArray());
 $group = $form['readable_blocks'][0]['innerBlocks'][0] ?? [];
 $assert(0 === ($group['form_choice_group_index'] ?? null) && 'Pick <em>one</em>' === ($group['form_field']['label'] ?? '') && !str_contains(json_encode($group['innerBlocks']), 'form_choice_group_index'), 'Fieldset is the choice group node with its legend as label.');
+// The source shows which choice is selected through each choice's ARIA state.
+$pressedConfig = $config;
+foreach ($pressedConfig['choices'] as &$choice) $choice['tag'] = 'button';
+unset($choice);
+$pressedHtml = str_replace([htmlspecialchars(json_encode($config), ENT_QUOTES), '>One<', '>Two<'], [htmlspecialchars(json_encode($pressedConfig), ENT_QUOTES), ' aria-pressed="false">One<', ' aria-pressed="true">Two<'], $capturedHtml);
+$form = null;
+$find((new ArtifactCompiler())->compile(['entrypoint'=>'index.html','files'=>['index.html'=>$pressedHtml]])->toArray());
+$assert(['selected_index' => 1, 'selected' => [false, true]] === ($form['choice_groups'][0]['observed_transition'] ?? null), 'A choice group records the selection its source shows.');
 echo "Readable form shapes contract passed.\n";
