@@ -2780,7 +2780,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
         if ($hasAuthoredCurrentState) $navigationContext?->recordCurrentNavigationItem($item, $anchor);
-        $subjectMarker = $item->isSameNode($anchor) || null !== $submenuContainer ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
+        // Button submenu labels have their own rendered content subject, just
+        // like ordinary links. Leave the existing linked-submenu path unchanged.
+        $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && 'button' !== strtolower($anchor->tagName)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
             $anchorClassName = (string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class'));
             // The subject renders on every route; the served route's own hooks do not.
