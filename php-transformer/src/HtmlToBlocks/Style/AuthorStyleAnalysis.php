@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
@@ -29,6 +30,9 @@ final class AuthorStyleAnalysis
     private array $sourceIds = array();
     /** @var array<string, true> */
     private array $sourceClasses = array();
+    /** @var array<string, true> Source `class` attribute values. */
+    private array $sourceClassAttributes = array();
+    private ?ClassAttributeSelectorProjection $classAttributeSelectors = null;
     /** @var array<string, list<DOMElement>> */
     private array $selectorMatches = array();
     private ?CssSelectorMatchCache $selectorMatchCache;
@@ -117,6 +121,11 @@ final class AuthorStyleAnalysis
     public function sourceElementIds(): array { return array_keys($this->sourceElementsById); }
     /** @return list<DOMElement> */
     public function sourceElementsById(string $id): array { return $this->sourceElementsById[$id] ?? array(); }
+    /** Author class attribute predicates bound to this document's source class tokens. */
+    public function classAttributeSelectors(): ClassAttributeSelectorProjection
+    {
+        return $this->classAttributeSelectors ??= new ClassAttributeSelectorProjection(array_map('strval', array_keys($this->sourceClassAttributes)));
+    }
     public function specificityShim(): string { return $this->specificityShim; }
     public function classSpecificityShim(): string { return $this->classSpecificityShim; }
     public function idSpecificityShim(): string { return $this->idSpecificityShim; }
@@ -535,6 +544,10 @@ final class AuthorStyleAnalysis
     private function recordSelectorSignals(DOMElement $element): void
     {
         $this->sourceTags[strtolower($element->tagName)] = true;
+        $classAttribute = $element->getAttribute('class');
+        if ( '' !== trim($classAttribute) ) {
+            $this->sourceClassAttributes[$classAttribute] = true;
+        }
         $id = $element->getAttribute('id');
         if ( '' !== $id ) {
             $this->sourceIds[$id] = true;

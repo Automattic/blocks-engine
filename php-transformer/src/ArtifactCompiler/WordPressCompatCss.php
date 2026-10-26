@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -27,6 +28,7 @@ final class WordPressCompatCss
     private ?array $siteMarkerDocuments = null;
     /** @var array<string, string> */
     private array $documentSiteMarkers = array();
+    private ?ClassAttributeSelectorProjection $classAttributeSelectors = null;
 
     /**
      * @param array<int, array<string, mixed>> $files
@@ -39,9 +41,11 @@ final class WordPressCompatCss
         if ( array_key_exists($cacheKey, $this->cssCache) ) {
             return $this->cssCache[$cacheKey];
         }
-        return $this->cssCache[$cacheKey] = EngineMarker::compactDeviceScope($this->navigationCompatCss($authoredCss)
+        // Replayed selectors land on projected blocks, which carry engine class
+        // tokens; authored class substrings must not start matching those.
+        return $this->cssCache[$cacheKey] = EngineMarker::compactDeviceScope($this->classAttributeSelectors()->stylesheet($this->navigationCompatCss($authoredCss)
             . $this->rootStartupClassCompatCss($authoredCss, $scriptContents)
-            . $this->coreRuntimeCompatCss($authoredCss, $files));
+            . $this->coreRuntimeCompatCss($authoredCss, $files)));
     }
 
     /**
@@ -58,7 +62,8 @@ final class WordPressCompatCss
             if (!$importedLayer && !array_filter($ancestors, static fn(string $ancestor): bool => 1 === preg_match('/^@layer\b/i', trim($ancestor)))) return $prelude;
             ['selectors' => $selectors, 'editor' => $editor] = $this->navigationProjectedSelectors($prelude, $body);
             if (array() === $selectors) return $prelude;
-            return array(array('prelude' => rtrim($prelude) . ', ' . implode(', ', $selectors), 'body' => $body), ...$editor);
+            $editor = array_map(fn (array $rule): array => array('prelude' => $this->classAttributeSelectors()->selector((string) $rule['prelude'])) + $rule, $editor);
+            return array(array('prelude' => $this->classAttributeSelectors()->selector(rtrim($prelude) . ', ' . implode(', ', $selectors)), 'body' => $body), ...$editor);
         });
     }
 
@@ -76,12 +81,19 @@ final class WordPressCompatCss
         if ($htmlTexts !== $this->siteMarkerDocuments) {
             $this->siteMarkerDocuments = $htmlTexts;
             $this->documentSiteMarkers = array();
+            $this->classAttributeSelectors = null;
         }
         $this->specificityShims = array(
             $this->siteMarker('specificity', $css, $htmlTexts),
             $this->siteMarker('specificity-class', $css, $htmlTexts),
             $this->siteMarker('specificity-id', $css, $htmlTexts)
         );
+    }
+
+    /** Class attribute predicates bound to the class tokens of every source document. */
+    private function classAttributeSelectors(): ClassAttributeSelectorProjection
+    {
+        return $this->classAttributeSelectors ??= ClassAttributeSelectorProjection::fromHtmlDocuments($this->siteMarkerDocuments ?? array());
     }
 
     /**
