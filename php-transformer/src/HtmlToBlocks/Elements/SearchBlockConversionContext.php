@@ -82,9 +82,11 @@ final class SearchBlockConversionContext
         }
 
         $haystack = strtolower(implode(' ', $signals));
-        // Close/clear controls must not become search submits even when named search-close.
-        return ! preg_match('/(?:^|[^a-z0-9])(?:close|clear)(?:$|[^a-z0-9])/', $haystack)
-            && 1 === preg_match('/(?:^|[^a-z0-9])(?:search|magnifying-glass|magnifier)(?:$|[^a-z0-9])/', $haystack);
+        // Substring match keeps compound names (searchsubmit, btnSearch); close/clear
+        // controls must not become search submits even when named search-close.
+        return ! str_contains($haystack, 'close')
+            && 1 !== preg_match('/(?:^|[^a-z0-9])clear(?:$|[^a-z0-9])/', $haystack)
+            && 1 === preg_match('/search|magnif/', $haystack);
     }
 
     /** @return array<string, mixed> */

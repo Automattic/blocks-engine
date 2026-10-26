@@ -81,7 +81,7 @@ $searchControls = array(
     'clear glyph' => array( '<button><span data-icon="search-clear"></span></button>', false ),
     'close control' => array( '<button aria-label="Close"><i class="fa-search"></i></button>', false ),
     'clear descendant' => array( '<button class="search"><svg><use href="#clear"></use></svg></button>', false ),
-    'unrelated class' => array( '<button><i class="research"></i></button>', false ),
+    'compound control id' => array( '<button type="submit" id="searchsubmit"><svg viewBox="0 0 1 1"><path d="M0 0"/></svg></button>', true ),
     'non-submit glyph' => array( '<button type="button"><i class="fa-search"></i></button>', false ),
     'unrelated descendant' => array( '<button><em class="search"></em></button>', false ),
 );
