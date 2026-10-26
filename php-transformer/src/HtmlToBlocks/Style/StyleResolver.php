@@ -5059,6 +5059,7 @@ final class StyleResolver implements ElementPresentationResolver
             'font-family',
             'font-size',
             'font-style',
+            'font-variant',
             'font-weight',
             'letter-spacing',
             'gap',
@@ -5173,7 +5174,7 @@ final class StyleResolver implements ElementPresentationResolver
     public function cssDeclarations(string $style): array
     {
         $declarations = array();
-        foreach ( $this->verbatimCssDeclarations($style) as $name => $value ) {
+        foreach ( $this->verbatimCssDeclarations($style, true) as $name => $value ) {
             foreach ( $this->physicalBoxDeclarations($name, $value) as $boxName => $boxValue ) {
                 // Importance precedes source order even within one declaration
                 // list. Reducing to a property map must retain that winner.
@@ -5197,11 +5198,12 @@ final class StyleResolver implements ElementPresentationResolver
      * Author-stylesheet projection re-emits authored declaration text, so it
      * must keep the authored property names (`margin-inline`, …) byte-for-byte;
      * only cascade resolution and classification read the expanded physical
-     * sides.
+     * sides. The font expansion option is likewise reserved for cascade readers;
+     * it runs before map reduction to preserve shorthand/longhand source order.
      *
      * @return array<string, string>
      */
-    public function verbatimCssDeclarations(string $style): array
+    public function verbatimCssDeclarations(string $style, bool $expandFont = false): array
     {
         $declarations = array();
         foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
@@ -5222,16 +5224,17 @@ final class StyleResolver implements ElementPresentationResolver
             // background rule. Keep it for the same sanitized carrier path.
             $allowsImageUrl = (str_starts_with($name, '--') || in_array($name, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true)) && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
             if ( '' !== $name && '' !== $value && ( $allowsImageUrl || ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) ) {
-                // Importance precedes source order even within one declaration
-                // list. Reducing to a property map must retain that winner.
-                if (isset($declarations[$name]) && CssValueInspector::isImportant($declarations[$name]) && ! CssValueInspector::isImportant($value)) {
-                    continue;
+                // Expand before reducing to a map: even repeated shorthands must
+                // compete with intervening longhands in authored source order.
+                $entries = $expandFont && 'font' === $name ? CssFontShorthand::expand($value) : array();
+                if (array() === $entries) $entries = array($name => $value);
+                foreach ($entries as $property => $entryValue) {
+                    if (isset($declarations[$property]) && CssValueInspector::isImportant($declarations[$property]) && ! CssValueInspector::isImportant($entryValue)) {
+                        continue;
+                    }
+                    unset($declarations[$property]);
+                    $declarations[$property] = $entryValue;
                 }
-                // Keep the surviving declaration at its final authored position.
-                // Border shorthands and longhands reset one another in source
-                // order, so overwriting a prior key in place is not sufficient.
-                unset($declarations[$name]);
-                $declarations[$name] = $value;
             }
         }
 

@@ -583,6 +583,7 @@
             "php tests/unit/richtext-carrier-responsive-properties.php",
       "php tests/unit/navigation-link-box-carry.php",
       "php tests/unit/navigation-link-line-height.php",
+      "php tests/unit/font-shorthand-resolved-cascade.php",
       "php tests/unit/navigation-nested-anchor-item-reset.php",
       "php tests/unit/navigation-listless-anchor-item-reset.php",
       "php tests/unit/navigation-inert-support-children.php",
