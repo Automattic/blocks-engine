@@ -343,6 +343,23 @@ final class SourceBlockAttributeProjector
         return $className;
     }
 
+    /** Modifiers are shared by native lowering and safe core/html reduction. */
+    public function layoutNeutralButtonSourceBoxClasses(DOMElement $element): string
+    {
+        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($element));
+        $classes = array();
+        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        if ( in_array($display, array( 'inline-block', 'block', 'flex', 'inline-flex' ), true) ) {
+            $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-display-' . $display;
+        }
+        foreach ( array( 'width', 'height' ) as $property ) {
+            if ( '' !== trim((string) ($declarations[$property] ?? '')) ) {
+                $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-' . $property;
+            }
+        }
+        return implode(' ', $classes);
+    }
+
     /** @param array<string, mixed> $attrs @return array<string, mixed> */
     private function projectButtonAttributes(
         string $name,
@@ -362,6 +379,7 @@ final class SourceBlockAttributeProjector
         }
         if ( $participation instanceof LayoutParticipation && $participation->neutralizeButtonWrapper() && 'core/button' === $name ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYOUT_NEUTRAL_BUTTON_CLASS);
+            $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], $this->layoutNeutralButtonSourceBoxClasses($logicalControl), (string) ($context->reducedButtonSourceBoxes[SourceDom::attr($logicalControl, 'id')] ?? ''));
         }
         $nativeButtonTextAlignment = '';
         $hasNativeButtonColor = false;

@@ -668,6 +668,7 @@
       "php tests/unit/standalone-layout-button-wrapper.php",
       "php tests/unit/layout-participation.php",
       "php tests/unit/neutralized-flex-button-row.php",
+      "php tests/unit/layout-neutral-button-source-box.php",
       "php tests/unit/flex-rich-text-boundary-whitespace.php",
       "php tests/unit/positioned-button-translate-projection.php",
       "php tests/unit/positioned-button-shrink-to-fit.php",

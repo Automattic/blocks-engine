@@ -241,9 +241,31 @@ final class EngineSupportCss
             // descendant that still generates a box. See
             // LayoutParticipation::transferredItemDeclarations().
             $neutralButton = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS;
-            $parts[] = ':where(.' . $neutralButton . '){display:contents!important}'
-                . ':where(.' . $neutralButton . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}'
-                . ':where(.' . $neutralButton . '.flex,.' . $neutralButton . '.inline-flex)>.wp-block-button__link{' . LayoutParticipation::transferredFlexContainerDeclarations() . '}';
+            $rules = array(
+                '.' . $neutralButton => LayoutParticipation::transferredItemDeclarations(),
+                '.' . $neutralButton . '.flex,.' . $neutralButton . '.inline-flex' => LayoutParticipation::transferredFlexContainerDeclarations(),
+            );
+            $buttonCss = ':where(.' . $neutralButton . '){display:contents!important}';
+            foreach ( $rules as $selector => $declarations ) {
+                $axisRules = '';
+                foreach ( array( 'width' => 'fit-content', 'height' => 'auto' ) as $property => $default ) {
+                    $modifier = $neutralButton . '-author-' . $property;
+                    if ( ! str_contains($serializedBlocks, $modifier) ) {
+                        continue;
+                    }
+                    $declarations = str_replace($property . ':' . $default . '!important;', '', $declarations);
+                    $axisSelectors = implode(',', array_map(static fn (string $item): string => $item . ':not(.' . $modifier . ')', explode(',', $selector)));
+                    $axisRules .= ':where(' . $axisSelectors . ')>.wp-block-button__link{' . $property . ':' . $default . '!important}';
+                }
+                $buttonCss .= ':where(' . $selector . ')>.wp-block-button__link{' . $declarations . '}' . $axisRules;
+            }
+            foreach ( array( 'inline-block', 'block', 'flex', 'inline-flex' ) as $display ) {
+                $modifier = $neutralButton . '-display-' . $display;
+                if ( str_contains($serializedBlocks, $modifier) ) {
+                    $buttonCss .= ':where(.' . $neutralButton . '.' . $modifier . ')>.wp-block-button__link{display:' . $display . '!important}';
+                }
+            }
+            $parts[] = $buttonCss;
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $parts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
