@@ -39,6 +39,11 @@ final class NativeControlState
     {
         $state = json_decode($control->getAttribute(CaptureEvidence::NATIVE_CONTROL_STATE), true);
         if (!is_array($state) || 1 !== ($state['version'] ?? null)) return null;
+        if (array_key_exists('rendered', $state)) {
+            if (!is_bool($state['rendered'])) return null;
+            // Rendering is classification evidence, not replayed control state.
+            unset($state['rendered']);
+        }
         $tag = strtolower($control->tagName);
         $kind = $state['kind'] ?? null;
         if ('input' === $tag) {

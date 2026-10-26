@@ -157,7 +157,11 @@ final class CaptureEvidence
     public const CHOICE_INDEX = 'data-blocks-engine-capture-choice-index';
     /** Marker on the capture's choice-group runtime `<script>`. */
     public const CHOICE_RUNTIME = 'data-blocks-engine-capture-choice-runtime';
-    /** JSON version-1 native control state facts. */
+    /**
+     * JSON version-1 native control state facts. Optional boolean `rendered`
+     * records observed rendering: false makes the control non-authored;
+     * omission preserves classification from markup alone.
+     */
     public const NATIVE_CONTROL_STATE = 'data-blocks-engine-capture-native-control-state';
     /** Marker on the capture's native control helper `<script>`. */
     public const NATIVE_CONTROL_RUNTIME = 'data-blocks-engine-capture-native-control-runtime';
