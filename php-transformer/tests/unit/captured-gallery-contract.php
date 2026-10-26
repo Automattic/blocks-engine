@@ -55,6 +55,50 @@ $assert(2 === count(array_filter($wrappedTree, static fn(array $block): bool => 
 $assert(!str_contains($wrappedMarkup, '<!-- wp:gallery '), 'Captured directional behavior remains native navigation rather than a static image collection');
 $wrappedCarousels = array_values(array_filter($wrappedTree, static fn(array $block): bool => str_ends_with($block['blockName'] ?? '', '/authored-carousel')));
 $assert('auto!important' === ($wrappedCarousels[0]['attrs']['sourceRootGeometry']['margin-left'] ?? null), 'Captured gallery retains the canonical source margin-priority contract');
+// Dialog and gallery budgets are independent, including at the producer's
+// combined trigger-dialog and initially-open-dialog boundary.
+foreach (array(
+    'mixed capture' => array(7, 2, false),
+    'producer dialog boundary' => array(16, 2, false),
+    'dialog overflow' => array(17, 0, true),
+    'gallery boundary' => array(0, 8, false),
+    'gallery overflow' => array(0, 9, true),
+) as $label => [$dialogCount, $galleryCount, $overLimit]) {
+    $boundedStates = array();
+    $dialogSource = '';
+    for ($index = 0; $index < $dialogCount; ++$index) {
+        $dialogSource .= '<button id="dialog-trigger-' . $index . '">Open</button>';
+        $boundedStates[] = array(
+            'status' => 'captured',
+            'trigger' => array('selector' => '#dialog-trigger-' . $index, 'tag' => 'button', 'label' => 'Open'),
+            'dialog' => array('html' => '<div><p>Dialog content</p></div>', 'htmlBytes' => strlen('<div><p>Dialog content</p></div>'), 'htmlTruncated' => false),
+        );
+        // Exercise both explicit and legacy kindless dialog evidence.
+        if (0 === $index % 2) $boundedStates[$index]['kind'] = 'dialog';
+    }
+    $gallerySource = '';
+    $gallerySection = substr($html, strpos($html, '<section'), strpos($html, '</section>') + strlen('</section>') - strpos($html, '<section'));
+    for ($index = 0; $index < $galleryCount; ++$index) {
+        $gallerySource .= str_replace(array('pictures', '"stage"', '"panel"'), array('pictures-' . $index, '"stage-' . $index . '"', '"panel-' . $index . '"'), $gallerySection);
+        $galleryState = $state;
+        $galleryState['gallery']['inline']['selector'] = '#pictures-' . $index;
+        $boundedStates[] = $galleryState;
+    }
+    $boundedReport = $report;
+    $boundedReport['pages'][0]['states'] = $boundedStates;
+    $bounded = (new CapturedDialogProjector())->project(array(
+        array('path' => 'website/index.html', 'content' => '<html><head>' . $galleryScript . '</head><body>' . $dialogSource . $gallerySource . '</body></html>'),
+        array('path' => 'interaction-states.json', 'content' => json_encode($boundedReport)),
+        array('path' => 'capture-receipt.json', 'content' => json_encode($receipt)),
+    ));
+    $assert($overLimit === in_array('captured_interaction_state_limit_exceeded', array_column($bounded['diagnostics'], 'code'), true), $label . ': only genuinely over-bound pages emit the limit diagnostic');
+    if ($overLimit) continue;
+    $boundedHtml = $bounded['files'][0]['content'];
+    $assert($dialogCount + $galleryCount === $bounded['projected_count'], $label . ': every dialog and verified gallery projects');
+    $assert($galleryCount === substr_count($boundedHtml, 'data-blocks-engine-gallery-selection='), $label . ': every verified gallery retains native selection');
+    $assert(!str_contains($boundedHtml, 'data-blocks-engine-capture-gallery-runtime'), $label . ': gallery runtime is retired');
+}
+
 $report['pages'][0]['states'][0]['gallery']['selection'] = array(0, 1, 2);
 $rows = array(); foreach ($files as $path => $content) $rows[] = array('path' => $path, 'content' => 'interaction-states.json' === $path ? json_encode($report) : $content);
 $invalid = (new CapturedDialogProjector())->project($rows);
@@ -94,4 +138,4 @@ $coexistReport['pages'][0]['states'][0]['status'] = 'observed-incomplete';
 $coexistFiles['interaction-states.json'] = json_encode($coexistReport);
 $partial = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $coexistFiles))->toArray();
 $assert(array() === array_filter($partial['source_reports']['native_runtime_replacements'] ?? array(), static fn(array $proof): bool => 'data-blocks-engine-capture-disclosure-runtime' === $proof['attribute']), 'an incomplete gallery prevents an all-native disclosure retirement claim');
-echo "Captured gallery producer/consumer contract passed (21 assertions)\n";
+echo "Captured gallery producer/consumer contract passed\n";

@@ -19,6 +19,9 @@ final class CapturedDialogProjector
 {
     private const MAX_PAGES = 128;
     private const MAX_STATES_PER_PAGE = 8;
+    // Data Liberation emits at most 8 trigger dialogs plus 8 initially-open dialogs per page.
+    private const MAX_DIALOG_STATES_PER_PAGE = 16;
+    private const MAX_GALLERY_STATES_PER_PAGE = 8;
     private const MAX_DIALOG_BYTES = 65536;
     /** Capture runtime marker => sha256 of its published, trimmed body. */
     private const RECOGNIZED_RUNTIMES = array(
@@ -91,8 +94,11 @@ final class CapturedDialogProjector
                 continue;
             }
             $dialogStates = $this->dialogStates($page['states']);
-            if (count($dialogStates) > self::MAX_STATES_PER_PAGE) {
-                $diagnostics[] = $this->diagnostic('captured_interaction_state_limit_exceeded', 'warning', 'A captured interaction page exceeded the state limit.', array('source_url' => $page['sourceUrl'], 'max_states' => self::MAX_STATES_PER_PAGE));
+            $galleryCount = count(array_filter($dialogStates, static fn (array $state): bool => 'gallery' === ($state['kind'] ?? '')));
+            $dialogCount = count($dialogStates) - $galleryCount;
+            $exceededLimit = $dialogCount > self::MAX_DIALOG_STATES_PER_PAGE ? self::MAX_DIALOG_STATES_PER_PAGE : ($galleryCount > self::MAX_GALLERY_STATES_PER_PAGE ? self::MAX_GALLERY_STATES_PER_PAGE : null);
+            if (null !== $exceededLimit) {
+                $diagnostics[] = $this->diagnostic('captured_interaction_state_limit_exceeded', 'warning', 'A captured interaction page exceeded the state limit.', array('source_url' => $page['sourceUrl'], 'max_states' => $exceededLimit));
                 continue;
             }
             if (array() === $dialogStates) {
