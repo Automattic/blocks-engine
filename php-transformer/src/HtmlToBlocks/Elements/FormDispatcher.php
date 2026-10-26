@@ -19,6 +19,11 @@ final class FormDispatcher
      */
     public function convert(DOMElement $element, array &$fallbacks): ?array
     {
+        $loginBlock = $this->context->loginBlockFromForm($element);
+        if ( null !== $loginBlock ) {
+            return $loginBlock;
+        }
+
         $searchBlock = $this->context->searchBlockFromForm($element);
         if ( null !== $searchBlock ) {
             return $searchBlock;

@@ -34,6 +34,7 @@ final class EmittedCoreBlockContracts
             'core/image' => 'html_transformer_contract',
             'core/list' => 'html_transformer_contract',
             'core/list-item' => 'html_transformer_contract',
+            'core/loginout' => 'html_transformer_contract',
             'core/math' => 'html_transformer_contract',
             'core/media-text' => 'html_transformer_contract',
             'core/navigation' => 'html_transformer_contract',

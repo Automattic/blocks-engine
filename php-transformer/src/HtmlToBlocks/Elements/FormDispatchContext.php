@@ -10,6 +10,7 @@ use DOMElement;
 final class FormDispatchContext
 {
     /**
+     * @param Closure(DOMElement): ?array<string, mixed> $loginBlockFromForm
      * @param Closure(DOMElement): ?array<string, mixed> $searchBlockFromForm
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $nativeGetFormBlock
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array{block: array<string, mixed>, slot: array<string, mixed>} $compose
@@ -21,6 +22,7 @@ final class FormDispatchContext
      * @param Closure(DOMElement): bool $isPseudoForm
      */
     public function __construct(
+        private readonly Closure $loginBlockFromForm,
         private readonly Closure $searchBlockFromForm,
         private readonly Closure $nativeGetFormBlock,
         private readonly Closure $compose,
@@ -31,6 +33,12 @@ final class FormDispatchContext
         private readonly Closure $htmlPreservationBlock,
         private readonly Closure $isPseudoForm
     ) {
+    }
+
+    /** @return array<string, mixed>|null */
+    public function loginBlockFromForm(DOMElement $element): ?array
+    {
+        return ($this->loginBlockFromForm)($element);
     }
 
     /** @return array<string, mixed>|null */
