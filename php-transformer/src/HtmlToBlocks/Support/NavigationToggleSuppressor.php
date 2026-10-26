@@ -1295,6 +1295,80 @@ final class NavigationToggleSuppressor
         return $this->navigationToggleControl($navigation) instanceof DOMElement ? 'mobile' : 'never';
     }
 
+    /**
+     * A jump menu is another presentation of these destinations, not a form.
+     * Require both an exact destination inventory and an authored visibility
+     * swap; similar labels or a nearby select alone are not evidence.
+     */
+    private function alternateNavigationSelect(DOMElement $navigation): ?DOMElement
+    {
+        $scope = $navigation->getElementsByTagName('select')->length > 0 ? $navigation : $navigation->parentNode;
+        if ( ! $scope instanceof DOMElement || in_array(strtolower($scope->tagName), array('body', 'html'), true) ) {
+            return null;
+        }
+        $targets = array();
+        foreach ( $navigation->getElementsByTagName('a') as $anchor ) {
+            if ( $this->isNavigationDestinationAnchor($anchor) ) {
+                $targets[] = trim(SourceDom::attr($anchor, 'href'));
+            }
+        }
+        $targets = array_values(array_unique($targets));
+        sort($targets);
+        if ( count($targets) < 2 ) {
+            return null;
+        }
+        foreach ( $scope->getElementsByTagName('select') as $select ) {
+            if ( $select->hasAttribute('multiple') || $select->hasAttribute('disabled') || $select->hasAttribute('form') ) {
+                continue;
+            }
+            $inForm = false;
+            for ( $parent = $select->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+                $inForm = $inForm || 'form' === strtolower($parent->tagName);
+            }
+            if ( $inForm ) {
+                continue;
+            }
+            $values = array();
+            foreach ( $select->getElementsByTagName('option') as $option ) {
+                $value = trim(SourceDom::attr($option, 'value'));
+                if ( '' !== $value && '#' !== $value ) {
+                    $values[] = $value;
+                }
+            }
+            $values = array_values(array_unique($values));
+            sort($values);
+            if ( $values !== $targets ) {
+                continue;
+            }
+            $boundary = $this->sourceCollapseBreakpoint($navigation, $select);
+            if ( null === $boundary ) {
+                continue;
+            }
+            $display = $this->styleResolver->declaredPresentation($select, 'display');
+            $at = fn (float $width): string => strtolower(CssValueInspector::withoutImportant(trim($display->resolvedValueWhere(
+                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+            ))));
+            $menu = $navigation;
+            if ( SourceDom::elementContains($navigation, $select) ) {
+                foreach ( $navigation->getElementsByTagName('ul') as $list ) {
+                    if ( $list->getElementsByTagName('a')->length === $navigation->getElementsByTagName('a')->length ) {
+                        $menu = $list;
+                        break;
+                    }
+                }
+            }
+            $navDisplay = $this->styleResolver->declaredPresentation($menu, 'display');
+            $navAt = fn (float $width): string => strtolower(CssValueInspector::withoutImportant(trim($navDisplay->resolvedValueWhere(
+                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+            ))));
+            if ( 'none' === $at($boundary + 1) && '' !== $at($boundary) && 'none' !== $at($boundary)
+                && 'none' === $navAt($boundary) && 'none' !== $navAt($boundary + 1) ) {
+                return $select;
+            }
+        }
+        return null;
+    }
+
     /** The captured menu dialog a dropdown row has absorbed, if any. */
     public function capturedMenuFoldForRow(DOMElement $row): ?CapturedMenuDialogFold
     {
@@ -1311,6 +1385,11 @@ final class NavigationToggleSuppressor
         $fold = $this->context->navigationProjection()->foldForRow($navigation);
         if ( $fold instanceof CapturedMenuDialogFold ) {
             return $fold->triggers[0];
+        }
+
+        $alternate = $this->alternateNavigationSelect($navigation);
+        if ( $alternate instanceof DOMElement ) {
+            return $alternate;
         }
 
         $document = $navigation->ownerDocument;
