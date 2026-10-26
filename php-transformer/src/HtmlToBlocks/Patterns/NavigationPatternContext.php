@@ -669,17 +669,24 @@ final class NavigationPatternContext
     /**
      * The display the browser cascade gives the element at the reference
      * viewport: static and applying conditional rules, ranked by specificity
-     * and then source order. A recognition signal only, never projected.
+     * and then source order, optionally falling back to the UA tag default.
+     * A recognition signal only, never projected.
      */
-    public function cascadeDisplay(DOMElement $element): string
+    public function cascadeDisplay(DOMElement $element, bool $includeUaDefault = false): string
     {
         if ( ! $this->styleResolver instanceof StyleResolver
             || 1 !== preg_match('/(?:^|;)\s*display\s*:\s*([^;]+)/i', $this->styleResolver->controlSurfaceResolvedStyle($element), $match)
         ) {
-            return '';
+            return $includeUaDefault ? ($this->styleResolver?->defaultTagDisplay($element) ?? '') : '';
         }
 
         return strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', trim($match[1]))));
+    }
+
+    public function isFloated(DOMElement $element): bool
+    {
+        $float = $this->styleResolver?->referenceViewportAuthorDeclarations($element, array( 'float' ))['float'] ?? 'none';
+        return ! in_array(strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', $float))), array( '', 'none' ), true);
     }
 
     /** Compare the authored display contracts, including breakpoints outside the reference viewport. */
