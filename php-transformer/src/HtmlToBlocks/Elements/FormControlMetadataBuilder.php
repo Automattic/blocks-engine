@@ -400,6 +400,12 @@ final class FormControlMetadataBuilder
             $metadata['label_visible'] = false;
         }
 
+        // A provider that renders its label before every control must restore
+        // a caption the source renders after its control.
+        if ( $labelElement instanceof DOMElement && $this->captionFollowsControl($control, $labelElement) ) {
+            $metadata['label_after_control'] = true;
+        }
+
         // More than one candidate means the text cannot be safely attributed to
         // this control alone; the caller surfaces it as a diagnostic instead of
         // guessing, via this internal marker stripped before publication.
@@ -681,6 +687,41 @@ final class FormControlMetadataBuilder
     }
 
     /** The element that labels this control, by `for`, by wrapping, or by field position. */
+    /**
+     * Whether the label's caption follows the control in document order: a
+     * sibling label after it, or a wrapping label whose first content is it.
+     */
+    private function captionFollowsControl(DOMElement $control, DOMElement $label): bool
+    {
+        for ( $node = $control->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $node->isSameNode($label) ) {
+                return $this->contentStartsWith($label, $control);
+            }
+        }
+        $xpath = new \DOMXPath($control->ownerDocument);
+        return (int) $xpath->evaluate('count(preceding::*)', $label) > (int) $xpath->evaluate('count(preceding::*)', $control);
+    }
+
+    private function contentStartsWith(DOMElement $container, DOMElement $control): bool
+    {
+        foreach ( $container->childNodes as $child ) {
+            if ( $child->isSameNode($control) ) {
+                return true;
+            }
+            if ( $child instanceof DOMElement ) {
+                if ( $this->contentStartsWith($child, $control) ) {
+                    return true;
+                }
+                if ( '' !== trim($child->textContent) ) {
+                    return false;
+                }
+            } elseif ( '' !== trim($child->textContent) ) {
+                return false;
+            }
+        }
+        return false;
+    }
+
     public function labelElement(DOMElement $control): ?DOMElement
     {
         return FormControlLabel::element($control);

@@ -402,7 +402,7 @@ final class StylesheetAnalysisComposer
                 }
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
                     $tagName = strtolower($typeSpan['name']);
-                    if ( in_array($tagName, array('div', 'figure', 'label', 'li', 'mark', 'nav', 'p'), true) ) {
+                    if ( in_array($tagName, array('div', 'figure', 'form', 'label', 'li', 'mark', 'nav', 'p'), true) ) {
                         $sourceTags[$tagName] = true;
                     }
                 }
