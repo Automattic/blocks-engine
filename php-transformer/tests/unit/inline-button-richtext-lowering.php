@@ -26,6 +26,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 
@@ -128,6 +129,38 @@ foreach ( array(
         $assert(str_contains($markup, 'Label'), $label . '-label');
         if ('strong' === $label) $assert(str_contains($markup, '<strong>'), $label . '-formatting');
         if ('adjacent-text' === $label) $assert(str_contains($markup, 'Hi '), $label . '-text');
+    }
+}
+
+// Author styles must be applied by ArtifactCompiler before exercising these
+// neighbouring shapes. Text-only spans intentionally have no icon to materialize.
+$icon = '<svg viewBox="0 0 10 10"><path d="M0 0h10v10z"/></svg>';
+$iconButton = '<button type="button"><span class="w">' . $icon . '</span>N</button>';
+foreach ( array( 'width', 'height', 'line-height' ) as $property ) {
+    $css = '.w{' . $property . ':32px}';
+    foreach ( array(
+        'styled-icon-wrapper' => array( '<div><span class="s">' . $iconButton . '</span></div>', $css, true ),
+        'unstyled-icon-wrapper' => array( '<div><span class="s">' . $iconButton . '</span></div>', '', true ),
+        'paragraph-icon' => array( '<div><p>' . $iconButton . '</p></div>', $css, true ),
+        'link-icon' => array( '<div><span class="s"><a href="/x"><span class="w">' . $icon . '</span>N</a></span></div>', $css, true ),
+        'styled-text-wrapper' => array( '<div><span class="s"><button type="button"><span class="w">X</span>N</button></span></div>', $css, false ),
+        'direct-icon' => array( '<div>' . $iconButton . '</div>', $css, true ),
+    ) as $label => list( $html, $authorCss, $hasIcon ) ) {
+        $compiled = ( new ArtifactCompiler() )->compile(array(
+            'entrypoint' => 'website/index.html',
+            'files' => array( 'website/index.html' => '<html><head><style>' . $authorCss . '</style></head><body>' . $html . '</body></html>' ),
+        ))->toArray();
+        $markup = (string) ($compiled['serialized_blocks'] ?? '');
+        $case = $property . '-' . $label;
+        $assert('success' === ($compiled['status'] ?? ''), $case . '-compiles');
+        $assert(! str_contains($markup, 'wp:html'), $case . '-no-html-fallback', $markup);
+        $assert(str_contains(strip_tags($markup), 'N'), $case . '-label');
+        if ($hasIcon) {
+            $assert(str_contains($markup, '<img ') && str_contains($markup, 'materialized-svg/'), $case . '-svg-image');
+            $assert(! str_contains($markup, '<svg'), $case . '-no-raw-svg');
+        } else {
+            $assert(str_contains(strip_tags($markup), 'X'), $case . '-span-text');
+        }
     }
 }
 
