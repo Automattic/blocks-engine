@@ -42,6 +42,9 @@ final class ReadableFormBlockBuilder
     /** @var array<string, true> Node paths of the labels that name a control. */
     private array $controlLabels = array();
 
+    /** @var array<string, true> Node paths of trap-owned labels and field containers. */
+    private array $honeypotCopy = array();
+
     /** @var array<int, list<DOMElement>> Each control's field box frames the tree has not shelled yet. */
     private array $fieldBoxes = array();
 
@@ -92,6 +95,10 @@ final class ReadableFormBlockBuilder
 
         $this->controlIndices = array();
         $this->controlLabels = array();
+        $this->honeypotCopy = array();
+        foreach ( FormControlClassifier::honeypotCopyElements($form) as $element ) {
+            $this->honeypotCopy[(string) $element->getNodePath()] = true;
+        }
         $this->fieldBoxes = array();
         $this->form = $form;
         foreach ( FormControlClassifier::controlElements($form) as $index => $control ) {
@@ -170,6 +177,12 @@ final class ReadableFormBlockBuilder
         // Labels that name a control are the exception: each rides on it.
         foreach ( $parent->childNodes as $node ) {
             if ( ! $node instanceof DOMElement ) {
+                continue;
+            }
+            // Excluded controls must not come back as ordinary authored flow
+            // content, nor may their labels and private field containers.
+            if ( isset($this->honeypotCopy[(string) $node->getNodePath()])
+                || (FormControlClassifier::isControlElement($node) && FormControlClassifier::isHoneypotControl($node)) ) {
                 continue;
             }
             $entry = $entriesByPath[ (string) $node->getNodePath() ] ?? null;
