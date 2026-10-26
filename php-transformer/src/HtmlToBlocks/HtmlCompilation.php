@@ -5488,7 +5488,60 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
         foreach ($this->richTextAnchors($body) as $anchor) {
+            // Link styles are not a core link-format attribute. Carry their
+            // inheritable visual declarations inside the link, just like
+            // styled spans; decoration and box values stay owned by the link.
+            if ('' !== trim($this->attr($anchor, 'style'))) {
+                $this->projectRichTextLinkOwnedDeclarations($anchor);
+                $this->replaceRichTextStylingHookWithMark($anchor);
+            }
             $anchor->removeAttribute('style');
+        }
+    }
+
+    /**
+     * Only inherited text styling can move from a link onto a descendant
+     * carrier. Text decorations are painted by the decorating box (a
+     * descendant's `text-decoration:none` cannot cancel the link's UA
+     * underline), and box values (border, padding, background, display…)
+     * style the link's own box. Those stay effective on the anchor through a
+     * generated class + stylesheet rule — the same carrier projection used for
+     * generated geometry — and leave the inline style, so the mark carrier
+     * only receives values a descendant can reproduce.
+     */
+    private function projectRichTextLinkOwnedDeclarations(DOMElement $anchor): void
+    {
+        $inline = $this->styleResolver->cssDeclarations($this->attr($anchor, 'style'));
+        $visual = $this->richTextMaterializer->inlineVisualDeclarations($anchor);
+        $owned = array();
+        foreach ($inline as $property => $value) {
+            $property = strtolower((string) $property);
+            $decorates = str_starts_with($property, 'text-decoration') || str_starts_with($property, 'text-underline-');
+            if (!$decorates && (!isset($visual[$property]) || $this->descendantInheritsLinkDeclaration($property))) {
+                continue;
+            }
+            unset($inline[$property]);
+            $value = trim(preg_replace('/!\s*important\s*$/i', '', (string) $value) ?? '');
+            if ('' === $value || preg_match('/[{}<>;]/', $value)) {
+                continue;
+            }
+            // An inline declaration beats every non-important author rule
+            // (including `a:hover`), so the projected rule must too.
+            $owned[] = $property . ':' . $value . '!important';
+        }
+        if (array() === $owned) {
+            return;
+        }
+        $body = '{' . implode(';', $owned) . '}';
+        $className = $this->layoutGeometry()->allocateCarrier('rich-text-link-owned' . "\n" . $body);
+        $this->layoutGeometry()->registerRule($className, 'a.' . $className . $body);
+        $classes = preg_split('/\s+/', trim($this->attr($anchor, 'class'))) ?: array();
+        $classes[] = $className;
+        $anchor->setAttribute('class', implode(' ', array_values(array_unique(array_filter($classes)))));
+        if (array() === $inline) {
+            $anchor->removeAttribute('style');
+        } else {
+            $anchor->setAttribute('style', $this->styleResolver->cssDeclarationString($inline));
         }
     }
 
@@ -5676,9 +5729,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $attributes;
     }
 
+    /** Inherited text styling a descendant carrier reproduces exactly. */
+    private function descendantInheritsLinkDeclaration(string $property): bool
+    {
+        return str_starts_with($property, '--')
+            || str_starts_with($property, 'font-')
+            || in_array($property, array( 'color', '-webkit-text-fill-color', 'letter-spacing', 'line-height', 'text-transform' ), true);
+    }
+
     private function replaceRichTextStylingHookWithMark(DOMElement $element): bool
     {
-        if ( $element->getElementsByTagName('mark')->length > 0 ) {
+        $sourceIsLink = 'a' === strtolower($element->tagName);
+        if ( ! $sourceIsLink && $element->getElementsByTagName('mark')->length > 0 ) {
             return false;
         }
 
@@ -5708,6 +5770,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $declarations = $this->styleResolver->stripResponsiveClassOwnedDeclarations($element, $declarations);
         }
         $existingDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
+        if ( $sourceIsLink ) {
+            // Only authored inline values move inside links. Author link rules
+            // (including hover/media rules) must keep styling the link itself.
+            $declarations = array_intersect_key($existingDeclarations, $declarations);
+            if ( array() === $declarations ) {
+                return false;
+            }
+        }
         $marker = trim((string) ($existingDeclarations['--blocks-engine-richtext-marker'] ?? ''));
         if ( '' === $marker ) {
             $marker = trim($this->attr($element, 'data-blocks-engine-richtext-marker'));
@@ -5733,7 +5803,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $mark = $document->createElement('mark');
-        foreach ( $this->richTextSafeIdentityAttributes($element) as $name => $value ) {
+        foreach ( $sourceIsLink ? array() : $this->richTextSafeIdentityAttributes($element) as $name => $value ) {
             $mark->setAttribute($name, $value);
         }
         $mark->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
@@ -5754,7 +5824,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return true;
         }
 
-        $element->removeAttribute('class');
+        if ( ! $sourceIsLink ) {
+            $element->removeAttribute('class');
+        }
         $element->removeAttribute('style');
         $element->appendChild($mark);
         return true;
