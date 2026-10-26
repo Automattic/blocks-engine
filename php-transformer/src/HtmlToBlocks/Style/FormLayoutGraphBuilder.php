@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
@@ -40,6 +41,7 @@ final class FormLayoutGraphBuilder
     private array $diagnostics = array();
     private bool $truncated = false;
     private array $nodeIds = array();
+    private array $spacers = array();
 
     /**
      * @param list<array<string, mixed>> $stylesheets
@@ -53,6 +55,7 @@ final class FormLayoutGraphBuilder
         $controls = array();
         $relevant = array();
         $this->nodeIds = array();
+        $this->spacers = array();
         foreach ( $this->controls($form) as $index => $control ) {
             $controls[$control->getNodePath()] = $index;
             for ( $node = $control->parentNode; $node instanceof DOMElement && $node !== $form; $node = $node->parentNode ) {
@@ -83,9 +86,6 @@ final class FormLayoutGraphBuilder
         $wrapper = 0;
         // The graph root is outside the topology depth coordinate; its children are depth zero.
         $this->collect($form, null, 0, -1, $controls, $relevant, $entries, $wrapper);
-        if ( null !== $structure ) {
-            $structure = $entries;
-        }
         // Child counts include boxes omitted from the control/copy topology.
         $scope = array_column($entries, 'element');
         foreach ( $entries as $entry ) {
@@ -137,6 +137,40 @@ final class FormLayoutGraphBuilder
         );
         $this->diagnostics = array_merge($this->diagnostics, $customPropertyAnalysis['diagnostics']);
         $this->truncated = $this->truncated || $customPropertyAnalysis['truncated'];
+        // Use the same base-flow decision as the child count. Only direct
+        // siblings of the existing topology can add copy-free layout boxes.
+        $nonRendered = array();
+        foreach ( FormControlClassifier::honeypotCopyElements($form) as $element ) {
+            $nonRendered[$element->getNodePath()] = true;
+        }
+        $labels = array();
+        foreach ( $this->controls($form) as $control ) {
+            $label = FormControlLabel::element($control);
+            if ( null !== $label ) $labels[$label->getNodePath()] = true;
+        }
+        $spacerPresentation = new FormPresentationGraphBuilder(scopeElements: $scope);
+        foreach ( $scope as $element ) {
+            $path = $element->getNodePath();
+            if ( isset($relevant[$path]) || isset($this->spacers[$path]) || isset($controls[$path]) || isset($labels[$path]) || isset($nonRendered[$path]) || $element === $form
+                || ! in_array(strtolower($element->tagName), array( 'span', 'div', 'p' ), true)
+                || 0 !== $element->childElementCount || 1 !== preg_match('/^[\s\x{00a0}]*$/u', $element->textContent)
+                || ! $this->isInFlow($element, $analysis['rules'], $customPropertyAnalysis['rules'], $nonRendered) ) continue;
+            $matched = $this->matched($element, $analysis['rules']);
+            $layout = $this->layout($matched['base'], $element, null, $customPropertyAnalysis['rules']);
+            $display = strtolower(trim($layout['display'] ?? ('span' === strtolower($element->tagName) ? 'inline' : 'block')));
+            if ( ! in_array($display, array( 'block', 'flow-root', 'flex', 'grid', 'inline-block' ), true) ) continue;
+            // An empty box has no line box; require an authored box contribution.
+            if ( '' === $element->textContent ) {
+                $presentation = $spacerPresentation->buildElement($element, $stylesheets, $inlineCss);
+                if ( ! array_intersect(array_keys($presentation['styles']), array( 'height', 'min_height', 'padding', 'padding_top', 'padding_bottom', 'padding_block_start', 'padding_block_end', 'margin', 'margin_top', 'margin_bottom', 'margin_block_start', 'margin_block_end', 'border', 'border_width', 'border_top_width', 'border_bottom_width' )) ) continue;
+            }
+            $this->spacers[$path] = 'spacer-' . count($this->spacers);
+            $relevant[$path] = true;
+        }
+        $entries = array();
+        $wrapper = 0;
+        $this->collect($form, null, 0, -1, $controls, $relevant, $entries, $wrapper);
+        if ( null !== $structure ) $structure = $entries;
         $nodes = array();
         $presentationBuilder = new FormPresentationGraphBuilder(scopeElements: array_column($entries, 'element'));
         $variants = array();
@@ -165,7 +199,7 @@ final class FormLayoutGraphBuilder
             // Copy-only context nodes are always identity-bearing, because form
             // context items join them by selector. Other nodes need own facts;
             // their structural ancestors are restored below.
-            if ( array() === $layout && array() === $conditional && ! str_starts_with($entry['id'], 'context-') ) {
+            if ( array() === $layout && array() === $conditional && ! str_starts_with($entry['id'], 'context-') && 'spacer' !== $entry['kind'] ) {
                 continue;
             }
             $nodes[$entry['id']] = $this->node($entry, $layout, $this->provenance($base, null));
@@ -176,7 +210,7 @@ final class FormLayoutGraphBuilder
                 sort($important, SORT_STRING);
                 $nodes[$entry['id']]['important'] = $important;
             }
-            if ( 'container' === $entry['kind'] && 'form' !== $entry['id'] ) {
+            if ( in_array($entry['kind'], array( 'container', 'spacer' ), true) && 'form' !== $entry['id'] ) {
                 $presentation = $presentationBuilder->buildElement($entry['element'], $stylesheets, $inlineCss);
                 $nodes[$entry['id']]['presentation'] = $presentation;
                 if ( $presentation['truncated'] ) {
@@ -238,10 +272,6 @@ final class FormLayoutGraphBuilder
             }
         }
 
-        $nonRendered = array();
-        foreach ( FormControlClassifier::honeypotCopyElements($form) as $element ) {
-            $nonRendered[$element->getNodePath()] = true;
-        }
         foreach ( $entries as $entry ) {
             if ( isset($nodes[$entry['id']]) && 'container' === $entry['kind'] ) {
                 $nodes[$entry['id']]['in_flow_children'] = $this->inFlowChildren($entry['element'], $analysis['rules'], $customPropertyAnalysis['rules'], $nonRendered);
@@ -268,13 +298,7 @@ final class FormLayoutGraphBuilder
         $count = 0;
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
-                // Reuse the same non-authored trap ownership as form projection.
-                if ( isset($nonRendered[$child->getNodePath()]) || (FormControlClassifier::isControlElement($child) && FormControlClassifier::isNonAuthoredControl($child)) ) continue;
-                $matched = $this->matched($child, $rules);
-                $layout = $this->layout($matched['base'], $child, null, $customPropertyRules);
-                if ( 'none' === strtolower(trim($layout['display'] ?? '')) || in_array(strtolower(trim($layout['position'] ?? '')), array( 'absolute', 'fixed' ), true) ) {
-                    continue;
-                }
+                if ( ! $this->isInFlow($child, $rules, $customPropertyRules, $nonRendered) ) continue;
                 ++$count;
             } elseif ( $child instanceof \DOMText && '' !== trim($child->textContent) ) {
                 ++$count;
@@ -283,10 +307,18 @@ final class FormLayoutGraphBuilder
         return $count;
     }
 
+    private function isInFlow(DOMElement $element, array $rules, array $customPropertyRules, array $nonRendered): bool
+    {
+        if ( isset($nonRendered[$element->getNodePath()]) || (FormControlClassifier::isControlElement($element) && FormControlClassifier::isNonAuthoredControl($element)) ) return false;
+        $matched = $this->matched($element, $rules);
+        $layout = $this->layout($matched['base'], $element, null, $customPropertyRules);
+        return 'none' !== strtolower(trim($layout['display'] ?? '')) && ! in_array(strtolower(trim($layout['position'] ?? '')), array( 'absolute', 'fixed' ), true);
+    }
+
     /** @param array<string, mixed> $entry @param array<string, string> $layout @param list<array<string, mixed>> $provenance */
     private function node(array $entry, array $layout, array $provenance): array
     {
-        return array_filter(array( 'id' => $entry['id'], 'kind' => $entry['kind'], 'parent' => $entry['parent'], 'order' => $entry['order'], 'source' => $this->source($entry['element']), 'layout' => $layout, 'provenance' => $provenance ), static fn (mixed $value): bool => null !== $value);
+        return array_filter(array( 'content' => 'spacer' === $entry['kind'] ? 'whitespace_only' : null, 'id' => $entry['id'], 'kind' => $entry['kind'], 'parent' => $entry['parent'], 'order' => $entry['order'], 'source' => $this->source($entry['element']), 'layout' => $layout, 'provenance' => $provenance ), static fn (mixed $value): bool => null !== $value);
     }
 
     /** @param array<string, mixed> $graph */
@@ -318,14 +350,14 @@ final class FormLayoutGraphBuilder
             if ( is_array($node) && null !== ($node['parent'] ?? null) && ! isset($ids[$node['parent']]) ) {
                 throw new InvalidArgumentException('Form layout graph parents must precede their children.');
             }
-            if ( ! is_array($node) || ! is_string($node['id'] ?? null) || isset($ids[$node['id']]) || ! in_array($node['kind'] ?? null, array( 'container', 'control' ), true) || ! is_int($node['order'] ?? null) || ! is_array($node['source'] ?? null) || ! is_string($node['source']['tag'] ?? null) || ! is_array($node['source']['classes'] ?? null) || ! is_array($node['layout'] ?? null) || ! is_array($node['provenance'] ?? null) || (isset($node['sizing']) && ! is_array($node['sizing'])) ) {
+            if ( ! is_array($node) || ! is_string($node['id'] ?? null) || isset($ids[$node['id']]) || ! in_array($node['kind'] ?? null, $v3 ? array( 'container', 'control', 'spacer' ) : array( 'container', 'control' ), true) || ! is_int($node['order'] ?? null) || ! is_array($node['source'] ?? null) || ! is_string($node['source']['tag'] ?? null) || ! is_array($node['source']['classes'] ?? null) || ! is_array($node['layout'] ?? null) || ! is_array($node['provenance'] ?? null) || (isset($node['sizing']) && ! is_array($node['sizing'])) ) {
                 throw new InvalidArgumentException('Form layout graph node is invalid.');
             }
             $ids[$node['id']] = true;
             if ('generic/computed-layout-graph/v3' === $schema) {
                 if (!is_string($node['source']['selector'] ?? null) || '' === trim($node['source']['selector']) || strlen($node['source']['selector']) > 2048 || count($node['source']['classes']) > 64) throw new InvalidArgumentException('Form source element identity is invalid.');
                 if (isset($node['presentation'])) {
-                    if ('container' !== $node['kind'] || !is_array($node['presentation'])) throw new InvalidArgumentException('Form source element presentation owner is invalid.');
+                    if (!in_array($node['kind'], array('container', 'spacer'), true) || !is_array($node['presentation'])) throw new InvalidArgumentException('Form source element presentation owner is invalid.');
                     FormPresentationGraphBuilder::assertElement($node['presentation']);
                 }
             }
@@ -381,12 +413,13 @@ final class FormLayoutGraphBuilder
     private static function assertNodeIdentity(array $node, int $classLimit, bool $v3): void
     {
         $nodeKeys = array( 'id', 'kind', 'parent', 'order', 'source', 'layout', 'provenance', 'sizing' );
-        if ( $v3 ) array_push($nodeKeys, 'presentation', 'important', 'in_flow_children');
+        if ( $v3 ) array_push($nodeKeys, 'presentation', 'important', 'in_flow_children', 'content');
+        $validContent = 'spacer' === ($node['kind'] ?? null) ? 'whitespace_only' === ($node['content'] ?? null) : ! array_key_exists('content', $node);
         if ( array_key_exists('in_flow_children', $node) && ( 'container' !== ($node['kind'] ?? null) || ! is_int($node['in_flow_children']) || $node['in_flow_children'] < 0 ) ) {
             throw new InvalidArgumentException('Form layout graph in-flow child count is invalid.');
         }
         $id = $node['id'] ?? null;
-        if ( array_diff(array_keys($node), $nodeKeys) || ! is_string($id) || 1 !== preg_match($v3 ? '/^(?:form|wrapper-[0-9]+|control-[0-9]+|context-[0-9]+)$/D' : '/^(?:form|wrapper-[0-9]+|control-[0-9]+)$/D', $id) || (str_starts_with($id, 'context-') && 'container' !== ($node['kind'] ?? null)) || ! is_int($node['order'] ?? null) || $node['order'] < 0 ) {
+        if ( ! $validContent || array_diff(array_keys($node), $nodeKeys) || ! is_string($id) || 1 !== preg_match($v3 ? '/^(?:form|wrapper-[0-9]+|control-[0-9]+|context-[0-9]+|spacer-[0-9]+)$/D' : '/^(?:form|wrapper-[0-9]+|control-[0-9]+)$/D', $id) || (str_starts_with($id, 'spacer-') !== ('spacer' === ($node['kind'] ?? null))) || (str_starts_with($id, 'context-') && 'container' !== ($node['kind'] ?? null)) || ! is_int($node['order'] ?? null) || $node['order'] < 0 ) {
             throw new InvalidArgumentException('Form layout graph node identity is invalid.');
         }
         $source = $node['source'] ?? null;
@@ -456,8 +489,8 @@ final class FormLayoutGraphBuilder
             $this->diagnostics[] = 'node_or_depth_limit';
             return;
         }
-        $id = $root ? 'form' : (isset($controls[$path]) ? 'control-' . $controls[$path] : ($this->nodeIds[$path] ?? (array() === $this->nodeIds ? 'wrapper-' : 'context-') . $wrapper++));
-        $entries[] = array( 'id' => $id, 'kind' => isset($controls[$path]) ? 'control' : 'container', 'parent' => $parent, 'order' => $order, 'element' => $element );
+        $id = $this->spacers[$path] ?? ($root ? 'form' : (isset($controls[$path]) ? 'control-' . $controls[$path] : ($this->nodeIds[$path] ?? (array() === $this->nodeIds ? 'wrapper-' : 'context-') . $wrapper++)));
+        $entries[] = array( 'id' => $id, 'kind' => isset($this->spacers[$path]) ? 'spacer' : (isset($controls[$path]) ? 'control' : 'container'), 'parent' => $parent, 'order' => $order, 'element' => $element );
         $childOrder = 0;
         foreach ( $element->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) {
