@@ -237,6 +237,80 @@ $assert(
 );
 $assert(10 === count($variedResolved) && 1 === count(array_unique(array_map('serialize', $variedResolved))), 'every page resolves the same styles for its own buttons, links and list items', (string) json_encode(array_slice($variedResolved, 0, 3)));
 
+// Context-dependent early rule followed by a long overlapping cascade tail.
+// Different wrappers force identity arms rather than constant subject classes.
+$contextCss = '.btn-group>.btn{z-index:1}';
+for ($i = 0; $i < 160; ++$i) {
+    $contextCss .= '.tail-' . $i . '{z-index:2;color:#123456;margin:0;padding:0}';
+}
+$contextPlan = static function (int $count) use ($contextCss): array {
+    $files = array();
+    for ($i = 0; $i < $count; ++$i) {
+        $html = '<!doctype html><html><head><title>Context ' . $i . '</title><link rel="stylesheet" href="base.css"></head><body><main><div class="btn-group context-' . $i . '"><button class="btn tail-159" type="button">Buy ' . $i . '</button></div></main></body></html>';
+        $files[] = array('path' => chr(97 + $i) . '.html', 'kind' => 'html', 'content' => $html);
+    }
+    $files[] = array('path' => 'base.css', 'kind' => 'css', 'content' => $contextCss);
+    return (new ArtifactCompiler())->compile(array('entrypoint' => 'a.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
+};
+$contextTwo = $contextPlan(2);
+$contextTen = $contextPlan(10);
+$contextTwoAssets = $authoredAssets($contextTwo);
+$contextTenAssets = $authoredAssets($contextTen);
+$contextBytes = strlen(implode('', $contextTenAssets));
+// Baseline measured with folding disabled: 142,268 bytes for ten pages.
+$assert(1 === count($contextTwoAssets) && 1 === count($contextTenAssets), 'context-dependent arms fold without page copies', (string) json_encode(array_keys($contextTenAssets)));
+$assert($contextBytes - strlen(implode('', $contextTwoAssets)) < 6000, 'only per-page arm bytes grow, not the overlapping cascade suffix', (string) $contextBytes);
+$assert((bool) preg_match('/blocks-engine-control-[a-f0-9]{12}-[0-9]+/', implode('', $contextTenAssets)), 'fixture exercises positive identity-marker arms');
+foreach ($contextTen['pages'] as $planPage) {
+    $document = new DOMDocument();
+    @$document->loadHTML(StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($planPage['canonical_block_markup']));
+    $assets = array_column($contextTen['assets'], null, 'target_path');
+    $css = '';
+    foreach (WordPressSitePlan::documentStylesheets($contextTen, $planPage['source_path']) as $sheet) $css .= "\n" . ($assets[$sheet['target_path']]['content'] ?? '');
+    $cascade = new StaticCssCascade($document, $css);
+    foreach ($document->getElementsByTagName('*') as $element) {
+        if (!$element instanceof DOMElement || !str_contains($element->getAttribute('class'), 'wp-block-buttons')) continue;
+        if (!str_starts_with(trim($element->textContent), 'Buy')) continue;
+        $style = $cascade->resolve($element, array('z-index', 'color'), array());
+        $assert('1' === (string) ($style['z-index'] ?? ''), 'folded rule retains the authored context-dependent value on ' . $planPage['source_path'], (string) json_encode($style));
+    }
+}
+echo 'Context fixture author CSS: ' . $contextBytes . " bytes\n";
+
+// Compare the old enqueue cascade with the folded one directly, including
+// every overlapping tail rule. Markers absent from another page are inert.
+$transformer = new Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer();
+$shared = '.group>.btn{z-index:1}';
+for ($i = 0; $i < 160; ++$i) $shared .= '.tail-' . $i . '{z-index:2}';
+$projections = array();
+$markup = array();
+for ($i = 0; $i < 10; ++$i) {
+    $marker = 'blocks-engine-control-' . substr(hash('sha256', (string) $i), 0, 12) . '-0';
+    $projections[$i] = array(str_replace('.group>.btn', '.group>.btn,:where(.' . $marker . ')', $shared));
+    $markup[$i] = '<p class="' . $marker . ' tail-159">Probe</p>';
+}
+$folded = $transformer->foldPositiveMarkerArms(array($shared), $projections, $markup);
+foreach ($projections as $owner => $sheets) {
+    $before = $shared . $transformer->rulesAbsentFrom($sheets, array($shared), true);
+    $after = implode('', $folded['shared']) . $transformer->rulesAbsentFrom($folded['pages'][$owner], $folded['shared'], true);
+    $document = new DOMDocument();
+    @$document->loadHTML($markup[$owner]);
+    $element = $document->getElementsByTagName('p')->item(0);
+    $oldStyle = (new StaticCssCascade($document, $before))->resolve($element, array('z-index'), array());
+    $newStyle = (new StaticCssCascade($document, $after))->resolve($element, array('z-index'), array());
+    $assert($oldStyle === $newStyle && '2' === (string) ($newStyle['z-index'] ?? ''), 'folding preserves the original enqueue cascade on page ' . $owner);
+}
+
+// A reused identity is not proof of a shared match: both pages carry the
+// marker, but only one projected the arm. Keep that page's original delta.
+$marker = 'blocks-engine-control-0123456789ab-0';
+$base = '.btn-group>.btn{z-index:1}.tail{z-index:2}';
+$extra = '.btn-group>.btn,:where(.' . $marker . ')>.wp-block-button__link{z-index:1}.tail{z-index:2}';
+$folded = $transformer->foldPositiveMarkerArms(array($base), array('a' => array($extra), 'b' => array($base)), array('a' => '<div class="' . $marker . '"></div>', 'b' => '<div class="' . $marker . '"></div>'));
+$assert(!str_contains(implode('', $folded['shared']), $marker), 'a marker carried by a non-projecting page is not folded');
+$delta = $transformer->rulesAbsentFrom($folded['pages']['a'], $folded['shared'], true);
+$assert(str_contains($delta, $marker) && str_contains($delta, '.tail{z-index:2}'), 'unsafe arm stays in its cascade-preserving page delta');
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "shared-author-stylesheet scaling FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);
