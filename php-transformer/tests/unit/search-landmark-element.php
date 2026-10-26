@@ -94,6 +94,24 @@ foreach ( $searchControls as $case => [ $control, $expectedSearch ] ) {
     }
 }
 
+// Replaced controls must beat core/theme element defaults with source presentation.
+foreach ( array(
+    'icon font UA padding' => array( '<i class="fa fa-search"></i>', '#hr button .fa-search{color:#ccc}', '1px 2px', '1px 6px' ),
+    'SVG authored padding' => array( '<svg class="search-icon"><path d="M0 0"/></svg>', '#hr svg{color:#ccc} #hr input{padding:3px 4px} #hr button{padding:5px 7px}', '3px 4px', '5px 7px' ),
+    'span inherits button colour' => array( '<span class="icon-magnifier"></span>', '#hr button{color:#ccc}', '1px 2px', '1px 6px' ),
+) as $case => [ $icon, $extraCss, $inputPadding, $buttonPadding ] ) {
+    $result = $transform(
+        '<header><section id="hr"><form id="s" action="/recherche"><input type="text" name="q"><button type="submit">' . $icon . '</button></form></section></header>',
+        '#hr form{display:inline-block;border:1px solid #d8d8d8;background:white} #hr input{width:182px;font-size:16px;border:none;background:white} #hr button[type=submit]{border:none;background:white;line-height:26px}' . $extraCss
+    );
+    $search = $blocksNamed($result, 'core/search')[0] ?? array();
+    $assert(true === ($search['attrs']['buttonUseIcon'] ?? false), "{$case}: native icon search survives");
+    $css = json_encode($result, JSON_UNESCAPED_SLASHES);
+    $assert(str_contains($css, 'color:#ccc!important'), "{$case}: source icon colour reaches the currentColor button");
+    $assert(str_contains($css, '.wp-block-search__input{padding:' . $inputPadding . '!important'), "{$case}: source input padding beats core padding");
+    $assert(str_contains($css, '.wp-block-search__button{padding:' . $buttonPadding . '!important'), "{$case}: source button padding beats theme padding");
+}
+
 // A search landmark wrapping only a toggle button (a search-overlay trigger).
 $toggle = $transform('<main><h1>Catalog</h1><search class="toolbar"><button type="button" aria-label="Search">Search</button></search><p>After</p></main>');
 $assert(array() === $unsupported($toggle), 'a <search> wrapping a button records no unsupported element; got: ' . json_encode(array_column($unsupported($toggle), 'tag')));

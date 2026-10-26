@@ -98,7 +98,64 @@ final class SearchBlockConverter
             $attrs['buttonPosition'] = 'no-button';
         }
 
+        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $this->registerSearchControlPresentation($textInput, $submitControl));
+
         return $this->context->createBlock('core/search', $attrs, array(), $form);
+    }
+
+    /** Bridge replaced source controls through the existing owned search stylesheet. */
+    private function registerSearchControlPresentation(DOMElement $input, ?DOMElement $button): string
+    {
+        $inputCss = $this->sourceControlPadding($input, '1px 2px');
+        $buttonCss = '';
+        if ( $button instanceof DOMElement ) {
+            $buttonCss = $this->sourceControlPadding($button, '1px 6px');
+            if ( $this->isIconOnlySearchControl($button) ) {
+                // Core replaces the source glyph with an SVG using currentColor.
+                // Resolve on the glyph first, then its ancestors (including the
+                // button), so a removed icon-font selector still paints it.
+                $icon = $button;
+                foreach ( $button->getElementsByTagName('*') as $descendant ) {
+                    if ( in_array(strtolower($descendant->tagName), array( 'svg', 'i', 'span' ), true) ) {
+                        $icon = $descendant;
+                        break;
+                    }
+                }
+                for ( $carrier = $icon; $carrier instanceof DOMElement; $carrier = $carrier->parentNode ) {
+                    $declarations = $this->context->presentationDeclarations($carrier);
+                    $color = trim((string) ($declarations['color'] ?? ''));
+                    if ( '' !== $color && ! in_array(strtolower($color), array( 'inherit', 'unset', 'currentcolor' ), true) ) {
+                        $buttonCss .= 'color:' . preg_replace('/\s*!important\s*$/i', '', $color) . '!important;';
+                        break;
+                    }
+                }
+            }
+        }
+        $className = 'blocks-engine-source-search-control-' . substr(hash('sha256', $inputCss . '|' . $buttonCss), 0, 12);
+        $selector = '.wp-block-search.' . $className;
+        $this->context->generatedSupportStyles()->registerNativeSearchTrigger($className,
+            $selector . ' .wp-block-search__input{' . $inputCss . '}'
+            . ('' !== $buttonCss ? $selector . ' .wp-block-search__button{' . $buttonCss . '}' : '')
+        );
+        return $className;
+    }
+
+    private function sourceControlPadding(DOMElement $control, string $uaPadding): string
+    {
+        $declarations = $this->context->presentationDeclarations($control);
+        // A UA baseline is necessary even when only one author longhand is
+        // present: core/theme defaults must not fill the remaining sides.
+        $padding = array( 'padding' => $uaPadding );
+        foreach ( $declarations as $property => $value ) {
+            if ( 'padding' === $property || str_starts_with($property, 'padding-') ) {
+                $padding[$property] = preg_replace('/\s*!important\s*$/i', '', trim($value));
+            }
+        }
+        $css = '';
+        foreach ( $padding as $property => $value ) {
+            $css .= $property . ':' . $value . '!important;';
+        }
+        return $css;
     }
 
     private function hasAdjacentSearchTrigger(DOMElement $form): bool

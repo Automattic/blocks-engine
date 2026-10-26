@@ -5,7 +5,7 @@
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-search-form-conversion.json",
-    "notes": "A single-query GET search form maps losslessly to WordPress content search while retaining its label, placeholder, button text, and presentation class."
+    "notes": "A single-query GET search form maps losslessly to WordPress content search while retaining its label, placeholder, button text, and presentation class. The owned search-control class pins source UA padding instead of core/theme element padding."
   },
   "legacy_comparison": {
     "skip": true,
@@ -16,7 +16,7 @@
     "content": "<form role=\"search\" action=\"/\" method=\"get\" class=\"site-search\"><label for=\"site-search-field\">Find articles</label><input id=\"site-search-field\" type=\"search\" name=\"s\" placeholder=\"Search posts\"><button type=\"submit\">Go</button></form>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/search", "attrs": { "className": "site-search", "label": "Find articles", "showLabel": true, "placeholder": "Search posts", "buttonPosition": "button-outside", "buttonText": "Go" } }
+    { "path": "blocks.0", "name": "core/search", "attrs": { "className": "site-search blocks-engine-source-search-control-04a098e2e60c", "label": "Find articles", "showLabel": true, "placeholder": "Search posts", "buttonPosition": "button-outside", "buttonText": "Go" } }
   ],
   "expected_fallbacks": [],
   "expect": [

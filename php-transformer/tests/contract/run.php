@@ -3688,7 +3688,7 @@ $assert('pass' === ($headerClusterParity['status'] ?? ''), 'header logo/nav/sear
 $assert(str_contains($headerClusterSerialized, 'site-logo'), 'header cluster preserves logo link wrapper');
 $assert(str_contains($headerClusterSerialized, 'nav-link'), 'header cluster preserves nav link class target');
 $assert(str_contains($headerClusterSerialized, '<!-- wp:search'), 'header cluster converts a constrained GET search form to native core/search');
-$assert(str_contains($headerClusterSerialized, '"className":"site-search"'), 'header search conversion preserves the source form class');
+$assert(1 === preg_match('/"className":"site-search[ "]/', $headerClusterSerialized), 'header search conversion preserves the source form class');
 $assert(str_contains($headerClusterSerialized, '"label":"Search"') && str_contains($headerClusterSerialized, '"showLabel":true'), 'header search conversion preserves its visible label');
 $assert(str_contains($headerClusterSerialized, '"placeholder":"Search docs"') && str_contains($headerClusterSerialized, '"buttonText":"Search"'), 'header search conversion preserves placeholder and submit text');
 $assert(! str_contains($headerClusterSerialized, '<form class="site-search"'), 'native search conversion emits no invalid static form payload');
