@@ -453,28 +453,6 @@ PHP;
         unset($template);
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $bindingTemplates, $paginationOwners);
         $pages = $this->pageHierarchy($pages, $routeMap);
-        // Compilation knows source identities; route reconciliation finalizes
-        // them here. Remap the static CSS and the existing root registry together.
-        $routeClasses = array();
-        foreach ($pages as &$page) {
-            if (!empty($page['synthetic'])) continue;
-            $sourceClass = DocumentRootContext::routeClass(self::identity('page', $page['source_path'], $page['source_path']));
-            $routeClass = DocumentRootContext::routeClass($page['reconciliation_identity']);
-            $routeClasses[$sourceClass] = $routeClass;
-            $root = $page['document_metadata']['root_attributes'] ?? array();
-            $root['class'] = trim(str_replace($sourceClass, $routeClass, $root['class'] ?? ''));
-            if (!in_array($routeClass, explode(' ', $root['class']), true)) $root['class'] = trim($root['class'] . ' ' . $routeClass);
-            $page['document_metadata']['root_attributes'] = $root;
-        }
-        unset($page);
-        foreach ($assets as &$asset) {
-            if ('css' !== ($asset['kind'] ?? '') || !is_string($asset['content'] ?? null)) continue;
-            $asset['content'] = strtr($asset['content'], $routeClasses);
-            $asset['bytes'] = strlen($asset['content']);
-            $asset['hash'] = hash('sha256', $asset['content']);
-            $asset['content_hash'] = self::contentHash($asset['content']);
-        }
-        unset($asset);
         $templateOwners = array();
         foreach ($pages as $page) if (empty($page['entrypoint'])) $templateOwners[self::routeTemplateKey($page)][] = $page['source_path'];
         // Colliding terminal slugs get a readable route-qualified template

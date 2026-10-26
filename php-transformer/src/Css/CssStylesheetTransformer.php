@@ -326,22 +326,37 @@ final class CssStylesheetTransformer
      * Reconcile ordered page projections at the source cascade position.
      * Unsupported pages are returned separately for the legacy copy path.
      *
+     * Definition at-rules (`@keyframes`, `@font-face`, …) are inert unless a
+     * declaration references them, so the ones only some routes keep or add
+     * stay site-wide, once each. Two routes that define the same name with
+     * different bodies would see each other's definition, so they fall back.
+     *
      * @param list<string> $shared
      * @param array<string,list<string>> $pages
-     * @param array<string,string> $routeIdentities Reconciliation identities by compilation owner.
+     * @param array<string,string> $routeIdentities Route identities by compilation owner.
      * @return array{stylesheet:string, scoped:list<string>, reasons:array<string,string>}
      */
     public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null): array
     {
         $base = array();
         foreach ($shared as $css) $this->collectRuleUnits($css, array(), $base);
-        $key = static function (array $unit): string {
-            $brace = strpos($unit['text'], '{');
-            return serialize(array($unit['context'], false === $brace || str_starts_with(ltrim($unit['text']), '@') ? trim($unit['text']) : substr($unit['text'], $brace)));
+        $normal = static fn (array $unit): string => trim(CssSyntaxScanner::withoutComments($unit['text']));
+        $key = function (array $unit) use ($normal): string {
+            $rule = self::splitLeadingComments($unit['text'])[1];
+            $brace = $this->nextRuleBoundary($rule, 0);
+            $selector = null !== $brace && '{' === $rule[$brace] && !$this->isAtRule($rule);
+            return serialize(array($unit['context'], $selector ? substr($rule, $brace) : $normal($unit)));
         };
-        $positions = array();
-        foreach ($base as $i => $unit) $positions[$key($unit)][] = $i;
-        $changes = $insertions = $reasons = array();
+        $value = static fn (array $unit): string => serialize(array($unit['context'], $normal($unit)));
+        $positions = $baseDefinitions = $defined = $baseValues = array();
+        foreach ($base as $i => $unit) {
+            $positions[$key($unit)][] = $i;
+            $baseDefinitions[$i] = $this->routeIndependentDefinition($unit);
+            if (null === $baseDefinitions[$i]) continue;
+            $defined[$baseDefinitions[$i]][$value($unit)] = true;
+            $baseValues[$value($unit)] = true;
+        }
+        $changes = $insertions = $siteInsertions = $reasons = array();
         $scoped = array();
         foreach ($pages as $owner => $sheets) {
             $units = array();
@@ -353,21 +368,39 @@ final class CssStylesheetTransformer
             if (null !== $reason) { $reasons[$owner] = $reason; continue; }
             foreach ($sheets as $css) $this->collectRuleUnits($css, array(), $units);
             $cursor = 0;
-            $localChanges = $localInsertions = array();
+            $localChanges = $localInsertions = $localSite = array();
             foreach ($units as $unit) {
                 $match = null;
                 foreach ($positions[$key($unit)] ?? array() as $position) {
                     if ($position >= $cursor) { $match = $position; break; }
                 }
                 if (null === $match) {
-                    $localInsertions[$cursor][] = $unit;
+                    if (null !== $this->routeIndependentDefinition($unit)) $localSite[$cursor][] = $unit;
+                    else $localInsertions[$cursor][] = $unit;
                     continue;
                 }
                 while ($cursor < $match) $localChanges[$cursor++] = null;
-                if (trim($unit['text']) !== trim($base[$match]['text'])) $localChanges[$match] = $unit;
+                if ($normal($unit) !== $normal($base[$match])) $localChanges[$match] = $unit;
                 $cursor = $match + 1;
             }
             while ($cursor < count($base)) $localChanges[$cursor++] = null;
+            // A definition the route drops or adds stays site-wide, unless the
+            // route would then see a different body under the same name.
+            $pageDefined = $defined;
+            $touched = array();
+            foreach ($localChanges as $i => $variant) {
+                if (null === $baseDefinitions[$i]) continue;
+                $touched[$baseDefinitions[$i]] = true;
+                unset($localChanges[$i]);
+            }
+            foreach ($localSite as $list) foreach ($list as $unit) {
+                $name = (string) $this->routeIndependentDefinition($unit);
+                $touched[$name] = true;
+                $pageDefined[$name][$value($unit)] = true;
+            }
+            foreach (array_keys($touched) as $name) {
+                if (count($pageDefined[$name] ?? array()) > 1) { $reason = 'conflicting ' . $name; break; }
+            }
             // Validate every affected selector before committing any route edits.
             foreach ($localChanges as $i => $variant) {
                 foreach (array_filter(array($base[$i], $variant)) as $unit) {
@@ -379,8 +412,14 @@ final class CssStylesheetTransformer
             }
             if (null !== $reason) { $reasons[$owner] = $reason; continue; }
             $scoped[] = (string) $owner;
+            $defined = $pageDefined;
             foreach ($localChanges as $i => $variant) $changes[$i][$owner] = $variant;
             foreach ($localInsertions as $i => $list) $insertions[$i][$owner] = $list;
+            foreach ($localSite as $i => $list) foreach ($list as $unit) {
+                if (isset($baseValues[$value($unit)])) continue;
+                $baseValues[$value($unit)] = true;
+                $siteInsertions[$i][] = $unit;
+            }
         }
         $output = array();
         $routeClass = static fn ($owner): string => \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($routeIdentities[$owner] ?? (string) $owner);
@@ -394,6 +433,7 @@ final class CssStylesheetTransformer
             foreach ($texts as $group) $output[] = $this->scopeRouteUnit($group['unit'], $group['routes'], true);
         };
         for ($i = 0; $i <= count($base); ++$i) {
+            foreach ($siteInsertions[$i] ?? array() as $unit) $output[] = $unit;
             $emitGroups($insertions[$i] ?? array());
             if ($i === count($base)) break;
             $variants = $changes[$i] ?? array();
@@ -403,40 +443,178 @@ final class CssStylesheetTransformer
         return array('stylesheet' => $this->serializeRuleUnits($output), 'scoped' => $scoped, 'reasons' => $reasons);
     }
 
+    /**
+     * The name a route-independent definition at-rule binds, or null for any
+     * other unit. Same-name definitions with different bodies conflict.
+     *
+     * @param array{context:list<string>,text:string,dedupable:bool} $unit
+     */
+    private function routeIndependentDefinition(array $unit): ?string
+    {
+        $rule = trim(CssSyntaxScanner::withoutComments($unit['text']));
+        if (!$this->isAtRule($rule)) return null;
+        $name = self::atRuleName($rule);
+        // A late @charset is ignored; dedupe it by text, never conflict.
+        if ('charset' === $name) return '@charset ' . $rule;
+        $brace = $this->nextRuleBoundary($rule, 0);
+        if (null === $brace || '{' !== $rule[$brace] || !str_ends_with($rule, '}')) return null;
+        $prelude = trim(substr($rule, strlen($name) + 1, $brace - strlen($name) - 1));
+        if (preg_match('/^(?:-[a-z]+-)?keyframes$/', $name)) return '@keyframes ' . trim($prelude, '"\'');
+        if (in_array($name, array('counter-style', 'property', 'font-palette-values'), true)) return '@' . $name . ' ' . $prelude;
+        if ('font-face' !== $name) return null;
+        $descriptors = array();
+        foreach (CssRuleAnalyzer::declarations(substr($rule, $brace + 1, -1), array('font-family', 'font-style', 'font-weight', 'font-stretch', 'unicode-range')) as $declaration) {
+            $descriptors[$declaration['name']] = strtolower(trim($declaration['value'], '"\' '));
+        }
+        ksort($descriptors);
+        return '@font-face ' . json_encode($descriptors);
+    }
+
+    /**
+     * Split a unit into the comments before it and the rule itself.
+     *
+     * @return array{0:string,1:string}
+     */
+    private static function splitLeadingComments(string $text): array
+    {
+        $offset = 0;
+        $length = strlen($text);
+        while (true) {
+            while ($offset < $length && CssSyntaxScanner::isCssWhitespace($text[$offset])) ++$offset;
+            if (!str_starts_with(substr($text, $offset, 2), '/*')) break;
+            $close = strpos($text, '*/', $offset + 2);
+            if (false === $close) break;
+            $offset = $close + 2;
+        }
+        return array(substr($text, 0, $offset), substr($text, $offset));
+    }
+
     /** @param array{context:list<string>,text:string,dedupable:bool} $unit @param list<string> $routes */
     private function scopeRouteUnit(array $unit, array $routes, bool $positive, ?string &$reason = null): array
     {
-        $brace = strpos($unit['text'], '{');
-        if (false === $brace || str_starts_with(ltrim($unit['text']), '@') || !$unit['dedupable']) { $reason = 'non-selector rule cannot be route scoped'; return $unit; }
-        $arms = self::splitSelectorList(trim(substr($unit['text'], 0, $brace)));
+        [$lead, $rule] = self::splitLeadingComments($unit['text']);
+        $brace = $this->nextRuleBoundary($rule, 0);
+        if (null === $brace || '{' !== $rule[$brace] || $this->isAtRule($rule) || !$unit['dedupable']) { $reason = 'non-selector rule cannot be route scoped'; return $unit; }
+        $arms = self::splitSelectorList(trim(CssSyntaxScanner::withoutComments(substr($rule, 0, $brace))));
         if (null === $arms) { $reason = 'unparseable selector list'; return $unit; }
         $scope = ':where(:root:' . ($positive ? 'is' : 'not') . '(' . implode(',', array_map(static fn (string $route): string => '.' . $route, $routes)) . '))';
+        $arms = self::scopeRouteArms($arms, $scope, $reason);
+        if (null === $arms) return $unit;
+        $unit['text'] = $lead . implode(',', $arms) . substr($rule, $brace);
+        return $unit;
+    }
+
+    /**
+     * Restrict each comment-free selector arm to documents whose root matches
+     * $scope, a zero-specificity `:where(:root…)`. The scope prefixes the arm
+     * as an ancestor; arms whose first compound can be the root also keep a
+     * copy with the scope merged into that compound. A first compound that
+     * tests the root inside `:is()`/`:where()` is scoped inside that argument.
+     *
+     * @param list<string> $arms
+     * @return list<string>|null
+     */
+    private static function scopeRouteArms(array $arms, string $scope, ?string &$reason): ?array
+    {
         $rootAlternatives = array();
         foreach ($arms as &$arm) {
             $arm = trim($arm);
             $tokens = CssSelectorTokenizer::tokenize($arm);
-            if (!$tokens['supported'] || str_contains($arm, '&') || str_contains($arm, '|') || str_contains($arm, '/*')) { $reason = 'unparseable or relative selector'; return $unit; }
-            if (preg_match('/::|:(?:before|after|first-line|first-letter)\b/i', $arm)) { $reason = 'pseudo-element selector'; return $unit; }
-            if (!(CssSelectorMatcher::parse($arm)['supported'] ?? false)) { $reason = 'unparseable selector'; return $unit; }
+            $structural = preg_replace('/"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|\[[^\]]*\]/s', '', $arm) ?? $arm;
+            if (!$tokens['supported'] || str_contains($structural, '&') || preg_match('/(?<!\|)\|(?!\|)/', $structural)) { $reason = 'unparseable or relative selector'; return null; }
             $first = $tokens['compounds'][0];
-            if (preg_match('/^(?:html(?=[.#:\[]|$)|:root(?=[.#:\[]|$))/i', $first)) {
-                $end = $tokens['compound_spans'][0]['end'];
-                $arm = substr($arm, 0, $end) . $scope . substr($arm, $end);
-            } else {
-                // Root tests hidden in functional selectors can match html too.
-                if (preg_match('/(?<![\w-])(?:html|:root)\b/i', $first)) { $reason = 'functional root selector'; return $unit; }
-                // Class/universal/attribute arms may themselves match html.
-                // Retain that match as well as descendants without adding weight.
-                if (preg_match('/^[*.#\[:]/', $first)) {
-                    $end = $tokens['compound_spans'][0]['end'];
-                    $rootAlternatives[] = substr($arm, 0, $end) . $scope . substr($arm, $end);
-                }
-                $arm = $scope . ' ' . $arm;
+            $end = $tokens['compound_spans'][0]['end'];
+            // A pseudo-element ends its compound: merge the scope before it.
+            $insert = $end;
+            if (1 === count($tokens['compounds'])) {
+                $pseudoElement = self::pseudoElementOffset($first);
+                if (null !== $pseudoElement) $insert = $pseudoElement;
             }
+            if (preg_match('/^(?:html(?=[.#:\[]|$)|:root(?=[.#:\[]|$))/i', $first)) {
+                $arm = substr($arm, 0, $insert) . $scope . substr($arm, $insert);
+                continue;
+            }
+            $functional = preg_match('/(?<![\w-])(?:html|:root)\b/i', $first) ? self::scopeFunctionalRoot($first, $scope, $reason) : null;
+            if (null !== $reason) return null;
+            if (null !== $functional) {
+                $arm = $functional . substr($arm, $end);
+                continue;
+            }
+            // Class/universal/attribute/pseudo arms may themselves match html.
+            // Retain that match as well as descendants without adding weight.
+            if (preg_match('/^[*.#\[:]/', $first)) {
+                $rootAlternatives[] = substr($arm, 0, $insert) . $scope . substr($arm, $insert);
+            }
+            $arm = $scope . ' ' . $arm;
         }
         unset($arm);
-        $unit['text'] = implode(',', array_merge($arms, $rootAlternatives)) . substr($unit['text'], $brace);
-        return $unit;
+        return array_merge($arms, $rootAlternatives);
+    }
+
+    /**
+     * Scope the first `:is()`/`:where()` argument list in $compound that
+     * tests the root, or null when the root test sits elsewhere (`:not()`,
+     * `:has()`), where an ancestor scope is already exact.
+     */
+    private static function scopeFunctionalRoot(string $compound, string $scope, ?string &$reason): ?string
+    {
+        if (!preg_match_all('/:(?:is|where|matches|-webkit-any|-moz-any)\(/i', $compound, $matches, PREG_OFFSET_CAPTURE)) return null;
+        foreach ($matches[0] as [$open, $offset]) {
+            $start = $offset + strlen($open);
+            if (0 !== self::parenDepth(substr($compound, 0, $offset))) continue;
+            $close = self::closingParen($compound, $start - 1);
+            if (null === $close) continue;
+            $argument = substr($compound, $start, $close - $start);
+            if (!preg_match('/(?<![\w-])(?:html|:root)\b/i', $argument)) continue;
+            $alternatives = self::splitSelectorList($argument);
+            if (null === $alternatives) { $reason = 'unparseable functional root selector'; return null; }
+            $scoped = self::scopeRouteArms($alternatives, $scope, $reason);
+            if (null === $scoped) return null;
+            return substr($compound, 0, $start) . implode(',', $scoped) . substr($compound, $close);
+        }
+        return null;
+    }
+
+    /** Byte offset of a top-level pseudo-element in a compound, if any. */
+    private static function pseudoElementOffset(string $compound): ?int
+    {
+        $state = CssSyntaxScanner::state();
+        $length = strlen($compound);
+        for ($offset = 0; $offset < $length; ) {
+            $topLevel = CssSyntaxScanner::isTopLevel($state);
+            $next = CssSyntaxScanner::consume($compound, $offset, $state);
+            if (null === $next) return null;
+            if ($topLevel && $next === $offset + 1 && ':' === $compound[$offset]) {
+                if (':' === ($compound[$offset + 1] ?? '') || preg_match('/\G:(?:before|after|first-line|first-letter)(?![\w-])/i', $compound, $_, 0, $offset)) return $offset;
+            }
+            $offset = $next;
+        }
+        return null;
+    }
+
+    private static function parenDepth(string $value): int
+    {
+        $state = CssSyntaxScanner::state();
+        $length = strlen($value);
+        for ($offset = 0; $offset < $length; ) {
+            $next = CssSyntaxScanner::consume($value, $offset, $state);
+            if (null === $next) return -1;
+            $offset = $next;
+        }
+        return $state['parens'];
+    }
+
+    private static function closingParen(string $value, int $open): ?int
+    {
+        $state = CssSyntaxScanner::state();
+        $length = strlen($value);
+        for ($offset = $open; $offset < $length; ) {
+            $next = CssSyntaxScanner::consume($value, $offset, $state);
+            if (null === $next) return null;
+            if ($next === $offset + 1 && ')' === $value[$offset] && 0 === $state['parens'] && '' === $state['quote'] && !$state['comment']) return $offset;
+            $offset = $next;
+        }
+        return null;
     }
 
     /**

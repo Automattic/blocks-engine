@@ -331,9 +331,9 @@ $routeText = implode('', $routeAssets);
 $assert(1 === count($routeAssets) && !str_contains(implode('', array_column($routePlan['assets'], 'source_path')), '.page-'), 'constant-arm variants, dropped rules and page-only rules need no copies');
 $classes = array();
 foreach ($routePlan['pages'] as $row) {
-    $class = Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($row['reconciliation_identity']);
+    $class = Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass(WordPressSitePlan::identity('page', $row['source_path'], $row['source_path']));
     $classes[$row['source_path']] = $class;
-    $assert(in_array($class, explode(' ', $row['document_metadata']['root_attributes']['class'] ?? ''), true), 'document root carries its reconciliation route class: ' . $row['source_path']);
+    $assert(in_array($class, explode(' ', $row['document_metadata']['root_attributes']['class'] ?? ''), true), 'document root carries its source route class: ' . $row['source_path']);
     $functions = array_column($routePlan['writes'], null, 'target_path')['functions.php']['payload']['data'];
     $assert(str_contains($functions, $class) && str_contains($functions, 'blocksEngineDocumentContext') && str_contains($functions, 'language_attributes'), 'the same root registry reaches front end and editor: ' . $row['source_path']);
 }
@@ -354,7 +354,7 @@ $assert(str_contains($routeText, ':where(:root:is(.' . $classes['e.html'] . '))'
 
 // Each route is compared with its independent public compilation, including
 // editor wrapper selectors. Apply exactly the root attributes the theme uses.
-$probeStyles = static function (array $plan, array $row, bool $editor): array {
+$probeStyles = static function (array $plan, array $row, bool $editor, array $properties = array('color', 'background-color', 'padding-top', 'border-top-width')): array {
     $assets = array_column($plan['assets'], null, 'target_path');
     $css = '';
     foreach (WordPressSitePlan::documentStylesheets($plan, $row['source_path']) as $sheet) $css .= "\n" . ($assets[$sheet['target_path']]['content'] ?? '');
@@ -369,7 +369,7 @@ $probeStyles = static function (array $plan, array $row, bool $editor): array {
         if ('img' === $element->tagName) {
             $styles[] = $cascade->resolve($element, array('width', 'max-width', 'display'), array());
         } elseif ('Probe' === trim($element->textContent) && in_array($element->tagName, array('p', 'span', 'a', 'button'), true)) {
-            $styles[] = $cascade->resolve($element, array('color', 'background-color', 'padding-top', 'border-top-width'), array());
+            $styles[] = $cascade->resolve($element, $properties, array());
         }
     }
     return $styles;
@@ -398,12 +398,57 @@ $fallbackAssets = $fallback['source_reports']['wordpress_site_plan']['assets'];
 $copies = array_filter($fallbackAssets, static fn (array $asset): bool => str_contains($asset['source_path'], '.page-'));
 $assert(array() !== $copies && array() === array_filter($copies, static fn (array $asset): bool => str_starts_with($asset['source_path'], 'base.page-')), 'fallback is restricted to the unsafe sheet');
 foreach (array(
-    array('.x::before{color:red}', '.y::before{color:red}', 'pseudo-element'),
+    array('@keyframes k{to{opacity:0}}.x{color:red}', '.x{color:red}@keyframes k{to{opacity:1}}', 'conflicting @keyframes k'),
+    array('@font-face{font-family:"F";src:url(a.woff2)}.x{color:red}', '.x{color:red}@font-face{font-family:F;src:url(b.woff2)}', 'conflicting @font-face'),
+    array('.x{color:red}', '@page{margin:0}.x{color:red}', 'non-selector'),
     array('.x{color:red}', '& .x{color:red}', 'relative'),
     array('.x{color:red}', '.x{color:red', 'malformed'),
 ) as [$base, $variant, $reason]) {
     $routed = $transformer->scopeRouteVariants(array($base), array('unsafe' => array($variant)));
     $assert(array() === $routed['scoped'] && str_contains($routed['reasons']['unsafe'] ?? '', $reason), 'unsafe route falls back: ' . $reason);
+}
+
+// Real-site shapes that used to send a whole page x stylesheet pair back to
+// a page copy. Each page's `button` arms are rewritten differently from the
+// span page's, so the feature rides in a route variant or a dropped rule. The
+// button page's extra `!important` override aligns with `.tail`, so that page
+// drops `@keyframes` at its source position and re-adds it after `.tail`.
+$probeProperties = array('color', 'background-color', 'padding-top', 'border-top-width', 'margin-top', 'animation-name');
+foreach (array(
+    'leading comment' => '/*# sourceMappingURL=x.map */ /*! Lib | a & b {} */ button,.sample{padding:7px}/* #global {color:red} */ .sample{margin-top:3px}',
+    'interactive pseudo-classes' => 'button,select:disabled,#lien .content_site:hover .actions,.input-group:not(.has-validation)>.dropdown-toggle:nth-last-child(n+3){border-top-width:4px}',
+    'pseudo-element arm' => 'button,.sample::-webkit-date-and-time-value,::-moz-focus-inner,[list]:not([type=date])::-webkit-calendar-picker-indicator,.sample::before{padding:5px}',
+    'keyframes dropped on one page' => '/*# sourceMappingURL=x.map */@charset "UTF-8";button{padding:7px}@keyframes spinner-border{to{transform:rotate(1turn)}}.tail{padding:7px!important}.sample{animation:spinner-border 1s}',
+    'functional root arm' => ':where(:root .editor-styles-wrapper) button,:where(:root .editor-styles-wrapper) .sample[data-empty="true"],:where(:root) .sample{background-color:#abcdef}',
+) as $label => $variantCss) {
+    $variantSheet = array('path' => 'base.css', 'kind' => 'css', 'content' => $variantCss . '.sample{color:#123456}');
+    $variantFiles = array_slice($routeFiles, 0, 3);
+    $variantResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'a.html', 'files' => array_merge($variantFiles, array($variantSheet))))->toArray();
+    $variantPlan = $variantResult['source_reports']['wordpress_site_plan'];
+    $variantFallbacks = array_values(array_filter($variantResult['diagnostics'], static fn (array $row): bool => 'author_stylesheet_route_scope_fallback' === ($row['code'] ?? '')));
+    $assert(array() === $variantFallbacks, $label . ': every route is scoped in place', json_encode(array_column($variantFallbacks, 'message')));
+    $assert(!str_contains(implode('', array_column($variantPlan['assets'], 'source_path')), '.page-'), $label . ': no page-copy assets');
+    $variantText = implode('', $authoredAssets($variantPlan));
+    $assert(str_contains($variantText, ':where(:root:'), $label . ': the shared sheet carries route scopes', $variantText);
+    foreach ($variantPlan['pages'] as $row) {
+        $file = array_column($variantFiles, null, 'path')[$row['source_path']];
+        $alone = (new ArtifactCompiler())->compile(array('entrypoint' => $file['path'], 'files' => array($file, $variantSheet)))->toArray()['source_reports']['wordpress_site_plan'];
+        foreach (array(false, true) as $editor) {
+            $actual = $probeStyles($variantPlan, $row, $editor, $probeProperties);
+            $expected = $probeStyles($alone, $alone['pages'][0], $editor, $probeProperties);
+            $assert(array() !== $actual && $expected === $actual, $label . ': computed-style parity ' . $row['source_path'] . ($editor ? ' editor' : ' front end'), json_encode(array($expected, $actual)));
+        }
+    }
+    if ('keyframes dropped on one page' === $label) {
+        $assert(1 === substr_count($variantText, '@keyframes spinner-border') && !preg_match('/:root:[^{]*\{[^{}]*@keyframes/', $variantText), $label . ': the definition is emitted once, unscoped', $variantText);
+    }
+    if ('functional root arm' === $label) {
+        $assert(str_contains($variantText, ':where(:root:where(:root:is(') || str_contains($variantText, ':where(:root:where(:root:not('), $label . ': the route class merges into the inner root compound', $variantText);
+    }
+    if ('leading comment' === $label) {
+        $assert(str_contains($variantText, '/*! Lib | a & b {} */'), $label . ': leading comments are kept inert', $variantText);
+    }
+    echo 'Variant fixture (' . $label . ') author CSS: ' . strlen($variantText) . ' bytes in ' . count($authoredAssets($variantPlan)) . " assets\n";
 }
 
 // Identical shared units are one fold match, rewritten at every occurrence.

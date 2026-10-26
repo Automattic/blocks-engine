@@ -24,7 +24,7 @@ final class DocumentRootContext
         return array('root_attributes' => $attributes['html'], 'body_attributes' => $attributes['body']);
     }
 
-    /** Stable document compilation identity, shared by CSS and root reconciliation. */
+    /** Stable per-document route class from the compile-time source identity, used by CSS and the root registry alike. */
     public static function routeClass(string $identity): string
     {
         return 'be-route-' . substr(hash('sha256', $identity), 0, 12);
