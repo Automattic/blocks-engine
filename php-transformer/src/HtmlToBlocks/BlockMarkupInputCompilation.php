@@ -244,7 +244,7 @@ final class BlockMarkupInputCompilation
             return $block;
         }
 
-        $lastIndex = count($innerContent) - 1;
+        $looseRanges = self::looseRanges($name, $innerContent, array() !== $innerBlocks);
         $newContent = array();
         $newBlocks = array();
         $blockIndex = 0;
@@ -263,36 +263,32 @@ final class BlockMarkupInputCompilation
                 continue;
             }
 
-            $range = $this->looseRange($name, $part, 0 === $position, $lastIndex === $position, array() !== $innerBlocks);
-            if ( null === $range ) {
-                $newContent[] = $part;
-                continue;
-            }
+            $cursor = 0;
+            foreach ( $looseRanges[$position] ?? array() as [ $start, $end ] ) {
+                $loose = substr($part, $start, $end - $start);
+                $start += strlen($loose) - strlen(ltrim($loose));
+                $loose = trim($loose);
+                $end = $start + strlen($loose);
 
-            [ $start, $end ] = $range;
-            $loose = substr($part, $start, $end - $start);
-            $start += strlen($loose) - strlen(ltrim($loose));
-            $loose = trim($loose);
-            $end = $start + strlen($loose);
+                $converted = self::hasContent($loose) && self::isBalanced($loose)
+                    ? $this->convertPiece($loose, 'loose HTML inside ' . $name . ' (block ' . $path . ')')
+                    : null;
+                if ( null === $converted ) {
+                    continue;
+                }
 
-            $converted = self::hasContent($loose) && self::isBalanced($loose)
-                ? $this->convertPiece($loose, 'loose HTML inside ' . $name . ' (block ' . $path . ')')
-                : null;
-            if ( null === $converted ) {
-                $newContent[] = $part;
-                continue;
+                $changed = true;
+                $prefix = substr($part, $cursor, $start - $cursor);
+                if ( '' !== $prefix ) {
+                    $newContent[] = $prefix;
+                }
+                foreach ( $converted as $convertedBlock ) {
+                    $newContent[] = null;
+                    $newBlocks[] = $convertedBlock;
+                }
+                $cursor = $end;
             }
-
-            $changed = true;
-            $prefix = substr($part, 0, $start);
-            $suffix = substr($part, $end);
-            if ( '' !== $prefix ) {
-                $newContent[] = $prefix;
-            }
-            foreach ( $converted as $convertedBlock ) {
-                $newContent[] = null;
-                $newBlocks[] = $convertedBlock;
-            }
+            $suffix = substr($part, $cursor);
             if ( '' !== $suffix ) {
                 $newContent[] = $suffix;
             }
@@ -317,80 +313,162 @@ final class BlockMarkupInputCompilation
     }
 
     /**
-     * Byte range of loose HTML inside one innerContent string, or null when the
-     * string belongs entirely to the block's own markup.
+     * Byte ranges of loose HTML in each innerContent string, keyed by position.
      *
-     * @return array{0: int, 1: int}|null
+     * The block's own saved markup is its innerContent strings. Walking them
+     * as one element tree, with the inner blocks at their placeholders, shows
+     * which elements hold inner blocks. An element that holds inner blocks and
+     * contains no other element holding inner blocks is an inner-block area:
+     * markup inside it that is not a block is loose HTML. Every other element
+     * of the saved markup, including the content of wrappers around an inner
+     * block area (a cover's background span and image, for example), belongs
+     * to the block, wherever its inner blocks happen to sit.
+     *
+     * @param array<int, mixed> $innerContent
+     * @return array<int, array<int, array{0: int, 1: int}>>
      */
-    private function looseRange(string $name, string $part, bool $first, bool $last, bool $hasInnerBlocks): ?array
+    private static function looseRanges(string $name, array $innerContent, bool $hasInnerBlocks): array
     {
-        if ( ! self::hasContent($part) ) {
-            return null;
-        }
-
+        $ranges = array();
         if ( ! $hasInnerBlocks ) {
-            return array_key_exists($name, self::EMPTY_WRAPPER_CONTAINERS)
-                ? self::wrapperContentRange($part, self::EMPTY_WRAPPER_CONTAINERS[$name])
-                : null;
+            if ( ! array_key_exists($name, self::EMPTY_WRAPPER_CONTAINERS) ) {
+                return array();
+            }
+            foreach ( $innerContent as $position => $part ) {
+                if ( ! is_string($part) || ! self::hasContent($part) ) {
+                    continue;
+                }
+                $range = self::wrapperContentRange($part, self::EMPTY_WRAPPER_CONTAINERS[$name]);
+                if ( null !== $range ) {
+                    $ranges[$position] = array( $range );
+                }
+            }
+            return $ranges;
         }
 
-        if ( ! $first && ! $last ) {
-            return array( 0, strlen($part) );
+        $areas = self::innerBlockAreas($innerContent);
+        if ( null === $areas ) {
+            return array();
         }
 
-        if ( in_array($name, self::OWN_CONTENT_CONTAINERS, true) ) {
-            return null;
+        $lastIndex = count($innerContent) - 1;
+        $ownContent = in_array($name, self::OWN_CONTENT_CONTAINERS, true);
+        $stack = array( array( 'id' => 'root', 'name' => '' ) );
+        foreach ( $innerContent as $position => $part ) {
+            if ( ! is_string($part) ) {
+                continue;
+            }
+            $partRanges = array();
+            $segmentStart = self::stackHasArea($stack, $areas) ? 0 : null;
+            foreach ( self::tags($part) as $tag ) {
+                if ( 'open' === $tag['kind'] ) {
+                    $id = $position . ':' . $tag['start'];
+                    $stack[] = array( 'id' => $id, 'name' => $tag['name'] );
+                    if ( isset($areas[$id]) ) {
+                        $segmentStart = $tag['end'];
+                    }
+                } elseif ( 'close' === $tag['kind'] ) {
+                    $popped = self::popElements($stack, $tag['name']);
+                    foreach ( $popped ?? array() as $element ) {
+                        if ( isset($areas[$element['id']]) && null !== $segmentStart ) {
+                            $partRanges[] = array( $segmentStart, $tag['start'] );
+                            $segmentStart = null;
+                        }
+                    }
+                }
+            }
+            if ( null !== $segmentStart ) {
+                $partRanges[] = array( $segmentStart, strlen($part) );
+            }
+
+            $partRanges = array_values(array_filter($partRanges, static fn (array $range): bool => self::hasContent(substr($part, $range[0], $range[1] - $range[0]))));
+            if ( array() === $partRanges || ( $ownContent && ( 0 === $position || $lastIndex === $position ) ) ) {
+                continue;
+            }
+            $ranges[$position] = $partRanges;
         }
 
-        if ( $first ) {
-            $start = self::openingWrapperEnd($part);
-            return null === $start ? null : array( $start, strlen($part) );
-        }
-
-        $end = self::closingWrapperStart($part);
-        return null === $end ? null : array( 0, $end );
+        return $ranges;
     }
 
     /**
-     * Offset just after the innermost element the string leaves open: the
-     * wrapper that holds the inner blocks. Anything after it is loose.
+     * Element ids (string position and offset of the opening tag, or "root"
+     * for markup outside every element) of the block's inner-block areas, or
+     * null when the saved markup does not form one balanced element tree.
+     *
+     * @param array<int, mixed> $innerContent
+     * @return array<string, true>|null
      */
-    private static function openingWrapperEnd(string $html): ?int
+    private static function innerBlockAreas(array $innerContent): ?array
     {
-        $stack = array();
-        foreach ( self::tags($html) as $tag ) {
-            if ( 'open' === $tag['kind'] ) {
-                $stack[] = $tag;
-            } elseif ( 'close' === $tag['kind'] ) {
-                if ( ! self::popTo($stack, $tag['name']) ) {
+        $parents = array( 'root' => null );
+        $holders = array();
+        $stack = array( array( 'id' => 'root', 'name' => '' ) );
+        foreach ( $innerContent as $position => $part ) {
+            if ( ! is_string($part) ) {
+                $top = end($stack);
+                $holders[$top['id']] = true;
+                continue;
+            }
+            foreach ( self::tags($part) as $tag ) {
+                if ( 'open' === $tag['kind'] ) {
+                    $id = $position . ':' . $tag['start'];
+                    $parents[$id] = end($stack)['id'];
+                    $stack[] = array( 'id' => $id, 'name' => $tag['name'] );
+                } elseif ( 'close' === $tag['kind'] && null === self::popElements($stack, $tag['name']) ) {
                     return null;
                 }
             }
         }
+        if ( 1 !== count($stack) ) {
+            return null;
+        }
 
-        $innermost = end($stack);
+        $wrappers = array();
+        foreach ( array_keys($holders) as $id ) {
+            $parent = $parents[$id] ?? null;
+            while ( null !== $parent ) {
+                $wrappers[$parent] = true;
+                $parent = $parents[$parent] ?? null;
+            }
+        }
 
-        return false === $innermost ? 0 : $innermost['end'];
+        return array_diff_key($holders, $wrappers);
     }
 
-    /** Offset of the first closing tag the string did not open: the wrapper end. */
-    private static function closingWrapperStart(string $html): ?int
+    /**
+     * @param array<int, array{id: string, name: string}> $stack
+     * @param array<string, true> $areas
+     */
+    private static function stackHasArea(array $stack, array $areas): bool
     {
-        $stack = array();
-        foreach ( self::tags($html) as $tag ) {
-            if ( 'open' === $tag['kind'] ) {
-                $stack[] = $tag;
-            } elseif ( 'close' === $tag['kind'] ) {
-                if ( array() === $stack ) {
-                    return $tag['start'];
-                }
-                if ( ! self::popTo($stack, $tag['name']) ) {
-                    return null;
-                }
+        foreach ( $stack as $element ) {
+            if ( isset($areas[$element['id']]) ) {
+                return true;
             }
         }
 
-        return array() === $stack ? strlen($html) : null;
+        return false;
+    }
+
+    /**
+     * Pop the stack to the innermost open element named $name (never the
+     * root), returning the popped elements, or null when none matches.
+     *
+     * @param array<int, array{id: string, name: string}> $stack
+     * @return array<int, array{id: string, name: string}>|null
+     */
+    private static function popElements(array &$stack, string $name): ?array
+    {
+        for ( $i = count($stack) - 1; $i >= 1; --$i ) {
+            if ( $stack[$i]['name'] === $name ) {
+                $popped = array_slice($stack, $i);
+                $stack = array_slice($stack, 0, $i);
+                return $popped;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -437,19 +515,6 @@ final class BlockMarkupInputCompilation
     private static function hasClass(string $tag, string $class): bool
     {
         return 1 === preg_match('/\sclass\s*=\s*(["\'])(?:[^"\']*\s)?' . preg_quote($class, '/') . '(?:\s[^"\']*)?\1/i', $tag);
-    }
-
-    /** @param array<int, array<string, mixed>> $stack */
-    private static function popTo(array &$stack, string $name): bool
-    {
-        for ( $i = count($stack) - 1; $i >= 0; --$i ) {
-            if ( $stack[$i]['name'] === $name ) {
-                $stack = array_slice($stack, 0, $i);
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /** Every element opened in the fragment closes in it, and nothing else closes. */

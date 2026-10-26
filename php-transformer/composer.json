@@ -251,6 +251,7 @@
     ],
     "test:unit": [
       "php tests/unit/block-markup-input.php",
+      "php tests/unit/cover-own-markup.php",
       "php tests/unit/artifact-inline-body-spacing.php",
       "php tests/unit/responsive-select-navigation.php",
       "php tests/unit/linked-image-whitespace-gap.php",
