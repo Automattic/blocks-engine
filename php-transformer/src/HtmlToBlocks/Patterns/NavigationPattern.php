@@ -275,9 +275,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $this->withResolvedVerticalNavigationOrientation($navigationAttrs, $navigationSource, $navigationContext);
         $navigationAttrs = $this->withNoWrapNavigationRow($navigationAttrs, $navigationSource, $listSource, $navigationContext);
         $navigationAttrs = $this->withCollapsedItemBand($navigationAttrs, $navigationSource, $navigationContext);
-        if ( $splitLandmarkOwnership && $navigationContext?->isOutOfFlow($element) ) {
-            // A positioned rail's semantic source list is a stack. Persist that intent on
-            // core/navigation so responsive artifact assembly cannot discard it.
+        if ( $splitLandmarkOwnership && $navigationContext?->isOutOfFlow($element)
+            && $listSource instanceof DOMElement && ! $this->isResolvedNavigationRow($listSource, $navigationContext) ) {
+            // Persist a positioned rail's stack, but let an authored list row keep
+            // its resolved layout: landmark positioning says nothing about orientation.
             $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
         }
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
@@ -1514,6 +1515,27 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $attrs;
+    }
+
+    /** Whether the source list lays out its items as a horizontal row. */
+    private function isResolvedNavigationRow(DOMElement $list, NavigationPatternContext $navigationContext): bool
+    {
+        if ( in_array($navigationContext->resolvedDisplay($list), array( 'flex', 'inline-flex' ), true) ) {
+            return ! preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $navigationContext->resolvedStyle($list));
+        }
+
+        $items = 0;
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                continue;
+            }
+            if ( ! in_array($navigationContext->resolvedDisplay($child), array( 'inline', 'inline-block' ), true) ) {
+                return false;
+            }
+            ++$items;
+        }
+
+        return 0 < $items;
     }
 
     /** The source column's cross-axis alignment, in core's vertical-flex vocabulary. */
