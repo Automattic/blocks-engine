@@ -45,6 +45,15 @@ $paragraph = $kinds(
 );
 $assert(array( 'added p [blocks-engine-synthetic-paragraph]' => 1 ) === $paragraph['kinds'], 'a paragraph around a bare text run is engine-added', $show($paragraph));
 
+// A classless synthetic wrapper before a source sibling of the same tag: the
+// source paragraph is the rendered source paragraph's counterpart, and the
+// wrapper is added around the link it lowered.
+$sibling = $kinds(
+    '<div class="brand"><a class="logo" href="#">Harbor<span class="accent"> Steps</span></a><p>About us.</p></div>',
+    '<div class="wp-block-group brand"><p class="blocks-engine-synthetic-paragraph"><a class="logo" href="#">Harbor<mark class="accent"> Steps</mark></a></p><p class="blocks-engine-source-p-0123456789ab-0">About us.</p></div>'
+);
+$assert(array( 'added p [blocks-engine-synthetic-paragraph]' => 1, 'retagged span>mark' => 1 ) === $sibling['kinds'] && 4 === $sibling['matched'], 'a classless synthetic wrapper does not take a same-tag source sibling as its counterpart', $show($sibling));
+
 $carrier = $kinds(
     '<div class="eyebrow"><span>Now in beta</span></div>',
     '<div class="wp-block-group eyebrow"><p class="blocks-engine-inline-layout-carrier"><span>Now in beta</span></p></div>'
