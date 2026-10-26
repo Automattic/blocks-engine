@@ -2216,9 +2216,9 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
-            if ( '' !== $this->authorDisplayValue($rule) ) {
-                // An author rule supplies `display` and agrees with the inline
-                // value, so the materialized stylesheet already carries it.
+            if ( empty($rule['conditions']) && '' !== $this->authorDisplayValue($rule) ) {
+                // An unconditional author rule supplies `display` and agrees with
+                // the inline value, so the stylesheet carries it at every viewport.
                 return false;
             }
         }
