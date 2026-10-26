@@ -24,12 +24,18 @@ use DOMElement;
  * source actually has between them: the most common value as the group's
  * blockGap, and `margin.top` on children that differ. Margins core zeroes but
  * the source keeps (a first child's start margin and a last child's end margin
- * inside a padded or bordered box, flex and grid item margins) are written on
- * the child. Source margins are the static author cascade over the user-agent
+ * inside a padded or bordered box) are written on the child. Flex and grid
+ * item margins do not collapse, so each item keeps its own start and end
+ * margins. Source margins are the static author cascade over the user-agent
  * block margins; adjoining block-flow margins collapse, including through a
- * wrapper with no padding or border, while flex and grid item margins do not.
- * Values are px lengths or `0`. A child whose saved markup the block factory
- * cannot reproduce from its attributes is left unchanged.
+ * wrapper with no padding or border.
+ *
+ * Values are px lengths or `0`, except that a margin which is one element's
+ * own `em` margin stays an em length on that element's block when its font
+ * size has no static px value (a fluid `clamp(..vw..)` preset). Collapsed
+ * block-flow margins that are not one such margin stay px. A child whose
+ * saved markup the block factory cannot reproduce from its attributes is
+ * left unchanged.
  */
 final class HostBlockGapEncoder
 {
@@ -43,14 +49,9 @@ final class HostBlockGapEncoder
     /** User-agent heading and small-text sizes, in em of the parent. */
     private const UA_FONT_EM = array( 'h1' => 2.0, 'h2' => 1.5, 'h3' => 1.17, 'h4' => 1.0, 'h5' => 0.83, 'h6' => 0.67, 'small' => 0.833 );
 
-    /** Container layout modes: block flow, items side by side, a flex column. */
-    private const FLOW = 'flow';
-    private const ROW = 'row';
-    private const COLUMN = 'column';
-
     private const RESPONSIVE_MARGIN_TOP_CLASS_PREFIX = 'blocks-engine-responsive-margin-top-';
 
-    /** @var \WeakMap<DOMElement, float>|null */
+    /** @var \WeakMap<DOMElement, array{0: float, 1: bool}>|null Font size in px and whether it is static. */
     private ?\WeakMap $fontSizes = null;
 
     /** @var \WeakMap<DOMElement, array<string, string>>|null */
@@ -108,49 +109,63 @@ final class HostBlockGapEncoder
 
         $groupSource = $this->innermostSource($group);
         $sources = array();
-        $modes = array();
+        $items = array();
         $containers = array();
         foreach ( $children as $i => $child ) {
             $sources[$i] = $this->outermostSource($child);
             $parent = $sources[$i]?->parentNode;
             $containers[$i] = $parent instanceof DOMElement ? $parent : $groupSource;
-            $modes[$i] = $containers[$i] instanceof DOMElement ? $this->layoutMode($containers[$i]) : self::FLOW;
+            $items[$i] = $containers[$i] instanceof DOMElement && $this->laysOutItems($containers[$i]);
         }
 
         $last = count($children) - 1;
         $spacings = array();
+        $relativeTops = array();
         for ( $i = 1; $i <= $last; ++$i ) {
-            $spacings[$i] = $this->sourceSpacing($sources[$i - 1], $sources[$i], $modes[$i]);
+            $item = $items[$i];
+            $spacings[$i] = $this->sourceSpacing($sources[$i - 1], $sources[$i], $item);
+            // A flow start margin is the child's own only when the previous
+            // end margin it collapses with is zero.
+            $relativeTops[$i] = $item || 0.0 === $this->margins($sources[$i - 1], false)[1]
+                ? $this->relativeMargin($sources[$i], 0, $item)
+                : null;
         }
-        $gap = $this->mostCommon(array_values(array_filter($spacings, static fn (?float $value): bool => null !== $value)));
+        $gap = $this->mostCommon(array_values(array_filter(
+            $spacings,
+            static fn (?float $value, int $i): bool => null !== $value && null === $relativeTops[$i],
+            ARRAY_FILTER_USE_BOTH
+        )));
 
         foreach ( $children as $i => $child ) {
+            $item = $items[$i];
             if ( 0 === $i ) {
                 // Core zeroes the first child's start margin. It is the
                 // source's unless the margin collapses through the container.
-                $top = self::FLOW === $modes[0] && $this->collapsesThrough($containers[0], 'top')
-                    ? null
-                    : $this->margins($sources[0], self::FLOW !== $modes[0])[0];
+                $collapses = ! $item && $this->collapsesThrough($containers[0], 'top');
+                $top = $collapses ? null : $this->margins($sources[0], $item)[0];
+                $relativeTop = $collapses ? null : $this->relativeMargin($sources[0], 0, $item);
                 $topDefault = 0.0;
             } else {
                 $top = $spacings[$i];
+                $relativeTop = $relativeTops[$i];
                 $topDefault = $gap;
             }
 
             // Core zeroes every child's end margin. Between flow siblings the
             // source's is part of the next child's start margin.
-            $bottom = null;
-            if ( self::ROW === $modes[$i] ) {
-                $bottom = $this->margins($sources[$i], true)[1];
-            } elseif ( $i === $last && ! ( self::FLOW === $modes[$i] && $this->collapsesThrough($containers[$i], 'bottom') ) ) {
-                $bottom = $this->margins($sources[$i], self::FLOW !== $modes[$i])[1];
+            $bottom = $relativeBottom = null;
+            if ( $item || ( $i === $last && ! $this->collapsesThrough($containers[$i], 'bottom') ) ) {
+                $bottom = $this->margins($sources[$i], $item)[1];
+                $relativeBottom = $this->relativeMargin($sources[$i], 1, $item);
             }
 
             $sides = array();
-            if ( null !== $top && $this->shouldWrite($child, 'top', $top, $topDefault) && ! $this->hasResponsiveMarginTop($child) ) {
+            $top = $this->hasResponsiveMarginTop($child) ? null : $this->marginToWrite($child, 'top', $top, $relativeTop, $topDefault);
+            if ( null !== $top ) {
                 $sides['top'] = $top;
             }
-            if ( null !== $bottom && $this->shouldWrite($child, 'bottom', $bottom, 0.0) ) {
+            $bottom = $this->marginToWrite($child, 'bottom', $bottom, $relativeBottom, 0.0);
+            if ( null !== $bottom ) {
                 $sides['bottom'] = $bottom;
             }
             if ( array() !== $sides ) {
@@ -167,21 +182,48 @@ final class HostBlockGapEncoder
     }
 
     /**
-     * Whether a child needs its own margin on one side: core gives it the
-     * default unless it carries a margin that differs from the source.
+     * The margin a child needs on one side, or null when core already gives it
+     * the source's: the default, or a margin the child carries. A relative
+     * (em) source margin is written unless the child already carries it.
      *
      * @param array<string, mixed> $child
      */
-    private function shouldWrite(array $child, string $side, float $source, ?float $default): bool
+    private function marginToWrite(array $child, string $side, ?float $source, ?string $relative, ?float $default): ?string
     {
         $own = $child['attrs']['style']['spacing']['margin'][$side] ?? null;
+        if ( null !== $relative ) {
+            return $own === $relative ? null : $relative;
+        }
+        if ( null === $source ) {
+            return null;
+        }
         if ( null !== $own ) {
             $ownPx = is_string($own) ? CssLength::toPx($own, $this->rootPx) : null;
 
-            return null !== $ownPx && abs($ownPx - $source) >= 0.001;
+            return null !== $ownPx && abs($ownPx - $source) >= 0.001 ? self::cssLength($source) : null;
         }
 
-        return null === $default || abs($default - $source) >= 0.001;
+        return null === $default || abs($default - $source) >= 0.001 ? self::cssLength($source) : null;
+    }
+
+    /**
+     * An element's own margin on one side (0 top, 1 bottom) as an em length,
+     * when it is em of a font size with no static px value and is not
+     * collapsed with a descendant's; null otherwise.
+     */
+    private function relativeMargin(?DOMElement $element, int $side, bool $item): ?string
+    {
+        if ( ! $element instanceof DOMElement || $this->fontMetrics($element)[1] ) {
+            return null;
+        }
+        if ( ! $item && ( str_starts_with($this->display($element), 'inline')
+            || ( $this->collapsesThrough($element, 0 === $side ? 'top' : 'bottom') && null !== $this->flowChild($element, 1 === $side) ) )
+        ) {
+            return null;
+        }
+        $value = strtolower(self::withoutImportant((string) $this->ownMarginValues($element)[$side]));
+
+        return 1 === preg_match('/^(-?(?:\d+\.?\d*|\.\d+))em$/', $value, $match) && 0.0 !== (float) $match[1] ? $value : null;
     }
 
     /**
@@ -211,11 +253,13 @@ final class HostBlockGapEncoder
         // Core zeroes flex and grid item margins; items keep the source's.
         $children = is_array($group['innerBlocks'] ?? null) ? array_values($group['innerBlocks']) : array();
         foreach ( $children as $i => $child ) {
-            $margins = $this->margins($this->outermostSource($child), true);
+            $source = $this->outermostSource($child);
+            $margins = $this->margins($source, true);
             $sides = array();
-            foreach ( array( 'top' => $margins[0], 'bottom' => $margins[1] ) as $side => $px ) {
-                if ( null !== $px && $this->shouldWrite($child, $side, $px, 0.0) ) {
-                    $sides[$side] = $px;
+            foreach ( array( 'top', 'bottom' ) as $index => $side ) {
+                $value = $this->marginToWrite($child, $side, $margins[$index], $this->relativeMargin($source, $index, true), 0.0);
+                if ( null !== $value ) {
+                    $sides[$side] = $value;
                 }
             }
             if ( array() !== $sides ) {
@@ -228,43 +272,27 @@ final class HostBlockGapEncoder
     }
 
     /**
-     * The distance the source puts between two sibling boxes, in px, or null
-     * when it is not a definite length.
+     * The start margin a child needs after its previous sibling, in px, or
+     * null when it is not a definite length. Flex and grid items keep their
+     * own margins (the previous item's end margin stays on that item); block
+     * flow margins collapse.
      */
-    private function sourceSpacing(?DOMElement $previous, ?DOMElement $current, string $mode): ?float
+    private function sourceSpacing(?DOMElement $previous, ?DOMElement $current, bool $item): ?float
     {
-        $item = self::FLOW !== $mode;
         $currentTop = $this->margins($current, $item)[0];
-        if ( null === $currentTop || self::ROW === $mode ) {
-            // Items side by side: only the item's own start margin offsets it.
+        if ( $item ) {
             return $currentTop;
         }
-        $previousBottom = $this->margins($previous, $item)[1];
-        if ( null === $previousBottom ) {
-            return null;
-        }
-        if ( $item ) {
-            // Flex column items stack without margin collapsing.
-            return $previousBottom + $currentTop;
-        }
 
-        return self::collapse($previousBottom, $currentTop);
+        return self::collapse($this->margins($previous, false)[1], $currentTop);
     }
 
-    /** How a container places its children: block flow, side by side, or a flex column. */
-    private function layoutMode(DOMElement $container): string
+    /** Whether a container lays its children out as flex or grid items rather than in block flow. */
+    private function laysOutItems(DOMElement $container): bool
     {
         $display = $this->display($container);
-        if ( str_contains($display, 'grid') ) {
-            return self::ROW;
-        }
-        if ( ! str_contains($display, 'flex') ) {
-            return self::FLOW;
-        }
-        $declarations = $this->declarationsOf($container);
-        $direction = strtolower(self::withoutImportant((string) ($declarations['flex-direction'] ?? $declarations['flex-flow'] ?? '')));
 
-        return str_contains($direction, 'column') ? self::COLUMN : self::ROW;
+        return str_contains($display, 'grid') || str_contains($display, 'flex');
     }
 
     private static function collapse(?float $a, ?float $b): ?float
@@ -331,22 +359,45 @@ final class HostBlockGapEncoder
      */
     private function ownMargins(DOMElement $element): array
     {
+        return $this->sidesPx($element, $this->ownMarginValues($element));
+    }
+
+    /**
+     * The declared top and bottom margin values over the user-agent ones.
+     *
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function ownMarginValues(DOMElement $element): array
+    {
         $tag = strtolower($element->tagName);
         $uaEm = self::UA_BLOCK_MARGIN_EM[$tag] ?? 0.0;
         if ( in_array($tag, array( 'ul', 'ol', 'menu', 'dl' ), true) && $this->isNestedList($element) ) {
             $uaEm = 0.0;
         }
-        $top = round($uaEm * $this->fontSize($element), 3);
+        $top = 0.0 === $uaEm ? '0' : $uaEm . 'em';
 
         return $this->boxSides($element, 'margin', array( $top, $top ));
     }
 
     /**
-     * Resolve the top and bottom of a box property (`margin` or `padding`)
-     * from the element's declarations, in cascade order.
-     *
-     * @param array{0: ?float, 1: ?float} $initial
+     * @param array{0: ?string, 1: ?string} $sides
      * @return array{0: ?float, 1: ?float}
+     */
+    private function sidesPx(DOMElement $element, array $sides): array
+    {
+        return array(
+            null === $sides[0] ? null : $this->lengthPx($sides[0], $element),
+            null === $sides[1] ? null : $this->lengthPx($sides[1], $element),
+        );
+    }
+
+    /**
+     * Resolve the declared top and bottom values of a box property (`margin`
+     * or `padding`) from the element's declarations, in cascade order; null
+     * for a side the shorthand cannot be read for.
+     *
+     * @param array{0: ?string, 1: ?string} $initial
+     * @return array{0: ?string, 1: ?string}
      */
     private function boxSides(DOMElement $element, string $box, array $initial): array
     {
@@ -358,12 +409,12 @@ final class HostBlockGapEncoder
                     $top = $bottom = null;
                     continue;
                 }
-                $top = $this->lengthPx($parts[0], $element);
-                $bottom = $this->lengthPx($box === $property ? ($parts[2] ?? $parts[0]) : ($parts[1] ?? $parts[0]), $element);
+                $top = $parts[0];
+                $bottom = $box === $property ? ($parts[2] ?? $parts[0]) : ($parts[1] ?? $parts[0]);
             } elseif ( $box . '-top' === $property || $box . '-block-start' === $property ) {
-                $top = $this->lengthPx($value, $element);
+                $top = $value;
             } elseif ( $box . '-bottom' === $property || $box . '-block-end' === $property ) {
-                $bottom = $this->lengthPx($value, $element);
+                $bottom = $value;
             }
         }
 
@@ -384,7 +435,7 @@ final class HostBlockGapEncoder
         if ( in_array($tag, array( 'html', 'body', 'fieldset', 'button', 'details', 'summary', 'legend' ), true)
             || ! in_array($this->display($element), array( 'block', 'list-item' ), true)
             // A flex or grid item establishes its own formatting context.
-            || ( $element->parentNode instanceof DOMElement && self::FLOW !== $this->layoutMode($element->parentNode) )
+            || ( $element->parentNode instanceof DOMElement && $this->laysOutItems($element->parentNode) )
         ) {
             return false;
         }
@@ -395,7 +446,7 @@ final class HostBlockGapEncoder
                 return false;
             }
         }
-        $padding = $this->boxSides($element, 'padding', array( 0.0, 0.0 ))['top' === $side ? 0 : 1];
+        $padding = $this->sidesPx($element, $this->boxSides($element, 'padding', array( '0', '0' )))['top' === $side ? 0 : 1];
         if ( null === $padding || abs($padding) >= 0.001 ) {
             return false;
         }
@@ -468,12 +519,24 @@ final class HostBlockGapEncoder
 
     private function fontSize(DOMElement $element): float
     {
+        return $this->fontMetrics($element)[0];
+    }
+
+    /**
+     * The element's font size in px and whether it is static: false when the
+     * declared size (or an inherited one) has no px value, such as a fluid
+     * `clamp(..vw..)` preset, and the px size is only an estimate.
+     *
+     * @return array{0: float, 1: bool}
+     */
+    private function fontMetrics(DOMElement $element): array
+    {
         $this->fontSizes ??= new \WeakMap();
         if ( isset($this->fontSizes[$element]) ) {
             return $this->fontSizes[$element];
         }
 
-        $parentPx = $element->parentNode instanceof DOMElement ? $this->fontSize($element->parentNode) : $this->rootPx;
+        list( $parentPx, $static ) = $element->parentNode instanceof DOMElement ? $this->fontMetrics($element->parentNode) : array( $this->rootPx, true );
         $tag = strtolower($element->tagName);
         $declared = strtolower(self::withoutImportant((string) ($this->declarationsOf($element)['font-size'] ?? '')));
         $size = null;
@@ -482,8 +545,10 @@ final class HostBlockGapEncoder
                 $size = $parentPx;
             } elseif ( 'initial' === $declared ) {
                 $size = 16.0;
+                $static = true;
             } elseif ( isset(CssLength::FONT_SIZE_KEYWORDS[$declared]) ) {
                 $size = CssLength::FONT_SIZE_KEYWORDS[$declared];
+                $static = true;
             } elseif ( 'smaller' === $declared ) {
                 $size = $parentPx / 1.2;
             } elseif ( 'larger' === $declared ) {
@@ -493,6 +558,7 @@ final class HostBlockGapEncoder
             } else {
                 $px = CssLength::toPx($declared, $this->rootPx, $parentPx);
                 $size = null !== $px && $px > 0 ? $px : null;
+                $static = null === $size ? false : $static || 1 !== preg_match('/(?<!r)em\b/', $declared);
             }
         }
         if ( null === $size && 'html' === $tag ) {
@@ -500,7 +566,7 @@ final class HostBlockGapEncoder
         }
         $size ??= isset(self::UA_FONT_EM[$tag]) ? self::UA_FONT_EM[$tag] * $parentPx : $parentPx;
 
-        return $this->fontSizes[$element] = round($size, 3);
+        return $this->fontSizes[$element] = array( round($size, 3), $static );
     }
 
     private function display(DOMElement $element): string
@@ -596,7 +662,7 @@ final class HostBlockGapEncoder
      * left as it was.
      *
      * @param array<string, mixed> $block
-     * @param array<string, float> $sides
+     * @param array<string, string> $sides
      * @return array<string, mixed>
      */
     private function withMargins(array $block, array $sides): array
@@ -613,8 +679,8 @@ final class HostBlockGapEncoder
         if ( ($same['innerContent'] ?? null) !== ($block['innerContent'] ?? null) || ($same['attrs'] ?? null) !== $attrs ) {
             return null === $blockGap ? $block : array_merge($block, array( 'attrs' => $this->withBlockGap($attrs, $blockGap) ));
         }
-        foreach ( $sides as $side => $px ) {
-            $attrs['style']['spacing']['margin'][$side] = self::cssLength($px);
+        foreach ( $sides as $side => $length ) {
+            $attrs['style']['spacing']['margin'][$side] = $length;
         }
         $rebuilt = $this->blockFactory->rebuild($block, $attrs);
         if ( null !== $blockGap ) {
