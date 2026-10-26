@@ -251,7 +251,9 @@
     ],
     "test:unit": [
       "php tests/unit/block-markup-input.php",
+      "php tests/unit/cover-own-markup.php",
       "php tests/unit/artifact-inline-body-spacing.php",
+      "php tests/unit/host-block-gap.php",
       "php tests/unit/responsive-select-navigation.php",
       "php tests/unit/linked-image-whitespace-gap.php",
       "php tests/unit/empty-inline-decoration.php",
@@ -491,6 +493,7 @@
       "php tests/unit/serialized-block-whitespace.php",
       "php tests/unit/stylesheet-selector-budget.php",
       "php tests/unit/admin-bar-accommodation.php",
+      "php tests/unit/admin-bar-comment-selectors.php",
       "php tests/contract/template-part-sticky-containment.php",
       "php tests/unit/editor-canvas-body-background.php",
       "php tests/unit/author-cascade-layer-order.php",

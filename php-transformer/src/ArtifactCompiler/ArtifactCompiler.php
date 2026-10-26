@@ -350,8 +350,13 @@ final class ArtifactCompiler
             if (is_array($fallback)) unset($fallback['_collection_binding_declined']);
             return $fallback;
         }, $allFallbacks);
+        $pageMarkup = array();
+        $pageMarkup[(string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? '')] = $entryBlocks['serialized_blocks'];
+        foreach ($compiledHtmlDocuments as $sourcePath => $document) {
+            $pageMarkup[(string) ($ownedBy(array(array()), (string) $sourcePath)[0]['owner'] ?? '')] = $document['serialized_blocks'];
+        }
         $authoredFiles = $normalized['files'];
-        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''));
+        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup);
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
             $documentFiles = $normalized['files'];
@@ -2488,7 +2493,7 @@ final class ArtifactCompiler
      * @param string $primaryOwner The page that produced the primary projections, '' when they are site-wide.
      * @return array<int, array<string, mixed>>
      */
-    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = ''): array
+    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = '', array $pageMarkup = array()): array
     {
         $attributeStateMarkers = array();
         foreach ($projections as $projection) {
@@ -2618,6 +2623,14 @@ final class ArtifactCompiler
             foreach (array_merge(array_keys($sharedByPath[$path] ?? array()), $authoritativeContent) as $content) {
                 $native += $nativeByContent[$path][$content] ?? array();
             }
+            $originalPages = $pages;
+            $pageProjections = array();
+            foreach ($ownersByPath[$path] ?? array() as $content => $owners) {
+                foreach ($owners as $owner => $_) $pageProjections[$owner][] = (string) $content;
+            }
+            $folded = $transformer->foldPositiveMarkerArms($sharedStylesheets, $pageProjections, $pageMarkup);
+            $sharedStylesheets = $folded['shared'];
+            foreach ($pages as $owner => $_) $pages[$owner] = $folded['pages'][$owner] ?? $pages[$owner];
             $projectedFile = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $transformer->concatenateWithoutRedundantRules($sharedStylesheets) ))));
             $projectedFile['metadata']['native_selectors'] = array_keys($native);
             $output[] = $projectedFile;
@@ -2630,7 +2643,7 @@ final class ArtifactCompiler
                 $pageFile['metadata']['compilation'] = array( 'scope' => 'page', 'id' => (string) $owner );
                 $pageFile['metadata']['page_stylesheet_of'] = $path;
                 $pageNative = $native;
-                foreach ($pageStylesheets as $content) {
+                foreach ($originalPages[$owner] as $content) {
                     $pageNative += $nativeByContent[$path][$content] ?? array();
                 }
                 $pageFile['metadata']['native_selectors'] = array_keys($pageNative);
