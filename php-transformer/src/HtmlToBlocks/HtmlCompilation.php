@@ -5807,7 +5807,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $declarations['--blocks-engine-richtext-marker'] = $marker;
         }
 
-        if ( '' === $marker && ! isset($declarations['background-color']) ) {
+        // A `background` shorthand already sets the background color; a later
+        // reset would erase the author's paint (a CSS-drawn dot or bar).
+        if ( '' === $marker && ! isset($declarations['background-color']) && ! isset($declarations['background']) ) {
             $declarations['background-color'] = 'transparent';
         }
         if ( '' === $marker && ! isset($declarations['color']) ) {

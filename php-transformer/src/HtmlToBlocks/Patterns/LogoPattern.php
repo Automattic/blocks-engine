@@ -155,18 +155,34 @@ final class LogoPattern implements PatternRecognizerInterface
             return '';
         }
 
+        // An empty inline box that survived RichText materialization is a
+        // CSS-painted decoration (a dot between two words). It stays in place
+        // so block creation lowers it onto the same RichText carrier the
+        // paragraph path uses, instead of being unwrapped into nothing.
+        $carriers = array();
+        $html = preg_replace_callback(
+            '/<span\b[^>]*>\s*<\/span>/i',
+            static function (array $match) use (&$carriers): string {
+                $carriers[] = $match[0];
+                return "\u{E000}" . (count($carriers) - 1) . "\u{E001}";
+            },
+            $html
+        ) ?? $html;
+        $restoreCarriers = static fn (string $markup): string => array() === $carriers ? $markup : (preg_replace_callback('/\x{E000}(\d+)\x{E001}/u', static fn (array $match): string => $carriers[(int) $match[1]] ?? '', $markup) ?? $markup);
+
         $unsupported = '/<\/?(?!a\b|em\b|i\b|strong\b|b\b|mark\b|small\b|sub\b|sup\b|br\b)[a-z][a-z0-9]*\b[^>]*>/i';
         if ( preg_match($unsupported, $html) ) {
             $unwrapped = trim(preg_replace_callback($unsupported, static fn (array $match): string => str_starts_with($match[0], '</') ? '' : ' ', $html) ?? $html);
             if ( '' !== $unwrapped && ! preg_match($unsupported, $unwrapped) ) {
-                return $unwrapped;
+                return $restoreCarriers($unwrapped);
             }
 
             $flattened = $this->plainText(preg_replace('/<\/?[a-z][a-z0-9]*\b[^>]*>/i', ' ', $html) ?? $html);
+            $flattened = preg_replace('/\x{E000}\d+\x{E001}/u', '', $flattened) ?? $flattened;
             return htmlspecialchars('' !== $flattened ? $flattened : $text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         }
 
-        return $html;
+        return $restoreCarriers($html);
     }
 
     private function semanticMarkerSpansAsMarks(string $html): string
