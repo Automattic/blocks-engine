@@ -24,31 +24,37 @@ $walk = static function (array $blocks) use (&$walk, &$indices, $assert): void {
 $walk($form['readable_blocks']);
 sort($indices);
 $assert($indices === range(0, count($form['controls']) - 1), 'Every control has exactly one metadata index.');
-// Each control and each fieldset is one field node owning its box and label.
+// Each control and each fieldset is one field; a control's box encloses it.
 $fields = [];
-$fieldWalk = static function (array $blocks) use (&$fieldWalk, &$fields, $assert): void {
+$fieldWalk = static function (array $blocks, ?array $parent) use (&$fieldWalk, &$fields, $assert): void {
     foreach ($blocks as $block) {
-        if (isset($block['form_field'])) $fields[] = $block;
+        if (isset($block['form_field'])) $fields[] = [$block, $parent];
         $assert(count($block['innerBlocks'] ?? []) === count(array_filter($block['innerContent'] ?? [], 'is_null')), 'Every finding block keeps one innerContent slot per inner block.');
         if ('group' === ($block['form_field']['kind'] ?? null)) {
             foreach ($block['innerBlocks'] ?? [] as $child) $assert(!str_contains(json_encode($child), '"' . strip_tags($block['form_field']['label']) . '"'), 'A legend is stated once, as its group label.');
         }
-        $fieldWalk($block['innerBlocks'] ?? []);
+        $fieldWalk($block['innerBlocks'] ?? [], $block);
     }
 };
-$fieldWalk($form['readable_blocks']);
+$fieldWalk($form['readable_blocks'], null);
 $byLabel = [];
-foreach ($fields as $field) $byLabel[strip_tags($field['form_field']['label'])] = $field;
+foreach ($fields as [$field, $parent]) $byLabel[strip_tags($field['form_field']['label'])] = [$field, $parent];
 foreach (['Topic', 'Booking', 'Days'] as $legend) {
-    $assert('group' === ($byLabel[$legend]['form_field']['kind'] ?? null) && 'fieldset' === $byLabel[$legend]['form_field']['box'][0]['tagName'], $legend . ' fieldset is a group node labelled by its legend.');
-    $assert('14px' === ($byLabel[$legend]['form_field']['label_attributes']['style']['typography']['fontSize'] ?? ''), 'Legend presentation survives on the group label.');
+    $assert('group' === ($byLabel[$legend][0]['form_field']['kind'] ?? null), $legend . ' fieldset is a group labelled by its legend.');
+    $assert('14px' === ($byLabel[$legend][0]['form_field']['label_attributes']['style']['typography']['fontSize'] ?? ''), 'Legend presentation survives on the group label.');
 }
+$box = static function (string $label) use (&$byLabel): array {
+    [$field, $parent] = $byLabel[$label] ?? [[], []];
+    $wrapper = $parent['attrs']['wrappers'][0] ?? [];
+    return [isset($field['form_control_index']) && str_ends_with($parent['blockName'] ?? '', '/layout-shell') && 1 === count($parent['innerBlocks']), $wrapper, $parent['innerContent'][0] ?? ''];
+};
 foreach (['Name' => '240px', 'Location' => '200px', 'Guests' => '120px'] as $label => $basis) {
-    $box = $byLabel[$label]['form_field']['box'] ?? [];
-    $assert(isset($byLabel[$label]['form_control_index']) && 'label' === ($box[0]['tagName'] ?? '') && str_contains($box[0]['attributes']['style'] ?? '', 'flex:1 1 ' . $basis), $label . ' field node keeps its label box presentation.');
+    [$enclosed, $wrapper, $opening] = $box($label);
+    $assert($enclosed && 'div' === ($wrapper['tagName'] ?? '') && str_contains($wrapper['attributes']['style'] ?? '', 'flex:1 1 ' . $basis) && str_starts_with($opening, '<div'), $label . ' control is enclosed in its label box, retagged to a div.');
 }
-$consent = $byLabel['I agree to the privacy policy.'] ?? [];
-$assert(str_contains($consent['form_field']['label'] ?? '', '<a href="/privacy/">privacy policy</a>') && str_contains($consent['form_field']['box'][0]['attributes']['style'] ?? '', 'align-items:flex-start'), 'Consent field label keeps its link and box.');
+[$enclosed, $wrapper] = $box('I agree to the privacy policy.');
+$assert($enclosed && str_contains($wrapper['attributes']['style'] ?? '', 'align-items:flex-start'), 'Consent control keeps its box.');
+$assert(str_contains($byLabel['I agree to the privacy policy.'][0]['form_field']['label'] ?? '', '<a href="/privacy/">privacy policy</a>'), 'Consent field label keeps its link.');
 $tree = json_encode($form['readable_blocks'], JSON_UNESCAPED_SLASHES);
 foreach (['Topic','Booking','Days','Name','Email','Phone','Location','Date','Guests','Message','I agree to the','privacy policy','/privacy/'] as $text) {
     $assert(str_contains($tree, $text), 'Tree preserves ' . $text);

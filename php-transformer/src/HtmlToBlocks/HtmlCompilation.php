@@ -697,7 +697,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
                 return $this->layoutShellBlockForElements($elements, $innerBlocks, $sourceElement);
             },
-            fn (DOMElement $element): array => $this->layoutShellWrapper($element),
+            fn (array $elements): array => $this->layoutShellBlockForElements($elements, array(), $elements[0], true),
             fn (): array => $this->authorStyles()->stylesheetAssets(),
             fn (): string => $this->sourceStyles()->formLayoutCss(),
             function (DOMElement $element, array &$fallbacks): array {
@@ -3883,9 +3883,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * @param list<array<string, mixed>> $innerBlocks
      * @return array<string, mixed>
      */
-    private function layoutShellBlockForElements(array $elements, array $innerBlocks, DOMElement $sourceElement): array
+    private function layoutShellBlockForElements(array $elements, array $innerBlocks, DOMElement $sourceElement, bool $fieldBox = false): array
     {
-        $wrappers = array_map(fn (DOMElement $element): array => $this->layoutShellWrapper($element), $elements);
+        $wrappers = array_map(fn (DOMElement $element): array => $this->layoutShellWrapper($element, $fieldBox), $elements);
         $blockName = $this->generatedBlocks()->blockName('layout-shell');
         $this->generatedBlocks()->register(LayoutShellBlockGenerator::class, (new LayoutShellBlockGenerator())->definition($blockName));
         $block = $this->createBlock(
@@ -3905,15 +3905,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     /**
      * One source element as a layout-shell wrapper: its tag, its static
-     * attributes and its projected class list.
+     * attributes and its projected class list. A field box frames a provider
+     * field that renders its own label, so a source `<label>` box becomes a
+     * `div` (its tag marker class keeps label selectors matching).
      *
      * @return array{tagName: string, attributes: array<string, mixed>, opening: string, closing: string}
      */
-    private function layoutShellWrapper(DOMElement $element): array
+    private function layoutShellWrapper(DOMElement $element, bool $fieldBox = false): array
     {
         $sourceTagName = strtolower($element->tagName);
-        $tagName = str_contains($sourceTagName, '-') ? 'div' : $sourceTagName;
+        $tagName = str_contains($sourceTagName, '-') || ($fieldBox && 'label' === $sourceTagName) ? 'div' : $sourceTagName;
         $attributes = $this->htmlAttributes($element);
+        if ($fieldBox && 'label' === $sourceTagName) {
+            unset($attributes['for']);
+        }
         $className = $this->layoutShellClassName($element);
         if ( '' === $className ) {
             unset($attributes['class']);

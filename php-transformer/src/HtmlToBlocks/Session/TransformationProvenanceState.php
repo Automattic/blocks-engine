@@ -180,6 +180,7 @@ final class TransformationProvenanceState
             unset($block['form_choice_group_index']);
             unset($block['form_field']);
             unset($block['_form_legend']);
+            unset($block['_form_field_box']);
             unset($block['_source_anchor_selector']);
             unset($block['_editability_runtime_owned']);
             unset($block['_editability_visual_owned']);

@@ -121,6 +121,15 @@ final class FormFallbackFindingBuilder
     private function identifyChoiceGroups(array $blocks, array $groups): array
     {
         foreach ($blocks as &$block) {
+            if (isset($block['_form_field_box'])) {
+                // The field's box encloses the control: a substituted field keeps it.
+                $shell = $block['_form_field_box'];
+                unset($block['_form_field_box']);
+                $shell['innerBlocks'] = array($block);
+                $shell['innerContent'] = array($shell['innerContent'][0] ?? '', null, $shell['innerContent'][1] ?? '');
+                $block = $shell;
+                continue;
+            }
             foreach ($groups as $index => $group) {
                 if (isset($block['_source_anchor_selector']) && $block['_source_anchor_selector'] === ($this->choiceGroupSelectors[$index] ?? null)) {
                     $block['form_choice_group_index'] = $index;

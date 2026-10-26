@@ -18,14 +18,14 @@ use DOMElement;
  * never attrs, which page provenance resolution strips before serialization:
  *
  * - `form_control_index`: the control's position in the finding's `controls[]`.
- * - `form_field`: the field node a provider places its field block at.
- *   `kind` is `control` for a control block, or `group` for the block of a
- *   `<fieldset>`. `label` is the field's label (a group's legend) as inline
- *   rich text, links and emphasis kept. `box` lists the source elements that
- *   frame the field, outermost first, as `{tagName, attributes}` wrappers
- *   carrying their presentation (projected classes, inline style): for a
- *   control, the label and wrappers holding only that control and its label;
- *   for a group, the fieldset.
+ * - `form_field`: the field a provider places its field block at. `kind` is
+ *   `control` on a control block, or `group` on the block of a `<fieldset>`.
+ *   `label` is the field's label (a group's legend) as inline rich text,
+ *   links and emphasis kept.
+ * - `_form_field_box`: a control's field box, the label and wrappers holding
+ *   only that control and its label, as an empty layout shell carrying their
+ *   presentation. The finding encloses the control in it, so a provider that
+ *   swaps its field in for the control keeps the field's box.
  * - `_form_legend`: marks the block a legend lowered to on the page, so the
  *   finding can state the legend once, as its group's label.
  */
@@ -44,7 +44,7 @@ final class ReadableFormBlockBuilder
      * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed>       $layoutShellBlockForElements
-     * @param Closure(DOMElement): array<string, mixed>                                                     $fieldBoxWrapper
+     * @param Closure(list<DOMElement>): array<string, mixed>                                               $fieldBoxShell
      * @param Closure(): list<array<string, mixed>>|null                                                    $stylesheetAssets
      * @param Closure(): string|null                                                                        $formLayoutCss
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): list<array<string, mixed>>|null       $convertFlowContent
@@ -58,7 +58,7 @@ final class ReadableFormBlockBuilder
         private readonly Closure $presentationAttributes,
         private readonly SourceBlockCreator $createBlock,
         private readonly Closure $layoutShellBlockForElements,
-        private readonly Closure $fieldBoxWrapper,
+        private readonly Closure $fieldBoxShell,
         private readonly ?Closure $stylesheetAssets = null,
         private readonly ?Closure $formLayoutCss = null,
         private readonly ?Closure $convertFlowContent = null
@@ -228,7 +228,6 @@ final class ReadableFormBlockBuilder
                 $group['form_field'] = array(
                     'kind' => 'group',
                     'label' => null !== $legend ? $this->controlBlockConverter->labelMarkup($legend) : '',
-                    'box' => array($this->fieldBoxWrapperFor($element)),
                 );
                 $blocks[] = $group;
                 continue;
@@ -302,8 +301,11 @@ final class ReadableFormBlockBuilder
         $readableControlBlock['form_field'] = array(
             'kind' => 'control',
             'label' => null !== $label ? $this->controlBlockConverter->labelMarkup($label) : '',
-            'box' => array_map(fn (DOMElement $element): array => $this->fieldBoxWrapperFor($element), $this->fieldBox($control, $label)),
         );
+        $box = $this->fieldBox($control, $label);
+        if (array() !== $box) {
+            $readableControlBlock['_form_field_box'] = ($this->fieldBoxShell)($box);
+        }
         return $readableControlBlock;
     }
 
@@ -347,12 +349,5 @@ final class ReadableFormBlockBuilder
             }
         }
         return false;
-    }
-
-    /** @return array{tagName: string, attributes: array<string, mixed>} */
-    private function fieldBoxWrapperFor(DOMElement $element): array
-    {
-        $wrapper = ($this->fieldBoxWrapper)($element);
-        return array('tagName' => $wrapper['tagName'], 'attributes' => $wrapper['attributes']);
     }
 }
