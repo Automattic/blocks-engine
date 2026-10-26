@@ -176,6 +176,8 @@ final class TransformationProvenanceState
             unset($block['_source_provenance_ids']);
             unset($block['_layout_shell_wrappers']);
             unset($block['_binding_token']);
+            unset($block['form_control_index']);
+            unset($block['form_choice_group_index']);
             unset($block['_source_anchor_selector']);
             unset($block['_editability_runtime_owned']);
             unset($block['_editability_visual_owned']);

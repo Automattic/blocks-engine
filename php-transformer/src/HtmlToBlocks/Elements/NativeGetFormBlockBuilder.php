@@ -101,7 +101,7 @@ final class NativeGetFormBlockBuilder
         }
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
             if ( ! in_array(strtolower($control->tagName), array( 'input', 'select', 'button' ), true)
-                || ! FormControlClassifier::isReadableControl($control)
+                || ! FormControlClassifier::hasProseSummary($control)
                 || $control->hasAttribute('formaction')
                 || $control->hasAttribute('formmethod')
                 || ( 'button' === strtolower($control->tagName) && $this->hasAnchorAncestor($control, $form) )

@@ -168,14 +168,7 @@ final class AuthoredFormControlBlockConverter
             '_source_anchor_selector' => SourceDom::elementSelector($select),
         );
 
-        // Preserve the established structural address while source identity and
-        // authored selectors remain on the native control inside this shell.
-        return $this->createBlock->createBlock('core/group', array_filter(array(
-            // The control owns its id; a wrapper anchor would duplicate it, and a
-            // script's getElementById would find the wrapper instead.
-            'anchor' => null !== $state || $runtimeTarget ? '' : ($this->safeAnchor)(SourceDom::attr($select, 'id')),
-            'className' => 'blocks-engine-authored-select-wrapper',
-        )), array( $controlBlock ), null);
+        return $controlBlock;
     }
 
     public function listbox(DOMElement $trigger, ?DOMElement $panel = null): ?array
