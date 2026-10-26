@@ -46,7 +46,45 @@ final class SearchBlockConversionContext
             SourceDom::attr($form, 'class'),
         )));
 
-        return str_contains($haystack, 'search');
+        if ( str_contains($haystack, 'search') ) {
+            return true;
+        }
+
+        foreach ( FormControlClassifier::controlElements($form) as $control ) {
+            if ( 'submit' === FormControlClassifier::controlType($control) && $this->hasSearchIconSignal($control) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Shared glyph evidence for form recognition and native icon-button rendering. */
+    public function hasSearchIconSignal(DOMElement $control): bool
+    {
+        $signals = array(
+            SourceDom::attr($control, 'class'),
+            SourceDom::attr($control, 'id'),
+            SourceDom::attr($control, 'aria-label'),
+            SourceDom::attr($control, 'title'),
+            SourceDom::attr($control, 'data-icon'),
+        );
+        foreach ( $control->getElementsByTagName('*') as $descendant ) {
+            $tag = strtolower($descendant->tagName);
+            if ( in_array($tag, array( 'i', 'span', 'svg' ), true) ) {
+                $signals[] = SourceDom::attr($descendant, 'class');
+            }
+            if ( 'use' === $tag ) {
+                $signals[] = SourceDom::attr($descendant, 'href');
+                $signals[] = SourceDom::attr($descendant, 'xlink:href');
+            }
+            $signals[] = SourceDom::attr($descendant, 'data-icon');
+        }
+
+        $haystack = strtolower(implode(' ', $signals));
+        // Close/clear controls must not become search submits even when named search-close.
+        return ! preg_match('/(?:^|[^a-z0-9])(?:close|clear)(?:$|[^a-z0-9])/', $haystack)
+            && 1 === preg_match('/(?:^|[^a-z0-9])(?:search|magnifying-glass|magnifier)(?:$|[^a-z0-9])/', $haystack);
     }
 
     /** @return array<string, mixed> */

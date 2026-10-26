@@ -340,13 +340,7 @@ final class SearchBlockConverter
 
     private function isIconOnlySearchControl(DOMElement $control): bool
     {
-        $haystack = strtolower(implode(' ', array(
-            SourceDom::attr($control, 'class'),
-            SourceDom::attr($control, 'id'),
-            SourceDom::attr($control, 'aria-label'),
-            SourceDom::attr($control, 'title'),
-        )));
-        if ( ! str_contains($haystack, 'search') || str_contains($haystack, 'close') ) {
+        if ( ! $this->context->hasSearchIconSignal($control) ) {
             return false;
         }
 

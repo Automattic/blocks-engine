@@ -64,6 +64,36 @@ $assert(1 === count($blocksNamed($form, 'core/search')), 'the search form inside
 $assert(1 === count($searchGroups($form)), 'the <search> landmark stays a core/group with tagName "search"');
 $assert(str_contains((string) ($form['serialized_blocks'] ?? ''), '<search class="wp-block-group site-search">'), 'the group renders the <search> landmark with its class');
 
+// Search glyph names identify a submit control independently of the site's language.
+$searchControls = array(
+    'localized icon-font form' => array( '<button type="submit"><i class="fa fa-search"></i></button>', true ),
+    'span glyph' => array( '<button><span class="icon-magnifier"></span></button>', true ),
+    'svg class' => array( '<button><svg class="icon-magnifying-glass"></svg></button>', true ),
+    'svg sprite' => array( '<button><svg><use href="#search"></use></svg></button>', true ),
+    'svg legacy sprite' => array( '<button><svg><use xlink:href="icons.svg#magnifier"></use></svg></button>', true ),
+    'data icon' => array( '<button><span data-icon="magnifying-glass"></span></button>', true ),
+    'control class' => array( '<button class="icon-search"></button>', true ),
+    'control aria label' => array( '<button aria-label="Search"></button>', true ),
+    'control title' => array( '<button title="Magnifier"></button>', true ),
+    'input submit' => array( '<input type="submit" class="icon-search" value="">', true ),
+    'plain Go' => array( '<button type="submit">Go</button>', false ),
+    'close glyph' => array( '<button><i class="search-close"></i></button>', false ),
+    'clear glyph' => array( '<button><span data-icon="search-clear"></span></button>', false ),
+    'close control' => array( '<button aria-label="Close"><i class="fa-search"></i></button>', false ),
+    'clear descendant' => array( '<button class="search"><svg><use href="#clear"></use></svg></button>', false ),
+    'unrelated class' => array( '<button><i class="research"></i></button>', false ),
+    'non-submit glyph' => array( '<button type="button"><i class="fa-search"></i></button>', false ),
+    'unrelated descendant' => array( '<button><em class="search"></em></button>', false ),
+);
+foreach ( $searchControls as $case => [ $control, $expectedSearch ] ) {
+    $result = $transform('<form action="/recherche" id="rechercheheader"><input name="termes">' . $control . '</form>');
+    $searchBlocks = $blocksNamed($result, 'core/search');
+    $assert(($expectedSearch ? 1 : 0) === count($searchBlocks), "{$case}: only search-signaled GET forms become core/search");
+    if ( $expectedSearch ) {
+        $assert(true === ($searchBlocks[0]['attrs']['buttonUseIcon'] ?? false), "{$case}: the search submit retains buttonUseIcon");
+    }
+}
+
 // A search landmark wrapping only a toggle button (a search-overlay trigger).
 $toggle = $transform('<main><h1>Catalog</h1><search class="toolbar"><button type="button" aria-label="Search">Search</button></search><p>After</p></main>');
 $assert(array() === $unsupported($toggle), 'a <search> wrapping a button records no unsupported element; got: ' . json_encode(array_column($unsupported($toggle), 'tag')));
