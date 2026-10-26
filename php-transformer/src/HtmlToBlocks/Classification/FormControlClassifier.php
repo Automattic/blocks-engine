@@ -591,7 +591,8 @@ final class FormControlClassifier
     private const UNSAFE_INLINE_BUTTON_DESCENDANTS = array(
         'a',
         'button',
-        'svg',
+        // Inline SVG is materialized as a RichText image by the caller;
+        // unsupported SVG still fails that materialization's fallback gate.
         'canvas',
         'img',
         'picture',

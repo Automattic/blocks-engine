@@ -7270,6 +7270,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $content = $this->richTextMaterializer->content($element);
+        if ( null !== $this->richTextMaterializer->contentWithInlineSafeButtonsLowered($element, $content) ) {
+            // Reuse label RichText preparation so wrapper hooks become carriers
+            // before button marks are introduced (the normalizer avoids nesting
+            // marks when replacing spans). Then use the paragraph primitives.
+            $content = $this->editableFormLabelContent($element);
+            $content = $this->richTextMaterializer->contentWithInlineSafeButtonsLowered($element, $content) ?? $content;
+            $content = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content) ?? $content;
+        }
         if ( '' === trim($this->runtime->stripAllTags($content)) ) {
             return null;
         }
