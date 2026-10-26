@@ -3650,7 +3650,81 @@ final class AuthorStylesheetProjector
             . $trailingState;
         return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
             $start => array( 'end' => $end, 'value' => $subject ),
-        ));
+        ) + $this->navigationListHostParentReplacements($selector, $parsed, $context, $matches));
+    }
+
+    /**
+     * A source list that is itself the navigation (`div#menu > ul > li`, with
+     * the UL lowered to core/navigation) renders as two boxes: the native
+     * `<nav>` root that carries the list's identity, and core's inner
+     * `ul.wp-block-navigation__container` that holds the items. An item rule
+     * whose parent compound is that list (`#menu > ul > li`) therefore has to
+     * step through both: the list compound addresses the root through the
+     * list's semantic identity, and a child hop reaches core's container.
+     * Otherwise `#menu > ul` looks for a UL child of `#menu` that no longer
+     * exists, and the item loses its authored box (padding, height, display).
+     * Only applies when every matched item's parent is such a root-owning list.
+     *
+     * @param array<string, mixed> $parsed
+     * @param list<DOMElement> $matches
+     * @return array<int, array{end: int, value: string}>
+     */
+    private function navigationListHostParentReplacements(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, array $matches): array
+    {
+        $compounds = $parsed['compounds'] ?? array();
+        $combinators = $parsed['combinators'] ?? array();
+        $parentIndex = count($compounds) - 2;
+        if ( $parentIndex < 0 || '>' !== ($combinators[$parentIndex] ?? null) || array() === $matches ) {
+            return array();
+        }
+        $type = strtolower((string) ($compounds[$parentIndex]['type'] ?? ''));
+        if ( '' !== $type && ! in_array($type, array( 'ul', 'ol' ), true) ) {
+            return array();
+        }
+        $identities = array();
+        foreach ( $matches as $item ) {
+            $list = $item->parentNode;
+            if ( ! $list instanceof DOMElement ) {
+                return array();
+            }
+            $path = $list->getNodePath() ?? '';
+            if ( ! $context->selectorProjections->navigationListOwnsRoot($path) ) {
+                return array();
+            }
+            if ( '' === $type ) {
+                continue;
+            }
+            $marker = $context->selectorProjections->semanticMarker($path);
+            if ( '' === $marker ) {
+                return array();
+            }
+            $identities[$marker] = '.wp-block-navigation.' . $marker;
+        }
+        // The parent compound ends where the `>` before the item begins.
+        $parentEnd = (int) $parsed['rightmost_compound_span']['start'];
+        while ( $parentEnd > 0 && ctype_space($selector[$parentEnd - 1]) ) --$parentEnd;
+        if ( $parentEnd < 1 || '>' !== $selector[$parentEnd - 1] ) {
+            return array();
+        }
+        --$parentEnd;
+        while ( $parentEnd > 0 && ctype_space($selector[$parentEnd - 1]) ) --$parentEnd;
+        $replacements = array(
+            $parentEnd => array( 'end' => $parentEnd, 'value' => ' > :where(.wp-block-navigation__container)' ),
+        );
+        if ( '' !== $type ) {
+            foreach ( $parsed['type_spans'] as $typeSpan ) {
+                if ( $parentIndex === ($typeSpan['compound'] ?? null) ) {
+                    $replacements[(int) $typeSpan['start']] = array(
+                        'end' => (int) $typeSpan['end'],
+                        'value' => ':where(' . implode(',', $identities) . ')' . $this->typeSpecificityShim($context),
+                    );
+                }
+            }
+            if ( count($replacements) < 2 ) {
+                return array();
+            }
+        }
+        return $replacements;
     }
 
     /**
