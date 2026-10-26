@@ -8,13 +8,13 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysi
 
 $cases = array(
     array(array(), ''),
-    array(array(array('kind' => 'html', 'content' => 'blocks-engine-specificity-site-0')), ''),
-    array(array(), '/* blocks-engine-specificity-site-0 */'),
+    array(array(array('kind' => 'html', 'content' => 'be-t-0')), ''),
+    array(array(), '/* be-t-0 */'),
 );
 $expected = array(
-    array('blocks-engine-specificity-site-0', 'blocks-engine-specificity-class-site-0', 'blocks-engine-specificity-id-site-0'),
-    array('blocks-engine-specificity-site-1', 'blocks-engine-specificity-class-site-0', 'blocks-engine-specificity-id-site-0'),
-    array('blocks-engine-specificity-site-1', 'blocks-engine-specificity-class-site-0', 'blocks-engine-specificity-id-site-0'),
+    array('be-t-0', 'be-c-0', 'be-i-0'),
+    array('be-t-1', 'be-c-0', 'be-i-0'),
+    array('be-t-1', 'be-c-0', 'be-i-0'),
 );
 foreach ($cases as $index => [$files, $css]) {
     $avoid = array($css);

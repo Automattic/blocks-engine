@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -1177,7 +1179,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         // and style nothing inside a standalone image document, so the same
         // icon compiled on two routes is one asset, not two.
         $html = preg_replace_callback('/\sclass\s*=\s*(["\'])(.*?)\1/is', static function (array $match): string {
-            $classes = array_filter(preg_split('/\s+/', trim($match[2])) ?: array(), static fn (string $class): bool => '' !== $class && 1 !== preg_match('/^blocks-engine-(?:source-[a-z0-9_-]+|attribute(?:-state)?|richtext|control|specificity-class)-[a-f0-9]{6,}(?:-\d+)?$/', $class));
+            $classes = array_filter(preg_split('/\s+/', trim($match[2])) ?: array(), static fn (string $class): bool => '' !== $class && !EngineMarker::isSpecificityShim($class) && 1 !== preg_match('/^blocks-engine-(?:source-[a-z0-9_-]+|attribute(?:-state)?|richtext|control)-[a-f0-9]{6,}(?:-\d+)?$/', $class));
             return array() === $classes ? '' : ' class=' . $match[1] . implode(' ', $classes) . $match[1];
         }, $html) ?? $html;
         $html = preg_replace('/<(?:title|desc)\b[^>]*>.*?<\/(?:title|desc)>/is', '', $html) ?? $html;

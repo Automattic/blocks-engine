@@ -66,6 +66,7 @@ final class AuthorStylesheetProjector
             fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, $body, $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions)
         );
         $ids = ScopedAnchorSelectorProjection::identities($context->authorStyles);
+        $projected = EngineMarker::compactDeviceScope($projected);
         if ( array() !== $ids ) {
             $hasNamespace = (bool) preg_match('/@namespace\b/i', $projected);
             return (new CssStylesheetTransformer())->transformStyleRules($projected, static function (string $selector, string $body) use ($ids, $hasNamespace): string {

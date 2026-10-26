@@ -82,7 +82,7 @@ $assert(2 === count($mediaShared) && 2 === count(array_unique(array_column($medi
 // positive hooks still identify the detached ancestor.
 $reanchor = new ReflectionMethod(WordPressSitePlan::class, 'reanchoredDetachedContextSelector');
 $context = array('class' => array(), 'id' => array('page-root' => true));
-$assert(':is(:where(.blocks-engine-editor-anchor-page-root):not(#blocks-engine-specificity-id-site-0),:where(:has(> #site-chrome))) :where(.menu) .item' === $reanchor->invoke(null, ':where(.blocks-engine-editor-anchor-page-root):not(#blocks-engine-specificity-id-site-0) :where(.menu) .item', $context, array('site-chrome')), 'An engine-rewritten ancestor id is re-anchored on the part wrapper.');
+$assert(':is(:where(.blocks-engine-editor-anchor-page-root):not(#be-i-0),:where(:has(> #site-chrome))) :where(.menu) .item' === $reanchor->invoke(null, ':where(.blocks-engine-editor-anchor-page-root):not(#be-i-0) :where(.menu) .item', $context, array('site-chrome')), 'An engine-rewritten ancestor id is re-anchored on the part wrapper.');
 $assert('.page-only .item' === $reanchor->invoke(null, '.page-only .item', $context, array('site-chrome')), 'An ancestor the chrome never sat under is left alone.');
 $assert('#site-chrome .item' === $reanchor->invoke(null, '#site-chrome .item', $context, array('site-chrome')), 'A selector that starts at the chrome itself needs no re-anchoring.');
 $assert(':is(#page-root,:where(:has(> #site-chrome))) .item' === $reanchor->invoke(null, '#page-root .item', $context, array('site-chrome')), 'The source id and its editor-anchor class name the same detached ancestor.');

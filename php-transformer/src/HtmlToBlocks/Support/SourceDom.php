@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
@@ -472,7 +474,7 @@ final class SourceDom
     {
         // A document scope is a declared source-body boundary, independent of
         // presentation classes or a fixed set of device/profile names.
-        if ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', trim(self::attr($element, CaptureEvidence::DEVICE_DOCUMENT)))) return true;
+        if ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', trim(EngineMarker::deviceScopeValue($element)))) return true;
         foreach ( preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array() as $class ) {
             if ( str_starts_with($class, 'site-document-variant-') || in_array($class, array( CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS ), true) ) {
                 return true;
@@ -511,7 +513,7 @@ final class SourceDom
             }
         }
 
-        $declared = trim(self::attr($root, CaptureEvidence::DEVICE_DOCUMENT));
+        $declared = trim(EngineMarker::deviceScopeValue($root));
         if ($root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $declared)) return CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX . $declared;
 
         return '';
@@ -575,6 +577,11 @@ final class SourceDom
             $attributes[$attribute->nodeName] = $attribute->nodeValue ?? '';
         }
 
+        // Keep the published evidence for runtime consumers, and materialize
+        // its compact alias for projected zero-specificity document gates.
+        if (isset($attributes[CaptureEvidence::DEVICE_DOCUMENT])) {
+            $attributes[EngineMarker::DEVICE_SCOPE_ATTRIBUTE] = $attributes[CaptureEvidence::DEVICE_DOCUMENT];
+        }
         ksort($attributes);
         return $attributes;
     }

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -37,9 +39,9 @@ final class WordPressCompatCss
         if ( array_key_exists($cacheKey, $this->cssCache) ) {
             return $this->cssCache[$cacheKey];
         }
-        return $this->cssCache[$cacheKey] = $this->navigationCompatCss($authoredCss)
+        return $this->cssCache[$cacheKey] = EngineMarker::compactDeviceScope($this->navigationCompatCss($authoredCss)
             . $this->rootStartupClassCompatCss($authoredCss, $scriptContents)
-            . $this->coreRuntimeCompatCss($authoredCss, $files);
+            . $this->coreRuntimeCompatCss($authoredCss, $files));
     }
 
     /**
@@ -545,7 +547,7 @@ final class WordPressCompatCss
             $listClasses = $stableListClasses;
         }
         $tail = preg_replace(
-            '/:where\(\.blocks-engine-source-li-[A-Za-z0-9_-]+\):not\(blocks-engine-specificity-[A-Za-z0-9_-]+\)/',
+            '/:where\(\.blocks-engine-source-li-[A-Za-z0-9_-]+\):not\(' . EngineMarker::specificityPatternBody('specificity') . '\)/',
             '.wp-block-navigation-item',
             $tail
         ) ?? $tail;
