@@ -95,6 +95,11 @@ final class CssStylesheetTransformer
     /**
      * Visit every style rule with its enclosing safe-to-walk at-rules.
      *
+     * Visited preludes and ancestor at-rule preludes carry no author comments:
+     * a comment before a rule, between rules or inside a selector list is not
+     * part of any selector, so a consumer that writes a selector or condition
+     * back into a stylesheet never copies one.
+     *
      * @param callable(string, string, list<string>): void $visitStyleRule
      */
     public function visitStyleRules(string $stylesheet, callable $visitStyleRule): void
@@ -459,7 +464,7 @@ final class CssStylesheetTransformer
             if (null === $blockEnd) {
                 return;
             }
-            $prelude = substr($css, $offset, $boundary - $offset);
+            $prelude = CssSyntaxScanner::withoutComments(substr($css, $offset, $boundary - $offset));
             $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
             if ($this->isAtRule($prelude)) {
                 $name = self::atRuleName($prelude);

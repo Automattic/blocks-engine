@@ -103,6 +103,55 @@ final class CssSyntaxScanner
         return $offset >= $length || ( '"' !== $value[ $offset ] && "'" !== $value[ $offset ] );
     }
 
+    /**
+     * The value with every comment removed. Comment openers inside strings and
+     * unquoted url() bodies are literal and kept. A comment that sat between
+     * two name characters leaves one space so the tokens stay apart; any
+     * other comment leaves nothing (a comment is not whitespace, so `.a`, a
+     * comment and `.b` with no space between form the compound `.a.b`).
+     * An unterminated comment runs to
+     * the end of the value and is dropped with it.
+     */
+    public static function withoutComments(string $value): string
+    {
+        if ( ! str_contains($value, '/*') ) {
+            return $value;
+        }
+        $state  = self::state();
+        $output = '';
+        $length = strlen($value);
+        for ( $offset = 0; $offset < $length; ) {
+            $wasComment = $state['comment'];
+            $next = self::consume($value, $offset, $state);
+            if ( null === $next ) {
+                return $output . substr($value, $offset);
+            }
+            if ( ! $wasComment && $state['comment'] ) {
+                $start = $offset;
+                while ( $state['comment'] && $next < $length ) {
+                    $next = (int) self::consume($value, $next, $state);
+                }
+                $before = $start > 0 ? $value[ $start - 1 ] : '';
+                $after  = $value[ $next ] ?? '';
+                if ( self::isNameCharacter($before) && self::isNameCharacter($after) ) {
+                    $output .= ' ';
+                }
+                $state['comment'] = false;
+                $offset = $next;
+                continue;
+            }
+            $output .= substr($value, $offset, $next - $offset);
+            $offset = $next;
+        }
+
+        return $output;
+    }
+
+    private static function isNameCharacter(string $character): bool
+    {
+        return '' !== $character && ( ctype_alnum($character) || '-' === $character || '_' === $character || ord($character) >= 0x80 );
+    }
+
     public static function isCssWhitespace(string $character): bool
     {
         return " " === $character || "\t" === $character || "\n" === $character || "\r" === $character || "\f" === $character;

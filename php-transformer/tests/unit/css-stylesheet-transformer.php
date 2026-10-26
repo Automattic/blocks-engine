@@ -84,7 +84,7 @@ foreach (array(str_repeat('ordinary', 4096), "caf\xc3\xa9\0tail") as $run) {
     $transformer->visitStyleRules('@media screen{' . $css . '}', static function (string $selector, string $declarations, array $ancestors) use (&$visited): void {
         $visited[] = array($selector, $declarations, $ancestors);
     });
-    $assert(array(array($prelude, $body, array('@media screen'))) === $visited, 'long runs retain complete nested visitor payloads');
+    $assert(array(array(' .before[data-label="' . $run . ',}\"x"]', $body, array('@media screen'))) === $visited, 'long runs retain complete nested visitor payloads, the prelude without its comment');
     foreach (array('/*' . $run, '.before{content:"' . $run, '.before{--x:' . $run . '\\', '.before{--x:(' . $run . ';}') as $malformed) {
         $assert($malformed === $transformer->transform($malformed, $rename), 'malformed long-run input stays byte-identical');
     }

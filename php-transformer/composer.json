@@ -491,6 +491,7 @@
       "php tests/unit/serialized-block-whitespace.php",
       "php tests/unit/stylesheet-selector-budget.php",
       "php tests/unit/admin-bar-accommodation.php",
+      "php tests/unit/admin-bar-comment-selectors.php",
       "php tests/contract/template-part-sticky-containment.php",
       "php tests/unit/editor-canvas-body-background.php",
       "php tests/unit/author-cascade-layer-order.php",
