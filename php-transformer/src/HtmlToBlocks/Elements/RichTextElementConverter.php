@@ -298,7 +298,9 @@ final class RichTextElementConverter implements ElementConverter
             }
         }
 
-        if ( '' === trim($this->context->stripAllTags($content)) && ! $this->context->containsNativeSvgImageObject($content) ) {
+        if ( '' === trim($this->context->stripAllTags($content))
+            && ! SourceDom::carriesOnlyRichTextInlineImages($element)
+            && ! $this->context->containsNativeSvgImageObject($content) ) {
             // An empty paragraph that scripts address by selector must keep a
             // block at that position, otherwise the runtime target disappears.
             $fragmentId = SourceDom::namedFragmentTargetId($element);
