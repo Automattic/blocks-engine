@@ -247,6 +247,41 @@ $assert(array() !== $afterAuthor, 'The ordering fixture produces after-author en
 foreach ($afterAuthor as $row) $assert(1 === substr_count($orderedEmitted, 'data-printed-handle="' . $row['handle'] . '"') && strpos($orderedEmitted, 'data-printed-handle="' . $row['handle'] . '"') > strpos($orderedEmitted, ' id="author"'), 'After-author support ' . $row['handle'] . ' prints once, after the replayed head stylesheet.');
 $assert(array() === array_filter($enqueuedStyles, static fn(string $src): bool => str_contains($src, 'inline')), 'The replayed head stylesheet has no remaining WordPress enqueue.');
 
+// #3508: projected companions must retain their positions between replayed links.
+$companions = array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<!doctype html><html><head><link id="a" rel="stylesheet" href="a.css"><meta name="fixture" content="order"><link id="b" rel="stylesheet" href="b.css"></head><body><main><p class="sample">Sample</p></main></body></html>',
+    'other.html' => '<!doctype html><html><head><link id="a" rel="stylesheet" href="a.css"><link id="b" rel="stylesheet" href="b.css"></head><body><main><p><span class="sample">Sample</span></p></main></body></html>',
+    'a.css' => '.sample{color:red}',
+    'b.css' => '.sample{color:blue}',
+));
+$plan = (new ArtifactCompiler())->compile($companions)->toArray()['source_reports']['wordpress_site_plan'];
+// The secondary route's span lowering produces page-specific projections;
+// select its identity through the harness's first-page get_post_meta() stub.
+$plan['pages'] = array_reverse($plan['pages']);
+$sequence = WordPressSitePlan::documentStylesheets($plan, 'other.html');
+$authorSequence = array_values(array_filter($sequence, static fn(array $row): bool => 1 === preg_match('~/[ab](?:\\.page-[^.]+)?\\.css$~', $row['target_path'])));
+$assert(4 === count($authorSequence), 'The two-source fixture produces two source stylesheets and two projected companions.');
+$assert(1 === preg_match('~/a\\.css$~', $authorSequence[0]['target_path']) && str_contains($authorSequence[1]['target_path'], '/a.page-') && 1 === preg_match('~/b\\.css$~', $authorSequence[2]['target_path']) && str_contains($authorSequence[3]['target_path'], '/b.page-'), 'The enqueue order is a.css, a.page.css, b.css, b.page.css.');
+$hooks = array(); $enqueuedStyles = array();
+add_action('wp_head', 'wp_print_styles', 8);
+eval(substr(array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'], 5));
+foreach ($hooks['template_include'] as $callbacks) foreach ($callbacks as $callback) $callback('template-canvas.php');
+ksort($hooks['wp_enqueue_scripts']);
+foreach ($hooks['wp_enqueue_scripts'] as $callbacks) foreach ($callbacks as $callback) $callback();
+ob_start();
+ksort($hooks['wp_head']);
+foreach ($hooks['wp_head'] as $callbacks) foreach ($callbacks as $callback) $callback();
+$companionHead = ob_get_clean();
+$positions = array();
+foreach ($authorSequence as $index => $stylesheet) {
+    $needle = 0 === $index % 2 ? 'href="https://example.test/theme/' . $stylesheet['target_path'] . '"' : 'data-printed-handle="' . $stylesheet['handle'] . '"';
+    $assert(1 === substr_count($companionHead, $needle), 'Each source stylesheet and companion prints exactly once.');
+    $positions[] = strpos($companionHead, $needle);
+}
+$sortedPositions = $positions;
+sort($sortedPositions);
+$assert($positions === $sortedPositions, 'Rendered stylesheet order is a.css, a.page.css, b.css, b.page.css.');
+
 $repeated = $artifact;
 $repeated['files']['index.html'] = str_replace('</body>', '<script src="check.js"></script></body>', $repeated['files']['index.html']);
 $repeatedResult = (new ArtifactCompiler())->compile($repeated)->toArray();
