@@ -98,7 +98,12 @@ final class SearchBlockConversionContext
     /** @return array<string, string> */
     public function presentationDeclarations(DOMElement $element): array
     {
-        return $this->presentationResolver->presentationDeclarations($element);
+        // Search replaces leaf controls, including elements below the normal
+        // high-value presentation boundary. Keep their matched source rules.
+        return array_merge(
+            $this->presentationResolver->structuralPresentationDeclarations($element),
+            $this->presentationResolver->presentationDeclarations($element)
+        );
     }
 
     /**
