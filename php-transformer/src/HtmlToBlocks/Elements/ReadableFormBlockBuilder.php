@@ -42,8 +42,8 @@ final class ReadableFormBlockBuilder
     /** @var array<string, true> Node paths of the labels that name a control. */
     private array $controlLabels = array();
 
-    /** @var array<string, true> Node paths of the elements some control's field box holds. */
-    private array $fieldBoxElements = array();
+    /** @var array<int, list<DOMElement>> Each control's field box frames the tree has not shelled yet. */
+    private array $fieldBoxes = array();
 
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
@@ -92,7 +92,7 @@ final class ReadableFormBlockBuilder
 
         $this->controlIndices = array();
         $this->controlLabels = array();
-        $this->fieldBoxElements = array();
+        $this->fieldBoxes = array();
         $this->form = $form;
         foreach ( FormControlClassifier::controlElements($form) as $index => $control ) {
             $this->controlIndices[(string) $control->getNodePath()] = $index;
@@ -246,9 +246,10 @@ final class ReadableFormBlockBuilder
             }
             // A one-control container can own paint, inherited variables and sizing.
             // Text-bearing labels are already represented by the authored control.
-            // A container in the control's field box is already its box's shell.
-            $inFieldBox = 1 === count($inner) && array() === array_filter($elements, fn (DOMElement $source): bool => ! isset($this->fieldBoxElements[(string) $source->getNodePath()]));
-            if ( ! $inFieldBox && ( 2 <= count($inner) || $ownsShell ) ) {
+            if ( 2 <= count($inner) || $ownsShell ) {
+                if ( 1 === count($inner) ) {
+                    $inner = array($this->withoutShelledFieldBox($inner[0], $elements));
+                }
                 $shell = ($this->layoutShellBlockForElements)($elements, $inner, $element);
                 foreach ($elements as $source) {
                     if ('true' === strtolower($source->getAttribute('data-blocks-engine-choice-group'))) {
@@ -321,14 +322,44 @@ final class ReadableFormBlockBuilder
             'label' => null !== $label ? $this->controlBlockConverter->labelMarkup($label) : '',
         );
         $box = $this->fieldBox($control, $label);
+        $this->fieldBoxes[$readableControlBlock['form_control_index']] = $box;
         $shell = array() === $box ? null : ($this->fieldBoxShell)($box);
         if (null !== $shell) {
-            foreach ($box as $source) {
-                $this->fieldBoxElements[(string) $source->getNodePath()] = true;
-            }
             $readableControlBlock['_form_field_box'] = $shell;
         }
         return $readableControlBlock;
+    }
+
+    /**
+     * A wrapper the tree shells around one control is already part of that
+     * control's field box, so the box the finding encloses it in keeps only
+     * the frames still unshelled.
+     *
+     * @param array<string, mixed> $block The shelled block, or a shell around it.
+     * @param list<DOMElement>     $elements The wrapper chain the tree shells.
+     * @return array<string, mixed>
+     */
+    private function withoutShelledFieldBox(array $block, array $elements): array
+    {
+        if ( ! isset($block['form_control_index']) ) {
+            $inner = $block['innerBlocks'] ?? array();
+            if ( 1 === count($inner) && str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell') ) {
+                $block['innerBlocks'] = array($this->withoutShelledFieldBox($inner[0], $elements));
+            }
+            return $block;
+        }
+        $index = $block['form_control_index'];
+        $remaining = array_values(array_filter($this->fieldBoxes[$index] ?? array(), static fn (DOMElement $frame): bool => array() === array_filter($elements, static fn (DOMElement $shelled): bool => $shelled->isSameNode($frame))));
+        if ( count($remaining) === count($this->fieldBoxes[$index] ?? array()) ) {
+            return $block;
+        }
+        $this->fieldBoxes[$index] = $remaining;
+        unset($block['_form_field_box']);
+        $shell = array() === $remaining ? null : ($this->fieldBoxShell)($remaining);
+        if ( null !== $shell ) {
+            $block['_form_field_box'] = $shell;
+        }
+        return $block;
     }
 
     /**
