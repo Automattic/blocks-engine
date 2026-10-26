@@ -50,7 +50,7 @@ $assert(1 === count($live), 'The shared header carries the one live rich-text ma
 
 $stylesheets = array_values(array_filter($plan['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null)));
 $pageSheets = array_values(array_filter($stylesheets, static fn (array $asset): bool => !str_contains((string) $asset['target_path'], 'shared-chrome-') && str_starts_with(basename((string) $asset['target_path']), 'site.')));
-$assert(2 === count($pageSheets), 'Every route shares one projection of the site stylesheet, for visitors and the editor.');
+$assert(1 === count($pageSheets), 'Every route shares one projection of the site stylesheet, for visitors and the editor.');
 foreach ($stylesheets as $asset) {
     $dead = array_diff($markers((string) $asset['content']), $live);
     $assert(array() === $dead, $asset['target_path'] . ' names no rich-text marker absent from the emitted plan: ' . implode(', ', $dead));

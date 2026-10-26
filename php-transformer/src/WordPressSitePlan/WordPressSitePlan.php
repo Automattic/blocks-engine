@@ -640,9 +640,6 @@ PHP;
             $asset = self::withRewrittenTextContent($asset, $content);
         }
         unset($asset);
-        $editorSplit = self::splitEditorCanvasStylesheets($assets);
-        $assets = $editorSplit['assets'];
-        $tokens = array_merge($tokens, $this->tokens($editorSplit['added']));
         // Asset payloads are the last canonicalization pass, so the placeholder
         // backing recovered media is declared once every reference is known.
         $assetWrites = $this->assetWrites($assets, $references);
@@ -5042,7 +5039,7 @@ PHP;
             if (!StylesheetActivation::active($asset) || 'frontend' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
             $partSlugs = array();
             foreach ($partSlugsBySource[(string) ($enqueue['scope']['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
-            $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'handle' => $enqueue['handle'], 'content_hash' => $asset['content_hash'], 'scopes' => array($enqueue['scope']), 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? $enqueue['media'], 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both') && !isset($asset['frontend_counterpart']), 'fallback' => empty($enqueue['fallback']) ? null : true), static fn(mixed $value): bool => null !== $value);
+            $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'handle' => $enqueue['handle'], 'content_hash' => $asset['content_hash'], 'scopes' => array($enqueue['scope']), 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? $enqueue['media'], 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both'), 'fallback' => empty($enqueue['fallback']) ? null : true), static fn(mixed $value): bool => null !== $value);
         }
         if (array() !== $editorStyles) {
             $lines[] = '$blocks_engine_presentation_styles = ' . var_export($editorStyles, true) . ';';
@@ -5318,18 +5315,6 @@ PHP;
      */
     private static function stylesheetEnqueues(array $assets, array $pages): array
     {
-        // An editor copy of a split stylesheet takes its counterpart's place.
-        $copies = array();
-        foreach ($assets as $asset) if (is_string($asset['frontend_counterpart'] ?? null)) $copies[$asset['frontend_counterpart']][] = $asset;
-        if (array() !== $copies) {
-            $ordered = array();
-            foreach ($assets as $asset) {
-                if (is_string($asset['frontend_counterpart'] ?? null)) continue;
-                $ordered[] = $asset;
-                foreach ($copies[(string) ($asset['target_path'] ?? '')] ?? array() as $copy) $ordered[] = $copy;
-            }
-            $assets = $ordered;
-        }
         $pagesBySource = array_column($pages, null, 'source_path');
         $assetsBySource = array_column($assets, null, 'source_path');
         $before = $after = $instances = array();
@@ -5428,134 +5413,6 @@ PHP;
         }
         return $importLoaded;
     }
-    /**
-     * Give visitors a copy of each stylesheet without its editor-canvas rules.
-     *
-     * Projection writes editor variants of author rules beside the frontend
-     * rules (`:where(:root .editor-styles-wrapper) …`). They can only match
-     * inside the block editor, yet a stylesheet that serves both contexts
-     * sends them to every visitor. Such a stylesheet now serves the frontend
-     * without them, and a sibling copy with every rule, in the same directory
-     * so relative references resolve alike, serves the editor. Each context
-     * keeps its own cascade exactly: the frontend loses only rules that match
-     * nothing there, and the editor loads the unchanged stylesheet in the
-     * same enqueue position.
-     *
-     * @param array<int,array<string,mixed>> $assets
-     * @return array{assets:list<array<string,mixed>>,added:list<array<string,mixed>>}
-     */
-    private static function splitEditorCanvasStylesheets(array $assets): array
-    {
-        $importLoaded = self::importLoadedStylesheets($assets);
-        $targets = array();
-        foreach ($assets as $asset) $targets[strtolower((string) ($asset['target_path'] ?? ''))] = true;
-        $split = array();
-        $added = array();
-        foreach ($assets as $asset) {
-            if ('css' !== ($asset['kind'] ?? null) || 'both' !== ($asset['stylesheet_target'] ?? 'both') || !is_string($asset['content'] ?? null)
-                || isset($asset['payload_reference']) || !StylesheetActivation::active($asset) || isset($importLoaded[(string) $asset['target_path']]) || !str_contains($asset['content'], 'editor-styles-wrapper')) {
-                $split[] = $asset;
-                continue;
-            }
-            $frontend = self::withoutEditorCanvasRules($asset['content']);
-            $editorTarget = preg_replace('/\.css$/i', '', (string) $asset['target_path']) . '.editor.css';
-            if ($frontend === $asset['content'] || isset($targets[strtolower($editorTarget)])) {
-                $split[] = $asset;
-                continue;
-            }
-            $editor = $asset;
-            $editor['stylesheet_target'] = 'editor';
-            // The editor loads this copy wherever it loaded the shared stylesheet.
-            $editor['frontend_counterpart'] = (string) $asset['target_path'];
-            $editor['target_path'] = $editorTarget;
-            $editor['token'] = 'asset-' . substr(hash('sha256', $editorTarget), 0, 16);
-            // A distinct declared source keeps reference tokens one per source.
-            $editor['source_path'] = (string) $asset['source_path'] . '.editor';
-            $editor['reconciliation_identity'] = self::identity('asset', $editor['source_path'], $editorTarget);
-            // Relative url() references resolve from the stylesheet the rules came from.
-            $editor['reference_origin'] = (string) ($asset['reference_origin'] ?? $asset['source_path']);
-            $targets[strtolower($editorTarget)] = true;
-            $asset['stylesheet_target'] = 'frontend';
-            $asset = self::withRewrittenTextContent($asset, $frontend);
-            $split[] = $asset;
-            $added[] = $editor;
-        }
-        // Copies follow every existing asset so asset indexes stay stable;
-        // stylesheetEnqueues() replays each one in its counterpart's position.
-        return array('assets' => array_merge($split, $added), 'added' => $added);
-    }
-
-    /** A stylesheet without the style rules and selectors that only the editor canvas can match. */
-    private static function withoutEditorCanvasRules(string $css): string
-    {
-        $stripped = (new CssStylesheetTransformer())->transformStyleRules($css, static function (string $prelude, string $body): string {
-            $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-            if (null === $selectors) return $prelude . '{' . $body . '}';
-            $kept = array_values(array_filter($selectors, static fn (string $selector): bool => !self::selectorRequiresEditorCanvas($selector)));
-            if (count($kept) === count($selectors)) return $prelude . '{' . $body . '}';
-            return array() === $kept ? '' : implode(',', array_map('trim', $kept)) . '{' . $body . '}';
-        });
-        // Conditional groups emptied above apply nothing. An empty `@layer`
-        // block still fixes layer order, so it stays.
-        do {
-            $before = $stripped;
-            $stripped = preg_replace('/@(?:media|supports|container)\b[^{};]*\{\s*\}/i', '', $stripped) ?? $before;
-        } while ($stripped !== $before);
-        return $stripped;
-    }
-
-    /**
-     * Whether every element the selector matches lies in, or is, the block
-     * editor's `.editor-styles-wrapper`. The class must be required by the
-     * selector itself, or by every argument of a `:where()`, `:is()` or
-     * `:has()` it requires; under `:not()` or any other function it proves
-     * nothing.
-     */
-    private static function selectorRequiresEditorCanvas(string $selector): bool
-    {
-        $length = strlen($selector);
-        for ($i = 0; $i < $length; ++$i) {
-            $char = $selector[$i];
-            if ('\\' === $char) {
-                ++$i;
-                continue;
-            }
-            if ('"' === $char || "'" === $char) {
-                $close = strpos($selector, $char, $i + 1);
-                if (false === $close) return false;
-                $i = $close;
-                continue;
-            }
-            if ('[' === $char) {
-                $close = strpos($selector, ']', $i);
-                if (false === $close) return false;
-                $i = $close;
-                continue;
-            }
-            if ('.' === $char && 0 === strncmp(substr($selector, $i + 1), 'editor-styles-wrapper', 21)) {
-                $next = $selector[$i + 22] ?? '';
-                if ('' === $next || 1 !== preg_match('/[A-Za-z0-9_\x80-\xff\\-]/', $next)) return true;
-                continue;
-            }
-            if ('(' === $char) {
-                $depth = 1;
-                for ($end = $i + 1; $end < $length && $depth > 0; ++$end) {
-                    if ('\\' === $selector[$end]) { ++$end; continue; }
-                    if ('(' === $selector[$end]) ++$depth;
-                    elseif (')' === $selector[$end]) --$depth;
-                }
-                if (0 !== $depth) return false;
-                $function = 1 === preg_match('/:(where|is|has|matches|-webkit-any|-moz-any)$/i', substr($selector, max(0, $i - 12), $i - max(0, $i - 12))) ? true : false;
-                if ($function) {
-                    $arguments = CssStylesheetTransformer::splitSelectorList(substr($selector, $i + 1, $end - 2 - $i));
-                    if (null !== $arguments && array() !== $arguments && array() === array_filter($arguments, static fn (string $argument): bool => !self::selectorRequiresEditorCanvas(ltrim($argument, " \t\n\r\f>+~")))) return true;
-                }
-                $i = $end - 1;
-            }
-        }
-        return false;
-    }
-
     /**
      * The post the current request renders as a document: the queried post on
      * a singular view. A provider that renders an imported page's design on

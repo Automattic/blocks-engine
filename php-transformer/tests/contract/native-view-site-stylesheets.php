@@ -121,7 +121,7 @@ $extraEditorScopes = array();
 foreach ($editorStyles as $style) {
     $target = (string) ($style['target_path'] ?? '');
     $scope = $style['scopes'][0]['kind'] . (isset($style['scopes'][0]['source_path']) ? ':' . $style['scopes'][0]['source_path'] : '') . (! empty($style['fallback']) ? ':fallback' : '');
-    if (str_ends_with($target, '/site.css') || str_ends_with($target, '/site.editor.css')) $siteEditorScopes[] = $scope;
+    if (str_ends_with($target, '/site.css')) $siteEditorScopes[] = $scope;
     elseif ($target === $extraTarget) $extraEditorScopes[] = $scope;
 }
 $assert(in_array('page:index.html', $siteEditorScopes, true) && in_array('page:about.html', $siteEditorScopes, true), 'Route canvases still match the site-wide stylesheet by their own document: ' . json_encode($siteEditorScopes));
