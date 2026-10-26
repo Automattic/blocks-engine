@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -845,12 +846,25 @@ final class FormPresentationGraphBuilder
             return;
         }
         $matched = $this->matched($wrapper, $rules);
+        $layoutFacts = array_intersect_key($matched['base'], array_flip(array( 'display', 'flex-direction' )));
+        $layoutStyles = $this->styles($layoutFacts, $wrapper, null, $customPropertyRules);
+        $display = CssValueInspector::comparable($layoutStyles['display'] ?? '');
+        $direction = CssValueInspector::comparable($layoutStyles['flex_direction'] ?? 'row');
+        // Only a grid row gap or a column flex gap spaces the label above its
+        // control; a row flex gap is inline spacing and block flow has no gap.
+        $stacksBlockAxis = in_array($display, array( 'grid', 'inline-grid' ), true)
+            || ( in_array($display, array( 'flex', 'inline-flex' ), true) && in_array($direction, array( 'column', 'column-reverse' ), true) );
+        if ( ! $stacksBlockAxis ) {
+            return;
+        }
         $gapFacts = array_intersect_key($matched['base'], array_flip(array( 'gap' )));
         $gapStyles = $this->styles($gapFacts, $wrapper, null, $customPropertyRules);
         $gap = $gapStyles['gap'] ?? null;
         if ( ! is_string($gap) || '' === trim($gap) ) {
             return;
         }
+        // The first gap component is the row gap; preserve whitespace in calc().
+        $gap = CssValueSplitter::splitTopLevelWhitespace($gap)[0] ?? '';
         $gap = preg_replace('/(?<![0-9])\.(\d+)/', '0.$1', $gap) ?? $gap;
         $facts = array();
         foreach ( $gapFacts as $fact ) {
