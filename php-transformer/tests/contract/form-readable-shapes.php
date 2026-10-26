@@ -24,20 +24,30 @@ $walk = static function (array $blocks) use (&$walk, &$indices, $assert): void {
 $walk($form['readable_blocks']);
 sort($indices);
 $assert($indices === range(0, count($form['controls']) - 1), 'Every control has exactly one metadata index.');
-$legends = [];
-$legendWalk = static function (array $blocks) use (&$legendWalk, &$legends): void {
+// Each control and each fieldset is one field node owning its box and label.
+$fields = [];
+$fieldWalk = static function (array $blocks) use (&$fieldWalk, &$fields, $assert): void {
     foreach ($blocks as $block) {
-        if ('core/group' === ($block['blockName'] ?? '')) {
-            foreach ($block['innerBlocks'] ?? [] as $child) {
-                if ('core/paragraph' === ($child['blockName'] ?? '') && in_array($child['attrs']['content'] ?? '', ['Topic','Booking','Days'], true)) $legends[] = $child;
-            }
+        if (isset($block['form_field'])) $fields[] = $block;
+        if ('group' === ($block['form_field']['kind'] ?? null)) {
+            foreach ($block['innerBlocks'] ?? [] as $child) $assert(!str_contains(json_encode($child), '"' . strip_tags($block['form_field']['label']) . '"'), 'A legend is stated once, as its group label.');
         }
-        $legendWalk($block['innerBlocks'] ?? []);
+        $fieldWalk($block['innerBlocks'] ?? []);
     }
 };
-$legendWalk($form['readable_blocks']);
-$assert(3 === count($legends), 'Each fieldset owns a legend paragraph at its source position.');
-foreach ($legends as $legend) $assert('14px' === ($legend['attrs']['style']['typography']['fontSize'] ?? ''), 'Legend presentation survives.');
+$fieldWalk($form['readable_blocks']);
+$byLabel = [];
+foreach ($fields as $field) $byLabel[strip_tags($field['form_field']['label'])] = $field;
+foreach (['Topic', 'Booking', 'Days'] as $legend) {
+    $assert('group' === ($byLabel[$legend]['form_field']['kind'] ?? null) && 'fieldset' === $byLabel[$legend]['form_field']['box'][0]['tagName'], $legend . ' fieldset is a group node labelled by its legend.');
+    $assert('14px' === ($byLabel[$legend]['form_field']['label_attributes']['style']['typography']['fontSize'] ?? ''), 'Legend presentation survives on the group label.');
+}
+foreach (['Name' => '240px', 'Location' => '200px', 'Guests' => '120px'] as $label => $basis) {
+    $box = $byLabel[$label]['form_field']['box'] ?? [];
+    $assert(isset($byLabel[$label]['form_control_index']) && 'label' === ($box[0]['tagName'] ?? '') && str_contains($box[0]['attributes']['style'] ?? '', 'flex:1 1 ' . $basis), $label . ' field node keeps its label box presentation.');
+}
+$consent = $byLabel['I agree to the privacy policy.'] ?? [];
+$assert(str_contains($consent['form_field']['label'] ?? '', '<a href="/privacy/">privacy policy</a>') && str_contains($consent['form_field']['box'][0]['attributes']['style'] ?? '', 'align-items:flex-start'), 'Consent field label keeps its link and box.');
 $tree = json_encode($form['readable_blocks'], JSON_UNESCAPED_SLASHES);
 foreach (['Topic','Booking','Days','Name','Email','Phone','Location','Date','Guests','Message','I agree to the','privacy policy','/privacy/'] as $text) {
     $assert(str_contains($tree, $text), 'Tree preserves ' . $text);
@@ -89,4 +99,10 @@ $indices = [];
 $walk($form['readable_blocks']);
 sort($indices);
 $assert($indices === range(0, count($form['controls']) - 1), 'Captured group children retain control identity.');
+// A fieldset framing a captured group is that group's node, labelled by its legend.
+$fieldsetHtml = str_replace(['<form><div id="choices"', '</div><label>'], ['<form><fieldset><legend>Pick <em>one</em></legend><div id="choices"', '</div></fieldset><label>'], $capturedHtml);
+$form = null;
+$find((new ArtifactCompiler())->compile(['entrypoint'=>'index.html','files'=>['index.html'=>$fieldsetHtml]])->toArray());
+$group = $form['readable_blocks'][0]['innerBlocks'][0] ?? [];
+$assert(0 === ($group['form_choice_group_index'] ?? null) && 'Pick <em>one</em>' === ($group['form_field']['label'] ?? '') && !str_contains(json_encode($group['innerBlocks']), 'form_choice_group_index'), 'Fieldset is the choice group node with its legend as label.');
 echo "Readable form shapes contract passed.\n";

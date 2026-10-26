@@ -109,6 +109,7 @@ $builder = new ReadableFormBlockBuilder(
     $presentationAttributes,
     $createBlock,
     $layoutShellBlockForElements,
+    static fn (DOMElement $element): array => array('tagName' => strtolower($element->tagName), 'attributes' => array('style' => $element->getAttribute('style'))),
     static fn (): array => array(
         array(
             'path' => 'style.css',
