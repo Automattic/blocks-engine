@@ -47,6 +47,9 @@ final class SourceDom
      */
     public const MAX_SVG_DATA_IMAGE_URL_BYTES = 1048576;
 
+    /** HTML void elements: never an empty inline box with CSS geometry. */
+    private const VOID_TAGS = array( 'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr' );
+
     public static function innerHtml(DOMElement $element): string
     {
         $element = self::canonicalizedSerializationClone($element);
@@ -130,6 +133,11 @@ final class SourceDom
      * Applies to the element itself and to each descendant container;
      * inline-layout content keeps its whitespace.
      *
+     * Text that sits next to an empty inline box (a CSS-painted dot or rule
+     * between two words) keeps one space on that side: the box is lowered to
+     * an inline RichText carrier inside one paragraph, so dropping the space
+     * would glue the words to it ("Paws<mark></mark>Whiskers").
+     *
      * @param callable(DOMElement): bool $blockifiesChildren
      */
     public static function withoutBlockifiedBoundaryWhitespace(DOMElement $element, callable $blockifiesChildren): DOMElement
@@ -146,11 +154,14 @@ final class SourceDom
                     continue;
                 }
                 $text = $child->data;
+                $keepsCarrierSpace = '' !== trim($text, " \t\n\r\f");
                 if ( ! self::adjacentTextRun($child, 'previousSibling') ) {
-                    $text = ltrim($text, " \t\n\r\f");
+                    $trimmed = ltrim($text, " \t\n\r\f");
+                    $text = $keepsCarrierSpace && $trimmed !== $text && self::adjacentEmptyInlineBox($child, 'previousSibling') ? ' ' . $trimmed : $trimmed;
                 }
                 if ( ! self::adjacentTextRun($child, 'nextSibling') ) {
-                    $text = rtrim($text, " \t\n\r\f");
+                    $trimmed = rtrim($text, " \t\n\r\f");
+                    $text = $keepsCarrierSpace && $trimmed !== $text && self::adjacentEmptyInlineBox($child, 'nextSibling') ? $trimmed . ' ' : $trimmed;
                 }
                 if ( $text !== $child->data ) {
                     $trims[$position] = $text;
@@ -179,6 +190,30 @@ final class SourceDom
             if ( XML_COMMENT_NODE !== $node->nodeType ) {
                 return $node instanceof DOMText;
             }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the nearest non-comment sibling is an empty, non-void element:
+     * an inline box with no text that only CSS sizes and paints.
+     */
+    private static function adjacentEmptyInlineBox(DOMText $text, string $direction): bool
+    {
+        for ( $node = $text->{$direction}; $node instanceof DOMNode; $node = $node->{$direction} ) {
+            if ( XML_COMMENT_NODE === $node->nodeType ) {
+                continue;
+            }
+            if ( ! $node instanceof DOMElement || in_array(strtolower($node->tagName), self::VOID_TAGS, true) ) {
+                return false;
+            }
+            foreach ( $node->childNodes as $grandchild ) {
+                if ( XML_COMMENT_NODE !== $grandchild->nodeType && ! ( $grandchild instanceof DOMText && '' === trim($grandchild->data, " \t\n\r\f") ) ) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         return false;
