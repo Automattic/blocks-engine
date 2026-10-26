@@ -508,7 +508,6 @@
       "php tests/unit/author-selector-semantics.php",
       "php tests/unit/pseudo-element-attribute-hooks.php",
       "php tests/unit/author-shell-child-combinator-editor-variants.php",
-      "php tests/unit/editor-shell-boundary-projection-size.php",
       "php tests/unit/editor-generic-inner-blocks-layer.php",
       "php tests/unit/engine-support-css.php",
       "php tests/unit/engine-support-css-asset.php",

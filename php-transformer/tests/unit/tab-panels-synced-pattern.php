@@ -86,7 +86,7 @@ foreach ($panelMarkup as $index => $panel) {
 }
 $css = implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($shared['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
 $assert(str_contains($css, '.card>.shared-aside{'), 'the authored panel-ancestor rule still reaches the in-place pattern content on the front end');
-$assert(str_contains($css, ',.' . SyncedPatternProjection::EDITOR_CONTAINER_CLASS . ')>.shared-aside'), 'the editor restatement tolerates the core/block wrapper', $css);
+$assert(!str_contains($css, '&>:where('), 'shell selectors need no editor layer restatement', $css);
 $bootstrap = implode('', array_map(static fn(array $write): string => (string) ($write['payload']['data'] ?? ''), array_filter($shared['writes'] ?? array(), static fn(array $write): bool => 'functions.php' === ($write['target_path'] ?? null))));
 $assert(str_contains($bootstrap, SyncedPatternProjection::EDITOR_CONTAINER_CSS), 'the editor canvas lets the core/block wrapper take no box');
 

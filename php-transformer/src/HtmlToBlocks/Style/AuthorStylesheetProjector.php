@@ -187,7 +187,7 @@ final class AuthorStylesheetProjector
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
 
-            return $this->withEditorProjectionRules($css, $prelude, $body);
+            return $this->withEditorProjectionRules($css, $prelude, $body, $context);
         }
 
         $inner = array_diff_key($declarations, $margins);
@@ -202,16 +202,16 @@ final class AuthorStylesheetProjector
             . $editorDocumentRootRule
             . $navigationItemSpaceRule;
 
-        return $this->withEditorProjectionRules($css, $prelude, $body);
+        return $this->withEditorProjectionRules($css, $prelude, $body, $context);
     }
 
-    private function withEditorProjectionRules(string $css, string $prelude, string $body): string
+    private function withEditorProjectionRules(string $css, string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
         $css .= $this->visuallyHiddenSourceSelectorRule($prelude, $css, $body);
 
         $css .= $this->editorOverrideRules($css);
 
-        return $css . $this->editorShellChildCombinatorVariants($css) . $this->editorEmptyRichTextVariants($css);
+        return $css . $this->editorShellChildCombinatorVariants($css, $context->emittedMarkup) . $this->editorEmptyRichTextVariants($css);
     }
 
     /**
@@ -333,23 +333,20 @@ final class AuthorStylesheetProjector
     }
 
     /**
-     * The editor canvas renders a layout shell's inner blocks inside one
-     * Gutenberg-owned layer that the saved front-end markup does not have, so
-     * an authored child combinator across it stops matching there. Emit one
-     * editor-scoped rule per selector that tolerates the layer at each
-     * boundary (EditorShellBoundary); it never matches the front end.
+     * Restate only child steps crossing a known third-party editor layer in
+     * the emitted markup. Layout shells need no editor selector projection.
      */
-    private function editorShellChildCombinatorVariants(string $css): string
+    private function editorShellChildCombinatorVariants(string $css, string $markup): string
     {
-        if ( ! str_contains($css, '>') ) {
+        if ( ! str_contains($css, '>') || ! str_contains($markup, '<!-- wp:jetpack/contact-form') ) {
             return '';
         }
         return ( new CssStylesheetTransformer() )->transformStyleRules(
             $css,
-            static function (string $prelude, string $body): string {
+            static function (string $prelude, string $body) use ($markup): string {
                 $rules = '';
                 foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                    $rules .= EditorShellBoundary::css(EditorShellBoundary::rule($selector, $body));
+                    $rules .= EditorShellBoundary::css(EditorShellBoundary::rule($selector, $body, markup: $markup));
                 }
                 return $rules;
             }

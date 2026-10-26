@@ -41,14 +41,8 @@ foreach ( $result['assets'] ?? array() as $asset ) {
 $assert(str_contains($markup, 'blocks-engine-empty-visual-group'), 'the painted layer lowers to an empty visual group', $markup);
 $assert(str_contains($markup, 'wp:ssi-imported-site/layout-shell') || str_contains($markup, 'layout-shell'), 'the painted layer sits inside a layout shell', $markup);
 
-$layer = EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS;
 $transport = '>div:not([class]):not([id]):not([style]):has(>.' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder){display:contents}';
-$flattensUnder = static function (string $parent) use ($editorCss, $transport): bool {
-    return 1 === preg_match('/:where\(([^)]*)\)' . preg_quote($transport, '/') . '/', $editorCss, $match)
-        && in_array($parent, array_map('trim', explode(',', $match[1])), true);
-};
-$assert($flattensUnder('.block-editor-block-list__block'), 'the transport under a block element is flattened', $editorCss);
-$assert($flattensUnder('.' . $layer), 'the transport under a layout shell inner-blocks layer is flattened', $editorCss);
+$assert(str_contains($editorCss, '.block-editor-block-list__block' . $transport), 'the transport under a block element is flattened', $editorCss);
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "empty visual group shell transport FAILED: {$passes} passed, {$failures} failed\n");

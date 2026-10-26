@@ -10,14 +10,13 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispa
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LinkWrapperPropagator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
-use Automattic\BlocksEngine\PhpTransformer\Support\EditorInnerBlocksLayer;
 
 /**
  * Marker-class engine-support CSS gated on serialized block markup.
  *
  * Extracted from {@see HtmlCompilation::materializeAuthorStylesheet()}. No
- * HtmlCompilation `$this` — only public constants and the layout-shell block
- * name passed in as a string. The after-author methods tag their own
+ * HtmlCompilation `$this` — only marker classes in emitted markup. The
+ * after-author methods tag their own
  * {@see CascadeRule} layer, per {@see CascadeLayer}; the compiler only
  * collects and orders what it is handed, it does not decide where a
  * contribution belongs.
@@ -44,12 +43,10 @@ final class EngineSupportCss
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
-    public const LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS = EditorInnerBlocksLayer::LAYOUT_SHELL_CLASS;
-
     /**
      * @return list<string>
      */
-    public function beforeAuthorCss(string $serializedBlocks, string $layoutShellBlockName): array
+    public function beforeAuthorCss(string $serializedBlocks): array
     {
         $parts = array();
         if ( str_contains($serializedBlocks, 'wp-block-accordion-panel') ) {
@@ -209,15 +206,6 @@ final class EngineSupportCss
                 . ':root :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>.block-editor-inner-blocks>.block-editor-block-list__layout{display:contents}'
                 // Empty Group placeholders have an additional unadorned editor wrapper.
                 . ':root .editor-styles-wrapper :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>div:not([class]):not([id]):not([style]):has(>[data-block].wp-block-group__placeholder){display:contents}';
-        }
-        if ( str_contains($serializedBlocks, '<!-- wp:' . $layoutShellBlockName) ) {
-            // A layout shell preserves the source wrapper chain. Gutenberg's
-            // InnerBlocks wrappers live below that chain, not directly below the
-            // shell root. Target the explicit owning-layer marker so their boxes
-            // cannot become an absolute-position containing block or change the
-            // authored sibling topology. Do not flatten nested native blocks.
-            $layoutShellClass = 'wp-block-' . str_replace('/', '-', $layoutShellBlockName);
-            $parts[] = ':root :where(.' . $layoutShellClass . ') .' . self::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . '{display:contents}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             $parts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p){margin-top:0;margin-bottom:0}';

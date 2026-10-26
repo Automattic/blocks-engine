@@ -208,7 +208,7 @@ final class NavigationStyleProjector
                 // percentage height resolves against. Inside a layout shell the
                 // transport sits under the shell's inner-blocks layer rather
                 // than directly under a block element.
-                . ':root .editor-styles-wrapper :where(.block-editor-block-list__block,.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ')>div:not([class]):not([id]):not([style]):has(>.' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder){display:contents}';
+                . ':root .editor-styles-wrapper .block-editor-block-list__block>div:not([class]):not([id]):not([style]):has(>.' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder){display:contents}';
         }
         if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->context->authorStyles()->combinedCss()) ) {
             $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';
@@ -276,10 +276,6 @@ final class NavigationStyleProjector
                     $replacement = $this->projectAnchorIds($selector, $ids);
                     if ( $replacement !== $selector ) {
                         $projected[] = $replacement;
-                        $throughInnerBlocks = self::throughEditorInnerBlocks($replacement);
-                        if ( null !== $throughInnerBlocks ) {
-                            $projected[] = $throughInnerBlocks;
-                        }
                         $transportSelector = $this->editorTemplatePartTransportSelector($selector, $ids);
                         if ( null !== $transportSelector ) {
                             $transported[] = $transportSelector;
@@ -299,33 +295,6 @@ final class NavigationStyleProjector
                 return $rules;
             }
         ));
-    }
-
-    /**
-     * Restate a child combinator so it still reaches its target across the
-     * editor's inner-blocks host.
-     *
-     * A shell block renders its inner blocks inside one extra element on the
-     * canvas. That host is `display:contents`, so the child still participates
-     * in its grandparent's layout and the authored declaration is the right one
-     * to apply — but a child combinator is matched on the tree, not on the
-     * layout, so the authored `parent > child` stopped matching. Offer the same
-     * declaration through the host as an additional alternative.
-     *
-     * Only the hop into the rightmost compound is relaxed: that is the one that
-     * places the element, and widening every combinator would let an unrelated
-     * ancestor match.
-     */
-    private static function throughEditorInnerBlocks(string $selector): ?string
-    {
-        $position = strrpos($selector, '>');
-        if ( false === $position ) {
-            return null;
-        }
-
-        return substr($selector, 0, $position + 1)
-            . EditorShellBoundary::layer() . '>'
-            . substr($selector, $position + 1);
     }
 
     /**
