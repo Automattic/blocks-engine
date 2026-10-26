@@ -14,6 +14,7 @@ final class AuthorStylesheetProjectionContext
         public readonly AuthorSelectorProjectionState $selectorProjections,
         public readonly TransformationEvidenceState $evidence,
         public readonly bool $keepAuthorClassSelectors = false,
-        public readonly ProjectedSelectorBindings $bindings = new ProjectedSelectorBindings()
+        public readonly ProjectedSelectorBindings $bindings = new ProjectedSelectorBindings(),
+        public readonly string $emittedMarkup = ''
     ) {}
 }

@@ -77,12 +77,13 @@ $flatten = static function (array $rule) use ($splitList): array {
     return $selectors;
 };
 
-$rule = EditorShellBoundary::rule('.stack > * + *', 'margin-top:.75rem');
+$markup = '<!-- wp:jetpack/contact-form --><div class="stack wp-block-jetpack-contact-form"><p></p><p></p></div><!-- /wp:jetpack/contact-form -->';
+$rule = EditorShellBoundary::rule('.stack > * + *', 'margin-top:.75rem', markup: $markup);
 $assert(null !== $rule, 'an authored child combinator gets an editor restatement');
 $css = EditorShellBoundary::css($rule);
 $assert(
-    str_contains($css, ':where(.blocks-engine-layout-shell-editor-inner-blocks,.block-editor-block-list__layout:not(.block-editor-block-list__block))>'),
-    'the restated step names both the layout-shell layer and a non-block inner-blocks list',
+    str_contains($css, ':where(.jetpack-contact-form.block-editor-block-list__layout:not(.block-editor-block-list__block))>'),
+    'the restated step names only the proven third-party list layer',
     $css
 );
 $selectors = $flatten((array) $rule);
@@ -114,7 +115,7 @@ $document = new DOMDocument();
 $document->loadHTML(
     '<!DOCTYPE html><html><body><div class="editor-styles-wrapper">'
     // A form-like block: its wrapper carries `.stack`, its edit renders a list layer.
-    . '<div class="stack wp-block block-editor-block-list__block" id="form">'
+    . '<div class="stack wp-block-jetpack-contact-form wp-block block-editor-block-list__block" id="form">'
     . '<div class="jetpack-contact-form block-editor-block-list__layout">'
     . '<div class="block-editor-block-list__block" id="field-1"></div>'
     . '<div class="block-editor-block-list__block" id="field-2"></div>'
@@ -136,7 +137,7 @@ $assert(! $matches($byId('field-1')), 'the first field keeps `* + *` semantics a
 $assert(! $matches($byId('nested-2')), 'the generic arm does not reach through a list that is itself a block wrapper');
 
 // The same holds for Tailwind's `space-y-*` spelling.
-$tailwind = $flatten((array) EditorShellBoundary::rule('.stack > :not([hidden]) ~ :not([hidden])', 'margin-top:.75rem'));
+$tailwind = $flatten((array) EditorShellBoundary::rule('.stack > :not([hidden]) ~ :not([hidden])', 'margin-top:.75rem', markup: $markup));
 $tailwindMatches = static function (DOMElement $element) use ($tailwind): bool {
     foreach ( $tailwind as $selector ) {
         $result = CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector));
@@ -149,6 +150,20 @@ $tailwindMatches = static function (DOMElement $element) use ($tailwind): bool {
 };
 $assert($tailwindMatches($byId('field-2')), 'space-y spelling: a field inside a non-block list is spaced', implode(' | ', $tailwind));
 $assert(! $tailwindMatches($byId('nested-2')), 'space-y spelling: a list that is a block wrapper is not a layer');
+
+// Shell lists, including innermost wrappers without the block marker, are
+// authored DOM and must not be treated as an additional editor layer.
+$shell = new DOMDocument();
+$shell->loadHTML('<div class="block-editor-block-list__layout wp-block-custom-layout-shell"><section class="block-editor-block-list__layout"><p id="shell-child">Copy</p></section></div>');
+$layerSelector = CssSelectorMatcher::parse(EditorShellBoundary::layer());
+foreach ($shell->getElementsByTagName('*') as $element) {
+    $match = CssSelectorMatcher::matches($element, $layerSelector);
+    $assert(!$match['matches'], 'shell wrappers are not editor-only layers');
+}
+$assert(null === EditorShellBoundary::rule('.stack > p', 'color:red'), 'no emitted layer evidence means no restatement');
+$assert(null === EditorShellBoundary::rule('.other > p', 'color:red', markup: $markup), 'form presence does not widen unrelated selectors');
+$partial = EditorShellBoundary::css(EditorShellBoundary::rule('.stack > p > span', 'color:red', markup: $markup));
+$assert(1 === substr_count($partial, EditorShellBoundary::layer()), 'only the step whose parent is the emitted form is widened');
 
 // Specificity stays tied with the authored selector.
 foreach ( $selectors as $selector ) {

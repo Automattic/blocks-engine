@@ -25,7 +25,7 @@ import { chromium } from 'playwright';
 // never silently drift from what php-transformer emits) and then exercises
 // representative "isolated" (pre-fix) vs "merged" (post-fix) DOM shapes in a
 // real browser to prove the box-model claims empirically, the same way
-// layout-shell-editor-geometry.mjs already does for the InnerBlocks marker.
+// layout-shell-editor-geometry.mjs already does for inner-block containers.
 
 const transformerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const generated = JSON.parse(execFileSync('php', ['-r', `
@@ -40,7 +40,7 @@ foreach ( ($result['source_reports']['generated_blocks'] ?? array()) as $definit
 echo json_encode(array('script' => (string) ($shellDefinition['assets']['index.js'] ?? '')));
 `, transformerRoot], { encoding: 'utf8' }));
 
-assert.match(generated.script, /function sourceBlockProps\( props \)/, 'the generator merges useBlockProps() onto the real wrapper via a named helper');
+assert.match(generated.script, /function sourceBlockProps\( props, blockProps \)/, 'the generator merges useBlockProps() onto the real wrapper via a named helper');
 assert.match(generated.script, /var blockProps = useBlockProps\(\);/, "sourceBlockProps() reads Gutenberg's own block props rather than isolating them");
 assert.match(generated.script, /merged\.style = Object\.assign\( \{\}, blockProps\.style \|\| \{\}, props\.style \|\| \{\} \);/, "the wrapper's own authored style is applied after (and so wins over) Gutenberg's style for shared properties");
 assert.match(generated.script, /merged\.ref = props\.ref \? mergeRefs\( \[ blockProps\.ref, props\.ref \] \) : blockProps\.ref;/, "Gutenberg's ref is preserved (and composed with the wrapper's own ref, if any) rather than dropped");
@@ -56,12 +56,12 @@ assert.doesNotMatch(generated.script, /useBlockProps\( \{ style: \{ display: 'co
 const isolatedWrapperShape = `
 <div class="wp-block-ssi-layout-shell" style="display:contents">
   <section id="hero" style="width:300px;height:150px;position:relative">
-    <div class="blocks-engine-layout-shell-editor-inner-blocks" style="display:contents">Copy</div>
+    Copy
   </section>
 </div>`;
 const mergedWrapperShape = `
 <section id="hero" class="wp-block-ssi-layout-shell" style="width:300px;height:150px;position:relative">
-  <div class="blocks-engine-layout-shell-editor-inner-blocks" style="display:contents">Copy</div>
+  Copy
 </section>`;
 
 // --- Symptom 2: author geometry inflation under a grid/flex ancestor -----
@@ -72,16 +72,14 @@ const mergedWrapperShape = `
 // [oversized element] as one of its InnerBlocks"). `display:contents` makes
 // an element invisible to CSS Grid/Flexbox item placement — its children are
 // promoted to become direct items of the nearest non-contents ancestor
-// instead. Stacking two contents layers (the isolated block carrier *and*
-// the InnerBlocks marker) promotes the native child two levels up, past the
-// block's own boundary, into the grid directly; stacking only one (the
-// marker alone, post-fix) stops the promotion at the block's own now-boxed
-// node, matching how every other block already behaves as a grid item.
+// instead. An isolated contents carrier promotes the child past the block
+// boundary into the grid; a boxed inner-blocks container keeps it inside the
+// block, matching how other blocks behave as grid items.
 const gridCss = '.grid{display:grid;grid-template-columns:200px 200px;grid-auto-rows:400px;align-items:stretch;justify-items:stretch}figure{margin:0}';
 const isolatedEmptyShellShape = `
-<div class="grid"><div class="wp-block-ssi-layout-shell" style="display:contents"><div class="blocks-engine-layout-shell-editor-inner-blocks" style="display:contents"><figure class="wp-block-image" data-anchor="figure"><img width="200" height="200" style="width:200px;height:200px" data-anchor="icon"></figure></div></div></div>`;
+<div class="grid"><div class="wp-block-ssi-layout-shell" style="display:contents"><figure class="wp-block-image" data-anchor="figure"><img width="200" height="200" style="width:200px;height:200px" data-anchor="icon"></figure></div></div>`;
 const mergedEmptyShellShape = `
-<div class="grid"><div class="wp-block-ssi-layout-shell"><div class="blocks-engine-layout-shell-editor-inner-blocks" style="display:contents"><figure class="wp-block-image" data-anchor="figure"><img width="200" height="200" style="width:200px;height:200px" data-anchor="icon"></figure></div></div></div>`;
+<div class="grid"><div class="wp-block-ssi-layout-shell"><figure class="wp-block-image" data-anchor="figure"><img width="200" height="200" style="width:200px;height:200px" data-anchor="icon"></figure></div></div>`;
 
 const browser = await chromium.launch({ headless: true });
 try {

@@ -564,7 +564,6 @@ PHP;
          $syncedPatterns = SyncedPatternProjection::project($pages, $assets);
          $pages = $syncedPatterns['pages'];
          $syncedPatterns = $syncedPatterns['patterns'];
-         if (array() !== $syncedPatterns) $assets = SyncedPatternProjection::editorStylesheets($assets);
          // Query Loop projection can shorten page markup after shell extraction,
          // and synced patterns take shared panel content (and its bindings) out
          // of the page. Rebase retained runtime anchors on the final documents.

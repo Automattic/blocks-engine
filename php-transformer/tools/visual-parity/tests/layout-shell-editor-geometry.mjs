@@ -14,16 +14,12 @@ $result = (new \\Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTra
 echo json_encode(array('css' => implode("\\n", array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $result['assets'] ?? array())), 'serializedBlocks' => (string) ($result['serialized_blocks'] ?? '')));
 `, transformerRoot], { encoding: 'utf8' }));
 
-const shellClass = generated.css.match(/wp-block-[a-z0-9-]*layout-shell/)?.[0];
+const shellClass = generated.serializedBlocks.match(/wp:([a-z0-9-]+)\/layout-shell/)?.[1]?.replace(/^/, 'wp-block-') + '-layout-shell';
 assert.ok(shellClass, 'the reproduction must compile a layout shell');
 
 const sourceMarkup = '<div class="shell blocks-engine-source-div-outer-3"><section class="hero blocks-engine-source-section-branch-3" data-anchor="hero"><div class="background" data-anchor="background"></div><div class="content" data-anchor="content">Copy</div></section></div>';
-// The layout-shell's own tracked node (useBlockProps(), merged onto the real
-// outermost authored wrapper) is no longer a separate, boxless carrier: the
-// `shell` wrapper itself now carries the block's className directly, and
-// only the InnerBlocks marker layer remains a box-neutral `display:contents`
-// node for native child blocks.
-const editorMarkup = `<div class="shell blocks-engine-source-div-outer-3 ${shellClass}"><section class="hero blocks-engine-source-section-branch-3" data-anchor="hero"><div class="blocks-engine-layout-shell-editor-inner-blocks block-editor-block-list__layout"><div class="background block-editor-block-list__block block-editor-block-list__layout" data-anchor="background"></div><div class="content block-editor-block-list__block block-editor-block-list__layout" data-anchor="content">Copy</div></div></section></div>`;
+// The innermost authored wrapper is itself the inner-blocks list.
+const editorMarkup = `<div class="shell blocks-engine-source-div-outer-3 ${shellClass}"><section class="hero blocks-engine-source-section-branch-3 block-editor-block-list__layout" data-anchor="hero"><div class="background block-editor-block-list__block block-editor-block-list__layout" data-anchor="background"></div><div class="content block-editor-block-list__block block-editor-block-list__layout" data-anchor="content">Copy</div></section></div>`;
 const authorCss = `
   * { box-sizing:border-box } body { margin:0 }
   .hero { position:relative; width:600px; height:220px }
@@ -65,13 +61,8 @@ try {
   const sourceGeometry = await capture(source);
   const editorGeometry = await capture(editor);
   const withoutProjectionGeometry = await capture(withoutProjection);
-  const editorLayer = await editor.locator('.blocks-engine-layout-shell-editor-inner-blocks').evaluate((element) => ({
-    display: getComputedStyle(element).display,
-    position: getComputedStyle(element).position,
-  }));
 
   assert.deepEqual(editorGeometry, sourceGeometry, 'editor anchors preserve frontend geometry for an absolute background/content sibling pair');
-  assert.deepEqual(editorLayer, { display: 'contents', position: 'static' }, 'the owning editor layer remains box-neutral rather than establishing a positioning box');
   assert.equal(withoutProjectionGeometry.background.position, 'relative', 'the Gutenberg child-carrier default wins when the production editor position projection is absent');
   assert.equal(withoutProjectionGeometry.background.inset, '0px', 'the counterfactual retains authored background inset geometry');
   assert.equal(withoutProjectionGeometry.content.paddingTop, '40px', 'the counterfactual retains authored content padding geometry');

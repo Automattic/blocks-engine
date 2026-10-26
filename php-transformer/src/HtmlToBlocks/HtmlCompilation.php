@@ -226,6 +226,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');
     private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
     private string $capturedRootTheme = '';
+    private string $emittedStyleMarkup = '';
 
     /**
      * Core blocks this transformer can produce, keyed by the contract that
@@ -1663,6 +1664,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $sourceProvenance = $this->transformationProvenance()->resolveBlockPaths($blocks);
         $responsiveCounterpartContracts = (new ResponsiveCorrespondence())->declare($blocks, $sourceProvenance);
         $this->authorSelectorProjections()->confirmRichTextCarriers($serializedBlocks);
+        $this->emittedStyleMarkup = $serializedBlocks;
         $authorStylesheetProjections = $this->authorStylesheetProjections();
         $runtimeScriptProjections = $this->runtimeScriptProjections();
         $this->materializeAuthorStylesheet(
@@ -2390,7 +2392,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $beforeAuthorCssParts[] = $markerReset;
         }
         $engineSupportCss = new EngineSupportCss();
-        $engineResetParts = $engineSupportCss->beforeAuthorCss($serializedBlocks, $this->generatedBlocks()->blockName('layout-shell'));
+        $engineResetParts = $engineSupportCss->beforeAuthorCss($serializedBlocks);
         $engineResetStart = count($beforeAuthorCssParts);
         array_push($beforeAuthorCssParts, ...$engineResetParts);
         array_push($beforeAuthorCssParts, ...$engineSupportCss->coreOverrideCss($serializedBlocks));
@@ -2593,7 +2595,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->authorSelectorProjections(),
                 $this->transformationEvidence(),
                 $keepAuthorClassSelectors,
-                $bindings
+                $bindings,
+                $this->emittedStyleMarkup
             ),
             '' === $media ? array() : array( '@media ' . $media )
         );
