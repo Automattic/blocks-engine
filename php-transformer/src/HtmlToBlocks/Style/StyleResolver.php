@@ -4948,6 +4948,12 @@ final class StyleResolver implements ElementPresentationResolver
         if (1 === preg_match('/^@layer\b/i', $condition)) {
             return true;
         }
+        // A media query made only of media types (`screen`, `all`,
+        // `only screen`; also what `<link media="screen">` wraps a sheet in)
+        // tests no viewport feature, so it holds at every screen width.
+        if (1 === preg_match('/^@media\s+([^(]*)$/i', $condition, $media)) {
+            return CssCascade::mediaConditionApplies($media[1], self::DESKTOP_REFERENCE_WIDTH);
+        }
 
         return 1 === preg_match('/^@supports\b/i', $condition)
             && CssCascade::supportsConditionApplies((string) preg_replace('/^@supports\s*/i', '', $condition));
