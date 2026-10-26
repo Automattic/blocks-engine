@@ -4285,7 +4285,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         if ( $sourceElement instanceof DOMElement
             && in_array($name, array( 'core/paragraph', 'core/heading' ), true)
-            && ! ('core/heading' === $name && SourceDom::isImageOnlyHeading($sourceElement))
             && $this->richTextMaterializer->requiresHtmlFallbackForElement($sourceElement, (string) ($attrs['content'] ?? '')) ) {
             $materialized = $this->richTextMaterializer->contentWithMaterializedSvgImages($sourceElement, (string) ($attrs['content'] ?? ''));
             if ( null !== $materialized ) {
