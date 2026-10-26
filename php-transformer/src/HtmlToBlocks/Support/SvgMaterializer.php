@@ -1703,7 +1703,8 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         $title = $element->getElementsByTagName('title')->item(0);
-        return $title instanceof DOMElement ? trim((string) $title->textContent) : '';
+        $titleText = $title instanceof DOMElement ? trim((string) $title->textContent) : '';
+        return '' !== $titleText ? $titleText : trim(SourceDom::attr($element, 'alt'));
     }
 
     private function ensureInlineSvgSizing(string $html, ?DOMElement $element = null): string
@@ -1905,7 +1906,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             'rect', 'stop', 'svg', 'symbol', 'text', 'textpath', 'title', 'tspan', 'use',
         ));
         $allowedAttributes = array_flip(array(
-            'amplitude', 'aria-hidden', 'aria-label', 'azimuth', 'basefrequency', 'bias',
+            'alt', 'amplitude', 'aria-hidden', 'aria-label', 'azimuth', 'basefrequency', 'bias',
             'class', 'clip-path', 'clip-rule', 'clippathunits', 'cliprule', 'color-interpolation', 'color-interpolation-filters',
             'color', 'color-rendering', 'cx', 'cy', 'd',
             'data-bbox', 'data-color', 'data-testid', 'data-type',
