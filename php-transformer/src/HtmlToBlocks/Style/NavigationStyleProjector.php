@@ -231,21 +231,19 @@ final class NavigationStyleProjector
             return '';
         }
 
-        // An authored rule reaches its target through two hooks: the ancestor it
-        // is scoped by, and the element it addresses. Projection already rewrote
-        // the ancestor — a source attribute the editor drops becomes a generated
-        // class that survives — so reading the projected stylesheet keeps that
-        // half intact while this pass restates the id half. Reading the source
-        // stylesheet keeps the spellings projection leaves alone, and a rule
-        // that lands in both is the same declaration twice.
+        // The main projection already supplies anchor alternatives for scoped
+        // identities. Only restate selectors with an id it does not cover.
+        // Keep the projected pass for those remaining ids: its ancestor hooks
+        // may have been rewritten to classes that survive in the editor.
+        $uncoveredIds = array_diff_key($ids, ScopedAnchorSelectorProjection::identities($this->context->authorStyles()));
         $stylesheets = array($this->context->authorStyles()->combinedCss());
         if ( '' !== trim($projectedAuthorCss) ) {
             $stylesheets[] = $projectedAuthorCss;
         }
 
         $projections = array();
-        foreach ( $stylesheets as $stylesheet ) {
-            $projection = $this->projectEditorAnchorStylesheet($stylesheet, $ids);
+        foreach ( $stylesheets as $index => $stylesheet ) {
+            $projection = $this->projectEditorAnchorStylesheet($stylesheet, $ids, 0 === $index ? $uncoveredIds : $ids);
             if ( '' !== $projection ) {
                 $projections[] = $projection;
             }
@@ -254,17 +252,30 @@ final class NavigationStyleProjector
         return trim(implode("\n", $projections));
     }
 
-    /** @param array<string, bool> $ids */
-    private function projectEditorAnchorStylesheet(string $stylesheet, array $ids): string
+    /** @param array<string, bool> $ids @param array<string, bool> $uncoveredIds */
+    private function projectEditorAnchorStylesheet(string $stylesheet, array $ids, array $uncoveredIds): string
     {
         $stateMarkers = $this->context->selectorProjections()->attributeNegationMarkers();
 
         return trim(( new CssStylesheetTransformer() )->transform(
             $stylesheet,
-            function (string $prelude, string $body) use ($ids, $stateMarkers): array {
+            function (string $prelude, string $body) use ($ids, $uncoveredIds, $stateMarkers): array {
                 $projected = array();
                 $transported = array();
                 foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    // Ignore only the exact alternatives emitted by the main
+                    // projection, not arbitrary :is() lists containing an id.
+                    $uncovered = preg_replace_callback(
+                        '/:is\(([^()]*)\)/',
+                        static function (array $match) use ($ids): string {
+                            $source = explode(',', $match[1], 2)[0];
+                            return ScopedAnchorSelectorProjection::selector($source, $ids) === $match[0] ? '' : $match[0];
+                        },
+                        $selector
+                    ) ?? $selector;
+                    if ( $this->projectAnchorIds($uncovered, $uncoveredIds) === $uncovered ) {
+                        continue;
+                    }
                     $marker = $stateMarkers[trim($selector)] ?? '';
                     if ( '' !== $marker ) {
                         $selector = preg_replace(

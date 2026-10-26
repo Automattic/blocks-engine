@@ -543,6 +543,7 @@
       "php tests/unit/native-list-item-fallback-reconciler.php",
       "php tests/unit/editor-anchor-attribute-id-projection.php",
       "php tests/unit/editor-anchor-id-specificity.php",
+      "php tests/unit/editor-anchor-projection-coverage.php",
       "php tests/unit/editor-list-view-container-names.php",
       "php tests/unit/navigation-collapsed-item-band.php",
       "php tests/unit/navigation-underline-color-resolver.php",
