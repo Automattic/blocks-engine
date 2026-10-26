@@ -20,7 +20,7 @@ final class AuthorStyleRuleProjector
     private const MAX_STRETCH_ANCESTOR_DEPTH = 12;
 
     /** Declared sizes that make a box's border box depend on its box model. */
-    private const BOX_SIZE_PROPERTIES = array( 'width', 'height' );
+    private const BOX_SIZE_PROPERTIES = array( 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' );
 
     /** Declared padding and border widths that grow a content-box box. */
     private const BOX_CHROME_PROPERTIES = array(
@@ -69,9 +69,16 @@ final class AuthorStyleRuleProjector
         array $conditions = array()
     ): array {
         $declarations = $this->styleResolver->verbatimCssDeclarations($body);
+        $authored = $body;
         $this->acceptProjectedBody($body, $declarations, $this->projectResponsiveCanvasMinimumWidth($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence));
+        // A desktop canvas minimum replaced by a fluid `max-width:100%` bound
+        // must stay border-box: under content-box its padding would overflow
+        // the very container the bound keeps it inside.
+        $fluidCanvas = $body !== $authored;
         $this->acceptProjectedBody($body, $declarations, $this->projectAutoSizedStructuralPercentageHeight($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence, $conditions));
-        $this->acceptProjectedBody($body, $declarations, $this->projectSourceContentBoxSizing($prelude, $body, $declarations, $authorStyles, $sourceStyles, $conditions));
+        if ( ! $fluidCanvas ) {
+            $this->acceptProjectedBody($body, $declarations, $this->projectSourceContentBoxSizing($prelude, $body, $declarations, $authorStyles, $sourceStyles, $conditions));
+        }
         $this->acceptProjectedBody($body, $declarations, $this->projectIntrinsicGridRowTracks($prelude, $body, $declarations, $authorStyles, $sourceStyles));
         return array('body' => $body, 'declarations' => $declarations);
     }
@@ -249,8 +256,20 @@ final class AuthorStyleRuleProjector
     /** @param array<string, string> $declarations */
     private static function declaresDefiniteBoxSize(array $declarations): bool
     {
-        return ( isset($declarations['width']) && CssValueInspector::hasDefiniteWidth('width:' . $declarations['width']) )
-            || ( isset($declarations['height']) && CssValueInspector::hasDefiniteHeight('height:' . $declarations['height']) );
+        // A min/max constraint sizes the box whenever it binds, so it grows
+        // with padding and border under content-box just as a fixed size does.
+        foreach ( self::BOX_SIZE_PROPERTIES as $property ) {
+            if ( ! isset($declarations[ $property ]) ) {
+                continue;
+            }
+            $definite = str_ends_with($property, 'width')
+                ? CssValueInspector::hasDefiniteWidth('width:' . $declarations[ $property ])
+                : CssValueInspector::hasDefiniteHeight('height:' . $declarations[ $property ]);
+            if ( $definite ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @param array<string, string> $declarations */
