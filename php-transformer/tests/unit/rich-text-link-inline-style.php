@@ -13,6 +13,9 @@ $html = '<html><head><style>a{color:#fbb153}</style></head><body><main>'
     . '<p>See <a href="/blog/" target="_blank" rel="noopener noreferrer" style="color:red">news</a> now</p>'
     . '<ul><li>Read <a class="story" href="/story/" style="color:blue;font-weight:bold"><span style="color:green">nested</span> news</a></li></ul>'
     . '<p><a class="plain" href="/plain/">Unstyled</a></p>'
+    . '<p>Enroll <a href="/course/" style="color:#555;text-decoration:none">course</a></p>'
+    . '<p>Bare <a href="/bare/" style="text-decoration:none">bare</a></p>'
+    . '<p>Call <a href="/tel/" style="color:red;border-bottom:1px solid red;display:inline-flex">tel</a></p>'
     . '</main></body></html>';
 $result = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'website/index.html',
@@ -44,11 +47,34 @@ $assert(str_contains($story->getAttribute('class'), 'story'), 'link identity sta
 $assert(str_contains($story->firstElementChild->getAttribute('style'), 'font-weight:bold'), 'non-color visual declaration survives');
 $assert(1 === $xpath->query('//a[@href="/story/"]/mark/mark[contains(@style,"color:green")]')->length, 'nested color retains precedence');
 $assert(0 === $xpath->query('//a[@href="/plain/"]/mark')->length, 'author-only link color is not frozen on a carrier');
+// A descendant cannot cancel the link's own underline, so decorations stay
+// on the anchor through a generated class + stylesheet rule, not the mark.
+$css = '';
+foreach ($result['assets'] ?? array() as $asset) {
+    if ('css' === ($asset['kind'] ?? '')) $css .= (string) ($asset['content'] ?? '') . "\n";
+}
+foreach (array('/course/', '/bare/') as $href) {
+    $link = $xpath->query('//a[@href="' . $href . '"]')->item(0);
+    $assert($link instanceof DOMElement && !$link->hasAttribute('style'), 'decorated link survives without inline style: ' . $href);
+    $assert(1 === preg_match('/\\b(be-inline-geometry-[0-9a-f]+)\\b/', $link->getAttribute('class'), $match), 'decoration class is on the anchor: ' . $href);
+    $assert(str_contains($css, 'a.' . $match[1] . '{text-decoration:none!important}'), 'anchor rule removes the underline: ' . $href);
+    $assert(0 === $xpath->query('.//*[contains(@style,"text-decoration")]', $link)->length, 'decoration is not moved to a descendant: ' . $href);
+}
+$course = $xpath->query('//a[@href="/course/"]/mark')->item(0);
+$assert($course instanceof DOMElement && str_contains($course->getAttribute('style'), 'color:#555'), 'inheritable color stays on the mark');
+$assert(0 === $xpath->query('//a[@href="/bare/"]/mark')->length, 'decoration-only link needs no mark carrier');
+// Box values style the link's own box, so they stay on the anchor too.
+$tel = $xpath->query('//a[@href="/tel/"]')->item(0);
+$assert(1 === preg_match('/\\b(be-inline-geometry-[0-9a-f]+)\\b/', $tel->getAttribute('class'), $match)
+    && str_contains($css, 'a.' . $match[1] . '{border-bottom:1px solid red!important;display:inline-flex!important}'), 'box values are owned by the anchor');
+$telMark = $tel->firstElementChild;
+$assert($telMark instanceof DOMElement && 'mark' === $telMark->tagName && str_contains($telMark->getAttribute('style'), 'color:red')
+    && !str_contains($telMark->getAttribute('style'), 'border') && !str_contains($telMark->getAttribute('style'), 'display'), 'mark carries only inherited text styling');
 $validity = (new BlockValidityValidator())->validateBlocks($result['blocks'] ?? array());
 $assert('pass' === ($validity['status'] ?? ''), 'compiled blocks remain valid');
 
 // Optional output for the real-browser regression check.
 if (isset($argv[1])) {
-    file_put_contents($argv[1], '<!doctype html><style>a{color:#fbb153}</style>' . $markup);
+    file_put_contents($argv[1], '<!doctype html><style>' . $css . 'a{color:#fbb153}</style>' . $markup);
 }
 echo "Rich-text link inline style tests passed\n";
