@@ -149,9 +149,12 @@ final class ProjectedNavigationConverter implements ElementConverter
             return '';
         }
 
-        $sourceDeclarations = $this->styleResolver->resolvedPresentationDeclarations($toggle);
+        // A select supplies visibility evidence, not hamburger presentation.
+        // Keep Core's editable opener rather than painting it like a form field.
+        $isJumpMenu = 'select' === strtolower($toggle->tagName);
+        $sourceDeclarations = $isJumpMenu ? array() : $this->styleResolver->resolvedPresentationDeclarations($toggle);
         $presentation = new NavigationOpenerPresentation($this->styleResolver, $this->svgMarkup);
-        $source = $presentation->source($toggle);
+        $source = $isJumpMenu ? null : $presentation->source($toggle);
         $declarations = array();
         $hasUsableWidth = false;
         $hasUsableHeight = false;
