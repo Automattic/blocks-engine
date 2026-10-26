@@ -43,7 +43,8 @@ $cases = array(
     'filter-without-email' => array('<form onsubmit="apply()"><select name="sort_by"><option>Price</option><option>Name</option></select><button>Apply</button></form>', 'filter_sort'),
     'search' => array('<form method="get"><input type="search" name="q" oninput="lookup()"></form>', 'search'),
     'newsletter' => array('<form method="post" action="/newsletter/subscribe"><input type="email" name="email"><button>Subscribe</button></form>', 'newsletter'),
-    'login' => array('<form method="post"><input name="username"><input type="password" name="password"><button>Log in</button></form>', 'login'),
+    // A plain sign-in form becomes core/loginout; a password form that also asks for more stays a login-intent fallback.
+    'login' => array('<form method="post"><input name="username"><input type="password" name="password"><input name="invite_code"><button>Log in</button></form>', 'login'),
     'unknown' => array('<form method="post"><input name="reference"><button>Continue</button></form>', 'unknown'),
     'quantity-alone' => array('<form method="post"><input type="number" name="quantity"><button>Send</button></form>', 'unknown'),
     'registration-not-cart' => array('<form method="post"><input name="name"><button>Register</button></form>', 'unknown'),

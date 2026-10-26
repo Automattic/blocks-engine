@@ -119,6 +119,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElement
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SearchBlockConversionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SearchBlockConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LoginBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\CommerceFallbackReporter;
@@ -746,7 +747,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->pseudoFormAnalyzer
         );
         $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext(), $this->formControlMetadataBuilder, $this->pseudoFormAnalyzer);
+        $loginBlockConverter = new LoginBlockConverter(
+            fn (DOMElement $element): array => $this->createBlock('core/loginout', array( 'displayLoginAsForm' => true ), array(), $element)
+        );
         $this->formDispatcher = new FormDispatcher(new FormDispatchContext(
+            fn (DOMElement $element): ?array => $loginBlockConverter->loginBlockFromForm($element),
             fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromForm($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->nativeGetFormBlockBuilder->build($element, $fallbacks),
             function (DOMElement $element, array &$fallbacks): ?array {
