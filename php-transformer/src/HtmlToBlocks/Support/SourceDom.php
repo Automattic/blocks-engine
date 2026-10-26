@@ -759,12 +759,20 @@ final class SourceDom
         return 0 < $images;
     }
 
+    /** A passive inline mark through which an image can use its native route. */
+    public static function isInlineImageMark(DOMElement $element): bool
+    {
+        return in_array(strtolower($element->tagName), array( 'span', 'strong', 'em', 'b', 'i', 'small', 'mark', 'sub', 'sup', 'u', 's', 'del', 'ins', 'abbr', 'cite', 'code', 'kbd', 'samp', 'time', 'var' ), true)
+            && ! $element->hasAttribute('role')
+            && self::hasOnlySafeFallbackAttributes($element);
+    }
+
     /**
-     * Whether a text element's every `<img>` is an inline image beside its text
-     * that RichText carries as its `core/image` object format: a real, safe
-     * source sitting directly in the element or inside links and inline
-     * formatting. Image-only content and interactive elements keep their own
-     * routes.
+     * Whether a text element's every `<img>` is an inline image that RichText
+     * carries as its `core/image` object format: a real, safe source sitting
+     * directly in the element or inside links and inline formatting. This also
+     * covers image-only runs; single images get the native media route first.
+     * Interactive elements keep their own routes.
      * An image inside any other host (a custom element, a `<picture>`) keeps
      * the host's own semantics, so the element does not qualify.
      */
@@ -774,7 +782,6 @@ final class SourceDom
         // Interactive elements (links, buttons, role-bearing controls) keep
         // their own routes; this is about plain text carriers only.
         if ( 0 === $images->length
-            || '' === trim(str_replace("\u{00A0}", ' ', $element->textContent))
             || $element->hasAttribute('role')
             || in_array(strtolower($element->tagName), array( 'a', 'button', 'label', 'summary' ), true) ) {
             return false;
@@ -786,8 +793,8 @@ final class SourceDom
             }
             for ( $parent = $image->parentNode; $parent !== $element; $parent = $parent->parentNode ) {
                 if ( ! $parent instanceof DOMElement
-                    || ! in_array(strtolower($parent->tagName), array( 'a', 'span', 'strong', 'em', 'b', 'i', 'small', 'mark', 'sub', 'sup' ), true)
-                    || ! self::hasOnlySafeFallbackAttributes($parent) ) {
+                    || ( ! self::isInlineImageMark($parent)
+                        && ( 'a' !== strtolower($parent->tagName) || ! self::hasOnlySafeFallbackAttributes($parent) ) ) ) {
                     return false;
                 }
             }

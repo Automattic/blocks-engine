@@ -423,8 +423,8 @@ final class RichTextMaterializer implements RichTextMaterialization
 
     public function requiresHtmlFallbackForElement(DOMElement $element, string $content): bool
     {
-        // Inline images beside text are RichText `core/image` objects, so a
-        // text element whose images all qualify is gated on its other content.
+        // Inline images are RichText `core/image` objects, with or without
+        // text, so an element whose images qualify is gated on its other content.
         if ( SourceDom::carriesOnlyRichTextInlineImages($element) ) {
             $content = preg_replace('@<img\b[^>]*>@i', '', $content) ?? $content;
         }

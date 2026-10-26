@@ -64,7 +64,46 @@ foreach ( array(
     }
 }
 
-// 3. An event handler never reaches the paragraph's RichText.
+// 3. Inline marks and image-only runs use the same native image primitives.
+foreach ( array(
+    'bare styled image' => array( '<p><img src="/a.png" style="width:154px;height:155px"></p>', 'core/image' ),
+    'bare image beside text' => array( '<p><img src="/e.png" width="16" height="16" alt="x"> Text</p>', 'core/paragraph' ),
+    'styled span beside text' => array( '<p><span style="font-size:14px"><img src="/e.png" width="16" height="16" alt="x"> Text</span></p>', 'core/paragraph' ),
+    'styled image-only span' => array( '<p><span style="font-size:14px"><img src="/a.png" style="width:154px;height:155px"></span></p>', 'core/image' ),
+    'image-only span' => array( '<p><span><img src="/a.png" style="width:154px;height:155px"></span></p>', 'core/image' ),
+    'underlined image beside text' => array( '<p><u><img src="/e.png" width="16" height="16" alt="x"> Text</u></p>', 'core/paragraph' ),
+    'multiple images with nbsp' => array( '<p><img src="/a.png" style="width:154px;height:155px">&nbsp;<img src="/b.png" width="16" height="16"></p>', 'core/paragraph' ),
+    'multiple images with whitespace' => array( '<p><img src="/a.png">' . " \n " . '<img src="/b.png"></p>', 'core/paragraph' ),
+    'nested image-only marks' => array( '<p><u><strong><img src="/a.png" style="width:154px;height:155px"></strong></u></p>', 'core/image' ),
+    'marked multiple images' => array( '<p><u><img src="/a.png">&nbsp;<img src="/b.png"></u></p>', 'core/paragraph' ),
+    'repeated image source' => array( '<p><img src="/a.png">&nbsp;<img src="/a.png"></p>', 'core/paragraph' ),
+) as $name => [ $source, $expected ] ) {
+    $result = $transform($source);
+    $markup = (string) ($result['serialized_blocks'] ?? '');
+    if ( null !== $findBlock($result['blocks'] ?? array(), 'core/html')
+        || null === $findBlock($result['blocks'] ?? array(), $expected)
+        || 'pass' !== ($result['source_reports']['wp_block_validity']['status'] ?? '') ) {
+        $failures[] = $name . ' uses native image primitives: ' . $markup;
+    }
+    preg_match_all('/<img\\b[^>]*\\bsrc="([^"]+)"/', $source, $sources);
+    foreach ( array_count_values($sources[1]) as $src => $count ) {
+        if ( $count !== substr_count($markup, 'src="' . $src . '"') ) {
+            $failures[] = $name . ' preserves image source ' . $src . ': ' . $markup;
+        }
+    }
+    if ( 'underlined image beside text' === $name
+        && ! str_contains($markup, '<u><img src="/e.png" width="16" height="16" alt="x"> Text</u>') ) {
+        $failures[] = $name . ' preserves the mark and inline image attributes: ' . $markup;
+    }
+    if ( 'core/image' === $expected ) {
+        $block = $findBlock($result['blocks'] ?? array(), 'core/image');
+        if ( '154px' !== ($block['attrs']['width'] ?? null) || '155px' !== ($block['attrs']['height'] ?? null) ) {
+            $failures[] = $name . ' preserves image geometry: ' . $markup;
+        }
+    }
+}
+
+// 4. An event handler never reaches the paragraph's RichText.
 $handler = (string) ($transform('<p><img src="/media/a.png" alt="A" onload="track()"> Caption</p>')['serialized_blocks'] ?? '');
 if ( str_contains(strtolower($handler), 'onload') || str_contains($handler, 'track()') ) {
     $failures[] = 'an image event handler is dropped: ' . $handler;

@@ -9364,10 +9364,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
-     * A paragraph whose only content is an image (or an image-only link) is not
-     * RichText — RichText cannot represent `<img>`. Route it through the existing
-     * core/image primitive instead of emitting a core/html island. Mixed content
-     * (image plus real text or other inlines) is left for the RichText fallback.
+     * Route a paragraph containing a single image (or image-only link) through
+     * the existing core/image primitive. Passive inline marks around that image
+     * add no text formatting to preserve. Mixed content and multiple images
+     * remain on the paragraph RichText route.
      *
      * @return array<string, mixed>|null
      */
@@ -9389,6 +9389,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         if ( ! $child instanceof DOMElement ) {
             return null;
+        }
+
+        if ( SourceDom::isInlineImageMark($child) ) {
+            return $this->imageBlockFromParagraph($child);
         }
 
         $tagName = strtolower($child->tagName);
