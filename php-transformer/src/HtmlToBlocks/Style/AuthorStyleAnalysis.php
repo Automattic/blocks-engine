@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -426,7 +427,7 @@ final class AuthorStyleAnalysis
     public function selectorCandidates(array $parsed): array
     {
         $compounds = $parsed['compounds'] ?? array();
-        $rightmost = $compounds[array_key_last($compounds)] ?? array();
+        $rightmost = CssSelectorCompoundInspector::rightmost($compounds);
         $candidates = array();
         foreach ( $rightmost['ids'] ?? array() as $id ) {
             // A projected captured dialog stands in for the id's holder through

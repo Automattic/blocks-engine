@@ -91,6 +91,18 @@ if (! $candidateBody instanceof DOMElement) {
     throw new RuntimeException('Attribute candidate fixture did not produce a body element.');
 }
 $candidateAnalysis = new AuthorStyleAnalysis('', '', array(), $candidateBody);
+set_error_handler(static function (int $severity, string $message): bool {
+    if ( E_DEPRECATED === $severity ) {
+        throw new ErrorException($message, 0, $severity);
+    }
+    return false;
+});
+try {
+    $emptyCompoundCandidates = $candidateAnalysis->selectorCandidates(array('compounds' => array()));
+} finally {
+    restore_error_handler();
+}
+$assert(is_array($emptyCompoundCandidates), 'selectors without compounds return candidates without deprecation');
 $attributeCandidates = $candidateAnalysis->selectorCandidates(CssSelectorMatcher::parse('[data-color="1"]'));
 $typedAttributeCandidates = $candidateAnalysis->selectorCandidates(CssSelectorMatcher::parse('p[data-color="1"]'));
 $assert(

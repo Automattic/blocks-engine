@@ -10873,7 +10873,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $inner = array();
         foreach ( $this->elementElementChildren($branch) as $child ) {
-            if ( $child === ($wrappers[array_key_last($wrappers)] ?? null) || ! $this->isEmptyInlineGeometryNode($child) ) {
+            if ( $child === (array() === $wrappers ? null : $wrappers[array_key_last($wrappers)]) || ! $this->isEmptyInlineGeometryNode($child) ) {
                 continue;
             }
             $inner[] = count($this->elementElementChildren($child)) > 1

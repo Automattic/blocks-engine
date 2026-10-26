@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -1434,7 +1435,7 @@ final class AuthorStylesheetProjector
             return null;
         }
         $compounds = $parsed['compounds'];
-        $subject = $compounds[array_key_last($compounds)] ?? array();
+        $subject = CssSelectorCompoundInspector::rightmost($compounds);
         if ( 'img' !== strtolower((string) ($subject['type'] ?? ''))
             || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array()) )
             || array() !== ($subject['attributes'] ?? array())
@@ -1655,7 +1656,7 @@ final class AuthorStylesheetProjector
             $otherSubjects = array();
             foreach ($matches as $element) {
                 $target = $context->selectorProjections->navigationSubject($element->getNodePath() ?? '');
-                $subject = $parsed['compounds'][array_key_last($parsed['compounds'])] ?? array();
+                $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
                 $structural = array_filter($parsed['compounds'], static fn(array $compound): bool => ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false) || null !== ($compound['nth_child'] ?? null) || null !== ($compound['nth_of_type'] ?? null));
                 if ('a' === strtolower($element->tagName) && array() !== $structural) {
                     // Core still renders this anchor in its source item. Keep
@@ -1825,7 +1826,7 @@ final class AuthorStylesheetProjector
             // subject; left bare it would reach the open/close buttons Core
             // renders in the toggle's place. Only a type subject can reach
             // them: Core's chrome carries no authored class, id or attribute.
-            $typeSubject = null !== (($parsed['compounds'][array_key_last($parsed['compounds'])] ?? array())['type'] ?? null);
+            $typeSubject = null !== (CssSelectorCompoundInspector::rightmost($parsed['compounds'])['type'] ?? null);
             $supersededToggles = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
@@ -2382,7 +2383,7 @@ final class AuthorStylesheetProjector
             return null;
         }
         $compounds = $parsed['compounds'] ?? array();
-        $rightmost = $compounds[array_key_last($compounds)] ?? array();
+        $rightmost = CssSelectorCompoundInspector::rightmost($compounds);
         if ( ! \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::containsDataAttribute($rightmost)
             || \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::hasLiveAttributePredicate($rightmost)
         ) {
@@ -3910,7 +3911,7 @@ final class AuthorStylesheetProjector
     /** @param array<string, mixed> $parsed */
     private function hasUniversalStructuralLeaf(array $parsed): bool
     {
-        $rightmost = $parsed['compounds'][array_key_last($parsed['compounds'])] ?? array();
+        $rightmost = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
         return null === ($rightmost['type'] ?? null)
             && array() === ($rightmost['classes'] ?? array())
             && array() === ($rightmost['ids'] ?? array())
