@@ -56,7 +56,8 @@ $css = static function (array $result): array {
 /** @return list<array{selector: string, body: string}> */
 $rules = static function (string $stylesheet): array {
     $rules = array();
-    ( new CssStylesheetTransformer() )->visitStyleRules($stylesheet, static function (string $selector, string $body) use (&$rules): void {
+    require_once dirname(__DIR__) . '/Support/expand-compacted-selectors.php';
+    ( new CssStylesheetTransformer() )->visitStyleRules(expandCompactedSelectors($stylesheet), static function (string $selector, string $body) use (&$rules): void {
         foreach ( CssStylesheetTransformer::splitSelectorList($selector) ?? array( $selector ) as $single ) {
             $rules[] = array( 'selector' => trim($single), 'body' => preg_replace('/\s+/', '', $body) ?? $body );
         }

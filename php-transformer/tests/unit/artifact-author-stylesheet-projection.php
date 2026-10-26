@@ -726,7 +726,8 @@ $dataMeshGrid = ( new ArtifactCompiler() )->compile(array(
     ),
 ) )->toArray();
 $dataMeshGridMarkup = (string) ($dataMeshGrid['serialized_blocks'] ?? '');
-$dataMeshGridCss = implode("\n", array_column($dataMeshGrid['assets'] ?? array(), 'content'));
+require_once dirname(__DIR__) . '/Support/expand-compacted-selectors.php';
+$dataMeshGridCss = expandCompactedSelectors(implode("\n", array_column($dataMeshGrid['assets'] ?? array(), 'content')));
 preg_match('/\b(blocks-engine-attribute-[a-f0-9-]+)\b/', $dataMeshGridMarkup, $dataMeshGridMarker);
 $dataMeshGridMarker = $dataMeshGridMarker[1] ?? '';
 $dataMeshGridChildMarker = '';
@@ -889,7 +890,8 @@ $tableNormalizationMarkup = (string) ($tableNormalization['serialized_blocks'] ?
 $tableNormalizationCss = implode("\n", array_column(array_filter($tableNormalization['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
 $assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)">/', $tableNormalizationMarkup, $tableNormalizationMarker) === 1, 'native table normalization uses an isolated table marker');
 $tableCellReset = '.' . ($tableNormalizationMarker[1] ?? '') . '>table th,.' . ($tableNormalizationMarker[1] ?? '') . '>table td{border:0}';
-$tableBottomBorder = '.' . ($tableNormalizationMarker[1] ?? '') . '>table>tbody>tr:nth-child(n)>:is(td,th):nth-child(n)';
+$tableBottomBorder = '.' . ($tableNormalizationMarker[1] ?? '') . '>table>tbody>tr:nth-child(n)>td:nth-child(n)';
+$tableNormalizationCss = expandCompactedSelectors($tableNormalizationCss);
 $assert(str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && ! str_contains($tableNormalizationCss, '.wp-block-table.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table{border-collapse:collapse;border-spacing:0}') && str_contains($tableNormalizationCss, $tableCellReset) && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table>thead{border-bottom:0}') && false !== strpos($tableNormalizationCss, $tableCellReset) && false !== strpos($tableNormalizationCss, $tableBottomBorder) && strpos($tableNormalizationCss, $tableCellReset) < strpos($tableNormalizationCss, $tableBottomBorder) && str_contains($tableNormalizationCss, $tableBottomBorder . ':not(blocks-engine-specificity-'), 'collapsed border tables clear all synthetic cell sides before projected bottom-only author rules restore the source geometry');
 $assert(preg_match('/\.table-wrap:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin-bottom:2rem\}/', $tableNormalizationCss) === 1 && preg_match('/table:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin:3rem 0\}/', $tableNormalizationCss) === 1 && str_contains($tableNormalizationCss, 'table{border-collapse:collapse;border-spacing:0}'), 'authored wrapper and table margins remain reset-resistant in the source stylesheet rather than becoming a broad table override');
 $assert('pass' === ( new Runtime() )->validateBlockSerialization($tableNormalizationMarkup)['status'], 'table normalization preserves editor-valid native markup');

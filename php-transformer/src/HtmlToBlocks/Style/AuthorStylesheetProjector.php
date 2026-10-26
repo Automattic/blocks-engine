@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -65,8 +66,14 @@ final class AuthorStylesheetProjector
             fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, $body, $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions)
         );
         $ids = ScopedAnchorSelectorProjection::identities($context->authorStyles);
-        if (array() === $ids) return $projected;
-        return (new CssStylesheetTransformer())->transformStyleRules($projected, static fn(string $selector, string $body): string => ScopedAnchorSelectorProjection::selector($selector, $ids) . '{' . $body . '}');
+        if ( array() !== $ids ) {
+            $hasNamespace = (bool) preg_match('/@namespace\b/i', $projected);
+            return (new CssStylesheetTransformer())->transformStyleRules($projected, static function (string $selector, string $body) use ($ids, $hasNamespace): string {
+                $selector = ScopedAnchorSelectorProjection::selector($selector, $ids);
+                return ($hasNamespace ? $selector : CssSelectorListCompactor::compact($selector)) . '{' . $body . '}';
+            });
+        }
+        return CssSelectorListCompactor::stylesheet($projected);
     }
 
     /** @param list<string> $ancestors */
