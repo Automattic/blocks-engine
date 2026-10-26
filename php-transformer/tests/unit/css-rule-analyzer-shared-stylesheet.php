@@ -63,6 +63,23 @@ foreach ( $cases as $label => [ $maxRules, $maxSelectors, $maxScanned, $retain ]
     $second = $analyze();
     $assert($first === $second, $label . ': warm analysis matches the first walk');
 }
+// More stylesheet/property-list keys than the former slot cap must all stay warm.
+$manySheets = array();
+for ( $i = 0; $i < 160; ++$i ) {
+    $css = '.rule-' . $i . '{color:red;margin:1px}';
+    $manySheets[] = array( 'content' => $css, 'source_path' => "many-{$i}.css", 'source_hash' => hash('sha256', $css) );
+}
+$analyzer = new CssRuleAnalyzer();
+$analyzeMany = static fn(array $properties): array => $analyzer->analyze($manySheets, '', $properties, 100000, 1000, 1000, 4);
+$warmStart = CssRuleAnalyzer::stylesheetWalks();
+$firstMany = array( $analyzeMany(array( 'color' )), $analyzeMany(array( 'margin' )) );
+$firstPassWalks = CssRuleAnalyzer::stylesheetWalks() - $warmStart;
+$secondStart = CssRuleAnalyzer::stylesheetWalks();
+$secondMany = array( $analyzeMany(array( 'color' )), $analyzeMany(array( 'margin' )) );
+$secondPassWalks = CssRuleAnalyzer::stylesheetWalks() - $secondStart;
+$assert(320 === $firstPassWalks, 'first multi-sheet pass walks each property-list key once; walked ' . $firstPassWalks);
+$assert(0 === $secondPassWalks && $firstMany === $secondMany, 'second multi-sheet pass reuses all streams with identical results; walked ' . $secondPassWalks);
+
 $selectors = static fn(array $analysis): array => array_column($analysis['rules'], 'selector');
 $limited = (new CssRuleAnalyzer())->analyze($sheet, '', array( 'color' ), 100000, 2, 10, 4, $keepAll, 10);
 $assert(array( '.a', '.b' ) === $selectors($limited) && $limited['truncated'] && in_array('css_rule_or_selector_limit', $limited['diagnostics'], true), 'rule limit keeps source order and reports truncation');
