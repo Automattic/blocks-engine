@@ -334,7 +334,7 @@ final class AuthorSelectorSemanticPreparer
             }
 
             $compounds = $parsed['compounds'] ?? array();
-            $rightmost = $compounds[array_key_last($compounds)] ?? array();
+            $rightmost = CssSelectorCompoundInspector::rightmost($compounds);
             if ( ! CssSelectorCompoundInspector::containsDataAttribute($rightmost) ) {
                 continue;
             }

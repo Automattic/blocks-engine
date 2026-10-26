@@ -140,7 +140,8 @@ final class WrapperCoalescer
     {
         $content = is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array();
         $opening = is_string($content[0] ?? null) ? $content[0] : '';
-        $closing = is_string($content[array_key_last($content)] ?? null) ? $content[array_key_last($content)] : '';
+        $last = array() === $content ? null : $content[array_key_last($content)];
+        $closing = is_string($last) ? $last : '';
         $children = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
         if (count($content) !== count($children) + 2 || array_slice($content, 1, -1) !== array_fill(0, count($children), null)) {
             return null;
