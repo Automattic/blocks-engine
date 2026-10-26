@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 
 /**
  * A paragraph that mixes an inline image with text stays a native, editable
@@ -13,7 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
  * whole paragraph silently became a core/html island.
  *
  * The narrow scope is part of the contract: an image inside a custom host or a
- * placeholder `data:` image keeps the core/html fallback, a `<picture>` keeps
+ * pending lazy-source image keeps the core/html fallback, a `<picture>` keeps
  * its media row, and an image-only paragraph keeps its core/image route.
  */
 
@@ -55,7 +57,7 @@ foreach ( array(
 foreach ( array(
     'image in a custom host stays core/html'      => array( '<p>Before <media-frame><img src="/media/a.png" width="30" height="30" alt="A"></media-frame> after</p>', 'core/html' ),
     'picture beside text keeps its media row'     => array( '<p><picture><source srcset="/media/a.webp"><img src="/media/a.png" alt="A"></picture> Caption</p>', 'core/group' ),
-    'placeholder image beside text stays core/html' => array( '<p><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="A"> Caption</p>', 'core/html' ),
+    'placeholder image beside text stays core/html' => array( '<p><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" data-src="/real.gif" alt="A"> Caption</p>', 'core/html' ),
     'image-only paragraph stays core/image'       => array( '<p><img src="/media/a.png" alt="A" width="91" height="47"></p>', 'core/image' ),
 ) as $name => [ $source, $expected ] ) {
     $result = $transform($source);
@@ -107,6 +109,43 @@ foreach ( array(
 $handler = (string) ($transform('<p><img src="/media/a.png" alt="A" onload="track()"> Caption</p>')['serialized_blocks'] ?? '');
 if ( str_contains(strtolower($handler), 'onload') || str_contains($handler, 'track()') ) {
     $failures[] = 'an image event handler is dropped: ' . $handler;
+}
+
+// 5. Artifact compilation preserves real raster data images, not lazy placeholders.
+$dataSrc = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+$dataImage = '<img alt="" src="' . $dataSrc . '" style="width:50px;height:15px;">';
+$rows = array(
+    'inline raster data image' => array('<p>Before ' . $dataImage . ' after</p>', true),
+    'nested styled marks' => array('<p>Before <span style="color:red"><span style="font-weight:bold">' . $dataImage . '</span></span> after</p>', true),
+    'unsafe data image' => array('<p>Before <img alt="" src="data:text/html;base64,PHNjcmlwdD4=" style="width:50px;height:15px;"> after</p>', false),
+    'empty source' => array('<p>Before <img alt="" src=""> after</p>', false),
+);
+foreach ( array('data-src', 'data-lazy-src', 'data-original', 'data-image-src', 'data-srcset', 'data-lazy-srcset') as $lazySource ) {
+    $rows['pending ' . $lazySource] = array('<p>Before ' . str_replace('<img ', '<img ' . $lazySource . '="/real.gif" ', $dataImage) . ' after</p>', false);
+}
+foreach ( $rows as $name => [$source, $native] ) {
+    $result = (new ArtifactCompiler())->compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array('index.html' => $source),
+    ))->toArray();
+    $markup = (string) ($result['serialized_blocks'] ?? '');
+    $paragraph = $findBlock($result['blocks'] ?? array(), 'core/paragraph');
+    if ( $native ) {
+        $content = (string) ($paragraph['attrs']['content'] ?? '');
+        if ( null === $paragraph
+            || str_contains($markup, '<!-- wp:html')
+            || ! str_contains($content, 'src="' . $dataSrc . '"')
+            || ! str_contains($markup, 'src="' . $dataSrc . '"')
+            || 'pass' !== ((new BlockValidityValidator())->validateBlocks($result['blocks'] ?? array())['status'] ?? '') ) {
+            $failures[] = $name . ' preserves a valid RichText image object and serialized src: ' . $markup;
+        }
+        if ( 'nested styled marks' === $name
+            && ( ! str_contains($content, 'color:red') || ! str_contains($content, 'font-weight:bold') ) ) {
+            $failures[] = $name . ' preserves the inline marks: ' . $markup;
+        }
+    } elseif ( null === $findBlock($result['blocks'] ?? array(), 'core/html') || null !== $paragraph ) {
+        $failures[] = $name . ' keeps the existing HTML fallback: ' . $markup;
+    }
 }
 
 if ( array() !== $failures ) {

@@ -798,9 +798,9 @@ final class SourceDom
     }
 
     /**
-     * An `<img>` that RichText can carry as-is: a real `src` (not a `data:`
-     * placeholder) and no lazy-load source attribute that still has to be
-     * resolved into it.
+     * An `<img>` that RichText can carry as-is: a real, safe `src` (including
+     * raster data images) and no lazy-load source attribute that still has
+     * to be resolved into it.
      */
     private static function isRichTextImageObject(DOMElement $image): bool
     {
@@ -809,7 +809,7 @@ final class SourceDom
         }
 
         $src = trim(self::attr($image, 'src'));
-        if ( '' === $src || str_starts_with(strtolower($src), 'data:') ) {
+        if ( '' === $src || ! self::safeFallbackUrl($src, 'src') ) {
             return false;
         }
 
