@@ -252,15 +252,16 @@ final class DocumentHeadContext
         foreach ($pages as $page) {
             if (!isset($page['document_metadata']['head']) || !empty($page['synthetic'])) continue;
             $head = $page['document_metadata']['head'];
+            self::assertValid($head);
             $ownedPaths = array();
-            foreach ($head['elements'] as $element) {
+            foreach ($head['elements'] as $index => $element) {
                 if ('style' !== $element['tag'] && !('link' === $element['tag'] && in_array('stylesheet', preg_split('/\s+/', strtolower($element['attributes']['rel'] ?? '')) ?: array(), true))) continue;
                 foreach ($assets as $asset) {
                     $owned = ($element['asset_reference'] ?? null) === WordPressSitePlan::TOKEN_PREFIX . $asset['token'] . '}}';
                     if ('stylesheet-occurrence' === ($asset['source'] ?? null)) foreach ($asset['references'] ?? array() as $reference) {
                         if ($page['source_path'] === ($reference['source_path'] ?? null) && ($element['selector'] ?? '') === ($reference['selector'] ?? null)) $owned = true;
                     }
-                    if ($owned) $ownedPaths[$asset['target_path']] = true;
+                    if ($owned) $ownedPaths[$asset['target_path']][] = $index;
                 }
             }
             // The head replays its stylesheets at their parser positions, so it
@@ -268,12 +269,24 @@ final class DocumentHeadContext
             // the rest of the queue first (Core block styles, then before-author
             // engine support); the replay follows it and prints the stylesheets
             // the enqueue order places after the head's own (after-author) last.
-            $styles = $after = array();
+            // Preserve handles between owned styles at the preceding head element;
+            // only the final run of non-owned handles belongs after the whole head.
+            $styles = $after = $following = array();
+            $previous = null;
             foreach (WordPressSitePlan::documentStylesheets(array('assets' => $assets, 'pages' => $pages), $page['source_path']) as $stylesheet) {
-                if (isset($ownedPaths[$stylesheet['target_path']])) { $styles[] = $stylesheet['handle']; $after = array(); }
-                elseif (array() !== $styles) $after[] = $stylesheet['handle'];
+                if (!empty($ownedPaths[$stylesheet['target_path']])) {
+                    if (null !== $previous && array() !== $after) {
+                        $following[$previous] = $after;
+                        $styles = array_merge($styles, $after);
+                    }
+                    $previous = array_shift($ownedPaths[$stylesheet['target_path']]);
+                    $styles[] = $stylesheet['handle'];
+                    $after = array();
+                } elseif (array() !== $styles) $after[] = $stylesheet['handle'];
             }
-            $row = array('identity' => $page['reconciliation_identity'], 'path' => trim($page['route']['path'], '/'), 'front_page' => !empty($page['entrypoint']), 'html' => self::render($head, $assets, $tokens, WordPressSitePlan::entryRootFromDocuments($pages)), 'styles' => $styles, 'after' => $after, 'viewport' => (bool) array_filter($head['elements'], static fn(array $row): bool => 'meta' === $row['tag'] && 'viewport' === strtolower($row['attributes']['name'] ?? '')));
+            $html = array();
+            foreach ($head['elements'] as $element) $html[] = self::render(array('schema' => self::SCHEMA, 'elements' => array($element)), $assets, $tokens, WordPressSitePlan::entryRootFromDocuments($pages));
+            $row = array('identity' => $page['reconciliation_identity'], 'path' => trim($page['route']['path'], '/'), 'front_page' => !empty($page['entrypoint']), 'html' => $html, 'styles' => $styles, 'following' => $following, 'after' => $after, 'viewport' => (bool) array_filter($head['elements'], static fn(array $row): bool => 'meta' === $row['tag'] && 'viewport' === strtolower($row['attributes']['name'] ?? '')));
             if (isset($taxonomyArchives[$page['source_path']])) $row += $taxonomyArchives[$page['source_path']];
             $rows[] = $row;
         }
@@ -297,7 +310,10 @@ add_filter( 'template_include', static function ( $template ) use ( $blocks_engi
         add_action( 'wp_head', static function () use ( $row, $blocks_engine_head_assets ): void {
             $references = array();
             foreach ( $blocks_engine_head_assets as $token => $path ) $references[$token] = get_theme_file_uri( implode( '/', array_map( 'rawurlencode', explode( '/', $path ) ) ) );
-            echo strtr( $row['html'], $references );
+            foreach ( $row['html'] as $index => $html ) {
+                echo strtr( $html, $references );
+                if ( ! empty( $row['following'][$index] ) ) wp_print_styles( $row['following'][$index] );
+            }
             if ( array() !== $row['after'] ) wp_print_styles( $row['after'] );
         }, 8 );
         break;
