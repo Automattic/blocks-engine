@@ -470,14 +470,14 @@ final class StyleAttributeMapper
     {
         $sides = array( 'top' => '', 'right' => '', 'bottom' => '', 'left' => '' );
 
-        $shorthand = trim((string) ($declarations[ $property ] ?? ''));
+        $shorthand = trim(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? '')));
         if ( '' !== $shorthand ) {
             $consumed[ $property ] = true;
             [ $sides['top'], $sides['right'], $sides['bottom'], $sides['left'] ] = CssValueInspector::expandBoxShorthand($shorthand);
         }
 
         foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
-            $longhand = trim((string) ($declarations[ $property . '-' . $side ] ?? ''));
+            $longhand = trim(CssValueInspector::withoutImportant((string) ($declarations[ $property . '-' . $side ] ?? '')));
             if ( '' !== $longhand ) {
                 $sides[ $side ]                       = $longhand;
                 $consumed[ $property . '-' . $side ]  = true;

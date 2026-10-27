@@ -1490,6 +1490,13 @@ final class AuthorStylesheetProjector
         if ( 'img' !== strtolower($element->tagName) ) {
             return null;
         }
+        $leafMarker = $context->selectorProjections->imageFigure($element->getNodePath() ?? '')['leafMarker'] ?? '';
+        if ( '' !== $leafMarker ) {
+            // The source figure survives as the outer box; all declarations
+            // (including important margins) still belong to its image leaf.
+            $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+            return NativeImageLeafPresentation::selectors(':where(.' . $leafMarker . ').wp-block-image', $this->selectorSpecificityShims($parsed, $context) . $suffix);
+        }
         $compounds = $parsed['compounds'];
         $subject = CssSelectorCompoundInspector::rightmost($compounds);
         if ( 'img' !== strtolower((string) ($subject['type'] ?? ''))
@@ -2524,7 +2531,7 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
-            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && ('svg' !== $tagName || ($flexBox && $this->styleResolver->imageIsFlexOrGridItem($element)) || $this->isProjectableFillSvg($element, $declarations))));
+            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && '' === ($context->selectorProjections->imageFigure($element->getNodePath() ?? '')['leafMarker'] ?? '') && ('svg' !== $tagName || ($flexBox && $this->styleResolver->imageIsFlexOrGridItem($element)) || $this->isProjectableFillSvg($element, $declarations))));
             if ( array() === $imageMatches ) {
                 continue;
             }

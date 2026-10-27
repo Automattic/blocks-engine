@@ -127,7 +127,7 @@ final class AuthorSelectorProjectionState
      * so an author subject that names the image by class or id has to follow
      * them there.
      *
-     * @var array<string, array{classes: list<string>, anchor: string, linked: bool}>
+     * @var array<string, array{classes: list<string>, anchor: string, linked: bool, leafMarker: string}>
      */
     private array $imageFigures = array();
 
@@ -575,7 +575,7 @@ final class AuthorSelectorProjectionState
     }
 
     /** Remember which figure a source image became, and what identity the figure carries. */
-    public function recordImageFigure(string $path, string $className, string $anchor, bool $linked): void
+    public function recordImageFigure(string $path, string $className, string $anchor, bool $linked, string $leafMarker = ''): void
     {
         if ( '' === $path ) {
             return;
@@ -584,10 +584,11 @@ final class AuthorSelectorProjectionState
             'classes' => array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array(), static fn (string $class): bool => '' !== $class)),
             'anchor' => $anchor,
             'linked' => $linked,
+            'leafMarker' => $leafMarker,
         );
     }
 
-    /** @return array{classes: list<string>, anchor: string, linked: bool}|null */
+    /** @return array{classes: list<string>, anchor: string, linked: bool, leafMarker: string}|null */
     public function imageFigure(string $path): ?array
     {
         return $this->imageFigures[$path] ?? null;

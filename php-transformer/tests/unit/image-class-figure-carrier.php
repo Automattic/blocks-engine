@@ -145,6 +145,59 @@ $plain = ( new HtmlTransformer() )->transform(
 $plainCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $plain['assets'] ?? array()));
 $assert(array() !== $rules($plainCss, '/^#head\s+img$/', array( 'float:left' )), 'a type-only image rule is left on the <img>');
 
+// Separate authored boxes must not collapse their class-bound declarations.
+// Exercise both public entry points, important spellings, and the legacy
+// single-element shape in one neutral table-driven regression.
+foreach ( array(
+    array('figure', '0!important', true),
+    array('figure', '0 !important', true),
+    array('inline-figure', '0 !important', true),
+    array('standalone', '0!important', false),
+) as [$shape, $margin, $separate] ) {
+    $source = '<style>.prose :where(img){margin-top:2em;margin-bottom:2em}'
+        . '.visual{display:flex;justify-content:center;width:500px}'
+        . '.frame{display:block;width:min(88%,480px);margin:' . $margin . '}'
+        . '.picture{display:block;width:100%;max-width:480px;height:auto;margin:' . $margin . '}</style>'
+        . '<div class="prose"><div class="visual">'
+        . ($separate ? '<figure class="frame"' . ('inline-figure' === $shape ? ' style="margin:' . $margin . '"' : '') . '>' : '')
+        . '<img class="picture" src="/media/sample.webp" width="856" height="1001" alt="Sample">'
+        . ($separate ? '</figure>' : '') . '</div></div>';
+    foreach ( array('html', 'artifact') as $interface ) {
+        $compiled = 'html' === $interface
+            ? (new HtmlTransformer())->transform($source)->toArray()
+            : (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array(
+                'entrypoint' => 'index.html',
+                'files' => array(array('path' => 'index.html', 'content' => $source, 'mime_type' => 'text/html')),
+            ))->toArray();
+        $label = $interface . ' ' . $shape . ' ' . $margin;
+        $output = (string) ($compiled['serialized_blocks'] ?? '');
+        $sheet = '';
+        foreach ( $compiled['assets'] ?? array() as $asset ) {
+            if ( 'css' === ($asset['kind'] ?? '') && ! str_contains((string) ($asset['path'] ?? ''), 'editor-static-state') ) {
+                $sheet .= (string) ($asset['content'] ?? '');
+            }
+        }
+        $assert(1 === preg_match('/<figure[^>]*class="([^"]*)"/', $output, $figureMatch), $label . ': emits a native image figure');
+        $classes = preg_split('/\s+/', $figureMatch[1] ?? '') ?: array();
+        preg_match_all('/\bstyle="([^"]*)"/', $output, $inlineStyles);
+        $assert(! preg_match('/:\s*(?:!\s*important\s*)?(?:;|})/i', $sheet . implode(';', $inlineStyles[1]) . ';'), $label . ': no empty declaration values');
+        if ( $separate ) {
+            $assert(in_array('frame', $classes, true) && ! in_array('picture', $classes, true), $label . ': the figure keeps only its own authored identity');
+            $assert(array() !== $rules($sheet, '/^\.frame$/', array('width:min(88%,480px)')), $label . ': figure retains its 88% width (440px in the 500px parent)');
+            $assert(array() !== $rules($sheet, '/>\s*img/', array('width:100%', 'max-width:480px', 'height:auto')), $label . ': image sizing reaches the leaf');
+            $assert(array() !== $rules($sheet, '/>\s*img/', array('margin:0!important')), $label . ': important zero margin beats ancestor img margins on the leaf');
+            $assert(array() === $rules($sheet, '/^\.picture(?:[:.]|$)/', array('width:100%')), $label . ': image width cannot size the figure');
+        } else {
+            if ( 'html' === $interface ) {
+                // Baseline captured on trunk: both markup and frontend CSS.
+                $assert('13c30f6c122885dd85328076cf011a0e6214d85d66b0014fb78f24b59513de61' === hash('sha256', $output . $sheet), $label . ': standalone output remains byte-identical');
+            }
+            $assert(in_array('picture', $classes, true), $label . ': standalone image retains its figure class transport');
+            $assert(array() !== $rules($sheet, '/^\.picture$/', array('width:100%')), $label . ': standalone image keeps its authored figure sizing rule');
+        }
+    }
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "image class figure carrier tests: {$failures} failed, {$passes} passed\n");
     exit(1);
