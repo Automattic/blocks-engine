@@ -15,7 +15,7 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
         $failures[] = $message;
     }
 };
-$compile = static function (string $tag, string $attributes = '', string $content = '', string $style = 'background-image:url(tile.png);background-repeat:repeat', string $head = ''): array {
+$compile = static function (string $tag, string $attributes = '', string $content = '', string $style = 'background-image:url(tile.png);background-repeat:no-repeat', string $head = ''): array {
     $html = '<!doctype html><html><head><meta charset="utf-8"><title>Tiled overlay</title>'
         . '<style>.band{position:relative;padding:80px 24px}' . $tag . '{position:absolute;inset:0}</style>' . $head . '</head>'
         . '<body><section class="band"><' . $tag . ' ' . $attributes . ' style="' . $style . '">' . $content . '</' . $tag . '><h2>Answer every call</h2></section></body></html>';
@@ -33,10 +33,28 @@ $tile = $compile('x-tile');
 $div = $compile('div');
 $assert(array() === ($tile['fallbacks'] ?? array()), 'background-only custom element has no fallbacks');
 $assert(array() === ($div['fallbacks'] ?? array()), 'div control has no fallbacks');
-$assert(str_contains($blocks($tile), '<!-- wp:image') && str_contains($blocks($tile), 'tile.png'), 'tiled background survives as a native block');
+$assert(str_contains($blocks($tile), '<!-- wp:image') && str_contains($blocks($tile), 'tile.png'), 'non-repeating background survives as a native image block');
 $assert(str_contains($blocks($tile), '<!-- wp:group') && str_contains($blocks($tile), 'Answer every call'), 'surrounding section stays native');
 $assert(1 === preg_match('/blocks-engine-source-x-tile-[a-f0-9]{12}-\d+/', $blocks($tile), $marker), 'type selector geometry has a source marker');
 $assert(isset($marker[0]) && str_contains($css($tile), $marker[0] . '):not(be-t-0){position:absolute;inset:0}'), 'type selector geometry is projected');
+
+// Repeating paint must remain a background, not one intrinsic-size image (#3552).
+$repeating = $compile('x-tile', 'class="t"', '', 'background-image:url(tile.png);background-repeat:repeat', '<style>.t{position:absolute;inset:0}</style>');
+$assert(array() === ($repeating['fallbacks'] ?? array()), 'repeating custom element has no fallbacks');
+$assert(! str_contains($blocks($repeating), '<!-- wp:image'), 'repeating tile.png must not become a core/image');
+preg_match_all('/<!-- wp:group (\{.*?\}) -->/', $blocks($repeating), $matches);
+$layers = array();
+foreach ( $matches[1] as $json ) {
+    $attrs = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+    if ( 'tile.png' === ($attrs['style']['background']['backgroundImage']['url'] ?? null) ) {
+        $layers[] = $attrs;
+    }
+}
+$assert(1 === count($layers), 'exactly one core/group owns the repeating tile.png background');
+$background = $layers[0]['style']['background'] ?? array();
+$assert('repeat' === ($background['backgroundRepeat'] ?? null), 'custom element background keeps repeat');
+$assert('auto' === ($background['backgroundSize'] ?? null), 'custom element background defaults to auto size');
+$assert(str_contains($blocks($repeating), 'Answer every call'), 'repeating overlay keeps its sibling heading');
 
 // The Wix shape: empty, data-only parameters of the already-painted background.
 $wix = $compile('wix-bg-image', 'id="bgImgOverlay_1" class="overlay" data-tiled-image-info="{&quot;imageData&quot;:{}}" data-motion-part="BG_IMG comp-1"', '', 'background-image:url(tile.png); background-size:auto; background-repeat:repeat; background-position:center center;', '<script>window.wix = {};</script>');
