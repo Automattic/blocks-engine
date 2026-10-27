@@ -1159,7 +1159,17 @@ $assert('Full refund within 30 days.' === ($disclosureBlock['innerBlocks'][0]['a
 $assert(str_contains((string) ($disclosureResult['serialized_blocks'] ?? ''), '<!-- wp:details'), 'disclosure conversion serializes a native details block comment');
 
 $decorativeDisclosureResult = ( new HtmlTransformer() )->transform('<div><button aria-expanded="false" aria-controls="answer-2"><svg aria-hidden="true"></svg><span aria-hidden="true">Question:</span> What is your refund policy?</button><div id="answer-2"><p>Full refund within 30 days.</p></div></div>')->toArray();
-$assert('What is your refund policy?' === ($decorativeDisclosureResult['blocks'][0]['attrs']['summary'] ?? null), 'disclosure labels omit decorative SVG and hidden text');
+// aria-hidden excludes decoration from the accessible name, not the visible
+// presentation. Keep that artwork and its ARIA semantics in the saved summary.
+$decorativeDisclosureSummary = (string) ($decorativeDisclosureResult['blocks'][0]['attrs']['summary'] ?? '');
+$assert('<svg aria-hidden="true"></svg><span aria-hidden="true">Question:</span> What is your refund policy?' === $decorativeDisclosureSummary, 'disclosure summaries preserve visible decoration with its aria-hidden semantics', $decorativeDisclosureSummary);
+$decorativeDisclosureDocument = new DOMDocument();
+$decorativeDisclosureDocument->loadHTML('<!doctype html><html><body><details><summary>' . $decorativeDisclosureSummary . '</summary></details></body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$decorativeDisclosureXPath = new DOMXPath($decorativeDisclosureDocument);
+foreach ( $decorativeDisclosureXPath->query('//summary//*[@aria-hidden="true"]') as $hiddenDecoration ) {
+    $hiddenDecoration->parentNode->removeChild($hiddenDecoration);
+}
+$assert('What is your refund policy?' === trim($decorativeDisclosureDocument->getElementsByTagName('summary')->item(0)->textContent), 'disclosure accessible label text excludes aria-hidden decoration');
 
 // A heading-wrapped toggle (button nested inside the header) is recognized by
 // the same structural signal.

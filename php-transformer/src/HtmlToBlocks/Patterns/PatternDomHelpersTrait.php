@@ -47,8 +47,8 @@ trait PatternDomHelpersTrait
     /**
      * The phrasing label of a disclosure control, without its decorative icon.
      *
-     * The target block (core/accordion-heading, core/details) stores the label
-     * as RichText and draws its own toggle icon, so the source icon — an svg,
+     * core/accordion-heading stores the label as RichText and draws its own
+     * toggle icon, so the source icon — an svg,
      * an aria-hidden subtree, or a text-less flow wrapper such as
      * `div > div > div + div` — is removed from a clone of the DOM before
      * serializing. Removing whole nodes keeps the label balanced whatever the
