@@ -68,6 +68,16 @@ $repairs = array(
         $group($group($p('Workshop') . $p('Our Work'))) . "\n\n" . $p('Hartfield, Ontario'),
         array( 'core/group' ),
     ),
+    'extra group closer with no extra </div>' => array(
+        $group($group($p('Workshop') . $p('Our Work'))) . '<!-- /wp:group -->' . "\n\n" . $p('Hartfield, Ontario'),
+        $group($group($p('Workshop') . $p('Our Work'))) . "\n\n" . $p('Hartfield, Ontario'),
+        array( 'core/group' ),
+    ),
+    'extra paragraph closer directly in a group' => array(
+        $group($p('Workshop') . '<!-- /wp:paragraph -->' . $p('Our Work')),
+        $group($p('Workshop') . $p('Our Work')),
+        array( 'core/paragraph' ),
+    ),
     'paragraph closer missing at the end' => array(
         $cover . "\n\n" . $p('Tail note', false),
         $cover . "\n\n" . $p('Tail note'),

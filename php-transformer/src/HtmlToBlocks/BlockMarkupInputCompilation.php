@@ -219,8 +219,9 @@ final class BlockMarkupInputCompilation
      * element depth d is closed by the closer at depth d, whatever its name. A
      * block whose element has ended and that only the next sibling's opener or
      * an outer block's closer would close ends with its element. A closer with
-     * no open block at its depth, after an element closer with no open element
-     * (which browsers ignore), is extra and is removed with that element closer.
+     * no open block at its depth, at block level or after an element closer with
+     * no open element (which browsers ignore), is extra and is removed with that
+     * element closer.
      *
      * @return array{html: string, repairs: array<int, string>, blocks: array<int, string>}|null Null when the delimiters cannot be paired this way.
      */
@@ -332,7 +333,10 @@ final class BlockMarkupInputCompilation
             }
             $current = $top();
             if ( null === $current || $current['depth'] < $depth ) {
-                if ( array() === $strayBefore ) {
+                // An extra closer at block level (the top level, or directly in a
+                // block's element), or after an element closer with no open element.
+                $atBlockLevel = 0 === $depth || null !== $elements[$depth - 1]['owner'];
+                if ( array() === $strayBefore && ! $atBlockLevel ) {
                     return null;
                 }
                 foreach ( $strayBefore as [ $at, $length ] ) {
