@@ -64,6 +64,21 @@ $assert(1 === count($blocksNamed($form, 'core/search')), 'the search form inside
 $assert(1 === count($searchGroups($form)), 'the <search> landmark stays a core/group with tagName "search"');
 $assert(str_contains((string) ($form['serialized_blocks'] ?? ''), '<search class="wp-block-group site-search">'), 'the group renders the <search> landmark with its class');
 
+// Accessible names do not imply a visible source label.
+foreach ( array(
+    'visible label' => array( '<label for="q">Find items</label><input id="q" type="search">', true ),
+    'aria-label only' => array( '<input type="search" aria-label="Find items">', false ),
+    'placeholder only' => array( '<input type="search" placeholder="Find items">', false ),
+    'sr-only label' => array( '<label for="q" class="sr-only">Find items</label><input id="q" type="search">', false ),
+) as $case => [ $controls, $showLabel ] ) {
+    $result = $transform('<form role="search">' . $controls . '</form>');
+    $searchBlocks = $blocksNamed($result, 'core/search');
+    $assert(1 === count($searchBlocks), "{$case}: converts to native search");
+    $attrs = $searchBlocks[0]['attrs'] ?? array();
+    $assert($showLabel === ($attrs['showLabel'] ?? null), "{$case}: only a visible source label enables showLabel");
+    $assert('Find items' === ($attrs['label'] ?? ''), "{$case}: keeps the accessible label");
+}
+
 // Search glyph names identify a submit control independently of the site's language.
 $searchControls = array(
     'localized icon-font form' => array( '<button type="submit"><i class="fa fa-search"></i></button>', true ),

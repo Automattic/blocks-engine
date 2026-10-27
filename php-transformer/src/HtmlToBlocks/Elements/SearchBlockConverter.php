@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -63,7 +64,7 @@ final class SearchBlockConverter
         }
 
         $label = $this->formControlMetadataBuilder->label($textInput);
-        $showLabel = '' !== $label;
+        $showLabel = $this->hasVisibleLabel($textInput);
         if ( '' === $label ) {
             $label = trim(SourceDom::attr($form, 'aria-label'));
         }
@@ -101,6 +102,31 @@ final class SearchBlockConverter
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $this->registerSearchControlPresentation($textInput, $submitControl));
 
         return $this->context->createBlock('core/search', $attrs, array(), $form);
+    }
+
+    /** Accessible names and rendered label boxes are independent source facts. */
+    private function hasVisibleLabel(DOMElement $control): bool
+    {
+        $label = $this->formControlMetadataBuilder->labelElement($control);
+        if ( ! $label instanceof DOMElement || '' === trim($this->formControlMetadataBuilder->labelText($label)) ) {
+            return false;
+        }
+
+        for ( $node = $label; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $node->hasAttribute('hidden')
+                || 1 === preg_match('/(?:^|\s)(?:sr-only|screen-reader-text|screen-reader-only|visually-hidden)(?:\s|$)/i', SourceDom::attr($node, 'class')) ) {
+                return false;
+            }
+            $declarations = $this->context->presentationDeclarations($node);
+            $display = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $declarations['display'] ?? '') ?? ''));
+            $visibility = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $declarations['visibility'] ?? '') ?? ''));
+            if ( 'none' === $display || in_array($visibility, array( 'hidden', 'collapse' ), true)
+                || CssValueInspector::isVisuallyClippedBox($declarations) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** Bridge replaced source controls through the existing owned search stylesheet. */
