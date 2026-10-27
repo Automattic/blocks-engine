@@ -137,6 +137,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPatte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverStyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPatternContext;
@@ -9141,6 +9142,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $url = $this->backgroundImageExtractor->urlFromStyle($this->styleResolver->mergedPresentationStyle($element));
         if ( '' === $url ) {
             return null;
+        }
+
+        if ( (new CoverStyleResolver())->hasRepeatingBackground($this->styleResolver->mergedPresentationStyle($element)) ) {
+            $attrs = $this->styleResolver->presentationAttributes($element);
+            $attrs['style']['background'] = array_filter(array(
+                'backgroundImage'    => array( 'url' => $this->resolvedAssetImageUrl($url) ),
+                'backgroundRepeat'   => $declarations['background-repeat'] ?? 'repeat',
+                // Core defaults a missing size to cover, not CSS's initial auto.
+                'backgroundSize'     => $declarations['background-size'] ?? 'auto',
+                'backgroundPosition' => $declarations['background-position'] ?? '',
+            ), static fn ($value): bool => '' !== $value);
+
+            return $this->createBlock('core/group', $attrs, array(), $element);
         }
 
         $width = trim((string) ($declarations['width'] ?? ''));

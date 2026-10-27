@@ -309,6 +309,10 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( array() === $children && ! $this->context->hasDirectMediaChild($element) ) {
             $backgroundImage = $this->context->backgroundImageBlock($element);
             if ( null !== $backgroundImage ) {
+                // A background group already owns the source element's box.
+                if ( 'core/group' === ($backgroundImage['blockName'] ?? '') ) {
+                    return ConversionOutcome::handled($backgroundImage);
+                }
                 $children[] = $backgroundImage;
             }
         }
