@@ -104,10 +104,6 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        $block = $this->context->capturedMediaLayoutBlock($element);
-        if ( null !== $block ) {
-            return ConversionOutcome::handled($block);
-        }
         if ( $this->context->hasExternalSvgFragmentDependencyBoundary($element) ) {
             return ConversionOutcome::handled($this->context->responsiveMediaBlock($element));
         }
