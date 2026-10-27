@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
@@ -2403,7 +2404,14 @@ final class AuthorStylesheetProjector
         }
         $projected = array();
         $scope = '';
-        if ( preg_match('/^\s*((?::where\([^(),]+\)\s+)+)/i', $selector, $scopeMatch) ) {
+        // Rule preludes include CSS comments. Ignore them when retaining a
+        // device gate, or rebinding to a shared id drops the device boundary
+        // from this rule and its later support/editor copies. Leave non-device
+        // projections byte-identical.
+        $scopeSelector = str_contains($selector, CaptureEvidence::DEVICE_DOCUMENT) || str_contains($selector, EngineMarker::DEVICE_SCOPE_ATTRIBUTE)
+            ? CssSyntaxScanner::withoutComments($selector)
+            : $selector;
+        if ( preg_match('/^\s*((?::where\([^(),]+\)\s+)+)/i', $scopeSelector, $scopeMatch) ) {
             $scope = trim((string) $scopeMatch[1]) . ' ';
         }
         foreach ( $matches as $element ) {
