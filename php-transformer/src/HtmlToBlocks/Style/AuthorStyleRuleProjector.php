@@ -150,6 +150,12 @@ final class AuthorStyleRuleProjector
                 ) {
                     return $body;
                 }
+                // Core's group stylesheet (`.wp-block-group{box-sizing:border-box}`)
+                // already sizes a source box that carries the group class, so
+                // the source renders it border-box as the output does.
+                if ( in_array('wp-block-group', preg_split('/\\s+/', trim($element->getAttribute('class'))) ?: array(), true) ) {
+                    return $body;
+                }
                 $box = $this->cascadedBoxModel($authorStyles, $element, $conditions);
                 $resolved = CssValueInspector::comparable((string) ($box['box-sizing'] ?? ''));
                 if ( ! in_array($resolved, array( '', 'content-box', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {

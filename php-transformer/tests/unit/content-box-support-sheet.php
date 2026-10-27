@@ -124,6 +124,11 @@ $cases = array(
         'not_after' => array( '/box-sizing/' ),
         'not_author' => array( '/box-sizing/' ),
     ),
+    'a box that already carries core\'s group class renders border-box in the source and is not restated' => array(
+        'sheets' => static fn (): array => $transform('<!-- wp:column --><div class="wp-block-column"><div class="wp-block-group box"><p>Coco Rope Tug</p></div></div><!-- /wp:column -->', '.box{height:100%;padding:1.5rem;border:1px solid #e6e0d6}'),
+        'not_after' => array( '/content-box/' ),
+        'not_author' => array( '/content-box/' ),
+    ),
     'a stylesheet asset keeps its media around the restatement' => array(
         'sheets' => static fn (): array => $compile('<!doctype html><html><head><style media="screen and (min-width: 600px)">.box{width:600px;padding:20px}</style></head><body>' . $box . '</body></html>'),
         'after' => array( '/@media screen and \(min-width: 600px\) ?\{ ?\.box ?\{ ?box-sizing:content-box ?\} ?\}/' ),
