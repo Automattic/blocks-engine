@@ -3516,8 +3516,8 @@ final class StyleResolver implements ElementPresentationResolver
 
     /**
      * Resolve media-text gate declarations without flattening CSS importance or
-     * shorthand/longhand order. Inline declarations outrank matched stylesheet
-     * declarations at equal importance.
+     * shorthand/longhand order or layer priority. Inline declarations outrank
+     * matched stylesheet declarations at equal importance.
      *
      * @return array<string, string>
      */
@@ -3533,7 +3533,8 @@ final class StyleResolver implements ElementPresentationResolver
                     $entry['value'] . ($entry['important'] ? ' !important' : ''),
                     false,
                     $rule['mediaTextSpecificity'] ?? array( 0, 0, 0 ),
-                    ++$sequence
+                    ++$sequence,
+                    $rule['layerRank'] ?? null
                 );
             }
         }
@@ -3560,7 +3561,7 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * @param array<string, array{value: string, important: bool, inline: bool, specificity: array{int, int, int}, sequence: int}> $cascade
+     * @param array<string, array{value: string, important: bool, inline: bool, specificity: array{int, int, int}, sequence: int, layer: int|null}> $cascade
      * @param array{int, int, int} $specificity
      */
     private function applyMediaTextCascadeDeclaration(
@@ -3569,7 +3570,8 @@ final class StyleResolver implements ElementPresentationResolver
         string $rawValue,
         bool $inline,
         array $specificity,
-        int $sequence
+        int $sequence,
+        ?int $layer = null
     ): void {
         $property = str_starts_with($property, '--') ? $property : strtolower($property);
         $important = 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue);
@@ -3601,7 +3603,7 @@ final class StyleResolver implements ElementPresentationResolver
             $value = $this->flexShorthandGrowFactor($value);
         }
 
-        $incoming = array( 'important' => $important, 'inline' => $inline, 'specificity' => $specificity, 'sequence' => $sequence );
+        $incoming = array( 'important' => $important, 'inline' => $inline, 'specificity' => $specificity, 'sequence' => $sequence, 'layer' => $layer );
         $resetsAll = 'all' === $property && $this->isCssAllResetValue($value);
         // `all:unset|initial|revert` resets every longhand except custom
         // properties, direction and unicode-bidi. A winning reset removes the
@@ -3651,6 +3653,7 @@ final class StyleResolver implements ElementPresentationResolver
             'inline' => $inline,
             'specificity' => $specificity,
             'sequence' => $sequence,
+            'layer' => $layer,
         );
         // Preserve relative order among surviving descendants (including nested
         // border shorthands), rather than the order of the family map.
@@ -3682,24 +3685,19 @@ final class StyleResolver implements ElementPresentationResolver
 
     /**
      * Whether an existing cascade entry beats an incoming declaration:
-     * importance, then specificity, then order (inline wins a tie).
+     * using the shared importance, inline, layer, specificity and order ranking.
      *
-     * @param array{important: bool, inline: bool, specificity: array<int, int>, sequence: int} $current
-     * @param array{important: bool, inline: bool, specificity: array<int, int>, sequence: int} $incoming
+     * @param array{important: bool, inline: bool, specificity: array<int, int>, sequence: int, layer: int|null} $current
+     * @param array{important: bool, inline: bool, specificity: array<int, int>, sequence: int, layer: int|null} $incoming
      */
     private function mediaTextCascadeEntryOutranks(array $current, array $incoming): bool
     {
-        if ( $current['important'] !== $incoming['important'] ) {
-            return $current['important'];
-        }
-        $specificityComparison = $this->compareMediaTextSpecificity($current['specificity'], $incoming['specificity']);
-        if ( 0 !== $specificityComparison ) {
-            return 0 < $specificityComparison;
-        }
-        if ( $current['sequence'] !== $incoming['sequence'] ) {
-            return $current['sequence'] > $incoming['sequence'];
-        }
-        return $current['inline'] && ! $incoming['inline'];
+        // The incoming declaration wins exact ties. Keep the box-family reset
+        // handling above, but do not give it a separate, layer-blind cascade.
+        return ! CssCascade::wins(
+            $incoming + array('order' => $incoming['sequence']),
+            $current + array('order' => $current['sequence'])
+        );
     }
 
     /**
@@ -4384,7 +4382,7 @@ final class StyleResolver implements ElementPresentationResolver
 
             $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
             foreach ( $rule['declarations'] as $property => $value ) {
-                $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, false, $specificity, ++$sequence);
+                $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, false, $specificity, ++$sequence, $rule['layerRank'] ?? null);
             }
         }
 
