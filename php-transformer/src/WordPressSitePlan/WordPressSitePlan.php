@@ -2977,14 +2977,8 @@ PHP;
         $datedPostCount = 0;
         foreach ($documents as $index => &$document) {
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
-            // A collection becomes an archive template only on a route WordPress
-            // resolves to that template (category, tag, author). Any other
-            // collection route has no query that selects a custom archive
-            // template, so it stays a page that owns its route and content.
-            if (in_array('CollectionPage', $structuredTypes[$index], true) && 1 === preg_match('~^/(category|tag|author)/([^/]+)$~', $routes[$index], $match) && !isset($metadata['template_surface']) && empty($document['entrypoint'])) {
-                $slug = $match[1] . '-' . $match[2];
-                $metadata['template_surface'] = array('schema' => 'blocks-engine/template-surface/v1', 'role' => 'archive', 'slug' => $slug, 'logical_surface_id' => 'archive:' . $slug, 'responsive_variant_id' => 'default', 'declaration_provenance' => array('schema' => 'blocks-engine/template-surface-provenance/v1', 'kind' => 'schema_org', 'source_path' => $document['source_path']));
-            }
+            // CollectionPage is page evidence, not proof that a native archive
+            // exists. Taxonomy/author projection below owns archive promotion.
             $frontmatter = is_array($metadata['frontmatter'] ?? null) ? $metadata['frontmatter'] : array();
             $explicit = null;
             $provenance = null;
@@ -6491,7 +6485,7 @@ PHP;
     /** Source-owned native templates share the taxonomy presentation path. */
     private static function archiveTemplateSlug(array $entity): string
     {
-        return ('author' === $entity['kind'] ? 'author-' : 'category-') . $entity['slug'];
+        return ('author' === $entity['kind'] ? 'author-' : ('post_tag' === ($entity['taxonomy'] ?? null) ? 'tag-' : 'category-')) . $entity['slug'];
     }
 
     private static function assertAuthorEntities(array $entities, array $pagesBySource): void

@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
-/** Recognizes captured category collections from reciprocal source-document evidence. */
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
+
+/** Recognizes captured category and tag collections from reciprocal source-document evidence. */
 final class TaxonomyProjection
 {
     /** @param array<int,array<string,mixed>> $documents @param array<int,array<string,mixed>> $routes @return array{entities:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>,pagination_source_paths_by_archive:array<string,array<int,string>>} */
@@ -29,21 +31,32 @@ final class TaxonomyProjection
         foreach ($documents as $archive) {
             $source = $archive['source_path'] ?? null;
             $route = is_string($source) ? ($routeBySource[$source] ?? null) : null;
-            if (!is_string($source) || !is_string($route) || !preg_match('~(?:^|/)category/([^/]+(?:/[^/]+)*)$~', $route, $categoryMatch) || preg_match('~/page/[1-9][0-9]{0,5}$~', $route)) continue;
+            if (!is_string($source) || !is_string($route) || !preg_match('~(?:^|/)(category|tag)/([^/]+(?:/[^/]+)*)$~', $route, $termMatch) || preg_match('~/page/[1-9][0-9]{0,5}$~', $route)) continue;
+            if ('tag' === $termMatch[1] && str_contains($termMatch[2], '/')) continue;
+            $taxonomy = 'tag' === $termMatch[1] ? 'post_tag' : 'category';
             $slug = basename($route);
             if (!self::supportedTermSpelling($route, $slug)) {
-                $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_unsupported_spelling', 'severity' => 'info', 'message' => 'A captured category route or slug spelling is outside the canonical term vocabulary, so the collection stays explicitly unproven.', 'source_path' => $source, 'source_route' => $route);
+                $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_unsupported_spelling', 'severity' => 'info', 'message' => 'A captured taxonomy route or slug spelling is outside the canonical term vocabulary, so the collection stays explicitly unproven.', 'source_path' => $source, 'source_route' => $route);
                 continue;
             }
             $heading = ReciprocalArchiveProof::heading((string) ($archive['html'] ?? ''));
-            $listedDocuments = array();
             $listed = array();
             foreach (ReciprocalArchiveProof::links((string) ($archive['html'] ?? ''), $sourceOrigin) as $link) {
                 $listedRoute = $routeByLinkPath[$link['href']] ?? $link['href'];
                 $listedDocument = $documentsByRoute[$listedRoute] ?? null;
                 if (!is_array($listedDocument)) continue;
-                $listedDocuments[$listedRoute] = $listedDocument;
                 if ('post' === ($listedDocument['metadata']['post_type'] ?? null)) $listed[$listedRoute] = $listedDocument;
+            }
+            // Keep exact-heading proof, but allow a descriptive heading when
+            // CollectionPage names corroborate one consistent reciprocal label.
+            $name = $heading;
+            $labels = array();
+            foreach ($listed as $article) foreach ($linksBySource[$article['source_path']] ?? array() as $link) {
+                if ($route === ($routeByLinkPath[$link['href']] ?? $link['href'])) $labels[$link['label']] = true;
+            }
+            if (1 === count($labels)) {
+                $label = (string) array_key_first($labels);
+                if (in_array($label, self::collectionNames((string) ($archive['html'] ?? '')), true)) $name = $label;
             }
             $members = array();
             $paginationSources = array();
@@ -52,12 +65,12 @@ final class TaxonomyProjection
                 if (!preg_match('~^' . preg_quote($route, '~') . '/page/[1-9][0-9]{0,5}$~', $archiveRoute)) continue;
                 $archiveDocuments[$archiveRoute] = $sibling;
             }
-            if ('' !== $heading && '' !== $slug && basename($route) === $slug) {
+            if ('' !== $name && '' !== $slug && basename($route) === $slug) {
                 foreach ($listed as $articleRoute => $article) {
                     $articleSource = (string) $article['source_path'];
                     foreach ($linksBySource[$articleSource] ?? array() as $link) {
                         $linkedRoute = $routeByLinkPath[$link['href']] ?? $link['href'];
-                        if ($route === $linkedRoute && $heading === $link['label']) {
+                        if ($route === $linkedRoute && $name === $link['label']) {
                             $members[] = $articleSource;
                             break;
                         }
@@ -74,7 +87,7 @@ final class TaxonomyProjection
                         $articleSource = (string) ($listedDocument['source_path'] ?? '');
                         foreach ($linksBySource[$articleSource] ?? array() as $backlink) {
                             $backlinkRoute = $routeByLinkPath[$backlink['href']] ?? $backlink['href'];
-                            if ($route === $backlinkRoute && $heading === $backlink['label']) {
+                            if ($route === $backlinkRoute && $name === $backlink['label']) {
                                 $members[] = $articleSource;
                                 $paginationSources[$siblingSource] = true;
                                 break;
@@ -85,16 +98,16 @@ final class TaxonomyProjection
             }
             $members = array_values(array_unique($members));
             if (array() === $members) {
-                if (array() !== $listedDocuments) $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_unproven', 'severity' => 'info', 'message' => 'A captured category collection lacked matching article return links, source labels, or post members.', 'source_path' => $source, 'source_route' => $route);
+                $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_unproven', 'severity' => 'info', 'message' => 'A captured taxonomy collection lacked matching article return links, source labels, or post members.', 'source_path' => $source, 'source_route' => $route);
                 continue;
             }
-            $corroboratedBySlug['category:' . $slug][] = array('source' => $source, 'route' => $route, 'slug' => $slug, 'heading' => $heading, 'members' => $members, 'archive' => $archive, 'pagination_sources' => array_keys($paginationSources), 'parent_route' => str_contains($categoryMatch[1], '/') ? dirname($route) : null);
+            $corroboratedBySlug[$taxonomy . ':' . $slug][] = array('source' => $source, 'route' => $route, 'taxonomy' => $taxonomy, 'slug' => $slug, 'heading' => $name, 'members' => $members, 'archive' => $archive, 'pagination_sources' => array_keys($paginationSources), 'parent_route' => 'category' === $taxonomy && str_contains($termMatch[2], '/') ? dirname($route) : null);
         }
         $paginationSourcesByArchive = array();
         $candidatesByRoute = array();
         foreach ($corroboratedBySlug as $group) {
             if (1 < count($group)) {
-                foreach ($group as $candidate) $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_ambiguous_term', 'severity' => 'info', 'message' => 'More than one captured category archive claims the same term slug, so none of them can prove ownership of that term.', 'source_path' => $candidate['source'], 'source_route' => $candidate['route']);
+                foreach ($group as $candidate) $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_ambiguous_term', 'severity' => 'info', 'message' => 'More than one captured taxonomy archive claims the same term slug, so none of them can prove ownership of that term.', 'source_path' => $candidate['source'], 'source_route' => $candidate['route']);
                 continue;
             }
             $candidatesByRoute[$group[0]['route']] = $group[0];
@@ -115,10 +128,10 @@ final class TaxonomyProjection
                 'source_path' => $candidate['source'],
                 'source_route' => $candidate['route'],
                 'presentation_markup' => (string) ($candidate['archive']['block_markup'] ?? ''),
-                'query' => array('post_type' => 'post', 'taxonomy' => 'category', 'term' => $candidate['slug']),
+                'query' => array('post_type' => 'post', 'taxonomy' => $candidate['taxonomy'], 'term' => $candidate['slug']),
             );
             $entity = array(
-                'kind' => 'taxonomy_term', 'taxonomy' => 'category', 'slug' => $candidate['slug'], 'name' => $candidate['heading'],
+                'kind' => 'taxonomy_term', 'taxonomy' => $candidate['taxonomy'], 'slug' => $candidate['slug'], 'name' => $candidate['heading'],
                 'membership_source_paths' => $candidate['members'],
                 'archive' => $archive,
                 'evidence' => array('membership' => true, 'name' => true, 'archive' => true),
@@ -127,6 +140,22 @@ final class TaxonomyProjection
             $entities[] = $entity;
         }
         return array('entities' => $entities, 'diagnostics' => $diagnostics, 'pagination_source_paths_by_archive' => $paginationSourcesByArchive);
+    }
+
+    /** Only explicit CollectionPage names can corroborate a descriptive heading. */
+    private static function collectionNames(string $html): array
+    {
+        $names = array();
+        $collect = static function (mixed $value) use (&$collect, &$names): void {
+            if (!is_array($value)) return;
+            $types = array_map(static fn($type): string => is_string($type) ? (string) preg_replace('~^https?://schema\\.org/~', '', $type) : '', (array) ($value['@type'] ?? array()));
+            if (in_array('CollectionPage', $types, true) && is_string($value['name'] ?? null)) $names[] = trim(preg_replace('/\s+/u', ' ', $value['name']) ?? '');
+            foreach ($value as $child) if (is_array($child)) $collect($child);
+        };
+        foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) {
+            if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) $collect(json_decode($node['content'], true));
+        }
+        return array_values(array_unique($names));
     }
 
     /** Remove descendants if a parent's native query presentation was subsequently declined. */
