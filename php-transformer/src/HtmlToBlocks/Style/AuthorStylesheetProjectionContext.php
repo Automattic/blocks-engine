@@ -15,6 +15,7 @@ final class AuthorStylesheetProjectionContext
         public readonly TransformationEvidenceState $evidence,
         public readonly bool $keepAuthorClassSelectors = false,
         public readonly ProjectedSelectorBindings $bindings = new ProjectedSelectorBindings(),
-        public readonly string $emittedMarkup = ''
+        public readonly string $emittedMarkup = '',
+        public readonly ContentBoxRestatements $contentBoxRestatements = new ContentBoxRestatements()
     ) {}
 }

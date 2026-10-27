@@ -99,11 +99,19 @@ $assert(str_contains($restaurantRuntimeJs, "document.getElementById('nav-toggle'
 $assert(is_string($restaurantIslandPackage) && ! str_contains($restaurantIslandPackage, '[data-reveal]') && str_contains($restaurantIslandPackage, 'blocks-engine-attribute-') && str_contains($restaurantIslandPackage, "document.createElement('div')"), 'companion runtime packages carry the same projected script as the theme asset');
 $assert('pass' === ($runtimeReveal['source_reports']['runtime_dependency_parity']['status'] ?? ''), 'runtime dependency parity validates the projected inline script against materialized block markup');
 
+// Content-box restatements are support CSS: they are emitted in the
+// after-author engine-support stylesheet, with the projected selector and
+// conditions, and the projected author rule no longer carries them.
+$afterAuthorSupportCss = static fn (array $result): string => implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    array_filter($result['assets'] ?? array(), static fn (array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && 'after-author' === ($asset['stylesheet_placement'] ?? ''))
+));
 $contentBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.cascade-stack{display:block;width:640px;padding:48px;background:#fff;border:2px solid #18231d}</style><div class="cascade-stack"><p>Copy</p></div>' ),
 ) ) )->toArray();
 $contentBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $contentBox['assets'] ?? array()));
-$assert(str_contains($contentBoxCss, '.cascade-stack{display:block;width:640px;padding:48px;background:#fff;border:2px solid #18231d;box-sizing:content-box}'), 'definite source width plus box chrome retains the initial content-box model against the WordPress block reset');
+$assert(str_contains($contentBoxCss, '.cascade-stack{display:block;width:640px;padding:48px;background:#fff;border:2px solid #18231d}'), 'the projected author rule keeps its authored declarations');
+$assert(str_contains($afterAuthorSupportCss($contentBox), '.cascade-stack{box-sizing:content-box}'), 'definite source width plus box chrome retains the initial content-box model against the WordPress block reset');
 
 $borderBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>*,*::before,*::after{box-sizing:border-box}.cascade-stack{display:block;width:640px;padding:48px;border:2px solid #18231d}</style><div class="cascade-stack"><p>Copy</p></div>' ),
@@ -130,7 +138,8 @@ $contentBoxHeight = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.band{display:block;height:245px;padding-right:35px;padding-bottom:35px;overflow:hidden;background:#9b9}</style><div class="band"><p>Copy</p></div>' ),
 ) ) )->toArray();
 $contentBoxHeightCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $contentBoxHeight['assets'] ?? array()));
-$assert(str_contains($contentBoxHeightCss, '.band{display:block;height:245px;padding-right:35px;padding-bottom:35px;overflow:hidden;background:#9b9;box-sizing:content-box}'), 'definite source height plus box chrome retains the initial content-box model against the WordPress block reset');
+$assert(str_contains($contentBoxHeightCss, '.band{display:block;height:245px;padding-right:35px;padding-bottom:35px;overflow:hidden;background:#9b9}'), 'the projected height rule keeps its authored declarations');
+$assert(str_contains($afterAuthorSupportCss($contentBoxHeight), '.band{box-sizing:content-box}'), 'definite source height plus box chrome retains the initial content-box model against the WordPress block reset');
 
 // One rule sizes a component and another pads it. The source box is the
 // content height plus both paddings; the paddings' negative margins cancel in
@@ -139,9 +148,10 @@ $splitRuleBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.frame{padding:40px 0;margin:-40px 0;overflow:hidden}#strip{height:300px}.lead{padding:12px}</style><section><div id="strip" class="frame"><p>Copy</p></div><div class="frame lead"><p>Auto</p></div></section>' ),
 ) ) )->toArray();
 $splitRuleBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $splitRuleBox['assets'] ?? array()));
-$assert(1 === preg_match('/\{padding:40px 0;overflow:hidden;box-sizing:content-box\}/', $splitRuleBoxCss), 'a shared padding rule restates content-box when the cascade also sizes a matched element');
-$assert(1 === preg_match('/\{height:300px;box-sizing:content-box\}/', $splitRuleBoxCss), 'an id sizing rule restates content-box when the cascade also pads the element');
-$assert(1 !== preg_match('/\{padding:12px;box-sizing:content-box\}/', $splitRuleBoxCss), 'padding on an auto-sized element keeps the WordPress box model');
+$splitRuleBoxSupport = $afterAuthorSupportCss($splitRuleBox);
+$assert(str_contains($splitRuleBoxSupport, '.frame{box-sizing:content-box}'), 'a shared padding rule restates content-box when the cascade also sizes a matched element');
+$assert(str_contains($splitRuleBoxSupport, '#strip{box-sizing:content-box}'), 'an id sizing rule restates content-box when the cascade also pads the element');
+$assert(! str_contains($splitRuleBoxSupport, '.lead{box-sizing:content-box}'), 'padding on an auto-sized element keeps the WordPress box model');
 
 // The same split cascade inside runtime-gated stylesheets: neither half reaches
 // the unconditional cascade, so each rule resolves the other within its own
@@ -150,9 +160,10 @@ $gatedSplitRuleBox = ( new ArtifactCompiler() )->compile(array( 'files' => array
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><style media="not all">.frame{padding:40px 0;margin:-40px 0;overflow:hidden}</style><style media="not all">#strip{height:300px;display:block}</style><style>.lead{height:120px}</style></head><body><section><div id="strip" class="frame"><p>Copy</p></div><div class="lead"><p>Auto</p></div></section></body></html>' ),
 ) ) )->toArray();
 $gatedSplitRuleBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $gatedSplitRuleBox['assets'] ?? array()));
-$assert(1 === preg_match('/\{padding:40px 0;overflow:hidden;box-sizing:content-box\}/', $gatedSplitRuleBoxCss), 'a gated padding rule restates content-box when a rule in the same condition domain sizes the element');
-$assert(1 === preg_match('/\{height:300px;display:block;box-sizing:content-box\}/', $gatedSplitRuleBoxCss), 'a gated sizing rule restates content-box when a rule in the same condition domain pads the element');
-$assert(1 !== preg_match('/\{height:120px;box-sizing:content-box\}/', $gatedSplitRuleBoxCss), 'an unconditional sizing rule ignores chrome that only a gated stylesheet declares on other elements');
+$gatedSplitRuleBoxSupport = $afterAuthorSupportCss($gatedSplitRuleBox);
+$assert(str_contains($gatedSplitRuleBoxSupport, '@media not all{.frame{box-sizing:content-box}}'), 'a gated padding rule restates content-box, under its stylesheet media, when a rule in the same condition domain sizes the element');
+$assert(str_contains($gatedSplitRuleBoxSupport, '@media not all{#strip{box-sizing:content-box}}'), 'a gated sizing rule restates content-box, under its stylesheet media, when a rule in the same condition domain pads the element');
+$assert(! str_contains($gatedSplitRuleBoxSupport, '.lead{box-sizing:content-box}'), 'an unconditional sizing rule ignores chrome that only a gated stylesheet declares on other elements');
 
 // A component class that opts its own element into border-box keeps that box
 // model when an id rule sizes it, gated or not.

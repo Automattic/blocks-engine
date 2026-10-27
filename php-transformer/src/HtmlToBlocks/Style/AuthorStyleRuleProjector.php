@@ -35,7 +35,7 @@ final class AuthorStyleRuleProjector
     /** @var WeakMap<AuthorStyleAnalysis, bool> */
     private WeakMap $universalBorderBoxResets;
 
-    /** @var WeakMap<AuthorStyleAnalysis, array<string, list<array{declarations: array<string, string>, conditions: list<string>, specificity: list<int>, order: int}>>> */
+    /** @var WeakMap<AuthorStyleAnalysis, array<string, list<array{declarations: array<string, string>, conditions: list<string>, at_rules: list<string>, selector: string, source_selector: string, specificity: list<int>, order: int}>>> */
     private WeakMap $boxModelFacts;
 
     public function __construct(
@@ -57,8 +57,19 @@ final class AuthorStyleRuleProjector
     }
 
     /**
+     * `content_box` reports that the body ends with a `box-sizing:content-box`
+     * restatement ({@see projectSourceContentBoxSizing()}). That declaration is
+     * support CSS: the stylesheet projector moves it out of the author rule into
+     * the after-author support stylesheet. `content_box_overrides` lists the
+     * source rules that set `box-sizing` under a condition narrower than (or
+     * disjoint from) this rule's and won over the restatement in the authored
+     * cascade; an after-author restatement would override them, so they are
+     * restated after it. `content_box_order` is the rule's position in the
+     * authored cascade (null when unknown), in the same numbering as each
+     * override's `order`, so the support stylesheet keeps their authored order.
+     *
      * @param list<string> $conditions At-rules the rule sits inside, outermost first.
-     * @return array{body: string, declarations: array<string, string>}
+     * @return array{body: string, declarations: array<string, string>, content_box: bool, content_box_order: ?int, content_box_overrides: list<array{selector: string, conditions: list<string>, value: string, order: int}>}
      */
     public function projectWithDeclarations(
         string $prelude,
@@ -76,11 +87,16 @@ final class AuthorStyleRuleProjector
         // the very container the bound keeps it inside.
         $fluidCanvas = $body !== $authored;
         $this->acceptProjectedBody($body, $declarations, $this->projectAutoSizedStructuralPercentageHeight($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence, $conditions));
+        $contentBox = false;
+        $overrides = array();
+        $order = null;
         if ( ! $fluidCanvas ) {
-            $this->acceptProjectedBody($body, $declarations, $this->projectSourceContentBoxSizing($prelude, $body, $declarations, $authorStyles, $sourceStyles, $conditions));
+            $restated = $this->projectSourceContentBoxSizing($prelude, $body, $declarations, $authorStyles, $sourceStyles, $conditions, $overrides, $order);
+            $contentBox = $restated !== $body;
+            $this->acceptProjectedBody($body, $declarations, $restated);
         }
         $this->acceptProjectedBody($body, $declarations, $this->projectIntrinsicGridRowTracks($prelude, $body, $declarations, $authorStyles, $sourceStyles));
-        return array('body' => $body, 'declarations' => $declarations);
+        return array('body' => $body, 'declarations' => $declarations, 'content_box' => $contentBox, 'content_box_order' => $contentBox ? $order : null, 'content_box_overrides' => $contentBox ? $overrides : array());
     }
 
     /** @param array<string, string> $declarations */
@@ -96,8 +112,11 @@ final class AuthorStyleRuleProjector
     /**
      * @param array<string, string> $declarations
      * @param list<string>          $conditions At-rules the rule sits inside, outermost first.
+     * @param list<array{selector: string, conditions: list<string>, value: string, order: int}> $overrides Filled with
+     *     the source rules a later restatement must not override ({@see contentBoxOverrides()}).
+     * @param ?int $order Filled with this rule's authored cascade position, when known.
      */
-    private function projectSourceContentBoxSizing(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles, array $conditions = array()): string
+    private function projectSourceContentBoxSizing(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles, array $conditions = array(), array &$overrides = array(), ?int &$order = null): string
     {
         // A box sized on either axis is 2×(padding+border) smaller under the
         // WordPress border-box reset; a `height` band loses its bottom padding
@@ -117,12 +136,14 @@ final class AuthorStyleRuleProjector
             return $body;
         }
         $affected = false;
+        $subjects = array();
         foreach ( $selectors as $selector ) {
             $parsed = $sourceStyles->parsedSelector($selector);
             if ( ! $parsed['supported'] ) {
                 return $body;
             }
             foreach ( $this->semanticPreparer->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
+                $subjects[] = array( 'element' => $element, 'selector' => $selector, 'specificity' => array_values(CssSelectorMatcher::specificityCounts($parsed)) );
                 if ( 'a' === strtolower($element->tagName)
                     || FormControlClassifier::isControlElement($element)
                     || 'button' === strtolower(trim($element->getAttribute('role')))
@@ -143,7 +164,68 @@ final class AuthorStyleRuleProjector
         if ( ! $affected ) {
             return $body;
         }
+        $overrides = $this->contentBoxOverrides($authorStyles, $subjects, $conditions, $order);
         return $body . ( str_ends_with(rtrim($body), ';') ? '' : ';' ) . 'box-sizing:content-box';
+    }
+
+    /**
+     * Source rules that set `box-sizing` on a restated element under a
+     * condition this rule's domain does not hold (a narrower or disjoint
+     * `@media`), and that won over this rule in the authored cascade. The
+     * cascade decision above reads only conditions the rule's domain holds, so
+     * these never stopped the restatement; in the author stylesheet they kept
+     * winning where they apply. The restatement now sits in the after-author
+     * support stylesheet, after every author rule, so each of them is restated
+     * there too, in authored order with the restatements, to keep winning
+     * where it did.
+     *
+     * @param list<array{element: DOMElement, selector: string, specificity: list<int>}> $subjects
+     * @param list<string> $conditions
+     * @param ?int $ruleOrder Filled with this rule's authored cascade position, when known.
+     * @return list<array{selector: string, conditions: list<string>, value: string, order: int}>
+     */
+    private function contentBoxOverrides(AuthorStyleAnalysis $authorStyles, array $subjects, array $conditions, ?int &$ruleOrder = null): array
+    {
+        $held = self::restatableConditions($conditions);
+        $facts = $this->boxModelFacts($authorStyles);
+        $found = array();
+        foreach ( $subjects as $subject ) {
+            $elementFacts = $facts[ (string) $subject['element']->getNodePath() ] ?? array();
+            // This rule's own position in the authored cascade. A selector
+            // repeated across rules takes its earliest position, which lets
+            // every later competitor keep winning.
+            $order = null;
+            $selector = self::comparableSelector($subject['selector']);
+            foreach ( $elementFacts as $fact ) {
+                if ( $fact['selector'] === $selector && $fact['conditions'] === $held ) {
+                    $order = null === $order ? $fact['order'] : min($order, $fact['order']);
+                }
+            }
+            if ( null !== $order ) {
+                $ruleOrder = null === $ruleOrder ? $order : min($ruleOrder, $order);
+            }
+            $restatement = array( 'important' => false, 'inline' => false, 'specificity' => $subject['specificity'], 'order' => $order ?? -1 );
+            foreach ( $elementFacts as $fact ) {
+                $value = (string) ( $fact['declarations']['box-sizing'] ?? '' );
+                if ( '' === $value
+                    || array() === array_diff($fact['conditions'], $held)
+                    || 'content-box' === CssValueInspector::comparable($value)
+                    || ! CssCascade::wins(array( 'important' => CssValueInspector::isImportant($value), 'inline' => false, 'specificity' => $fact['specificity'], 'order' => $fact['order'] ), $restatement)
+                ) {
+                    continue;
+                }
+                $key = $fact['selector'] . "\0" . implode("\0", $fact['at_rules']) . "\0" . $value;
+                $found[ $key ] = array( 'order' => $fact['order'], 'selector' => $fact['source_selector'], 'conditions' => $fact['at_rules'], 'value' => $value );
+            }
+        }
+        uasort($found, static fn (array $left, array $right): int => $left['order'] <=> $right['order']);
+
+        return array_values($found);
+    }
+
+    private static function comparableSelector(string $selector): string
+    {
+        return trim((string) preg_replace('/\s+/', ' ', (string) preg_replace('#/\*.*?\*/#s', '', $selector)));
     }
 
     /**
@@ -191,7 +273,7 @@ final class AuthorStyleRuleProjector
      * Box-model declarations of every author rule, indexed by the source
      * element each selector matches, built once per author style analysis.
      *
-     * @return array<string, list<array{declarations: array<string, string>, conditions: list<string>, specificity: list<int>, order: int}>>
+     * @return array<string, list<array{declarations: array<string, string>, conditions: list<string>, at_rules: list<string>, selector: string, source_selector: string, specificity: list<int>, order: int}>>
      */
     private function boxModelFacts(AuthorStyleAnalysis $authorStyles): array
     {
@@ -204,10 +286,11 @@ final class AuthorStyleRuleProjector
             if ( array() === $declarations ) {
                 continue;
             }
-            $conditions = self::restatableConditions(array_map(
-                static fn (mixed $condition): string => (string) preg_replace('#/\*.*?\*/#s', '', (string) $condition),
+            $atRules = array_values(array_map(
+                static fn (mixed $condition): string => trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition)),
                 is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array()
             ));
+            $conditions = self::restatableConditions($atRules);
             foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
                 $selector = (string) ($record['selector'] ?? '');
                 $parsed = is_array($record['parsed'] ?? null) ? $record['parsed'] : array();
@@ -217,6 +300,9 @@ final class AuthorStyleRuleProjector
                 $fact = array(
                     'declarations' => $declarations,
                     'conditions' => $conditions,
+                    'at_rules' => $atRules,
+                    'selector' => self::comparableSelector($selector),
+                    'source_selector' => trim($selector),
                     'specificity' => array_values(CssSelectorMatcher::specificityCounts($parsed)),
                     'order' => (int) ($rule['order'] ?? 0),
                 );
