@@ -9949,7 +9949,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $image->getNodePath() ?? '',
             (string) ( $block['attrs']['className'] ?? '' ),
             (string) ( $block['attrs']['anchor'] ?? '' ),
-            $link instanceof DOMElement
+            $link instanceof DOMElement,
+            $this->imageNeedsSeparateFigureBox($image, $figure)
+                ? $this->session->authorSelectorProjectionState()->imageWrapperMarker($image->getNodePath() ?? '') : ''
         );
         if ( '' !== $linkAnchor ) {
             // A native image has only one anchor. Keep an existing figure/image
@@ -11565,9 +11567,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $this->safeImageUrl($url);
     }
 
-    /**
-     * @return array<string, string>
-     */
+    /** Keep independently styled source boxes distinct without changing inert class transport. */
+    private function imageNeedsSeparateFigureBox(DOMElement $image, ?DOMElement $figure): bool
+    {
+        return $figure instanceof DOMElement
+            && '' !== $this->nonCoreImageClassName($image)
+            && array() !== $this->styleResolver->authoredPresentationDeclarations($figure)
+            && array() !== $this->styleResolver->authoredPresentationDeclarations($image);
+    }
+
+    /** @return array<string, string> */
     private function imagePresentationAttributes(DOMElement $image, ?DOMElement $figure): array
     {
         $inlineImagePlacement = array_keys(array_filter($this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style')), NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
@@ -11590,7 +11599,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->imageLeafPlacementClassName($image));
         if ( $figure instanceof DOMElement ) {
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageFigureClassName($figure), $this->nonCoreImageClassName($image), ...$this->authorSemanticMarkersForElement($image));
+            // Separate source boxes must keep separate selector ownership. Only
+            // inert identities retain the historical class transport.
+            $styledLeaf = $this->imageNeedsSeparateFigureBox($image, $figure);
+            $marker = $styledLeaf ? $this->session->authorSelectorProjectionState()->ensureImageWrapperMarker($image->getNodePath() ?? '') : '';
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageFigureClassName($figure), $styledLeaf ? $marker : $this->nonCoreImageClassName($image), ...$this->authorSemanticMarkersForElement($image));
         } else {
             $attrs['className'] = $this->styleResolver->mergePresentationClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->injectedFigureHeightClassName($image));
         }
