@@ -259,8 +259,22 @@ final class WordPressSitePlanResolver
         if (str_starts_with($origin, 'templates/') || str_starts_with($origin, 'parts/')) return array();
         if (!str_ends_with(strtolower($origin), '.css')) return self::references($tokens, $themeUri, $attachments);
         $references = array();
-        foreach ($tokens as $reference) if (is_array($reference) && is_string($reference['token'] ?? null) && is_string($reference['target_path'] ?? null)) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = $attachments[$reference['token']]['url'] ?? self::relativePath($origin, $reference['target_path']);
+        foreach ($tokens as $reference) if (is_array($reference) && is_string($reference['token'] ?? null) && is_string($reference['target_path'] ?? null)) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = isset($attachments[$reference['token']]['url']) ? self::stylesheetAttachmentUrl($attachments[$reference['token']]['url'], $themeUri, $origin) : self::relativePath($origin, $reference['target_path']);
         return $references;
+    }
+    /**
+     * Theme files are not rewritten when a site moves, so an attachment on the
+     * theme's own host is referenced relative to the stylesheet. Uploads and
+     * themes move together; another host (a CDN) keeps its absolute URL.
+     */
+    private static function stylesheetAttachmentUrl(string $url, string $themeUri, string $origin): string
+    {
+        $theme = parse_url($themeUri); $attachment = parse_url($url);
+        if (!is_array($theme) || !is_array($attachment) || !isset($theme['host'], $attachment['host'], $attachment['path'])) return $url;
+        foreach (array('scheme', 'host', 'port') as $part) if (($theme[$part] ?? null) !== ($attachment[$part] ?? null)) return $url;
+        $from = trim(($theme['path'] ?? '') . '/' . $origin, '/');
+        $relative = self::relativePath($from, ltrim($attachment['path'], '/'));
+        return $relative . (isset($attachment['query']) ? '?' . $attachment['query'] : '');
     }
     private static function relativePath(string $origin, string $target): string
     {
