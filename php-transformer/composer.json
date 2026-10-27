@@ -348,6 +348,7 @@
       "php tests/unit/captured-dialog-open-state.php",
       "php tests/unit/captured-dialog-dropdown-panel.php",
       "php tests/unit/captured-dialog-shared-header.php",
+      "php tests/unit/captured-dialog-ordinal-shared-header.php",
       "php tests/unit/captured-dialog-editor-at-rest.php",
       "php tests/unit/scoped-mixed-dropdown.php",
       "php tests/unit/capture-runtime-ancestor-parity.php",
