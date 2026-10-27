@@ -2564,11 +2564,30 @@ final class ArtifactCompiler
         }
         $transformer = new CssStylesheetTransformer();
         $routeIdentities = array();
+        $routeDocuments = array();
         foreach ($files as $document) {
             if ('html' !== ($document['kind'] ?? '')) continue;
             $source = (string) $document['path'];
-            $routeIdentities[$this->fileOwnership($document)['id']] = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
+            $owner = $this->fileOwnership($document)['id'];
+            $routeIdentities[$owner] = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
+            if (!isset($pageMarkup[$owner])) continue;
+            // Parse the lowered markup once per route, never once per arm or
+            // stylesheet. Retain source root/body context just as projection
+            // does; block comments are inert to the HTML parser.
+            $dom = new DOMDocument();
+            $previousErrors = libxml_use_internal_errors(true);
+            $loaded = $dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $pageMarkup[$owner] . '</body></html>');
+            libxml_clear_errors();
+            libxml_use_internal_errors($previousErrors);
+            if (!$loaded) continue;
+            $attributes = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml((string) ($document['content'] ?? ''));
+            foreach (array('html' => 'root_attributes', 'body' => 'body_attributes') as $tag => $key) {
+                $element = $dom->getElementsByTagName($tag)->item(0);
+                foreach ($attributes[$key] ?? array() as $name => $value) $element?->setAttribute($name, $value);
+            }
+            $routeDocuments[$owner] = $dom;
         }
+        $routeMatchIndex = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex($routeDocuments);
         $reserved = array_fill_keys(array_column($files, 'path'), true);
         $output = array();
         foreach ( $files as $file ) {
@@ -2652,7 +2671,7 @@ final class ArtifactCompiler
             $sharedStylesheets = array($transformer->concatenateWithoutRedundantRules($sharedStylesheets));
             $fallbackSharedStylesheets = $sharedStylesheets;
             foreach ($pages as $owner => $_) $pages[$owner] = $pageProjections[$owner] ?? $pages[$owner];
-            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup);
+            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup, $routeMatchIndex);
             // Recompact only at serialization, merging compatible marker arms.
             $recompact = static fn (string $css): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
             // Bound what route scoping adds to the sheet every route loads by

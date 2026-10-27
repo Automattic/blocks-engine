@@ -336,19 +336,19 @@ foreach ($routePlan['pages'] as $row) {
     $assert(str_contains($functions, $class) && str_contains($functions, 'blocksEngineDocumentContext') && str_contains($functions, 'language_attributes'), 'the same root registry reaches front end and editor: ' . $row['source_path']);
 }
 $group = ':where(:root:is(.' . $classes['b.html'] . ',.' . $classes['c.html'] . '))';
-$assert(str_contains($routeText, $group . ' .sample'), 'byte-identical constant-arm variants group both span routes');
-$assert(str_contains($routeText, 'html:where(:root:') && str_contains($routeText, ':root:where(:root:'), 'html and root scopes merge into the leftmost compound');
+$assert(str_contains($routeText, '.sample{'), 'plain variants inert on other routes remain shared');
+$assert(str_contains($routeText, 'html .sample') && str_contains($routeText, ':root .sample'), 'inert html and root arms retain their original compounds');
 $droppedOverride = false;
 $conditionalImage = false;
 $transformer->visitStyleRules($routeText, static function (string $prelude, string $body, array $context) use (&$droppedOverride, &$conditionalImage, $classes): void {
     if (str_contains($body, 'padding:7px!important')) {
-        $droppedOverride = in_array('@media(min-width:1px)', $context, true) && str_contains($prelude, ':root:not(.' . $classes['b.html'] . ',.' . $classes['c.html'] . ')');
+        $droppedOverride = in_array('@media(min-width:1px)', $context, true);
     }
-    if (str_contains($prelude, '.wp-block-image') && str_contains($prelude, ':root:is(.' . $classes['e.html'] . ')')) $conditionalImage = in_array('@media(min-width:1px)', $context, true);
+    if (str_contains($prelude, '.wp-block-image')) $conditionalImage = in_array('@media(min-width:1px)', $context, true);
 });
-$assert($droppedOverride, 'the dropped override excludes both span routes at its original conditional position');
+$assert($droppedOverride, 'the inert dropped override retains its original conditional position');
 $assert($conditionalImage, 'page-only image rules retain their at-rule context');
-$assert(str_contains($routeText, ':where(:root:is(.' . $classes['e.html'] . '))'), 'page-only image bridge has a positive route scope');
+$assert(!str_contains($routeText, ':where(:root:is(.' . $classes['e.html'] . '))'), 'page-only image bridge inert elsewhere needs no positive route scope');
 
 // Each route is compared with its independent public compilation, including
 // editor wrapper selectors. Apply exactly the root attributes the theme uses.
@@ -475,8 +475,8 @@ foreach ($boundPlan['pages'] as $row) {
 }
 echo 'Bound fixture author CSS: ' . json_encode(array_map('strlen', $boundAssets)) . "\n";
 
-// The safety net still trips when route-list overhead itself dominates the
-// largest copy, even though no whole selector lists are duplicated anymore.
+// This former safety-net fixture now avoids route-list overhead altogether:
+// absent button/image arms are provably inert on the other routes.
 $budgetFiles = array();
 for ($i = 0; $i < 24; ++$i) {
     $file = $boundFiles[$i % count($boundFiles)];
@@ -489,7 +489,7 @@ $budgetSheet = array('path' => 'base.css', 'kind' => 'css', 'content' => $budget
 $budgetResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'budget-0.html', 'files' => array_merge($budgetFiles, array($budgetSheet))))->toArray();
 $budgetFindings = array_filter($budgetResult['diagnostics'], static fn (array $row): bool => 'author_stylesheet_route_scope_fallback' === ($row['code'] ?? '') && str_contains($row['message'], 'largest'));
 $budgetPlan = $budgetResult['source_reports']['wordpress_site_plan'];
-$assert(1 === count($budgetFindings) && str_contains(implode('', array_column($budgetPlan['assets'], 'source_path')), '.page-'), 'excessive route-list overhead retains the sheet-level byte-budget fallback');
+$assert(array() === array_values($budgetFindings) && !str_contains(implode('', array_column($budgetPlan['assets'], 'source_path')), '.page-'), 'inert plain arms avoid the former route-list byte-budget fallback');
 foreach (array_slice($budgetPlan['pages'], 0, 2) as $row) {
     $file = array_column($budgetFiles, null, 'path')[$row['source_path']];
     $alone = (new ArtifactCompiler())->compile(array('entrypoint' => $file['path'], 'files' => array($file, $budgetSheet)))->toArray()['source_reports']['wordpress_site_plan'];
@@ -627,6 +627,75 @@ $assert(str_contains($unknownRich['stylesheet'], 'be-route-'), 'missing carrier 
 $negated = ':not(:where(.blocks-engine-control-aaaaaaaaaaaa-0)){color:red}';
 $negativeMarker = $transformer->scopeRouteVariants(array($negated), array('one' => array($negated), 'two' => array('')), array(), null, array('one' => '', 'two' => ''));
 $assert(str_contains($negativeMarker['stylesheet'], 'be-route-'), 'negated markers are not positive carrier requirements');
+
+// Plain arms are absent because they do not match, not because of marker
+// ownership. Keep the authored input fixed as N increases. A native-lowered
+// arm absent from a projection but still matching its DOM MUST stay scoped.
+$plainSizes = array();
+$plainStarted = microtime(true);
+$plainArms = array();
+for ($k = 0; $k < 112; ++$k) $plainArms[] = '#page-only-' . $k . ' .x';
+$plainBase = '.native{z-index:9}' . implode(',', $plainArms) . '{color:red}';
+foreach (array(2, 12, 112) as $count) {
+    $plainPages = $plainMarkup = $plainDocuments = array();
+    for ($k = 0; $k < $count; ++$k) {
+        $owner = 'plain-' . $k;
+        $plainPages[$owner] = array(0 === $k ? $plainBase : (1 === $k ? '' : '.native{z-index:9}') . '#page-only-' . $k . ' .x{color:red}');
+        $plainMarkup[$owner] = '<div id="page-only-' . $k . '"><p class="x native">Probe</p></div>';
+        $dom = new DOMDocument();
+        @$dom->loadHTML('<html><body>' . $plainMarkup[$owner] . '</body></html>');
+        $dom->documentElement->setAttribute('class', Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($owner));
+        $plainDocuments[$owner] = $dom;
+    }
+    $index = new Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex($plainDocuments);
+    $plainResult = $transformer->scopeRouteVariants(array($plainBase), $plainPages, array(), null, $plainMarkup, $index);
+    $plainSizes[$count] = strlen($plainResult['stylesheet']);
+    $assert(array() === $plainResult['reasons'] && $count === count($plainResult['scoped']), $count . ' plain routes reconcile without page copies');
+    $transformer->visitStyleRules($plainResult['stylesheet'], static function (string $prelude) use ($assert): void {
+        if (str_contains($prelude, '#page-only-')) $assert(!str_contains($prelude, 'be-route-'), 'plain page-local arms are unscoped');
+        if (str_contains($prelude, '.native')) $assert(str_contains($prelude, 'be-route-'), 'matching native-lowered arm stays scoped');
+    });
+    foreach ($plainDocuments as $owner => $dom) {
+        $element = $dom->getElementsByTagName('p')->item(0);
+        $expected = new StaticCssCascade($dom, implode('', $plainPages[$owner]));
+        $actual = new StaticCssCascade($dom, $plainResult['stylesheet']);
+        $assert($expected->resolve($element, array('color', 'z-index'), array()) === $actual->resolve($element, array('color', 'z-index'), array()), 'plain-arm computed-style parity ' . $owner);
+    }
+}
+$assert($plainSizes[112] < 1.02 * $plainSizes[2], 'plain-arm site-wide bytes stay constant in N', json_encode($plainSizes));
+echo 'Plain-arm fixture: ' . json_encode($plainSizes) . ' bytes; ' . round(microtime(true) - $plainStarted, 3) . " seconds including parity\n";
+// Exercise the public asset path too: unmatched plain arms must not create
+// .page- companions, even when every page retains a different id ancestry.
+$plainAssetSizes = array();
+foreach (array(2, 12) as $count) {
+    $files = array();
+    for ($k = 0; $k < $count; ++$k) $files[] = array('path' => 'plain-' . $k . '.html', 'kind' => 'html', 'content' => '<html><head><link rel="stylesheet" href="base.css"></head><body><main id="page-only-' . $k . '"><p class="x">Probe</p></main></body></html>');
+    $sheet = array('path' => 'base.css', 'kind' => 'css', 'content' => $plainBase);
+    $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'plain-0.html', 'files' => array_merge($files, array($sheet))))->toArray()['source_reports']['wordpress_site_plan'];
+    $plainAssetSizes[$count] = strlen(implode('', $authoredAssets($plan)));
+    $assert(!str_contains(implode('', array_column($plan['assets'], 'source_path')), '.page-'), $count . ' plain pages emit no page-copy assets');
+    foreach ($plan['pages'] as $row) {
+        $alone = (new ArtifactCompiler())->compile(array('entrypoint' => $row['source_path'], 'files' => array(array_column($files, null, 'path')[$row['source_path']], $sheet)))->toArray()['source_reports']['wordpress_site_plan'];
+        $assert($probeStyles($alone, $alone['pages'][0], false) === $probeStyles($plan, $row, false), 'public plain-arm computed-style parity ' . $row['source_path']);
+    }
+}
+$assert($plainAssetSizes[12] < 1.1 * $plainAssetSizes[2], 'plain-arm published bytes stay roughly constant', json_encode($plainAssetSizes));
+
+// Matching dropped arms still contribute to the unchanged byte safety net.
+$costlyBase = '';
+for ($k = 0; $k < 80; ++$k) $costlyBase .= '.native{z-index:' . $k . '}';
+$costlyPages = array();
+foreach ($plainDocuments as $owner => $_) $costlyPages[$owner] = array(0 === ((int) substr($owner, 6)) % 2 ? $costlyBase : '');
+$costly = $transformer->scopeRouteVariants(array($costlyBase), $costlyPages, array(), null, $plainMarkup, $index);
+$assert($costly['route_bytes'] > 8192 && $costly['route_bytes'] > 3 * strlen($costlyBase), 'matching dropped arms retain over-budget scope accounting');
+
+// Unknown, negated-state and missing-document evidence is conservative.
+foreach (array('.x:unknown', '.x:not(:hover)', '.x:has(> .y)') as $unknownArm) {
+    $assert(!$index->inertOutside($unknownArm, array('plain-1' => true)), 'undecidable arm stays scoped: ' . $unknownArm);
+}
+$assert(!$index->inertOutside('.absent', array('missing' => true)), 'missing document never proves inertness');
+$assert($index->inertOutside('.absent:hover', array('plain-1' => true)), 'state-independent non-match is inert');
+$assert(!$index->inertOutside('.x:hover', array('plain-1' => true)), 'stateful structural match stays scoped');
 
 // Identical shared units align separately at each source occurrence.
 $marker = 'blocks-engine-control-0123456789ab-0';

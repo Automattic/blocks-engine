@@ -268,7 +268,7 @@ final class CssStylesheetTransformer
      * @param list<string> $shared
      * @param array<string,list<string>> $pages
      * Aligned rules are expanded into arms, each with its own route set.
-     * Marker arms inert outside that set stay unscoped; all others use the
+     * Arms proven inert outside that set stay unscoped; all others use the
      * shorter positive or complementary negative scope. Only validated lists
      * are split, preserving invalid-selector isolation and source order.
      *
@@ -279,7 +279,7 @@ final class CssStylesheetTransformer
      *
      * @return array{stylesheet:string, scoped:list<string>, reasons:array<string,string>, route_bytes:int}
      */
-    public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null, array $markup = array()): array
+    public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null, array $markup = array(), ?RouteSelectorMatchIndex $matchIndex = null): array
     {
         $carriers = self::markerCarriers($markup);
         $base = array();
@@ -369,7 +369,7 @@ final class CssStylesheetTransformer
         $routeClass = static fn ($owner): string => \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($routeIdentities[$owner] ?? (string) $owner);
         $routeBytes = 0;
         $allRoutes = array_fill_keys(array_keys($pages), true);
-        $emitArms = function (array $units, array $prototype, bool $insertion = false) use (&$output, &$routeBytes, $routeClass, $allRoutes, $carriers, $markup): void {
+        $emitArms = function (array $units, array $prototype, bool $insertion = false) use (&$output, &$routeBytes, $routeClass, $allRoutes, $carriers, $markup, $matchIndex): void {
             [$lead, $rule] = self::splitLeadingComments($prototype['text']);
             $brace = (int) $this->nextRuleBoundary($rule, 0);
             $body = substr($rule, $brace);
@@ -387,6 +387,7 @@ final class CssStylesheetTransformer
                 $outside = array_diff_key($allRoutes, $routes);
                 $marker = self::positiveMarker($arm);
                 $inert = !$outside || (null !== $marker && !array_diff_key($outside, $markup) && !array_diff_key($carriers[$marker] ?? array(), $routes));
+                if (!$inert && null !== $matchIndex) $inert = $matchIndex->inertOutside($arm, $outside);
                 $scope = '';
                 if (!$inert) {
                     $positive = ':where(:root:is(' . implode(',', array_map(static fn ($owner): string => '.' . $routeClass($owner), array_keys($routes))) . '))';
