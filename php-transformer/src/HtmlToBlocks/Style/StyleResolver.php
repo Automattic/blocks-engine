@@ -5835,6 +5835,34 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Empty-box evidence asks whether paint is possible at any viewport, not
+     * what its computed value is at the reference viewport. A conditional
+     * definition on this element or an ancestor must not become a missing
+     * variable's fallback. Use an opaque paint token rather than choosing an
+     * arbitrary winner across mutually exclusive conditions. Static references
+     * (including their dependencies and fallbacks) still expand normally.
+     */
+    public function resolveEmptyVisualPaintVariables(string $value, DOMElement $element): string
+    {
+        if ( ! str_contains($value, 'var(') ) {
+            return $value;
+        }
+
+        $customProperties = $this->cascadedCustomProperties($element);
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            foreach ( $this->matchingStyleRules($node, 'conditional') as $rule ) {
+                foreach ( $rule['cascadedDeclarations'] ?? array() as $name => $declared ) {
+                    if ( str_starts_with((string) $name, '--') ) {
+                        $customProperties[(string) $name] = 'blocks-engine-possible-paint';
+                    }
+                }
+            }
+        }
+
+        return $this->expandCssVariableReferences($value, $customProperties);
+    }
+
+    /**
      * @param array<string, string> $customProperties
      */
     private function expandCssVariableReferences(string $value, array $customProperties): string
