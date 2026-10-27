@@ -381,8 +381,17 @@ final class ArtifactCompiler
         foreach ($compiledHtmlDocuments as $sourcePath => $document) {
             $pageMarkup[(string) ($ownedBy(array(array()), (string) $sourcePath)[0]['owner'] ?? '')] = $document['serialized_blocks'];
         }
+        // These are the template-part candidates consumed by compiledSiteReport
+        // and WordPressSitePlan's shell extraction. serialized_blocks alone omits
+        // extracted chrome. Use a conservative union of all candidate parts.
+        $sharedMarkup = '';
+        $parts = array_merge($this->compiledSiteTemplateParts($normalized['files']), $entryBlocks['shell_artifacts'], $inlineShellCompilation['artifacts']);
+        foreach ($compiledHtmlDocuments as $document) $parts = array_merge($parts, $document['shell_artifacts'] ?? array());
+        foreach ($parts as $part) $sharedMarkup .= "\n" . (string) ($part['block_markup'] ?? '');
+        foreach ($pageMarkup as &$markup) $markup .= "\n" . $sharedMarkup;
+        unset($markup);
         $authoredFiles = $normalized['files'];
-        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics);
+        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics, $sharedMarkup);
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
             $documentFiles = $normalized['files'];
@@ -2519,7 +2528,7 @@ final class ArtifactCompiler
      * @param string $primaryOwner The page that produced the primary projections, '' when they are site-wide.
      * @return array<int, array<string, mixed>>
      */
-    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = '', array $pageMarkup = array(), array &$projectionDiagnostics = array()): array
+    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = '', array $pageMarkup = array(), array &$projectionDiagnostics = array(), string $sharedMarkup = ''): array
     {
         $attributeStateMarkers = array();
         foreach ($projections as $projection) {
@@ -2684,7 +2693,7 @@ final class ArtifactCompiler
             $sharedStylesheets = array($transformer->concatenateWithoutRedundantRules($sharedStylesheets));
             $fallbackSharedStylesheets = $sharedStylesheets;
             foreach ($pages as $owner => $_) $pages[$owner] = $pageProjections[$owner] ?? $pages[$owner];
-            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup, $routeMatchIndex, $this->routeClasses);
+            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup, $routeMatchIndex, $this->routeClasses, $sharedMarkup);
             // Recompact only at serialization, merging compatible marker arms.
             $recompact = static fn (string $css): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
             // A cached shared download replaces separate page-copy downloads.

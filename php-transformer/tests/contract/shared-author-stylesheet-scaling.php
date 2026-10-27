@@ -500,9 +500,8 @@ foreach (array_slice($budgetPlan['pages'], 0, 2) as $row) {
 // Rules that differ between pages only by page-local block markers. Every
 // page has its own buttons in a `.row-cols-3` grid, so `.row-cols-3>*` and
 // `.row>*` project onto each page's own per-element markers, which the page
-// projection packs as `>:is(:where(.m1),…)`. With the virtual base route,
-// variant-only markers must now be scoped even if private to one plan page.
-// Small cases reconcile; larger ones may hit the unchanged byte-budget fallback.
+// projection packs as `>:is(:where(.m1),…)`. Private markers are absent
+// from shared template parts, so even variant-only arms stay unscoped.
 $markerCss = '.row{display:flex;flex-wrap:wrap}.row-cols-3>*{flex:0 0 auto;width:33.3%}.row>*{flex-shrink:0;max-width:100%}'
     . '.btn{background-color:#123456;color:#fff;border-radius:4px;padding:8px 16px}';
 for ($i = 0; $i < 120; ++$i) $markerCss .= '.marker-tail-' . $i . '{color:#123456;margin:0;padding:2px;border-top-width:1px}';
@@ -525,16 +524,12 @@ foreach (array(2, 6, 10) as $count) {
     $text = implode('', $site['assets']);
     $markerSizes[$count] = strlen($text);
     $fallbacks = array_filter($site['diagnostics'], static fn (array $row): bool => 'author_stylesheet_route_scope_fallback' === ($row['code'] ?? ''));
-    if (2 === $count) {
-        $assert(1 === count($site['assets']) && str_contains($text, 'be-r-') && !$fallbacks, 'small marker fixture scopes variants without copies');
-    } else {
-        $assert(count($site['assets']) > 1 && count($fallbacks) === 1, $count . ' marker pages: unknown non-plan markup retains the unchanged byte-budget fallback');
-    }
+    $assert(1 === count($site['assets']) && !str_contains($text, 'be-r-') && !$fallbacks, $count . ' private marker pages: unscoped shared asset without fallback');
 }
 $markerText = implode('', $site['assets']);
 $assert((bool) preg_match('/:where\((?:\.blocks-engine-control-[a-f0-9]{12}-\d+,)+/', $markerText), 'same-route page-local markers still recompact into :where() lists');
-// Even the budget fallback must not duplicate the long unchanged tail.
-$assert($markerSizes[10] < 1.4 * $markerSizes[2] && $markerSizes[10] - $markerSizes[6] < 1.2 * ($markerSizes[6] - $markerSizes[2]) + 512, 'site-wide sheet bytes stay roughly constant in the page count', json_encode($markerSizes));
+// Growth is limited to marker names, not route scopes or cascade copies.
+$assert($markerSizes[10] < 1.2 * $markerSizes[2] && $markerSizes[10] - $markerSizes[6] < 1.2 * ($markerSizes[6] - $markerSizes[2]) + 512, 'site-wide sheet bytes stay roughly constant in the page count', json_encode($markerSizes));
 $markerProbe = static function (array $plan, array $row): array {
     $assets = array_column($plan['assets'], null, 'target_path');
     $css = '';
@@ -554,14 +549,14 @@ $markerProbe = static function (array $plan, array $row): array {
     return $styles;
 };
 // With every third page empty, its projection is the shared one. Other
-// pages' marker rules are page-only and must exclude unknown non-plan pages.
+// pages' marker rules are page-only but absent from shared chrome.
 $gapSite = $markerSite(9, true);
 $gapText = implode('', $gapSite['assets']);
 $scopedMarkerRule = false;
 $transformer->visitStyleRules($gapText, static function (string $prelude) use (&$scopedMarkerRule): void {
     if (str_contains($prelude, 'be-r-') && preg_match('/blocks-engine-control-[a-f0-9]{12}-\d+/', $prelude)) $scopedMarkerRule = true;
 });
-$assert(1 === count($gapSite['assets']) && $scopedMarkerRule, 'page-only marker rules stay shared but exclude non-plan pages');
+$assert(1 === count($gapSite['assets']) && !$scopedMarkerRule, 'page-only private marker rules stay shared and unscoped');
 foreach (array(array($site, false), array($gapSite, true)) as [$checked, $gaps]) {
     foreach ($checked['plan']['pages'] as $row) {
         $index = (int) substr($row['source_path'], 1);
@@ -696,6 +691,37 @@ foreach (array('.x:unknown', '.x:not(:hover)', '.x:has(> .y)') as $unknownArm) {
 $assert(!$index->inertOutside('.absent', array('missing' => true)), 'missing document never proves inertness');
 $assert($index->inertOutside('.absent:hover', array('plain-1' => true)), 'state-independent non-match is inert');
 $assert(!$index->inertOutside('.x:hover', array('plain-1' => true)), 'stateful structural match stays scoped');
+
+// Virtual-base proofs use required carriers only, not arbitrary DOM matches.
+// Exercise literal subjects, required ancestors, and the positiveMarker form.
+foreach (array('.%s', '.%s a', ':where(.%s)') as $shape) {
+    $sizes = array();
+    foreach (array(2, 12, 112) as $count) {
+        $pages = $markup = array();
+        for ($k = 0; $k < $count; ++$k) {
+            $marker = 'blocks-engine-control-' . substr(hash('sha256', (string) $k), 0, 12) . '-0';
+            $pages['route-' . $k] = array(sprintf($shape, $marker) . '{color:red}');
+            $markup['route-' . $k] = '<div class="' . $marker . '"><a>Local</a></div>';
+        }
+        $private = $transformer->scopeRouteVariants(array(), $pages, array(), null, $markup, null, array(), '<header>Shared</header>');
+        $assert(!str_contains($private['stylesheet'], 'be-r-') && 0 === $private['route_bytes'], $shape . ': N variant-only private classes stay unscoped: ' . $count);
+        // Serialized arm names grow; scope overhead stays constant at zero.
+        $sizes[$count] = $private['route_bytes'];
+        $header = '<header class="' . $marker . '"><a>Shared</a></header>';
+        $carried = $transformer->scopeRouteVariants(array(), $pages, array(), null, $markup, null, array(), $header);
+        $assert(str_contains($carried['stylesheet'], 'be-r-'), $shape . ': shared-header carrier prevents base inertness: ' . $count);
+        $dom = new DOMDocument();
+        @$dom->loadHTML('<html><body>' . $header . '</body></html>');
+        $cascade = new StaticCssCascade($dom, $carried['stylesheet']);
+        $target = str_ends_with($shape, ' a') ? $dom->getElementsByTagName('a')->item(0) : $dom->getElementsByTagName('header')->item(0);
+        $assert(!isset($cascade->resolve($target, array('color'), array())['color']), 'variant does not paint shared header on a no-route page');
+    }
+    $assert(1 === count(array_unique($sizes)), 'private marker scope overhead is constant in N');
+}
+foreach (array(':not(.blocks-engine-control-aaaaaaaaaaaa-0)', ':is(.blocks-engine-control-aaaaaaaaaaaa-0,a)', '[title=".blocks-engine-control-aaaaaaaaaaaa-0"]') as $arm) {
+    $result = $transformer->scopeRouteVariants(array(), array('one' => array($arm . '{color:red}')), array(), null, array('one' => ''), null, array(), '');
+    $assert(str_contains($result['stylesheet'], 'be-r-'), 'optional or quoted markers do not prove base inertness: ' . $arm);
+}
 
 // Route state is restored after compilation. Neither DOM non-matches nor
 // private marker carriers can prove these arms inert on another route.

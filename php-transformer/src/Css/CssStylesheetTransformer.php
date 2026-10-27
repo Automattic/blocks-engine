@@ -256,6 +256,21 @@ final class CssStylesheetTransformer
         return null;
     }
 
+    /** Required literal classes, never alternatives, negations or attributes. */
+    private static function requiredPageMarkers(string $arm): array
+    {
+        $markers = array();
+        if (str_contains($arm, '/*') || str_contains($arm, '\\')) return $markers;
+        $positive = self::positiveMarker($arm);
+        if (null !== $positive) $markers[$positive] = true;
+        preg_match_all('/\.(blocks-engine-[a-z-]+-[a-f0-9]{12}-[0-9]+)(?![a-zA-Z0-9_-])/', $arm, $matches, PREG_OFFSET_CAPTURE);
+        foreach ($matches[1] as [$marker, $offset]) {
+            $before = substr($arm, 0, $offset - 1);
+            if (0 === self::parenDepth($before) && substr_count($before, '[') === substr_count($before, ']')) $markers[$marker] = true;
+        }
+        return array_keys($markers);
+    }
+
     /**
      * Reconcile ordered page projections at the source cascade position.
      * Unsupported pages are returned separately for the legacy copy path.
@@ -278,14 +293,14 @@ final class CssStylesheetTransformer
      * @param array<string,string> $routeIdentities Route identities by compilation owner.
      * @param array<string,string> $markup Canonical markup by compilation owner.
      * @param array<string,string> $routeClasses Site-wide collision-free classes by route identity.
+     * @param ?string $sharedMarkup Shared template-part markup; null means no carrier evidence.
      * `route_bytes` counts scope and split-rule overhead beyond the unscoped
      * arm union, plus scoped insertions, before final compaction.
      *
      * @return array{stylesheet:string, scoped:list<string>, reasons:array<string,string>, route_bytes:int}
      */
-    public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null, array $markup = array(), ?RouteSelectorMatchIndex $matchIndex = null, array $routeClasses = array()): array
+    public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null, array $markup = array(), ?RouteSelectorMatchIndex $matchIndex = null, array $routeClasses = array(), ?string $sharedMarkup = null): array
     {
-        $carriers = self::markerCarriers($markup);
         $base = array();
         foreach ($shared as $css) $this->collectRuleUnits($css, array(), $base);
         $base = self::withoutIgnoredImports($base);
@@ -383,11 +398,13 @@ final class CssStylesheetTransformer
         $routeClass = static fn ($owner): string => $routeClasses[$routeIdentities[$owner] ?? (string) $owner];
         $routeBytes = 0;
         $allRoutes = array_fill_keys(array_keys($pages), true);
-        // Non-plan WordPress pages receive the unprojected shared sheet. They
-        // have no route class and no compiled markup, so can never prove inertness.
+        // Non-plan content is unknown, but imported engine classes can only
+        // come from shared template parts. Never run a full matcher here.
         $baseOwner = '';
         while (isset($allRoutes[$baseOwner])) $baseOwner .= '#';
         $allRoutes[$baseOwner] = true;
+        if (null !== $sharedMarkup) $markup[$baseOwner] = $sharedMarkup;
+        $carriers = self::markerCarriers($markup);
         $emitArms = function (array $units, array $prototype, bool $insertion = false) use (&$output, &$routeBytes, $routeClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex): void {
             [$lead, $rule] = self::splitLeadingComments($prototype['text']);
             $brace = (int) $this->nextRuleBoundary($rule, 0);
@@ -404,11 +421,18 @@ final class CssStylesheetTransformer
             $groups = array();
             foreach ($members as $arm => $routes) {
                 $outside = array_diff_key($allRoutes, $routes);
-                $marker = self::positiveMarker($arm);
                 $inert = !$outside;
-                if (!$inert && !isset($outside[$baseOwner]) && !RouteSelectorMatchIndex::dependsOnRouteState($arm)) {
-                    $inert = null !== $marker && !array_diff_key($outside, $markup) && !array_diff_key($carriers[$marker] ?? array(), $routes);
-                    if (!$inert && null !== $matchIndex) $inert = $matchIndex->inertOutside($arm, $outside);
+                if (!$inert && !RouteSelectorMatchIndex::dependsOnRouteState($arm)) {
+                    $unproven = $outside;
+                    foreach (self::requiredPageMarkers($arm) as $marker) {
+                        // A missing required carrier disproves the arm on that
+                        // document, including required ancestors and subjects.
+                        foreach ($unproven as $owner => $_) {
+                            if (isset($markup[$owner]) && !isset($carriers[$marker][$owner])) unset($unproven[$owner]);
+                        }
+                    }
+                    $inert = !$unproven;
+                    if (!$inert && !isset($unproven[$baseOwner]) && null !== $matchIndex) $inert = $matchIndex->inertOutside($arm, $unproven);
                 }
                 $scope = '';
                 if (!$inert) {
