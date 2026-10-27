@@ -2800,6 +2800,19 @@ final class AuthorStylesheetProjector
                     ? ':is(' . substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ',:where(.' . $marker . '))'
                     : ':where(.' . $marker . ')' . $this->typeSpecificityShim($context);
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => $value );
+            } elseif ( 'img' === strtolower((string) $typeSpan['name'])
+                && str_contains($context->emittedMarkup, 'assets/materialized-svg/inline-svg-')
+            ) {
+                // SVG materialization must not create new author img subjects,
+                // even for !important rules or types inside :where/:is/:not.
+                // The zero-specificity guard uses the owned asset identity so
+                // canonical Core save markup needs no extra image attributes.
+                // Only source tokens are guarded; generated SVG image bridges
+                // must still reach their intended materialized image leaf.
+                $replacements[$typeSpan['start']] = array(
+                    'end' => $typeSpan['end'],
+                    'value' => substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ':not(:where([src*="assets/materialized-svg/inline-svg-"]))',
+                );
             } elseif ( 'span' === strtolower((string) $typeSpan['name']) ) {
                 // Core's label span has no source identity. Even a dormant
                 // author rule (or an arm retained for unprojected subjects)
