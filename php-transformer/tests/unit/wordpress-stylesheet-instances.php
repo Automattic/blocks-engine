@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require getenv('BLOCKS_ENGINE_AUTOLOAD') ?: dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 $document = static fn(string $head): string => '<html><head>' . $head . '</head><body><nav><ul class="nav"><li><a href="/">One</a></li></ul></nav></body></html>';
 $link = static fn(string $file, string $media = ''): string => '<link rel="stylesheet" href="' . $file . '"' . ('' === $media ? '' : ' media="' . $media . '"') . '>';
@@ -50,4 +51,67 @@ $collision['plan_identity'] = WordPressSitePlan::planIdentity($collision);
 $collisionMessage = '';
 try { WordPressSitePlan::assertValid($collision); } catch (InvalidArgumentException $exception) { $collisionMessage = $exception->getMessage(); }
 if ('Two stylesheet instances claim one document position.' !== $collisionMessage) throw new RuntimeException('Two resources cannot claim one document position: ' . $collisionMessage);
+// Two device sets and an ordinary sheet. @namespace forces differing page
+// projections to remain slices rather than moving into route-scoped selectors.
+$deviceLink = static fn(string $file, string $keys): string => '<link rel="stylesheet" href="' . $file . '" media="not all" ' . CaptureEvidence::DEVICE_STYLE . '="' . $keys . '" ' . CaptureEvidence::SOURCE_MEDIA . '="all">';
+$head = $deviceLink('desktop.css', 'desktop wide') . $deviceLink('mobile.css', 'mobile') . $link('plain.css');
+$deviceResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<html><head>' . $head . '</head><body><main><p>First page</p></main></body></html>',
+    'second.html' => '<html><head>' . $head . '</head><body><main><button>Second page</button></main></body></html>',
+    'desktop.css' => '@namespace svg url("urn:fixture:svg");button{height:auto!important;padding:12px;color:red}',
+    'mobile.css' => '@namespace svg url("urn:fixture:svg");button{height:auto!important;padding:8px;color:blue}',
+    'plain.css' => 'main{color:black}',
+)))->toArray();
+$devicePlan = $deviceResult['source_reports']['wordpress_site_plan'];
+$deviceBootstrap = (string) array_column($devicePlan['writes'], null, 'target_path')['functions.php']['payload']['data'];
+$slices = array_values(array_filter($devicePlan['assets'], static fn(array $asset): bool => str_starts_with($asset['source_path'], 'desktop.page-')));
+if (array() === $slices) throw new RuntimeException('The device fixture must produce a page-scoped slice.');
+$sliceInstances = static function (array $slice) use ($devicePlan): array {
+    $assets = array_column($devicePlan['assets'], null, 'source_path');
+    $instances = $slice['stylesheet_instances'] ?? $assets[$slice['stylesheet_parent']]['stylesheet_instances'] ?? array();
+    return array_values(array_filter($instances, static fn(array $instance): bool => in_array($instance['source_path'], array_column($slice['scopes'], 'source_path'), true)));
+};
+if (array() === $sliceInstances($slices[0])) throw new RuntimeException('The slice inherits an applicable document occurrence.');
+foreach ($slices as $slice) foreach ($sliceInstances($slice) as $instance) {
+    if ('not all' !== $instance['media'] || 'desktop wide' !== ($instance[CaptureEvidence::DEVICE_STYLE] ?? null) || 'all' !== ($instance[CaptureEvidence::SOURCE_MEDIA] ?? null)) throw new RuntimeException('Projected slices inherit the origin occurrence device conditions.');
+}
+foreach (array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA) as $attribute) {
+    $invalidDevicePlan = $devicePlan;
+    $invalidDevicePlan['assets'][0]['stylesheet_instances'][0][$attribute] = array('invalid');
+    $invalidDevicePlan['plan_identity'] = WordPressSitePlan::planIdentity($invalidDevicePlan);
+    $rejected = false;
+    try { WordPressSitePlan::assertValid($invalidDevicePlan); } catch (InvalidArgumentException) { $rejected = true; }
+    if (!$rejected) throw new RuntimeException('Device occurrence conditions must be strings.');
+}
+// Execute just the generated filter registration with WordPress-like stubs.
+$filters = array();
+// Only the activation contract's link operations are needed by this stub.
+if (!class_exists('WP_HTML_Tag_Processor')) {
+    class WP_HTML_Tag_Processor
+    {
+        private DOMDocument $document;
+        private ?DOMElement $link = null;
+        public function __construct(string $html) { $this->document = new DOMDocument(); $this->document->loadHTML($html); }
+        public function next_tag(string $name): bool { $this->link = $this->document->getElementsByTagName(strtolower($name))->item(0); return null !== $this->link; }
+        public function set_attribute(string $name, mixed $value): void { $this->link?->setAttribute($name, true === $value ? '' : $value); }
+        public function get_updated_html(): string { return $this->document->saveHTML($this->link); }
+    }
+}
+if (!function_exists('add_filter')) { function add_filter($name, $callback, ...$args): void { $GLOBALS['filters'][$name] = $callback; } }
+if (!function_exists('esc_attr')) { function esc_attr($value): string { return htmlspecialchars($value, ENT_QUOTES, 'UTF-8'); } }
+if (!preg_match('/(\$blocks_engine_stylesheet_attributes = .*?add_filter\( \'style_loader_tag\'.*?\}, 10, 2 \);)/s', $deviceBootstrap, $registration)) throw new RuntimeException('Device enqueues publish a handle-keyed filter.');
+eval($registration[1]);
+foreach ($slices as $slice) foreach ($sliceInstances($slice) as $instance) {
+    $handle = 'blocks-engine-instance-' . substr(hash('sha256', $slice['target_path'] . "\0" . $instance['source_path'] . "\0" . $instance['order']), 0, 16);
+    if (!str_contains($deviceBootstrap, "wp_enqueue_style( '" . $handle . "'")) throw new RuntimeException('The marked slice is enqueued.');
+    $tag = $filters['style_loader_tag']('<link rel="stylesheet" media="not all" href="slice.css">', $handle);
+    foreach (array(CaptureEvidence::DEVICE_STYLE => 'desktop wide', CaptureEvidence::SOURCE_MEDIA => 'all', 'media' => 'not all') as $name => $value) if (!str_contains($tag, $name . '="' . $value . '"')) throw new RuntimeException('The slice link matches the device selector: ' . $tag);
+}
+foreach ($devicePlan['assets'] as $asset) if ('plain.css' === $asset['source_path']) foreach ($asset['stylesheet_instances'] as $instance) {
+    if (isset($instance[CaptureEvidence::DEVICE_STYLE]) || isset($instance[CaptureEvidence::SOURCE_MEDIA])) throw new RuntimeException('Ordinary instances have no device markers.');
+    $handle = 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $instance['source_path'] . "\0" . $instance['order']), 0, 16);
+    $tag = '<link rel="stylesheet" href="plain.css">';
+    $rendered = $filters['style_loader_tag']($tag, $handle);
+    if (str_contains($rendered, CaptureEvidence::DEVICE_STYLE) || str_contains($rendered, CaptureEvidence::SOURCE_MEDIA)) throw new RuntimeException('Ordinary stylesheet tags gain no device markers.');
+}
 echo "WordPress stylesheet instances: unique resources, ordered routes, media and validation passed\n";

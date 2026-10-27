@@ -25,6 +25,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use InvalidArgumentException;
 
 /** A complete, destination-independent block-theme materialization contract. */
@@ -886,7 +887,7 @@ PHP;
         foreach ($plan['assets'] as $asset) {
             if (isset($asset['stylesheet_instances']) && ('css' !== $asset['kind'] || !is_array($asset['stylesheet_instances']))) throw new InvalidArgumentException('Only stylesheet resources may declare ordered instances.');
             foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
-                if (!is_array($instance) || array('source_path', 'order', 'media', 'type') !== array_keys($instance) || (!isset($pagesBySource[$instance['source_path'] ?? '']) && !isset($archiveDocuments[$instance['source_path'] ?? ''])) || !is_int($instance['order'] ?? null) || $instance['order'] < 0 || !is_string($instance['media'] ?? null) || !is_string($instance['type'] ?? null)) throw new InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.');
+                if (!is_array($instance) || array('source_path', 'order', 'media', 'type') !== array_keys(array_diff_key($instance, array_flip(array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA)))) || (!isset($pagesBySource[$instance['source_path'] ?? '']) && !isset($archiveDocuments[$instance['source_path'] ?? ''])) || !is_int($instance['order'] ?? null) || $instance['order'] < 0 || !is_string($instance['media'] ?? null) || !is_string($instance['type'] ?? null) || array_filter(self::stylesheetDeviceAttributes($instance), static fn(mixed $value): bool => !is_string($value))) throw new InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.');
                 // A frontend-only and an editor-only copy share their position:
                 // each context still replays exactly one resource there.
                 foreach (array('frontend', 'editor') as $context) {
@@ -1380,7 +1381,7 @@ PHP;
                 if (!preg_match('/^' . preg_quote(self::TOKEN_PREFIX, '/') . '(asset-[a-f0-9]{16})}}$/', $reference, $match)) continue;
                 $index = $indexesByToken[$match[1]] ?? null;
                 if (!is_int($index)) continue;
-                $sequence[] = array(2 * $position + 1, $index, (string) ($link['media'] ?? $assets[$index]['media'] ?? ''), (string) ($link['type'] ?? ''), 0);
+                $sequence[] = array(2 * $position + 1, $index, (string) ($link['media'] ?? $assets[$index]['media'] ?? ''), (string) ($link['type'] ?? ''), 0, self::stylesheetDeviceAttributes($link));
             }
             foreach ($inlineIndexesByPage[(string) ($page['source_path'] ?? '')] ?? array() as $index) {
                 $sequence[] = array(2 * (int) $assets[$index]['stylesheet_link_position'], $index, (string) ($assets[$index]['media'] ?? ''), '', (int) ($assets[$index]['stylesheet_inline_order'] ?? $index));
@@ -1389,7 +1390,7 @@ PHP;
             foreach ($sequence as $order => $entry) {
                 $linkedIndexes[$entry[1]] = true;
                 if (!in_array($entry[1], $firstOccurrences, true)) $firstOccurrences[] = $entry[1];
-                $assets[$entry[1]]['stylesheet_instances'][] = array('source_path' => $page['source_path'], 'order' => $order, 'media' => $entry[2], 'type' => $entry[3]);
+                $assets[$entry[1]]['stylesheet_instances'][] = array('source_path' => $page['source_path'], 'order' => $order, 'media' => $entry[2], 'type' => $entry[3]) + ($entry[5] ?? array());
             }
         }
         // This is only the resource inventory's display order. Runtime order is
@@ -2304,18 +2305,19 @@ PHP;
                         $instance = $assets[$entry['index']]['stylesheet_instances'][$entry['key']];
                         // Coalesced sources share one winning slot per condition,
                         // not one copy per link or only the last condition.
-                        $origins[serialize(array($instance['media'], $instance['type']))] = array('position' => $position, 'media' => $instance['media'], 'type' => $instance['type']);
+                        $conditions = array('media' => $instance['media'], 'type' => $instance['type']) + self::stylesheetDeviceAttributes($instance);
+                        $origins[serialize($conditions)] = array('position' => $position) + $conditions;
                     }
                 }
                 if (array() === $origins) $origins[] = array('position' => $preceding ?? -1, 'media' => (string) ($assets[$projection]['media'] ?? ''), 'type' => '');
                 // Insert backwards so earlier positions do not shift.
                 usort($origins, static fn(array $left, array $right): int => $right['position'] <=> $left['position']);
                 foreach ($origins as $origin) {
-                    array_splice($sequence, $origin['position'] + 1, 0, array(array('index' => $projection, 'projection' => true, 'media' => $origin['media'], 'type' => $origin['type'])));
+                    array_splice($sequence, $origin['position'] + 1, 0, array(array('index' => $projection, 'projection' => true, 'media' => $origin['media'], 'type' => $origin['type']) + self::stylesheetDeviceAttributes($origin)));
                 }
             }
             foreach ($sequence as $order => $entry) {
-                if (isset($entry['projection'])) $assets[$entry['index']]['stylesheet_instances'][] = array('source_path' => $document, 'order' => $order, 'media' => $entry['media'], 'type' => $entry['type']);
+                if (isset($entry['projection'])) $assets[$entry['index']]['stylesheet_instances'][] = array('source_path' => $document, 'order' => $order, 'media' => $entry['media'], 'type' => $entry['type']) + self::stylesheetDeviceAttributes($entry);
                 else $assets[$entry['index']]['stylesheet_instances'][$entry['key']]['order'] = $order;
             }
         }
@@ -4983,6 +4985,8 @@ PHP;
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
             // Stylesheet-set membership travels on every instance's link.
             if (isset($asset['stylesheet_activation'])) $stylesheetAttributes[$enqueue['handle']] = $asset['stylesheet_activation'];
+            $deviceAttributes = self::stylesheetDeviceAttributes($enqueue);
+            if (isset($deviceAttributes[CaptureEvidence::DEVICE_STYLE])) $stylesheetAttributes[$enqueue['handle']] = ($stylesheetAttributes[$enqueue['handle']] ?? array()) + $deviceAttributes;
             $media = '' !== $enqueue['media'] ? ', ' . var_export($enqueue['media'], true) : '';
             $call = "wp_enqueue_style( " . var_export($enqueue['handle'], true) . ", get_theme_file_uri( " . var_export(self::encodedAssetUrlPath($asset['target_path']), true) . " ), array(), null{$media} );";
             if (null !== $route && ($enqueue['route'] ?? null) !== $route) { $lines[] = '    }'; $route = null; }
@@ -5009,7 +5013,15 @@ PHP;
         if (array() !== $stylesheetAttributes) {
             $lines[] = '$blocks_engine_stylesheet_attributes = ' . var_export($stylesheetAttributes, true) . ';';
             $lines[] = "add_filter( 'style_loader_tag', static function ( string \$html, string \$handle ) use ( \$blocks_engine_stylesheet_attributes ): string {";
-            $lines[] = "    \$state = \$blocks_engine_stylesheet_attributes[ \$handle ] ?? null; if ( null === \$state ) return \$html; \$tag = new WP_HTML_Tag_Processor( \$html ); if ( \$tag->next_tag( 'LINK' ) ) { \$tag->set_attribute( 'rel', \$state['rel'] ); if ( '' !== \$state['title'] ) \$tag->set_attribute( 'title', \$state['title'] ); if ( \$state['disabled'] ) \$tag->set_attribute( 'disabled', true ); } return \$tag->get_updated_html();";
+            $deviceFilter = '';
+            if (array_filter($stylesheetAttributes, static fn(array $state): bool => isset($state[CaptureEvidence::DEVICE_STYLE]))) {
+                foreach (array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA) as $attribute) {
+                    $key = var_export($attribute, true);
+                    $deviceFilter .= "if ( isset( \$state[{$key}] ) ) \$html = preg_replace_callback( '/<link\\b/i', static fn(): string => '<link {$attribute}=\"' . esc_attr( \$state[{$key}] ) . '\"', \$html, 1 ); ";
+                }
+                $deviceFilter .= "if ( ! isset( \$state['rel'] ) ) return \$html; ";
+            }
+            $lines[] = "    \$state = \$blocks_engine_stylesheet_attributes[ \$handle ] ?? null; if ( null === \$state ) return \$html; {$deviceFilter}\$tag = new WP_HTML_Tag_Processor( \$html ); if ( \$tag->next_tag( 'LINK' ) ) { \$tag->set_attribute( 'rel', \$state['rel'] ); if ( '' !== \$state['title'] ) \$tag->set_attribute( 'title', \$state['title'] ); if ( \$state['disabled'] ) \$tag->set_attribute( 'disabled', true ); } return \$tag->get_updated_html();";
             $lines[] = "}, 10, 2 );";
         }
         $templateAssetTokens = array();
@@ -5307,6 +5319,12 @@ PHP;
     // `/` separators.
     private static function encodedAssetUrlPath(string $path): string { return implode('/', array_map('rawurlencode', explode('/', $path))); }
 
+    /** @return array<string,mixed> */
+    private static function stylesheetDeviceAttributes(array $occurrence): array
+    {
+        return array_intersect_key($occurrence, array_flip(array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA)));
+    }
+
     /**
      * Resource identity owns bytes; a document occurrence owns an enqueue handle.
      * Keep generated support on its existing side of the authored sequence and
@@ -5333,7 +5351,7 @@ PHP;
                 if (!isset($pagesBySource[$source])) continue;
                 if (!array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind'] || ($scope['source_path'] ?? null) === $source)) continue;
                 $scope = self::stylesheetPageScope($pagesBySource[$source]);
-                $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index);
+                $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + self::stylesheetDeviceAttributes($occurrence);
             }
             if (!empty($asset['frame_fallback'])) {
                 $row = array('asset' => $asset, 'scope' => array('kind' => 'global'), 'condition' => 'true', 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-frame-fallback-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => true);
@@ -6381,7 +6399,7 @@ PHP;
             if ($index !== ($row['order'] ?? null)) self::invalidDeclaration('link declaration', 'link', $index, $sourcePath, $documentKind, 'invalid_order', $row);
             if (!in_array($row['placement'] ?? null, array('head', 'body'), true)) self::invalidDeclaration('link declaration', 'link', $index, $sourcePath, $documentKind, 'invalid_placement', $row);
             if (!is_string($row['asset_reference'] ?? null) && !self::explicitUrl($row['url'] ?? null)) self::invalidDeclaration('link declaration', 'link', $index, $sourcePath, $documentKind, 'unresolved_local_url', $row);
-            if (array_diff(array_keys($row), array('order', 'placement', 'rel', 'type', 'media', 'integrity', 'crossorigin', 'referrerpolicy', 'as', 'fetchpriority', 'sizes', 'asset_reference', 'url', 'resolved_url'))) self::invalidDeclaration('link declaration', 'link', $index, $sourcePath, $documentKind, 'unsupported_field', $row);
+            if (array_diff(array_keys($row), array('order', 'placement', 'rel', 'type', 'media', 'integrity', 'crossorigin', 'referrerpolicy', 'as', 'fetchpriority', 'sizes', CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA, 'asset_reference', 'url', 'resolved_url'))) self::invalidDeclaration('link declaration', 'link', $index, $sourcePath, $documentKind, 'unsupported_field', $row);
             if (is_string($row['asset_reference'] ?? null)) self::assertTokens($row['asset_reference'], $tokens);
         }
         foreach ($metadata['scripts'] as $index => $row) {

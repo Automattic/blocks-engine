@@ -228,7 +228,6 @@ final class CaptureEvidence
         'SELECTED_DOCUMENT',
         'SELECTED_VIEWPORT',
         'DOCUMENT_UNAVAILABLE',
-        'DEVICE_STYLE',
         'MEMBER_LOGIN',
         'MEMBER_LOGIN_CLASS_PREFIX',
     );
