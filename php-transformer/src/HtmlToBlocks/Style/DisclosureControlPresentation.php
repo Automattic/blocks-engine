@@ -133,6 +133,12 @@ final class DisclosureControlPresentation
             $isSummary,
             $isSummary && ! $hasContentCarrier
         );
+        // A synthesized summary replaces a button-like control, not a native
+        // disclosure marker. Native summary sources retain their own chrome.
+        $suppressMarker = $isSummary && 'summary' !== strtolower($control->tagName);
+        if ( $suppressMarker ) {
+            $css = '' !== $css ? $css . ';list-style:none' : 'list-style:none';
+        }
         $icon = array();
         $iconSource = null;
         if ( $isAccordionToggle ) {
@@ -164,7 +170,7 @@ final class DisclosureControlPresentation
             if ( str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ) {
                 $this->support->registerAccordionTogglePresentation($marker, $css);
             } else {
-                $this->support->registerDisclosureSummaryPresentation($marker, $css);
+                $this->support->registerDisclosureSummaryPresentation($marker, $css, $suppressMarker);
             }
         }
         if ( '' !== $carrierCss ) {
