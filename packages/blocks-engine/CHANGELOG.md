@@ -4,6 +4,11 @@ All notable changes to `@automattic/blocks-engine` will be documented in this fi
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.5] - 2026-10-27
+
+### Changed
+- Preserve native text/video grids and editable Media Library videos
+
 ## [0.3.4] - 2026-10-26
 
 ### Changed
