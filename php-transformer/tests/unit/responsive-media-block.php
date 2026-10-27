@@ -256,7 +256,8 @@ $assert(str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), '<h1>Dee
 $assert(! str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), '<link'), 'A captured layout removes inert SVG stylesheet carriers after their CSS asset has been projected.');
 $assert('pass' === ($layout['source_reports']['wp_block_validity']['status'] ?? null), 'A captured layout boundary remains valid Gutenberg block markup.');
 $layoutPayload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), $layout['source_reports']['generated_blocks'] ?? array());
-$assert(array( 'content' ) === array_keys($layoutPayload['blocks'][0]['block_json']['attributes'] ?? array()) && ResponsiveLayoutBlockGenerator::RENDERER === ($layoutPayload['blocks'][0]['renderer'] ?? null) && ! isset($layoutPayload['blocks'][0]['render']), 'The companion payload preserves the dedicated typed layout schema and audited renderer only.');
+$layoutDefinitions = array_values(array_filter($layoutPayload['blocks'], static fn (array $block): bool => ResponsiveLayoutBlockGenerator::RENDERER === ($block['renderer'] ?? null)));
+$assert(1 === count($layoutDefinitions) && array( 'content' ) === array_keys($layoutDefinitions[0]['block_json']['attributes'] ?? array()) && ! isset($layoutDefinitions[0]['render']), 'The companion payload preserves the dedicated typed layout schema and audited renderer only.');
 
 $shallow = ( new HtmlTransformer() )->transform('<main><div><img src="story.jpg" alt="Story"></div></main>')->toArray();
 $assert('custom/responsive-media' !== ($shallow['blocks'][0]['blockName'] ?? null), 'A shallow media main remains on native conversion paths.');

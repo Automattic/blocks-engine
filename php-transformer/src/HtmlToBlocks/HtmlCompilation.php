@@ -19,6 +19,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
@@ -961,7 +962,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             capturePseudoFormFallback: function (DOMElement $element, array &$fallbacks): void { $this->formDispatcher->capturePseudoFormFallback($element, $fallbacks); },
             recognizePatterns: fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
             flankedSeparatorBlock: fn (DOMElement $element): ?array => $this->flankedSeparatorBlockFromElement($element),
-            capturedMediaLayoutBlock: fn (DOMElement $element): ?array => $this->capturedMediaLayoutBoundaryBlock($element),
             canCaptureExternalSvgFragmentDependency: fn (DOMElement $element): bool => ! $this->runtimeIslands->isRuntimeDomTarget($element) && ! $this->hasRuntimeTargetInSubtree($element),
             sourceElementClassifier: $this->sourceElementClassifier,
             responsiveMediaBlock: fn (DOMElement $element): array => $this->responsiveMediaBlock($element),
@@ -1667,6 +1667,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->collectGeneratedComponentCandidates($body);
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates(), $this->transformationProvenance()->sourceCollapsedWrapperHiddenStates());
         $blocks = $this->compressProjectedGroupChains($blocks);
+        $blocks = $this->captureDeepMediaLayoutBoundaries($blocks);
         $fallbacks = array_merge($fallbacks, $this->transformationEvidence()->responsiveImageFallbacks());
         $this->reconcileNativeListItemFallbacks($fallbacks, $blocks);
         $this->reconcileFormControlGroupFallbacks($body, $fallbacks);
@@ -10547,17 +10548,88 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
-    /** @return array<string, mixed>|null */
-    private function capturedMediaLayoutBoundaryBlock(DOMElement $element): ?array
+    /**
+     * Place captures on the converted tree, after wrapper coalescing. A branching
+     * region can keep its shallow children editable; a single-chain region needs
+     * only one boundary. Never descend past the policy's actual block budget.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<string, bool>|null $represented
+     * @return array<int, array<string, mixed>>
+     */
+    private function captureDeepMediaLayoutBoundaries(array $blocks, int $depth = 1, ?array $represented = null): array
     {
-        if ( ! in_array(strtolower($element->tagName), array('main', 'article', 'section', 'div', 'figure'), true)
+        if (null === $represented) {
+            $represented = array();
+            $collect = function (array $items) use (&$collect, &$represented): void {
+                foreach ($items as $item) {
+                    $ids = $item['_source_provenance_ids'] ?? array($item['_source_provenance_id'] ?? null);
+                    foreach ($ids as $id) {
+                        $source = is_int($id) ? $this->transformationProvenance()->sourceElement($id) : null;
+                        if ($source instanceof DOMElement) $represented[$source->getNodePath()] = true;
+                    }
+                    $collect($item['innerBlocks'] ?? array());
+                }
+            };
+            $collect($blocks);
+        }
+        foreach ($blocks as &$block) {
+            $id = $block['_source_provenance_id'] ?? ($block['_source_provenance_ids'][0] ?? null);
+            $element = is_int($id) ? $this->transformationProvenance()->sourceElement($id) : null;
+            // Inert wrappers may vanish entirely. Their surviving carrier still
+            // represents that source region, up to the next native ancestor.
+            $captureElement = $element;
+            $parent = $element?->parentNode;
+            while ($parent instanceof DOMElement && 'body' !== strtolower($parent->tagName) && !isset($represented[$parent->getNodePath()])) {
+                if ($this->sourceElementNestingDepth($parent) > self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING) $captureElement = $parent;
+                $parent = $parent->parentNode;
+            }
+            $children = $block['innerBlocks'] ?? array();
+            $branch = $children;
+            while (1 === count($branch)) {
+                $branch = $branch[0]['innerBlocks'] ?? array();
+            }
+            $converted = null;
+            if (count($branch) > 1 && $depth < EditabilityPolicy::THRESHOLDS['max_nesting_depth']) {
+                $converted = $this->captureDeepMediaLayoutBoundaries($children, $depth + 1, $represented);
+                if ($converted !== $children) {
+                    $block['innerBlocks'] = $converted;
+                    continue;
+                }
+            }
+            $exceedsBudget = $depth + $this->convertedBlockNestingDepth($children) > EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
+            $boundary = $captureElement instanceof DOMElement ? $this->capturedMediaLayoutBoundaryBlock($captureElement, $exceedsBudget) : null;
+            if (null !== $boundary) {
+                $block = $boundary;
+            } elseif (array() !== $children) {
+                $block['innerBlocks'] = $converted ?? $this->captureDeepMediaLayoutBoundaries($children, $depth + 1, $represented);
+            }
+        }
+        unset($block);
+        return $blocks;
+    }
+
+    /** @param array<int, array<string, mixed>> $blocks */
+    private function convertedBlockNestingDepth(array $blocks): int
+    {
+        $depth = 0;
+        foreach ($blocks as $block) {
+            $depth = max($depth, 1 + $this->convertedBlockNestingDepth($block['innerBlocks'] ?? array()));
+        }
+        return $depth;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function capturedMediaLayoutBoundaryBlock(DOMElement $element, bool $exceedsBlockBudget = false): ?array
+    {
+        if ( ! in_array(strtolower($element->tagName), array('main', 'article', 'section', 'div', 'figure', 'ul', 'ol', 'li'), true)
             || $this->runtimeIslands->isRuntimeDomTarget($element)
             || $this->hasRuntimeTargetInSubtree($element)
             || $this->hasLayoutGeometryProofInSubtree($element)
             || $this->containsDocumentShellLandmarks($element)
-            || $this->sourceElementNestingDepth($element) <= self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING
+            || (!$exceedsBlockBudget && $this->sourceElementNestingDepth($element) <= self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING)
             || ! $this->sourceElementClassifier->hasCapturedMediaContent($element)
-            || ('main' !== strtolower($element->tagName) && '' === trim((string) $element->textContent))
+            || (!$exceedsBlockBudget && ! in_array(strtolower($element->tagName), array('main', 'ul', 'ol', 'li'), true) && '' === trim((string) $element->textContent))
         ) {
             return null;
         }
