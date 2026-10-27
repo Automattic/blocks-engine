@@ -12,6 +12,9 @@ use DOMElement;
 
 final class LogoPattern implements PatternRecognizerInterface
 {
+    /** Inline formatting a logo label keeps; every other element is unwrapped. */
+    private const LABEL_TAGS = array( 'a', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup', 'br' );
+
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $logo = $context->logoContext();
@@ -175,30 +178,61 @@ final class LogoPattern implements PatternRecognizerInterface
         // CSS-painted decoration (a dot between two words). It stays in place
         // so block creation lowers it onto the same RichText carrier the
         // paragraph path uses, instead of being unwrapped into nothing.
-        $carriers = array();
-        $html = preg_replace_callback(
-            '/<span\b[^>]*>\s*<\/span>/i',
-            static function (array $match) use (&$carriers): string {
-                $carriers[] = $match[0];
-                return "\u{E000}" . (count($carriers) - 1) . "\u{E001}";
-            },
-            $html
-        ) ?? $html;
-        $restoreCarriers = static fn (string $markup): string => array() === $carriers ? $markup : (preg_replace_callback('/\x{E000}(\d+)\x{E001}/u', static fn (array $match): string => $carriers[(int) $match[1]] ?? '', $markup) ?? $markup);
-
-        $unsupported = '/<\/?(?!a\b|em\b|i\b|strong\b|b\b|mark\b|small\b|sub\b|sup\b|br\b)[a-z][a-z0-9]*\b[^>]*>/i';
-        if ( preg_match($unsupported, $html) ) {
-            $unwrapped = trim(preg_replace_callback($unsupported, static fn (array $match): string => str_starts_with($match[0], '</') ? '' : ' ', $html) ?? $html);
-            if ( '' !== $unwrapped && ! preg_match($unsupported, $unwrapped) ) {
-                return $restoreCarriers($unwrapped);
+        $body = $this->labelFragment($html);
+        if ( null === $body ) {
+            return $html;
+        }
+        $unsupported = array();
+        foreach ( $body->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement
+                && ! in_array(strtolower($descendant->tagName), self::LABEL_TAGS, true)
+                && ! ( 'span' === strtolower($descendant->tagName) && SourceDom::isEmptyInlineBox($descendant) ) ) {
+                $unsupported[] = $descendant;
             }
-
-            $flattened = $this->plainText(preg_replace('/<\/?[a-z][a-z0-9]*\b[^>]*>/i', ' ', $html) ?? $html);
-            $flattened = preg_replace('/\x{E000}\d+\x{E001}/u', '', $flattened) ?? $flattened;
-            return htmlspecialchars('' !== $flattened ? $flattened : $text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+        if ( array() === $unsupported ) {
+            return $html;
         }
 
-        return $restoreCarriers($html);
+        // Unwrap each unsupported element into its children, keeping a space
+        // where it opened so adjacent words stay apart.
+        foreach ( $unsupported as $descendant ) {
+            $parent = $descendant->parentNode;
+            if ( null === $parent ) {
+                continue;
+            }
+            $parent->insertBefore($body->ownerDocument->createTextNode(' '), $descendant);
+            while ( null !== $descendant->firstChild ) {
+                $parent->insertBefore($descendant->firstChild, $descendant);
+            }
+            $parent->removeChild($descendant);
+        }
+
+        $unwrapped = trim($this->fragmentHtml($body));
+        return '' !== $unwrapped ? $unwrapped : htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    /** Parses label markup into a detached `<body>` holding it, or null when it does not parse. */
+    private function labelFragment(string $html): ?DOMElement
+    {
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+
+        return $body instanceof DOMElement ? $body : null;
+    }
+
+    private function fragmentHtml(DOMElement $body): string
+    {
+        $content = '';
+        foreach ( $body->childNodes as $child ) {
+            $content .= $body->ownerDocument->saveHTML($child);
+        }
+
+        return $content;
     }
 
     private function semanticMarkerSpansAsMarks(string $html): string
@@ -207,13 +241,8 @@ final class LogoPattern implements PatternRecognizerInterface
             return $html;
         }
 
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
-        if ( ! $body instanceof DOMElement ) {
+        $body = $this->labelFragment($html);
+        if ( null === $body ) {
             return $html;
         }
 
@@ -224,7 +253,7 @@ final class LogoPattern implements PatternRecognizerInterface
             }
         }
         foreach ( $spans as $span ) {
-            $mark = $document->createElement('mark');
+            $mark = $body->ownerDocument->createElement('mark');
             $mark->setAttribute('style', $span->getAttribute('style'));
             while ( null !== $span->firstChild ) {
                 $mark->appendChild($span->firstChild);
@@ -232,11 +261,7 @@ final class LogoPattern implements PatternRecognizerInterface
             $span->parentNode?->replaceChild($mark, $span);
         }
 
-        $content = '';
-        foreach ( $body->childNodes as $child ) {
-            $content .= $document->saveHTML($child);
-        }
-        return $content;
+        return $this->fragmentHtml($body);
     }
 
     private function unwrapPresentationalSpan(string $html): string

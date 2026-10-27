@@ -196,28 +196,35 @@ final class SourceDom
         return false;
     }
 
-    /**
-     * Whether the nearest non-comment sibling is an empty, non-void element:
-     * an inline box with no text that only CSS sizes and paints.
-     */
+    /** Whether the nearest non-comment sibling is an empty inline box. */
     private static function adjacentEmptyInlineBox(DOMText $text, string $direction): bool
     {
         for ( $node = $text->{$direction}; $node instanceof DOMNode; $node = $node->{$direction} ) {
-            if ( XML_COMMENT_NODE === $node->nodeType ) {
-                continue;
+            if ( XML_COMMENT_NODE !== $node->nodeType ) {
+                return $node instanceof DOMElement && self::isEmptyInlineBox($node);
             }
-            if ( ! $node instanceof DOMElement || in_array(strtolower($node->tagName), self::VOID_TAGS, true) ) {
-                return false;
-            }
-            foreach ( $node->childNodes as $grandchild ) {
-                if ( XML_COMMENT_NODE !== $grandchild->nodeType && ! ( $grandchild instanceof DOMText && '' === trim($grandchild->data, " \t\n\r\f") ) ) {
-                    return false;
-                }
-            }
-            return true;
         }
 
         return false;
+    }
+
+    /**
+     * Whether an element is an empty inline box: a non-void element holding
+     * no text or elements (only whitespace and comments), which only CSS
+     * sizes and paints, such as a dot between two words.
+     */
+    public static function isEmptyInlineBox(DOMElement $element): bool
+    {
+        if ( in_array(strtolower($element->tagName), self::VOID_TAGS, true) ) {
+            return false;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE !== $child->nodeType && ! ( $child instanceof DOMText && '' === trim($child->data, " \t\n\r\f") ) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public static function outerHtml(DOMElement $element): string
