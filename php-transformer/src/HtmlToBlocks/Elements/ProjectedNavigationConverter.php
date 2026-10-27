@@ -302,17 +302,14 @@ final class ProjectedNavigationConverter implements ElementConverter
             if ( $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle) ) {
                 $extraRules .= $this->nativeNavigationToggleDropdownCss($host, $navigation);
                 $extraRules .= $this->nativeNavigationToggleOpenControlCss($host);
-            } else {
+            } elseif ( $bindsPanel ) {
                 $extraRules .= $this->nativeNavigationBoundPanelCss($host, $navigation);
             }
         }
         // A superseded burger uses Core's viewport overlay, not the source
         // dropdown's header-bound geometry. Other mobile-only drawers retain
         // their existing panel projection within the collapsed range.
-        $drawerRules = $this->navigationToggleSuppressor->projectedNavigationTargetForControl($toggle) instanceof DOMElement
-            || '' === $absentAbove || $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle)
-            ? ''
-            : $this->nativeNavigationBoundPanelCss($host, $navigation);
+        $drawerRules = ! $always && $bindsPanel ? $this->nativeNavigationBoundPanelCss($host, $navigation) : '';
         if ( $always ) {
             $rule = $hostRule . $openRule . $extraRules;
         } elseif ( '' === $collapseBoundary ) {
