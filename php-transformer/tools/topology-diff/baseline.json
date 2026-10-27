@@ -1203,6 +1203,7 @@
         "85-app-marketplace": {
             "added div [blocks-engine-attribute]": 4,
             "added div [blocks-engine-control]": 4,
+            "added div [blocks-engine-empty-visual-group]": 9,
             "added figure [blocks-engine-synthetic-image-figure]": 11,
             "added img": 11,
             "added p": 4,
