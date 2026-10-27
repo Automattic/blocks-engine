@@ -331,7 +331,8 @@ $classes = array();
 foreach ($routePlan['pages'] as $row) {
     $class = Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass(WordPressSitePlan::identity('page', $row['source_path'], $row['source_path']));
     $classes[$row['source_path']] = $class;
-    $assert(in_array($class, explode(' ', $row['document_metadata']['root_attributes']['class'] ?? ''), true), 'document root carries its source route class: ' . $row['source_path']);
+    $rootClasses = explode(' ', $row['document_metadata']['root_attributes']['class'] ?? '');
+    $assert(in_array($class, $rootClasses, true) && in_array('be-r', $rootClasses, true), 'every plan document root carries exact plan marker and source route class: ' . $row['source_path']);
     $functions = array_column($routePlan['writes'], null, 'target_path')['functions.php']['payload']['data'];
     $assert(str_contains($functions, $class) && str_contains($functions, 'blocksEngineDocumentContext') && str_contains($functions, 'language_attributes'), 'the same root registry reaches front end and editor: ' . $row['source_path']);
 }
@@ -596,7 +597,7 @@ foreach (array(2, 10, 30) as $count) {
     foreach ($pages as $owner => $sheets) {
         $dom = new DOMDocument();
         @$dom->loadHTML('<html><body>' . $markup[$owner] . '</body></html>');
-        $dom->documentElement->setAttribute('class', Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($owner));
+        $dom->documentElement->setAttribute('class', 'be-r ' . Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($owner));
         $expected = new StaticCssCascade($dom, implode('', $sheets));
         $actual = new StaticCssCascade($dom, $text);
         foreach (array('p', 'mark') as $tag) foreach ($dom->getElementsByTagName($tag) as $element) {
@@ -639,7 +640,7 @@ foreach (array(2, 12, 112) as $count) {
         $plainMarkup[$owner] = '<div id="page-only-' . $k . '"><p class="x native">Probe</p></div>';
         $dom = new DOMDocument();
         @$dom->loadHTML('<html><body>' . $plainMarkup[$owner] . '</body></html>');
-        $dom->documentElement->setAttribute('class', Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($owner));
+        $dom->documentElement->setAttribute('class', 'be-r ' . Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($owner));
         $plainDocuments[$owner] = $dom;
     }
     $index = new Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex($plainDocuments);
@@ -720,7 +721,7 @@ foreach (array('.%s', '.%s a', ':where(.%s)') as $shape) {
 }
 foreach (array(':not(.blocks-engine-control-aaaaaaaaaaaa-0)', ':is(.blocks-engine-control-aaaaaaaaaaaa-0,a)', '[title=".blocks-engine-control-aaaaaaaaaaaa-0"]') as $arm) {
     $result = $transformer->scopeRouteVariants(array(), array('one' => array($arm . '{color:red}')), array(), null, array('one' => ''), null, array(), '');
-    $assert(str_contains($result['stylesheet'], 'be-r-'), 'optional or quoted markers do not prove base inertness: ' . $arm);
+    $assert(str_contains($result['stylesheet'], ':root.be-r'), 'optional or quoted markers do not prove base inertness: ' . $arm);
 }
 
 // Route state is restored after compilation. Neither DOM non-matches nor
@@ -730,7 +731,7 @@ $navDocuments = array();
 foreach (array('kept', 'outside') as $owner) {
     $dom = new DOMDocument();
     @$dom->loadHTML('<html><body>' . $navMarkup . '</body></html>');
-    $dom->documentElement->setAttribute('class', Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($owner));
+    $dom->documentElement->setAttribute('class', 'be-r ' . Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($owner));
     $navDocuments[$owner] = $dom;
 }
 $navIndex = new Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex($navDocuments);
@@ -764,7 +765,7 @@ $assert(str_contains($unplannedResult['stylesheet'], ':root:not('), 'base rules 
 foreach (array_merge(array(null), array_keys($unplannedPages)) as $owner) {
     $dom = new DOMDocument();
     @$dom->loadHTML('<html><body>Non-plan page</body></html>');
-    if (null !== $owner) $dom->documentElement->setAttribute('class', Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($owner));
+    if (null !== $owner) $dom->documentElement->setAttribute('class', 'be-r ' . Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($owner));
     $expected = new StaticCssCascade($dom, null === $owner ? $unplannedBase : implode('', $unplannedPages[$owner]));
     $actual = new StaticCssCascade($dom, $unplannedResult['stylesheet']);
     $body = $dom->getElementsByTagName('body')->item(0);
@@ -809,6 +810,40 @@ $collisionIdentities = array('collision-55045', 'collision-70885', 'ordinary-rou
 $collisionClasses = $rootContext::routeClasses($collisionIdentities);
 $assert(3 === count(array_unique($collisionClasses)) && 14 === strlen($collisionClasses['collision-55045']) && 13 === strlen($collisionClasses['ordinary-route']), 'colliding hashes lengthen only as needed');
 $assert($collisionClasses === $rootContext::routeClasses(array_reverse($collisionIdentities)), 'class allocation is independent of route order');
+
+// A majority variant uses exact plan membership plus short exclusions.
+$majorityPages = array();
+for ($k = 0; $k < 32; ++$k) $majorityPages['majority-' . $k] = array($k ? '.majority{color:red}' : '');
+$majority = $transformer->scopeRouteVariants(array(), $majorityPages);
+$assert(str_contains($majority['stylesheet'], ':root.be-r:not('), 'majority variant chooses short exact exclusion scope');
+foreach (array_merge(array(null, 'pretend'), array_keys($majorityPages)) as $owner) {
+    $dom = new DOMDocument();
+    @$dom->loadHTML('<html><body><p class="majority">Probe</p></body></html>');
+    if (null !== $owner) {
+        $metadata = Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml('', $owner);
+        $dom->documentElement->setAttribute('class', 'pretend' === $owner ? 'be-r-impostor' : $metadata['root_attributes']['class']);
+    }
+    $cascade = new StaticCssCascade($dom, $majority['stylesheet']);
+    $painted = isset($cascade->resolve($dom->getElementsByTagName('p')->item(0), array('color'), array())['color']);
+    $assert($painted === (null !== $owner && 'pretend' !== $owner && 'majority-0' !== $owner), 'majority exclusion parity: ' . ($owner ?? 'no route'));
+}
+
+// Many arms share one scope: expanded accounting exceeds the budget, but
+// the serialized common prefix ships once and must not trigger page copies.
+$groupArms = array();
+for ($k = 0; $k < 400; ++$k) $groupArms[] = 'p.a' . $k;
+$groupRule = implode(',', $groupArms) . '{color:red}';
+$groupPages = array('kept' => array($groupRule), 'dropped' => array(''));
+$grouped = $transformer->scopeRouteVariants(array($groupRule), $groupPages);
+$compact = static fn (string $css): string => Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::stylesheet($css, true);
+$shippedGrowth = strlen($compact($grouped['stylesheet'])) - strlen($compact($groupRule));
+$groupBudget = max(8192, 3 * strlen($groupRule));
+$assert($grouped['route_bytes'] === $shippedGrowth && $shippedGrowth < $groupBudget && strlen($grouped['stylesheet']) - strlen($groupRule) > $groupBudget, 'budget counts shipped common scope once, not per expanded arm');
+$groupDiagnostics = array();
+$method = new ReflectionMethod(ArtifactCompiler::class, 'applyAuthorStylesheetProjections');
+$groupFiles = array(array('path' => 'group.css', 'kind' => 'css', 'content' => $groupRule));
+$groupOutput = $method->invokeArgs(new ArtifactCompiler(), array($groupFiles, array(array('path' => 'group.css', 'content' => $groupRule, 'owner' => 'kept'), array('path' => 'group.css', 'content' => '', 'owner' => 'dropped')), array(array('path' => 'group.css', 'content' => $groupRule)), '', array(), &$groupDiagnostics));
+$assert(!$groupDiagnostics && !str_contains(implode('', array_column($groupOutput, 'path')), '.page-'), 'compiler accepts grouped shipped scope below budget');
 
 // Exercise the compiler budget with explicit projections: all routes carry
 // the subject, so dropping a rule cannot be proven inert. Long unchanged

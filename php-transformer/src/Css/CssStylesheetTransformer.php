@@ -286,16 +286,16 @@ final class CssStylesheetTransformer
      * @param array<string,list<string>> $pages
      * Aligned rules are expanded into arms, each with its own route set.
      * Arms proven inert outside that set stay unscoped; all others use the
-     * positive scope for variant-only arms, or a complementary negative scope
-     * for arms retained by the virtual no-route-class base document. Only validated lists
+     * shortest base-excluding scope for variant-only arms, or a complementary
+     * negative scope for arms retained by the virtual base document. Only validated lists
      * are split, preserving invalid-selector isolation and source order.
      *
      * @param array<string,string> $routeIdentities Route identities by compilation owner.
      * @param array<string,string> $markup Canonical markup by compilation owner.
      * @param array<string,string> $routeClasses Site-wide collision-free classes by route identity.
      * @param ?string $sharedMarkup Shared template-part markup; null means no carrier evidence.
-     * `route_bytes` counts scope and split-rule overhead beyond the unscoped
-     * arm union, plus scoped insertions, before final compaction.
+     * `route_bytes` counts shipped growth after serialization and recompaction
+     * over the unscoped arm-union sheet (including inserted arms).
      *
      * @return array{stylesheet:string, scoped:list<string>, reasons:array<string,string>, route_bytes:int}
      */
@@ -396,7 +396,7 @@ final class CssStylesheetTransformer
         foreach (array_keys($pages) as $owner) $identities[] = $routeIdentities[$owner] ?? (string) $owner;
         $routeClasses = $routeClasses ?: \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClasses($identities);
         $routeClass = static fn ($owner): string => $routeClasses[$routeIdentities[$owner] ?? (string) $owner];
-        $routeBytes = 0;
+        $unionOutput = array();
         $allRoutes = array_fill_keys(array_keys($pages), true);
         // Non-plan content is unknown, but imported engine classes can only
         // come from shared template parts. Never run a full matcher here.
@@ -405,7 +405,7 @@ final class CssStylesheetTransformer
         $allRoutes[$baseOwner] = true;
         if (null !== $sharedMarkup) $markup[$baseOwner] = $sharedMarkup;
         $carriers = self::markerCarriers($markup);
-        $emitArms = function (array $units, array $prototype, bool $insertion = false) use (&$output, &$routeBytes, $routeClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex): void {
+        $emitArms = function (array $units, array $prototype) use (&$output, &$unionOutput, $routeClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex): void {
             [$lead, $rule] = self::splitLeadingComments($prototype['text']);
             $brace = (int) $this->nextRuleBoundary($rule, 0);
             $body = substr($rule, $brace);
@@ -439,13 +439,19 @@ final class CssStylesheetTransformer
                     if (isset($routes[$baseOwner])) {
                         $scope = ':where(:root:not(' . implode(',', array_map(static fn ($owner): string => '.' . $routeClass($owner), array_keys($outside))) . '))';
                     } else {
-                        $scope = ':where(:root:is(' . implode(',', array_map(static fn ($owner): string => '.' . $routeClass($owner), array_keys($routes))) . '))';
+                        $positive = ':where(:root:is(' . implode(',', array_map(static fn ($owner): string => '.' . $routeClass($owner), array_keys($routes))) . '))';
+                        unset($outside[$baseOwner]);
+                        // The exact marker excludes non-plan documents even when
+                        // every plan route keeps this variant-only arm.
+                        $negative = ':where(:root.be-r' . ($outside ? ':not(' . implode(',', array_map(static fn ($owner): string => '.' . $routeClass($owner), array_keys($outside))) . ')' : '') . ')';
+                        $scope = strlen($positive) <= strlen($negative) ? $positive : $negative;
                     }
                 }
                 $groups[$scope][] = $arm;
             }
-            $emittedBytes = 0;
-            $unionBytes = strlen($lead . implode(',', array_keys($members)) . $body);
+            $union = $prototype;
+            $union['text'] = $lead . implode(',', array_keys($members)) . $body;
+            $unionOutput[] = $union;
             foreach ($groups as $scope => $arms) {
                 $unit = $prototype;
                 if ('' !== $scope) {
@@ -454,16 +460,11 @@ final class CssStylesheetTransformer
                 }
                 $unit['text'] = $lead . implode(',', $arms) . $body;
                 $output[] = $unit;
-                $emittedBytes += strlen($unit['text']);
-                // A scoped insertion is entirely new shared-download cost,
-                // not just the prefix added to its unscoped selector list.
-                if ($insertion && '' !== $scope) $routeBytes += strlen(implode(',', $groups[$scope]) . $body);
                 $lead = '';
             }
-            $routeBytes += max(0, $emittedBytes - $unionBytes);
         };
         for ($i = 0; $i <= count($base); ++$i) {
-            foreach ($siteInsertions[$i] ?? array() as $unit) $output[] = $unit;
+            foreach ($siteInsertions[$i] ?? array() as $unit) { $output[] = $unit; $unionOutput[] = $unit; }
             $groups = array();
             foreach ($insertions[$i] ?? array() as $owner => $units) foreach ($units as $ordinal => $unit) {
                 $groupKey = serialize(array($ordinal, $key($unit)));
@@ -472,14 +473,19 @@ final class CssStylesheetTransformer
                 $groups[$groupKey]['routes'][$owner] = $unit;
             }
             uasort($groups, static fn (array $a, array $b): int => $a['ordinal'] <=> $b['ordinal']);
-            foreach ($groups as $group) $emitArms($group['routes'], $group['unit'], true);
+            foreach ($groups as $group) $emitArms($group['routes'], $group['unit']);
             if ($i === count($base)) break;
-            if (empty($changes[$i])) { $output[] = $base[$i]; continue; }
+            if (empty($changes[$i])) { $output[] = $base[$i]; $unionOutput[] = $base[$i]; continue; }
             $units = array();
             foreach ($allRoutes as $owner => $_) $units[$owner] = array_key_exists($owner, $changes[$i]) ? $changes[$i][$owner] : $base[$i];
             $emitArms($units, $base[$i]);
         }
-        return array('stylesheet' => $this->serializeRuleUnits($output), 'scoped' => $scoped, 'reasons' => $reasons, 'route_bytes' => $routeBytes);
+        $stylesheet = $this->serializeRuleUnits($output);
+        // Match ArtifactCompiler's final serialization, not the expanded arms:
+        // identical scope prefixes can ship once for an entire selector group.
+        $recompact = static fn (string $css): string => count($pages) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
+        $routeBytes = max(0, strlen($recompact($stylesheet)) - strlen($recompact($this->serializeRuleUnits($unionOutput))));
+        return array('stylesheet' => $stylesheet, 'scoped' => $scoped, 'reasons' => $reasons, 'route_bytes' => $routeBytes);
     }
 
     /**

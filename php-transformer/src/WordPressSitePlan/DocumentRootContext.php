@@ -20,7 +20,7 @@ final class DocumentRootContext
     public static function metadataFromHtml(string $html, string $routeIdentity = '', ?string $routeClass = null): array
     {
         $attributes = DocumentRootAttributes::forDocument($html);
-        if ('' !== $routeIdentity) $attributes['html']['class'] = trim(($attributes['html']['class'] ?? '') . ' ' . ($routeClass ?? self::routeClass($routeIdentity)));
+        if ('' !== $routeIdentity) $attributes['html']['class'] = trim(($attributes['html']['class'] ?? '') . ' be-r ' . ($routeClass ?? self::routeClass($routeIdentity)));
         return array('root_attributes' => $attributes['html'], 'body_attributes' => $attributes['body']);
     }
 
