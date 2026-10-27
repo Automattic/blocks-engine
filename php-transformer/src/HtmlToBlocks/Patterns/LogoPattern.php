@@ -41,6 +41,13 @@ final class LogoPattern implements PatternRecognizerInterface
             $context->createBlock(...)
         );
 
+        if ( 'core/buttons' === ($block['blockName'] ?? '') ) {
+            // Override predicted independent blocks or inline-layout carriers
+            // inside the saved link. Keep the RichText projections that already
+            // agree with the materialized label, including their reset rules.
+            $context->buttonContext()?->retainSourceDescendants($element, onlyProjectedTopology: true);
+        }
+
         return null === $block ? null : new PatternRecognitionResult($block);
     }
 
