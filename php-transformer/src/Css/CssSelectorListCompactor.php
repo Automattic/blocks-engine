@@ -139,6 +139,17 @@ final class CssSelectorListCompactor
     /** @return list<string>|null */
     private static function expandArm(string $arm): ?array
     {
+        // Richtext carriers use style attributes rather than marker classes.
+        $identity = 'blocks-engine-richtext-[a-f0-9]{12}-[0-9]+';
+        $richtext = '(?:mark\\[style\\*="--blocks-engine-richtext-marker:' . $identity . ';"\\]|mark\\[style\\$="--blocks-engine-richtext-marker:' . $identity . '"\\]|span\\[data-blocks-engine-richtext-marker="' . $identity . '"\\])';
+        if ( ! str_contains($arm, '\\') && preg_match_all('/:where\\(((?:' . $richtext . ',)+' . $richtext . ')\\)/', $arm, $lists, PREG_OFFSET_CAPTURE) ) {
+            foreach ( $lists[0] as $index => [$text, $offset] ) {
+                $before = substr($arm, 0, $offset);
+                if ( substr_count($before, '(') !== substr_count($before, ')') ) continue;
+                $suffix = substr($arm, $offset + strlen($text));
+                return array_map(static fn(string $marker): string => $before . ':where(' . $marker . ')' . $suffix, explode(',', $lists[1][$index][0]));
+            }
+        }
         if ( false === strpbrk($arm, '\\"\'') && preg_match_all(self::MARKER_WHERE, $arm, $matches, PREG_OFFSET_CAPTURE) ) {
             foreach ( $matches[0] as $index => [$text, $offset] ) {
                 $before = substr($arm, 0, $offset);

@@ -275,7 +275,7 @@ foreach ($contextTen['pages'] as $planPage) {
 }
 echo 'Context fixture author CSS: ' . $contextBytes . " bytes\n";
 
-// Compare the old enqueue cascade with the folded one directly, including
+// Compare the old enqueue cascade with arm reconciliation directly, including
 // every overlapping tail rule. Markers absent from another page are inert.
 $transformer = new Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer();
 $shared = '.group>.btn{z-index:1}';
@@ -287,27 +287,25 @@ for ($i = 0; $i < 10; ++$i) {
     $projections[$i] = array(str_replace('.group>.btn', '.group>.btn,:where(.' . $marker . ')', $shared));
     $markup[$i] = '<p class="' . $marker . ' tail-159">Probe</p>';
 }
-$folded = $transformer->foldPositiveMarkerArms(array($shared), $projections, $markup);
+$routed = $transformer->scopeRouteVariants(array($shared), $projections, array(), null, $markup);
 foreach ($projections as $owner => $sheets) {
     $before = $shared . $transformer->rulesAbsentFrom($sheets, array($shared), true);
-    $after = implode('', $folded['shared']) . $transformer->rulesAbsentFrom($folded['pages'][$owner], $folded['shared'], true);
+    $after = $routed['stylesheet'];
     $document = new DOMDocument();
     @$document->loadHTML($markup[$owner]);
     $element = $document->getElementsByTagName('p')->item(0);
     $oldStyle = (new StaticCssCascade($document, $before))->resolve($element, array('z-index'), array());
     $newStyle = (new StaticCssCascade($document, $after))->resolve($element, array('z-index'), array());
-    $assert($oldStyle === $newStyle && '2' === (string) ($newStyle['z-index'] ?? ''), 'folding preserves the original enqueue cascade on page ' . $owner);
+    $assert($oldStyle === $newStyle && '2' === (string) ($newStyle['z-index'] ?? ''), 'arm reconciliation preserves the original enqueue cascade on page ' . $owner);
 }
 
 // A reused identity is not proof of a shared match: both pages carry the
-// marker, but only one projected the arm. Keep it out of the marker fold.
+// marker, but only one projected the arm. Scope that arm alone.
 $marker = 'blocks-engine-control-0123456789ab-0';
 $base = '.btn-group>.btn{z-index:1}.tail{z-index:2}';
 $extra = '.btn-group>.btn,:where(.' . $marker . ')>.wp-block-button__link{z-index:1}.tail{z-index:2}';
-$folded = $transformer->foldPositiveMarkerArms(array($base), array('a' => array($extra), 'b' => array($base)), array('a' => '<div class="' . $marker . '"></div>', 'b' => '<div class="' . $marker . '"></div>'));
-$assert(!str_contains(implode('', $folded['shared']), $marker), 'a marker carried by a non-projecting page is not folded');
-$routed = $transformer->scopeRouteVariants($folded['shared'], $folded['pages']);
-$assert(str_contains($routed['stylesheet'], $marker) && 2 === count($routed['scoped']), 'an arm unsafe for marker folding can still be route scoped in place');
+$routed = $transformer->scopeRouteVariants(array($base), array('a' => array($extra), 'b' => array($base)), array(), null, array('a' => '<div class="' . $marker . '"></div>', 'b' => '<div class="' . $marker . '"></div>'));
+$assert(str_contains($routed['stylesheet'], $marker) && 2 === count($routed['scoped']), 'a shared marker arm is route scoped in place');
 
 // Real constant-arm variants, a dropped control override, and page-only
 // image bridge rules. Identical span routes must share one positive rule.
@@ -451,10 +449,9 @@ foreach (array(
     echo 'Variant fixture (' . $label . ') author CSS: ' . strlen($variantText) . ' bytes in ' . count($authoredAssets($variantPlan)) . " assets\n";
 }
 
-// Bounded route scoping. One long selector list is projected three ways
-// (span, button and image pages), so in-place variants would repeat every
-// arm under route scopes on the sheet every route loads: several times what
-// one page copy costs. That sheet falls back to page copies, with a reason.
+// A long selector list projected three ways used to exhaust the byte bound
+// by copying every arm into whole-rule variants. Only differing arms now
+// carry scope overhead, so this fixture stays below the safety budget.
 $boundArms = array();
 for ($i = 0; $i < 60; ++$i) $boundArms[] = '.long-selector-arm-' . $i;
 $boundSheet = array('path' => 'base.css', 'kind' => 'css', 'content' => '.sample{color:#123456}' . implode(',', $boundArms) . ',button,img{outline-style:solid;letter-spacing:1px;padding:3px}');
@@ -465,9 +462,9 @@ foreach (array('<span class="sample">Probe</span>', '<span class="sample">Probe<
 $bound = (new ArtifactCompiler())->compile(array('entrypoint' => 'bound-0.html', 'files' => array_merge($boundFiles, array($boundSheet))))->toArray();
 $boundPlan = $bound['source_reports']['wordpress_site_plan'];
 $boundFindings = array_values(array_filter($bound['diagnostics'], static fn (array $row): bool => 'author_stylesheet_route_scope_fallback' === ($row['code'] ?? '') && str_contains($row['message'], 'largest')));
-$assert(1 === count($boundFindings) && str_contains($boundFindings[0]['message'], 'base.css'), 'over-budget route scoping emits one sheet-level fallback diagnostic', json_encode(array_column($bound['diagnostics'], 'message')));
+$assert(array() === $boundFindings, 'arm-level scoping avoids the former whole-rule byte-budget fallback', json_encode(array_column($bound['diagnostics'], 'message')));
 $boundAssets = $authoredAssets($boundPlan);
-$assert(count($boundAssets) > 1 && !str_contains(implode('', $boundAssets), 'be-route-'), 'over-budget route scoping falls back to page copies without route scopes', json_encode(array_map('strlen', $boundAssets)));
+$assert(1 === count($boundAssets) && !str_contains(implode('', array_keys($boundAssets)), '.page-'), 'long unchanged arm lists stay in one site-wide asset', json_encode(array_map('strlen', $boundAssets)));
 foreach ($boundPlan['pages'] as $row) {
     $file = array_column($boundFiles, null, 'path')[$row['source_path']];
     $alone = (new ArtifactCompiler())->compile(array('entrypoint' => $file['path'], 'files' => array($file, $boundSheet)))->toArray()['source_reports']['wordpress_site_plan'];
@@ -477,6 +474,28 @@ foreach ($boundPlan['pages'] as $row) {
     $assert(array() !== $actual && $expected === $actual, 'fallback computed-style parity ' . $row['source_path'], json_encode(array($expected, $actual)));
 }
 echo 'Bound fixture author CSS: ' . json_encode(array_map('strlen', $boundAssets)) . "\n";
+
+// The safety net still trips when route-list overhead itself dominates the
+// largest copy, even though no whole selector lists are duplicated anymore.
+$budgetFiles = array();
+for ($i = 0; $i < 24; ++$i) {
+    $file = $boundFiles[$i % count($boundFiles)];
+    $file['path'] = 'budget-' . $i . '.html';
+    $budgetFiles[] = $file;
+}
+$budgetCss = '.sample{color:#123456}';
+for ($i = 0; $i < 80; ++$i) $budgetCss .= 'button,img{outline-style:solid;letter-spacing:' . $i . 'px;padding:3px}';
+$budgetSheet = array('path' => 'base.css', 'kind' => 'css', 'content' => $budgetCss);
+$budgetResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'budget-0.html', 'files' => array_merge($budgetFiles, array($budgetSheet))))->toArray();
+$budgetFindings = array_filter($budgetResult['diagnostics'], static fn (array $row): bool => 'author_stylesheet_route_scope_fallback' === ($row['code'] ?? '') && str_contains($row['message'], 'largest'));
+$budgetPlan = $budgetResult['source_reports']['wordpress_site_plan'];
+$assert(1 === count($budgetFindings) && str_contains(implode('', array_column($budgetPlan['assets'], 'source_path')), '.page-'), 'excessive route-list overhead retains the sheet-level byte-budget fallback');
+foreach (array_slice($budgetPlan['pages'], 0, 2) as $row) {
+    $file = array_column($budgetFiles, null, 'path')[$row['source_path']];
+    $alone = (new ArtifactCompiler())->compile(array('entrypoint' => $file['path'], 'files' => array($file, $budgetSheet)))->toArray()['source_reports']['wordpress_site_plan'];
+    $properties = array('color', 'outline-style', 'letter-spacing');
+    $assert($probeStyles($alone, $alone['pages'][0], false, $properties) === $probeStyles($budgetPlan, $row, false, $properties), 'byte-budget fallback computed-style parity ' . $row['source_path']);
+}
 
 // Rules that differ between pages only by page-local block markers. Every
 // page has its own buttons in a `.row-cols-3` grid, so `.row-cols-3>*` and
@@ -555,12 +574,66 @@ foreach (array(array($site, false), array($gapSite, true)) as [$checked, $gaps])
 }
 echo 'Marker-only fixture author CSS: ' . json_encode($markerSizes) . " bytes for 2/6/10 pages\n";
 
-// Identical shared units are one fold match, rewritten at every occurrence.
+// Mixed real-site rule shapes: hundreds of safe marker arms must not inherit
+// a shared-chrome arm's scope. Richtext swaps and a dropped plain rule use
+// the same per-arm membership path, including complementary scopes.
+$armSizes = array();
+foreach (array(2, 10, 30) as $count) {
+    $chrome = 'blocks-engine-control-aaaaaaaaaaaa-0';
+    $richA = 'blocks-engine-richtext-bbbbbbbbbbbb-0';
+    $richB = 'blocks-engine-richtext-cccccccccccc-0';
+    $richArm = static fn (string $marker): string => ':where(mark[style*="--blocks-engine-richtext-marker:' . $marker . ';"])';
+    $safeArms = array('.plain');
+    for ($j = 0; $j < 200; ++$j) $safeArms[] = ':where(.blocks-engine-control-' . substr(hash('sha256', 'safe-' . $j), 0, 12) . '-0)';
+    $common = implode(',', $safeArms);
+    $liveSafe = 'blocks-engine-control-' . substr(hash('sha256', 'safe-0'), 0, 12) . '-0';
+    $base = '@media(min-width:1px){' . $common . ',:where(.' . $chrome . '){color:red}' . $richArm($richA) . '{background-color:blue}.drop{padding-top:7px}}';
+    $pages = $markup = array();
+    for ($j = 0; $j < $count; ++$j) {
+        $pages['arm-' . $j] = array('@media(min-width:1px){' . $common . (0 === $j ? ',:where(.' . $chrome . ')' : '') . '{color:red}' . $richArm(0 === $j ? $richA : $richB) . '{background-color:blue}' . (1 === $j ? '' : '.drop{padding-top:7px}') . '}');
+        $markup['arm-' . $j] = '<p class="' . $chrome . ' drop ' . $liveSafe . '">Chrome</p><mark style="--blocks-engine-richtext-marker:' . $richA . ';">A</mark><mark style="--blocks-engine-richtext-marker:' . $richB . ';">B</mark>';
+    }
+    $result = $transformer->scopeRouteVariants(array($base), $pages, array(), null, $markup);
+    $text = Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::stylesheet($result['stylesheet'], true);
+    $armSizes[$count] = strlen($text);
+    $assert(count($result['scoped']) === $count && array() === $result['reasons'], $count . ' mixed-arm routes reconcile without page-copy fallback');
+    $assert(1 === substr_count($text, 'blocks-engine-control-' . substr(hash('sha256', 'safe-0'), 0, 12)), 'one shared-chrome arm never duplicates its safe sibling list');
+    foreach ($pages as $owner => $sheets) {
+        $dom = new DOMDocument();
+        @$dom->loadHTML('<html><body>' . $markup[$owner] . '</body></html>');
+        $dom->documentElement->setAttribute('class', Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($owner));
+        $expected = new StaticCssCascade($dom, implode('', $sheets));
+        $actual = new StaticCssCascade($dom, $text);
+        foreach (array('p', 'mark') as $tag) foreach ($dom->getElementsByTagName($tag) as $element) {
+            $properties = array('color', 'background-color', 'padding-top');
+            $assert($expected->resolve($element, $properties, array()) === $actual->resolve($element, $properties, array()), 'mixed-arm computed-style parity ' . $count . ' routes: ' . $owner . ' ' . $element->textContent);
+        }
+    }
+    $assert(str_contains($text, ':root:not(') || 2 === $count, 'the dropped rule uses the shorter complementary scope');
+}
+$assert($armSizes[30] < 1.1 * $armSizes[2], 'mixed-arm site-wide bytes stay roughly constant in N', json_encode($armSizes));
+
+// Private richtext carriers (including packed style$/editor-span variants)
+// can be emitted unscoped, but negations and unknown carriers cannot.
+$richOne = 'blocks-engine-richtext-dddddddddddd-0';
+$richTwo = 'blocks-engine-richtext-eeeeeeeeeeee-0';
+$richList = static fn (string $marker): string => ':where(mark[style*="--blocks-engine-richtext-marker:' . $marker . ';"],mark[style$="--blocks-engine-richtext-marker:' . $marker . '"],span[data-blocks-engine-richtext-marker="' . $marker . '"])';
+$richPages = array('one' => array($richList($richOne) . '{color:red}'), 'two' => array($richList($richTwo) . '{color:red}'));
+$richMarkup = array('one' => '<mark style="--blocks-engine-richtext-marker:' . $richOne . ';">One</mark>', 'two' => '<span data-blocks-engine-richtext-marker="' . $richTwo . '">Two</span>');
+$privateRich = $transformer->scopeRouteVariants($richPages['one'], $richPages, array(), null, $richMarkup);
+$assert(!str_contains($privateRich['stylesheet'], 'be-route-'), 'private richtext marker swaps need no route scopes');
+$unknownRich = $transformer->scopeRouteVariants($richPages['one'], $richPages);
+$assert(str_contains($unknownRich['stylesheet'], 'be-route-'), 'missing carrier evidence never proves richtext arms inert');
+$negated = ':not(:where(.blocks-engine-control-aaaaaaaaaaaa-0)){color:red}';
+$negativeMarker = $transformer->scopeRouteVariants(array($negated), array('one' => array($negated), 'two' => array('')), array(), null, array('one' => '', 'two' => ''));
+$assert(str_contains($negativeMarker['stylesheet'], 'be-route-'), 'negated markers are not positive carrier requirements');
+
+// Identical shared units align separately at each source occurrence.
 $marker = 'blocks-engine-control-0123456789ab-0';
 $unit = '.group>.btn{z-index:1}';
 $variant = '.group>.btn,:where(.' . $marker . '){z-index:1}';
-$duplicates = $transformer->foldPositiveMarkerArms(array($unit . '.between{z-index:2}' . $unit), array('a' => array($variant . '.between{z-index:2}' . $variant)), array('a' => '<p class="' . $marker . '">Probe</p>'));
-$assert(2 === substr_count(implode('', $duplicates['shared']), $marker), 'marker folding rewrites every byte-identical shared unit without moving it');
+$duplicates = $transformer->scopeRouteVariants(array($unit . '.between{z-index:2}' . $unit), array('a' => array($variant . '.between{z-index:2}' . $variant)), array(), null, array('a' => '<p class="' . $marker . '">Probe</p>'));
+$assert(2 === substr_count($duplicates['stylesheet'], $marker), 'arm reconciliation rewrites every aligned shared unit without moving it');
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "shared-author-stylesheet scaling FAILED: {$passes} passed, {$failures} failed\n");

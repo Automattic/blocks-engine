@@ -2650,27 +2650,24 @@ final class ArtifactCompiler
             }
             unset($contents);
             $sharedStylesheets = array($transformer->concatenateWithoutRedundantRules($sharedStylesheets));
-            $folded = $transformer->foldPositiveMarkerArms($sharedStylesheets, $pageProjections, $pageMarkup);
-            $sharedStylesheets = $folded['shared'];
             $fallbackSharedStylesheets = $sharedStylesheets;
-            foreach ($pages as $owner => $_) $pages[$owner] = $folded['pages'][$owner] ?? $pages[$owner];
-            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $folded['pages'], $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup);
-            // Folded rules carry expanded marker arms; recompact the serialized
-            // sheet, merging marker arms into `:where()` lists across routes.
-            $recompact = static fn (string $css): string => count($folded['pages']) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
+            foreach ($pages as $owner => $_) $pages[$owner] = $pageProjections[$owner] ?? $pages[$owner];
+            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup);
+            // Recompact only at serialization, merging compatible marker arms.
+            $recompact = static fn (string $css): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
             // Bound what route scoping adds to the sheet every route loads by
             // what the largest page copy would have added to one page. Both
             // are measured before compaction.
             $largestCopy = 0;
             if (0 < $routed['route_bytes']) {
                 foreach ($routed['scoped'] as $owner) {
-                    $largestCopy = max($largestCopy, strlen($transformer->rulesAbsentFrom($folded['pages'][$owner] ?? array(), $fallbackSharedStylesheets, true)));
+                    $largestCopy = max($largestCopy, strlen($transformer->rulesAbsentFrom($pageProjections[$owner] ?? array(), $fallbackSharedStylesheets, true)));
                 }
             }
             $routeBudget = max(self::ROUTE_SCOPE_BYTES_FACTOR * $largestCopy, self::ROUTE_SCOPE_BYTES_FLOOR);
             if (array() !== $routed['scoped'] && $routed['route_bytes'] > $routeBudget) {
                 $projectionDiagnostics[] = $this->diagnostic('author_stylesheet_route_scope_fallback', 'warning', sprintf('%s: route-scoped variants add %d bytes to every route, over %d (%dx the largest %d-byte page copy); emitting page copies', $path, $routed['route_bytes'], $routeBudget, self::ROUTE_SCOPE_BYTES_FACTOR, $largestCopy));
-                foreach ($routed['scoped'] as $owner) $pages[$owner] ??= $folded['pages'][$owner] ?? array();
+                foreach ($routed['scoped'] as $owner) $pages[$owner] ??= $pageProjections[$owner] ?? array();
                 $routed['stylesheet'] = implode("\n", $fallbackSharedStylesheets);
             } else {
                 foreach ($routed['scoped'] as $owner) unset($pages[$owner]);
