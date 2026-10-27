@@ -62,4 +62,38 @@ $frame = static fn (string $seed, string $dialog): array => array('opening' => '
 $assert($identity->invoke(null, $frame('aaaaaaaaaaaa', '0123456789abcdef')) === $identity->invoke(null, $frame('bbbbbbbbbbbb', 'fedcba9876543210')), 'Per-page marker seeds and dialog ids do not make frames differ.');
 $assert($identity->invoke(null, $frame('aaaaaaaaaaaa', '0123456789abcdef')) !== $identity->invoke(null, array('opening' => '<div class="other">', 'closing' => '</div>')), 'Different structure still differs.');
 
+// Lifecycle fallbacks inherit the selected app frame, not a route's variant.
+foreach (array('header', 'footer', 'both', 'variant') as $shape) {
+    $files = array();
+    foreach (array('index.html' => 'Home', 'about/index.html' => 'About', 'contact/index.html' => 'Contact') as $path => $title) {
+        $header = '<header><strong>Acme</strong><nav><a href="/">Home</a> <a href="/about/">About</a> <a href="/contact/">Contact</a></nav></header>';
+        $footer = '<footer><p>© 2026 Acme</p></footer>';
+        $variant = 'variant' === $shape && 'index.html' === $path;
+        if ($variant) $header = '<header><p>Welcome to the studio</p><nav><a href="/about/">Explore</a></nav></header>';
+        $insideHeader = 'footer' !== $shape;
+        $insideFooter = in_array($shape, array('footer', 'both'), true);
+        $files[$path] = '<!doctype html><html><head>' . ('header' === $shape ? '' : '<style>main{padding:32px}footer{background:#222;color:#eee;padding:24px}</style>') . '</head><body>' . ($insideHeader ? '' : $header)
+            . '<div id="app">' . ($insideHeader ? $header : '') . '<main><h1>' . $title . '</h1></main>'
+            . ($insideFooter ? $footer : '') . '</div>' . ($insideFooter ? '' : $footer) . '</body></html>';
+    }
+    $compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
+    $output = array_column($compiled['templates'], 'canonical_block_markup', 'slug');
+    $parts = array_column($compiled['template_parts'], 'canonical_block_markup', 'slug');
+    $sharedHeader = array_key_first(array_filter($parts, static fn(string $markup): bool => str_contains($markup, 'Acme') && str_contains($markup, '<header')));
+    $variantHeader = array_key_first(array_filter($parts, static fn(string $markup): bool => str_contains($markup, 'Welcome to the studio')));
+    $sharedFooter = array_key_first(array_filter($parts, static fn(string $markup): bool => str_contains($markup, '<footer')));
+    $assert(null !== $sharedHeader && null !== $sharedFooter, "{$shape}: both shared parts are extracted.");
+    $pageOpening = substr($output['page'], 0, (int) strpos($output['page'], '<!-- wp:post-content'));
+    $pageClosing = substr($output['page'], (int) strpos($output['page'], '/-->', (int) strpos($output['page'], '<!-- wp:post-content')) + 4);
+    foreach (array('index', 'search', 'single', 'archive', '404') as $slug) {
+        $markup = $output[$slug];
+        $content = strpos($markup, '<main');
+        $assert(1 === substr_count($markup, '"slug":"' . $sharedHeader . '"') && 1 === substr_count($markup, '"slug":"' . $sharedFooter . '"'), "{$shape}/{$slug}: shared parts appear exactly once.");
+        $assert(false !== $content && strpos($markup, '"slug":"' . $sharedHeader . '"') < $content && strpos($markup, '"slug":"' . $sharedFooter . '"') > $content, "{$shape}/{$slug}: chrome surrounds native content.");
+        $assert(str_contains($markup, 'id="app"') && str_starts_with($markup, $pageOpening) && str_ends_with($markup, $pageClosing), "{$shape}/{$slug}: the page app frame is preserved.");
+        if ('variant' === $shape) $assert(null !== $variantHeader && !str_contains($markup, '"slug":"' . $variantHeader . '"'), "{$slug}: entry-only header stays off lifecycle fallbacks.");
+    }
+    if ('variant' === $shape) $assert(str_contains($output['front-page'], '"slug":"' . $variantHeader . '"') && !str_contains($output['page'], '"slug":"' . $variantHeader . '"'), 'The entry header variant stays on its route.');
+}
+
 echo "generic-page-shell-frame: ok\n";
