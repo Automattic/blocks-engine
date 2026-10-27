@@ -215,7 +215,23 @@ final class ProjectedNavigationConverter implements ElementConverter
         // stead; the host then has to stop being the button's containing
         // block (see nativeNavigationTogglePlacement()).
         $placement = $always ? array() : $this->nativeNavigationTogglePlacement($toggle, $navigation);
-        foreach ( $placement as $property => $value ) {
+        // Follow the source collapse boundary rather than Core's 600px switch;
+        // these boundaries also participate in the generated marker hash.
+        $collapseBoundary = $always ? '' : $this->sourceCollapseBoundary($navigation, $toggle);
+        $absentAbove = $always ? '' : $this->sourceAbsentAboveBoundary($navigation, $toggle);
+        $bindsPanel = ! $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle)
+            && ( $always || ( '' !== $absentAbove && ! $this->navigationToggleSuppressor->projectedNavigationTargetForControl($toggle) instanceof DOMElement ) )
+            && $this->hasNavigationHeader($navigation);
+        // Making the host static also cancels its own relative offsets. Carry
+        // those on the leaf, in the same rule as any source-toggle placement.
+        $openPlacement = $placement;
+        if ( $bindsPanel || array() !== $placement ) {
+            $hostPlacement = $this->portableCollapsedPlacement($navigation, array_merge(array('position'), self::TOGGLE_OFFSET_PROPERTIES));
+            if ( 'relative' === strtolower($hostPlacement['position'] ?? '') && $this->hasPlacementOffset($hostPlacement) ) {
+                $openPlacement = array_replace($hostPlacement, $placement);
+            }
+        }
+        foreach ( $openPlacement as $property => $value ) {
             $openDeclarations[] = $property . ':' . $value . '!important';
         }
         if ( $always ) {
@@ -242,12 +258,6 @@ final class ProjectedNavigationConverter implements ElementConverter
             }
         }
 
-        // Core switches its overlay at 600px. When the source collapses this
-        // menu at a wider boundary, the generated rules follow the source
-        // boundary instead; the boundary joins the marker hash so two menus
-        // that differ only in where they collapse keep separate rules.
-        $collapseBoundary = $always ? '' : $this->sourceCollapseBoundary($navigation, $toggle);
-        $absentAbove = $always ? '' : $this->sourceAbsentAboveBoundary($navigation, $toggle);
         // A projected menu replaces the toggle as a grid/flex item, not only
         // as a DOM occurrence. Carry its authored row slot on the host; putting
         // this on Core's leaf opener would place it inside the nav instead.
@@ -292,17 +302,14 @@ final class ProjectedNavigationConverter implements ElementConverter
             if ( $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle) ) {
                 $extraRules .= $this->nativeNavigationToggleDropdownCss($host, $navigation);
                 $extraRules .= $this->nativeNavigationToggleOpenControlCss($host);
-            } else {
+            } elseif ( $bindsPanel ) {
                 $extraRules .= $this->nativeNavigationBoundPanelCss($host, $navigation);
             }
         }
         // A superseded burger uses Core's viewport overlay, not the source
         // dropdown's header-bound geometry. Other mobile-only drawers retain
         // their existing panel projection within the collapsed range.
-        $drawerRules = $this->navigationToggleSuppressor->projectedNavigationTargetForControl($toggle) instanceof DOMElement
-            || '' === $absentAbove || $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle)
-            ? ''
-            : $this->nativeNavigationBoundPanelCss($host, $navigation);
+        $drawerRules = ! $always && $bindsPanel ? $this->nativeNavigationBoundPanelCss($host, $navigation) : '';
         if ( $always ) {
             $rule = $hostRule . $openRule . $extraRules;
         } elseif ( '' === $collapseBoundary ) {
@@ -561,13 +568,19 @@ final class ProjectedNavigationConverter implements ElementConverter
             . '}';
     }
 
+    private function hasNavigationHeader(DOMElement $navigation): bool
+    {
+        for ( $node = $navigation->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'header' === strtolower($node->tagName) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private function nativeNavigationBoundPanelCss(string $host, DOMElement $navigation): string
     {
-        $header = $navigation->parentNode;
-        while ( $header instanceof DOMElement && 'header' !== strtolower($header->tagName) ) {
-            $header = $header->parentNode;
-        }
-        if ( ! $header instanceof DOMElement ) {
+        if ( ! $this->hasNavigationHeader($navigation) ) {
             return '';
         }
         $open = $host . ' .wp-block-navigation__responsive-container.is-menu-open';
@@ -720,18 +733,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         // The author analysis, not the resting cascade: transforms are kept
         // out of the source-style collections, and the toggle's transform is
         // the part that centres it.
-        $declared = $this->styleResolver->collapsedViewportAuthorDeclarations(
-            $toggle,
-            array_merge(self::TOGGLE_PLACEMENT_PROPERTIES, array( 'display' ))
-        );
-        $portable = array();
-        foreach ( $declared as $property => $value ) {
-            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant(trim($value)), $toggle);
-            if ( '' === $value || preg_match('/[{}<>;]|var\(/i', $value) ) {
-                continue;
-            }
-            $portable[$property] = $value;
-        }
+        $portable = $this->portableCollapsedPlacement($toggle, array_merge(self::TOGGLE_PLACEMENT_PROPERTIES, array( 'display' )));
         if ( 'none' === strtolower((string) ( $portable['display'] ?? '' )) ) {
             return array();
         }
@@ -739,15 +741,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         if ( ! in_array(strtolower((string) ( $portable['position'] ?? '' )), array( 'absolute', 'fixed' ), true) ) {
             return array();
         }
-        $offset = false;
-        foreach ( self::TOGGLE_OFFSET_PROPERTIES as $property ) {
-            $value = strtolower((string) ( $portable[$property] ?? '' ));
-            if ( '' !== $value && 'auto' !== $value ) {
-                $offset = true;
-                break;
-            }
-        }
-        if ( ! $offset ) {
+        if ( ! $this->hasPlacementOffset($portable) ) {
             return array();
         }
         $toggleContainingBlock = $this->collapsedContainingBlock($toggle);
@@ -758,6 +752,31 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return $portable;
+    }
+
+    /** @param list<string> $properties @return array<string, string> */
+    private function portableCollapsedPlacement(DOMElement $element, array $properties): array
+    {
+        $portable = array();
+        foreach ( $this->styleResolver->collapsedViewportAuthorDeclarations($element, $properties) as $property => $value ) {
+            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant(trim($value)), $element);
+            if ( '' !== $value && ! preg_match('/[{}<>;]|var\(/i', $value) ) {
+                $portable[$property] = $value;
+            }
+        }
+        return $portable;
+    }
+
+    /** @param array<string, string> $placement */
+    private function hasPlacementOffset(array $placement): bool
+    {
+        foreach ( self::TOGGLE_OFFSET_PROPERTIES as $property ) {
+            $value = strtolower($placement[$property] ?? '');
+            if ( '' !== $value && 'auto' !== $value ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
