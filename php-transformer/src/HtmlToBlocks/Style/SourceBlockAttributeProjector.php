@@ -25,6 +25,7 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
     public const SYNTHETIC_IMAGE_GAP_CLASS = 'blocks-engine-synthetic-image-gap';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
+    public const SYNTHETIC_FILL_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
     public const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
@@ -57,6 +58,7 @@ final class SourceBlockAttributeProjector
             self::PROPAGATED_LINK_CLASS,
             self::PROPAGATED_LINK_COLOR_CLASS,
         ),
+        'core/video'     => array(self::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS),
         'core/image'     => array(
             self::SYNTHETIC_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
@@ -115,6 +117,13 @@ final class SourceBlockAttributeProjector
                 }
             } elseif ( $this->sourceImageFillsParent($sourceElement) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS);
+            }
+        }
+        if ( 'core/video' === $name && 'video' === $sourceTagName ) {
+            $declarations = $this->styleResolver->resolvedPresentationDeclarations($sourceElement);
+            if ( '100%' === CssValueInspector::comparable((string) ($declarations['width'] ?? ''))
+                && '100%' === CssValueInspector::comparable((string) ($declarations['height'] ?? '')) ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS);
             }
         }
         if ( 'core/paragraph' === $name && $facts->isInlineSourceElement ) {

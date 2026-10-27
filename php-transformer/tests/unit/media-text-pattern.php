@@ -374,39 +374,23 @@ $fallbacks = array();
 $record = array();
 $videoElement = $elementFromHtml('<section style="display:flex"><div><video src="clip.mp4" controls></video></div><div><p>Watch</p></div></section>');
 $video = $match($videoElement, array( $paragraph ), $fallbacks, $record);
-$assertSame('video', $video['attrs']['mediaType'] ?? null, 'Video media emits mediaType video.');
-$assertSame('/resolved/clip.mp4', $video['attrs']['mediaUrl'] ?? null, 'Video src passes through asset resolver.');
-$assertTrue(! array_key_exists('mediaAlt', $video['attrs'] ?? array()), 'Video media omits mediaAlt.');
+$assertNull($video, 'Video panes stay in native source layout with core/video.');
 
-// core/media-text has no attribute for a video pane's intrinsic dimensions,
-// poster, or native playback state — dropping them collapses the video to
-// the browser's 300x150 default before it can load, shifting every section
-// below it. The pattern still captures them, under internal-only
-// `mediaVideo*` keys BlockFactory consumes and strips before serialization.
+// Native video attributes cannot round-trip through media-text save().
 $fallbacks = array();
 $record = array();
 $sizedVideoElement = $elementFromHtml(
     '<section style="display:flex"><div><video src="clip.mp4" poster="clip.jpg" playsinline preload="none" width="1280" height="720" autoplay loop muted></video></div><div><p>Watch</p></div></section>'
 );
 $sizedVideo = $match($sizedVideoElement, array( $paragraph ), $fallbacks, $record);
-$assertSame('1280', $sizedVideo['attrs']['mediaVideoWidth'] ?? null, 'Video width survives as an internal-only carrier attr.');
-$assertSame('720', $sizedVideo['attrs']['mediaVideoHeight'] ?? null, 'Video height survives as an internal-only carrier attr.');
-$assertSame('/resolved/clip.jpg', $sizedVideo['attrs']['mediaVideoPoster'] ?? null, 'Video poster resolves through the asset resolver and survives as an internal-only carrier attr.');
-$assertSame('none', $sizedVideo['attrs']['mediaVideoPreload'] ?? null, 'Video preload survives as an internal-only carrier attr.');
-$assertSame(true, $sizedVideo['attrs']['mediaVideoAutoplay'] ?? null, 'Video autoplay survives as an internal-only carrier attr.');
-$assertSame(true, $sizedVideo['attrs']['mediaVideoLoop'] ?? null, 'Video loop survives as an internal-only carrier attr.');
-$assertSame(true, $sizedVideo['attrs']['mediaVideoMuted'] ?? null, 'Video muted survives as an internal-only carrier attr.');
-$assertSame(true, $sizedVideo['attrs']['mediaVideoPlaysInline'] ?? null, 'Video playsinline survives as an internal-only carrier attr.');
+$assertNull($sizedVideo, 'Configured video panes decline media-text promotion.');
 
-// A video with no dimensions/poster/playback attrs still converts cleanly:
-// no carrier keys are fabricated.
+// Even a plain video keeps source layout rather than media-text defaults.
 $fallbacks = array();
 $record = array();
 $plainVideoElement = $elementFromHtml('<section style="display:flex"><div><video src="plain.mp4"></video></div><div><p>Watch</p></div></section>');
 $plainVideo = $match($plainVideoElement, array( $paragraph ), $fallbacks, $record);
-foreach ( array( 'mediaVideoWidth', 'mediaVideoHeight', 'mediaVideoPoster', 'mediaVideoPreload', 'mediaVideoAutoplay', 'mediaVideoLoop', 'mediaVideoMuted', 'mediaVideoPlaysInline' ) as $internalKey ) {
-    $assertTrue(! array_key_exists($internalKey, $plainVideo['attrs'] ?? array()), 'A dimensionless/posterless video fabricates no ' . $internalKey . ' carrier attr.');
-}
+$assertNull($plainVideo, 'Plain video panes decline media-text promotion.');
 
 // Link wrapper attributes survive.
 $fallbacks = array();
@@ -1150,19 +1134,19 @@ $elementByClass = static function (string $html, string $tagName, string $classN
 $fallbacks = array();
 $record = array();
 $figureWrappedElement = $elementByClass(
-    '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></figure>',
+    '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><img src="photo.jpg"><button class="play" type="button">Play</button></div></div></figure>',
     'div',
     'vid'
 );
 $figureWrapped = $match($figureWrappedElement, array( $paragraph ), $fallbacks, $record);
-$assertSame('core/media-text', $figureWrapped['blockName'] ?? null, 'Figure-wrapped video pane still matches core/media-text.');
+$assertSame('core/media-text', $figureWrapped['blockName'] ?? null, 'Figure-wrapped image pane still matches core/media-text.');
 $assertSame('in', $figureWrapped['attrs']['mediaFigureClassName'] ?? null, 'Enclosing source figure class reaches mediaFigureClassName.');
 $assertTrue(! array_key_exists('className', $figureWrapped['attrs'] ?? array()), 'Enclosing source figure class does not leak onto the wrapper className.');
 
 $fallbacks = array();
 $record = array();
 $noFigureElement = $elementByClass(
-    '<div class="shell"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div>',
+    '<div class="shell"><div class="vid" style="display:flex"><img src="photo.jpg"><button class="play" type="button">Play</button></div></div>',
     'div',
     'vid'
 );
@@ -1172,7 +1156,7 @@ $assertTrue(! array_key_exists('mediaFigureClassName', $noFigure['attrs'] ?? arr
 $fallbacks = array();
 $record = array();
 $unclassedFigureElement = $elementByClass(
-    '<figure><div class="frame"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></figure>',
+    '<figure><div class="frame"><div class="vid" style="display:flex"><img src="photo.jpg"><button class="play" type="button">Play</button></div></div></figure>',
     'div',
     'vid'
 );
@@ -1185,14 +1169,14 @@ $assertTrue(! array_key_exists('mediaFigureClassName', $unclassedFigure['attrs']
 $fallbacks = array();
 $record = array();
 $sharedFigureElement = $elementByClass(
-    '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div><figcaption>Shared caption</figcaption></figure>',
+    '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><img src="photo.jpg"><button class="play" type="button">Play</button></div></div><figcaption>Shared caption</figcaption></figure>',
     'div',
     'vid'
 );
 $sharedFigure = $match($sharedFigureElement, array( $paragraph ), $fallbacks, $record);
 $assertTrue(! array_key_exists('mediaFigureClassName', $sharedFigure['attrs'] ?? array()), 'A figure with a non-wrapper sibling emits no mediaFigureClassName.');
 
-// End-to-end invariant: a source `<figure class="X">` wrapping a video tile
+// End-to-end invariant: a source `<figure class="X">` wrapping an image tile
 // must still be matched by a literal `figure.X` author selector once
 // converted — the exact rule shape a scroll-reveal script depends on
 // (`figure { opacity: 0 } figure.X { opacity: 1 }`). Losing this either
@@ -1239,7 +1223,7 @@ $collectMediaText = static function (array $blocks) use (&$collectMediaText): ?a
 // A single "frame" wrapper between the source figure and the matched
 // media/text container — the exact shape #2087 fixed and #2101 regressed.
 $revealResult = $transformHtml(
-    '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></figure>'
+    '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><img src="photo.jpg"><button class="play" type="button">Play</button></div></div></figure>'
 );
 $revealMediaTextBlock = $collectMediaText($revealResult['blocks'] ?? array());
 $assertTrue(is_array($revealMediaTextBlock), 'Reveal fixture converts to a core/media-text block somewhere in the tree.');
@@ -1261,7 +1245,7 @@ $assertTrue(
 // container: an even deeper chain than what regressed #2087, proving the
 // carrier does not depend on a specific wrapper count.
 $deeplyWrappedResult = $transformHtml(
-    '<figure class="in"><div class="frame"><div class="inner"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></div></figure>'
+    '<figure class="in"><div class="frame"><div class="inner"><div class="vid" style="display:flex"><img src="photo.jpg"><button class="play" type="button">Play</button></div></div></div></figure>'
 );
 $deeplyWrappedMediaTextBlock = $collectMediaText($deeplyWrappedResult['blocks'] ?? array());
 $assertTrue(is_array($deeplyWrappedMediaTextBlock), 'Deeply wrapped reveal fixture converts to a core/media-text block somewhere in the tree.');
@@ -1282,38 +1266,6 @@ $assertContains(
 $assertTrue(
     $figureSelectorMatches('figure.in', (string) ($revealImageResult['blocks'][0]['innerHTML'] ?? '')),
     'A literal figure.in author selector matches the emitted core/image markup too.'
-);
-
-// End-to-end: a video's intrinsic dimensions, poster, and native playback
-// attributes reach the saved media-text markup without ever entering the
-// serialized block comment, and the block still passes both validity
-// validators.
-$sizedVideoResult = $transformHtml(
-    '<section style="display:flex"><div><video src="https://example.com/clip.mp4" poster="https://example.com/clip.jpg" playsinline preload="none" width="1280" height="720" autoplay loop muted></video></div><div><p>Watch</p></div></section>'
-);
-$sizedVideoBlock = $sizedVideoResult['blocks'][0] ?? array();
-$assertSame('core/media-text', $sizedVideoBlock['blockName'] ?? null, 'Sized video fixture converts to core/media-text.');
-$assertContains(
-    '<video controls src="https://example.com/clip.mp4" poster="https://example.com/clip.jpg" preload="none" width="1280" height="720" autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline"></video>',
-    (string) ($sizedVideoBlock['innerHTML'] ?? ''),
-    'Dimensions, poster, and native playback attributes all reach the saved <video> markup.'
-);
-foreach ( array( 'mediaVideoWidth', 'mediaVideoHeight', 'mediaVideoPoster', 'mediaVideoPreload', 'mediaVideoAutoplay', 'mediaVideoLoop', 'mediaVideoMuted', 'mediaVideoPlaysInline' ) as $internalKey ) {
-    $assertTrue(! array_key_exists($internalKey, $sizedVideoBlock['attrs'] ?? array()), $internalKey . ' never reaches the serialized block comment attrs.');
-}
-$sizedVideoValidity = ( new Runtime() )->validateBlockSerialization($sizedVideoResult['blocks']);
-$assertSame('pass', $sizedVideoValidity['status'] ?? null, 'Video dimension/poster/playback carrier attrs do not trip serialization validators.');
-$sizedVideoFindings = ( new \Automattic\BlocksEngine\PhpTransformer\WordPress\CanonicalSaveShapeValidator() )->findings($sizedVideoResult['blocks']);
-$assertSame(array(), $sizedVideoFindings, 'Video dimension/poster/playback carrier attrs do not trip the canonical save-shape validator.');
-
-// Regression: a video with no dimensions/poster/playback attrs still
-// converts to the same plain markup as before this fix.
-$plainVideoResult = $transformHtml('<section style="display:flex"><div><video src="https://example.com/plain.mp4"></video></div><div><p>Watch</p></div></section>');
-$plainVideoBlock = $plainVideoResult['blocks'][0] ?? array();
-$assertContains(
-    '<figure class="wp-block-media-text__media"><video controls src="https://example.com/plain.mp4"></video></figure>',
-    (string) ($plainVideoBlock['innerHTML'] ?? ''),
-    'A dimensionless/posterless video keeps emitting the original plain <video controls src> markup.'
 );
 
 // An absolutely-positioned control removed from flow can never be a real
@@ -1367,7 +1319,7 @@ $assertNull($fixedOverlayDeclined, 'Fixed-position text-side control also declin
 foreach ( array( '', 'position:relative', 'position:sticky;top:0', 'position:static' ) as $inFlowPosition ) {
     $fallbacks = array();
     $record = array();
-    $inFlowElement = $elementFromHtml('<section style="display:flex"><video src="clip.mp4"></video><div><p>Watch</p></div></section>');
+    $inFlowElement = $elementFromHtml('<section style="display:flex"><img src="photo.jpg"><div><p>Watch</p></div></section>');
     $inFlowBlock = $match(
         $inFlowElement,
         array( $paragraph ),
@@ -1480,7 +1432,7 @@ $assertTrue(is_string($overlayImageJson) && ! str_contains($overlayImageJson, '"
 $genuineTwoPaneResult = $transformHtml(
     '<style>.frame{display:flex;justify-content:center}.vid{display:flex;justify-content:center;max-width:100%}</style>'
     . '<figure class="in"><div class="frame"><div class="vid">'
-    . '<video src="clip.mp4" width="1280" height="720"></video>'
+    . '<img src="photo.jpg" width="1280" height="720">'
     . '<div><h2>About this clip</h2><p>Behind the scenes footage.</p></div>'
     . '</div></div></figure>'
 );
