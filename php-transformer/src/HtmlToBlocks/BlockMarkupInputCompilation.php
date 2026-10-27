@@ -102,7 +102,7 @@ final class BlockMarkupInputCompilation
         $this->status = 'success';
         $this->unconvertedCount = 0;
 
-        $parsed = $this->parsedBlocks($html);
+        $parsed = $this->parsedBlocks($this->repairedDelimiters($html));
         if ( null === $parsed ) {
             return $this->htmlPathResult($html, $options, 'block_markup_input_unparsed', 'The input contains block delimiters that could not be parsed into blocks; it was converted as plain HTML and the delimiters were not preserved.');
         }
@@ -135,6 +135,254 @@ final class BlockMarkupInputCompilation
         $serialized = $this->runtime->serializeBlocks($blocks);
 
         return $this->result($html, $parsed, $blocks, $serialized, $startedAt);
+    }
+
+    /**
+     * Markup whose delimiters do not pair by name is repaired before parsing
+     * when the repair gives structural block markup; otherwise it is returned
+     * as given and takes today's path.
+     */
+    private function repairedDelimiters(string $html): string
+    {
+        if ( self::delimitersPairByName($html) ) {
+            return $html;
+        }
+        $repair = self::repairDelimiters($html);
+        if ( null === $repair || ! self::delimitersPairByName($repair['html']) ) {
+            return $html;
+        }
+        $parsed = $this->parsedBlocks($repair['html']);
+        if ( null === $parsed || ! self::delimitersAreStructural($parsed) ) {
+            return $html;
+        }
+
+        $this->status = self::worseStatus($this->status, $this->warningStatus());
+        $this->diagnostics[] = array(
+            'code'        => 'block_markup_input_repaired_delimiters',
+            'message'     => 'Repaired block delimiters that were missing, written with another block\'s name or extra, pairing each closer with its block by HTML element nesting: ' . implode('; ', $repair['repairs']) . '.',
+            'source'      => HtmlTransformer::class,
+            'reason_code' => 'block_markup_input_repaired_delimiters',
+            'severity'    => 'warning',
+            'blocks'      => $repair['blocks'],
+        );
+
+        return $repair['html'];
+    }
+
+    /**
+     * Block delimiters in document order, as WP_Block_Parser tokenizes them.
+     *
+     * @return array<int, array{kind: string, name: string, raw_name: string, start: int, end: int}>
+     */
+    private static function delimiterTokens(string $html): array
+    {
+        preg_match_all(
+            '/<!--\s+(\/)?wp:([a-z][a-z0-9_-]*\/)?([a-z][a-z0-9_-]*)\s+({(?:(?:[^}]+|}+(?=})|(?!}\s+\/?-->).)*+)?}\s+)?(\/)?-->/s',
+            $html,
+            $matches,
+            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+        );
+        $tokens = array();
+        foreach ( $matches as $match ) {
+            $rawName = $match[2][0] . $match[3][0];
+            $tokens[] = array(
+                'kind'     => '/' === $match[1][0] ? 'closer' : ( '/' === ( $match[5][0] ?? '' ) ? 'void' : 'opener' ),
+                'name'     => '' === $match[2][0] ? 'core/' . $rawName : $rawName,
+                'raw_name' => $rawName,
+                'start'    => (int) $match[0][1],
+                'end'      => (int) $match[0][1] + strlen($match[0][0]),
+            );
+        }
+
+        return $tokens;
+    }
+
+    /** Every opener has a closer of the same name, as WP_Block_Parser pairs them. */
+    private static function delimitersPairByName(string $html): bool
+    {
+        $stack = array();
+        foreach ( self::delimiterTokens($html) as $token ) {
+            if ( 'opener' === $token['kind'] ) {
+                $stack[] = $token['name'];
+            } elseif ( 'closer' === $token['kind'] && ( array() === $stack || array_pop($stack) !== $token['name'] ) ) {
+                return false;
+            }
+        }
+
+        return array() === $stack;
+    }
+
+    /**
+     * Pair each closer with its block by the element nesting depth around it.
+     *
+     * Each delimiter sits beside the element it wraps, so a block opened at
+     * element depth d is closed by the closer at depth d, whatever its name. A
+     * block whose element has ended and that only the next sibling's opener or
+     * an outer block's closer would close ends with its element. A closer with
+     * no open block at its depth, after an element closer with no open element
+     * (which browsers ignore), is extra and is removed with that element closer.
+     *
+     * @return array{html: string, repairs: array<int, string>, blocks: array<int, string>}|null Null when the delimiters cannot be paired this way.
+     */
+    private static function repairDelimiters(string $html): ?array
+    {
+        $events = array();
+        foreach ( self::delimiterTokens($html) as $token ) {
+            $events[] = array( 'type' => 'delimiter', 'start' => $token['start'], 'token' => $token );
+        }
+        foreach ( self::tags($html) as $tag ) {
+            $events[] = array( 'type' => 'tag', 'start' => $tag['start'], 'tag' => $tag );
+        }
+        usort($events, static fn (array $a, array $b): int => $a['start'] <=> $b['start']);
+
+        /** @var array<int, array{name: string, raw_name: string, depth: int, ended: int|null}> $blocks */
+        $blocks = array();
+        /** @var array<int, int> $blockStack Indexes into $blocks. */
+        $blockStack = array();
+        /** @var array<int, array{name: string, owner: int|null}> $elements */
+        $elements = array();
+        /** @var array<int, array{0: int, 1: int}> $strayElementClosers */
+        $strayElementClosers = array();
+        /** @var array<int, array{at: int, order: int, remove: int, insert: string}> $edits */
+        $edits = array();
+        $repairs = array();
+        $repairedBlocks = array();
+
+        $note = static function (string $name, string $what) use (&$repairs, &$repairedBlocks): void {
+            $repairs[] = $name . ' (' . $what . ')';
+            $repairedBlocks[$name] = true;
+        };
+        $edit = static function (int $at, int $remove, string $insert) use (&$edits): void {
+            $edits[] = array( 'at' => $at, 'order' => count($edits), 'remove' => $remove, 'insert' => $insert );
+        };
+        // Close the innermost open block with an implied closer at the end of its element.
+        $implyClose = static function () use (&$blocks, &$blockStack, $edit, $note): bool {
+            $index = array_pop($blockStack);
+            if ( null === $index || null === $blocks[$index]['ended'] ) {
+                return false;
+            }
+            $edit($blocks[$index]['ended'], 0, '<!-- /wp:' . $blocks[$index]['raw_name'] . ' -->');
+            $note($blocks[$index]['name'], 'missing closer');
+            return true;
+        };
+        $top = static function () use (&$blocks, &$blockStack): ?array {
+            $index = end($blockStack);
+            return false === $index ? null : $blocks[$index];
+        };
+
+        foreach ( $events as $event ) {
+            $depth = count($elements);
+            if ( 'tag' === $event['type'] ) {
+                $tag = $event['tag'];
+                $owner = null;
+                $current = $top();
+                if ( null !== $current && $current['depth'] === $depth && null === $current['ended'] ) {
+                    $owner = (int) end($blockStack);
+                }
+                if ( 'open' === $tag['kind'] ) {
+                    $elements[] = array( 'name' => $tag['name'], 'owner' => $owner );
+                } elseif ( 'void' === $tag['kind'] ) {
+                    if ( null !== $owner ) {
+                        $blocks[$owner]['ended'] = $tag['end'];
+                    }
+                } else {
+                    $popped = null;
+                    for ( $i = count($elements) - 1; $i >= 0; --$i ) {
+                        if ( $elements[$i]['name'] === $tag['name'] ) {
+                            $popped = array_slice($elements, $i);
+                            $elements = array_slice($elements, 0, $i);
+                            break;
+                        }
+                    }
+                    if ( null === $popped ) {
+                        $strayElementClosers[] = array( $tag['start'], $tag['end'] - $tag['start'] );
+                        continue;
+                    }
+                    foreach ( $popped as $element ) {
+                        if ( null !== $element['owner'] && null === $blocks[$element['owner']]['ended'] ) {
+                            $blocks[$element['owner']]['ended'] = $tag['end'];
+                        }
+                    }
+                }
+                continue;
+            }
+
+            $token = $event['token'];
+            $strayBefore = $strayElementClosers;
+            $strayElementClosers = array();
+            if ( 'opener' === $token['kind'] || 'void' === $token['kind'] ) {
+                // The next sibling's opener closes a block whose element has ended.
+                while ( null !== ( $current = $top() ) && ( $current['depth'] > $depth || ( $current['depth'] === $depth && null !== $current['ended'] ) ) ) {
+                    if ( ! $implyClose() ) {
+                        return null;
+                    }
+                }
+                if ( 'opener' === $token['kind'] ) {
+                    $blocks[] = array( 'name' => $token['name'], 'raw_name' => $token['raw_name'], 'depth' => $depth, 'ended' => null );
+                    $blockStack[] = count($blocks) - 1;
+                }
+                continue;
+            }
+
+            // A closer: blocks opened deeper than it ended with their elements.
+            while ( null !== ( $current = $top() ) && $current['depth'] > $depth ) {
+                if ( ! $implyClose() ) {
+                    return null;
+                }
+            }
+            $current = $top();
+            if ( null === $current || $current['depth'] < $depth ) {
+                if ( array() === $strayBefore ) {
+                    return null;
+                }
+                foreach ( $strayBefore as [ $at, $length ] ) {
+                    $edit($at, $length, '');
+                }
+                $edit($token['start'], $token['end'] - $token['start'], '');
+                $note($token['name'], 'extra closer');
+                continue;
+            }
+            // An ended block inside an outer block at the same depth that this closer names.
+            if ( $current['name'] !== $token['name'] && null !== $current['ended'] ) {
+                $outer = array_slice($blockStack, 0, -1);
+                $outerIndex = end($outer);
+                if ( false !== $outerIndex && $blocks[$outerIndex]['depth'] === $depth && $blocks[$outerIndex]['name'] === $token['name'] ) {
+                    $implyClose();
+                    $current = $top();
+                }
+            }
+            if ( null === $current ) {
+                return null;
+            }
+            array_pop($blockStack);
+            if ( $current['name'] !== $token['name'] ) {
+                $edit($token['start'], $token['end'] - $token['start'], '<!-- /wp:' . $current['raw_name'] . ' -->');
+                $note($current['name'], 'closed by /wp:' . $token['raw_name']);
+            }
+        }
+        while ( array() !== $blockStack ) {
+            if ( ! $implyClose() ) {
+                return null;
+            }
+        }
+        if ( array() === $edits ) {
+            return null;
+        }
+
+        usort($edits, static fn (array $a, array $b): int => array( $b['at'], $b['order'] ) <=> array( $a['at'], $a['order'] ));
+        // Applied back to front; insertions at one offset keep the order they were made in.
+        $grouped = array();
+        foreach ( $edits as $item ) {
+            $grouped[$item['at']][] = $item;
+        }
+        foreach ( $grouped as $at => $items ) {
+            $items = array_reverse($items);
+            $remove = max(array_column($items, 'remove'));
+            $insert = implode('', array_column($items, 'insert'));
+            $html = substr($html, 0, $at) . $insert . substr($html, $at + $remove);
+        }
+
+        return array( 'html' => $html, 'repairs' => $repairs, 'blocks' => array_keys($repairedBlocks) );
     }
 
     /**
