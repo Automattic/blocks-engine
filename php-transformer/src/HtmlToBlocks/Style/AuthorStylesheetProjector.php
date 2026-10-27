@@ -17,6 +17,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonStyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
 
@@ -1893,7 +1894,9 @@ final class AuthorStylesheetProjector
                     // Structured card lowering unwraps the fragment and hoists
                     // its styling hook onto the paragraph it emits, so the class
                     // lands on that paragraph instead of inside a carrier.
-                    if ( $this->isHoistedCardFragment($element) ) {
+                    // Conversely, a retained ancestor carrier keeps this element
+                    // in its source wrapper rather than emitting another carrier.
+                    if ( $this->isHoistedCardFragment($element) || $this->isInsideRetainedInlineLayoutCarrier($element, $context) ) {
                         $hasNonProjected = true;
                         continue;
                     }
@@ -2014,6 +2017,25 @@ final class AuthorStylesheetProjector
         }
 
         return $projected;
+    }
+
+    /**
+     * A carrier serializes its retained source wrapper with outerHtml, so its
+     * descendants are not independently lowered even if source analysis marked
+     * them as potential carrier leaves. Keep their authored selector topology.
+     */
+    private function isInsideRetainedInlineLayoutCarrier(DOMElement $element, AuthorStylesheetProjectionContext $context): bool
+    {
+        for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if ($context->selectorProjections->isInlineLayoutCarrierPath($ancestor->getNodePath() ?? '')
+                && ! $this->isHoistedCardFragment($ancestor)
+                && ! AddressableInlineLayoutLeaf::isPlainTextSpan($ancestor)
+                && null === AddressableInlineLayoutLeaf::identity($ancestor, $this->styleResolver)
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

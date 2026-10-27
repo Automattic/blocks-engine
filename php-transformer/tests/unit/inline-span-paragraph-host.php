@@ -10,6 +10,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
 
 $failures = 0;
 $passes   = 0;
@@ -129,6 +130,55 @@ $assert(
     'a flex item with multiple addressable inline spans stays one editable inline run with stable IDs',
     $inlineMarkup
 );
+
+// Carrier prediction must agree with the serialized topology, including leaves
+// that become the paragraph itself rather than retaining a source wrapper.
+foreach (array(
+    'retained wrapper' => array(
+        'html' => '<span class="item__text"><strong class="item__title">Local service</strong><span class="item__desc">Town and nearby areas</span></span>',
+        'css' => '.item__text{display:block;min-width:0}.item__title{display:block;margin:0 0 3px;font-size:15px;font-weight:700}.item__desc{display:block;color:#b3b3b3;font-size:13px}',
+        'targets' => array('item__title' => array('display' => 'block', 'font-size' => '15px'), 'item__desc' => array('display' => 'block', 'font-size' => '13px', 'color' => '#b3b3b3')),
+        'retained' => true,
+    ),
+    'retained wrapper child combinators' => array(
+        'html' => '<span class="item__text"><strong class="item__title">Local service</strong><span class="item__desc">Town and nearby areas</span></span>',
+        'css' => '.item__text{display:block;min-width:0}.item__text > .item__title{display:block;font-size:15px}.item__text > .item__desc{display:block;font-size:13px;color:#b3b3b3}',
+        'targets' => array('item__title' => array('display' => 'block', 'font-size' => '15px'), 'item__desc' => array('display' => 'block', 'font-size' => '13px', 'color' => '#b3b3b3')),
+        'retained' => true,
+    ),
+    'unwrapped addressable leaf' => array(
+        'html' => '<span id="service" class="item__title">Local service</span>',
+        'css' => '.item__title{display:block;font-size:15px}',
+        'targets' => array('item__title' => array('display' => 'inline', 'font-size' => '15px')),
+        'retained' => false,
+    ),
+    'unwrapped plain leaf' => array(
+        'html' => '<span class="item__title">Local service</span>',
+        'css' => '.item__title{display:block;font-size:15px}',
+        'targets' => array('item__title' => array('display' => 'block', 'font-size' => '15px')),
+        'retained' => false,
+    ),
+) as $shape => $fixture) {
+    $compiled = (new HtmlTransformer())->transform(
+        '<style>.item{display:flex;gap:12px;align-items:center}.item__icon{display:flex;width:34px;height:34px}'
+        . $fixture['css'] . '</style><div class="item"><span class="item__icon"><svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="10" r="3"/></svg></span>'
+        . $fixture['html'] . '</div>'
+    )->toArray();
+    $emitted = (string) ($compiled['serialized_blocks'] ?? '');
+    $dom = new DOMDocument();
+    $previous = libxml_use_internal_errors(true);
+    $dom->loadHTML($emitted);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+    $xpath = new DOMXPath($dom);
+    $cascade = new StaticCssCascade($dom, $cssOf($compiled));
+    $assert((0 < $xpath->query('//p[contains(@class,"blocks-engine-inline-layout-carrier")]/span[@class="item__text"]')->length) === $fixture['retained'], $shape . ': emitted wrapper topology', $emitted);
+    foreach ($fixture['targets'] as $class => $expected) {
+        $target = $xpath->query('//*[contains(concat(" ",normalize-space(@class)," ")," ' . $class . ' ")]')->item(0);
+        $actual = $target instanceof DOMElement ? $cascade->resolve($target, array_keys($expected), array()) : array();
+        $assert($expected == $actual, $shape . ': compiled rules match ' . $class, json_encode($actual));
+    }
+}
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Inline span paragraph host: {$failures} failed, {$passes} passed\n");
