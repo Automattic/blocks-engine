@@ -220,7 +220,7 @@ final class ButtonsPattern
         if ( $retainsDescendants ) {
             // The native button is unwrapped into the link surface, not kept
             // as label markup. Its author selectors still need control carriers.
-            $buttons->retainSourceDescendants($anchor, $presentationElement);
+            $buttons->retainSourceDescendants($anchor, $presentationElement, false, $text);
         }
         $resolvedPresentation = trim($buttons->resolvedStyle($presentationElement));
         $hasAuthoredStyleRules = $resolvedPresentation !== trim($presentationElement->getAttribute('style'));
