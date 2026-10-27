@@ -165,8 +165,10 @@ final class ButtonPatternContext
      * unwrapped into that control is projected, not retained label markup.
      * Logo labels can limit this override to predicted block/layout topology:
      * their materialized RichText carriers already agree with the saved label.
+     * When supplied, $labelHtml identifies the RichText markers actually saved
+     * in the label; those carriers keep their role and subject projection.
      */
-    public function retainSourceDescendants(DOMElement $anchor, ?DOMElement $projectedSurface = null, bool $onlyProjectedTopology = false): void
+    public function retainSourceDescendants(DOMElement $anchor, ?DOMElement $projectedSurface = null, bool $onlyProjectedTopology = false, string $labelHtml = ''): void
     {
         $projections = $this->session?->authorSelectorProjectionState();
         foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
@@ -174,6 +176,14 @@ final class ButtonPatternContext
                 continue;
             }
             $path = $descendant->getNodePath() ?? '';
+            // Materialized RichText markers own their selector identity even
+            // inside retained label topology. Treating them as raw source
+            // suppresses subject classes while the richtext role excludes
+            // them from the original author selector branch.
+            $richTextMarker = $projections?->richTextMarker($path) ?? '';
+            if ( '' !== $richTextMarker && str_contains($labelHtml, $richTextMarker) ) {
+                continue;
+            }
             // Logo labels are materialized through RichText before being saved.
             // Their existing carriers still own author styles (including universal
             // resets); only predicted block/carrier topology needs overriding.
