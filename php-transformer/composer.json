@@ -252,6 +252,7 @@
     "test:unit": [
       "php tests/unit/navigation-positioned-row-layout.php",
       "php tests/unit/block-markup-input.php",
+      "php tests/unit/block-markup-input-repair.php",
       "php tests/unit/cover-own-markup.php",
       "php tests/unit/artifact-inline-body-spacing.php",
       "php tests/unit/artifact-inline-display.php",
