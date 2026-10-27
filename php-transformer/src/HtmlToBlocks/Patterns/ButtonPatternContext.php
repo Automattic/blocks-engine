@@ -163,15 +163,27 @@ final class ButtonPatternContext
      * Rules that reach them through the anchor itself are projected onto the
      * emitted control element by the author selector projection. A surface
      * unwrapped into that control is projected, not retained label markup.
+     * Logo labels can limit this override to predicted block/layout topology:
+     * their materialized RichText carriers already agree with the saved label.
      */
-    public function retainSourceDescendants(DOMElement $anchor, ?DOMElement $projectedSurface = null): void
+    public function retainSourceDescendants(DOMElement $anchor, ?DOMElement $projectedSurface = null, bool $onlyProjectedTopology = false): void
     {
         $projections = $this->session?->authorSelectorProjectionState();
         foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
             if ( $descendant === $projectedSurface ) {
                 continue;
             }
-            $projections?->markRetainedSourcePath($descendant->getNodePath() ?? '');
+            $path = $descendant->getNodePath() ?? '';
+            // Logo labels are materialized through RichText before being saved.
+            // Their existing carriers still own author styles (including universal
+            // resets); only predicted block/carrier topology needs overriding.
+            if ( $onlyProjectedTopology && null !== $projections
+                && ! $projections->isInlineLayoutCarrierPath($path)
+                && '' === $projections->semanticMarker($path)
+                && '' === $projections->imageWrapperMarker($path) ) {
+                continue;
+            }
+            $projections?->markRetainedSourcePath($path);
         }
     }
 

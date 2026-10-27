@@ -95,6 +95,7 @@
       "php tests/contract/navigation-anchor-layered-color.php",
       "php tests/contract/accessible-link-retained-descendant-styles.php",
       "php tests/contract/core-button-retained-root-scoped-descendant-styles.php",
+      "php tests/contract/branding-link-richtext-reset.php",
       "php tests/contract/linked-native-button-icon.php",
       "php tests/contract/class-owned-native-buttons.php",
       "php tests/contract/custom-width-native-button.php",
