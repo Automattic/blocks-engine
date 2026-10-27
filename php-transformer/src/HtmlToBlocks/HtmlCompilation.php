@@ -192,6 +192,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SocialSourceStyleP
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAnalysisComposer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAssetStage;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ContentBoxRestatements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
@@ -230,6 +231,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
     private string $capturedRootTheme = '';
     private string $emittedStyleMarkup = '';
+
+    /** After-author content-box restatements collected while projecting the author stylesheet assets. */
+    private string $authorStylesheetContentBoxCss = '';
 
     /**
      * Core blocks this transformer can produce, keyed by the contract that
@@ -1713,8 +1717,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $authorStylesheetProjections,
             is_string($options['author_layer_order'] ?? null) ? $options['author_layer_order'] : null
         );
+        // The editor reaches anchored source boxes through their editor anchor
+        // classes; the after-author content-box restatements follow the
+        // author rules there as they do on the front end.
         $this->navigationStyleProjector->materializeEditorStaticStateStylesheet(
             implode("\n\n", array_column($authorStylesheetProjections, 'content'))
+            . ( '' === $this->authorStylesheetContentBoxCss ? '' : "\n\n" . $this->authorStylesheetContentBoxCss )
         );
         $blockValidityEvaluation = $this->runtime->evaluateBlockSerialization($blocks);
         $blockValidityReport = $blockValidityEvaluation->report();
@@ -2420,13 +2428,25 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $authorCssParts = array();
         $afterAuthorCss = new LayeredCssCollector();
         $authorCss = '';
+        // Content-box restatements are support CSS: they reach the
+        // after-author stylesheet even when the host keeps its own author CSS
+        // (or, as the artifact compiler does, installs the projected
+        // stylesheet assets itself).
+        $contentBoxSupportCss = $this->authorStylesheetContentBoxCss;
         if ( $includeAuthorStyles && '' !== $this->authorStyles()->combinedCss() ) {
+            $contentBoxRestatements = new ContentBoxRestatements();
             $authorCss = $this->rewriteAuthorStylesheet(
                 $this->authorStyles()->combinedCss(),
                 false,
                 '',
-                array() === $this->authorStyles()->stylesheetAssets()
+                array() === $this->authorStyles()->stylesheetAssets(),
+                '',
+                $combinedNativeSelectors,
+                $contentBoxRestatements
             );
+            if ( array() === $this->authorStyles()->stylesheetAssets() ) {
+                $contentBoxSupportCss = $contentBoxRestatements->css();
+            }
             $split = ( new CssStylesheetTransformer() )->splitLeadingAtRulePreamble($authorCss);
             if ( array() === $this->authorStyles()->stylesheetAssets() ) {
                 if ( '' !== trim($split['preamble']) ) {
@@ -2435,6 +2455,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $authorCssParts[] = $split['stylesheet'];
             }
         }
+        $afterAuthorCss->add(CascadeLayer::SOURCE_BOX_MODEL_RESTATEMENT, $contentBoxSupportCss);
         $geometryCss = $this->styleResolver->generatedGeometryCss($serializedBlocks);
         if ( '' !== $geometryCss ) {
             // Important carrier rules precede author CSS: they retain inline
@@ -2574,6 +2595,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function authorStylesheetProjections(): array
     {
         $projections = array();
+        $contentBoxRestatements = new ContentBoxRestatements();
         foreach ( $this->authorStyles()->stylesheetAssets() as $asset ) {
             $content = $this->rewriteAuthorStylesheet(
                 $asset['content'],
@@ -2582,7 +2604,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 (string) $asset['path'],
                 true,
                 (string) ($asset['media'] ?? ''),
-                $nativeSelectors
+                $nativeSelectors,
+                $contentBoxRestatements
             );
             $hash = hash('sha256', $content);
             $projections[] = array(
@@ -2598,6 +2621,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 'native_selectors' => $nativeSelectors,
             );
         }
+        $this->authorStylesheetContentBoxCss = $contentBoxRestatements->css();
         return $projections;
     }
 
@@ -2638,7 +2662,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * reads the asset as `@media <media>{...}`, so projection is told the same
      * outer condition for rules that compare against analyzed declarations.
      */
-    private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true, string $media = '', ?array &$nativeSelectors = null): string
+    private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true, string $media = '', ?array &$nativeSelectors = null, ?ContentBoxRestatements $contentBoxRestatements = null): string
     {
         $bindings = new ProjectedSelectorBindings();
         $media = trim($media);
@@ -2651,7 +2675,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->transformationEvidence(),
                 $keepAuthorClassSelectors,
                 $bindings,
-                $this->emittedStyleMarkup
+                $this->emittedStyleMarkup,
+                $contentBoxRestatements ?? new ContentBoxRestatements()
             ),
             '' === $media ? array() : array( '@media ' . $media )
         );

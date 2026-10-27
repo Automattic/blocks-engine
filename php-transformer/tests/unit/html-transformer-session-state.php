@@ -66,8 +66,9 @@ $families = array(
     'author border-box reset' => array(
         'seed' => array($borderBox, array()),
         'target' => array($contentBox, array()),
+        // The content-box restatement is after-author support CSS.
         'assertion' => static fn (array $result): bool => str_contains(
-            implode('', array_column(array_filter($result['assets'] ?? array(), static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '')), 'content')),
+            implode('', array_column(array_filter($result['assets'] ?? array(), static fn (array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && 'after-author' === ($asset['stylesheet_placement'] ?? '')), 'content')),
             'box-sizing:content-box'
         ),
     ),
