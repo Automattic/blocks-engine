@@ -4209,7 +4209,7 @@ final class ArtifactCompiler
                 if (!$this->hasHtmlAttribute($tag, $name)) continue;
                 $value = $this->htmlAttribute($tag, $name);
                 // HTML's empty and invalid-value CORS states both select anonymous.
-                $values[str_replace('-', '_', $name)] = 'crossorigin' === $name && '' === $value ? 'anonymous' : $value;
+                $values[in_array($name, array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA), true) ? $name : str_replace('-', '_', $name)] = 'crossorigin' === $name && '' === $value ? 'anonymous' : $value;
             }
             return $values;
         };
@@ -4228,7 +4228,7 @@ final class ArtifactCompiler
         foreach (HtmlTagScanner::scan($html, 'link') as $link) {
             $tag = $link['tag']; $href = $this->htmlAttribute($tag, 'href');
             if ('' === $href) continue;
-            $links[] = array_merge(array('order' => count($links), 'placement' => $link['placement']), $attributes($tag, array('rel', 'type', 'media', 'integrity', 'crossorigin', 'referrerpolicy', 'as', 'fetchpriority', 'sizes')), $reference($href));
+            $links[] = array_merge(array('order' => count($links), 'placement' => $link['placement']), $attributes($tag, array('rel', 'type', 'media', 'integrity', 'crossorigin', 'referrerpolicy', 'as', 'fetchpriority', 'sizes', CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA)), $reference($href));
         }
         $scriptIndex = 0;
         foreach (HtmlTagScanner::scan($html, 'script') as $script) {
