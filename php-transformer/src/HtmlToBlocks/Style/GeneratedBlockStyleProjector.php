@@ -539,13 +539,29 @@ final class GeneratedBlockStyleProjector
         // reference viewport must not pin it when that parent becomes a column.
         $hasWidth = array() !== ($this->styleResolver->authorDeclaredPropertyValues($control, array('width'))['width'] ?? array());
         $isFlex = in_array(CssValueInspector::comparable((string) ($parentStyle['display'] ?? '')), array('flex', 'inline-flex'), true);
+        $isGrid = in_array(CssValueInspector::comparable((string) ($parentStyle['display'] ?? '')), array('grid', 'inline-grid'), true);
+        $controlStyle = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($control));
+        $alignment = CssValueInspector::comparable((string) ($controlStyle['align-self'] ?? 'auto'));
+        if ( 'auto' === $alignment ) $alignment = CssValueInspector::comparable((string) ($parentStyle['align-items'] ?? 'normal'));
+        $stretchesHeight = ($isGrid || ($isFlex && ! $isColumn))
+            && in_array($alignment, array('normal', 'stretch'), true)
+            && in_array(CssValueInspector::comparable((string) ($controlStyle['height'] ?? 'auto')), array('', 'auto'), true);
+        // A flex carrier passes the used stretched size through without a
+        // percentage height resolving against an auto-height block wrapper.
+        $stretchRule = $stretchesHeight
+            ? $wrapper . '{display:flex!important;align-items:stretch!important}'
+                . $button . '{display:flex!important;align-items:stretch!important;width:100%;flex:1}'
+                . $link . '{height:auto!important}'
+            : '';
         $generatedStyles->registerDirectFlexButton(
             $marker,
             $wrapper . '{display:block!important;gap:0!important;min-width:0}'
                 . $button . '{display:block!important;margin:0!important;min-width:0' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
                 . $link . '{box-sizing:border-box' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
                 . ($hasWidth || ! $isFlex ? '' : $wrapper . '{width:auto!important}')
-                . ($isFlex ? $button . '{width:100%!important;height:100%}' . $link . '{width:100%!important;height:100%}' : '')
+                . ($isGrid ? $button . '{width:100%}' : '')
+                . ($isFlex ? $button . '{width:100%!important;height:100%}' . $link . '{' . ($hasWidth ? '' : 'width:100%!important;') . 'height:100%}' : '')
+                . $stretchRule
         );
     }
 
