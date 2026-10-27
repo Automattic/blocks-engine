@@ -27,7 +27,9 @@ $assert(array(array('source' => 'json-ld:WebPage')) === $pages['index.html']['co
 $files['ordinary/index.html'] = $document('WebPage', '<main><h1>Ordinary page</h1><p>Not an article.</p></main>');
 $files['about/index.html'] = $document('AboutPage', '<main><h1>About us</h1></main>');
 $files['contact/index.html'] = $document('ContactPage', '<main><h1>Contact</h1></main>');
-$files['category/business/index.html'] = $document('CollectionPage', '<main><h1>Business</h1><a href="/essay/">Essay</a></main>');
+// Native archive classification requires reciprocal term evidence.
+$files['essay/index.html'] = $document('BlogPosting', '<main><article><h1>Essay</h1><p>Article body.</p><a href="/category/business/" rel="tag">Business</a></article></main>');
+$files['category/business/index.html'] = $document('CollectionPage', '<main><h1>Business</h1><article><h2><a href="/essay/">Essay</a></h2><p>Article summary.</p></article></main>');
 $files['category/business/page/2/index.html'] = $document('CollectionPage', '<main><h1>Business, page two</h1></main>');
 $files['collections/strips/index.html'] = $document('CollectionPage', '<main><h1>Strips</h1><a href="/essay/">Essay</a></main>');
 $files['go/essay/index.html'] = '<html><head><meta http-equiv="refresh" content="0;url=/essay/"></head><body></body></html>';
