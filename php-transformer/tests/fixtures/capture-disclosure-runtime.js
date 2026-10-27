@@ -27,6 +27,14 @@ function apply(trigger){
     ['style','class'].forEach(function(name){if(state[name]===null)target.removeAttribute(name);else target.setAttribute(name,state[name]);});
     target.toggleAttribute('data-blocks-engine-capture-resting-panel',inactive);
     target.hidden=inactive?states.resting.hidden:!open;
+    if(inactive&&!target.classList.contains('data-blocks-engine-capture-dropdown')){
+      // Observe authored resting CSS, not the generated modal positioning.
+      // A concealed control only exposes a panel that is visible in normal flow.
+      var style=getComputedStyle(target),rect=target.getBoundingClientRect();
+      var inline=style.display!=='none'&&style.visibility!=='hidden'&&style.position!=='fixed'&&style.position!=='absolute'&&rect.width>0&&rect.height>0;
+      target.toggleAttribute('data-blocks-engine-capture-resting-panel',inline);
+      if(!inline)target.hidden=true;
+    }
   }else target.hidden=!open;
   var close=closeFor(trigger);if(close)close.hidden=!open;
 }

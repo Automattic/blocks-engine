@@ -166,6 +166,15 @@ See [Native control state](../native-control-state.md).
 
 ### Runtime scripts
 
+The disclosure body is the current DLA producer interpreter, including its authored
+resting-CSS check for reused non-dropdown panels with concealed triggers. Such
+panels can remain visible inline on desktop while opening as overlays on mobile.
+Blocks Engine currently keeps that page's runtime and wiring unchanged and emits
+`captured_disclosure_resting_inline_runtime_kept`: its native dialog replacement
+does not reproduce this responsive presentation. This applies by capture evidence,
+not by framework class names, including when the panel is hidden at capture width.
+
+
 A capture may ship helper scripts that keep captured interactions working in
 the static page. Blocks Engine replaces them with native blocks only when it
 can prove it owns them, and a marker attribute alone never proves that. The
@@ -179,7 +188,7 @@ allowed.
 
 | Name | Kind | Meaning |
 | ---- | ---- | ------- |
-| `b545f43a77b79d075373048431101fe11d7ff8cdfe7987de6d7971512763d88f` | sha256 of the disclosure interpreter | Body: [`tests/fixtures/capture-disclosure-runtime.js`](../../tests/fixtures/capture-disclosure-runtime.js), marker `data-blocks-engine-capture-disclosure-runtime` (value `true`), in `<head>`. |
+| `67e77fd6348495edd9113e0ba1632abcd0907314aa46b5201fd1ff749544732c` | sha256 of the disclosure interpreter | Body: [`tests/fixtures/capture-disclosure-runtime.js`](../../tests/fixtures/capture-disclosure-runtime.js), marker `data-blocks-engine-capture-disclosure-runtime` (value `true`), in `<head>`. |
 | `456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b` | sha256 of the gallery helper | Body: [`tests/fixtures/capture-gallery-runtime.js`](../../tests/fixtures/capture-gallery-runtime.js), marker `data-blocks-engine-capture-gallery-runtime`, in `<head>`. |
 | `82806634d813434b72ca5cbc9532c88f26aa4bd3cec880c2e6c12580dd6849eb` | sha256 of the choice-group runtime | Body: [`tests/fixtures/capture-choice-runtime.js`](../../tests/fixtures/capture-choice-runtime.js) with the JSON config list in place of its empty config list (`var configs=[];`); the digest covers the body with the empty list, marker `data-blocks-engine-capture-choice-runtime` (value `true`), in `<head>`. |
 
