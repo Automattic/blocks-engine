@@ -213,6 +213,20 @@ $namespaceCss = '@namespace url(example);.catalog .one,.catalog .two{color:red}'
 $assert($namespaceCss === \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::stylesheet($namespaceCss), 'namespace-sensitive sheets remain unchanged');
 $splitRules = '.catalog .one{color:red}.catalog .other{color:blue}.catalog .two{color:red}';
 $assert($splitRules === \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::stylesheet($splitRules), 'identical declarations never merge across an intervening rule');
+// Page-local marker lists expand back into arms for cross-page alignment and
+// merge into one zero-weight :where() list for the site-wide sheet.
+$compactor = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::class;
+$m1 = 'blocks-engine-control-4041d29655d8-0';
+$m2 = 'blocks-engine-control-f9b2c417568b-0';
+$packed = $compact('.row-cols-6>:where(.' . $m1 . '),.row-cols-6>:where(.' . $m2 . ')');
+$assert('.row-cols-6>:is(:where(.' . $m1 . '),:where(.' . $m2 . '))' === $packed, 'per-page projection packs marker arms');
+$assert('.row-cols-6>:where(.' . $m1 . '),.row-cols-6>:where(.' . $m2 . ')' === $compactor::expand($packed), 'packed marker arms expand back into one arm per marker');
+$merged = $compactor::mergeMarkerLists('.row-cols-6>:where(.' . $m1 . '):not(.be-c-0),#x,.row-cols-6>:where(.' . $m2 . '):not(.be-c-0)');
+$assert('.row-cols-6>:where(.' . $m1 . ',.' . $m2 . '):not(.be-c-0),#x' === $merged, 'arms differing by one marker merge into a :where() list');
+$assert('.row-cols-6>:where(.' . $m1 . '):not(.be-c-0),.row-cols-6>:where(.' . $m2 . '):not(.be-c-0),#x' === $compactor::expand($merged), 'merged marker lists expand back into arms');
+$assert('.a :is(.one,.two)' === $compactor::expand('.a :is(.one,.two)') && ':not(:where(.' . $m1 . ',.' . $m2 . ')) a,b' === $compactor::mergeMarkerLists(':not(:where(.' . $m1 . ',.' . $m2 . ')) a,b'), 'non-marker lists and negated marker lists stay as authored');
+$unequalMarkers = '.a :is(:where(.' . $m1 . '),#b)';
+$assert($unequalMarkers === $compactor::expand($unequalMarkers), 'unequal-weight alternatives are never expanded');
 $before = '.catalog .one,.catalog .two,.catalog .three';
 $after = $compact($before);
 $matcher = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::class;

@@ -451,6 +451,110 @@ foreach (array(
     echo 'Variant fixture (' . $label . ') author CSS: ' . strlen($variantText) . ' bytes in ' . count($authoredAssets($variantPlan)) . " assets\n";
 }
 
+// Bounded route scoping. One long selector list is projected three ways
+// (span, button and image pages), so in-place variants would repeat every
+// arm under route scopes on the sheet every route loads: several times what
+// one page copy costs. That sheet falls back to page copies, with a reason.
+$boundArms = array();
+for ($i = 0; $i < 60; ++$i) $boundArms[] = '.long-selector-arm-' . $i;
+$boundSheet = array('path' => 'base.css', 'kind' => 'css', 'content' => '.sample{color:#123456}' . implode(',', $boundArms) . ',button,img{outline-style:solid;letter-spacing:1px;padding:3px}');
+$boundFiles = array();
+foreach (array('<span class="sample">Probe</span>', '<span class="sample">Probe</span>', '<span class="sample">Probe</span>', '<button class="sample">Probe</button>', '<img src="p.png" alt="P">', '<button class="sample">Probe</button><img src="p.png" alt="P">') as $i => $body) {
+    $boundFiles[] = array('path' => 'bound-' . $i . '.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><title>Bound</title><link rel="stylesheet" href="base.css"></head><body><main>' . $body . '</main></body></html>');
+}
+$bound = (new ArtifactCompiler())->compile(array('entrypoint' => 'bound-0.html', 'files' => array_merge($boundFiles, array($boundSheet))))->toArray();
+$boundPlan = $bound['source_reports']['wordpress_site_plan'];
+$boundFindings = array_values(array_filter($bound['diagnostics'], static fn (array $row): bool => 'author_stylesheet_route_scope_fallback' === ($row['code'] ?? '') && str_contains($row['message'], 'largest')));
+$assert(1 === count($boundFindings) && str_contains($boundFindings[0]['message'], 'base.css'), 'over-budget route scoping emits one sheet-level fallback diagnostic', json_encode(array_column($bound['diagnostics'], 'message')));
+$boundAssets = $authoredAssets($boundPlan);
+$assert(count($boundAssets) > 1 && !str_contains(implode('', $boundAssets), 'be-route-'), 'over-budget route scoping falls back to page copies without route scopes', json_encode(array_map('strlen', $boundAssets)));
+foreach ($boundPlan['pages'] as $row) {
+    $file = array_column($boundFiles, null, 'path')[$row['source_path']];
+    $alone = (new ArtifactCompiler())->compile(array('entrypoint' => $file['path'], 'files' => array($file, $boundSheet)))->toArray()['source_reports']['wordpress_site_plan'];
+    $boundProperties = array('color', 'outline-style', 'letter-spacing');
+    $actual = $probeStyles($boundPlan, $row, false, $boundProperties);
+    $expected = $probeStyles($alone, $alone['pages'][0], false, $boundProperties);
+    $assert(array() !== $actual && $expected === $actual, 'fallback computed-style parity ' . $row['source_path'], json_encode(array($expected, $actual)));
+}
+echo 'Bound fixture author CSS: ' . json_encode(array_map('strlen', $boundAssets)) . "\n";
+
+// Rules that differ between pages only by page-local block markers. Every
+// page has its own buttons in a `.row-cols-3` grid, so `.row-cols-3>*` and
+// `.row>*` project onto each page's own per-element markers, which the page
+// projection packs as `>:is(:where(.m1),…)`. Those differences fold into one
+// unscoped union in the shared rule: the sheet grows by marker names only,
+// never by a route-scoped copy of the rule per page.
+$markerCss = '.row{display:flex;flex-wrap:wrap}.row-cols-3>*{flex:0 0 auto;width:33.3%}.row>*{flex-shrink:0;max-width:100%}'
+    . '.btn{background-color:#123456;color:#fff;border-radius:4px;padding:8px 16px}';
+for ($i = 0; $i < 120; ++$i) $markerCss .= '.marker-tail-' . $i . '{color:#123456;margin:0;padding:2px;border-top-width:1px}';
+$markerSheet = array('path' => 'base.css', 'kind' => 'css', 'content' => $markerCss);
+$markerFile = static function (int $index, bool $gaps = false): array {
+    $buttons = '';
+    if (!$gaps || 2 !== $index % 3) for ($k = 0; $k <= $index % 3; ++$k) $buttons .= '<a class="btn" href="/m' . $index . '/' . $k . '">Buy ' . $index . '.' . $k . '</a>';
+    return array('path' => 'm' . $index . '.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><title>Marker ' . $index . '</title><link rel="stylesheet" href="base.css"></head><body><main><h1>Page ' . $index . '</h1><div class="row row-cols-3">' . $buttons . '</div></main></body></html>');
+};
+$markerSite = static function (int $count, bool $gaps = false) use ($markerFile, $markerSheet, $authoredAssets): array {
+    $files = array();
+    for ($i = 0; $i < $count; ++$i) $files[] = $markerFile($i, $gaps);
+    $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'm0.html', 'files' => array_merge($files, array($markerSheet))))->toArray();
+    $plan = $result['source_reports']['wordpress_site_plan'];
+    return array('plan' => $plan, 'assets' => $authoredAssets($plan), 'diagnostics' => $result['diagnostics']);
+};
+$markerSizes = array();
+foreach (array(2, 6, 10) as $count) {
+    $site = $markerSite($count);
+    $text = implode('', $site['assets']);
+    $markerSizes[$count] = strlen($text);
+    $assert(1 === count($site['assets']) && !str_contains(implode('', array_column($site['plan']['assets'], 'source_path')), '.page-'), $count . ' marker-only pages: one site-wide asset, no page copies', json_encode(array_keys($site['assets'])));
+    $assert(!str_contains($text, 'be-route-'), $count . ' marker-only pages: nothing is route scoped', $text);
+    $assert(array() === array_filter($site['diagnostics'], static fn (array $row): bool => 'author_stylesheet_route_scope_fallback' === ($row['code'] ?? '')), $count . ' marker-only pages: no route-scope fallback');
+}
+$markerText = implode('', $site['assets']);
+$assert((bool) preg_match('/:where\((?:\.blocks-engine-control-[a-f0-9]{12}-\d+,){3,}/', $markerText), 'page-local markers fold into one recompacted :where() list', $markerText);
+// Ten pages add only their marker names: under a fifth of the two-page
+// sheet. Route-scoped copies grew it by about 2.3 KB per page.
+$assert($markerSizes[10] < 1.2 * $markerSizes[2] && $markerSizes[10] - $markerSizes[6] < 1.2 * ($markerSizes[6] - $markerSizes[2]) + 512, 'site-wide sheet bytes stay roughly constant in the page count', json_encode($markerSizes));
+$markerProbe = static function (array $plan, array $row): array {
+    $assets = array_column($plan['assets'], null, 'target_path');
+    $css = '';
+    foreach (WordPressSitePlan::documentStylesheets($plan, $row['source_path']) as $sheet) $css .= "\n" . ($assets[$sheet['target_path']]['content'] ?? '');
+    $dom = new DOMDocument();
+    @$dom->loadHTML('<html><body>' . StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($row['canonical_block_markup']) . '</body></html>');
+    foreach ($row['document_metadata']['root_attributes'] ?? array() as $name => $value) $dom->documentElement->setAttribute($name, $value);
+    $cascade = new StaticCssCascade($dom, $css);
+    $styles = array();
+    foreach ($dom->getElementsByTagName('*') as $element) {
+        if (!$element instanceof DOMElement) continue;
+        $classes = ' ' . $element->getAttribute('class') . ' ';
+        if (str_contains($classes, ' wp-block-buttons ') || str_contains($classes, ' wp-block-button ') || str_contains($classes, ' wp-block-button__link ')) {
+            $styles[] = $cascade->resolve($element, array('width', 'flex-shrink', 'max-width', 'background-color', 'color'), array());
+        }
+    }
+    return $styles;
+};
+// With every third page empty, the empty pages' projection is the shared
+// one: the other pages' marker rules are page-only. Each is inert off its
+// own page, so they join the sheet as unscoped unions; only rules whose arms
+// can match without a marker carry a route scope.
+$gapSite = $markerSite(9, true);
+$gapText = implode('', $gapSite['assets']);
+$scopedMarkerRule = false;
+$transformer->visitStyleRules($gapText, static function (string $prelude) use (&$scopedMarkerRule): void {
+    if (str_contains($prelude, 'be-route-') && preg_match('/blocks-engine-control-[a-f0-9]{12}-\d+/', $prelude)) $scopedMarkerRule = true;
+});
+$assert(1 === count($gapSite['assets']) && !$scopedMarkerRule, 'page-only marker rules fold into unscoped unions', $gapText);
+foreach (array(array($site, false), array($gapSite, true)) as [$checked, $gaps]) {
+    foreach ($checked['plan']['pages'] as $row) {
+        $index = (int) substr($row['source_path'], 1);
+        $alone = (new ArtifactCompiler())->compile(array('entrypoint' => $row['source_path'], 'files' => array($markerFile($index, $gaps), $markerSheet)))->toArray()['source_reports']['wordpress_site_plan'];
+        $actual = $markerProbe($checked['plan'], $row);
+        $expected = $markerProbe($alone, $alone['pages'][0]);
+        $hasGrid = !$gaps || 2 !== $index % 3;
+        $assert($expected === $actual && $hasGrid === in_array('33.3%', array_column($actual, 'width'), true), 'marker-only computed-style parity ' . $row['source_path'] . ($gaps ? ' (with empty pages)' : ''), json_encode(array($expected, $actual)));
+    }
+}
+echo 'Marker-only fixture author CSS: ' . json_encode($markerSizes) . " bytes for 2/6/10 pages\n";
+
 // Identical shared units are one fold match, rewritten at every occurrence.
 $marker = 'blocks-engine-control-0123456789ab-0';
 $unit = '.group>.btn{z-index:1}';

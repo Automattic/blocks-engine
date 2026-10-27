@@ -227,6 +227,14 @@ final class CssStylesheetTransformer
      * is deliberately unsafe. Return equivalent page rules using the union so
      * rulesAbsentFrom() can remove them without moving a cascade suffix.
      *
+     * Reconciliation runs on uncompacted arms: per-page projections pack
+     * marker arms into `P:is(:where(.m1),…)S`, so every compared rule is
+     * expanded back to one arm per marker (rules left as they are keep their
+     * text). A marker arm is any arm with a top-level positive
+     * `:where(.marker)`, wherever it sits in the selector: it cannot match an
+     * element that does not carry the marker. Folded rules
+     * are uncompacted; the caller recompacts the final serialized sheet.
+     *
      * @param list<string> $shared
      * @param array<string, list<string>> $pages All consuming page projections.
      * @param array<string, string> $markup Canonical markup by page owner.
@@ -238,25 +246,14 @@ final class CssStylesheetTransformer
         foreach (array_merge($shared, ...array_values($pages)) as $css) {
             if (!$this->isWellFormedStylesheet($css)) return $unchanged;
         }
-        $carriers = array();
-        foreach ($markup as $owner => $html) {
-            preg_match_all('/(?<![a-zA-Z0-9_-])blocks-engine-[a-z-]+-[a-f0-9]{12}-[0-9]+(?![a-zA-Z0-9_-])/', $html, $matches);
-            foreach (array_unique($matches[0]) as $marker) $carriers[$marker][$owner] = true;
-        }
-        // Only accept a literal marker in a positive :where() compound. This
-        // excludes marker negations, constant role classes, escapes and selector-list
-        // alternatives that could match without carrying the identity marker.
-        $markerOf = static function (string $arm): ?string {
-            $positive = preg_replace('/:not\((?:\.be-c-[0-9]+|be-t-[0-9]+)\)/', '', $arm);
-            if (str_contains($arm, '/*') || preg_match('/:(?:not|is|has)\s*\(/i', $positive)) return null;
-            return preg_match('/^:where\(\.(blocks-engine-[a-z-]+-[a-f0-9]{12}-[0-9]+)\)(?=$|[\s>+~.:#\[])/', $arm, $match) ? $match[1] : null;
-        };
+        $carriers = self::markerCarriers($markup);
+        $markerOf = static fn (string $arm): ?string => self::positiveMarker($arm);
         $describe = static function (array $unit) use ($markerOf): ?array {
             $brace = strpos($unit['text'], '{');
             if (!$unit['dedupable'] || false === $brace) return null;
             $prelude = trim(substr($unit['text'], 0, $brace));
             if (str_starts_with($prelude, '@')) return null;
-            $arms = self::splitSelectorList($prelude);
+            $arms = self::splitSelectorList(CssSelectorListCompactor::expand($prelude));
             if (null === $arms) return null;
             $arms = array_map('trim', $arms);
             $constant = array_values(array_filter($arms, static fn (string $arm): bool => null === $markerOf($arm)));
@@ -306,20 +303,61 @@ final class CssStylesheetTransformer
                 }
                 if ($safe) $union[] = $arm;
             }
-            if ($union === $base['arms']) continue;
-            foreach ($matches as $match) $sharedUnits[$match]['text'] = implode(',', $union) . substr($sharedUnits[$match]['text'], $base['brace']);
+            if ($union !== $base['arms']) {
+                foreach ($matches as $match) $sharedUnits[$match]['text'] = implode(',', $union) . substr($sharedUnits[$match]['text'], $base['brace']);
+            }
+            // A page rule becomes the shared text when the shared rule only
+            // adds arms whose marker the page does not carry, whatever the
+            // packing of either side.
             foreach ($pageIndex as $owner => $rules) {
+                if (!isset($markup[$owner])) continue;
                 foreach ($rules[$key] ?? array() as $j) {
+                    if ($pageUnits[$owner][$j]['text'] === $sharedUnits[$i]['text']) continue;
                     $description = $describe($pageUnits[$owner][$j]);
-                    if (array() === array_diff($description['arms'], $union)) {
-                        $pageUnits[$owner][$j]['text'] = $sharedUnits[$i]['text'];
+                    if (array() !== array_diff($description['arms'], $union)) continue;
+                    foreach (array_diff($union, $description['arms']) as $arm) {
+                        if (isset($carriers[(string) $markerOf($arm)][$owner])) continue 2;
                     }
+                    $pageUnits[$owner][$j]['text'] = $sharedUnits[$i]['text'];
                 }
             }
         }
         $result = array('shared' => array($this->serializeRuleUnits($sharedUnits)), 'pages' => array());
         foreach ($pageUnits as $owner => $units) $result['pages'][$owner] = array($this->serializeRuleUnits($units));
         return $result;
+    }
+
+    /**
+     * Owners whose markup carries each page-local marker.
+     *
+     * @param array<string,string> $markup
+     * @return array<string,array<string,true>>
+     */
+    private static function markerCarriers(array $markup): array
+    {
+        $carriers = array();
+        foreach ($markup as $owner => $html) {
+            preg_match_all(CssSelectorListCompactor::PAGE_MARKER, $html, $matches);
+            foreach (array_unique($matches[0]) as $marker) $carriers[$marker][$owner] = true;
+        }
+        return $carriers;
+    }
+
+    /**
+     * The page-local marker an arm requires: a literal `:where(.marker)` at
+     * selector top level, outside every `:not()`/`:is()`/`:has()` argument.
+     * Comments, escapes and strings are refused, so a marker negation, a
+     * selector-list alternative or quoted text never counts as a requirement.
+     */
+    private static function positiveMarker(string $arm): ?string
+    {
+        if (str_contains($arm, '/*') || strpbrk($arm, '\\"\'') !== false) return null;
+        if (!preg_match_all('/:where\(\.(blocks-engine-[a-z-]+-[a-f0-9]{12}-[0-9]+)\)/', $arm, $matches, PREG_OFFSET_CAPTURE)) return null;
+        foreach ($matches[0] as $index => [, $offset]) {
+            $before = substr($arm, 0, $offset);
+            if (substr_count($before, '(') === substr_count($before, ')') && substr_count($before, '[') === substr_count($before, ']')) return $matches[1][$index][0];
+        }
+        return null;
     }
 
     /**
@@ -333,11 +371,39 @@ final class CssStylesheetTransformer
      *
      * @param list<string> $shared
      * @param array<string,list<string>> $pages
+     * Rules whose every arm requires a page-local marker (see
+     * positiveMarker()) need no route scope when $markup proves where the
+     * markers live: a route that drops such a rule and carries none of its
+     * markers loses nothing, and a route-only insertion whose markers only
+     * that route carries is emitted unscoped, merged by arm union with the
+     * other routes' insertions of the same rule at the same position.
+     *
      * @param array<string,string> $routeIdentities Route identities by compilation owner.
-     * @return array{stylesheet:string, scoped:list<string>, reasons:array<string,string>}
+     * @param array<string,string> $markup Canonical markup by compilation owner.
+     * `route_bytes` counts what route scoping adds: positively scoped rules
+     * plus the growth of negatively scoped shared rules, before compaction.
+     *
+     * @return array{stylesheet:string, scoped:list<string>, reasons:array<string,string>, route_bytes:int}
      */
-    public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null): array
+    public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null, array $markup = array()): array
     {
+        $carriers = self::markerCarriers($markup);
+        // Owners that can carry every marker the unit's arms require, or null
+        // when some arm can match without a page-local marker.
+        $markerOwners = function (array $unit) use ($carriers): ?array {
+            [, $rule] = self::splitLeadingComments($unit['text']);
+            $brace = $this->nextRuleBoundary($rule, 0);
+            if (null === $brace || '{' !== $rule[$brace] || $this->isAtRule($rule) || !$unit['dedupable']) return null;
+            $arms = self::splitSelectorList(CssSelectorListCompactor::expand(substr($rule, 0, $brace)));
+            if (null === $arms) return null;
+            $owners = array();
+            foreach ($arms as $arm) {
+                $marker = self::positiveMarker(trim($arm));
+                if (null === $marker) return null;
+                $owners += $carriers[$marker] ?? array();
+            }
+            return $owners;
+        };
         $base = array();
         foreach ($shared as $css) $this->collectRuleUnits($css, array(), $base);
         $normal = static fn (array $unit): string => trim(CssSyntaxScanner::withoutComments($unit['text']));
@@ -384,6 +450,13 @@ final class CssStylesheetTransformer
                 $cursor = $match + 1;
             }
             while ($cursor < count($base)) $localChanges[$cursor++] = null;
+            $known = isset($markup[$owner]);
+            foreach ($localChanges as $i => $variant) {
+                if (null !== $variant || !$known) continue;
+                $owners = $markerOwners($base[$i]);
+                // Dropping a rule this route cannot match changes nothing.
+                if (null !== $owners && !isset($owners[$owner])) unset($localChanges[$i]);
+            }
             // A definition the route drops or adds stays site-wide, unless the
             // route would then see a different body under the same name.
             $pageDefined = $defined;
@@ -407,7 +480,12 @@ final class CssStylesheetTransformer
                     $this->scopeRouteUnit($unit, array('be-route-probe'), true, $reason);
                 }
             }
-            foreach ($localInsertions as $list) foreach ($list as $unit) {
+            foreach ($localInsertions as $i => $list) foreach ($list as $ordinal => $unit) {
+                $owners = $known ? $markerOwners($unit) : null;
+                if (null !== $owners && array((string) $owner) === array_map('strval', array_keys($owners))) {
+                    $localInsertions[$i][$ordinal]['own_markers'] = true;
+                    continue;
+                }
                 $this->scopeRouteUnit($unit, array('be-route-probe'), true, $reason);
             }
             if (null !== $reason) { $reasons[$owner] = $reason; continue; }
@@ -423,14 +501,40 @@ final class CssStylesheetTransformer
         }
         $output = array();
         $routeClass = static fn ($owner): string => \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($routeIdentities[$owner] ?? (string) $owner);
-        $emitGroups = function (array $groups) use (&$output, $routeClass): void {
+        $routeBytes = 0;
+        $emitGroups = function (array $groups) use (&$output, &$routeBytes, $routeClass): void {
             $texts = array();
             foreach ($groups as $owner => $units) foreach ($units as $ordinal => $unit) {
+                if (!empty($unit['own_markers'])) {
+                    // Inert off its route: union the arms, no route scope.
+                    unset($unit['own_markers']);
+                    [$lead, $rule] = self::splitLeadingComments($unit['text']);
+                    $brace = (int) $this->nextRuleBoundary($rule, 0);
+                    $groupKey = serialize(array($ordinal, $unit['context'], substr($rule, $brace), 'union'));
+                    $texts[$groupKey]['ordinal'] = $ordinal;
+                    $texts[$groupKey]['unit'] ??= $unit;
+                    $texts[$groupKey]['lead'] ??= $lead;
+                    $texts[$groupKey]['body'] = substr($rule, $brace);
+                    foreach ((array) self::splitSelectorList(CssSelectorListCompactor::expand(substr($rule, 0, $brace))) as $arm) $texts[$groupKey]['arms'][trim($arm)] = true;
+                    continue;
+                }
                 $groupKey = serialize(array($ordinal, $unit));
+                $texts[$groupKey]['ordinal'] = $ordinal;
                 $texts[$groupKey]['unit'] = $unit;
                 $texts[$groupKey]['routes'][] = $routeClass($owner);
             }
-            foreach ($texts as $group) $output[] = $this->scopeRouteUnit($group['unit'], $group['routes'], true);
+            // Each route has one unit per ordinal; ordinal order keeps every
+            // route's own insertions in its source order.
+            uasort($texts, static fn (array $a, array $b): int => $a['ordinal'] <=> $b['ordinal']);
+            foreach ($texts as $group) {
+                if (isset($group['arms'])) {
+                    $group['unit']['text'] = $group['lead'] . implode(',', array_keys($group['arms'])) . $group['body'];
+                    $output[] = $group['unit'];
+                    continue;
+                }
+                $output[] = $this->scopeRouteUnit($group['unit'], $group['routes'], true);
+                $routeBytes += strlen(end($output)['text']);
+            }
         };
         for ($i = 0; $i <= count($base); ++$i) {
             foreach ($siteInsertions[$i] ?? array() as $unit) $output[] = $unit;
@@ -438,9 +542,10 @@ final class CssStylesheetTransformer
             if ($i === count($base)) break;
             $variants = $changes[$i] ?? array();
             $output[] = $variants ? $this->scopeRouteUnit($base[$i], array_map($routeClass, array_keys($variants)), false) : $base[$i];
+            if ($variants) $routeBytes += strlen($output[count($output) - 1]['text']) - strlen($base[$i]['text']);
             $emitGroups(array_map(static fn ($unit): array => null === $unit ? array() : array($unit), $variants));
         }
-        return array('stylesheet' => $this->serializeRuleUnits($output), 'scoped' => $scoped, 'reasons' => $reasons);
+        return array('stylesheet' => $this->serializeRuleUnits($output), 'scoped' => $scoped, 'reasons' => $reasons, 'route_bytes' => $routeBytes);
     }
 
     /**

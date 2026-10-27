@@ -22,6 +22,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\Css\TemplatePartStickyContainment;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunker;
@@ -49,6 +50,20 @@ final class ArtifactCompiler
     use StagedTransport;
 
     public const MAX_PLAN_DIGEST_DEPTH = 512;
+
+    /**
+     * Route-scoped variants live in the one sheet every route downloads. When
+     * the bytes they add (scoped variants and page-only rules, plus the growth
+     * of shared rules that exclude routes) exceed this factor times the
+     * largest page copy (`<sheet>.page-<hash>.css`, what one page would load
+     * on top of the shared sheet), that stylesheet falls back to page copies
+     * with an `author_stylesheet_route_scope_fallback` diagnostic. A visitor
+     * then never loads more than about three times the extra CSS of a copy.
+     */
+    public const ROUTE_SCOPE_BYTES_FACTOR = 3;
+
+    /** Route-scoping overhead always allowed, e.g. for routes that only drop rules (their copy is empty). */
+    public const ROUTE_SCOPE_BYTES_FLOOR = 8192;
 
     public const INPUT_SCHEMA = 'blocks-engine/php-transformer/site-artifact/v1';
     // Plans are a published v1 transport contract. Receipts are additive: v2
@@ -2639,17 +2654,35 @@ final class ArtifactCompiler
             $sharedStylesheets = $folded['shared'];
             $fallbackSharedStylesheets = $sharedStylesheets;
             foreach ($pages as $owner => $_) $pages[$owner] = $folded['pages'][$owner] ?? $pages[$owner];
-            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $folded['pages'], $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null);
-            $sharedStylesheets = array($routed['stylesheet']);
-            foreach ($routed['scoped'] as $owner) unset($pages[$owner]);
+            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $folded['pages'], $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup);
+            // Folded rules carry expanded marker arms; recompact the serialized
+            // sheet, merging marker arms into `:where()` lists across routes.
+            $recompact = static fn (string $css): string => count($folded['pages']) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
+            // Bound what route scoping adds to the sheet every route loads by
+            // what the largest page copy would have added to one page. Both
+            // are measured before compaction.
+            $largestCopy = 0;
+            if (0 < $routed['route_bytes']) {
+                foreach ($routed['scoped'] as $owner) {
+                    $largestCopy = max($largestCopy, strlen($transformer->rulesAbsentFrom($folded['pages'][$owner] ?? array(), $fallbackSharedStylesheets, true)));
+                }
+            }
+            $routeBudget = max(self::ROUTE_SCOPE_BYTES_FACTOR * $largestCopy, self::ROUTE_SCOPE_BYTES_FLOOR);
+            if (array() !== $routed['scoped'] && $routed['route_bytes'] > $routeBudget) {
+                $projectionDiagnostics[] = $this->diagnostic('author_stylesheet_route_scope_fallback', 'warning', sprintf('%s: route-scoped variants add %d bytes to every route, over %d (%dx the largest %d-byte page copy); emitting page copies', $path, $routed['route_bytes'], $routeBudget, self::ROUTE_SCOPE_BYTES_FACTOR, $largestCopy));
+                foreach ($routed['scoped'] as $owner) $pages[$owner] ??= $folded['pages'][$owner] ?? array();
+                $routed['stylesheet'] = implode("\n", $fallbackSharedStylesheets);
+            } else {
+                foreach ($routed['scoped'] as $owner) unset($pages[$owner]);
+            }
             foreach ($routed['reasons'] as $owner => $reason) {
                 $projectionDiagnostics[] = $this->diagnostic('author_stylesheet_route_scope_fallback', 'warning', $path . ' (' . $owner . '): ' . $reason);
             }
-            $projectedFile = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $transformer->concatenateWithoutRedundantRules($sharedStylesheets) ))));
+            $projectedFile = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $recompact($transformer->concatenateWithoutRedundantRules(array($routed['stylesheet']))) ))));
             $projectedFile['metadata']['native_selectors'] = array_keys($native);
             $output[] = $projectedFile;
             foreach ( $pages as $owner => $pageStylesheets ) {
-                $delta = $transformer->rulesAbsentFrom($pageStylesheets, $fallbackSharedStylesheets, true);
+                $delta = $recompact($transformer->rulesAbsentFrom($pageStylesheets, $fallbackSharedStylesheets, true));
                 if ( '' === trim($delta) ) {
                     continue;
                 }
@@ -2657,7 +2690,7 @@ final class ArtifactCompiler
                 $pageFile['metadata']['compilation'] = array( 'scope' => 'page', 'id' => (string) $owner );
                 $pageFile['metadata']['page_stylesheet_of'] = $path;
                 $pageNative = $native;
-                foreach ($originalPages[$owner] as $content) {
+                foreach ($originalPages[$owner] ?? array() as $content) {
                     $pageNative += $nativeByContent[$path][$content] ?? array();
                 }
                 $pageFile['metadata']['native_selectors'] = array_keys($pageNative);
