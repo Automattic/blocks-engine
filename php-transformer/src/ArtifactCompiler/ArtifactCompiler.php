@@ -22,6 +22,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\Css\TemplatePartStickyContainment;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunker;
@@ -50,6 +51,21 @@ final class ArtifactCompiler
 
     public const MAX_PLAN_DIGEST_DEPTH = 512;
 
+    /**
+     * The shared sheet is downloaded once and cached across routes; page
+     * copies cost a separate download per page. Allow the greater of this
+     * factor times the largest copy, one tenth of total copy bytes, and the
+     * floor below. Measure scoped variants and split-rule overhead before
+     * compaction; exceeding the bound falls back to page copies.
+     */
+    public const ROUTE_SCOPE_BYTES_FACTOR = 3;
+
+    /** Cached shared overhead may replace up to 10% of total per-page copy download bytes. */
+    public const ROUTE_SCOPE_COPY_TOTAL_DIVISOR = 10;
+
+    /** Route-scoping overhead always allowed, e.g. for routes that only drop rules (their copy is empty). */
+    public const ROUTE_SCOPE_BYTES_FLOOR = 8192;
+
     public const INPUT_SCHEMA = 'blocks-engine/php-transformer/site-artifact/v1';
     // Plans are a published v1 transport contract. Receipts are additive: v2
     // carries terminal reductions while v1 receipts remain composable.
@@ -71,6 +87,9 @@ final class ArtifactCompiler
 
     /** @var array<string, list<array<string, mixed>>> */
     private array $stylesheetOccurrenceCache = array();
+
+    /** @var array<string,string> Collision-free root classes keyed by site route identity. */
+    private array $routeClasses = array();
 
     /** @var array<string, true> Source resources imported into an authored layer. */
     private array $layeredNavigationImports = array();
@@ -274,6 +293,13 @@ final class ArtifactCompiler
     {
         $startedAt = hrtime(true);
         $normalized = $reduction['normalized'];
+        $routeIdentities = array();
+        foreach ($normalized['files'] as $file) {
+            if ('html' !== ($file['kind'] ?? '')) continue;
+            $source = (string) $file['path'];
+            $routeIdentities[] = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
+        }
+        $this->routeClasses = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClasses($routeIdentities);
         $capturedDialogs = is_array($reduction['captured_dialogs'] ?? null) ? $reduction['captured_dialogs'] : array('diagnostics' => array(), 'projected_count' => 0);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = is_array($reduction['source_documents'] ?? null) ? $reduction['source_documents'] : $this->compileSourceDocuments($normalized);
@@ -355,8 +381,17 @@ final class ArtifactCompiler
         foreach ($compiledHtmlDocuments as $sourcePath => $document) {
             $pageMarkup[(string) ($ownedBy(array(array()), (string) $sourcePath)[0]['owner'] ?? '')] = $document['serialized_blocks'];
         }
+        // These are the template-part candidates consumed by compiledSiteReport
+        // and WordPressSitePlan's shell extraction. serialized_blocks alone omits
+        // extracted chrome. Use a conservative union of all candidate parts.
+        $sharedMarkup = '';
+        $parts = array_merge($this->compiledSiteTemplateParts($normalized['files']), $entryBlocks['shell_artifacts'], $inlineShellCompilation['artifacts']);
+        foreach ($compiledHtmlDocuments as $document) $parts = array_merge($parts, $document['shell_artifacts'] ?? array());
+        foreach ($parts as $part) $sharedMarkup .= "\n" . (string) ($part['block_markup'] ?? '');
+        foreach ($pageMarkup as &$markup) $markup .= "\n" . $sharedMarkup;
+        unset($markup);
         $authoredFiles = $normalized['files'];
-        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup);
+        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics, $sharedMarkup);
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
             $documentFiles = $normalized['files'];
@@ -2493,7 +2528,7 @@ final class ArtifactCompiler
      * @param string $primaryOwner The page that produced the primary projections, '' when they are site-wide.
      * @return array<int, array<string, mixed>>
      */
-    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = '', array $pageMarkup = array()): array
+    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = '', array $pageMarkup = array(), array &$projectionDiagnostics = array(), string $sharedMarkup = ''): array
     {
         $attributeStateMarkers = array();
         foreach ($projections as $projection) {
@@ -2548,6 +2583,31 @@ final class ArtifactCompiler
             }
         }
         $transformer = new CssStylesheetTransformer();
+        $routeIdentities = array();
+        $routeDocuments = array();
+        foreach ($files as $document) {
+            if ('html' !== ($document['kind'] ?? '')) continue;
+            $source = (string) $document['path'];
+            $owner = $this->fileOwnership($document)['id'];
+            $routeIdentities[$owner] = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
+            if (!isset($pageMarkup[$owner])) continue;
+            // Parse the lowered markup once per route, never once per arm or
+            // stylesheet. Retain source root/body context just as projection
+            // does; block comments are inert to the HTML parser.
+            $dom = new DOMDocument();
+            $previousErrors = libxml_use_internal_errors(true);
+            $loaded = $dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $pageMarkup[$owner] . '</body></html>');
+            libxml_clear_errors();
+            libxml_use_internal_errors($previousErrors);
+            if (!$loaded) continue;
+            $attributes = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml((string) ($document['content'] ?? ''));
+            foreach (array('html' => 'root_attributes', 'body' => 'body_attributes') as $tag => $key) {
+                $element = $dom->getElementsByTagName($tag)->item(0);
+                foreach ($attributes[$key] ?? array() as $name => $value) $element?->setAttribute($name, $value);
+            }
+            $routeDocuments[$owner] = $dom;
+        }
+        $routeMatchIndex = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex($routeDocuments);
         $reserved = array_fill_keys(array_column($files, 'path'), true);
         $output = array();
         foreach ( $files as $file ) {
@@ -2605,20 +2665,18 @@ final class ArtifactCompiler
             $stylesheets = array();
             foreach ( $authoritativeContent as $stylesheet ) {
                 $split = $transformer->splitLeadingAtRulePreamble($stylesheet);
-                if ( '' !== trim($split['preamble']) ) {
-                    $preambles[] = $split['preamble'];
+                $imports = '';
+                foreach ($split['statements'] as $statement) {
+                    if (preg_match('/^\s*(?:\/\*.*?\*\/\s*)*@import\b/is', $statement)) $imports .= $statement;
+                    else $preambles[] = $statement;
                 }
-                if ( '' !== trim($split['stylesheet']) ) {
-                    $stylesheets[] = $split['stylesheet'];
+                if ( '' !== trim($imports . $split['stylesheet']) ) {
+                    $stylesheets[] = $imports . $split['stylesheet'];
                 }
             }
             $sharedStylesheets = array_merge(array_map('strval', array_keys($sharedByPath[$path] ?? array())), $stylesheets);
-            // A page's projection repeats every rule it did not rewrite. Only the
-            // rules missing from the site-wide copy go to a stylesheet the page
-            // alone loads. Place it after the site-wide copy: the latter may
-            // contain a generic selector that still matches the lowered block
-            // (e.g. a grid's default two-column rule), while the page projection
-            // carries the source's later attribute-specific responsive winner.
+            // Shared-shell projections are part of every route's stylesheet.
+            // Align the full route projection, never a trailing cascade delta.
             $native = array();
             foreach (array_merge(array_keys($sharedByPath[$path] ?? array()), $authoritativeContent) as $content) {
                 $native += $nativeByContent[$path][$content] ?? array();
@@ -2628,14 +2686,42 @@ final class ArtifactCompiler
             foreach ($ownersByPath[$path] ?? array() as $content => $owners) {
                 foreach ($owners as $owner => $_) $pageProjections[$owner][] = (string) $content;
             }
-            $folded = $transformer->foldPositiveMarkerArms($sharedStylesheets, $pageProjections, $pageMarkup);
-            $sharedStylesheets = $folded['shared'];
-            foreach ($pages as $owner => $_) $pages[$owner] = $folded['pages'][$owner] ?? $pages[$owner];
-            $projectedFile = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $transformer->concatenateWithoutRedundantRules($sharedStylesheets) ))));
+            foreach ($pageProjections as &$contents) {
+                $contents = array($transformer->concatenateWithoutRedundantRules(array_merge(array_map('strval', array_keys($sharedByPath[$path] ?? array())), $contents)));
+            }
+            unset($contents);
+            $sharedStylesheets = array($transformer->concatenateWithoutRedundantRules($sharedStylesheets));
+            $fallbackSharedStylesheets = $sharedStylesheets;
+            foreach ($pages as $owner => $_) $pages[$owner] = $pageProjections[$owner] ?? $pages[$owner];
+            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup, $routeMatchIndex, $this->routeClasses, $sharedMarkup);
+            // Recompact only at serialization, merging compatible marker arms.
+            $recompact = static fn (string $css): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
+            // A cached shared download replaces separate page-copy downloads.
+            // Both costs are measured before compaction.
+            $largestCopy = $totalCopyBytes = 0;
+            if (0 < $routed['route_bytes']) {
+                foreach ($routed['scoped'] as $owner) {
+                    $copyBytes = strlen($transformer->rulesAbsentFrom($pageProjections[$owner] ?? array(), $fallbackSharedStylesheets, true));
+                    $largestCopy = max($largestCopy, $copyBytes);
+                    $totalCopyBytes += $copyBytes;
+                }
+            }
+            $routeBudget = max(self::ROUTE_SCOPE_BYTES_FACTOR * $largestCopy, intdiv($totalCopyBytes, self::ROUTE_SCOPE_COPY_TOTAL_DIVISOR), self::ROUTE_SCOPE_BYTES_FLOOR);
+            if (array() !== $routed['scoped'] && $routed['route_bytes'] > $routeBudget) {
+                $projectionDiagnostics[] = $this->diagnostic('author_stylesheet_route_scope_fallback', 'warning', sprintf('%s: route-scoped variants add %d cached-sheet bytes, over budget %d = max(%dx largest copy %d, total copies %d / %d, floor %d); emitting page copies', $path, $routed['route_bytes'], $routeBudget, self::ROUTE_SCOPE_BYTES_FACTOR, $largestCopy, $totalCopyBytes, self::ROUTE_SCOPE_COPY_TOTAL_DIVISOR, self::ROUTE_SCOPE_BYTES_FLOOR));
+                foreach ($routed['scoped'] as $owner) $pages[$owner] ??= $pageProjections[$owner] ?? array();
+                $routed['stylesheet'] = implode("\n", $fallbackSharedStylesheets);
+            } else {
+                foreach ($routed['scoped'] as $owner) unset($pages[$owner]);
+            }
+            foreach ($routed['reasons'] as $owner => $reason) {
+                $projectionDiagnostics[] = $this->diagnostic('author_stylesheet_route_scope_fallback', 'warning', $path . ' (' . $owner . '): ' . $reason);
+            }
+            $projectedFile = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $recompact($transformer->concatenateWithoutRedundantRules(array($routed['stylesheet']))) ))));
             $projectedFile['metadata']['native_selectors'] = array_keys($native);
             $output[] = $projectedFile;
             foreach ( $pages as $owner => $pageStylesheets ) {
-                $delta = $transformer->rulesAbsentFrom($pageStylesheets, $sharedStylesheets, true);
+                $delta = $recompact($transformer->rulesAbsentFrom($pageStylesheets, $fallbackSharedStylesheets, true));
                 if ( '' === trim($delta) ) {
                     continue;
                 }
@@ -2643,7 +2729,7 @@ final class ArtifactCompiler
                 $pageFile['metadata']['compilation'] = array( 'scope' => 'page', 'id' => (string) $owner );
                 $pageFile['metadata']['page_stylesheet_of'] = $path;
                 $pageNative = $native;
-                foreach ($originalPages[$owner] as $content) {
+                foreach ($originalPages[$owner] ?? array() as $content) {
                     $pageNative += $nativeByContent[$path][$content] ?? array();
                 }
                 $pageFile['metadata']['native_selectors'] = array_keys($pageNative);
@@ -4162,7 +4248,8 @@ final class ArtifactCompiler
         }
         $titles = HtmlTagScanner::scan($html, 'title');
         $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
-        $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
+        $routeIdentity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $sourcePath, $sourcePath);
+        $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html, $routeIdentity, $this->routeClasses[$routeIdentity] ?? null), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
         if ( array() !== $projectedRootMarkers ) {
             $rootClasses = array_values(array_filter(preg_split('/\s+/', trim((string) ($metadata['root_attributes']['class'] ?? ''))) ?: array(), static fn(string $class): bool => '' !== $class));
             $metadata['root_attributes']['class'] = implode(' ', array_unique(array_merge($rootClasses, $projectedRootMarkers)));
