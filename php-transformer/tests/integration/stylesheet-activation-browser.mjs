@@ -44,6 +44,25 @@ try {
     assert.deepEqual(await probe(), { background: 'rgb(86, 87, 93)', family: 'Times', weight: '700' }, `preferred restored at ${width}px`);
     await page.goto(new URL('/?pagename=second', origin).href, { waitUntil: 'load' });
     assert.equal(await page.locator('h1').textContent(), 'Second route', 'independent WordPress page renders');
+    for (const [device, keys] of [['desktop', 'desktop wide'], ['mobile', 'mobile']]) {
+      const slices = page.locator(`link[id^="blocks-engine-instance-"][href*="${device}.page-"]`);
+      assert.ok(await slices.count() > 0, `${device} page-scoped slice renders at ${width}px`);
+      for (const slice of await slices.all()) {
+        assert.deepEqual(await slice.evaluate(link => ({
+          device: link.getAttribute('data-blocks-engine-capture-device-style'),
+          sourceMedia: link.getAttribute('data-blocks-engine-capture-source-media'),
+          media: link.media,
+        })), { device: keys, sourceMedia: 'all', media: 'not all' }, 'inert slice retains the capture selection contract');
+      }
+    }
+    const ordinary = page.locator('link[href$="/base.css"]');
+    assert.ok(await ordinary.count() > 0, 'ordinary sheet renders');
+    for (const link of await ordinary.all()) {
+      assert.deepEqual(await link.evaluate(link => [
+        link.hasAttribute('data-blocks-engine-capture-device-style'),
+        link.hasAttribute('data-blocks-engine-capture-source-media'),
+      ]), [false, false], 'ordinary links gain no device markers');
+    }
     assert.equal(await page.locator('link[rel~="stylesheet"][title]').count(), 0, `stylesheet sets stay on their declaring route at ${width}px`);
     assert.equal(await page.locator('link[href*="light.css"]').count(), 0, 'inactive assets are retained without leaking delivery onto unrelated routes');
     await page.close();

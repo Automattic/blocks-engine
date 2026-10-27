@@ -9,6 +9,15 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanRe
 
 $fixture = require dirname(__DIR__) . '/fixtures/stylesheet-activation.php';
 $plan = (new ArtifactCompiler())->compile($fixture)->toWordPressSitePlanView()['wordpress_site_plan'];
+// Require actual page-scoped slices; the browser checks their generated links,
+// rather than only the unsliced parent links retained from the source head.
+$deviceSlices = array();
+foreach (array('desktop' => 'desktop wide', 'mobile' => 'mobile') as $device => $keys) {
+    foreach ($plan['assets'] as $asset) {
+        if (str_starts_with($asset['source_path'], $device . '.page-')) $deviceSlices[$asset['target_path']] = $keys;
+    }
+    if (!in_array($keys, $deviceSlices, true)) throw new RuntimeException('The device fixture must produce a page-scoped slice for ' . $device);
+}
 $theme = 'stylesheet-activation-proof';
 $directory = WP_CONTENT_DIR . '/themes/' . $theme;
 $resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => home_url('/wp-content/themes/' . $theme)));

@@ -257,6 +257,48 @@ $assert($hostRelative, 'separate containing block: the host keeps position:relat
 $assert('' === $toggleMarker($blocks), 'no toggle: no toggle marker is generated', $blocks);
 $assert(str_contains($css, '.bar button{'), 'no toggle: the bare `.bar button` rule survives unchanged', $css);
 
+// --- Header-bound panel: a relative host's offset belongs on the burger. ---
+
+$relativeHeader = '<header class="header-grid"><a href="#home">Brand</a><nav id="menu">'
+    . '<button aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button>'
+    . '<ul><li><a href="#home">Home</a></li><li><a href="#about">About</a></li></ul>'
+    . '</nav></header>';
+$relativeCss = '.header-grid{display:grid;position:relative;grid-template-columns:1fr;height:78px}'
+    . '#menu{position:relative}#menu button{width:40px;height:40px}'
+    . '#menu button span{display:block;width:24px;height:2px;background:black}'
+    . '@media(max-width:600px){#menu ul{display:none}}'
+    . '@media(min-width:601px){#menu{display:none}}';
+[ $plainBlocks, $plainCss ] = $transform($relativeCss, $relativeHeader);
+[ $relativeBlocks, $offsetCss ] = $transform($relativeCss . '@media(max-width:600px){#menu{left:200px}}', $relativeHeader);
+$relativeMarker = $toggleMarker($relativeBlocks);
+$assert('' !== $relativeMarker, 'relative host: native toggle is projected', $relativeBlocks);
+$relativeOpenRules = array();
+$relativeHostStatic = false;
+$boundPanel = false;
+foreach ( $rules($offsetCss) as [ $stack, $selector, $body ] ) {
+    if ( ! str_contains($selector, $relativeMarker) ) {
+        continue;
+    }
+    if ( str_ends_with($selector, '.' . $relativeMarker) ) {
+        $relativeHostStatic = $relativeHostStatic || $declares($body, 'position:static!important');
+    }
+    if ( str_ends_with($selector, '>.wp-block-navigation__responsive-container-open') ) {
+        $relativeOpenRules[] = $body;
+    }
+    $boundPanel = $boundPanel || ( str_contains($selector, '.is-menu-open') && $declares($body, 'inset:100%0auto!important') );
+}
+$assert($relativeHostStatic && $boundPanel, 'relative host: the panel remains bound to the header', $offsetCss);
+$assert(1 === count($relativeOpenRules), 'relative host: placement is merged into one open-button rule', implode(' / ', $relativeOpenRules));
+$assert(1 === count(array_filter($relativeOpenRules, static fn (string $body): bool => $declares($body, 'position:relative!important') && $declares($body, 'left:200px!important'))), 'relative host: the open button carries the authored mobile offset', implode(' / ', $relativeOpenRules));
+// An explicit auto offset is inert and must not even change the marker hash.
+[ $autoBlocks, $autoCss ] = $transform($relativeCss . '#menu{left:auto}', $relativeHeader);
+$plainMarker = $toggleMarker($plainBlocks);
+$autoMarker = $toggleMarker($autoBlocks);
+$markerRules = static function (string $css, string $marker) use ($rules): array {
+    return array_values(array_filter($rules($css), static fn (array $rule): bool => str_contains($rule[1], $marker)));
+};
+$assert('' !== $plainMarker && $plainMarker === $autoMarker && $markerRules($plainCss, $plainMarker) === $markerRules($autoCss, $autoMarker), 'relative host: without relative offsets generated toggle CSS is byte-identical');
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "navigation open button source placement FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);

@@ -55,6 +55,7 @@ Two audiences read this vocabulary:
 | `data-blocks-engine-capture-desktop-document` | class | — | Root of the desktop (default) copy of a responsive capture. |
 | `data-blocks-engine-capture-responsive-counterpart-` | class prefix | 12 lowercase hex digits | Pairs an element in the default document with its counterpart in another variant. |
 | `data-blocks-engine-capture-responsive-source` | attribute | source id | Source identity of a responsive counterpart; ignored when comparing shared chrome. |
+| `data-blocks-engine-capture-device-style` | attribute on `<style>`/`<link>` | space-separated profile ids | Device profiles that activate the stylesheet. Document occurrences and their projected slices retain these keys in generated frontend links. |
 | `data-blocks-engine-capture-source-media` | attribute on `<style>`/`<link>` | media query | The authored media condition, independent of a serialized `media` that only records the inactive document's activation. |
 
 ### Dialogs and dropdowns
@@ -280,6 +281,5 @@ Blocks Engine does not read these names. Downstream importers do.
 | `data-blocks-engine-capture-selected-document` | attribute on `<html>` | profile id | The device profile the selection runtime chose. Written at runtime, so author selectors on it stay live. |
 | `data-blocks-engine-capture-selected-viewport` | attribute (flag) on `<meta name="viewport">` | ignored | The viewport meta the selection runtime fills. |
 | `data-blocks-engine-capture-document-unavailable` | attribute (flag) on `<html>` | ignored | Set at runtime when no captured document applies to the device. |
-| `data-blocks-engine-capture-device-style` | attribute on `<style>`/`<link>` | profile id | The device profile the stylesheet belongs to. |
 | `data-blocks-engine-capture-member-login` | attribute | provider `[a-z0-9_-]+` | The link leads to a member login with that provider. |
 | `data-blocks-engine-capture-member-login-` | class prefix | `<prefix><provider>`, provider `[a-z0-9_-]+` | Class form of the member-login marker. It survives block conversion, which keeps classes. |

@@ -5,6 +5,8 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 
 $fixture = require dirname(__DIR__) . '/fixtures/dialog-document-scope.php';
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
@@ -55,5 +57,41 @@ foreach ($pages as $page) {
         $assert(isset($script['asset_reference']), 'The other route retains its executable script asset.');
     }
 }
+
+// Attached root compounds must retain their device gate when shared source ids
+// are rebound through instance shims, with or without a preceding comment.
+// Inspect compiler assets and published author/support/editor copies.
+$deviceFixture = require dirname(__DIR__) . '/fixtures/device-gated-shell.php';
+$deviceResult = (new ArtifactCompiler())->compile($deviceFixture(false))->toArray();
+$reference = (new ArtifactCompiler())->compile($deviceFixture())->toArray();
+$deviceAssets = static fn (array $result): array => array_values(array_filter($result['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null)));
+$ungated = 0;
+$mobileRules = 0;
+$copies = array();
+$instanceRule = false;
+foreach (array($deviceAssets($deviceResult), $deviceAssets($deviceResult['source_reports']['wordpress_site_plan']), $deviceAssets($reference), $deviceAssets($reference['source_reports']['wordpress_site_plan'])) as $assets) {
+    foreach ($assets as $asset) {
+        (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $prelude) use (&$ungated, &$mobileRules, &$copies, &$instanceRule, $asset, $assert): void {
+            foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                if (!str_contains($selector, '#shell') && !str_contains($selector, '.blocks-engine-editor-anchor-shell')) continue;
+                if (!str_contains($selector, '[data-be-d="desktop"]') && !str_contains($selector, '[data-be-d="mobile"]') && !str_contains($selector, '[data-be-d="tablet"]')) ++$ungated;
+                if (!str_contains($selector, '[data-be-d="mobile"]')) continue;
+                ++$mobileRules;
+                $instanceRule = $instanceRule || str_contains($selector, ':not(.be-c-0):not(.be-c-0):not(#be-i-0)');
+                $copies[$asset['source'] ?? 'files'] = true;
+                // Removing a :where gate must not change any authored/shim weight.
+                $withoutGate = str_replace(':where([data-be-d="mobile"])', '', $selector);
+                $assert(CssSelectorMatcher::specificityCounts(CssSelectorMatcher::parse($selector)) === CssSelectorMatcher::specificityCounts(CssSelectorMatcher::parse($withoutGate)), 'The retained device gate adds no specificity.');
+            }
+        });
+    }
+}
+$assert(0 === $ungated, 'Every emitted device id/anchor rule retains its gate; ungated rules: ' . $ungated);
+$assert(0 < $mobileRules && $instanceRule && isset($copies['files'], $copies['engine-support'], $copies['editor-static-state']), 'The attached root compound exercises two class weights and an ID shim in mobile author, after-author and editor-static-state copies.');
+$desktopCss = static fn (array $result): array => array_values(array_map(
+    static fn (array $asset): string => $asset['content'],
+    array_filter($deviceAssets($result), static fn (array $asset): bool => 'desktop.css' === ($asset['path'] ?? null))
+));
+$assert(array() !== $desktopCss($reference) && $desktopCss($reference) === $desktopCss($deviceResult), 'The desktop stylesheet is byte-identical when only the mobile prelude has a comment.');
 
 echo "Dialog document scope contract passed.\n";

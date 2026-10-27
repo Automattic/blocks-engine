@@ -420,10 +420,11 @@ final class NavigationToggleSuppressor
     /**
      * Markup hiding or a static max-height clip. When supplied, the author
      * display resolved at the reference viewport overrides the UA hidden rule.
+     * A capture-stamped panel's hidden state can be discounted independently.
      */
-    private function sourceElementIsHiddenByMarkup(DOMElement $element, string $referenceDisplay = ''): bool
+    private function sourceElementIsHiddenByMarkup(DOMElement $element, string $referenceDisplay = '', bool $excludeCaptureHidden = false): bool
     {
-        if ( ($element->hasAttribute('hidden') && in_array($referenceDisplay, array( '', 'none' ), true))
+        if ( ($element->hasAttribute('hidden') && ! ($excludeCaptureHidden && $element->hasAttribute(CaptureEvidence::DIALOG_PANEL)) && in_array($referenceDisplay, array( '', 'none' ), true))
             || 'true' === strtolower(SourceDom::attr($element, 'aria-hidden'))
             || 'false' === strtolower(SourceDom::attr($element, 'data-visible')) ) {
             return true;
@@ -1870,7 +1871,8 @@ final class NavigationToggleSuppressor
      * Display, visibility and opacity are read through the resolved cascade,
      * media-conditional rules included, so a mobile-first `md:hidden` toggle
      * reads hidden and a `hidden md:flex` menu reads visible. Reading only
-     * unconditional declarations inverted both.
+     * unconditional declarations inverted both. Capture disclosure styles and
+     * capture-stamped hidden describe runtime state, not author visibility.
      */
     public function isHiddenAtDefaultViewport(DOMElement $element): bool
     {
@@ -1878,14 +1880,19 @@ final class NavigationToggleSuppressor
             if ( SourceDom::isDocumentVariantRoot($node) || in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
                 break;
             }
-            $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($node));
+            $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($node, array('display', 'visibility', 'opacity'), true);
             $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
-            if ( $this->sourceElementIsHiddenByMarkup($node, $display) ) {
+            $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
+            $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+            if ( $this->sourceElementIsHiddenByMarkup($node, $display, true)
+                || 'none' === $display
+                || in_array($visibility, array('hidden', 'collapse'), true)
+                || (is_numeric($opacity) && 0.0 === (float) $opacity) ) {
                 return true;
             }
         }
 
-        return $this->context->sourceElementOrAncestorStartsHidden($element);
+        return false;
     }
 
     private function isProjectableHashAnchorMenuToggle(DOMElement $element): bool
