@@ -773,12 +773,15 @@ final class StyleResolver implements ElementPresentationResolver
      * element lays out where the allow-list is silent. A value is the declared
      * one, not an inherited one: a caller walks the ancestors itself.
      *
+     * Capture disclosure CSS remains available for presentation, but callers
+     * judging source visibility can exclude the producer's runtime rules.
+     *
      * @param list<string> $properties
      * @return array<string, string>
      */
-    public function referenceViewportAuthorDeclarations(DOMElement $element, array $properties): array
+    public function referenceViewportAuthorDeclarations(DOMElement $element, array $properties, bool $excludeCaptureDisclosure = false): array
     {
-        return $this->authorDeclarationsAtViewport($element, $properties, self::DESKTOP_REFERENCE_WIDTH);
+        return $this->authorDeclarationsAtViewport($element, $properties, self::DESKTOP_REFERENCE_WIDTH, $excludeCaptureDisclosure);
     }
 
     /**
@@ -855,10 +858,14 @@ final class StyleResolver implements ElementPresentationResolver
      * @param list<string> $properties
      * @return array<string, string>
      */
-    private function authorDeclarationsAtViewport(DOMElement $element, array $properties, float $viewportWidth): array
+    private function authorDeclarationsAtViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false): array
     {
         $authorStyles = $this->context->authorStyles();
-        ['parsed' => $parsedBySelector] = $this->viewportAuthorRules($authorStyles->styleRules(), $viewportWidth);
+        $styleRules = $authorStyles->styleRules();
+        if ( $excludeCaptureDisclosure ) {
+            $styleRules = array_values(array_filter($styleRules, static fn (array $rule): bool => empty($rule['capture_only'])));
+        }
+        ['parsed' => $parsedBySelector] = $this->viewportAuthorRules($styleRules, $viewportWidth);
         $rules = $this->viewportAuthorRulesDeclaring($viewportWidth, $properties);
         $selectorCache = $authorStyles->selectorMatchCache();
         $matches = static function (string $selector) use ($element, $selectorCache, $parsedBySelector): bool {

@@ -2185,6 +2185,7 @@ final class ArtifactCompiler
                     // so retain the authored stylesheet for source analysis.
                     $assets[] = array( 'path' => 'inline-style-' . $inlineIndex . '.css', 'source_path' => 'inline-style', 'content' => $content, 'source_hash' => hash('sha256', $content), 'media' => StyleTagScanner::authorMedia($attributes), 'type' => $this->htmlAttribute($attributes, 'type') );
                 }
+                $assets[array_key_last($assets)]['capture_only'] = StyleTagScanner::isCaptureOnly($attributes);
                 continue;
             }
             $tag = $tagRecord['tag'];

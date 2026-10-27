@@ -79,7 +79,7 @@ final class StylesheetAnalysisComposer
         if ( array() !== $authorStyles->stylesheetAssets() ) {
             $payloads = array_values(array_filter($authorStyles->stylesheetAssets(), static fn (array $asset): bool => '' !== trim($asset['content'])));
             if ( $this->hasSafeStylesheetBoundaries(array_column($payloads, 'content')) ) {
-                return array_map(static fn (array $asset): array => array('content' => $asset['content'], 'source_path' => $asset['source_path'], 'source_hash' => $asset['source_hash']), $payloads);
+                return array_map(static fn (array $asset): array => array('content' => $asset['content'], 'source_path' => $asset['source_path'], 'source_hash' => $asset['source_hash'], 'capture_only' => ! empty($asset['capture_only'])), $payloads);
             }
             $content = implode("\n\n", array_column($payloads, 'content'));
             return array(array('content' => $content, 'source_path' => 'combined-stylesheets', 'source_hash' => hash('sha256', $content)));
@@ -186,6 +186,7 @@ final class StylesheetAnalysisComposer
                 $rule['order'] = count($composed['rules']);
                 $rule['source_path'] = $payload['source_path'];
                 $rule['source_hash'] = $payload['source_hash'];
+                $rule['capture_only'] = ! empty($payload['capture_only']);
                 $composed['rules'][] = $rule;
             }
         }
@@ -206,6 +207,7 @@ final class StylesheetAnalysisComposer
             }
             $assets[] = array( 'path' => $asset['path'], 'source_path' => is_string($asset['source_path'] ?? null) ? $asset['source_path'] : $asset['path'], 'content' => $asset['content'], 'source_hash' => is_string($asset['source_hash'] ?? null) ? $asset['source_hash'] : hash('sha256', $asset['content']), 'media' => is_string($asset['media'] ?? null) ? $asset['media'] : '' );
             if (isset($asset['stylesheet_activation'])) $assets[array_key_last($assets)]['stylesheet_activation'] = $asset['stylesheet_activation'];
+            if ( ! empty($asset['capture_only']) ) $assets[array_key_last($assets)]['capture_only'] = true;
         }
         return $assets;
     }
@@ -227,6 +229,7 @@ final class StylesheetAnalysisComposer
                 'source_hash' => hash('sha256', $content),
                 'media' => StyleTagScanner::authorMedia($style['attributes']),
                 'type' => $type,
+                'capture_only' => StyleTagScanner::isCaptureOnly($style['attributes']),
             );
         }
 
