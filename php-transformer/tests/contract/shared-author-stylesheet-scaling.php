@@ -256,7 +256,7 @@ $contextTenAssets = $authoredAssets($contextTen);
 $contextBytes = strlen(implode('', $contextTenAssets));
 // Baseline measured with folding disabled: 142,268 bytes for ten pages.
 $assert(1 === count($contextTwoAssets) && 1 === count($contextTenAssets), 'context-dependent arms fold without page copies', (string) json_encode(array_keys($contextTenAssets)));
-$assert($contextBytes - strlen(implode('', $contextTwoAssets)) < 6000, 'only per-page arm bytes grow, not the overlapping cascade suffix', (string) $contextBytes);
+$assert($contextBytes - strlen(implode('', $contextTwoAssets)) < 12000, 'per-page arm and no-route scope bytes grow, not the overlapping cascade suffix', (string) $contextBytes);
 $assert((bool) preg_match('/blocks-engine-control-[a-f0-9]{12}-[0-9]+/', implode('', $contextTenAssets)), 'fixture exercises positive identity-marker arms');
 foreach ($contextTen['pages'] as $planPage) {
     $document = new DOMDocument();
@@ -337,7 +337,7 @@ foreach ($routePlan['pages'] as $row) {
 }
 $group = ':where(:root:is(.' . $classes['b.html'] . ',.' . $classes['c.html'] . '))';
 $assert(str_contains($routeText, '.sample{'), 'plain variants inert on other routes remain shared');
-$assert(str_contains($routeText, 'html .sample') && str_contains($routeText, ':root .sample'), 'inert html and root arms retain their original compounds');
+$assert(str_contains($routeText, 'html:where(') && str_contains($routeText, ':root:where('), 'variant-only html and root arms merge their positive route scope');
 $droppedOverride = false;
 $conditionalImage = false;
 $transformer->visitStyleRules($routeText, static function (string $prelude, string $body, array $context) use (&$droppedOverride, &$conditionalImage, $classes): void {
@@ -348,7 +348,7 @@ $transformer->visitStyleRules($routeText, static function (string $prelude, stri
 });
 $assert($droppedOverride, 'the inert dropped override retains its original conditional position');
 $assert($conditionalImage, 'page-only image rules retain their at-rule context');
-$assert(!str_contains($routeText, ':where(:root:is(.' . $classes['e.html'] . '))'), 'page-only image bridge inert elsewhere needs no positive route scope');
+$assert(str_contains($routeText, ':where(:root:is(.' . $classes['e.html'] . '))'), 'page-only image bridge excludes the unknown non-plan document');
 
 // Each route is compared with its independent public compilation, including
 // editor wrapper selectors. Apply exactly the root attributes the theme uses.
@@ -500,9 +500,9 @@ foreach (array_slice($budgetPlan['pages'], 0, 2) as $row) {
 // Rules that differ between pages only by page-local block markers. Every
 // page has its own buttons in a `.row-cols-3` grid, so `.row-cols-3>*` and
 // `.row>*` project onto each page's own per-element markers, which the page
-// projection packs as `>:is(:where(.m1),…)`. Those differences fold into one
-// unscoped union in the shared rule: the sheet grows by marker names only,
-// never by a route-scoped copy of the rule per page.
+// projection packs as `>:is(:where(.m1),…)`. With the virtual base route,
+// variant-only markers must now be scoped even if private to one plan page.
+// Small cases reconcile; larger ones may hit the unchanged byte-budget fallback.
 $markerCss = '.row{display:flex;flex-wrap:wrap}.row-cols-3>*{flex:0 0 auto;width:33.3%}.row>*{flex-shrink:0;max-width:100%}'
     . '.btn{background-color:#123456;color:#fff;border-radius:4px;padding:8px 16px}';
 for ($i = 0; $i < 120; ++$i) $markerCss .= '.marker-tail-' . $i . '{color:#123456;margin:0;padding:2px;border-top-width:1px}';
@@ -524,15 +524,17 @@ foreach (array(2, 6, 10) as $count) {
     $site = $markerSite($count);
     $text = implode('', $site['assets']);
     $markerSizes[$count] = strlen($text);
-    $assert(1 === count($site['assets']) && !str_contains(implode('', array_column($site['plan']['assets'], 'source_path')), '.page-'), $count . ' marker-only pages: one site-wide asset, no page copies', json_encode(array_keys($site['assets'])));
-    $assert(!str_contains($text, 'be-r-'), $count . ' marker-only pages: nothing is route scoped', $text);
-    $assert(array() === array_filter($site['diagnostics'], static fn (array $row): bool => 'author_stylesheet_route_scope_fallback' === ($row['code'] ?? '')), $count . ' marker-only pages: no route-scope fallback');
+    $fallbacks = array_filter($site['diagnostics'], static fn (array $row): bool => 'author_stylesheet_route_scope_fallback' === ($row['code'] ?? ''));
+    if (2 === $count) {
+        $assert(1 === count($site['assets']) && str_contains($text, 'be-r-') && !$fallbacks, 'small marker fixture scopes variants without copies');
+    } else {
+        $assert(count($site['assets']) > 1 && count($fallbacks) === 1, $count . ' marker pages: unknown non-plan markup retains the unchanged byte-budget fallback');
+    }
 }
 $markerText = implode('', $site['assets']);
-$assert((bool) preg_match('/:where\((?:\.blocks-engine-control-[a-f0-9]{12}-\d+,){3,}/', $markerText), 'page-local markers fold into one recompacted :where() list', $markerText);
-// Ten pages add only their marker names: under a fifth of the two-page
-// sheet. Route-scoped copies grew it by about 2.3 KB per page.
-$assert($markerSizes[10] < 1.2 * $markerSizes[2] && $markerSizes[10] - $markerSizes[6] < 1.2 * ($markerSizes[6] - $markerSizes[2]) + 512, 'site-wide sheet bytes stay roughly constant in the page count', json_encode($markerSizes));
+$assert((bool) preg_match('/:where\((?:\.blocks-engine-control-[a-f0-9]{12}-\d+,)+/', $markerText), 'same-route page-local markers still recompact into :where() lists');
+// Even the budget fallback must not duplicate the long unchanged tail.
+$assert($markerSizes[10] < 1.4 * $markerSizes[2] && $markerSizes[10] - $markerSizes[6] < 1.2 * ($markerSizes[6] - $markerSizes[2]) + 512, 'site-wide sheet bytes stay roughly constant in the page count', json_encode($markerSizes));
 $markerProbe = static function (array $plan, array $row): array {
     $assets = array_column($plan['assets'], null, 'target_path');
     $css = '';
@@ -551,17 +553,15 @@ $markerProbe = static function (array $plan, array $row): array {
     }
     return $styles;
 };
-// With every third page empty, the empty pages' projection is the shared
-// one: the other pages' marker rules are page-only. Each is inert off its
-// own page, so they join the sheet as unscoped unions; only rules whose arms
-// can match without a marker carry a route scope.
+// With every third page empty, its projection is the shared one. Other
+// pages' marker rules are page-only and must exclude unknown non-plan pages.
 $gapSite = $markerSite(9, true);
 $gapText = implode('', $gapSite['assets']);
 $scopedMarkerRule = false;
 $transformer->visitStyleRules($gapText, static function (string $prelude) use (&$scopedMarkerRule): void {
     if (str_contains($prelude, 'be-r-') && preg_match('/blocks-engine-control-[a-f0-9]{12}-\d+/', $prelude)) $scopedMarkerRule = true;
 });
-$assert(1 === count($gapSite['assets']) && !$scopedMarkerRule, 'page-only marker rules fold into unscoped unions', $gapText);
+$assert(1 === count($gapSite['assets']) && $scopedMarkerRule, 'page-only marker rules stay shared but exclude non-plan pages');
 foreach (array(array($site, false), array($gapSite, true)) as [$checked, $gaps]) {
     foreach ($checked['plan']['pages'] as $row) {
         $index = (int) substr($row['source_path'], 1);
@@ -574,7 +574,7 @@ foreach (array(array($site, false), array($gapSite, true)) as [$checked, $gaps])
 }
 echo 'Marker-only fixture author CSS: ' . json_encode($markerSizes) . " bytes for 2/6/10 pages\n";
 
-// Mixed real-site rule shapes: hundreds of safe marker arms must not inherit
+// Mixed real-site rule shapes: hundreds of base marker arms must not inherit
 // a shared-chrome arm's scope. Richtext swaps and a dropped plain rule use
 // the same per-arm membership path, including complementary scopes.
 $armSizes = array();
@@ -609,19 +609,19 @@ foreach (array(2, 10, 30) as $count) {
             $assert($expected->resolve($element, $properties, array()) === $actual->resolve($element, $properties, array()), 'mixed-arm computed-style parity ' . $count . ' routes: ' . $owner . ' ' . $element->textContent);
         }
     }
-    $assert(str_contains($text, ':root:not(') || 2 === $count, 'the dropped rule uses the shorter complementary scope');
+    $assert(str_contains($text, ':root:not(') || 2 === $count, 'the dropped base rule uses complementary scope');
 }
-$assert($armSizes[30] < 1.1 * $armSizes[2], 'mixed-arm site-wide bytes stay roughly constant in N', json_encode($armSizes));
+$assert($armSizes[30] < 1.4 * $armSizes[2], 'mixed-arm site-wide bytes stay roughly constant in N', json_encode($armSizes));
 
 // Private richtext carriers (including packed style$/editor-span variants)
-// can be emitted unscoped, but negations and unknown carriers cannot.
+// still need positive scope when absent from the virtual base projection.
 $richOne = 'blocks-engine-richtext-dddddddddddd-0';
 $richTwo = 'blocks-engine-richtext-eeeeeeeeeeee-0';
 $richList = static fn (string $marker): string => ':where(mark[style*="--blocks-engine-richtext-marker:' . $marker . ';"],mark[style$="--blocks-engine-richtext-marker:' . $marker . '"],span[data-blocks-engine-richtext-marker="' . $marker . '"])';
 $richPages = array('one' => array($richList($richOne) . '{color:red}'), 'two' => array($richList($richTwo) . '{color:red}'));
 $richMarkup = array('one' => '<mark style="--blocks-engine-richtext-marker:' . $richOne . ';">One</mark>', 'two' => '<span data-blocks-engine-richtext-marker="' . $richTwo . '">Two</span>');
 $privateRich = $transformer->scopeRouteVariants($richPages['one'], $richPages, array(), null, $richMarkup);
-$assert(!str_contains($privateRich['stylesheet'], 'be-r-'), 'private richtext marker swaps need no route scopes');
+$assert(str_contains($privateRich['stylesheet'], ':root:is('), 'variant-only private richtext excludes non-plan pages');
 $unknownRich = $transformer->scopeRouteVariants($richPages['one'], $richPages);
 $assert(str_contains($unknownRich['stylesheet'], 'be-r-'), 'missing carrier evidence never proves richtext arms inert');
 $negated = ':not(:where(.blocks-engine-control-aaaaaaaaaaaa-0)){color:red}';
@@ -697,12 +697,60 @@ $assert(!$index->inertOutside('.absent', array('missing' => true)), 'missing doc
 $assert($index->inertOutside('.absent:hover', array('plain-1' => true)), 'state-independent non-match is inert');
 $assert(!$index->inertOutside('.x:hover', array('plain-1' => true)), 'stateful structural match stays scoped');
 
+// Route state is restored after compilation. Neither DOM non-matches nor
+// private marker carriers can prove these arms inert on another route.
+$navMarkup = '<nav class="wp-block-navigation"><li class="wp-block-navigation-item"><a class="wp-block-navigation-item__content">Current</a></li></nav>';
+$navDocuments = array();
+foreach (array('kept', 'outside') as $owner) {
+    $dom = new DOMDocument();
+    @$dom->loadHTML('<html><body>' . $navMarkup . '</body></html>');
+    $dom->documentElement->setAttribute('class', Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($owner));
+    $navDocuments[$owner] = $dom;
+}
+$navIndex = new Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex($navDocuments);
+$navArm = ':root .wp-block-navigation .wp-block-navigation-item .wp-block-navigation-item__content[aria-current="page"]:not(.be-c-0):not(.be-c-0):not(.be-c-0):not(.be-c-0)';
+$navRule = $navArm . '{background:rgb(245,245,245);color:black}';
+$navResult = $transformer->scopeRouteVariants(array($navRule), array('kept' => array($navRule), 'outside' => array('')), array(), null, array('kept' => $navMarkup, 'outside' => $navMarkup), $navIndex);
+$assert(str_contains($navResult['stylesheet'], 'be-r-'), 'render-time aria-current rule stays route scoped');
+foreach ($navDocuments as $owner => $dom) {
+    $anchor = $dom->getElementsByTagName('a')->item(0);
+    $anchor->setAttribute('aria-current', 'page');
+    $expected = new StaticCssCascade($dom, 'kept' === $owner ? $navRule : '');
+    $actual = new StaticCssCascade($dom, $navResult['stylesheet']);
+    $assert($expected->resolve($anchor, array('background', 'color'), array()) === $actual->resolve($anchor, array('background', 'color'), array()), 'rendered current navigation parity: ' . $owner);
+}
+foreach (array('current-menu-item', 'current_page_item', 'current-menu-parent', 'current_page_parent', 'current-menu-ancestor', 'current_page_ancestor', 'blocks-engine-current-navigation-item', 'active', 'is-selected') as $stateClass) {
+    $assert(!$navIndex->inertOutside('.' . $stateClass . ' a', array('outside' => true)), 'render-time class cannot prove inertness: ' . $stateClass);
+}
+$stateMarker = 'blocks-engine-control-0123456789ab-99';
+$stateRule = ':where(.' . $stateMarker . ') [aria-current="page"]{color:red}';
+$stateResult = $transformer->scopeRouteVariants(array($stateRule), array('kept' => array($stateRule), 'outside' => array('')), array(), null, array('kept' => '<div class="' . $stateMarker . '"></div>', 'outside' => $navMarkup), $navIndex);
+$assert(str_contains($stateResult['stylesheet'], 'be-r-'), 'marker shortcut cannot bypass render-time route state');
+
+// A non-plan page has no route hook: its projection is the shared base, not
+// the union of page variants. A base arm must use exclusions even when a
+// positive list would be shorter. Variant-only arms must not leak either.
+$unplannedBase = 'body{font-family:Arial;line-height:1.5;color:red}';
+$unplannedPages = array('kept' => array($unplannedBase . 'body{background:blue}'));
+for ($k = 0; $k < 8; ++$k) $unplannedPages['dropped-' . $k] = array('');
+$unplannedResult = $transformer->scopeRouteVariants(array($unplannedBase), $unplannedPages);
+$assert(str_contains($unplannedResult['stylesheet'], ':root:not('), 'base rules exclude dropped plan routes rather than requiring a route class');
+foreach (array_merge(array(null), array_keys($unplannedPages)) as $owner) {
+    $dom = new DOMDocument();
+    @$dom->loadHTML('<html><body>Non-plan page</body></html>');
+    if (null !== $owner) $dom->documentElement->setAttribute('class', Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($owner));
+    $expected = new StaticCssCascade($dom, null === $owner ? $unplannedBase : implode('', $unplannedPages[$owner]));
+    $actual = new StaticCssCascade($dom, $unplannedResult['stylesheet']);
+    $body = $dom->getElementsByTagName('body')->item(0);
+    $assert($expected->resolve($body, array('font-family', 'line-height', 'color', 'background'), array()) === $actual->resolve($body, array('font-family', 'line-height', 'color', 'background'), array()), 'base/variant parity with route class: ' . ($owner ?? 'none'));
+}
+
 // Identical shared units align separately at each source occurrence.
 $marker = 'blocks-engine-control-0123456789ab-0';
 $unit = '.group>.btn{z-index:1}';
 $variant = '.group>.btn,:where(.' . $marker . '){z-index:1}';
 $duplicates = $transformer->scopeRouteVariants(array($unit . '.between{z-index:2}' . $unit), array('a' => array($variant . '.between{z-index:2}' . $variant)), array(), null, array('a' => '<p class="' . $marker . '">Probe</p>'));
-$assert(2 === substr_count($duplicates['stylesheet'], $marker), 'arm reconciliation rewrites every aligned shared unit without moving it');
+$assert(4 === substr_count($duplicates['stylesheet'], '{z-index:1}') && 4 === substr_count($duplicates['stylesheet'], $marker), 'arm reconciliation retains both occurrences with descendant/root route alternatives');
 
 // Identical leading imports remain site-wide despite non-dedupable units.
 $import = '@import url(/external/8e2e7efb6cf0362d/css-659beb8e13af.css);';

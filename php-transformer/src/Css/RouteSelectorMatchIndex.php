@@ -31,9 +31,29 @@ final class RouteSelectorMatchIndex
         }
     }
 
+    /**
+     * Compiled markup cannot disprove state WordPress restores at render time.
+     * Use the same class vocabulary as RouteStateProjector's route binding,
+     * including Core's current-menu/current_page classes and BE's current item.
+     * Scan the whole arm, including functional pseudo-class arguments.
+     */
+    public static function dependsOnRouteState(string $arm): bool
+    {
+        if (preg_match('/\[\s*(?:aria-current|data-status|data-state)\b/i', $arm)) return true;
+        // Escapes cannot safely be interpreted by this lightweight proof.
+        if (str_contains($arm, '\\')) return true;
+        preg_match_all('/\.([A-Za-z0-9_-]+)/', $arm, $classes);
+        foreach ($classes[1] as $class) {
+            if (\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary::containsCurrentStateToken($class)) return true;
+        }
+        // Class attribute selectors may name the same mutable state tokens.
+        return 1 === preg_match('/\[\s*class\b/i', $arm);
+    }
+
     /** Missing documents and unsupported selectors are never evidence of inertness. */
     public function inertOutside(string $arm, array $outside): bool
     {
+        if (self::dependsOnRouteState($arm)) return false;
         if (!isset($this->selectors[$arm])) {
             // Match the structural subject in every state, as the projector does.
             // Do not rewrite quoted attributes or functional negations: those

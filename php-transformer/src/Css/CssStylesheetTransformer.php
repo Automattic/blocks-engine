@@ -271,7 +271,8 @@ final class CssStylesheetTransformer
      * @param array<string,list<string>> $pages
      * Aligned rules are expanded into arms, each with its own route set.
      * Arms proven inert outside that set stay unscoped; all others use the
-     * shorter positive or complementary negative scope. Only validated lists
+     * positive scope for variant-only arms, or a complementary negative scope
+     * for arms retained by the virtual no-route-class base document. Only validated lists
      * are split, preserving invalid-selector isolation and source order.
      *
      * @param array<string,string> $routeIdentities Route identities by compilation owner.
@@ -382,7 +383,12 @@ final class CssStylesheetTransformer
         $routeClass = static fn ($owner): string => $routeClasses[$routeIdentities[$owner] ?? (string) $owner];
         $routeBytes = 0;
         $allRoutes = array_fill_keys(array_keys($pages), true);
-        $emitArms = function (array $units, array $prototype, bool $insertion = false) use (&$output, &$routeBytes, $routeClass, $allRoutes, $carriers, $markup, $matchIndex): void {
+        // Non-plan WordPress pages receive the unprojected shared sheet. They
+        // have no route class and no compiled markup, so can never prove inertness.
+        $baseOwner = '';
+        while (isset($allRoutes[$baseOwner])) $baseOwner .= '#';
+        $allRoutes[$baseOwner] = true;
+        $emitArms = function (array $units, array $prototype, bool $insertion = false) use (&$output, &$routeBytes, $routeClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex): void {
             [$lead, $rule] = self::splitLeadingComments($prototype['text']);
             $brace = (int) $this->nextRuleBoundary($rule, 0);
             $body = substr($rule, $brace);
@@ -399,13 +405,18 @@ final class CssStylesheetTransformer
             foreach ($members as $arm => $routes) {
                 $outside = array_diff_key($allRoutes, $routes);
                 $marker = self::positiveMarker($arm);
-                $inert = !$outside || (null !== $marker && !array_diff_key($outside, $markup) && !array_diff_key($carriers[$marker] ?? array(), $routes));
-                if (!$inert && null !== $matchIndex) $inert = $matchIndex->inertOutside($arm, $outside);
+                $inert = !$outside;
+                if (!$inert && !isset($outside[$baseOwner]) && !RouteSelectorMatchIndex::dependsOnRouteState($arm)) {
+                    $inert = null !== $marker && !array_diff_key($outside, $markup) && !array_diff_key($carriers[$marker] ?? array(), $routes);
+                    if (!$inert && null !== $matchIndex) $inert = $matchIndex->inertOutside($arm, $outside);
+                }
                 $scope = '';
                 if (!$inert) {
-                    $positive = ':where(:root:is(' . implode(',', array_map(static fn ($owner): string => '.' . $routeClass($owner), array_keys($routes))) . '))';
-                    $negative = ':where(:root:not(' . implode(',', array_map(static fn ($owner): string => '.' . $routeClass($owner), array_keys($outside))) . '))';
-                    $scope = strlen($positive) <= strlen($negative) ? $positive : $negative;
+                    if (isset($routes[$baseOwner])) {
+                        $scope = ':where(:root:not(' . implode(',', array_map(static fn ($owner): string => '.' . $routeClass($owner), array_keys($outside))) . '))';
+                    } else {
+                        $scope = ':where(:root:is(' . implode(',', array_map(static fn ($owner): string => '.' . $routeClass($owner), array_keys($routes))) . '))';
+                    }
                 }
                 $groups[$scope][] = $arm;
             }
