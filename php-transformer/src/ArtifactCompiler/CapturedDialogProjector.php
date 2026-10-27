@@ -153,7 +153,7 @@ final class CapturedDialogProjector
             $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
             libxml_clear_errors();
             libxml_use_internal_errors($previous);
-            if (! $loaded) continue;
+            if (! $loaded || $this->hasRestingInlinePanel($document)) continue;
             $count = 0;
             $xpath = new DOMXPath($document);
             foreach (iterator_to_array($xpath->query('//*[@popover][@id]') ?: array()) as $popover) {
@@ -304,6 +304,9 @@ final class CapturedDialogProjector
         // running, so it keeps the wiring it drives too.
         if ($this->hasUnrecognizedRuntime($document)) {
             return array('html' => $html, 'diagnostics' => array(), 'projected_count' => 0, 'retired_scripts' => array(), 'script_bindings' => null);
+        }
+        if ($this->hasRestingInlinePanel($document)) {
+            return array('html' => $html, 'diagnostics' => array($this->restingInlineDiagnostic($sourcePath)), 'projected_count' => 0, 'retired_scripts' => array(), 'script_bindings' => null);
         }
         $scriptBindings = new ScriptOccurrenceBindings($document);
         $diagnostics = array();
@@ -890,6 +893,30 @@ final class CapturedDialogProjector
             && $digest === hash('sha256', trim($script->textContent ?? ''));
     }
 
+    /**
+     * Reused non-dropdown panels can rest inline when their trigger is concealed.
+     * The native resting wrapper treats these as dropdowns and cannot reproduce
+     * the producer's computed-style/geometry check. Keep the entire page's wiring
+     * intact, including panels currently hidden at the captured viewport.
+     */
+    private function hasRestingInlinePanel(DOMDocument $document): bool
+    {
+        foreach ($document->getElementsByTagName('*') as $panel) {
+            if ($panel->hasAttribute(CaptureEvidence::DIALOG_PANEL)
+                && $panel->hasAttribute(CaptureEvidence::EXISTING_PANEL)
+                && !SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS)) {
+                $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
+                if (is_array($snapshot) && is_array($snapshot['resting'] ?? null)) return true;
+            }
+        }
+        return false;
+    }
+
+    private function restingInlineDiagnostic(string $path): array
+    {
+        return $this->diagnostic('captured_disclosure_resting_inline_runtime_kept', 'warning', 'The capture disclosure runtime was kept for this page because native dialogs cannot reproduce a reused non-dropdown panel\'s responsive inline resting presentation.', array('source_path' => $path));
+    }
+
     /** Whether a page carries a capture runtime marker whose body is not the published one. */
     private function hasUnrecognizedRuntime(DOMDocument $document): bool
     {
@@ -921,7 +948,12 @@ final class CapturedDialogProjector
             $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
             libxml_clear_errors();
             libxml_use_internal_errors($previous);
-            if (!$loaded || $this->hasUnrecognizedRuntime($document) || !$this->hasNavigationOwnedDialogTrigger($document) || !$this->everyDialogTriggerIsBound($document)) continue;
+            if (!$loaded || $this->hasUnrecognizedRuntime($document)) continue;
+            if ($this->hasRestingInlinePanel($document)) {
+                $diagnostics[] = $this->restingInlineDiagnostic($path);
+                continue;
+            }
+            if (!$this->hasNavigationOwnedDialogTrigger($document) || !$this->everyDialogTriggerIsBound($document)) continue;
             $scriptBindings = new ScriptOccurrenceBindings($document);
             $this->consumeNavigationOwnedCloseHelpers($document);
             if ($this->hasDialogCloseHelper($document)) continue;
