@@ -48,6 +48,15 @@ final class AuthorStylesheetProjector
      */
     private const STATE_PSEUDO_CLASS_PATTERN = '/:(?:hover|focus-visible|focus-within|focus|active|visited|any-link|link|disabled|enabled|target)(?![\w(-])/i';
 
+    /** Whether the rule being projected restated `box-sizing:content-box`. */
+    private bool $contentBoxRestated = false;
+
+    /** Authored cascade position of the rule that restated `box-sizing:content-box`. */
+    private ?int $contentBoxOrder = null;
+
+    /** @var list<array{selector: string, conditions: list<string>, value: string, order: int}> */
+    private array $contentBoxOverrides = array();
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer,
@@ -96,9 +105,50 @@ final class AuthorStylesheetProjector
     private function projectStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false, array $ancestors = array(), array $outerConditions = array()): string
     {
         $lifted = ColorSchemeVariant::liftPrelude($prelude);
+        $this->contentBoxRestated = false;
+        $this->contentBoxOrder = null;
+        $this->contentBoxOverrides = array();
         $css = $this->emitProjectedStyleRule($lifted['prelude'], $body, $context, $inConditional, array( ...$outerConditions, ...$ancestors ));
+        $css = ColorSchemeVariant::wrap($css, $lifted['scheme'], $ancestors);
+        if ( ! $this->contentBoxRestated ) {
+            return $css;
+        }
 
-        return ColorSchemeVariant::wrap($css, $lifted['scheme'], $ancestors);
+        return $this->moveContentBoxRestatements($css, $context, array( ...$outerConditions, ...$ancestors ));
+    }
+
+    /**
+     * A `box-sizing:content-box` restatement is support CSS, so it moves out of
+     * the projected author rule into the after-author support stylesheet,
+     * keeping the projected selector and conditions. Source rules it must not
+     * override are restated there too, in authored order ({@see ContentBoxRestatements}).
+     *
+     * @param list<string> $conditions At-rules `$css` sits inside, outermost first.
+     */
+    private function moveContentBoxRestatements(string $css, AuthorStylesheetProjectionContext $context, array $conditions): string
+    {
+        $restatements = $context->contentBoxRestatements;
+        $css = $restatements->extract($css, $conditions, $this->contentBoxOrder);
+        // Re-projecting a source rule here must not record its selector a second time.
+        $overrideContext = new AuthorStylesheetProjectionContext(
+            $context->authorStyles,
+            $context->sourceStyles,
+            $context->selectorProjections,
+            $context->evidence,
+            $context->keepAuthorClassSelectors,
+            new ProjectedSelectorBindings(),
+            $context->emittedMarkup
+        );
+        foreach ( $this->contentBoxOverrides as $override ) {
+            $inConditional = self::ancestorsAreConditional($override['conditions']);
+            $restatements->addOverride(
+                $this->rewriteStyleRule($override['selector'], 'box-sizing:' . $override['value'], $overrideContext, $inConditional),
+                $override['conditions'],
+                $override['order']
+            );
+        }
+
+        return $css;
     }
 
     /** @param list<string> $conditions At-rules the rule sits inside, outermost first. */
@@ -143,6 +193,11 @@ final class AuthorStylesheetProjector
         );
         $body = $projection['body'];
         $declarations = $projection['declarations'];
+        if ( $projection['content_box'] ) {
+            $this->contentBoxRestated = true;
+            $this->contentBoxOrder ??= $projection['content_box_order'];
+            array_push($this->contentBoxOverrides, ...$projection['content_box_overrides']);
+        }
         // Margins and self-alignment position the outer box in its parent.
         // Keep them out of surface projection, including attribute-ancestry arms.
         $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-') || ($hasButtonSubjects && in_array($name, array('align-self', 'justify-self', 'place-self'), true)), ARRAY_FILTER_USE_KEY);

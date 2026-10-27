@@ -79,7 +79,7 @@ foreach ( $emitted as $path => $value ) {
 $live = static fn (string $value): string => (string) preg_replace('~/\*.*?\*/~s', '', $value);
 $assets = array();
 foreach ( $result['assets'] ?? array() as $asset ) {
-    if ( is_string($asset['content'] ?? null) && str_contains($asset['content'], '#box') ) {
+    if ( 'author' === ($asset['stylesheet_placement'] ?? null) && is_string($asset['content'] ?? null) && str_contains($asset['content'], '#box') ) {
         $assets[] = $live($asset['content']);
     }
 }

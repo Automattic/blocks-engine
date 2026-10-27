@@ -559,6 +559,7 @@
       "php tests/unit/background-padding.php",
       "php tests/unit/artifact-author-stylesheet-projection.php",
       "php tests/unit/content-box-min-max-size.php",
+      "php tests/unit/content-box-support-sheet.php",
       "php tests/unit/fallback-finding-normalizer.php",
       "php tests/unit/native-list-item-fallback-reconciler.php",
       "php tests/unit/editor-anchor-attribute-id-projection.php",
