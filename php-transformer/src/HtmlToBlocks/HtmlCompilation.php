@@ -6484,6 +6484,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true)
                 || 'true' === strtolower($this->attr($element, 'aria-hidden'))
                 || $this->isEmptyVisualInlineCandidate($element)
+                // CSS can give a phrasing tag a painted block box without an
+                // explicit height (for example width plus aspect-ratio).
+                || ($this->hasEmptyVisualBlockDisplay($element) && $this->hasVisibleEmptyVisualPaint($paintDeclarations, $element))
                 || $this->occupiesDefiniteGridCell($element);
         }
 
@@ -6830,11 +6833,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $this->isEmptyVisualInlineCandidate($element) ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::EMPTY_VISUAL_GROUP_CLASS);
             $this->runtimeBehavior()->markEmptyVisualGroupGenerated();
-            // An inline background paint is the reason this boundary box exists;
-            // restate it on a dedicated carrier so the saved group renders it.
+            // Carry complex paint, but let native background support own a
+            // CSS block box's solid colour so editor recolouring can win.
             $attrs['className'] = $this->mergeClassNames(
                 (string) $attrs['className'],
-                $this->styleResolver->emptyElementBackgroundCarrierClassName($element)
+                $this->styleResolver->emptyElementBackgroundCarrierClassName($element, $this->hasEmptyVisualBlockDisplay($element) && isset($attrs['style']['color']['background']))
             );
             // Empty, nested layout wrappers can still own measurable grid or
             // flex tracks (fluid-engine sections commonly put those tracks on
@@ -6974,6 +6977,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $attrs['style']['spacing']['margin'] = array_merge($attrs['style']['spacing']['margin'] ?? array(), $margins);
 
         return $this->createBlock('core/separator', $attrs, array(), $separator);
+    }
+
+    /** CSS can establish a block box on a phrasing tag; explicitly zero-sized leaves remain inert. */
+    private function hasEmptyVisualBlockDisplay(DOMElement $element): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        foreach ( array( 'width', 'height' ) as $property ) {
+            $size = $this->styleResolver->resolveCssVariablesInValue((string) ($declarations[$property] ?? 'auto'), $element);
+            if ( 1 === preg_match('/^[+-]?0(?:\.0+)?(?:[a-z]+|%)?$/i', trim($size)) ) {
+                return false;
+            }
+        }
+        return in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'block', 'flow-root', 'flex', 'grid', 'inline-block', 'inline-flex', 'inline-grid' ), true);
     }
 
     private function isEmptyVisualInlineCandidate(DOMElement $element): bool

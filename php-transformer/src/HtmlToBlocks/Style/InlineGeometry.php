@@ -319,9 +319,11 @@ final class InlineGeometry
      * must ride: restate exactly the background declarations and authored inline alpha through the same
      * generated stylesheet, tiering, and URL rewriting as the standard
      * carrier. Every other inline property is excluded, so class-owned rules
-     * and the preserved className keep owning the box's geometry.
+     * and the preserved className keep owning the box's geometry. Callers that
+     * save native background colour support can opt out of carrying fully
+     * mapped solid colours, avoiding an important rule that defeats editing.
      */
-    public function emptyElementBackgroundCarrierClassName(DOMElement $element): string
+    public function emptyElementBackgroundCarrierClassName(DOMElement $element, bool $nativeBackgroundColor = false): string
     {
         $declarations = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
         $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? $declarations['background-color'] ?? '');
@@ -336,6 +338,16 @@ final class InlineGeometry
         )));
 
         $forced = array_merge($this->backgroundCarrierProperties(), array( 'background-color' ));
+        // A fully mapped solid colour is saved by native background support.
+        // Restating it as !important would prevent editor recolouring. Complex
+        // backgrounds still need their carrier (images, gradients and layers).
+        $background = array_intersect_key($declarations, array_flip(array( 'background', 'background-color' )));
+        $mapped = $this->styleAttributeMapper()->map($background);
+        if ( $nativeBackgroundColor && isset($mapped['style']['color']['background']) && array() === $mapped['leftover'] ) {
+            $nativeProperties = array_keys($background);
+            $excludedProperties = array_merge($excludedProperties, $nativeProperties);
+            $forced = array_values(array_diff($forced, $nativeProperties));
+        }
         // A source inline opacity belongs to this empty painted boundary. Core
         // background supports cannot represent alpha on that boundary without
         // also applying it to content, so keep the authored alpha alongside

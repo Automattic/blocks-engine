@@ -1822,9 +1822,9 @@ final class StyleResolver implements ElementPresentationResolver
      * paint, for empty source containers kept as visual boundaries. '' when the
      * inline style paints no image.
      */
-    public function emptyElementBackgroundCarrierClassName(DOMElement $element): string
+    public function emptyElementBackgroundCarrierClassName(DOMElement $element, bool $nativeBackgroundColor = false): string
     {
-        return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element);
+        return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element, $nativeBackgroundColor);
     }
 
     /** Carry box spacing lost on a display:contents synthetic image figure. */
