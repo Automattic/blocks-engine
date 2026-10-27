@@ -41,6 +41,14 @@ final class LogoPattern implements PatternRecognizerInterface
             $context->createBlock(...)
         );
 
+        if ( 'core/buttons' === ($block['blockName'] ?? '') ) {
+            // Structured logo labels keep their source descendants inside the
+            // saved link, rather than emitting independent blocks or inline
+            // layout carriers. Publish that topology just as button lowering
+            // does, before the author stylesheet is projected.
+            $context->buttonContext()?->retainSourceDescendants($element);
+        }
+
         return null === $block ? null : new PatternRecognitionResult($block);
     }
 

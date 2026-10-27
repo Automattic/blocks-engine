@@ -467,6 +467,37 @@ $assert(
     $decorativeMarkLogoMarkup
 );
 
+// Structured media/text links retain their descendants, even when discovery
+// predicted independent semantic blocks or inline-layout carriers for them.
+$structuredBrand = $transform(
+    '<style>#scope .brand{display:inline-flex;gap:12px}'
+    . '#scope .logo{width:clamp(88px,23vw,104px);height:104px}'
+    . '#scope .title{display:block;font-size:clamp(24px,3vw,38px)}'
+    . '@media (width>=1024px){#scope .logo{width:72px;height:72px}#scope .title{font-size:38px}}</style>'
+    . '<header id="scope"><a class="brand" href="/"><span class="logo"><img src="mark.png" width="602" height="602"></span>'
+    . '<span class="identity"><span class="wordmark"><span class="title">Studio</span><span class="baseline">Notes</span></span></span></a></header>'
+);
+$structuredBrandDom = new DOMDocument();
+$structuredBrandDom->loadHTML('<!doctype html><body>' . $structuredBrand['serialized_blocks'] . '</body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$structuredBrandRules = array();
+$structuredBrandCss = implode("\n", array_column(array_filter($structuredBrand['assets'] ?? array(), static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '')), 'content'));
+(new CssStylesheetTransformer())->visitStyleRules($structuredBrandCss, static function (string $selector, string $body, array $conditions) use (&$structuredBrandRules, $structuredBrandDom, $assert): void {
+    $target = str_contains($body, 'display:inline-flex') ? 'a' : (str_contains($body, 'font-size:') ? '.title' : '.logo');
+    $matches = false;
+    foreach ( CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm ) {
+        foreach ( $structuredBrandDom->getElementsByTagName('*') as $element ) {
+            if ( (CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($target))['matches'] ?? false)
+                && (CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($arm))['matches'] ?? false) ) {
+                $matches = true;
+            }
+        }
+    }
+    $structuredBrandRules[] = array('body' => $body, 'conditions' => $conditions);
+    $assert($matches, 'structured link author rule reaches its emitted source element: ' . $selector);
+});
+$assert(5 === count($structuredBrandRules) && 2 === count(array_filter($structuredBrandRules, static fn (array $rule): bool => array('@media (width>=1024px)') === $rule['conditions'])), 'structured link retains all base rules and both media overrides');
+$assert(str_contains($structuredBrand['serialized_blocks'], '<img src="mark.png" width="602" height="602">'), 'structured link retains intrinsic image dimensions while author sizing remains addressable');
+
 $nestedDecorativeMarkLogo = $transform('<a class="brand" href="#top"><span class="word">Architecture<span class="spark" aria-hidden="true">*</span></span></a>');
 $assert(
     'core/paragraph' === ($nestedDecorativeMarkLogo['blocks'][0]['blockName'] ?? ''),
