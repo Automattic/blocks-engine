@@ -202,7 +202,7 @@ foreach ($projectedPinnedAssets as $index => $asset) {
         break;
     }
 }
-$projectedPinnedSupport = is_int($projectedPinnedSupportIndex) ? (string) ($projectedPinnedAssets[$projectedPinnedSupportIndex]['content'] ?? '') : '';
+$projectedPinnedSupport = implode("\n", array_column(array_filter($projectedPinnedAssets, static fn(array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && 'after-author' === ($asset['stylesheet_placement'] ?? '')), 'content'));
 $assert(is_int($projectedPinnedAuthorIndex) && is_int($projectedPinnedSupportIndex) && $projectedPinnedAuthorIndex < $projectedPinnedSupportIndex, 'projected linked stylesheet loads before its post-author admin-bar support asset');
 $assert(str_contains($projectedPinnedSupport, 'body.admin-bar #projected-pinned-layer{top:calc((0px) + var(--wp-admin--admin-bar--height, 32px))!important}') && str_contains($projectedPinnedSupport, '@media (max-width:700px){body.admin-bar :where(.data-blocks-engine-capture-mobile-document) #projected-mobile-pinned-layer{top:calc((0px) + var(--wp-admin--admin-bar--height, 32px))!important}}'), 'projected inline fixed runtime selector and nested linked mobile selector receive admin-bar offsets');
 $projectedPinnedCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $projectedPinnedAssets));
@@ -560,7 +560,7 @@ $multiPage = ( new ArtifactCompiler() )->compile(array(
     ),
 ) )->toArray();
 $multiPageSupportAssets = array_values(array_filter($multiPage['assets'] ?? array(), static fn (array $asset): bool => 'engine-support' === ($asset['source'] ?? '')));
-$assert(1 === count($multiPageSupportAssets), 'identical generated engine support stylesheets are emitted once across HTML routes');
+$assert(2 === count($multiPageSupportAssets), 'identical before-author and body UA support stylesheets are each emitted once across HTML routes');
 $multiPageAssetPaths = array_column($multiPage['assets'] ?? array(), 'path');
 $multiPageWordPressAssets = $multiPage['source_reports']['wordpress_site_plan']['assets'] ?? array();
 $assert(1 === preg_match('#^assets/css/engine-support-before-author-[a-f0-9]{16}\.css$#', $multiPageAssetPaths[0] ?? '') && 'shared.css' === ($multiPageAssetPaths[1] ?? '') && 'shared' === ($multiPageSupportAssets[0]['compilation']['scope'] ?? '') && 'global' === ($multiPageWordPressAssets[0]['scopes'][0]['kind'] ?? ''), 'identical multi-page support is ordered before author CSS and promoted to global scope');

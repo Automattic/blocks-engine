@@ -93,7 +93,7 @@ if ( str_contains($iconOnlyMarkup, '<!-- wp:html')
 $unsafe = ( new HtmlTransformer() )->transform('<h2>Title ' . $icon . ' <svg><script>alert(1)</script></svg></h2>')->toArray();
 if ( 'core/html' !== ($unsafe['blocks'][0]['blockName'] ?? '')
     || ! str_contains((string) ($unsafe['blocks'][0]['attrs']['content'] ?? ''), '<svg')
-    || array() !== ($unsafe['assets'] ?? array()) ) {
+    || array() !== array_filter($unsafe['assets'] ?? array(), static fn(array $asset): bool => 'inline-svg' === ($asset['source'] ?? '')) ) {
     $failures[] = 'Heading with an unsafe SVG falls back to core/html and restores materialized assets.';
 }
 

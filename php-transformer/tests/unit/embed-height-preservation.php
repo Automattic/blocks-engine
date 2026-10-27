@@ -123,8 +123,8 @@ $assert(
     'a Spotify iframe with no authored sizing at all gets no className; the provider default is left alone'
 );
 $assert(
-    array() === ($noAuthoredHeight['assets'] ?? array()),
-    'no sizing signal means no generated stylesheet carrier is minted at all'
+    !str_contains(json_encode($noAuthoredHeight['assets'] ?? array()) ?: '', 'blocks-engine-embed'),
+    'no sizing signal means no embed sizing stylesheet carrier is minted'
 );
 
 /**

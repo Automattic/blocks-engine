@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Css\EditorCanvasBodyBackground;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
 
 $failures = 0;
 $passes = 0;
@@ -41,6 +42,33 @@ $assert(str_contains($afterAuthor, $rule), 'a compiled layered-body page ships t
 
 $plain = ( new HtmlTransformer() )->transform('<style>body{background-color:#070709}</style><main><p>Hello</p></main>')->toArray();
 $assert(! str_contains(json_encode($plain) ?: '', 'revert-layer'), 'a compiled unlayered-body page ships no hand-back');
+
+// Reduced import from #3602: core resets body margin in both rendering contexts.
+foreach (array('' => '8px', 'body{margin:0}' => '0') as $marginCss => $expected) {
+    $html = '<!doctype html><html><head><meta charset="utf-8"><title>Body margin</title>'
+        . '<style>body{background:#f3f5f8;font-family:sans-serif}.bar{background:#111f38;color:#fff;padding:12px}.hero{background:#2b4a7a;color:#fff;padding:40px}'
+        . $marginCss . '</style></head><body><div class="bar">Call 346-336-6686</div><section class="hero"><h1>Steel buildings</h1><p>Engineered to your spec.</p></section></body></html>';
+    $import = (new HtmlTransformer())->transform($html)->toArray();
+    $css = implode("\n", array_map(
+        static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+        array_filter($import['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? ''))
+    ));
+    foreach (array('', 'editor-styles-wrapper') as $bodyClass) {
+        $document = new DOMDocument();
+        $document->loadHTML('<html><body class="' . $bodyClass . '"><div>Band</div></body></html>');
+        $body = $document->getElementsByTagName('body')->item(0);
+        $properties = '0' === $expected ? array('margin') : array('margin-top', 'margin-right', 'margin-bottom', 'margin-left');
+        $resolved = (new StaticCssCascade($document, ':where(body){margin:0}' . $css))->resolve($body, $properties, array());
+        $expectedSides = array_fill_keys($properties, $expected);
+        ksort($expectedSides);
+        $assert($expectedSides === $resolved, 'import resolves ' . $expected . ' over core body reset in ' . ($bodyClass ?: 'frontend'));
+    }
+    if ('8px' === $expected) {
+        $assert(str_contains($css, 'body,body.editor-styles-wrapper{margin-top:8px;margin-right:8px;margin-bottom:8px;margin-left:8px}'), 'import restores the 8px UA margin on the frontend and editor canvas (x=8, width=1424 at 1440px)');
+    } else {
+        $assert(str_contains($css, 'margin:0') && ! str_contains($css, 'margin-top:8px'), 'author margin 0 survives without a UA override (x=0, width=1440 at 1440px)');
+    }
+}
 
 if ($failures > 0) {
     fwrite(STDERR, "editor-canvas-body-background: {$failures} failure(s), {$passes} passed\n");

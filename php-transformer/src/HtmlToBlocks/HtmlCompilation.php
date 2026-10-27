@@ -2519,7 +2519,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ? $authorCss
             : implode("\n\n", array_column($authorStylesheetProjections, 'content'));
         $afterAuthorCss->addAll(CascadeLayer::REVEAL_SETTLE, ( new RevealAnimationSettler() )->settleRules($settleableAuthorCss));
-        $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, ( new EditorCanvasBodyBackground() )->supportCss($settleableAuthorCss));
+        $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, ( new EditorCanvasBodyBackground() )->supportCss($settleableAuthorCss, $this->styleResolver->authorStructuralDeclarations($this->authorStyles()->sourceBody())));
         // Engine support CSS may join an author cascade layer, and naming a
         // layer registers it. The editor injects author CSS after the enqueued
         // editor styles, so that registration would otherwise arrive first and
