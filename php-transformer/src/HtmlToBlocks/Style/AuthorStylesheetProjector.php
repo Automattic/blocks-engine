@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
@@ -2403,7 +2404,19 @@ final class AuthorStylesheetProjector
         }
         $projected = array();
         $scope = '';
-        if ( preg_match('/^\s*((?::where\([^(),]+\)\s+)+)/i', $selector, $scopeMatch) ) {
+        // The parser folds :where() attributes into the first compound, even
+        // when the gate is attached to root classes or preceded by a comment.
+        // Retain only the device predicate; root classes retain their weight
+        // through the shims below, not through a flattened ancestor compound.
+        foreach ($parsed['compounds'][0]['attributes'] ?? array() as $attribute) {
+            if (in_array($attribute['name'], array(CaptureEvidence::DEVICE_DOCUMENT, EngineMarker::DEVICE_SCOPE_ATTRIBUTE), true)
+                && '=' === $attribute['operator']) {
+                $scope = ':where([' . $attribute['name'] . '="' . str_replace(array('\\', '"', "\n", "\r", "\f"), array('\\\\', '\\"', '\\a ', '\\d ', '\\c '), $attribute['value']) . '"]) ';
+                break;
+            }
+        }
+        // Preserve the historical output for selectors without a device gate.
+        if ('' === $scope && preg_match('/^\s*((?::where\([^(),]+\)\s+)+)/i', $selector, $scopeMatch)) {
             $scope = trim((string) $scopeMatch[1]) . ' ';
         }
         foreach ( $matches as $element ) {
