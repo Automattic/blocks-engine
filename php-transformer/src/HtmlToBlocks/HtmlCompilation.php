@@ -230,6 +230,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');
     private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
+    /** @var array<string, true>|null Source paths selected against the converted block budget. */
+    private ?array $deepMediaBoundaryPaths = null;
+
+    /** @var array<string, true> Boundaries discovered by the converted-tree pass. */
+    private array $discoveredDeepMediaBoundaryPaths = array();
+
     private string $capturedRootTheme = '';
     private string $emittedStyleMarkup = '';
 
@@ -1667,7 +1673,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->collectGeneratedComponentCandidates($body);
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates(), $this->transformationProvenance()->sourceCollapsedWrapperHiddenStates());
         $blocks = $this->compressProjectedGroupChains($blocks);
-        $blocks = $this->captureDeepMediaLayoutBoundaries($blocks);
+        if (null === $this->deepMediaBoundaryPaths) {
+            $blocks = $this->captureDeepMediaLayoutBoundaries($blocks);
+            if (array() !== $this->discoveredDeepMediaBoundaryPaths) {
+                // Discovery converts before boxing so it can use the real block
+                // budget. None of that speculative work may reach the result:
+                // replay in a fresh session, treating only the selected source
+                // regions as opaque. This also preserves independent registrations
+                // in extracted shell/template artifacts, even with shared names.
+                $compilation = new self($this->runtime, $this->analysisCache);
+                $compilation->deepMediaBoundaryPaths = $this->discoveredDeepMediaBoundaryPaths;
+                return $compilation->transform($html, $options);
+            }
+        }
         $fallbacks = array_merge($fallbacks, $this->transformationEvidence()->responsiveImageFallbacks());
         $this->reconcileNativeListItemFallbacks($fallbacks, $blocks);
         $this->reconcileFormControlGroupFallbacks($body, $fallbacks);
@@ -3601,6 +3619,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
+        if (isset($this->deepMediaBoundaryPaths[$element->getNodePath()])) {
+            return $this->capturedMediaLayoutBoundaryBlock($element, true);
+        }
+
         $tagName = strtolower($element->tagName);
 
         $authoredMotion = (new AuthoredMotionMarkerConverter($this->session, $this))->convert($element);
@@ -10600,6 +10622,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $exceedsBudget = $depth + $this->convertedBlockNestingDepth($children) > EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
             $boundary = $captureElement instanceof DOMElement ? $this->capturedMediaLayoutBoundaryBlock($captureElement, $exceedsBudget) : null;
             if (null !== $boundary) {
+                $this->discoveredDeepMediaBoundaryPaths[$captureElement->getNodePath()] = true;
                 $block = $boundary;
             } elseif (array() !== $children) {
                 $block['innerBlocks'] = $converted ?? $this->captureDeepMediaLayoutBoundaries($children, $depth + 1, $represented);
