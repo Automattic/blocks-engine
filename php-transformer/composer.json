@@ -479,6 +479,7 @@
       "php tests/unit/embed-author-height-overrides-attribute.php",
       "php tests/unit/media-text-block-factory.php",
       "php tests/unit/video-element-conversion.php",
+      "php tests/unit/text-video-grid.php",
       "php tests/contract/native-video-poster.php",
       "php tests/contract/native-progress-meter.php",
       "php tests/contract/small-fixed-size-image-beside-text.php",

@@ -149,6 +149,11 @@ final class EngineSupportCss
             $parts[] = $emptyParagraph . '{line-height:0}'
                 . $emptyParagraph . '>[data-rich-text-placeholder]{display:none}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS) ) {
+            // The injected figure must pass the source's percentage height
+            // through to its original containing block, not create an auto box.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . '){width:100%;height:100%;margin:0}';
+        }
         if ( str_contains($serializedBlocks, '<video') ) {
             $parts[] = 'video{max-width:100%}';
         }

@@ -227,23 +227,6 @@ final class BlockFactory
             // core's save() never reads it back, so it never belongs in the
             // serialized comment.
             unset($attrs['mediaFigureClassName']);
-            // Internal-only: consumed by mediaTextVideoAttrs() to build the
-            // video pane's <video> tag (dimensions, poster, native playback
-            // state). core/media-text's save() has no attribute for any of
-            // these — it renders a fixed `<video controls src={mediaUrl} />`
-            // — so none of them belong in the serialized comment.
-            foreach ( array(
-                'mediaVideoWidth',
-                'mediaVideoHeight',
-                'mediaVideoPoster',
-                'mediaVideoPreload',
-                'mediaVideoAutoplay',
-                'mediaVideoLoop',
-                'mediaVideoMuted',
-                'mediaVideoPlaysInline',
-            ) as $internalKey ) {
-                unset($attrs[ $internalKey ]);
-            }
             if ( '' === ($attrs['mediaAlt'] ?? null) ) {
                 unset($attrs['mediaAlt']);
             }
@@ -666,7 +649,7 @@ final class BlockFactory
     {
         $mediaUrl = (string) ($attrs['mediaUrl'] ?? '');
         if ( 'video' === ($attrs['mediaType'] ?? '') ) {
-            return '<video controls' . $this->htmlAttrs($this->mediaTextVideoAttrs($attrs, $mediaUrl)) . '></video>';
+            return '<video controls' . $this->htmlAttrs(array('src' => $mediaUrl)) . '></video>';
         }
 
         if ( 'image' !== ($attrs['mediaType'] ?? '') ) {
@@ -692,38 +675,6 @@ final class BlockFactory
             'target' => (string) ($attrs['linkTarget'] ?? ''),
             'rel'    => (string) ($attrs['rel'] ?? ''),
         )) . '>' . $image . '</a>';
-    }
-
-    /**
-     * core/media-text's save() has no block attribute for a video pane's
-     * intrinsic dimensions, poster, or native playback state — see the
-     * `mediaVideo*` capture in `MediaTextPattern::match()`. Project those
-     * internal-only facts onto the pane's `<video>` tag here.
-     *
-     * @param array<string, mixed> $attrs
-     * @return array<string, string>
-     */
-    private function mediaTextVideoAttrs(array $attrs, string $mediaUrl): array
-    {
-        $videoAttrs = array(
-            'src'     => $mediaUrl,
-            'poster'  => (string) ($attrs['mediaVideoPoster'] ?? ''),
-            'preload' => (string) ($attrs['mediaVideoPreload'] ?? ''),
-            'width'   => (string) ($attrs['mediaVideoWidth'] ?? ''),
-            'height'  => (string) ($attrs['mediaVideoHeight'] ?? ''),
-        );
-        foreach ( array(
-            'mediaVideoAutoplay'    => 'autoplay',
-            'mediaVideoLoop'        => 'loop',
-            'mediaVideoMuted'       => 'muted',
-            'mediaVideoPlaysInline' => 'playsinline',
-        ) as $attributeName => $htmlName ) {
-            if ( ! empty($attrs[ $attributeName ]) ) {
-                $videoAttrs[ $htmlName ] = $htmlName;
-            }
-        }
-
-        return $videoAttrs;
     }
 
     /**
@@ -990,7 +941,8 @@ final class BlockFactory
         $mediaAttrs = array(
             'src'      => (string) ($attrs['src'] ?? ''),
             'poster'   => (string) ($attrs['poster'] ?? ''),
-            'preload'  => (string) ($attrs['preload'] ?? ''),
+            // Core video omits its default preload value from save markup.
+            'preload'  => 'video' === $tagName && 'metadata' === ($attrs['preload'] ?? '') ? '' : (string) ($attrs['preload'] ?? ''),
             'width'    => (string) ($attrs['width'] ?? ''),
             'height'   => (string) ($attrs['height'] ?? ''),
             'controls' => ! empty($attrs['controls']) ? 'controls' : '',

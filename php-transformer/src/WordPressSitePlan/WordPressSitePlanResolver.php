@@ -82,12 +82,13 @@ final class WordPressSitePlanResolver
             foreach ($blocks as &$block) {
                 $attrs = &$block['attrs'];
                 $name = $block['blockName'];
-                $field = 'core/media-text' === $name ? 'mediaUrl' : 'url';
+                $field = 'core/media-text' === $name ? 'mediaUrl' : ('core/video' === $name ? 'src' : 'url');
                 $url = $attrs[$field] ?? '';
                 if ('core/image' === $name && preg_match('/<img\b[^>]*\bsrc=["\']([^"\']*)["\']/i', $block['innerHTML'], $match)) $url = html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5);
+                if ('core/video' === $name && preg_match('/<video\b[^>]*\bsrc=["\']([^"\']*)["\']/i', $block['innerHTML'], $match)) $url = html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5);
                 foreach ($attachments as $token => $attachment) {
                     $canonical = WordPressSitePlan::TOKEN_PREFIX . $token . '}}';
-                    if ($url === $canonical && in_array($name, array('core/image', 'core/cover', 'core/media-text'), true)) {
+                    if ($url === $canonical && in_array($name, array('core/image', 'core/cover', 'core/media-text', 'core/video'), true)) {
                         $attrs['core/media-text' === $name ? 'mediaId' : 'id'] = $attachment['id'];
                         $attrs[$field] = $canonical;
                         if ('core/image' === $name) {
