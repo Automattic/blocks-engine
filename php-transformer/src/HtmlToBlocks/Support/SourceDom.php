@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
@@ -1532,6 +1533,39 @@ final class SourceDom
                         }
                     }
                 }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether an autonomous custom element is empty light DOM whose only
+     * rendered output is its own inline background image or colour, so it
+     * already paints exactly what the equivalent `div` would.
+     */
+    public static function backgroundPaintOnlyCustomElement(DOMElement $element): bool
+    {
+        if ( ! str_contains($element->tagName, '-') ) {
+            return false;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE !== $child->nodeType && ( XML_TEXT_NODE !== $child->nodeType || '' !== trim($child->textContent ?? '') ) ) {
+                return false;
+            }
+        }
+
+        $style = self::attr($element, 'style');
+        if ( '' !== ( new BackgroundImageExtractor() )->urlFromStyle($style) ) {
+            return true;
+        }
+        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
+            [$name, $value] = array_map('trim', explode(':', $declaration, 2) + array( '', '' ));
+            if ( in_array(strtolower($name), array( 'background', 'background-color' ), true)
+                && ! str_contains(strtolower($value), 'url(')
+                && 1 !== preg_match('/^(?:|none|transparent|initial|inherit|unset|revert(?:-layer)?)$/i', preg_replace('/\s*!important$/i', '', $value) ?? '')
+            ) {
+                return true;
             }
         }
 

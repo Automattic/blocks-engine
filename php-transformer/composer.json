@@ -435,6 +435,7 @@
       "php tests/unit/custom-element-runtime-dependency.php",
       "php tests/unit/static-graphic-custom-element.php",
       "php tests/unit/textless-media-custom-element.php",
+      "php tests/unit/background-paint-custom-element.php",
       "php tests/unit/description-list-block.php",
       "php tests/unit/css-value-splitter.php",
       "php tests/unit/css-comment-in-declarations.php",

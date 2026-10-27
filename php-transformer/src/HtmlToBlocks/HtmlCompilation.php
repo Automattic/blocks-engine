@@ -3893,9 +3893,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * accessible name (a widget, not a wrapper) stays on the preservation
      * path, as do the legacy Shadow DOM insertion points `content` and
      * `shadow`, and a textless hyphenated custom element, which a script may
-     * still upgrade into rendered shadow content. Passive graphic-only light DOM
-     * or captured native media is the exception, unless configuration or a proven
-     * runtime owns the host.
+     * still upgrade into rendered shadow content. Passive graphic-only light DOM,
+     * captured native media, or an empty host painting only its inline
+     * background is the exception, unless configuration or a proven runtime
+     * owns the host.
      */
     private function isTransparentUnknownElement(DOMElement $element): bool
     {
@@ -3917,8 +3918,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $runtimeDependency = new CustomElementRuntimeDependency();
-        return ( SourceDom::staticGraphicOnlyCustomElement($element) || SourceDom::hasRenderableMediaContent($element) )
-            && ! $runtimeDependency->hasConfigurationAttribute($element)
+        $paintOnly = SourceDom::backgroundPaintOnlyCustomElement($element);
+        return ( $paintOnly || SourceDom::staticGraphicOnlyCustomElement($element) || SourceDom::hasRenderableMediaContent($element) )
+            && ! $runtimeDependency->hasConfigurationAttribute($element, $paintOnly)
             && 'preserve' !== $runtimeDependency->classify(
                 $element,
                 $this->runtimeBehavior()->runtimeScriptMetadata(),
