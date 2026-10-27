@@ -3032,6 +3032,23 @@ final class AuthorStylesheetProjector
     /** @param array<string, mixed> $parsed */
     private function projectTableDescendantSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context): ?string
     {
+        // A universal arm already reaches native cells. Do not add a stronger
+        // structural arm when it would compete with a selector that stays
+        // native; retain established output when all cell rules are projected.
+        if ( '*' === trim($selector) && in_array(strtolower($element->tagName), array('td', 'th'), true) ) {
+            foreach ( $context->authorStyles->styleRules() as $rule ) {
+                foreach ( $rule['selectors'] ?? array() as $record ) {
+                    $candidate = $record['parsed'] ?? array();
+                    if ( ($candidate['supported'] ?? false)
+                        && 0 < CssSelectorMatcher::specificity($candidate)
+                        && ! TableSelectorProjectionPolicy::needsStructuralProjection($candidate, $element)
+                        && CssSelectorMatcher::matches($element, $candidate)['matches']
+                    ) {
+                        return null;
+                    }
+                }
+            }
+        }
         $table = 'table' === strtolower($element->tagName) ? $element : $this->ancestorElement($element, 'table');
         if (in_array(strtolower($element->tagName), array('table', 'tr', 'td'), true)
             && $table instanceof DOMElement

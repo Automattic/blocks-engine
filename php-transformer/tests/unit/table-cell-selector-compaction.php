@@ -9,8 +9,10 @@ declare(strict_types=1);
 // exact per-cell paths.
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
+require dirname(__DIR__) . '/Support/expand-compacted-selectors.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
 
 $compile = static function (int $rows): string {
     $body = '';
@@ -60,6 +62,40 @@ $small = strlen($compile(3));
 $large = strlen($compile(30));
 if ($large > $small * 1.2) {
     $fail("projected table CSS stays flat as rows are added ({$small} bytes for 3 rows, {$large} for 30)", '');
+}
+
+// Universal resets must stay below native author selectors; structural rules
+// must still reach cells after core/table discards source row/cell identity.
+foreach (array(
+    'universal reset first' => array('*{padding:0}.content table td{padding:16px}', array('16px', '16px', '16px', '16px')),
+    'universal reset last' => array('.content table td{padding:16px}*{padding:0}', array('16px', '16px', '16px', '16px')),
+    'reset selector list' => array('*,:after,:before,::backdrop{padding:0}.content table td{padding:16px}', array('16px', '16px', '16px', '16px')),
+    'structural first column' => array('*{padding:0}.content table td{padding:16px}table tr td:first-child{padding:24px}', array('24px', '16px', '24px', '16px')),
+) as $label => [$sourceCss, $expected]) {
+    $html = '<!doctype html><html><head><style>' . $sourceCss . '</style></head><body><main class="content"><table><tbody>'
+        . '<tr><td>One</td><td>Two</td></tr><tr><td>Three</td><td>Four</td></tr>'
+        . '</tbody></table></main></body></html>';
+    $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
+    $markup = (string) ($result['serialized_blocks'] ?? '');
+    $compiledCss = implode("\n", array_column(array_filter($result['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+    $dom = new DOMDocument();
+    $previous = libxml_use_internal_errors(true);
+    $dom->loadHTML($markup);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+    if (!str_contains($markup, '<!-- wp:table') || 4 !== $dom->getElementsByTagName('td')->length) {
+        $fail($label . ': fixture compiles to a native four-cell table', $markup);
+    }
+    // The static probe only supports integer nth-child arguments. Replace
+    // the all-position predicate with an equally specific always-true one.
+    $probeCss = str_replace(':nth-child(n)', ':not(.regression-absent)', expandCompactedSelectors($compiledCss));
+    $cascade = new StaticCssCascade($dom, $probeCss);
+    foreach ($dom->getElementsByTagName('td') as $index => $cell) {
+        $resolved = $cascade->resolve($cell, array('padding'), array());
+        if (($resolved['padding'] ?? '') !== $expected[$index]) {
+            $fail($label . ': cell ' . $index . ' keeps winning author padding ' . $expected[$index], $compiledCss);
+        }
+    }
 }
 
 fwrite(STDOUT, "table cell selector compaction tests: passed\n");
