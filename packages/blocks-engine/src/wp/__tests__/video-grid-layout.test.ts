@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
-const require = createRequire(import.meta.url);
+const require = createRequire(import.meta.url) as { (id: string): any; resolve(id: string): string };
 const root = fileURLToPath(new URL('../../../../../php-transformer/', import.meta.url));
 
 it('retains source text/video grid geometry at 390, 768 and 1440px', async () => {

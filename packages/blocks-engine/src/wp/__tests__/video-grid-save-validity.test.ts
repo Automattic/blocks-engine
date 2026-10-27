@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { setupDomGlobals } from '../dom-globals.js';
 
-const require = createRequire(import.meta.url);
+const require = createRequire(import.meta.url) as { (id: string): any; resolve(id: string): string };
 type Block = { name: string; innerBlocks: Block[]; attributes: Record<string, unknown> };
 type Wp = {
   parse(markup: string): Block[];
