@@ -13,11 +13,10 @@ $html = '';
 foreach (array('desktop', 'mobile') as $profile) {
     $scope = ':where([data-blocks-engine-capture-device-document="' . $profile . '"]) ';
     $css .= $scope . 'p{color:#345}' . $scope . '.card p{margin:10px 0}'
-        . $scope . '#catalogue a{font-weight:600}'
-        . '/* Device-only identity */' . $scope . '#device-shell{width:100px;padding:2px}';
+        . $scope . '#catalogue a{font-weight:600}';
     $html .= '<div data-blocks-engine-capture-document-scope="' . $profile . '" data-blocks-engine-capture-device-document="' . $profile . '">'
         . '<header><nav aria-label="Primary"><ul><li><a href="/">Home</a></li><li><a href="/archive">Archive</a></li></ul></nav></header>'
-        . '<main id="catalogue"><h1>Field notes</h1><section id="device-shell" class="catalogue">';
+        . '<main id="catalogue"><h1>Field notes</h1><section class="catalogue">';
     for ($i = 0; $i < 80; ++$i) {
         $html .= '<article class="card"><h2>Entry ' . $i . '</h2><p>A short description of this entry.</p><a class="action" href="/entry/' . $i . '">Read entry</a></article>';
     }
