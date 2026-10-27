@@ -418,13 +418,12 @@ final class NavigationToggleSuppressor
     }
 
     /**
-     * Hiding that does not depend on the viewport: a `hidden` or
-     * `aria-hidden` state, a `data-visible="false"` flag, or a static
-     * `max-height:0` clip.
+     * Markup hiding or a static max-height clip. When supplied, the author
+     * display resolved at the reference viewport overrides the UA hidden rule.
      */
-    private function sourceElementIsHiddenByMarkup(DOMElement $element): bool
+    private function sourceElementIsHiddenByMarkup(DOMElement $element, string $referenceDisplay = ''): bool
     {
-        if ( $element->hasAttribute('hidden')
+        if ( ($element->hasAttribute('hidden') && in_array($referenceDisplay, array( '', 'none' ), true))
             || 'true' === strtolower(SourceDom::attr($element, 'aria-hidden'))
             || 'false' === strtolower(SourceDom::attr($element, 'data-visible')) ) {
             return true;
@@ -1879,7 +1878,9 @@ final class NavigationToggleSuppressor
             if ( SourceDom::isDocumentVariantRoot($node) || in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
                 break;
             }
-            if ( $this->sourceElementIsHiddenByMarkup($node) ) {
+            $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($node));
+            $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+            if ( $this->sourceElementIsHiddenByMarkup($node, $display) ) {
                 return true;
             }
         }

@@ -98,6 +98,25 @@ $assertions[] = array('always' === $alwaysOverlay && ! $alwaysHiddenAbove, 'a ca
 $assertions[] = array(str_contains($mobileOnlyOverlay, 'mobile') && ! str_contains($mobileOnlyOverlay, 'always'), 'a mobile-only capture-wired trigger beside a visible desktop menu keeps a mobile overlay: ' . $mobileOnlyOverlay);
 $assertions[] = array($mobileOnlyHiddenAbove, 'a mobile-only drawer leaves the layout from the source boundary up instead of laying its links out inline');
 
+// One source nav is inline on desktop even though capture marked its mobile
+// dialog state hidden. Exercise author display overrides in the full import.
+$inlineFixture = (string) file_get_contents(dirname(__DIR__) . '/fixtures/captured-responsive-inline-navigation.html');
+foreach ( array(
+    'static author display' => $inlineFixture,
+    'conditional author display' => str_replace('.nav nav{display:flex;', '@media (min-width:981px){.nav nav{display:flex}}.nav nav{', $inlineFixture),
+    'inline author display' => str_replace('id="primaryNav"', 'id="primaryNav" style="display:flex"', $inlineFixture),
+) as $case => $html ) {
+    $inlineResult = ( new HtmlTransformer() )->transform($html)->toArray();
+    $inlineMarkup = (string) ($inlineResult['serialized_blocks'] ?? '');
+    $inlineCss = implode("\n", array_map(
+        static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+        $inlineResult['assets'] ?? array()
+    ));
+    $assertions[] = array(1 === $countBlocks($inlineResult['blocks'] ?? array(), 'core/navigation') && str_contains($inlineMarkup, '"label":"Alpha"') && str_contains($inlineMarkup, '"label":"Beta"') && str_contains($inlineMarkup, '"label":"Gamma"'), $case . ': the single source menu retains all three destinations');
+    $assertions[] = array(str_contains($inlineMarkup, '"overlayMenu":"mobile"') && str_contains($inlineCss, '@media(min-width:600px) and (max-width:980px)'), $case . ': the mobile overlay extends to the author breakpoint');
+    $assertions[] = array(0 === preg_match('/@media\(min-width:981px\)\{\.wp-block-navigation[^{}]*blocks-engine-native-navigation-toggle-[a-f0-9]{12}\{display:none!important\}\}/', $inlineCss), $case . ': capture hidden does not hide the inline desktop menu');
+}
+
 $capturedFallback = ( new HtmlTransformer() )->transform(
     '<header><button id="menu-trigger" type="button" aria-label="Open menu" aria-controls="overlay" aria-haspopup="dialog"><span></span><span></span><span></span></button><div id="overlay" hidden></div></header>'
     . '<dialog data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="menu-trigger"><nav><a href="/social">Social</a><a href="mailto:hello@example.test">Contact</a></nav></dialog>'
