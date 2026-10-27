@@ -2294,16 +2294,25 @@ PHP;
             $sequence = $sequences[$document] ?? array();
             usort($sequence, static fn(array $left, array $right): int => $left['order'] <=> $right['order']);
             foreach ($projections as $projection) {
-                $origin = $preceding = null;
+                $origins = array();
+                $preceding = null;
                 foreach ($sequence as $position => $entry) {
                     if ($entry['index'] < $projection) $preceding = $position;
                     if (isset($entry['projection'])) continue;
                     foreach ($assets[$projection]['_stylesheet_projection_origins'] as $source) {
-                        if ($source['source_path'] === ($assets[$entry['index']]['source_path'] ?? null) && $applies($source['scopes'], $document)) $origin = $position;
+                        if ($source['source_path'] !== ($assets[$entry['index']]['source_path'] ?? null) || !$applies($source['scopes'], $document)) continue;
+                        $instance = $assets[$entry['index']]['stylesheet_instances'][$entry['key']];
+                        // Coalesced sources share one winning slot per condition,
+                        // not one copy per link or only the last condition.
+                        $origins[serialize(array($instance['media'], $instance['type']))] = array('position' => $position, 'media' => $instance['media'], 'type' => $instance['type']);
                     }
                 }
-                $instance = null !== $origin ? $assets[$sequence[$origin]['index']]['stylesheet_instances'][$sequence[$origin]['key']] : null;
-                array_splice($sequence, ($origin ?? $preceding ?? -1) + 1, 0, array(array('index' => $projection, 'projection' => true, 'media' => null !== $instance ? $instance['media'] : (string) ($assets[$projection]['media'] ?? ''), 'type' => null !== $instance ? $instance['type'] : '')));
+                if (array() === $origins) $origins[] = array('position' => $preceding ?? -1, 'media' => (string) ($assets[$projection]['media'] ?? ''), 'type' => '');
+                // Insert backwards so earlier positions do not shift.
+                usort($origins, static fn(array $left, array $right): int => $right['position'] <=> $left['position']);
+                foreach ($origins as $origin) {
+                    array_splice($sequence, $origin['position'] + 1, 0, array(array('index' => $projection, 'projection' => true, 'media' => $origin['media'], 'type' => $origin['type'])));
+                }
             }
             foreach ($sequence as $order => $entry) {
                 if (isset($entry['projection'])) $assets[$entry['index']]['stylesheet_instances'][] = array('source_path' => $document, 'order' => $order, 'media' => $entry['media'], 'type' => $entry['type']);
