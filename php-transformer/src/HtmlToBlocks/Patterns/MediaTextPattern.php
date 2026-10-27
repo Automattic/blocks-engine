@@ -247,6 +247,42 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // Media & Text replaces flex items with percentage grid tracks and
+        // adds its own content padding. A gap, bounded column, or unequal
+        // growing columns therefore cannot keep its authored geometry. Nor
+        // can its generated figure retain a decorated visual wrapper.
+        if ( 'flex' === $displayType ) {
+            $textGrow = $this->flexGrow($childStyles[$textIndex]);
+            $mediaGrow = $this->flexGrow($childStyles[$mediaIndex]);
+            $containerDeclarations = $this->styleDeclarations($containerStyle);
+            foreach ( 0.0 < $textGrow || 0.0 < $mediaGrow ? array( 'gap', 'column-gap' ) : array() as $property ) {
+                $value = $this->normalizedCssValue((string) ($containerDeclarations[$property] ?? ''));
+                if ( '' !== $value && ! in_array($value, array( '0', '0px', 'normal' ), true) ) {
+                    return null;
+                }
+            }
+            foreach ( $childStyles as $childStyle ) {
+                $declarations = $this->styleDeclarations($childStyle);
+                foreach ( array( 'min-width', 'max-width' ) as $property ) {
+                    $value = $this->normalizedCssValue((string) ($declarations[$property] ?? ''));
+                    if ( '' !== $value && ! in_array($value, array( 'none', 'auto', '0', '0px' ), true) ) {
+                        return null;
+                    }
+                }
+            }
+            if ( 0.0 < $textGrow && 0.0 < $mediaGrow && $textGrow !== $mediaGrow ) {
+                return null;
+            }
+            if ( $elementChildren[$mediaIndex] !== $resolution['media'] ) {
+                $wrapperDeclarations = $this->styleDeclarations($childStyles[$mediaIndex]);
+                foreach ( array( 'perspective', 'transform', 'filter', 'box-shadow', 'background', 'background-color', 'background-image' ) as $property ) {
+                    if ( isset($wrapperDeclarations[$property]) ) {
+                        return null;
+                    }
+                }
+            }
+        }
+
         // A small, explicitly sized image beside short text is an icon lockup,
         // not a two-pane media/text section. Let normal group lowering retain
         // the authored row so both the image and text stay editable.
