@@ -23,7 +23,7 @@ $assert(in_array('type-b', explode(' ', $pages['other/index.html']['document_met
 $assert('document' === ($pages['index.html']['document_metadata']['root_attributes']['id'] ?? null), 'root ID travels alongside classes');
 $bootstrap = '';
 foreach ($plan['writes'] as $write) if ('functions.php' === $write['target_path']) $bootstrap = $write['payload']['data'];
-$assert(str_contains($bootstrap, "'language_attributes'") && str_contains($bootstrap, 'WP_HTML_Tag_Processor') && str_contains($bootstrap, 'type-a be-route-') && str_contains($bootstrap, 'type-b be-route-'), 'generated runtime adopts route-owned root identity through native HTML API');
+$assert(str_contains($bootstrap, "'language_attributes'") && str_contains($bootstrap, 'WP_HTML_Tag_Processor') && str_contains($bootstrap, 'type-a be-r-') && str_contains($bootstrap, 'type-b be-r-'), 'generated runtime adopts route-owned root identity through native HTML API');
 $assert(str_contains($bootstrap, "'_blocks_engine_reconciliation_identity'") && str_contains($bootstrap, 'is_front_page()'), 'runtime selection uses destination identity with route fallback');
 $css = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === $asset['kind']), 'content'));
 $assert(str_contains($css, '.type-a') && str_contains($css, '.type-b') && str_contains($css, '@media'), 'authored root selector and conditional cascade stay intact');

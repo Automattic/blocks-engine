@@ -264,6 +264,8 @@ final class CssStylesheetTransformer
      * declaration references them, so the ones only some routes keep or add
      * stay site-wide, once each. Two routes that define the same name with
      * different bodies would see each other's definition, so they fall back.
+     * Leading @imports stay shared only when every route retains the exact
+     * same ordered text; differing import lists use the copy fallback.
      *
      * @param list<string> $shared
      * @param array<string,list<string>> $pages
@@ -274,16 +276,18 @@ final class CssStylesheetTransformer
      *
      * @param array<string,string> $routeIdentities Route identities by compilation owner.
      * @param array<string,string> $markup Canonical markup by compilation owner.
+     * @param array<string,string> $routeClasses Site-wide collision-free classes by route identity.
      * `route_bytes` counts scope and split-rule overhead beyond the unscoped
      * arm union, plus scoped insertions, before final compaction.
      *
      * @return array{stylesheet:string, scoped:list<string>, reasons:array<string,string>, route_bytes:int}
      */
-    public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null, array $markup = array(), ?RouteSelectorMatchIndex $matchIndex = null): array
+    public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null, array $markup = array(), ?RouteSelectorMatchIndex $matchIndex = null, array $routeClasses = array()): array
     {
         $carriers = self::markerCarriers($markup);
         $base = array();
         foreach ($shared as $css) $this->collectRuleUnits($css, array(), $base);
+        $baseImports = self::routeImports($base);
         $normal = static fn (array $unit): string => trim(CssSyntaxScanner::withoutComments($unit['text']));
         $key = function (array $unit) use ($normal): string {
             $rule = self::splitLeadingComments($unit['text'])[1];
@@ -311,6 +315,10 @@ final class CssStylesheetTransformer
             }
             if (null !== $reason) { $reasons[$owner] = $reason; continue; }
             foreach ($sheets as $css) $this->collectRuleUnits($css, array(), $units);
+            if (null === $baseImports || self::routeImports($units) !== $baseImports) {
+                $reasons[$owner] = 'different or non-leading @import rules';
+                continue;
+            }
             $cursor = 0;
             $localChanges = $localInsertions = $localSite = array();
             foreach ($units as $unit) {
@@ -366,7 +374,10 @@ final class CssStylesheetTransformer
             }
         }
         $output = array();
-        $routeClass = static fn ($owner): string => \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($routeIdentities[$owner] ?? (string) $owner);
+        $identities = array();
+        foreach (array_keys($pages) as $owner) $identities[] = $routeIdentities[$owner] ?? (string) $owner;
+        $routeClasses = $routeClasses ?: \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClasses($identities);
+        $routeClass = static fn ($owner): string => $routeClasses[$routeIdentities[$owner] ?? (string) $owner];
         $routeBytes = 0;
         $allRoutes = array_fill_keys(array_keys($pages), true);
         $emitArms = function (array $units, array $prototype, bool $insertion = false) use (&$output, &$routeBytes, $routeClass, $allRoutes, $carriers, $markup, $matchIndex): void {
@@ -432,6 +443,29 @@ final class CssStylesheetTransformer
             $emitArms($units, $base[$i]);
         }
         return array('stylesheet' => $this->serializeRuleUnits($output), 'scoped' => $scoped, 'reasons' => $reasons, 'route_bytes' => $routeBytes);
+    }
+
+    /**
+     * Imports must match byte-for-byte, in order, at the sheet top. Unlike
+     * definitions they cannot be added or dropped independently by a route.
+     *
+     * @param list<array{context:list<string>,text:string,dedupable:bool}> $units
+     * @return list<string>|null
+     */
+    private static function routeImports(array $units): ?array
+    {
+        $imports = array();
+        $top = true;
+        foreach ($units as $unit) {
+            [, $rule] = self::splitLeadingComments($unit['text']);
+            if (preg_match('/^@import\b/i', $rule)) {
+                if (!$top || $unit['context']) return null;
+                $imports[] = $unit['text'];
+            } elseif ('' !== trim($rule) && !preg_match('/^@charset\b/i', $rule)) {
+                $top = false;
+            }
+        }
+        return $imports;
     }
 
     /**

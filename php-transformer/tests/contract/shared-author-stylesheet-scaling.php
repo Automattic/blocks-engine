@@ -525,7 +525,7 @@ foreach (array(2, 6, 10) as $count) {
     $text = implode('', $site['assets']);
     $markerSizes[$count] = strlen($text);
     $assert(1 === count($site['assets']) && !str_contains(implode('', array_column($site['plan']['assets'], 'source_path')), '.page-'), $count . ' marker-only pages: one site-wide asset, no page copies', json_encode(array_keys($site['assets'])));
-    $assert(!str_contains($text, 'be-route-'), $count . ' marker-only pages: nothing is route scoped', $text);
+    $assert(!str_contains($text, 'be-r-'), $count . ' marker-only pages: nothing is route scoped', $text);
     $assert(array() === array_filter($site['diagnostics'], static fn (array $row): bool => 'author_stylesheet_route_scope_fallback' === ($row['code'] ?? '')), $count . ' marker-only pages: no route-scope fallback');
 }
 $markerText = implode('', $site['assets']);
@@ -559,7 +559,7 @@ $gapSite = $markerSite(9, true);
 $gapText = implode('', $gapSite['assets']);
 $scopedMarkerRule = false;
 $transformer->visitStyleRules($gapText, static function (string $prelude) use (&$scopedMarkerRule): void {
-    if (str_contains($prelude, 'be-route-') && preg_match('/blocks-engine-control-[a-f0-9]{12}-\d+/', $prelude)) $scopedMarkerRule = true;
+    if (str_contains($prelude, 'be-r-') && preg_match('/blocks-engine-control-[a-f0-9]{12}-\d+/', $prelude)) $scopedMarkerRule = true;
 });
 $assert(1 === count($gapSite['assets']) && !$scopedMarkerRule, 'page-only marker rules fold into unscoped unions', $gapText);
 foreach (array(array($site, false), array($gapSite, true)) as [$checked, $gaps]) {
@@ -621,12 +621,12 @@ $richList = static fn (string $marker): string => ':where(mark[style*="--blocks-
 $richPages = array('one' => array($richList($richOne) . '{color:red}'), 'two' => array($richList($richTwo) . '{color:red}'));
 $richMarkup = array('one' => '<mark style="--blocks-engine-richtext-marker:' . $richOne . ';">One</mark>', 'two' => '<span data-blocks-engine-richtext-marker="' . $richTwo . '">Two</span>');
 $privateRich = $transformer->scopeRouteVariants($richPages['one'], $richPages, array(), null, $richMarkup);
-$assert(!str_contains($privateRich['stylesheet'], 'be-route-'), 'private richtext marker swaps need no route scopes');
+$assert(!str_contains($privateRich['stylesheet'], 'be-r-'), 'private richtext marker swaps need no route scopes');
 $unknownRich = $transformer->scopeRouteVariants($richPages['one'], $richPages);
-$assert(str_contains($unknownRich['stylesheet'], 'be-route-'), 'missing carrier evidence never proves richtext arms inert');
+$assert(str_contains($unknownRich['stylesheet'], 'be-r-'), 'missing carrier evidence never proves richtext arms inert');
 $negated = ':not(:where(.blocks-engine-control-aaaaaaaaaaaa-0)){color:red}';
 $negativeMarker = $transformer->scopeRouteVariants(array($negated), array('one' => array($negated), 'two' => array('')), array(), null, array('one' => '', 'two' => ''));
-$assert(str_contains($negativeMarker['stylesheet'], 'be-route-'), 'negated markers are not positive carrier requirements');
+$assert(str_contains($negativeMarker['stylesheet'], 'be-r-'), 'negated markers are not positive carrier requirements');
 
 // Plain arms are absent because they do not match, not because of marker
 // ownership. Keep the authored input fixed as N increases. A native-lowered
@@ -652,8 +652,8 @@ foreach (array(2, 12, 112) as $count) {
     $plainSizes[$count] = strlen($plainResult['stylesheet']);
     $assert(array() === $plainResult['reasons'] && $count === count($plainResult['scoped']), $count . ' plain routes reconcile without page copies');
     $transformer->visitStyleRules($plainResult['stylesheet'], static function (string $prelude) use ($assert): void {
-        if (str_contains($prelude, '#page-only-')) $assert(!str_contains($prelude, 'be-route-'), 'plain page-local arms are unscoped');
-        if (str_contains($prelude, '.native')) $assert(str_contains($prelude, 'be-route-'), 'matching native-lowered arm stays scoped');
+        if (str_contains($prelude, '#page-only-')) $assert(!str_contains($prelude, 'be-r-'), 'plain page-local arms are unscoped');
+        if (str_contains($prelude, '.native')) $assert(str_contains($prelude, 'be-r-'), 'matching native-lowered arm stays scoped');
     });
     foreach ($plainDocuments as $owner => $dom) {
         $element = $dom->getElementsByTagName('p')->item(0);
@@ -703,6 +703,69 @@ $unit = '.group>.btn{z-index:1}';
 $variant = '.group>.btn,:where(.' . $marker . '){z-index:1}';
 $duplicates = $transformer->scopeRouteVariants(array($unit . '.between{z-index:2}' . $unit), array('a' => array($variant . '.between{z-index:2}' . $variant)), array(), null, array('a' => '<p class="' . $marker . '">Probe</p>'));
 $assert(2 === substr_count($duplicates['stylesheet'], $marker), 'arm reconciliation rewrites every aligned shared unit without moving it');
+
+// Identical leading imports remain site-wide despite non-dedupable units.
+$import = '@import url(/external/8e2e7efb6cf0362d/css-659beb8e13af.css);';
+$importSheet = $boundSheet;
+$importSheet['content'] = $import . $boundSheet['content'];
+$importResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'bound-0.html', 'files' => array_merge($boundFiles, array($importSheet))))->toArray();
+$importPlan = $importResult['source_reports']['wordpress_site_plan'];
+$assert(!str_contains(implode('', array_column($importPlan['assets'], 'source_path')), '.page-'), 'identical leading imports emit no page copies');
+$assert(1 === substr_count(implode('', $authoredAssets($importPlan)), $import), 'identical import stays site-wide once');
+foreach (array('@import url(other.css);', '', $import . '@import url(extra.css);') as $otherImport) {
+    $result = $transformer->scopeRouteVariants(array($import . '.a{color:red}'), array('a' => array($otherImport . '.a{color:blue}')));
+    $assert(isset($result['reasons']['a']), 'different import lists fall back');
+}
+$result = $transformer->scopeRouteVariants(array($import . '@import url(second.css);.a{color:red}'), array('a' => array('@import url(second.css);' . $import . '.a{color:blue}')));
+$assert(isset($result['reasons']['a']), 'reordered imports fall back');
+
+$rootContext = Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::class;
+$classes = array();
+foreach ($importPlan['pages'] as $row) {
+    preg_match('/\\bbe-r-[a-f0-9]+\\b/', $row['document_metadata']['root_attributes']['class'], $match);
+    $classes[] = $match[0] ?? '';
+}
+$assert(count(array_unique($classes)) === count($classes) && !in_array('', $classes, true), 'route classes are unique across the plan');
+$assert(array(13) === array_values(array_unique(array_map('strlen', $classes))), 'normal route classes use the readable eight-hex minimum');
+$collisionIdentities = array('collision-55045', 'collision-70885', 'ordinary-route');
+$collisionClasses = $rootContext::routeClasses($collisionIdentities);
+$assert(3 === count(array_unique($collisionClasses)) && 14 === strlen($collisionClasses['collision-55045']) && 13 === strlen($collisionClasses['ordinary-route']), 'colliding hashes lengthen only as needed');
+$assert($collisionClasses === $rootContext::routeClasses(array_reverse($collisionIdentities)), 'class allocation is independent of route order');
+
+// Exercise the compiler budget with explicit projections: all routes carry
+// the subject, so dropping a rule cannot be proven inert. Long unchanged
+// cascade tails make legacy copies costly in aggregate, not individually.
+$copyBase = '.native{z-index:1}';
+for ($k = 0; $k < 160; ++$k) $copyBase .= '.tail-' . $k . '{z-index:2;color:#123456;margin:0;padding:0}';
+$copyVariant = str_replace('.native{z-index:1}', '.native{z-index:3}', $copyBase);
+$copyPages = $copyFiles = $copyProjections = $copyMarkup = array();
+for ($k = 0; $k < 112; ++$k) {
+    $owner = 'copy-' . $k;
+    $copyPages[$owner] = array($k % 2 ? $copyVariant : $copyBase);
+    $copyMarkup[$owner] = '<div class="native">Probe</div>';
+    $copyProjections[] = array('path' => 'base.css', 'content' => $copyPages[$owner][0], 'owner' => $owner);
+}
+// Many repeated differing units make the scope overhead exceed the old 3x
+// limit while the shared cascade tail dominates each complete page copy.
+$copyBase = str_repeat('.native{z-index:1}', 10) . $copyBase;
+$copyVariant = str_replace('z-index:1}', 'z-index:3}', $copyBase);
+foreach ($copyPages as $owner => &$sheets) $sheets = array((int) substr($owner, 5) % 2 ? $copyVariant : $copyBase);
+unset($sheets);
+foreach ($copyProjections as &$projection) $projection['content'] = $copyPages[$projection['owner']][0];
+unset($projection);
+$copyRoute = $transformer->scopeRouteVariants(array($copyBase), $copyPages, array(), null, $copyMarkup);
+$totalCopies = $largestCopy = 0;
+foreach ($copyPages as $sheets) {
+    $bytes = strlen($transformer->rulesAbsentFrom($sheets, array($copyBase), true));
+    $totalCopies += $bytes;
+    $largestCopy = max($largestCopy, $bytes);
+}
+$assert($copyRoute['route_bytes'] > max(8192, 3 * $largestCopy) && $copyRoute['route_bytes'] <= intdiv($totalCopies, 10), 'total-copy budget accepts overhead rejected by the old largest-copy bound', json_encode(array($copyRoute['route_bytes'], $largestCopy, $totalCopies)));
+$copyFiles[] = array('path' => 'base.css', 'kind' => 'css', 'content' => $copyBase);
+$method = new ReflectionMethod(ArtifactCompiler::class, 'applyAuthorStylesheetProjections');
+$copyDiagnostics = array();
+$copyOutput = $method->invokeArgs(new ArtifactCompiler(), array($copyFiles, $copyProjections, array(array('path' => 'base.css', 'content' => $copyBase)), '', $copyMarkup, &$copyDiagnostics));
+$assert(!str_contains(implode('', array_column($copyOutput, 'path')), '.page-') && !$copyDiagnostics, 'compiler applies total-copy budget without fallback', json_encode($copyDiagnostics));
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "shared-author-stylesheet scaling FAILED: {$passes} passed, {$failures} failed\n");

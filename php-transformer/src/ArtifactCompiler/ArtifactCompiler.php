@@ -52,15 +52,16 @@ final class ArtifactCompiler
     public const MAX_PLAN_DIGEST_DEPTH = 512;
 
     /**
-     * Route-scoped variants live in the one sheet every route downloads. When
-     * the bytes they add (scoped variants and page-only rules, plus the growth
-     * of shared rules that exclude routes) exceed this factor times the
-     * largest page copy (`<sheet>.page-<hash>.css`, what one page would load
-     * on top of the shared sheet), that stylesheet falls back to page copies
-     * with an `author_stylesheet_route_scope_fallback` diagnostic. A visitor
-     * then never loads more than about three times the extra CSS of a copy.
+     * The shared sheet is downloaded once and cached across routes; page
+     * copies cost a separate download per page. Allow the greater of this
+     * factor times the largest copy, one tenth of total copy bytes, and the
+     * floor below. Measure scoped variants and split-rule overhead before
+     * compaction; exceeding the bound falls back to page copies.
      */
     public const ROUTE_SCOPE_BYTES_FACTOR = 3;
+
+    /** Cached shared overhead may replace up to 10% of total per-page copy download bytes. */
+    public const ROUTE_SCOPE_COPY_TOTAL_DIVISOR = 10;
 
     /** Route-scoping overhead always allowed, e.g. for routes that only drop rules (their copy is empty). */
     public const ROUTE_SCOPE_BYTES_FLOOR = 8192;
@@ -86,6 +87,9 @@ final class ArtifactCompiler
 
     /** @var array<string, list<array<string, mixed>>> */
     private array $stylesheetOccurrenceCache = array();
+
+    /** @var array<string,string> Collision-free root classes keyed by site route identity. */
+    private array $routeClasses = array();
 
     /** @var array<string, true> Source resources imported into an authored layer. */
     private array $layeredNavigationImports = array();
@@ -289,6 +293,13 @@ final class ArtifactCompiler
     {
         $startedAt = hrtime(true);
         $normalized = $reduction['normalized'];
+        $routeIdentities = array();
+        foreach ($normalized['files'] as $file) {
+            if ('html' !== ($file['kind'] ?? '')) continue;
+            $source = (string) $file['path'];
+            $routeIdentities[] = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
+        }
+        $this->routeClasses = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClasses($routeIdentities);
         $capturedDialogs = is_array($reduction['captured_dialogs'] ?? null) ? $reduction['captured_dialogs'] : array('diagnostics' => array(), 'projected_count' => 0);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = is_array($reduction['source_documents'] ?? null) ? $reduction['source_documents'] : $this->compileSourceDocuments($normalized);
@@ -2645,11 +2656,13 @@ final class ArtifactCompiler
             $stylesheets = array();
             foreach ( $authoritativeContent as $stylesheet ) {
                 $split = $transformer->splitLeadingAtRulePreamble($stylesheet);
-                if ( '' !== trim($split['preamble']) ) {
-                    $preambles[] = $split['preamble'];
+                $imports = '';
+                foreach ($split['statements'] as $statement) {
+                    if (preg_match('/^\s*(?:\/\*.*?\*\/\s*)*@import\b/is', $statement)) $imports .= $statement;
+                    else $preambles[] = $statement;
                 }
-                if ( '' !== trim($split['stylesheet']) ) {
-                    $stylesheets[] = $split['stylesheet'];
+                if ( '' !== trim($imports . $split['stylesheet']) ) {
+                    $stylesheets[] = $imports . $split['stylesheet'];
                 }
             }
             $sharedStylesheets = array_merge(array_map('strval', array_keys($sharedByPath[$path] ?? array())), $stylesheets);
@@ -2671,21 +2684,22 @@ final class ArtifactCompiler
             $sharedStylesheets = array($transformer->concatenateWithoutRedundantRules($sharedStylesheets));
             $fallbackSharedStylesheets = $sharedStylesheets;
             foreach ($pages as $owner => $_) $pages[$owner] = $pageProjections[$owner] ?? $pages[$owner];
-            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup, $routeMatchIndex);
+            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup, $routeMatchIndex, $this->routeClasses);
             // Recompact only at serialization, merging compatible marker arms.
             $recompact = static fn (string $css): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
-            // Bound what route scoping adds to the sheet every route loads by
-            // what the largest page copy would have added to one page. Both
-            // are measured before compaction.
-            $largestCopy = 0;
+            // A cached shared download replaces separate page-copy downloads.
+            // Both costs are measured before compaction.
+            $largestCopy = $totalCopyBytes = 0;
             if (0 < $routed['route_bytes']) {
                 foreach ($routed['scoped'] as $owner) {
-                    $largestCopy = max($largestCopy, strlen($transformer->rulesAbsentFrom($pageProjections[$owner] ?? array(), $fallbackSharedStylesheets, true)));
+                    $copyBytes = strlen($transformer->rulesAbsentFrom($pageProjections[$owner] ?? array(), $fallbackSharedStylesheets, true));
+                    $largestCopy = max($largestCopy, $copyBytes);
+                    $totalCopyBytes += $copyBytes;
                 }
             }
-            $routeBudget = max(self::ROUTE_SCOPE_BYTES_FACTOR * $largestCopy, self::ROUTE_SCOPE_BYTES_FLOOR);
+            $routeBudget = max(self::ROUTE_SCOPE_BYTES_FACTOR * $largestCopy, intdiv($totalCopyBytes, self::ROUTE_SCOPE_COPY_TOTAL_DIVISOR), self::ROUTE_SCOPE_BYTES_FLOOR);
             if (array() !== $routed['scoped'] && $routed['route_bytes'] > $routeBudget) {
-                $projectionDiagnostics[] = $this->diagnostic('author_stylesheet_route_scope_fallback', 'warning', sprintf('%s: route-scoped variants add %d bytes to every route, over %d (%dx the largest %d-byte page copy); emitting page copies', $path, $routed['route_bytes'], $routeBudget, self::ROUTE_SCOPE_BYTES_FACTOR, $largestCopy));
+                $projectionDiagnostics[] = $this->diagnostic('author_stylesheet_route_scope_fallback', 'warning', sprintf('%s: route-scoped variants add %d cached-sheet bytes, over budget %d = max(%dx largest copy %d, total copies %d / %d, floor %d); emitting page copies', $path, $routed['route_bytes'], $routeBudget, self::ROUTE_SCOPE_BYTES_FACTOR, $largestCopy, $totalCopyBytes, self::ROUTE_SCOPE_COPY_TOTAL_DIVISOR, self::ROUTE_SCOPE_BYTES_FLOOR));
                 foreach ($routed['scoped'] as $owner) $pages[$owner] ??= $pageProjections[$owner] ?? array();
                 $routed['stylesheet'] = implode("\n", $fallbackSharedStylesheets);
             } else {
@@ -4226,7 +4240,7 @@ final class ArtifactCompiler
         $titles = HtmlTagScanner::scan($html, 'title');
         $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
         $routeIdentity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $sourcePath, $sourcePath);
-        $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html, $routeIdentity), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
+        $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html, $routeIdentity, $this->routeClasses[$routeIdentity] ?? null), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
         if ( array() !== $projectedRootMarkers ) {
             $rootClasses = array_values(array_filter(preg_split('/\s+/', trim((string) ($metadata['root_attributes']['class'] ?? ''))) ?: array(), static fn(string $class): bool => '' !== $class));
             $metadata['root_attributes']['class'] = implode(' ', array_unique(array_merge($rootClasses, $projectedRootMarkers)));
