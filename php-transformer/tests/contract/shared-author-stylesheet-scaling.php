@@ -718,6 +718,10 @@ foreach (array('@import url(other.css);', '', $import . '@import url(extra.css);
 }
 $result = $transformer->scopeRouteVariants(array($import . '@import url(second.css);.a{color:red}'), array('a' => array('@import url(second.css);' . $import . '.a{color:blue}')));
 $assert(isset($result['reasons']['a']), 'reordered imports fall back');
+// CSS ignores @import after other rules, so repeated trailing imports (concatenated sheets) are inert on every route.
+$repeated = $import . '.a{color:red}' . $import;
+$result = $transformer->scopeRouteVariants(array($repeated), array('a' => array($import . '.a{color:blue}' . $import)));
+$assert(!isset($result['reasons']['a']) && 1 === substr_count($result['stylesheet'], $import), 'ignored trailing imports neither block route scoping nor survive');
 
 $rootContext = Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::class;
 $classes = array();

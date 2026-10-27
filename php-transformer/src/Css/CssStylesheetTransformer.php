@@ -287,6 +287,7 @@ final class CssStylesheetTransformer
         $carriers = self::markerCarriers($markup);
         $base = array();
         foreach ($shared as $css) $this->collectRuleUnits($css, array(), $base);
+        $base = self::withoutIgnoredImports($base);
         $baseImports = self::routeImports($base);
         $normal = static fn (array $unit): string => trim(CssSyntaxScanner::withoutComments($unit['text']));
         $key = function (array $unit) use ($normal): string {
@@ -315,6 +316,7 @@ final class CssStylesheetTransformer
             }
             if (null !== $reason) { $reasons[$owner] = $reason; continue; }
             foreach ($sheets as $css) $this->collectRuleUnits($css, array(), $units);
+            $units = self::withoutIgnoredImports($units);
             if (null === $baseImports || self::routeImports($units) !== $baseImports) {
                 $reasons[$owner] = 'different or non-leading @import rules';
                 continue;
@@ -466,6 +468,29 @@ final class CssStylesheetTransformer
             }
         }
         return $imports;
+    }
+
+    /**
+     * Drop top-level @import rules that follow other rules. CSS ignores them,
+     * so they are inert on every route; concatenated sheets often repeat them.
+     *
+     * @param list<array{context:list<string>,text:string,dedupable:bool}> $units
+     * @return list<array{context:list<string>,text:string,dedupable:bool}>
+     */
+    private static function withoutIgnoredImports(array $units): array
+    {
+        $top = true;
+        $kept = array();
+        foreach ($units as $unit) {
+            [, $rule] = self::splitLeadingComments($unit['text']);
+            if (preg_match('/^@import\b/i', $rule) && !$unit['context']) {
+                if ($top) $kept[] = $unit;
+                continue;
+            }
+            if ('' !== trim($rule) && !preg_match('/^@charset\b/i', $rule)) $top = false;
+            $kept[] = $unit;
+        }
+        return $kept;
     }
 
     /**
