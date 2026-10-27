@@ -31,7 +31,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         $fallbacks = array();
         $items = array();
         foreach ( $itemElements as $child ) {
-            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggle(...), $context->accordionItemBox(...));
+            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggle(...), $context->accordionItemBox(...), $context->sourceElementStartsHidden(...));
             if ( null === $item ) {
                 return null;
             }
@@ -57,7 +57,7 @@ final class AccordionPattern implements PatternRecognizerInterface
     }
 
     /** @param list<array<string, mixed>> $fallbacks */
-    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggle, callable $accordionItemBox): ?array
+    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggle, callable $accordionItemBox, callable $startsHidden): ?array
     {
         if ( ! $this->isAccordionItemElement($item) || $this->hasRuntimeHeavyDescendant($item) ) {
             return null;
@@ -77,6 +77,28 @@ final class AccordionPattern implements PatternRecognizerInterface
         $panel = $this->panelElement($item, $stateControl);
         if ( null !== $panel && $panel->isSameNode($title) ) {
             return null;
+        }
+
+        $header = $this->headerRowElement($item, $title, $panel);
+        $toggle = $accordionToggle($control, $header);
+        $carriedIcon = '' !== $toggle['iconSvg'] && 1 === $header->getElementsByTagName('svg')->length
+            ? $header->getElementsByTagName('svg')->item(0) : null;
+        if ( $panel instanceof DOMElement ) {
+            if ( $this->containsNode($panel, $title)
+                || ! $this->itemContentIsCovered($item, $control, $panel, $header, $carriedIcon instanceof DOMElement ? $carriedIcon : null)
+            ) {
+                return null;
+            }
+
+            // An unlinked read-more control beside an already visible body
+            // does not establish a disclosure relationship.
+            if ( 'details' !== strtolower($item->tagName)
+                && ! $this->hasClass($item, 'wp-block-accordion-item')
+                && '' === $this->trimmedAttribute($stateControl, 'aria-controls')
+                && ! $startsHidden($panel)
+            ) {
+                return null;
+            }
         }
 
         $titleHtml = $this->disclosureLabelHtml($control, $innerHtml);
@@ -99,7 +121,6 @@ final class AccordionPattern implements PatternRecognizerInterface
         // source header row is offered too: when the row, not the control,
         // holds the end icon (an item-level control beside a bare heading),
         // that icon is the one carried.
-        $toggle = $accordionToggle($control, $this->headerRowElement($item, $title, $panel));
         $headingAttrs = array_filter(array(
             'title' => $titleHtml,
             'level' => $this->headingLevel($title),
@@ -472,6 +493,45 @@ final class AccordionPattern implements PatternRecognizerInterface
         }
 
         return null;
+    }
+
+    /**
+     * Wrappers may surround the title and panel, but cannot hide unrelated
+     * content. Only a header's disclosure glyph is replaced by core's icon.
+     */
+    private function itemContentIsCovered(DOMElement $node, DOMElement $title, DOMElement $panel, DOMElement $header, ?DOMElement $carriedIcon): bool
+    {
+        if ( $node->isSameNode($title) || $node->isSameNode($panel) || ( $carriedIcon instanceof DOMElement && $node->isSameNode($carriedIcon) ) ) {
+            return true;
+        }
+
+        $tag = strtolower($node->tagName);
+        if ( in_array($tag, array( 'script', 'style', 'template' ), true) ) {
+            return true;
+        }
+        $isHeaderIcon = $this->containsNode($header, $node)
+            && preg_match('/(?:^|[\\s_-])icon(?:$|[\\s_-])/i', $node->getAttribute('class'))
+            && preg_match('/^[\\s+−–—×✕⌄⌃›‹❯❮]+$/u', $node->textContent)
+            && 0 === $node->getElementsByTagName('*')->length;
+        if ( $isHeaderIcon ) {
+            return true;
+        }
+        // Graphics and media can render without any text descendants.
+        if ( in_array($tag, array( 'img', 'svg', 'picture', 'video', 'audio', 'canvas', 'iframe', 'object', 'embed', 'hr' ), true)
+            || 'img' === strtolower($node->getAttribute('role'))
+        ) {
+            return false;
+        }
+        foreach ( $node->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+            if ( $child instanceof DOMElement && ! $this->itemContentIsCovered($child, $title, $panel, $header, $carriedIcon) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function headingLevel(DOMElement $title): int
