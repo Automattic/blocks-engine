@@ -7017,6 +7017,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @param array<string, string> $declarations */
     private function hasVisibleEmptyVisualPaint(array $declarations, ?DOMElement $element = null): bool
     {
+        if ( $element instanceof DOMElement ) {
+            foreach ( array('background', 'background-color', 'background-image', 'box-shadow', 'outline', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-color') as $property ) {
+                if ( isset($declarations[$property]) ) {
+                    $declarations[$property] = $this->styleResolver->resolveEmptyVisualPaintVariables($declarations[$property], $element);
+                }
+            }
+        }
+
         foreach ( array( 'background', 'background-color', 'background-image', 'box-shadow', 'outline' ) as $property ) {
             if ( isset($declarations[$property]) && $this->sourceElementClassifier->isVisibleEmptyVisualPaint($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
