@@ -145,7 +145,7 @@ $plainListResult = ( new HtmlTransformer() )->transform('<ul><li>Marker remains<
 $plainListMarkup = (string) ($plainListResult['serialized_blocks'] ?? '');
 $assert(
     '<!-- wp:list --><ul class="wp-block-list"><!-- wp:list-item --><li>Marker remains</li><!-- /wp:list-item --></ul><!-- /wp:list -->' === $plainListMarkup
-    && !str_contains(json_encode($plainListResult['assets'] ?? array()) ?: '', 'list-style'),
+    && array() === ($plainListResult['assets'] ?? array()),
     'L3: a list without authored list-style keeps canonical marker-rendering output and gains no carrier',
     $plainListMarkup
 );

@@ -19,7 +19,7 @@ if (str_contains($labelMarkup, '<svg') || !str_contains($labelMarkup, '<b><img')
 if ( 'core/html' !== ($result['blocks'][0]['blockName'] ?? '') ) {
     $failures[] = 'RichText with an unsafe later SVG falls back to core/html.';
 }
-if ( array() !== array_filter($result['assets'] ?? array(), static fn(array $asset): bool => 'inline-svg' === ($asset['source'] ?? '')) ) {
+if ( array() !== ($result['assets'] ?? array()) ) {
     $failures[] = 'A failed later SVG restores assets materialized for earlier RichText SVGs.';
 }
 if ( ! str_contains((string) ($result['blocks'][0]['attrs']['content'] ?? ''), '<svg') ) {

@@ -44,10 +44,17 @@ $plain = ( new HtmlTransformer() )->transform('<style>body{background-color:#070
 $assert(! str_contains(json_encode($plain) ?: '', 'revert-layer'), 'a compiled unlayered-body page ships no hand-back');
 
 // Reduced import from #3602: core resets body margin in both rendering contexts.
-foreach (array('' => '8px', 'body{margin:0}' => '0') as $marginCss => $expected) {
+foreach (array(
+    array('', true, '8px'),
+    array('body{margin:0}', true, '0'),
+    array('', false, '0'),
+) as [$marginCss, $isDocument, $expected]) {
     $html = '<!doctype html><html><head><meta charset="utf-8"><title>Body margin</title>'
         . '<style>body{background:#f3f5f8;font-family:sans-serif}.bar{background:#111f38;color:#fff;padding:12px}.hero{background:#2b4a7a;color:#fff;padding:40px}'
         . $marginCss . '</style></head><body><div class="bar">Call 346-336-6686</div><section class="hero"><h1>Steel buildings</h1><p>Engineered to your spec.</p></section></body></html>';
+    if (! $isDocument) {
+        $html = preg_replace('/<!doctype html>|<\/?(?:html|head|body)\b[^>]*>|<meta[^>]*>|<title>.*?<\/title>/i', '', $html) ?? '';
+    }
     $import = (new HtmlTransformer())->transform($html)->toArray();
     $css = implode("\n", array_map(
         static fn (array $asset): string => (string) ($asset['content'] ?? ''),
@@ -65,8 +72,10 @@ foreach (array('' => '8px', 'body{margin:0}' => '0') as $marginCss => $expected)
     }
     if ('8px' === $expected) {
         $assert(str_contains($css, 'body,body.editor-styles-wrapper{margin-top:8px;margin-right:8px;margin-bottom:8px;margin-left:8px}'), 'import restores the 8px UA margin on the frontend and editor canvas (x=8, width=1424 at 1440px)');
-    } else {
+    } elseif ($isDocument) {
         $assert(str_contains($css, 'margin:0') && ! str_contains($css, 'margin-top:8px'), 'author margin 0 survives without a UA override (x=0, width=1440 at 1440px)');
+    } else {
+        $assert(! str_contains($css, 'body,body.editor-styles-wrapper{margin-'), 'a fragment leaves the host body margin unchanged (x=0, width=1440 at 1440px)');
     }
 }
 

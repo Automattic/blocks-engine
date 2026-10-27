@@ -219,7 +219,7 @@ $assert(
         && str_contains($permanentHiddenCss, 'visibility:hidden')
         && str_contains($permanentHiddenCss, 'height:0px !important')
         && str_contains($permanentHiddenCss, 'overflow:hidden')
-        && '' === trim(str_replace('body,body.editor-styles-wrapper{margin-top:8px;margin-right:8px;margin-bottom:8px;margin-left:8px}', '', $permanentHiddenAfterAuthor)),
+        && '' === $permanentHiddenAfterAuthor,
     'permanent inline display, visibility, and zero-geometry hidden states stay authored without repair CSS',
     $permanentHiddenMarkup . "\n" . $permanentHiddenCss . "\n" . $permanentHiddenAfterAuthor
 );
@@ -275,7 +275,7 @@ $assert(
     str_contains($ariaHiddenOverflowMarkup, 'Retained hidden overflow content.')
         && str_contains($ariaHiddenOverflowCss, 'height:0')
         && str_contains($ariaHiddenOverflowCss, 'overflow:hidden')
-        && '' === trim(str_replace('body,body.editor-styles-wrapper{margin-top:8px;margin-right:8px;margin-bottom:8px;margin-left:8px}', '', $ariaHiddenOverflowAfterAuthor)),
+        && '' === $ariaHiddenOverflowAfterAuthor,
     'source aria-hidden collapsed overflow content remains retained and receives no repair',
     $ariaHiddenOverflowMarkup . "\n" . $ariaHiddenOverflowCss . "\n" . $ariaHiddenOverflowAfterAuthor
 );

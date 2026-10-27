@@ -560,7 +560,7 @@ $multiPage = ( new ArtifactCompiler() )->compile(array(
     ),
 ) )->toArray();
 $multiPageSupportAssets = array_values(array_filter($multiPage['assets'] ?? array(), static fn (array $asset): bool => 'engine-support' === ($asset['source'] ?? '')));
-$assert(2 === count($multiPageSupportAssets), 'identical before-author and body UA support stylesheets are each emitted once across HTML routes');
+$assert(1 === count($multiPageSupportAssets), 'identical generated engine support stylesheets are emitted once across HTML routes');
 $multiPageAssetPaths = array_column($multiPage['assets'] ?? array(), 'path');
 $multiPageWordPressAssets = $multiPage['source_reports']['wordpress_site_plan']['assets'] ?? array();
 $assert(1 === preg_match('#^assets/css/engine-support-before-author-[a-f0-9]{16}\.css$#', $multiPageAssetPaths[0] ?? '') && 'shared.css' === ($multiPageAssetPaths[1] ?? '') && 'shared' === ($multiPageSupportAssets[0]['compilation']['scope'] ?? '') && 'global' === ($multiPageWordPressAssets[0]['scopes'][0]['kind'] ?? ''), 'identical multi-page support is ordered before author CSS and promoted to global scope');

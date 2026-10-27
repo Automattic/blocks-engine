@@ -189,8 +189,8 @@ foreach ( array(
             $assert(array() === $rules($sheet, '/^\.picture(?:[:.]|$)/', array('width:100%')), $label . ': image width cannot size the figure');
         } else {
             if ( 'html' === $interface ) {
-                // Baseline includes UA body-margin support (#3602).
-                $assert('560bc7ad7b8404485cc6565b006ebf4ec37500f3c118925727e20ec6baa730f7' === hash('sha256', $output . $sheet), $label . ': standalone output remains byte-identical');
+                // Baseline captured on trunk: both markup and frontend CSS.
+                $assert('13c30f6c122885dd85328076cf011a0e6214d85d66b0014fb78f24b59513de61' === hash('sha256', $output . $sheet), $label . ': standalone output remains byte-identical');
             }
             $assert(in_array('picture', $classes, true), $label . ': standalone image retains its figure class transport');
             $assert(array() !== $rules($sheet, '/^\.picture$/', array('width:100%')), $label . ': standalone image keeps its authored figure sizing rule');
