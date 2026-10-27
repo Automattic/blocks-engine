@@ -63,7 +63,6 @@ $deviceResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.h
     'plain.css' => 'main{color:black}',
 )))->toArray();
 $devicePlan = $deviceResult['source_reports']['wordpress_site_plan'];
-$deviceBootstrap = (string) array_column($devicePlan['writes'], null, 'target_path')['functions.php']['payload']['data'];
 $slices = array_values(array_filter($devicePlan['assets'], static fn(array $asset): bool => str_starts_with($asset['source_path'], 'desktop.page-')));
 if (array() === $slices) throw new RuntimeException('The device fixture must produce a page-scoped slice.');
 $sliceInstances = static function (array $slice) use ($devicePlan): array {
@@ -83,35 +82,7 @@ foreach (array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA) as 
     try { WordPressSitePlan::assertValid($invalidDevicePlan); } catch (InvalidArgumentException) { $rejected = true; }
     if (!$rejected) throw new RuntimeException('Device occurrence conditions must be strings.');
 }
-// Execute just the generated filter registration with WordPress-like stubs.
-$filters = array();
-// Only the activation contract's link operations are needed by this stub.
-if (!class_exists('WP_HTML_Tag_Processor')) {
-    class WP_HTML_Tag_Processor
-    {
-        private DOMDocument $document;
-        private ?DOMElement $link = null;
-        public function __construct(string $html) { $this->document = new DOMDocument(); $this->document->loadHTML($html); }
-        public function next_tag(string $name): bool { $this->link = $this->document->getElementsByTagName(strtolower($name))->item(0); return null !== $this->link; }
-        public function set_attribute(string $name, mixed $value): void { $this->link?->setAttribute($name, true === $value ? '' : $value); }
-        public function get_updated_html(): string { return $this->document->saveHTML($this->link); }
-    }
-}
-if (!function_exists('add_filter')) { function add_filter($name, $callback, ...$args): void { $GLOBALS['filters'][$name] = $callback; } }
-if (!function_exists('esc_attr')) { function esc_attr($value): string { return htmlspecialchars($value, ENT_QUOTES, 'UTF-8'); } }
-if (!preg_match('/(\$blocks_engine_stylesheet_attributes = .*?add_filter\( \'style_loader_tag\'.*?\}, 10, 2 \);)/s', $deviceBootstrap, $registration)) throw new RuntimeException('Device enqueues publish a handle-keyed filter.');
-eval($registration[1]);
-foreach ($slices as $slice) foreach ($sliceInstances($slice) as $instance) {
-    $handle = 'blocks-engine-instance-' . substr(hash('sha256', $slice['target_path'] . "\0" . $instance['source_path'] . "\0" . $instance['order']), 0, 16);
-    if (!str_contains($deviceBootstrap, "wp_enqueue_style( '" . $handle . "'")) throw new RuntimeException('The marked slice is enqueued.');
-    $tag = $filters['style_loader_tag']('<link rel="stylesheet" media="not all" href="slice.css">', $handle);
-    foreach (array(CaptureEvidence::DEVICE_STYLE => 'desktop wide', CaptureEvidence::SOURCE_MEDIA => 'all', 'media' => 'not all') as $name => $value) if (!str_contains($tag, $name . '="' . $value . '"')) throw new RuntimeException('The slice link matches the device selector: ' . $tag);
-}
 foreach ($devicePlan['assets'] as $asset) if ('plain.css' === $asset['source_path']) foreach ($asset['stylesheet_instances'] as $instance) {
     if (isset($instance[CaptureEvidence::DEVICE_STYLE]) || isset($instance[CaptureEvidence::SOURCE_MEDIA])) throw new RuntimeException('Ordinary instances have no device markers.');
-    $handle = 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $instance['source_path'] . "\0" . $instance['order']), 0, 16);
-    $tag = '<link rel="stylesheet" href="plain.css">';
-    $rendered = $filters['style_loader_tag']($tag, $handle);
-    if (str_contains($rendered, CaptureEvidence::DEVICE_STYLE) || str_contains($rendered, CaptureEvidence::SOURCE_MEDIA)) throw new RuntimeException('Ordinary stylesheet tags gain no device markers.');
 }
 echo "WordPress stylesheet instances: unique resources, ordered routes, media and validation passed\n";

@@ -4984,7 +4984,12 @@ PHP;
             $asset = $enqueue['asset'];
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
             // Stylesheet-set membership travels on every instance's link.
-            if (isset($asset['stylesheet_activation'])) $stylesheetAttributes[$enqueue['handle']] = $asset['stylesheet_activation'];
+            if (isset($asset['stylesheet_activation'])) {
+                $state = $asset['stylesheet_activation'];
+                $stylesheetAttributes[$enqueue['handle']] = array('rel' => $state['rel']);
+                if ('' !== $state['title']) $stylesheetAttributes[$enqueue['handle']]['title'] = $state['title'];
+                if ($state['disabled']) $stylesheetAttributes[$enqueue['handle']]['disabled'] = true;
+            }
             $deviceAttributes = self::stylesheetDeviceAttributes($enqueue);
             if (isset($deviceAttributes[CaptureEvidence::DEVICE_STYLE])) $stylesheetAttributes[$enqueue['handle']] = ($stylesheetAttributes[$enqueue['handle']] ?? array()) + $deviceAttributes;
             $media = '' !== $enqueue['media'] ? ', ' . var_export($enqueue['media'], true) : '';
@@ -5013,15 +5018,7 @@ PHP;
         if (array() !== $stylesheetAttributes) {
             $lines[] = '$blocks_engine_stylesheet_attributes = ' . var_export($stylesheetAttributes, true) . ';';
             $lines[] = "add_filter( 'style_loader_tag', static function ( string \$html, string \$handle ) use ( \$blocks_engine_stylesheet_attributes ): string {";
-            $deviceFilter = '';
-            if (array_filter($stylesheetAttributes, static fn(array $state): bool => isset($state[CaptureEvidence::DEVICE_STYLE]))) {
-                foreach (array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA) as $attribute) {
-                    $key = var_export($attribute, true);
-                    $deviceFilter .= "if ( isset( \$state[{$key}] ) ) \$html = preg_replace_callback( '/<link\\b/i', static fn(): string => '<link {$attribute}=\"' . esc_attr( \$state[{$key}] ) . '\"', \$html, 1 ); ";
-                }
-                $deviceFilter .= "if ( ! isset( \$state['rel'] ) ) return \$html; ";
-            }
-            $lines[] = "    \$state = \$blocks_engine_stylesheet_attributes[ \$handle ] ?? null; if ( null === \$state ) return \$html; {$deviceFilter}\$tag = new WP_HTML_Tag_Processor( \$html ); if ( \$tag->next_tag( 'LINK' ) ) { \$tag->set_attribute( 'rel', \$state['rel'] ); if ( '' !== \$state['title'] ) \$tag->set_attribute( 'title', \$state['title'] ); if ( \$state['disabled'] ) \$tag->set_attribute( 'disabled', true ); } return \$tag->get_updated_html();";
+            $lines[] = "    \$state = \$blocks_engine_stylesheet_attributes[ \$handle ] ?? null; if ( null === \$state ) return \$html; \$tag = new WP_HTML_Tag_Processor( \$html ); if ( \$tag->next_tag( 'LINK' ) ) { foreach ( \$state as \$attribute => \$value ) \$tag->set_attribute( \$attribute, \$value ); } return \$tag->get_updated_html();";
             $lines[] = "}, 10, 2 );";
         }
         $templateAssetTokens = array();
