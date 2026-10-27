@@ -51,6 +51,14 @@ final class StyleTagScanner
         return HtmlTagScanner::attributes($attributes)[strtolower($name)] ?? '';
     }
 
+    /** Disclosure runtime CSS describes producer state, not author visibility. */
+    public static function isCaptureOnly(string $tag): bool
+    {
+        $attributes = HtmlTagScanner::attributes($tag);
+        return array_key_exists(CaptureEvidence::DISCLOSURE_CLASS, $attributes)
+            || array_key_exists(CaptureEvidence::DISCLOSURE_CLASS . '-base', $attributes);
+    }
+
     /** Authored media is distinct from a captured document's activation state. */
     public static function authorMedia(string $tag): string
     {
