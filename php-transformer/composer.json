@@ -511,6 +511,7 @@
       "php tests/unit/legacy-font-size-breakpoint-hint.php",
       "php tests/unit/inline-button-richtext-lowering.php",
       "php tests/unit/media-text-pattern.php",
+      "php tests/unit/styled-media-grid.php",
       "php tests/unit/cover-style-resolver.php",
       "php tests/unit/css-stylesheet-transformer.php",
       "php tests/unit/serialized-block-whitespace.php",
