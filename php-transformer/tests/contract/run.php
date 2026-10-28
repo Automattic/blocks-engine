@@ -2951,7 +2951,8 @@ $inlineFlexSvgResult = ( new HtmlTransformer() )->transform(
 $inlineFlexSvgMarkup = (string) ($inlineFlexSvgResult['serialized_blocks'] ?? '');
 $assert(! str_contains($inlineFlexSvgMarkup, 'wp-block-blocks-engine-author-layout') && str_contains($inlineFlexSvgMarkup, '<!-- wp:paragraph'), 'inline flex text and SVG retain valid native paragraph blocks');
 $assert(str_contains($inlineFlexSvgMarkup, 'token') && str_contains($inlineFlexSvgMarkup, '<img src="assets/materialized-svg/'), 'inline flex text and its native SVG image retain source styling and materialized media');
-$assert(str_contains($inlineFlexSvgMarkup, 'style="width:18px;height:18px"'), 'CSS-owned inline SVG geometry is carried onto the materialized RichText image');
+$inlineFlexSvgCss = implode("\n", array_column($inlineFlexSvgResult['assets'] ?? array(), 'content'));
+$assert(! str_contains($inlineFlexSvgMarkup, 'style="width:18px;height:18px"') && str_contains($inlineFlexSvgCss, 'width:18px;height:18px'), 'CSS-owned inline SVG geometry is carried by stylesheet rather than frozen inline');
 
 $nestedControlSvg = ( new HtmlTransformer() )->transform('<style>.nested-control{display:flex;align-items:center;gap:14px;height:72px;border:6px solid #65625d;border-top-left-radius:36px;border-top-right-radius:36px;border-bottom-right-radius:36px;border-bottom-left-radius:36px}.nested-control>.nested-icon{width:36px;height:36px}.nested-control>.nested-icon>*{width:100%;height:100%}.nested-icon-source{width:77px;height:77px}</style><button class="nested-control"><span>WhatsApp</span><div class="nested-icon" data-source-visual-width="77" data-source-visual-height="77"><div class="nested-icon-source" data-source-visual-width="77" data-source-visual-height="77"><svg width="100%" height="100%" viewBox="0 0 77 77" aria-hidden="true"><path d="M0 0h77v77H0z"/></svg></div></div></button>')->toArray();
 $nestedControlSvgMarkup = (string) ($nestedControlSvg['serialized_blocks'] ?? '');
