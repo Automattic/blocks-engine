@@ -134,6 +134,41 @@ $assert(! isset($social($uncaptured)['attrs']['iconColorValue']) && array() !== 
 [ , $mixedReads ] = $compileReferenced($cluster('/icons/item.avif', '#1877f2') . '<p><img src="/icons/item.avif" width="8" height="8" alt=""></p>');
 $assert(1 === $mixedReads, 'an asset with one uncaptured reference is still decoded');
 
+// Glyph inspection survives page indexing, including negative results. A reused
+// path/reference id with changed bytes must not inherit the previous colour.
+$cacheReader = new class($png, $garbageAvif) implements PayloadReader {
+    public int $reads = 0;
+    public function __construct(private string $png, private string $avif) {}
+    public function read(array $reference): string
+    {
+        $this->reads++;
+        return $reference['sha256'] === hash('sha256', $this->png) ? $this->png : $this->avif;
+    }
+};
+$cacheCompiler = new ArtifactCompiler();
+(new ReflectionProperty(ArtifactCompiler::class, 'glyphPayloadReader'))->setValue($cacheCompiler, $cacheReader);
+$indexFiles = new ReflectionMethod(ArtifactCompiler::class, 'indexFiles');
+$glyphColorForFile = new ReflectionMethod(ArtifactCompiler::class, 'glyphColorForFile');
+foreach (array(
+    array($png, true, array('color' => '#ffffff', 'undecodable' => false)),
+    array($garbageAvif, false, array('color' => '', 'undecodable' => true)),
+) as [$bytes, $rawHash, $expected]) {
+    $file = array(
+        'path' => 'website/icons/item.png',
+        'mime_type' => 'image/png',
+        'payload_reference' => array_merge($reference, array('bytes' => strlen($bytes), 'sha256' => hash('sha256', $bytes))),
+    );
+    if ($rawHash) {
+        $file['raw_sha256'] = hash('sha256', $bytes);
+    }
+    $readsBefore = $cacheReader->reads;
+    foreach (array('first page', 'second page') as $page) {
+        $indexFiles->invoke($cacheCompiler, array($file));
+        $assert($expected === $glyphColorForFile->invoke($cacheCompiler, $file), 'cached glyph result is preserved on ' . $page);
+        $assert($readsBefore + 1 === $cacheReader->reads, 'a distinct glyph payload is read only once across pages');
+    }
+}
+
 // A shared header template part carries the captured colour.
 $header = '<header class="site-header">' . $cluster('/media/item.avif', '#1877f2') . '<nav><a href="/">Home</a><a href="/about">About</a></nav></header>';
 $page = static fn (string $title): string => '<!doctype html><html><head><title>' . $title . '</title></head><body>' . $header . '<main><h1>' . $title . '</h1></main></body></html>';

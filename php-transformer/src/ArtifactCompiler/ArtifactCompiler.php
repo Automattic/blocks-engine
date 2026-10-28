@@ -195,7 +195,11 @@ final class ArtifactCompiler
     /** @var array<int, array<string, mixed>> */
     private array $imageFiles = array();
 
-    /** @var array<string, array{color:string, undecodable:bool}> */
+    /**
+     * Raw-byte SHA-256 results retained across page indexing for this instance.
+     *
+     * @var array<string, array{color:string, undecodable:bool}>
+     */
     private array $glyphColorByHash = array();
 
     private ?PayloadReader $glyphPayloadReader = null;
@@ -3930,12 +3934,20 @@ final class ArtifactCompiler
      */
     private function glyphColorForFile(array $file): array
     {
-        $bytes = $this->embeddedFileBytes($file);
-        if ( '' === $bytes || strlen($bytes) > 65536 ) {
-            return array('color' => '', 'undecodable' => false);
+        // Normalized binary files already carry the raw-byte digest, including
+        // payload references. Look it up before reading or decoding any bytes.
+        $hash = (string) ($file['raw_sha256'] ?? $file['payload_reference']['sha256'] ?? '');
+        if ( '' !== $hash && isset($this->glyphColorByHash[$hash]) ) {
+            return $this->glyphColorByHash[$hash];
         }
 
-        $hash = hash('sha256', $bytes);
+        $bytes = $this->embeddedFileBytes($file);
+        if ( '' === $bytes ) {
+            return array('color' => '', 'undecodable' => false);
+        }
+        if ( '' === $hash ) {
+            $hash = hash('sha256', $bytes);
+        }
         if ( ! isset($this->glyphColorByHash[$hash]) ) {
             $this->glyphColorByHash[$hash] = MonochromeGlyphColor::inspect($bytes);
         }
@@ -5356,7 +5368,6 @@ final class ArtifactCompiler
     {
         $this->filesByPath = array();
         $this->imageFiles = array();
-        $this->glyphColorByHash = array();
         $this->scriptContents = array();
         $this->runtimeScriptEvidenceAnalyzer->resetCache();
 
