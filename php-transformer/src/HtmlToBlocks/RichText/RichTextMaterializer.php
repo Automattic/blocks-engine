@@ -127,7 +127,11 @@ final class RichTextMaterializer implements RichTextMaterialization
             // value projected here would freeze the breakpoint it came from onto
             // the carrier and silence the responsive class rule at every width.
             $projected = $inline;
-            $inline = $this->styleResolver->stripResponsiveClassOwnedDeclarations($sourceInline, $inline);
+            $inline = $this->styleResolver->stripResponsiveClassOwnedDeclarations(
+                $sourceInline,
+                $inline,
+                strtolower($sourceInline->tagName) === strtolower($targetInline->tagName)
+            );
             $this->carryStrippedLegacyFontSize($sourceInline, $marker, $projected, $inline);
             // The resolved `size` hint is final here, where the full source
             // cascade is visible; a later pass over the detached content must
