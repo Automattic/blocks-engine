@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
 use DOMElement;
 
-/** Converts ordered and unordered lists through their ordered strategies. */
+/** Converts ordered and unordered lists (including semantic menus) through their ordered strategies. */
 final class ListElementConverter implements ElementConverter
 {
     public function __construct(private readonly ListElementContext $context)
@@ -17,7 +17,7 @@ final class ListElementConverter implements ElementConverter
 
     public function handles(string $tagName): bool
     {
-        return 'ul' === $tagName || 'ol' === $tagName;
+        return in_array($tagName, array( 'ul', 'ol', 'menu' ), true);
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
