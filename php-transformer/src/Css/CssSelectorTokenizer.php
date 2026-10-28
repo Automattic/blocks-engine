@@ -27,11 +27,15 @@ final class CssSelectorTokenizer
         for ( $offset = 0; $offset < $length; ) {
             $character = $selector[ $offset ];
             $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($selector, $offset, $state);
-            if ( null === $next ) {
-                return $unsupported();
+            $next = CssSyntaxScanner::inertEnd($selector, $offset, $state, " \t\n\r\f,{};|>+~");
+            $inert = $next > $offset;
+            if ( ! $inert ) {
+                $next = CssSyntaxScanner::consume($selector, $offset, $state);
+                if ( null === $next ) {
+                    return $unsupported();
+                }
             }
-            if ( ! $topLevel || $next !== $offset + 1 ) {
+            if ( ! $topLevel || ( ! $inert && $next !== $offset + 1 ) ) {
                 // An escape is one lexical unit, but it can also be the first
                 // byte of a compound (including after descendant whitespace).
                 if ( $topLevel && '\\' === $character ) {
