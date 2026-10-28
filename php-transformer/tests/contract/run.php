@@ -2160,7 +2160,7 @@ $assert(
     $flexChainButtonCenteredMarkup
 );
 $assert(
-    str_contains($flexChainButtonCenteredCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0}')
+    str_contains($flexChainButtonCenteredCss, '.wp-block-buttons){display:block!important;gap:0!important}')
         && str_contains($flexChainButtonCenteredCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}')
         && str_contains($flexChainButtonCenteredCss, '.wp-block-button__link){box-sizing:border-box}')
         && ! preg_match('/\.wp-block-buttons\)\{[^}]*width:100%!important/', $flexChainButtonCenteredCss)
@@ -2176,7 +2176,7 @@ $flexAnchorAutoMargin = ( new HtmlTransformer() )->transform(
 $flexAnchorAutoMarginMarkup = (string) ($flexAnchorAutoMargin['serialized_blocks'] ?? '');
 $flexAnchorAutoMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorAutoMargin['assets'] ?? array()));
 $assert(preg_match('/\.wp-block-buttons\.blocks-engine-control-[^{]+\{margin-right:auto\}/', $flexAnchorAutoMarginCss) && 2 === substr_count($flexAnchorAutoMarginMarkup, 'wp-block-buttons'), 'direct flex anchor preserves its authored auto margin on the lowered source flex-item wrapper beside navigation and button siblings');
-$assert(str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0}') && ! str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important;min-width:0}') && str_contains($flexAnchorAutoMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}'), 'direct flex bridge leaves source wrapper margins intact while neutralizing only the synthetic inner wrapper');
+$assert(str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important}') && ! str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important}') && str_contains($flexAnchorAutoMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}'), 'direct flex bridge leaves source wrapper margins intact while neutralizing only the synthetic inner wrapper');
 $assert('pass' === ($flexAnchorAutoMargin['source_reports']['wp_block_validity']['status'] ?? ''), 'direct flex anchor with auto margin remains editor-valid beside navigation and button siblings');
 
 $anchorButtonMarginCases = array(
