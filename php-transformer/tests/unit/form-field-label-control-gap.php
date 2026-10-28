@@ -137,7 +137,8 @@ $assert(
     json_encode($controlGaps($layoutNodes($calc)))
 );
 
-$consentHtml = '<form><div class="consent"><input type="checkbox" id="news" name="news"><label for="news">Send me news</label></div><button type="submit">Send</button></form>';
+// Keep provider graph coverage: a choice-only form is now a preference island.
+$consentHtml = '<form><input name="name"><div class="consent"><input type="checkbox" id="news" name="news"><label for="news">Send me news</label></div><button type="submit">Send</button></form>';
 $consentCases = array(
     'default row flex' => array( 'display:flex;gap:8px', array() ),
     'explicit row flex' => array( 'display:flex;flex-direction:row;gap:8px', array() ),

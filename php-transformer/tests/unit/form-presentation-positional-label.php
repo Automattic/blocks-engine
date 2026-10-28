@@ -56,7 +56,7 @@ foreach ( $shared['fallbacks'][0]['presentation_graph']['controls'] ?? array() a
 $carrier = ( new HtmlTransformer() )->transform(
     '<style>.t{font-size:var(--l-size,12px);color:var(--l-color,black)}</style>'
     . '<div style="--l-size:15px;--l-color:#f3f2ed"><form method="post">'
-    . '<label><div><p class="t">Yes, subscribe me</p></div><input type="checkbox" name="optin"></label>'
+    . '<label><div><p class="t">Yes, subscribe me</p></div><input type="checkbox" name="optin"></label><input name="name">'
     . '<button type="submit">Go</button></form></div>',
     array()
 )->toArray();
@@ -73,7 +73,7 @@ $nested = ( new HtmlTransformer() )->transform(
     '<style>.t{font-size:var(--l-size,12px);color:var(--l-color,black)}</style>'
     . '<div style="--l-size:15px;--l-color:#f3f2ed"><form method="post">'
     . '<label><input type="checkbox" name="optin" required><span class="box"><span></span></span>'
-    . '<div><div><p class="t"><span><span>Yes, subscribe me</span><span aria-hidden="true">*</span></span></p></div></div></label>'
+    . '<div><div><p class="t"><span><span>Yes, subscribe me</span><span aria-hidden="true">*</span></span></p></div></div></label><input name="name">'
     . '<button type="submit">Go</button></form></div>',
     array()
 )->toArray();
@@ -87,7 +87,7 @@ $assert('#f3f2ed' === ($label['color'] ?? null), 'a nested label inherits its co
 $authored = ( new HtmlTransformer() )->transform(
     '<style>.lbl{font-size:.875rem}.t{font-size:var(--l-size,12px);color:var(--l-color,#111111)}</style>'
     . '<div style="--l-size:15px;--l-color:#f3f2ed"><form method="post">'
-    . '<label class="lbl"><div><p class="t">Yes, subscribe me</p></div><input type="checkbox" name="optin"></label>'
+    . '<label class="lbl"><div><p class="t">Yes, subscribe me</p></div><input type="checkbox" name="optin"></label><input name="name">'
     . '<button type="submit">Go</button></form></div>',
     array()
 )->toArray();
@@ -102,7 +102,7 @@ $responsiveCarrier = ( new HtmlTransformer() )->transform(
     . '@media(max-width:1079px){.copy{font-size:var(--copy-size);line-height:var(--copy-leading);color:var(--copy-color);font-family:var(--copy-family)}}</style>'
     . '<form method="post"><label class="lbl"><input type="checkbox" name="consent" required><span class="box"></span>'
     . '<div class="text-context"><p class="copy"><span>Consent copy<span aria-hidden="true">*</span></span></p></div></label>'
-    . '<label class="lbl"><input type="checkbox" name="fixed-copy"><div class="text-context"><p class="copy"><span style="font-size:15px">Fixed inner size</span></p></div></label>'
+    . '<label class="lbl"><input type="checkbox" name="fixed-copy"><div class="text-context"><p class="copy"><span style="font-size:15px">Fixed inner size</span></p></div></label><input name="name">'
     . '<button type="submit">Send</button></form>'
 )->toArray();
 $responsiveVariants = $responsiveCarrier['fallbacks'][0]['presentation_graph']['variants'] ?? array();

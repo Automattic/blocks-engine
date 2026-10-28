@@ -41,6 +41,14 @@ final class FormDispatcher
             return $this->context->htmlPreservationBlock($element);
         }
 
+        // Choice-only state needs runtime behavior, not provider substitution.
+        // Reuse the button-only preference path: readable blocks and one island.
+        if ( 'preference' === FormRuntimeRequirementAnalyzer::formIntent($element) ) {
+            $readableFormBlock = $this->context->buildReadableFormBlock($element, true, $fallbacks);
+            $this->context->recordForm($element, $readableFormBlock);
+            return $readableFormBlock;
+        }
+
         $hasChoiceGroups = FormControlClassifier::hasCapturedChoiceGroups($element);
         // A control without a prose summary (date, time, ...) keeps the exact
         // preserved form on the page; the finding still carries the readable tree.

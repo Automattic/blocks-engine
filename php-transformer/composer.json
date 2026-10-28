@@ -786,6 +786,7 @@
       "php tests/unit/form-fallback-finding-builder.php",
       "php tests/unit/form-control-group-dedupe.php",
       "php tests/unit/form-fallback-intent.php",
+      "php tests/unit/choice-only-preference-form.php",
       "php tests/unit/form-fallback-diagnostic-intent.php",
       "php tests/unit/form-entity-in-form-context.php",
       "php tests/unit/form-field-description.php",

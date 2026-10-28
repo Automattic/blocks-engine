@@ -66,7 +66,10 @@ Visual parity runners should exchange `blocks-engine/php-transformer/visual-pari
 - `filter_sort`: a GET/default-GET form with select controls, after search detection.
 - `newsletter`: an email field with subscription submit semantics or action path.
 - `contact`: email and message controls.
+- `preference`: user-editable controls are exclusively select, radio, or checkbox choices, independent of method, after the existing intent checks. Hidden inputs and buttons do not disqualify the form; at least one choice is required.
 - `unknown`: no supported structural evidence (also the default for findings built without intent).
+
+Preference forms lower to readable blocks plus a bounded runtime island without an `html_form_fallback`. Existing GET/default-GET search and filter/sort classification and native lowering take precedence. Forms with free-text, email, or other non-choice inputs retain their existing classification and fallback handling.
 
 Classification uses source semantics, not platform, theme, or vendor class names. Commerce takes precedence, then login, newsletter, contact, and search/filter, so a contact form with a `<select>` and no `method` stays `contact`. Cart forms use the existing `shop` / `commerce_controls` / `commerce_cart_runtime` materialization target and commerce runtime repair metadata, including outside product grids; all other intents retain the legacy `form_provider` target when controls exist. Consumers should inspect intent before offering forms to a contact-form provider, and treat absent intent from older producers as `unknown`. Existing fields, bindings, and rendering remain unchanged; native forms that need no fallback do not acquire one.
 

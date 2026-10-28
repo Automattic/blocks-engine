@@ -73,10 +73,18 @@ final class FormRuntimeRequirementAnalyzer
         $password = false;
         $subscribe = false;
         $freeText = false;
+        $hasChoice = false;
+        $onlyChoices = true;
         foreach ( $controls as $control ) {
             $type = strtolower(SourceDom::attr($control, 'type'));
             $name = strtolower(SourceDom::attr($control, 'name'));
             $tag = strtolower($control->tagName);
+            $controlType = FormControlClassifier::controlType($control);
+            if ( 'select' === $tag || ('input' === $tag && in_array($controlType, array( 'radio', 'checkbox' ), true)) ) {
+                $hasChoice = true;
+            } elseif ( 'button' !== $tag && ! in_array($controlType, array( 'submit', 'reset', 'button', 'image' ), true) ) {
+                $onlyChoices = false;
+            }
             $quantity = $quantity || in_array($name, array( 'quantity', 'qty' ), true);
             $email = $email || 'email' === $type || 'email' === $name;
             $message = $message || 'textarea' === $tag;
@@ -104,6 +112,10 @@ final class FormRuntimeRequirementAnalyzer
             if ( $search || preg_match('~(?:^|/)search(?:/|$)~', $path) ) return 'search';
             if ( $select && ! $freeText ) return 'filter_sort';
         }
+
+        // Keep existing GET search/filter intents, but recognize bounded choice
+        // state independently of the submission method or destination.
+        if ( $hasChoice && $onlyChoices && ! $email ) return 'preference';
 
         return 'unknown';
     }
