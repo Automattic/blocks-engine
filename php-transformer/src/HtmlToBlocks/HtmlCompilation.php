@@ -8624,7 +8624,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $lists = array();
         foreach ( $item->childNodes as $child ) {
-            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol', 'menu' ), true) ) {
                 $lists[] = $child;
             }
         }
@@ -8697,7 +8697,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $list = $item->parentNode;
         return $list instanceof DOMElement
-            && in_array(strtolower($list->tagName), array( 'ul', 'ol' ), true)
+            && in_array(strtolower($list->tagName), array( 'ul', 'ol', 'menu' ), true)
             && $this->listContainsStructuralItemContent($list);
     }
 
@@ -8756,12 +8756,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $content = $item->cloneNode(true);
         if ( ! $content instanceof DOMElement ) {
-            return $this->innerHtmlWithoutTags($item, array( 'ul', 'ol' ));
+            return $this->innerHtmlWithoutTags($item, array( 'ul', 'ol', 'menu' ));
         }
 
         $directLists = array();
         foreach ( $content->childNodes as $child ) {
-            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol', 'menu' ), true) ) {
                 $directLists[] = $child;
             }
         }
