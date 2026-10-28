@@ -467,6 +467,79 @@ final class NavigationToggleSuppressor
     }
 
     /**
+     * Whether a converted core/navigation has replaced this control as the
+     * header's menu opener: the emitted navigation renders its own responsive
+     * open button in the control's place and supersedes the hidden panel the
+     * control used to open. A preserved runtime binding (a capture dialog
+     * trigger the source script still drives) must not also keep the source
+     * control: its panel is gone, so it would render as a second, inert menu
+     * toggle beside the navigation.
+     *
+     * A navigation the control claims from inside its own controlled panel is
+     * excluded: there the panel itself survives as the surface the control
+     * opens (a preserved dialog panel with its navigation), so the control
+     * stays live chrome.
+     */
+    public function isMenuToggleSupersededByNativeNavigationOpener(DOMElement $control): bool
+    {
+        if ( ! $this->isHamburgerMenuToggleControl($control) && ! $this->isProjectableHashAnchorMenuToggle($control) ) {
+            return false;
+        }
+
+        $controlledPanels = array();
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array() as $controlledId ) {
+            $target = '' === trim($controlledId) ? null : $this->elementWithId($control, trim($controlledId));
+            if ( $target instanceof DOMElement && ! $target->isSameNode($control) ) {
+                $controlledPanels[] = $target;
+            }
+        }
+        // A control that opens something other than a menu (a notes or
+        // search dialog) is not a menu toggle, however it is drawn.
+        foreach ( $controlledPanels as $panel ) {
+            if ( ! $this->panelHoldsNavigation($panel) ) {
+                return false;
+            }
+        }
+
+        $scope = $this->menuToggleScope($control);
+        foreach ( $scope->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || $candidate->isSameNode($control)
+                || ! $this->isAssociatedNavigationTarget($candidate)
+                || ! $this->convertsToCoreNavigation($candidate) ) {
+                continue;
+            }
+            $toggle = $this->navigationToggleControl($candidate);
+            if ( ! $toggle instanceof DOMElement || ! $toggle->isSameNode($control) ) {
+                continue;
+            }
+            foreach ( $controlledPanels as $panel ) {
+                if ( SourceDom::elementContains($panel, $candidate) ) {
+                    continue 2;
+                }
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private function panelHoldsNavigation(DOMElement $panel): bool
+    {
+        if ( $this->isAssociatedNavigationTarget($panel) ) {
+            return true;
+        }
+        foreach ( $panel->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->isAssociatedNavigationTarget($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * A JS-only hamburger menu-toggle that is redundant chrome whenever it is
      * associated with a source navigation menu — whether or not that menu
      * converts to core/navigation.
