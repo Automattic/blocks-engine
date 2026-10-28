@@ -196,13 +196,11 @@ final class ArtifactCompiler
     private array $imageFiles = array();
 
     /**
-     * Raw-byte SHA-256 results retained across page indexing for this instance.
+     * Immutable glyph facts prepared once for the artifact, keyed by file identity.
      *
      * @var array<string, array{color:string, undecodable:bool}>
      */
-    private array $glyphColorByHash = array();
-
-    private ?PayloadReader $glyphPayloadReader = null;
+    private array $glyphColors = array();
 
     /** @var array<int, string> */
     private array $scriptContents = array();
@@ -250,7 +248,7 @@ final class ArtifactCompiler
      *
      * @param array<string, mixed> $artifact
      */
-    private function compileArtifact(array $artifact): TransformerResult
+    private function compileArtifact(array $artifact, ?array $glyphColors = null): TransformerResult
     {
 		$this->themeStaticCssCache = array();
         $this->stylesheetOccurrenceCache = array();
@@ -265,6 +263,7 @@ final class ArtifactCompiler
         $choiceGroups = (new CapturedChoiceGroupProjector())->project($selectableSets['files']);
         $scrollStates = (new ScrollStateProjector())->project($choiceGroups['files']);
         $normalized['files'] = (new RouteStateProjector())->project($scrollStates['files'])['files'];
+        $this->glyphColors = $glyphColors ?? $this->prepareGlyphColors($normalized['files']);
         return $this->finalizeArtifact($artifact, array(
             'normalized' => $normalized,
             'inline_compilation' => true,
@@ -3934,29 +3933,44 @@ final class ArtifactCompiler
      */
     private function glyphColorForFile(array $file): array
     {
-        // Normalized binary files already carry the raw-byte digest, including
-        // payload references. Look it up before reading or decoding any bytes.
-        $hash = (string) ($file['raw_sha256'] ?? $file['payload_reference']['sha256'] ?? '');
-        if ( '' !== $hash && isset($this->glyphColorByHash[$hash]) ) {
-            return $this->glyphColorByHash[$hash];
-        }
-
-        $bytes = $this->embeddedFileBytes($file);
-        if ( '' === $bytes ) {
-            return array('color' => '', 'undecodable' => false);
-        }
-        if ( '' === $hash ) {
-            $hash = hash('sha256', $bytes);
-        }
-        if ( ! isset($this->glyphColorByHash[$hash]) ) {
-            $this->glyphColorByHash[$hash] = MonochromeGlyphColor::inspect($bytes);
-        }
-
-        return $this->glyphColorByHash[$hash];
+        return $this->glyphColors[$this->glyphFileIdentity($file)] ?? array('color' => '', 'undecodable' => false);
     }
 
     /** @param array<string, mixed> $file */
-    private function embeddedFileBytes(array $file): string
+    private function glyphFileIdentity(array $file): string
+    {
+        return (string) ($file['raw_sha256'] ?? $file['payload_reference']['sha256'] ?? $file['path']);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, array{color:string, undecodable:bool}>
+     */
+    private function prepareGlyphColors(array $files, ?PayloadReader $payloadReader = null): array
+    {
+        $this->indexFiles($files);
+        // Preserve the captured-colour fast path: only skip assets captured on
+        // every document, since metadata includes even unreferenced images.
+        $captured = null;
+        foreach ($files as $file) {
+            if ('html' !== ($file['kind'] ?? null)) continue;
+            $paths = $this->capturedGlyphAssetPaths((string) ($file['content'] ?? ''), (string) $file['path'], $files);
+            $paths = array_filter($paths);
+            $captured = null === $captured ? $paths : array_intersect_key($captured, $paths);
+        }
+        $colors = array();
+        foreach ($this->imageFiles as $file) {
+            if ($this->isMaterializedHtmlDocument($file) || isset($captured[$file['path']])) continue;
+            $identity = $this->glyphFileIdentity($file);
+            if (isset($colors[$identity])) continue;
+            $bytes = $this->embeddedFileBytes($file, $payloadReader);
+            $colors[$identity] = '' === $bytes ? array('color' => '', 'undecodable' => false) : MonochromeGlyphColor::inspect($bytes);
+        }
+        return $colors;
+    }
+
+    /** @param array<string, mixed> $file */
+    private function embeddedFileBytes(array $file, ?PayloadReader $payloadReader = null): string
     {
         if ( is_string($file['content_base64'] ?? null) && '' !== $file['content_base64'] ) {
             $decoded = base64_decode($file['content_base64'], true);
@@ -3971,7 +3985,7 @@ final class ArtifactCompiler
         }
 
         $reference = $file['payload_reference'] ?? null;
-        if ( ! is_array($reference) || null === $this->glyphPayloadReader ) {
+        if ( ! is_array($reference) || null === $payloadReader ) {
             return '';
         }
         $declaredBytes = (int) ($reference['bytes'] ?? 0);
@@ -3980,7 +3994,7 @@ final class ArtifactCompiler
         }
 
         try {
-            $payload = $this->glyphPayloadReader->read($reference);
+            $payload = $payloadReader->read($reference);
         } catch ( \Throwable ) {
             return '';
         }

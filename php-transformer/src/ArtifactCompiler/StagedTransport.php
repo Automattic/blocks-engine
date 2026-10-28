@@ -59,6 +59,7 @@ trait StagedTransport
                 'canonical_diagnostics' => $partition['canonical_diagnostics'],
                 'canonical_rejected_count' => $partition['canonical_rejected_count'],
                 'captured_dialogs' => $partition['captured_dialogs'],
+                'glyph_colors' => $partition['glyph_colors'],
             )),
             'compiler_options' => $this->receiptCompilerOptions(),
         );
@@ -227,6 +228,7 @@ trait StagedTransport
 
         $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
         $stageCompiler->generatedAssetRoot = (string) ($sharedPlan['analysis']['generated_asset_root'] ?? '');
+        $stageCompiler->glyphColors = $sharedPlan['analysis']['glyph_colors'];
 
         $compiledDocuments = array();
         $omittedPages = array();
@@ -241,7 +243,6 @@ trait StagedTransport
             // The owned document supplies ordered instances; shared files
             // supply resource bytes, exactly as in whole compilation.
             $documentFiles = $files;
-            $stageCompiler->glyphPayloadReader = $payloadReader;
             $stageCompiler->indexFiles($documentFiles);
             try {
                 $compiledDocuments[$path] = $stageCompiler->compileHtmlDocumentBlocks(
@@ -449,7 +450,7 @@ trait StagedTransport
                 $files,
                 is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array()
             );
-            return $this->compileArtifact($artifact);
+            return $this->compileArtifact($artifact, $sharedPlan['analysis']['glyph_colors']);
         }
         $this->reportProgress($onProgress, 'reduce_receipts', 0, 1);
         $terminalReduction = $this->reduceCompiledReceipts($sharedPlan, $sharedArtifact, $reductions, $compiledDocuments);
@@ -582,7 +583,7 @@ trait StagedTransport
      *
      * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,layout_geometry_proof:array<string,mixed>,schema:string,reports:array<int,string>,input_keys:array<int,string>,identity:array<string,string>,source_paths:array<int,string>}
      */
-    private function stagePartition(array $artifact, string $scope, string $pageId = ''): array
+    private function stagePartition(array $artifact, string $scope, string $pageId = '', ?PayloadReader $payloadReader = null): array
     {
         // Normalize the complete input once so file-level entrypoint flags,
         // roles, rejection diagnostics, and source order have exactly the same
@@ -617,6 +618,7 @@ trait StagedTransport
             }
         }
         unset($file);
+        if ('shared' === $scope) $this->glyphColors = $this->prepareGlyphColors($rawFiles, $payloadReader);
         $shared = array();
         $pages = array();
         $sourcePaths = array();
@@ -639,6 +641,7 @@ trait StagedTransport
         $identity = array();
         foreach (array('site_slug', 'site_name', 'block_namespace') as $key) if (is_string($artifact[$key] ?? null)) $identity[$key] = $artifact[$key];
         return array(
+            'glyph_colors' => 'shared' === $scope ? $this->glyphColors : array(),
             'shared' => 'shared' === $scope ? $shared : array(),
             'pages' => 'page' === $scope ? (isset($pages[$pageId]) ? array($pageId => $pages[$pageId]) : array()) : $pages,
             'entrypoints' => $normalized['entrypoints'],
@@ -776,7 +779,7 @@ trait StagedTransport
         }
         // Reference-backed callers receive the same whole-artifact
         // normalization and captured-dialog projection as inline callers.
-        $partition = $this->stagePartition($hydratedArtifact, $scope, $pageId);
+        $partition = $this->stagePartition($hydratedArtifact, $scope, $pageId, $payloadReader);
         $stageFiles = 'shared' === $scope ? $partition['shared'] : ($partition['pages'][$pageId] ?? array());
         $planArtifact = $this->artifactEnvelope($partition, $stageFiles);
         $normalized = (new ArtifactNormalizer())->normalize($planArtifact);
@@ -803,11 +806,12 @@ trait StagedTransport
                 'canonical_diagnostics' => $partition['canonical_diagnostics'],
                 'canonical_rejected_count' => $partition['canonical_rejected_count'],
                 'captured_dialogs' => $partition['captured_dialogs'],
+                'glyph_colors' => $partition['glyph_colors'],
             ));
             $plan['shared_reduction'] = array(
                 'files' => $planArtifact['files'],
                 'component_facts' => $this->collectComponentFacts($planArtifact['files']),
-                'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $hydratedArtifact, $payloadReader),
+                'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $hydratedArtifact),
             );
             $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         }
@@ -1151,7 +1155,7 @@ trait StagedTransport
     }
 
     /** @param array<string,mixed> $partition @param array<string,mixed> $artifact */
-    private function compileSharedInlineShellReduction(array $partition, array $artifact, ?PayloadReader $payloadReader = null): array
+    private function compileSharedInlineShellReduction(array $partition, array $artifact): array
     {
         $files = array_merge($partition['shared'], ...array_values($partition['pages']));
         $files = self::sortedBySourcePaths($files, $partition['source_paths']);
@@ -1161,13 +1165,7 @@ trait StagedTransport
         $entry = $this->entryFile($files, $partition['entrypoints']);
         $entryPath = (string) ($entry['path'] ?? '');
         $this->generatedAssetRoot = '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/');
-        $previousReader = $this->glyphPayloadReader;
-        $this->glyphPayloadReader = $payloadReader;
         $this->indexFiles($files);
-        try {
-            return $this->compileSharedInlineShells($files, $entryPath, (new CompanionPluginPayload())->blockNamespace($artifact));
-        } finally {
-            $this->glyphPayloadReader = $previousReader;
-        }
+        return $this->compileSharedInlineShells($files, $entryPath, (new CompanionPluginPayload())->blockNamespace($artifact));
     }
 }

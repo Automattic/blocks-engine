@@ -436,7 +436,7 @@ $reader = new class($payloads) implements PayloadReader {
     public function read(array $reference): string { $this->reads[] = $reference['id']; if (!isset($this->payloads[$reference['id']])) throw new InvalidArgumentException('missing'); return $this->payloads[$reference['id']]; }
 };
 $referencedShared = $compiler->prepareShared($referencedArtifact, $reader);
-$assert(!in_array('payload:assets/logo.png', $reader->reads, true) && 5 === count($reader->reads), 'Shared preparation establishes the digest-bound canonical text source catalog while retaining binary references.');
+$assert(1 === count(array_keys($reader->reads, 'payload:assets/logo.png', true)) && 6 === count($reader->reads), 'Shared preparation establishes the canonical text catalog and inspects each glyph once while retaining binary references.');
 $reader->reads = array();
 $referencedPages = array();
 foreach ($pageIds as $pageId) $referencedPages[] = $compiler->preparePage($referencedArtifact, $referencedShared, $pageId, $reader);
