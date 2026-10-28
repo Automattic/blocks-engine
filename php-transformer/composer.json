@@ -172,6 +172,7 @@
       "php tests/contract/retained-label-shell.php",
       "php tests/contract/framed-body-landmark-shared-part.php",
       "php tests/contract/shared-shell-route-state.php",
+      "php tests/contract/shared-header-control-routes.php",
       "php tests/contract/route-edge-shared-shell.php",
       "php tests/contract/route-edge-inward-chrome.php",
       "php tests/contract/navigation-current-item-shape.php",
