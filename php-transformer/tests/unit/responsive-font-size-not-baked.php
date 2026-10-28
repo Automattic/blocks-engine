@@ -31,6 +31,33 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 
 $blocks = static fn (string $html): string => (string) ( ( new HtmlTransformer() )->transform($html)->toArray()['serialized_blocks'] ?? '' );
 
+// A later conditional rule cannot beat a more specific unconditional arm.
+// Exercise the public conversion output, including retained author CSS: an
+// unlayered winner need not be serialized as a static block attribute.
+foreach (array(
+    'context selector' => array(
+        '<style>main .note{font-size:16px}@media(min-width:1024px){.note{font-size:24px}}</style><main><h2 class="note">Contact us</h2></main>',
+        array('16px'),
+    ),
+    'selector-list utility' => array(
+        '<style>.h2,h2{font-size:3rem}.h6,h6{font-size:1.125rem}@media (min-width:992px){.h2,h2{font-size:3rem}}</style><main><h2 class="h6">Small heading</h2><h2>Regular heading</h2></main>',
+        array('1.125rem', '3rem'),
+    ),
+) as $case => [$html, $expectedSizes]) {
+    $result = (new HtmlTransformer())->transform($html)->toArray();
+    $markup = (string) $result['serialized_blocks'];
+    $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));
+    $document = new DOMDocument();
+    // The page shell supplies the main landmark around serialized blocks.
+    @$document->loadHTML('<!doctype html><html><body><main>' . $markup . '</main></body></html>');
+    $cascade = new \Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade($document, $css);
+    foreach ($expectedSizes as $index => $expectedSize) {
+        $heading = $document->getElementsByTagName('h2')->item($index);
+        $actual = $heading instanceof DOMElement ? ($cascade->resolve($heading, array('font-size'), array('font-size'))['font-size'] ?? '') : '';
+        $assert($expectedSize === $actual, $case . ': heading ' . $index . ' keeps its cascade-winning size', $markup . ' resolved to ' . $actual);
+    }
+}
+
 // Tailwind v4's shape: a preflight reset plus responsive size utilities, all
 // layered. The heading must keep its author classes and carry no frozen size.
 $responsive = $blocks(

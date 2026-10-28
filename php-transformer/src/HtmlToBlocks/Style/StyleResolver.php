@@ -1160,7 +1160,7 @@ final class StyleResolver implements ElementPresentationResolver
     public function declaredPresentation(DOMElement $element, string $property): DeclaredPresentation
     {
         $entries = array();
-        foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $rule ) {
+        foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $index => $rule ) {
             $declared = trim((string) ( $rule['declarations'][ $property ] ?? '' ));
             if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
                 continue;
@@ -1181,8 +1181,18 @@ final class StyleResolver implements ElementPresentationResolver
                 'queries' => $queries,
                 'layer' => $rule['layer'] ?? null,
                 'applies' => array() === $conditions || $this->conditionsApplyAtReferenceViewport($conditions),
+                'important' => CssValueInspector::isImportant($declared),
+                'layerRank' => $rule['layerRank'] ?? null,
+                'specificity' => $this->mediaTextSelectorSpecificity((string) $rule['selector']),
+                'order' => (int) ($rule['cascadeOrder'] ?? $index),
             );
         }
+
+        // Candidate selectors are individual selector-list arms. Rank only the
+        // matching arm, using the same author cascade as the static resolver.
+        $fact = static fn (array $entry): array => array_replace($entry, array('layer' => $entry['layerRank']));
+        usort($entries, static fn (array $left, array $right): int => CssCascade::wins($fact($left), $fact($right))
+            ? (CssCascade::wins($fact($right), $fact($left)) ? 0 : 1) : -1);
 
         return DeclaredPresentation::fromEntries($entries);
     }
