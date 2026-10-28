@@ -360,7 +360,7 @@ final class NavigationToggleSuppressor
         // viewports. Only the former is a control's hidden counterpart; the
         // latter must keep its own document position and let the toggle
         // become core/navigation's native responsive affordance instead.
-        if ( ! $this->targetHiddenAtReferenceViewport($target) ) {
+        if ( ! $this->targetHiddenAtReferenceViewport($target) || $this->isCapturedInlineNavigationPanel($target) ) {
             return null;
         }
 
@@ -404,6 +404,20 @@ final class NavigationToggleSuppressor
         }
 
         return null;
+    }
+
+    /** Capture's mobile hidden state must not move an observed inline desktop menu. */
+    private function isCapturedInlineNavigationPanel(DOMElement $target): bool
+    {
+        if ( ! $target->hasAttribute(CaptureEvidence::DIALOG_PANEL)
+            || $this->isSemanticDialog($target)
+            || $this->isHiddenAtDefaultViewport($target) ) {
+            return false;
+        }
+        $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($target, array('position'), true);
+        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+
+        return ! in_array($position, array('absolute', 'fixed'), true);
     }
 
     private function isSemanticDialog(DOMElement $element): bool
