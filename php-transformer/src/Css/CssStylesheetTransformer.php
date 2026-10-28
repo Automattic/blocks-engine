@@ -856,7 +856,7 @@ final class CssStylesheetTransformer
         $length = strlen($prelude);
 
         for ( $index = 0; $index < $length; ++$index ) {
-            $index += strcspn($prelude, "\\\"'/*()[],", $index);
+            $index = CssSyntaxScanner::inertEnd($prelude, $index, $state, ',');
             if ( $index >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($prelude, $index, $state);
@@ -989,7 +989,7 @@ final class CssStylesheetTransformer
         $state  = CssSyntaxScanner::state();
         $length = strlen($css);
         for ( $index = $offset; $index < $length; ++$index ) {
-            $index += strcspn($css, "\\\"'/*()[]{;", $index);
+            $index = CssSyntaxScanner::inertEnd($css, $index, $state, '{;');
             if ( $index >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($css, $index, $state);
@@ -1011,7 +1011,7 @@ final class CssStylesheetTransformer
         $depth  = 0;
         $length = strlen($css);
         for ( $index = $openingBrace; $index < $length; ++$index ) {
-            $index += strcspn($css, "\\\"'/*()[]{}", $index);
+            $index = CssSyntaxScanner::inertEnd($css, $index, $state, '{}');
             if ( $index >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($css, $index, $state);
@@ -1055,10 +1055,7 @@ final class CssStylesheetTransformer
         $braces = 0;
         $length = strlen($css);
         for ( $offset = 0; $offset < $length; ) {
-            // Ordinary bytes cannot change lexical state or brace depth. Scan
-            // those runs in C; retain the shared scanner for every delimiter,
-            // escape and malformed-input decision (including inside strings).
-            $offset += strcspn($css, "\\\"'/*()[]{}", $offset);
+            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{}');
             if ( $offset >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($css, $offset, $state);
@@ -1084,6 +1081,17 @@ final class CssStylesheetTransformer
         $state = CssSyntaxScanner::state();
         $length = strlen($value);
         for ( $offset = 0; $offset < $length; ) {
+            $end = CssSyntaxScanner::inertEnd($value, $offset, $state);
+            if ( $end > $offset ) {
+                if ( CssSyntaxScanner::isTopLevel($state) ) {
+                    $significant = $offset + strspn($value, " \t\n\r\f", $offset, $end - $offset);
+                    if ( $significant < $end ) {
+                        return $value[ $significant ];
+                    }
+                }
+                $offset = $end;
+                continue;
+            }
             $next = CssSyntaxScanner::consume($value, $offset, $state);
             if ( null === $next ) {
                 return '';

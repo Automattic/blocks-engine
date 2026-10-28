@@ -277,6 +277,7 @@ final class CssRuleAnalyzer
         $state = CssSyntaxScanner::state();
         $length = strlen($body);
         for ( $offset = 0; $offset <= $length; ++$offset ) {
+            $offset = CssSyntaxScanner::inertEnd($body, $offset, $state, ';');
             $boundary = $offset === $length || ( ';' === $body[ $offset ] && CssSyntaxScanner::isTopLevel($state) );
             if ( $boundary ) {
                 $declaration = trim(substr($body, $start, $offset - $start));
@@ -309,6 +310,8 @@ final class CssRuleAnalyzer
     {
         $state = CssSyntaxScanner::state();
         for ( $offset = 0, $length = strlen($value); $offset < $length; ) {
+            $offset = CssSyntaxScanner::inertEnd($value, $offset, $state, ':');
+            if ( $offset >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($value, $offset, $state);
             if ( null === $next ) {
@@ -386,6 +389,8 @@ final class CssRuleAnalyzer
     {
         $state = CssSyntaxScanner::state();
         for ( $length = strlen($css); $offset < $length; ) {
+            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{;');
+            if ( $offset >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($css, $offset, $state);
             if ( null === $next ) {
@@ -467,6 +472,8 @@ final class CssRuleAnalyzer
         $state = CssSyntaxScanner::state();
         $depth = 0;
         for ( $offset = $openingBrace, $length = strlen($css); $offset < $length; ) {
+            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{}');
+            if ( $offset >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($css, $offset, $state);
             if ( null === $next ) {
