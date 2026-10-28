@@ -187,36 +187,56 @@ final class AssetReferenceCanonicalizer
             }
             // HTML tag names end at whitespace, / or >, not at odd quotes.
             while ($cursor < $length && !ctype_space($content[$cursor]) && !str_contains('/>', $content[$cursor])) ++$cursor;
-            while ($cursor < $length) {
-                while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
-                if ($cursor >= $length) break;
-                if ('>' === $content[$cursor]) {
-                    ++$cursor;
-                    $chunks[] = substr($content, $copied, $start - $copied);
-                    $chunks[] = self::tag(substr($content, $start, $cursor - $start), $replace);
-                    $copied = $cursor;
-                    break;
-                }
-                if ('/' === $content[$cursor]) { ++$cursor; continue; }
-                // Quotes in names are parse errors, but remain name bytes.
-                while ($cursor < $length && !ctype_space($content[$cursor]) && !str_contains('=/>', $content[$cursor])) ++$cursor;
-                while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
-                if ($cursor >= $length || '=' !== $content[$cursor]) continue;
+            foreach (self::attributes($content, $cursor) as $attribute) {
+                // Consume the shared scan to locate the tag's closing boundary.
+            }
+            if ($cursor < $length && '>' === $content[$cursor]) {
                 ++$cursor;
-                while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
-                if ($cursor >= $length) break;
-                if ('"' === $content[$cursor] || "'" === $content[$cursor]) {
-                    $quote = $content[$cursor++];
-                    while ($cursor < $length && $quote !== $content[$cursor]) ++$cursor;
-                    if ($cursor < $length) ++$cursor;
-                } else {
-                    while ($cursor < $length && !ctype_space($content[$cursor]) && '>' !== $content[$cursor]) ++$cursor;
-                }
+                $chunks[] = substr($content, $copied, $start - $copied);
+                $chunks[] = self::tag(substr($content, $start, $cursor - $start), $replace);
+                $copied = $cursor;
             }
             $offset = $cursor;
         }
         $chunks[] = substr($content, $copied);
         return implode('', $chunks);
+    }
+
+    /**
+     * Yield attribute names and value byte spans, leaving the cursor at > or EOF.
+     * Quotes in names are parse errors, but remain name bytes. Only quotes after
+     * = open a quoted value; unquoted values end at whitespace or >.
+     *
+     * @return \Generator<int,array{string,int,int}>
+     */
+    private static function attributes(string $content, int &$cursor): \Generator
+    {
+        $length = strlen($content);
+        while ($cursor < $length) {
+            while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
+            if ($cursor >= $length || '>' === $content[$cursor]) break;
+            if ('/' === $content[$cursor]) { ++$cursor; continue; }
+            $start = $cursor;
+            while ($cursor < $length && !ctype_space($content[$cursor]) && !str_contains('=/>', $content[$cursor])) ++$cursor;
+            $name = strtolower(substr($content, $start, $cursor - $start));
+            while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
+            if ($cursor >= $length || '=' !== $content[$cursor]) continue;
+            ++$cursor;
+            while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
+            if ($cursor >= $length) break;
+            if ('"' === $content[$cursor] || "'" === $content[$cursor]) {
+                $quote = $content[$cursor++];
+                $start = $cursor;
+                while ($cursor < $length && $quote !== $content[$cursor]) ++$cursor;
+                $size = $cursor - $start;
+                if ($cursor < $length) ++$cursor;
+            } else {
+                $start = $cursor;
+                while ($cursor < $length && !ctype_space($content[$cursor]) && '>' !== $content[$cursor]) ++$cursor;
+                $size = $cursor - $start;
+            }
+            yield array($name, $start, $size);
+        }
     }
 
     /** @param callable(array<int|string,string>):string $replace */
@@ -238,12 +258,22 @@ final class AssetReferenceCanonicalizer
     /** @param callable(string,string,string):string $replace */
     private static function tag(string $tag, callable $replace): string
     {
-        $element = preg_match('~^<\s*([A-Za-z][A-Za-z0-9:-]*)~', $tag, $name) ? strtolower($name[1]) : '';
-        return self::replaceRegex('~(?<![A-Za-z0-9:_-])(xlink:href|srcset|src|href|poster|action|style)\s*=\s*(["\'])(.*?)\2~is', static function (array $match) use ($replace, $element): string {
-            $name = strtolower($match[1]);
-            $value = 'style' === $name ? self::css($match[3], $replace, $element) : ('srcset' === $name ? self::srcset($match[3], static fn(string $reference): string => $replace($reference, $element, $name)) : $replace($match[3], $element, $name));
-            return $match[1] . '=' . $match[2] . $value . $match[2];
-        }, $tag);
+        $cursor = 1;
+        $length = strlen($tag);
+        while ($cursor < $length && !ctype_space($tag[$cursor]) && !str_contains('/>', $tag[$cursor])) ++$cursor;
+        $element = strtolower(substr($tag, 1, $cursor - 1));
+        $copied = 0;
+        $chunks = array();
+        foreach (self::attributes($tag, $cursor) as [$name, $start, $size]) {
+            if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style'), true)) continue;
+            $original = substr($tag, $start, $size);
+            $value = 'style' === $name ? self::css($original, $replace, $element) : ('srcset' === $name ? self::srcset($original, static fn(string $reference): string => $replace($reference, $element, $name)) : $replace($original, $element, $name));
+            $chunks[] = substr($tag, $copied, $start - $copied);
+            $chunks[] = $value;
+            $copied = $start + $size;
+        }
+        $chunks[] = substr($tag, $copied);
+        return implode('', $chunks);
     }
 
     /** @param callable(string,string,string):string $replace */

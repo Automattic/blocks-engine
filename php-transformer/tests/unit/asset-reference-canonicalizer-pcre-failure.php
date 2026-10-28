@@ -34,11 +34,16 @@ foreach (array(
     }
 }
 
+$large = '<img src="data:image/png;base64,' . str_repeat('A', 1024 * 1024) . '" src = assets/icon.svg data-note="untouched">';
+if (str_replace('assets/icon.svg', $token, $large) !== $canonicalizer->content($large, 'website/index.html')) {
+    throw new RuntimeException('A large inline data URI must remain unchanged while a sibling local src resolves.');
+}
+
 $limit = ini_get('pcre.backtrack_limit');
 try {
     ini_set('pcre.backtrack_limit', '1');
     try {
-        $canonicalizer->content('<img src="assets/icon.svg">', 'website/index.html');
+        $canonicalizer->content('<style>body { color: red; }</style>', 'website/index.html');
         throw new RuntimeException('A PCRE failure must not silently retain the input.');
     } catch (ValidationException $error) {
         $diagnostic = $error->diagnostic();
