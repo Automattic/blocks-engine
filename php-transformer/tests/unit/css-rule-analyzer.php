@@ -196,6 +196,12 @@ $unspacedMediaAnalysis = (new CssRuleAnalyzer())->analyze(
 $unspacedConditions = array_map(static fn (array $rule): mixed => $rule['condition'] ?? null, $unspacedMediaAnalysis['rules']);
 $assert(array( array( 'kind' => 'media', 'query' => '(max-width:600px)' ), array( 'kind' => 'supports', 'query' => '(display:grid)' ) ) === $unspacedConditions, 'a condition written directly after its at-rule name gates its rules like a spaced one');
 
+$assert(
+    array( array( 'name' => 'color', 'value' => 'red' ) ) === CssRuleAnalyzer::declarations('color: red; margin: 0', array( 'color' ))
+        && array( array( 'name' => 'margin', 'value' => '0' ) ) === CssRuleAnalyzer::declarations('color: red; margin: 0', array( 'margin' )),
+    'one rule body reads only the properties each caller asks for'
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssRuleAnalyzer unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

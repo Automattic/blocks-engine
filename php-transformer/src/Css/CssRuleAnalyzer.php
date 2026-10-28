@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\BoundedMemo;
+
 /**
  * Bounded, source-preserving CSS rule analysis for consumers that need declared
  * cascade facts without implementing a second stylesheet parser.
@@ -45,6 +47,7 @@ final class CssRuleAnalyzer
      * @var array<string, list<array<string, mixed>>>
      */
     private static array $streams = array();
+    private static ?BoundedMemo $declarationLists = null;
     /**
      * The cache is bounded by the selector entries it holds, not by stream
      * count: one page can need hundreds of small streams (stylesheets times
@@ -271,6 +274,16 @@ final class CssRuleAnalyzer
 
     /** @return list<array{name: string, value: string}> */
     public static function declarations(string $body, array $properties): array
+    {
+        // Rule bodies repeat across every pass over one stylesheet.
+        return ( self::$declarationLists ??= new BoundedMemo() )->remember(
+            implode(',', $properties) . "\0" . $body,
+            static fn (): array => self::declarationsUncached($body, $properties)
+        );
+    }
+
+    /** @return list<array{name: string, value: string}> */
+    private static function declarationsUncached(string $body, array $properties): array
     {
         $declarations = array();
         $start = 0;

@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
+use Automattic\BlocksEngine\PhpTransformer\Support\BoundedMemo;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 use DOMNode;
@@ -12,6 +13,9 @@ use DOMNode;
 /** Parses a conservative CSS selector subset and matches it without mutating a DOM. */
 final class CssSelectorMatcher
 {
+    private static ?BoundedMemo $parsedSelectors = null;
+    private static ?BoundedMemo $functionalTypeSpans = null;
+
     /**
      * A static pseudo-element paints on a host; its declarations do not style that host.
      *
@@ -52,17 +56,12 @@ final class CssSelectorMatcher
      * @return array{supported: bool, reason: string|null, compounds: list<array<string, mixed>>, combinators: list<string>, type_spans: list<array{start: int, end: int, name: string, compound: int}>, rightmost_compound_span: array{start: int, end: int}|null, pseudo_state_suffix_span: array{start: int, end: int}|null, rightmost_rewrite_end: int|null}
      */
     public static function parse(string $selector): array
-	{
-		static $cache = array();
-		if ( array_key_exists($selector, $cache) ) {
-			return $cache[$selector];
-		}
-		$parsed = self::parseUncached($selector);
-		if ( count($cache) < 10000 ) {
-			$cache[$selector] = $parsed;
-		}
-		return $parsed;
-	}
+    {
+        return ( self::$parsedSelectors ??= new BoundedMemo() )->remember(
+            $selector,
+            static fn (): array => self::parseUncached($selector)
+        );
+    }
 
 	/** @return array<string, mixed> */
 	private static function parseUncached(string $selector): array
@@ -124,6 +123,15 @@ final class CssSelectorMatcher
      * @return list<array{start:int,end:int,name:string,negated:bool}>
      */
     public static function functionalTypeSpans(string $selector): array
+    {
+        return ( self::$functionalTypeSpans ??= new BoundedMemo() )->remember(
+            $selector,
+            static fn (): array => self::functionalTypeSpansUncached($selector)
+        );
+    }
+
+    /** @return list<array{start:int,end:int,name:string,negated:bool}> */
+    private static function functionalTypeSpansUncached(string $selector): array
     {
         $spans = array();
         $state = CssSyntaxScanner::state();

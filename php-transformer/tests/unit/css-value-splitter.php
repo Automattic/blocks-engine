@@ -64,6 +64,11 @@ $assert(
     CssValueSplitter::splitTopLevelWhitespace('  10px   20px  ') === array( '10px', '20px' ),
     '2c: collapses leading/trailing/repeated whitespace'
 );
+$assert(
+    CssValueSplitter::splitTopLevelWhitespace("a\tb,\nc") === array( 'a', 'b,', 'c' )
+        && CssValueSplitter::splitTopLevel("a\tb,\nc", array( ',' )) === array( "a\tb", 'c' ),
+    '2d: tabs and newlines separate tokens, and one input splits by each delimiter it is asked for'
+);
 
 // ---------------------------------------------------------------------------
 // 3. Top-level declaration split keeps `;` inside functions intact.

@@ -52,6 +52,11 @@ final class AuthorCascadeLayerOrder
     /** @return array{names:list<string>, anonymous:bool} */
     private function layerOrder(string $stylesheet): array
     {
+        // Only `@layer` and `@import` register a layer; a sheet with neither
+        // needs no scan.
+        if ( false === stripos($stylesheet, '@layer') && false === stripos($stylesheet, '@import') ) {
+            return array('names' => array(), 'anonymous' => false);
+        }
         $css = preg_replace('#/\*.*?\*/#s', '', $stylesheet) ?? $stylesheet;
         $length = strlen($css);
         // Block nesting is tracked through the shared scanner so quoted strings,

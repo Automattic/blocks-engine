@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\BoundedMemo;
+
 /**
  * Syntax-aware splitting for CSS declaration lists and values.
  *
@@ -23,6 +25,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
  */
 final class CssValueSplitter
 {
+    private static ?BoundedMemo $splits = null;
+
     /**
      * Split on any of the given single-character delimiters, but only when the
      * delimiter occurs outside of `(...)`, quotes, and escapes.
@@ -72,12 +76,37 @@ final class CssValueSplitter
      */
     private static function split(string $input, array $delimiters, bool $splitWhitespace): array
     {
+        // Rewriting one stylesheet splits the same declaration lists and
+        // values thousands of times.
+        return ( self::$splits ??= new BoundedMemo() )->remember(
+            ( $splitWhitespace ? 'w' : 'd' . implode('', $delimiters) ) . "\0" . $input,
+            static fn (): array => self::splitUncached($input, $delimiters, $splitWhitespace)
+        );
+    }
+
+    /**
+     * @param array<int, string> $delimiters
+     * @return array<int, string>
+     */
+    private static function splitUncached(string $input, array $delimiters, bool $splitWhitespace): array
+    {
         $parts  = array();
         $buffer = '';
         $state  = CssSyntaxScanner::state();
         $length = strlen($input);
+        // Bytes outside this set change no state this split reads and split
+        // nothing, in any state, so a run of them passes through whole.
+        $structural = "\\\"'/*()" . implode('', $delimiters) . ( $splitWhitespace ? " \t\n\r\0\x0B" : '' );
 
         for ( $offset = 0; $offset < $length; ) {
+            $inert = strcspn($input, $structural, $offset);
+            if ( 0 < $inert ) {
+                if ( ! $state['comment'] ) {
+                    $buffer .= substr($input, $offset, $inert);
+                }
+                $offset += $inert;
+                continue;
+            }
             $wasComment = $state['comment'];
             $topLevel   = self::outsideGroups($state);
             $next       = CssSyntaxScanner::consume($input, $offset, $state) ?? $offset + 1;
