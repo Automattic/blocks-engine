@@ -777,6 +777,11 @@ PHP;
     /** @param array<string,mixed> $plan */
     public static function assertValid(array $plan): void
     {
+        // Hash the actual content, including identity and resolution, so a mutated
+        // plan cannot reuse a previous success by retaining its declared identity.
+        static $validated = array();
+        $contentHash = self::contentHash(serialize($plan));
+        if (isset($validated[$contentHash])) return;
         if ( self::SCHEMA !== ($plan['schema'] ?? null) ) {
             throw new InvalidArgumentException('WordPress site plan has an unsupported schema.');
         }
@@ -985,6 +990,9 @@ PHP;
         if ( !in_array($plan['quality']['status'] ?? null, array('success', 'success_with_warnings', 'failed'), true) || !is_bool($plan['quality']['pass'] ?? null) || ('failed' !== $plan['quality']['status']) !== $plan['quality']['pass'] || ! is_array($plan['quality']['metrics'] ?? null) || ! is_array($plan['quality']['fallbacks'] ?? null) || !is_array($plan['quality']['core_html_fallback_evidence'] ?? null) || EditabilityPolicy::SCHEMA !== ($plan['quality']['editability_policy']['schema'] ?? null) || 'required' !== ($plan['quality']['editability_policy']['enforcement'] ?? null) || $policyStatus !== ($plan['quality']['editability_policy']['status'] ?? null) ) {
             throw new InvalidArgumentException('WordPress site plan quality is structurally invalid.');
         }
+        // Bound retention for long-lived processes without an eviction index.
+        if (count($validated) >= 4096) $validated = array();
+        $validated[$contentHash] = true;
     }
 
     /** Explicit counted fallback: uploads have no portable relative CSS URL. */
