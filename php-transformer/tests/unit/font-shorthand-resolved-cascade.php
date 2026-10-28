@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssFontShorthand;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 
 $assert = static function (bool $ok, string $message): void {
     if (!$ok) { fwrite(STDERR, "FAIL: {$message}\n"); exit(1); }
@@ -49,5 +50,18 @@ foreach (array('caption', 'menu', 'inherit', 'initial', 'unset', 'revert', 'reve
 $expanded = CssFontShorthand::expand('italic small-caps bold 18px "PT Sans",Arial,sans-serif!important');
 foreach (array('font-style' => 'italic', 'font-variant' => 'small-caps', 'font-weight' => 'bold', 'font-size' => '18px', 'line-height' => 'normal', 'font-family' => '"PT Sans",Arial,sans-serif') as $property => $value) {
     $assert($value . ' !important' === ($expanded[$property] ?? null), 'expand ' . $property);
+}
+// The same block is read by both authored projection and cascade consumers.
+$resolver = (new ReflectionClass(StyleResolver::class))->newInstanceWithoutConstructor();
+foreach (array('font:bold 18px Arial' => 'bold 18px Arial') as $style => $font) {
+    $authored = array('font' => $font);
+    $cascade = CssFontShorthand::expand($font);
+    foreach (array(false, true, false, true) as $expandFont) {
+        $expected = $expandFont ? $cascade : $authored;
+        $parsed = $resolver->verbatimCssDeclarations($style, $expandFont);
+        $assert($expected === $parsed, 'cached declarations keep font expansion modes separate');
+        $parsed['font'] = 'changed by consumer';
+        $assert($expected === $resolver->verbatimCssDeclarations($style, $expandFont), 'consumer mutation does not change cached declarations');
+    }
 }
 fwrite(STDOUT, "Font shorthand resolved cascade passed\n");
