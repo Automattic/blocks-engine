@@ -313,6 +313,7 @@
       "php tests/unit/image-figcaption-author-styling.php",
       "php tests/unit/separator-author-border.php",
       "php tests/unit/conditional-flex-image-figure.php",
+      "php tests/unit/flex-card-fill-image.php",
       "php tests/unit/text-run-synthetic-paragraph.php",
       "php tests/unit/synthetic-paragraph-inline-box.php",
       "php tests/unit/text-span-layout-leaf-paragraph.php",
