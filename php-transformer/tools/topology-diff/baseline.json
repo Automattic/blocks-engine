@@ -1088,6 +1088,7 @@
             "added p [blocks-engine-inline-layout-carrier]": 4,
             "added p [blocks-engine-synthetic-paragraph]": 8,
             "added p [blocks-engine-synthetic-svg-paragraph]": 5,
+            "removed button": 1,
             "removed nav": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 3,
             "retagged span>mark": 9,

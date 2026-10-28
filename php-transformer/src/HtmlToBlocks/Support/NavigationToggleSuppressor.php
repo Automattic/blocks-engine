@@ -489,10 +489,11 @@ final class NavigationToggleSuppressor
      * control: its panel is gone, so it would render as a second, inert menu
      * toggle beside the navigation.
      *
-     * A navigation the control claims from inside its own controlled panel is
-     * excluded: there the panel itself survives as the surface the control
-     * opens (a preserved dialog panel with its navigation), so the control
-     * stays live chrome.
+     * A navigation strictly inside a controlled panel is excluded: the panel
+     * survives as the surface the control opens (a preserved dialog with its
+     * navigation). When the panel IS the converted navigation landmark, its
+     * native opener replaces the control instead; a dialog container that
+     * merely matches a navigation pattern still needs its runtime control.
      */
     public function isMenuToggleSupersededByNativeNavigationOpener(DOMElement $control): bool
     {
@@ -528,7 +529,8 @@ final class NavigationToggleSuppressor
                 continue;
             }
             foreach ( $controlledPanels as $panel ) {
-                if ( SourceDom::elementContains($panel, $candidate) ) {
+                if ( SourceDom::elementContains($panel, $candidate)
+                    && ! ( $panel->isSameNode($candidate) && $this->isNavigationLandmark($panel) ) ) {
                     continue 2;
                 }
             }
