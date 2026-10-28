@@ -70,6 +70,9 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private array $coreGridParentCache = array();
 
+    /** @var array<string, array<string, string>> */
+    private array $verbatimCssDeclarationsCache = array();
+
     /**
      * Resolved presentation attributes for the active transform, keyed by the
      * DOMElement wrapper object id plus node path. PHP may reuse wrapper object
@@ -5279,6 +5282,16 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function verbatimCssDeclarations(string $style, bool $expandFont = false): array
     {
+        // Parsing and font expansion depend only on these inputs, not context.
+        $cacheKey = ($expandFont ? '1:' : '0:') . $style;
+        if ( isset($this->verbatimCssDeclarationsCache[$cacheKey]) ) {
+            return $this->verbatimCssDeclarationsCache[$cacheKey];
+        }
+        // Bound retention for long-lived resolvers without an eviction index.
+        if ( count($this->verbatimCssDeclarationsCache) > 4096 ) {
+            $this->verbatimCssDeclarationsCache = array();
+        }
+
         $declarations = array();
         foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
             if ( ! str_contains($declaration, ':') ) {
@@ -5312,7 +5325,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
-        return $declarations;
+        return $this->verbatimCssDeclarationsCache[$cacheKey] = $declarations;
     }
 
     /**
