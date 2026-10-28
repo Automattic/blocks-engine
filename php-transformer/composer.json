@@ -54,6 +54,7 @@
     "visual:synthetic-inline-image-percentage": "node tools/visual-parity/tests/synthetic-inline-image-percentage.mjs",
     "visual:image-transform-reference-box": "node tools/visual-parity/tests/image-transform-reference-box.mjs",
     "visual:figure-media-frame": "node tools/visual-parity/tests/figure-media-frame.mjs",
+    "visual:hidden-lone-button": "node tools/visual-parity/tests/hidden-lone-button.mjs",
     "visual:button-intrinsic-height": "node tools/visual-parity/tests/button-intrinsic-height.mjs",
     "visual:bottom-thumbnail-carousel": "node tools/visual-parity/tests/bottom-thumbnail-carousel.mjs",
     "visual:button-padding-height": "node tools/visual-parity/tests/button-padding-height.mjs",
