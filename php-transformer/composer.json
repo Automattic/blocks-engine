@@ -305,6 +305,7 @@
       "php tests/unit/font-family-declaration-memory.php",
       "php tests/unit/asset-reference-canonicalizer-memory.php",
       "php tests/unit/asset-reference-canonicalizer-void-block-comment.php",
+      "php -d pcre.jit=1 tests/unit/asset-reference-canonicalizer-pcre-failure.php",
       "php tests/unit/srcset-parser.php",
       "php tests/unit/route-slug.php",
       "php tests/unit/responsive-media-block.php",

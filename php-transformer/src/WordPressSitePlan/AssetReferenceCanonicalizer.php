@@ -90,19 +90,28 @@ final class AssetReferenceCanonicalizer
 
     public function content(string $content, string $origin): string
     {
+        try {
+            return $this->canonicalizeContent($content, $origin);
+        } catch (ValidationException $error) {
+            throw new ValidationException($error->getMessage(), array_replace($error->diagnostic(), array('source_path' => $origin)));
+        }
+    }
+
+    private function canonicalizeContent(string $content, string $origin): string
+    {
         // Element and attribute context travels with each reference so missing
         // media can be recovered without touching navigation or script targets.
         $replace = fn(string $reference, string $element = '', string $attribute = ''): string => $this->reference($reference, $origin)
             ?? $this->missingMedia?->recover($reference, $origin, $element, $attribute)
             ?? $reference;
         if (str_ends_with(strtolower($origin), '.css')) return self::css($content, $replace);
-        $content = preg_replace_callback('~<\s*[A-Za-z][A-Za-z0-9:-]*(?:\s+(?:"[^"]*"|\'[^\']*\'|[^\'"<>])*)?/?>~s', static fn(array $match): string => self::tag($match[0], $replace), $content) ?? $content;
+        $content = self::tags($content, $replace);
         // RichText image attributes inside serialized block JSON use escaped
         // quotes, so they are not parsed as ordinary HTML tags above.
         if (str_contains($content, '\\"')) {
-            $content = preg_replace_callback('~(\b(?:src|href|poster)\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3], $content) ?? $content;
-            $content = preg_replace_callback('~(\bsrcset\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::srcset($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3], $content) ?? $content;
-            $content = preg_replace_callback('~(\bstyle\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3], $content) ?? $content;
+            $content = self::replaceRegex('~(\b(?:src|href|poster)\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3], $content);
+            $content = self::replaceRegex('~(\bsrcset\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::srcset($value, static fn(string $reference): string => $replace($reference, '', 'srcset'))) . $match[3], $content);
+            $content = self::replaceRegex('~(\bstyle\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3], $content);
         }
         if (str_contains($content, '\\u0022')) {
             $content = self::replaceWhenChanged('~(\b(?:src|href|poster)\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => $replace($value, '', self::attributeName($match[1]))) . $match[3]);
@@ -113,9 +122,9 @@ final class AssetReferenceCanonicalizer
             $content = self::replaceWhenChanged('~(\bstyle\s*=\s*([\'\"]))(.*?)\2~is', $content, static fn(array $match): string => $match[1] . self::css($match[3], $replace) . $match[2]);
         }
         if (false !== stripos($content, '<style')) {
-            $content = preg_replace_callback('~<style\b[^>]*>(.*?)</style\s*>~is', static function (array $match) use ($replace): string {
+            $content = self::replaceRegex('~<style\b[^>]*>(.*?)</style\s*>~is', static function (array $match) use ($replace): string {
                 return str_replace($match[1], self::css($match[1], $replace), $match[0]);
-            }, $content) ?? $content;
+            }, $content);
         }
         // Block comments are the supported serialized JSON transport. Restricting
         // rewrites to them avoids treating arbitrary text or SVG data as markup.
@@ -126,20 +135,121 @@ final class AssetReferenceCanonicalizer
     public function cssFromOrigins(string $content, array $origins): string
     {
         $origins = array_values(array_unique(array_filter($origins, static fn(mixed $origin): bool => is_string($origin) && '' !== $origin)));
-        return self::css($content, function (string $reference) use ($origins): string {
-            $matches = array_values(array_unique(array_filter(array_map(fn(string $origin): ?string => $this->reference($reference, $origin), $origins))));
-            return 1 === count($matches) ? $matches[0] : $reference;
-        });
+        try {
+            return self::css($content, function (string $reference) use ($origins): string {
+                $matches = array_values(array_unique(array_filter(array_map(fn(string $origin): ?string => $this->reference($reference, $origin), $origins))));
+                return 1 === count($matches) ? $matches[0] : $reference;
+            });
+        } catch (ValidationException $error) {
+            throw new ValidationException($error->getMessage(), array_replace($error->diagnostic(), array('source_path' => $origins[0] ?? '')));
+        }
+    }
+
+    private static function regexFailure(): ValidationException
+    {
+        return new ValidationException('Asset reference canonicalization failed: ' . preg_last_error_msg(), array(
+            'reason' => 'asset_reference_canonicalization_failed',
+            'fields' => array('pcre_error' => preg_last_error()),
+        ));
+    }
+
+    /** @param callable(array<int|string,string>):string $replace */
+    private static function replaceRegex(string $pattern, callable $replace, string $content): string
+    {
+        $result = preg_replace_callback($pattern, $replace, $content);
+        if (null === $result) throw self::regexFailure();
+        return $result;
+    }
+
+    /**
+     * Source-preserving start-tag scan following HtmlMarkupParser's attribute
+     * states. Quotes only open values after =; a matching quote always closes
+     * that value, even in malformed markup. Every byte is visited at most once.
+     *
+     * @param callable(string,string,string):string $replace
+     */
+    private static function tags(string $content, callable $replace): string
+    {
+        $length = strlen($content);
+        $offset = 0;
+        $copied = 0;
+        $chunks = array();
+        while ($offset < $length && false !== ($start = strpos($content, '<', $offset))) {
+            if ('<!--' === substr($content, $start, 4)) {
+                $end = strpos($content, '-->', $start + 4);
+                $offset = false === $end ? $length : $end + 3;
+                continue;
+            }
+            $cursor = $start + 1;
+            if ($cursor >= $length || !ctype_alpha($content[$cursor])) {
+                $offset = $cursor;
+                continue;
+            }
+            // HTML tag names end at whitespace, / or >, not at odd quotes.
+            while ($cursor < $length && !ctype_space($content[$cursor]) && !str_contains('/>', $content[$cursor])) ++$cursor;
+            foreach (self::attributes($content, $cursor) as $attribute) {
+                // Consume the shared scan to locate the tag's closing boundary.
+            }
+            if ($cursor < $length && '>' === $content[$cursor]) {
+                ++$cursor;
+                $chunks[] = substr($content, $copied, $start - $copied);
+                $chunks[] = self::tag(substr($content, $start, $cursor - $start), $replace);
+                $copied = $cursor;
+            }
+            $offset = $cursor;
+        }
+        $chunks[] = substr($content, $copied);
+        return implode('', $chunks);
+    }
+
+    /**
+     * Yield attribute names and value byte spans, leaving the cursor at > or EOF.
+     * Quotes in names are parse errors, but remain name bytes. Only quotes after
+     * = open a quoted value; unquoted values end at whitespace or >.
+     *
+     * @return \Generator<int,array{string,int,int}>
+     */
+    private static function attributes(string $content, int &$cursor): \Generator
+    {
+        $length = strlen($content);
+        while ($cursor < $length) {
+            while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
+            if ($cursor >= $length || '>' === $content[$cursor]) break;
+            if ('/' === $content[$cursor]) { ++$cursor; continue; }
+            $start = $cursor;
+            while ($cursor < $length && !ctype_space($content[$cursor]) && !str_contains('=/>', $content[$cursor])) ++$cursor;
+            $name = strtolower(substr($content, $start, $cursor - $start));
+            while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
+            if ($cursor >= $length || '=' !== $content[$cursor]) continue;
+            ++$cursor;
+            while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
+            if ($cursor >= $length) break;
+            if ('"' === $content[$cursor] || "'" === $content[$cursor]) {
+                $quote = $content[$cursor++];
+                $start = $cursor;
+                while ($cursor < $length && $quote !== $content[$cursor]) ++$cursor;
+                $size = $cursor - $start;
+                if ($cursor < $length) ++$cursor;
+            } else {
+                $start = $cursor;
+                while ($cursor < $length && !ctype_space($content[$cursor]) && '>' !== $content[$cursor]) ++$cursor;
+                $size = $cursor - $start;
+            }
+            yield array($name, $start, $size);
+        }
     }
 
     /** @param callable(array<int|string,string>):string $replace */
     private static function replaceWhenChanged(string $pattern, string $content, callable $replace): string
     {
         $offset = 0;
-        while (preg_match($pattern, $content, $captures, PREG_OFFSET_CAPTURE, $offset)) {
+        while (true) {
+            $result = preg_match($pattern, $content, $captures, PREG_OFFSET_CAPTURE, $offset);
+            if (false === $result) throw self::regexFailure();
+            if (0 === $result) break;
             $match = array();
             foreach ($captures as $key => $capture) $match[$key] = $capture[0];
-            if ($replace($match) !== $match[0]) return preg_replace_callback($pattern, $replace, $content) ?? $content;
+            if ($replace($match) !== $match[0]) return self::replaceRegex($pattern, $replace, $content);
             $offset = $captures[0][1] + strlen($captures[0][0]);
         }
         return $content;
@@ -148,19 +258,29 @@ final class AssetReferenceCanonicalizer
     /** @param callable(string,string,string):string $replace */
     private static function tag(string $tag, callable $replace): string
     {
-        $element = preg_match('~^<\s*([A-Za-z][A-Za-z0-9:-]*)~', $tag, $name) ? strtolower($name[1]) : '';
-        return preg_replace_callback('~(?<![A-Za-z0-9:_-])(xlink:href|srcset|src|href|poster|action|style)\s*=\s*(["\'])(.*?)\2~is', static function (array $match) use ($replace, $element): string {
-            $name = strtolower($match[1]);
-            $value = 'style' === $name ? self::css($match[3], $replace, $element) : ('srcset' === $name ? self::srcset($match[3], static fn(string $reference): string => $replace($reference, $element, $name)) : $replace($match[3], $element, $name));
-            return $match[1] . '=' . $match[2] . $value . $match[2];
-        }, $tag) ?? $tag;
+        $cursor = 1;
+        $length = strlen($tag);
+        while ($cursor < $length && !ctype_space($tag[$cursor]) && !str_contains('/>', $tag[$cursor])) ++$cursor;
+        $element = strtolower(substr($tag, 1, $cursor - 1));
+        $copied = 0;
+        $chunks = array();
+        foreach (self::attributes($tag, $cursor) as [$name, $start, $size]) {
+            if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style'), true)) continue;
+            $original = substr($tag, $start, $size);
+            $value = 'style' === $name ? self::css($original, $replace, $element) : ('srcset' === $name ? self::srcset($original, static fn(string $reference): string => $replace($reference, $element, $name)) : $replace($original, $element, $name));
+            $chunks[] = substr($tag, $copied, $start - $copied);
+            $chunks[] = $value;
+            $copied = $start + $size;
+        }
+        $chunks[] = substr($tag, $copied);
+        return implode('', $chunks);
     }
 
     /** @param callable(string,string,string):string $replace */
     private static function css(string $css, callable $replace, string $element = ''): string
     {
         $css = CssUrlRewriter::rewrite($css, static fn(string $reference): string => $replace($reference, $element, 'css:url'));
-        return preg_replace_callback('~(@import\s+)(["\'])([^"\']+)\2~i', static fn(array $match): string => $match[1] . $match[2] . $replace($match[3], $element, 'css:@import') . $match[2], $css) ?? $css;
+        return self::replaceRegex('~(@import\s+)(["\'])([^"\']+)\2~i', static fn(array $match): string => $match[1] . $match[2] . $replace($match[3], $element, 'css:@import') . $match[2], $css);
     }
 
     /** @param callable(string,string,string):string $replace */
@@ -201,13 +321,13 @@ final class AssetReferenceCanonicalizer
         // Route-bearing blocks keep their own resolve-or-neutralize recovery, so
         // their url/href/action fields are never treated as media references.
         $route = preg_match('~^<!--\s*wp:([^\s{]+)~i', $comment, $block) && in_array(strtolower($block[1]), WordPressSitePlan::ROUTE_URL_BLOCKS, true);
-        return preg_replace_callback('~((?:"|\\\\u0022)(url|src|href|poster|action|srcset)(?:"|\\\\u0022)\s*:\s*(?:"|\\\\u0022))(.*?)(?:"|\\\\u0022)~is', static function (array $match) use ($replace, $route): string {
+        return self::replaceRegex('~((?:"|\\\\u0022)(url|src|href|poster|action|srcset)(?:"|\\\\u0022)\s*:\s*(?:"|\\\\u0022))(.*?)(?:"|\\\\u0022)~is', static function (array $match) use ($replace, $route): string {
             $field = strtolower($match[2]);
             $attribute = 'json:' . (($route && 'url' === $field) || in_array($field, array('href', 'action'), true) ? 'route_' . $field : $field);
             $jsonReplace = static fn(string $reference): string => self::escapedJsonValue($reference, static fn(string $value): string => $replace($value, '', $attribute));
             $value = 'srcset' === strtolower($match[2]) ? self::srcset($match[3], $jsonReplace) : $jsonReplace($match[3]);
             return $match[1] . $value . (str_contains($match[0], '\\u0022') ? '\\u0022' : '"');
-        }, $comment) ?? $comment;
+        }, $comment);
     }
 
     /** Lowercased attribute name from a captured `name="` prefix. */
