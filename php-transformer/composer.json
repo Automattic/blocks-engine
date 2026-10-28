@@ -694,6 +694,7 @@
       "php tests/unit/button-wrapper-inner-fill.php",
       "php tests/unit/button-intrinsic-height.php",
       "php tests/unit/button-padding-height.php",
+      "php tests/unit/button-inline-layout.php",
       "php tests/unit/button-mixed-padding-height.php",
       "php tests/unit/positioned-button-containing-block.php",
       "php tests/unit/inherited-text-align-button-justification.php",
