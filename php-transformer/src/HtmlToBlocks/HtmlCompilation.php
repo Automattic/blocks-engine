@@ -9971,6 +9971,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $caption = $this->firstChildElement($figure, 'figcaption');
             if ( $caption instanceof DOMElement ) {
                 $attrs['caption'] = $this->innerHtml($caption);
+                $captionMarginClassName = $this->styleResolver->imageCaptionMarginClassName($caption);
+                if ( '' !== $captionMarginClassName ) {
+                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $captionMarginClassName);
+                }
                 // core/image's save() writes the caption <figcaption> itself, so
                 // the source caption's classes have no attribute that reaches
                 // it. Carry them onto the rendered figcaption (see
