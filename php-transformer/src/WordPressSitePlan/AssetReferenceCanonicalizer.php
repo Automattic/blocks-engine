@@ -192,7 +192,9 @@ final class AssetReferenceCanonicalizer
                 $rewritten = $rewriteModel($attributes);
                 if ( $rewritten !== $attributes ) {
                     $encoded = json_encode($rewritten, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
-                    if ( is_string($encoded) ) return '<!-- wp:' . $opener[1] . ' ' . $encoded . ( ! empty($opener[3]) ? ' /' : '' ) . ' -->';
+                    // The block grammar only recognizes a void block whose void
+                    // marker is the exact `/-->` closer; `} / -->` stops parsing.
+                    if ( is_string($encoded) ) return '<!-- wp:' . $opener[1] . ' ' . $encoded . ( ! empty($opener[3]) ? ' /-->' : ' -->' );
                 }
             }
         }
