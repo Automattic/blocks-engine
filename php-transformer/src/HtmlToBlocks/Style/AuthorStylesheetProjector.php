@@ -3608,7 +3608,7 @@ final class AuthorStylesheetProjector
             return 'first-child' === $name || 'last-child' === $name ? 'structural' : null;
         }
         if ( 'nth-child' === $name || 'nth-of-type' === $name ) {
-            return preg_match('/^[1-9][0-9]*$/', $argument) ? 'structural' : null;
+            return null !== CssSelectorMatcher::parseNthExpression($argument) ? 'structural' : null;
         }
         if ( 'not' !== $name || '' === $argument ) {
             return null;
