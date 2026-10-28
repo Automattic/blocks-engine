@@ -199,6 +199,8 @@ final class DocumentHeadContext
         static $contexts = array();
         $key = WordPressSitePlan::contentHash(serialize(array($assets, $tokens, $entryRoot)));
         if (!isset($contexts[$key])) {
+            // A site plan has a handful of head contexts; bound retention for long-lived processes.
+            if (count($contexts) >= 16) $contexts = array();
             $byToken = array();
             foreach ($assets as $asset) $byToken[WordPressSitePlan::TOKEN_PREFIX . $asset['token'] . '}}'] = $asset;
             $contexts[$key] = new self($byToken, new AssetReferenceCanonicalizer($tokens, $entryRoot));
