@@ -685,6 +685,7 @@
       "php tests/unit/textless-painted-anchor.php",
       "php tests/unit/button-wrapper-keyword-width.php",
       "php tests/unit/button-link-min-content.php",
+      "php tests/unit/button-link-automatic-minimum.php",
       "php tests/unit/button-wrapper-inner-fill.php",
       "php tests/unit/button-intrinsic-height.php",
       "php tests/unit/button-padding-height.php",

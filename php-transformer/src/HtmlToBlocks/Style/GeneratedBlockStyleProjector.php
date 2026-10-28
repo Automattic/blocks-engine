@@ -539,9 +539,18 @@ final class GeneratedBlockStyleProjector
         // reference viewport must not pin it when that parent becomes a column.
         $hasWidth = array() !== ($this->styleResolver->authorDeclaredPropertyValues($control, array('width'))['width'] ?? array());
         $isFlex = in_array(CssValueInspector::comparable((string) ($parentStyle['display'] ?? '')), array('flex', 'inline-flex'), true);
+        // The wrapper stands in for the source control as its parent's flex or
+        // grid item. When the source kept CSS's automatic minimum size, the
+        // wrapper must keep it too: zeroing it lets the row shrink below its
+        // nowrap labels, which lowers an ancestor grid item's min-content
+        // contribution and shifts `fr` tracks away from the source resolution.
+        $wrapperFloor = self::sourceControlKeepsAutomaticMinimum(
+            $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($control)),
+            $this->styleResolver->authorStructuralDeclarations($control)
+        ) ? '' : ';min-width:0';
         $generatedStyles->registerDirectFlexButton(
             $marker,
-            $wrapper . '{display:block!important;gap:0!important;min-width:0}'
+            $wrapper . '{display:block!important;gap:0!important' . $wrapperFloor . '}'
                 . $button . '{display:block!important;margin:0!important;min-width:0' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
                 . $link . '{box-sizing:border-box' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
                 . ($hasWidth || ! $isFlex ? '' : $wrapper . '{width:auto!important}')
@@ -574,6 +583,56 @@ final class GeneratedBlockStyleProjector
         $alignItems = CssValueInspector::comparable((string) ($parentStyle['align-items'] ?? ''));
 
         return '' === $alignItems || in_array($alignItems, array( 'stretch', 'normal' ), true);
+    }
+
+    /**
+     * Whether the source control keeps CSS's automatic minimum size in its
+     * parent's flex/grid track sizing: a `min-width` of `auto` (or none at
+     * all) with visible overflow resolves the item's minimum to its own
+     * min-content size. The participating wrapper inherits that floor by
+     * simply staying at `min-width:auto` — the same default the source anchor
+     * had — so an ancestor track keeps resolving to the source minimum.
+     *
+     * When the source itself suppressed the automatic minimum — an explicit
+     * zero `min-width`, or an inline-axis `overflow` other than `visible` —
+     * the wrapper must restate `min-width:0`, because the authored zero rides
+     * the projected link rule and a fresh wrapper box would otherwise floor at
+     * its content. A nonzero explicit `min-width` also rides the link, where
+     * it raises the chain floor above min-content, so the wrapper needs no
+     * declaration of its own. A `var()` value cannot be proven zero
+     * statically and keeps the source default, mirroring
+     * {@see self::sourceControlHasVisibleBorder()}.
+     *
+     * `min-width` is read from the resting reference-viewport cascade.
+     * `overflow` never reaches that cascade (it is outside the
+     * classification allow-list), so it is read from the raw author
+     * declaration stream, where any viewport stating a clipping inline-axis
+     * overflow suppresses the automatic minimum.
+     *
+     * @param array<string, string> $restingDeclarations
+     * @param array<string, string> $authorDeclarations
+     */
+    private static function sourceControlKeepsAutomaticMinimum(array $restingDeclarations, array $authorDeclarations): bool
+    {
+        $minWidth = CssValueInspector::comparable((string) ($restingDeclarations['min-width'] ?? ''));
+        if ( '' !== $minWidth && 'auto' !== $minWidth && ! str_contains($minWidth, 'var(') ) {
+            return CssValueInspector::isNonZero($minWidth);
+        }
+        foreach ( array( 'overflow', 'overflow-x' ) as $property ) {
+            $overflow = strtolower(trim((string) ($restingDeclarations[$property] ?? $authorDeclarations[$property] ?? '')));
+            if ( '' === $overflow || str_contains($overflow, 'var(') ) {
+                continue;
+            }
+            // The shorthand's first token is the inline axis that governs
+            // min-width; any other value there than `visible` (or a keyword
+            // that computes to it) zeroes the automatic minimum.
+            $inlineAxis = preg_split('/\s+/', $overflow) ?: array( '' );
+            if ( '' !== $inlineAxis[0] && ! in_array($inlineAxis[0], array( 'visible', 'unset', 'initial', 'inherit', 'revert' ), true) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function registerButtonWidth(string $marker, int $width, GeneratedSupportStylesheetState $generatedStyles): void
