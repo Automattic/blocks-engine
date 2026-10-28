@@ -151,7 +151,15 @@ final class SourceBlockAttributeProjector
             }
         }
         $baseClassName = (string) ($attrs['className'] ?? '');
-        $projectionClassName = $this->sourceProjectionClassName($sourceElement, $context, $baseClassName);
+        // A RichText marker is already the selector projection of this source
+        // element. Its paragraph is only a validity carrier, not a second box.
+        $richTextMarker = $context->selectorProjections->richTextMarker($sourceElement->getNodePath() ?? '');
+        $contentOwnsProjection = 'core/paragraph' === $name && $facts->isInlineSourceElement
+            && '' !== $richTextMarker
+            && str_contains((string) ($attrs['content'] ?? ''), '--blocks-engine-richtext-marker:' . $richTextMarker);
+        $projectionClassName = $contentOwnsProjection
+            ? $baseClassName
+            : $this->sourceProjectionClassName($sourceElement, $context, $baseClassName);
         if ( '' !== $projectionClassName ) {
             $attrs['className'] = 'core/paragraph' === $name && 'a' === $sourceTagName && $facts->isInlineSourceElement
                 ? self::withoutContentAnchorClasses($projectionClassName, $baseClassName, (string) ($attrs['content'] ?? ''))
