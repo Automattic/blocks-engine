@@ -389,7 +389,27 @@ final class GeneratedBlockStyleProjector
         if ( '' !== $inheritedTextAlignment ) {
             $declarations[] = 'text-align:' . $inheritedTextAlignment . '!important';
         }
-        if ( array() === $declarations && array() === $guardedDeclarations ) {
+        $wrapperDisplayRules = '';
+        if ( $sourceControl instanceof DOMElement ) {
+            $displayRules = $this->styleResolver->authoredControlPresentation($sourceControl, array('display'));
+            $hasHiddenState = false;
+            foreach ( $displayRules as $properties ) {
+                if ( 'none' === CssValueInspector::comparable($properties['display'] ?? '') ) $hasHiddenState = true;
+            }
+            if ( $hasHiddenState ) {
+                // Only the generated wrapper standing in for this single control
+                // leaves the parent's layout. A shared buttons row stays visible.
+                $selector = '.' . $marker . '.' . $marker . '.wp-block-buttons:has(>.' . $marker . '.wp-block-button:only-child)';
+                foreach ( $displayRules as $conditions => $properties ) {
+                    if ( ! isset($properties['display']) ) continue;
+                    $hidden = 'none' === CssValueInspector::comparable($properties['display']);
+                    $rule = $selector . '{display:' . ($hidden ? 'none' : 'block') . '!important}';
+                    if ( '' !== $conditions ) $rule = $conditions . '{' . $rule . str_repeat('}', substr_count($conditions, '{') + 1);
+                    $wrapperDisplayRules .= $rule;
+                }
+            }
+        }
+        if ( array() === $declarations && array() === $guardedDeclarations && '' === $wrapperDisplayRules ) {
             return;
         }
 
@@ -407,7 +427,7 @@ final class GeneratedBlockStyleProjector
         foreach ( $guardedDeclarations as $guard => $guarded ) {
             $linkRules .= $linkSelector . $guard . '{' . implode(';', $guarded) . '}';
         }
-        $generatedStyles->registerNativeButton($marker, $outerWrapperRule . $wrapperRule . $intrinsicWrapperRule . $linkRules);
+        $generatedStyles->registerNativeButton($marker, $outerWrapperRule . $wrapperRule . $intrinsicWrapperRule . $linkRules . $wrapperDisplayRules);
     }
 
     public function registerNativeButtonDefaultBackgroundGuard(string $marker, DOMElement $sourceControl, GeneratedSupportStylesheetState $generatedStyles, bool $blockHasInlineBackground = false): bool
