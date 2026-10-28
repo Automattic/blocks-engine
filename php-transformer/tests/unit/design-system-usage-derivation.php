@@ -535,6 +535,30 @@ foreach (array('dark-hero-headings' => false, 'dark-hero-headings control' => tr
     $assert(array('#ffffff', '#ffffff', '#ffffff') === $h1Colors, "$label: each H1 still renders #fff through its block or its section (" . json_encode($h1Colors) . ')');
 }
 
+// A heading whose colour comes from the section it sits in inherits it: no
+// rule styles the heading, usage records the inherited root text colour, and
+// an element colour equal to the root text colour is a no-op that must not be
+// emitted — WordPress's `h1..h6 { color: … }` output would override the
+// section's inheritance and paint the band's headings dark-on-dark. Headings
+// that state the root colour themselves (the control) keep rendering it
+// through their own blocks instead of an element style.
+$inherited = require dirname(__DIR__) . '/fixtures/design-system/inherited-section-heading.php';
+foreach (array('inherited-section-heading' => false, 'inherited-section-heading control' => true) as $label => $styled) {
+    [$bandPlan, $bandTheme] = $compile($inherited($styled));
+    $bandPalette = array_column($bandTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+    $bandElements = $bandTheme['styles']['elements'] ?? array();
+    $assert('var:preset|color|contrast' === ($bandTheme['styles']['color']['text'] ?? null) && '#1e2024' === ($bandPalette['contrast'] ?? null), "$label: the root text colour is the dark contrast role (" . json_encode($bandTheme['styles']['color'] ?? null) . ')');
+    $assert(!isset($bandElements['heading']['color']) && !isset($bandElements['h1']['color']) && !isset($bandElements['h2']['color']), "$label: no heading element colour equal to the root text colour is emitted (" . json_encode($bandElements) . ')');
+    $bandMarkup = implode('', array_column($bandPlan['pages'], 'canonical_block_markup'));
+    $bandCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($bandPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
+    if ($styled) {
+        $assert(2 === preg_match_all('/<!-- wp:heading [^>]*"textColor":"contrast"/', $bandMarkup), "$label: headings that state the root colour themselves keep rendering it through their blocks");
+        continue;
+    }
+    $assert(!preg_match('/<!-- wp:heading [^>]*"textColor"/', $bandMarkup), "$label: inherited headings carry no colour binding");
+    $assert(str_contains($bandCss, 'var(--band-fg)'), "$label: the band's class rule still supplies the colour its heading inherits");
+}
+
 // A size a breakpoint changes stays with the source: an element style
 // would override the responsive variant.
 [, $v4Theme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/tailwind-v4.php');
