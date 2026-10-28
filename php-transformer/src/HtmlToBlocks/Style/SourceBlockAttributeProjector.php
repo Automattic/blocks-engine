@@ -631,10 +631,13 @@ final class SourceBlockAttributeProjector
     /** @return array<string,string> */
     public function syntheticInlineParagraphAttributes(DOMElement $container): array
     {
+        // This carrier adds no source box, regardless of its links.
+        $attrs = array('className' => self::SYNTHETIC_PARAGRAPH_CLASS);
         $anchors = $container->getElementsByTagName('a');
-        if (0 === $anchors->length) return array();
-        foreach ($anchors as $anchor) if (!$anchor instanceof DOMElement || !$this->sourceAnchorHasNoTextDecoration($anchor)) return array();
-        return array('className' => self::SYNTHETIC_PARAGRAPH_CLASS . ' ' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
+        if (0 === $anchors->length) return $attrs;
+        foreach ($anchors as $anchor) if (!$anchor instanceof DOMElement || !$this->sourceAnchorHasNoTextDecoration($anchor)) return $attrs;
+        $attrs['className'] .= ' ' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS;
+        return $attrs;
     }
 
     /**
