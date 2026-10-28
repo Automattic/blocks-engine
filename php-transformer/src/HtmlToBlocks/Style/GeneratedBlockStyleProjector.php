@@ -359,6 +359,33 @@ final class GeneratedBlockStyleProjector
                 }
             }
         }
+        if ( $sourceControl instanceof DOMElement ) {
+            // Native supports consume paint, and author CSS projects class-owned
+            // layout. Inline control layout has no stylesheet rule to project;
+            // keep it on the saved link, not its synthetic formatting wrappers.
+            $inlineLayout = array_intersect_key(
+                $this->styleResolver->cssDeclarations($sourceControl->getAttribute('style')),
+                array_flip(array( 'display', 'flex-direction', 'flex-wrap', 'align-items', 'justify-content', 'gap', 'column-gap', 'row-gap', 'width', 'min-width', 'max-width' ))
+            );
+            if ( array() !== $inlineLayout ) {
+                $inlineLayout = array_intersect_key(
+                    $this->styleResolver->authoredControlPresentation($sourceControl, array_keys($inlineLayout))[''] ?? array(),
+                    $inlineLayout
+                );
+                $inlineLayout = array_map(fn (string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $sourceControl), $inlineLayout);
+                $inlineLayout = $this->styleResolver->safeVisualDeclarations($inlineLayout);
+            }
+            foreach ( $inlineLayout as $property => $value ) {
+                $declarations[] = $property . ':' . CssValueInspector::withoutImportant($value) . '!important';
+            }
+            if ( isset($inlineLayout['width']) ) {
+                // A source anchor is content-box unless authored otherwise.
+                // The width-fill primitive supplies border-box for synthetic
+                // carriers; it must not change the padded source control's box.
+                $box = $this->styleResolver->resolvedSourceStateDeclarations($sourceControl);
+                $declarations[] = 'box-sizing:' . ($box['box-sizing'] ?? ('a' === strtolower($sourceControl->tagName) ? 'content-box' : 'border-box')) . '!important';
+            }
+        }
         if ( '' !== $inheritedTextAlignment ) {
             $declarations[] = 'text-align:' . $inheritedTextAlignment . '!important';
         }
