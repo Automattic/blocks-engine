@@ -2027,6 +2027,13 @@ PHP;
     private static function projectSharedChromeStylesheets(array $assets, array $parts, array $pages = array(), ?AssetReferenceCanonicalizer $references = null, array &$collisions = array(), ?array $liveRichTextMarkers = null): array
     {
         $classes = array();
+        $controlRoutes = array();
+        $routeIdentities = array();
+        foreach ($pages as $page) {
+            $source = (string) $page['source_path'];
+            $routeIdentities[$source] = self::identity('page', $source, $source);
+        }
+        $routeClasses = DocumentRootContext::routeClasses(array_values($routeIdentities));
         $authored = array('class' => array(), 'id' => array());
         $context = array('class' => array(), 'id' => array());
         $detachedRoots = array();
@@ -2038,6 +2045,15 @@ PHP;
             // Its ancestor-scoped rules belong to that page, not global chrome.
             if ('inline_shared_shell' === ($part['placement']['kind'] ?? '') && 1 === count($part['placement']['source_paths'] ?? array())) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
+            // A deduplicated control keeps the chosen capture's marker, but
+            // renders on every route adopting the part, not just that capture.
+            $sources = $part['placement']['source_paths'] ?? array_keys($part['provenance']['sources'] ?? array());
+            preg_match_all('/\bblocks-engine-control-[a-f0-9]{12}-[0-9]+\b/', $markup, $controls);
+            foreach ($controls[0] as $control) {
+                foreach ($sources as $source) {
+                    if (isset($routeIdentities[$source])) $controlRoutes[$control][$routeClasses[$routeIdentities[$source]]] = true;
+                }
+            }
             $hasSharedNavigation = $hasSharedNavigation || 1 === preg_match('/<!--\s*wp:navigation(?:\s|\/|-->)/', $markup);
             // A source-tag marker names every element of its tag on every page
             // under any author CSS, not this chrome: a rule reaching it only
@@ -2104,7 +2120,19 @@ PHP;
         $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher)
             || self::selectorTargetsAuthoredChrome($selector, $authored, $context)
             || ($hasSharedNavigation && self::selectorTargetsRuntimeNavigationState($selector));
-        $reanchor = static fn (string $selector): string => self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots));
+        $reanchor = static function (string $selector) use ($context, $detachedRoots, $controlRoutes): string {
+            $routes = array();
+            foreach ($controlRoutes as $control => $classes) {
+                if (str_contains($selector, '.' . $control . ')')) $routes += $classes;
+            }
+            if ($routes) {
+                // Rewrite only compiler-owned route gates. Authored root state
+                // and all specificity shims remain exactly as projected.
+                $scope = ':where(:root:is(.' . implode(',.', array_keys($routes)) . '))';
+                $selector = preg_replace('/:where\(:root(?::(?:is|not)\((?:\.be-r-[a-f0-9]+,?)+\)|\.be-r(?::not\((?:\.be-r-[a-f0-9]+,?)+\))?)\)/', $scope, $selector) ?? $selector;
+            }
+            return self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots));
+        };
 
         $projected = array();
         $emittedShared = array();
