@@ -1995,7 +1995,8 @@ final class StyleResolver implements ElementPresentationResolver
         string $nativeHeight,
         bool $hasNativeAspectRatio,
         bool $widthResolvesToAuto = false,
-        bool $heightResolvesToAuto = false
+        bool $heightResolvesToAuto = false,
+        ?DOMElement $figure = null
     ): string {
         $declarations = $this->imageShapeDeclarations($image);
         $box = array();
@@ -2062,6 +2063,7 @@ final class StyleResolver implements ElementPresentationResolver
         ) {
             $box['max-width'] = 'none';
         }
+        $box = array_merge($box, $this->flattenedImageFrameBox($image, $figure));
         if (array() === $box) {
             return '';
         }
@@ -2079,6 +2081,50 @@ final class StyleResolver implements ElementPresentationResolver
         );
 
         return $className;
+    }
+
+    /**
+     * A collapsed media frame is the image's reference box, not the figure's:
+     * putting its ratio on the figure would include the caption in the crop.
+     * For a filling image the same box can live on the replaced element. Its
+     * padding/background form the frame and object-fit paints in the content
+     * box (including the centering of a flex frame), without changing save HTML.
+     *
+     * @return array<string, string>
+     */
+    private function flattenedImageFrameBox(DOMElement $image, ?DOMElement $figure): array
+    {
+        $frame = $image->parentNode;
+        if (! $figure instanceof DOMElement || ! $frame instanceof DOMElement || $frame === $figure
+            || $frame->parentNode !== $figure || 'div' !== strtolower($frame->tagName)) {
+            return array();
+        }
+        $fill = $this->referenceViewportAuthorDeclarations($image, array('width', 'height'));
+        if ('100%' !== ($fill['width'] ?? '') || '100%' !== ($fill['height'] ?? '')) {
+            return array();
+        }
+        $properties = array('aspect-ratio', 'overflow', 'overflow-x', 'overflow-y', 'box-sizing', 'background', 'background-color',
+            'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left');
+        $box = $this->referenceViewportAuthorDeclarations($frame, $properties);
+        if (isset($box['padding'])) {
+            foreach (CssValueInspector::expandBoxShorthand($box['padding']) as $side => $value) {
+                $box['padding-' . array('top', 'right', 'bottom', 'left')[$side]] ??= $value;
+            }
+            unset($box['padding']);
+        }
+        if (! isset($box['aspect-ratio']) || ! preg_match('#^[0-9.]+\s*(?:/\s*[0-9.]+)?$#', $box['aspect-ratio'])) {
+            return array();
+        }
+        // A content-box frame's auto width excludes its padding. Reproduce
+        // that used width rather than adding padding outside a 100% image.
+        $box['width'] = '100%';
+        if ('border-box' !== ($box['box-sizing'] ?? 'content-box')) {
+            $box['box-sizing'] = 'content-box';
+            $box['width'] = 'calc(100% - ' . ($box['padding-left'] ?? '0px') . ' - ' . ($box['padding-right'] ?? '0px') . ')';
+        }
+        $box['height'] = 'auto';
+        $box['display'] = 'block';
+        return $box;
     }
 
     /**

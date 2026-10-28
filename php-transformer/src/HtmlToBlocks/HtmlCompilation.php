@@ -9960,7 +9960,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             (string) ($attrs['height'] ?? ''),
             isset($shape['aspectRatio']),
             '' === (string) ($attrs['width'] ?? '') && $this->imageDimensions()->authorResolvesDimensionToAuto($image, 'width'),
-            '' === (string) ($attrs['height'] ?? '') && $this->imageDimensions()->authorResolvesDimensionToAuto($image, 'height')
+            '' === (string) ($attrs['height'] ?? '') && $this->imageDimensions()->authorResolvesDimensionToAuto($image, 'height'),
+            $figure
         );
         if ( '' !== $boxCarrier ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $boxCarrier);
