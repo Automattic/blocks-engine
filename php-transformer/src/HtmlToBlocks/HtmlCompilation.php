@@ -585,6 +585,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): string => $this->elementSelector($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (DOMElement $element): array => $this->formContextTypography($element),
+            fn (DOMElement $element): array => $this->formContextPaint($element),
             fn (DOMElement $element, DOMElement $boundary): ?array => $this->formContextHiddenState($element, $boundary),
             fn (DOMElement $element): string => $this->authorSelectorProjections()->tagMarker($element->tagName)
         );
@@ -1395,6 +1396,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function formContextTypography(DOMElement $element): array
     {
         return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->typographyStyles(
+            $element,
+            $this->authorStyles()->stylesheetAssets(),
+            $this->sourceStyles()->formLayoutCss()
+        );
+    }
+
+    /**
+     * The paint one form control renders, through the same cascade. Held per
+     * transform so the stylesheet analysis runs once.
+     */
+    private function formContextPaint(DOMElement $element): array
+    {
+        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->paintStyles(
             $element,
             $this->authorStyles()->stylesheetAssets(),
             $this->sourceStyles()->formLayoutCss()
