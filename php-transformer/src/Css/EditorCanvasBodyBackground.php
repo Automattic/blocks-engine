@@ -4,7 +4,11 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
 /**
- * Hands the editor canvas `body` background back to a layered author rule.
+ * Restores source body defaults suppressed by core's body rule.
+ *
+ * Core also resets the UA's 8px body margin on the frontend and in the editor.
+ * Restore only sides the resolved author cascade leaves unset; an authored
+ * margin, including zero, must remain in control.
  *
  * Gutenberg's editor iframe document starts with an unlayered fallback,
  * `:where(body){margin:0;background-color:white}`. Unlayered declarations win
@@ -23,7 +27,8 @@ final class EditorCanvasBodyBackground
 {
     public const RULE = ':root body.editor-styles-wrapper{background-color:revert-layer}';
 
-    public function supportCss(string $stylesheet): string
+    /** @param array<string, string>|null $bodyDeclarations Resolved source author declarations. */
+    public function supportCss(string $stylesheet, ?array $bodyDeclarations = null): string
     {
         $layered = false;
         $unlayered = false;
@@ -40,7 +45,21 @@ final class EditorCanvasBodyBackground
             $unlayered = true;
         });
 
-        return $layered && ! $unlayered ? self::RULE : '';
+        $css = $layered && ! $unlayered ? self::RULE : '';
+        if (null !== $bodyDeclarations && ! isset($bodyDeclarations['margin'])) {
+            $margin = '';
+            foreach (array('top', 'right', 'bottom', 'left') as $side) {
+                $property = 'margin-' . $side;
+                if (! isset($bodyDeclarations[$property])) {
+                    $margin .= $property . ':8px;';
+                }
+            }
+            if ('' !== $margin) {
+                $css .= 'body,body.editor-styles-wrapper{' . rtrim($margin, ';') . '}';
+            }
+        }
+
+        return $css;
     }
 
     /** Whether a selector list contains a selector whose subject is the document body. */

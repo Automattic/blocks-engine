@@ -200,6 +200,8 @@ $serveFrontendRequest = static function (array $query, array $meta, array $uris)
     $frontendScopeEnqueuedScripts = array();
     foreach ($frontendScopeActions['wp_enqueue_scripts'] as $callbacks) foreach ($callbacks as $callback) $callback();
     $styleTargets = array_map(static fn(array $style): string => substr((string) $style['src'], strlen('https://theme.test/')), $frontendScopeEnqueuedStyles);
+    // Body UA support adds another global stylesheet, unrelated to page identity.
+    $styleTargets = array_values(array_filter($styleTargets, static fn(string $path): bool => !str_contains($path, 'engine-support-after-author-')));
     return array('styles' => $styleTargets, 'scripts' => $frontendScopeEnqueuedScripts);
 };
 $routeOnly = static fn(array $served): bool => array($globalStylePath, $routeStylePath) === $served['styles'] && array($routeScriptHandle) === $served['scripts'];
