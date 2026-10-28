@@ -189,13 +189,33 @@ final class DocumentHeadContext
         return array() !== $relations && array() === array_diff($relations, array('canonical', 'alternate', 'next', 'prev', 'author', 'license', 'help')) && !isset($attributes['as']) && !in_array(strtolower($attributes['type'] ?? ''), array('text/css', 'text/javascript'), true);
     }
 
+    private function __construct(private array $byToken, private AssetReferenceCanonicalizer $references)
+    {
+    }
+
+    /** Reuse the same asset lookup and canonicalizer for proof and bootstrap renders. */
+    private static function context(array $assets, array $tokens, string $entryRoot): self
+    {
+        static $contexts = array();
+        $key = WordPressSitePlan::contentHash(serialize(array($assets, $tokens, $entryRoot)));
+        if (!isset($contexts[$key])) {
+            $byToken = array();
+            foreach ($assets as $asset) $byToken[WordPressSitePlan::TOKEN_PREFIX . $asset['token'] . '}}'] = $asset;
+            $contexts[$key] = new self($byToken, new AssetReferenceCanonicalizer($tokens, $entryRoot));
+        }
+        return $contexts[$key];
+    }
+
     /** Same DOM bytes used by the proof and by the generated theme. Style rows render as stylesheet links. */
     public static function render(array $head, array $assets, array $tokens, string $entryRoot = ''): string
     {
         self::assertValid($head);
-        $byToken = array();
-        foreach ($assets as $asset) $byToken[WordPressSitePlan::TOKEN_PREFIX . $asset['token'] . '}}'] = $asset;
-        $references = new AssetReferenceCanonicalizer($tokens, $entryRoot);
+        return self::context($assets, $tokens, $entryRoot)->renderHead($head);
+    }
+
+    private function renderHead(array $head): string
+    {
+        $byToken = $this->byToken;
         $html = '';
         foreach ($head['elements'] as $row) {
             $tag = $row['tag']; $attributes = $row['attributes']; $body = '';
@@ -205,7 +225,7 @@ final class DocumentHeadContext
                 $asset = $byToken[$reference] ?? null;
                 $body = $row['content'] ?? $asset['content'] ?? null;
                 if (!is_string($body) || (!isset($row['content']) && 'js' !== ($asset['kind'] ?? null))) throw new InvalidArgumentException('Document head inline script lacks a canonical script payload.');
-                if (!isset($row['content'])) $body = $references->content($body, $asset['source_path']);
+                if (!isset($row['content'])) $body = $this->references->content($body, $asset['source_path']);
                 if (preg_match('~</script\b~i', $body)) throw new InvalidArgumentException('Document head script cannot close its raw-text element.');
             }
             // A style row links its canonical CSS write in place; the theme file owns the bytes.
@@ -249,6 +269,7 @@ final class DocumentHeadContext
             $archive = $entity['archive'];
             $pages[] = array('source_path' => $archive['source_path'], 'post_type' => 'page', 'route' => array('path' => $archive['source_route']), 'reconciliation_identity' => WordPressSitePlan::identity('page', $archive['source_path'], $archive['source_route']), 'document_metadata' => array('head' => $archive['document_head']));
         }
+        $context = null;
         foreach ($pages as $page) {
             if (!isset($page['document_metadata']['head']) || !empty($page['synthetic'])) continue;
             $head = $page['document_metadata']['head'];
@@ -285,7 +306,10 @@ final class DocumentHeadContext
                 } elseif (array() !== $styles) $after[] = $stylesheet['handle'];
             }
             $html = array();
-            foreach ($head['elements'] as $element) $html[] = self::render(array('schema' => self::SCHEMA, 'elements' => array($element)), $assets, $tokens, WordPressSitePlan::entryRootFromDocuments($pages));
+            foreach ($head['elements'] as $element) {
+                $context ??= self::context($assets, $tokens, WordPressSitePlan::entryRootFromDocuments($pages));
+                $html[] = $context->renderHead(array('schema' => self::SCHEMA, 'elements' => array($element)));
+            }
             $row = array('identity' => $page['reconciliation_identity'], 'path' => trim($page['route']['path'], '/'), 'front_page' => !empty($page['entrypoint']), 'html' => $html, 'styles' => $styles, 'following' => $following, 'after' => $after, 'viewport' => (bool) array_filter($head['elements'], static fn(array $row): bool => 'meta' === $row['tag'] && 'viewport' === strtolower($row['attributes']['name'] ?? '')));
             if (isset($taxonomyArchives[$page['source_path']])) $row += $taxonomyArchives[$page['source_path']];
             $rows[] = $row;
