@@ -75,7 +75,7 @@ foreach (['Topic','Booking','Days','/privacy/'] as $text) $assert(str_contains($
 $assert(str_contains($page, '<a href="/privacy/">privacy policy</a>'), 'Published consent label retains its anchor.');
 $assert(!str_contains($page, 'authored-select-wrapper'), 'Published select has no synthetic wrapper.');
 $assert(!str_contains($page, 'form_control_index') && !str_contains($page, 'form_choice_group_index'), 'Finding indices never enter serialized markup.');
-$plain = (new ArtifactCompiler())->compile(['entrypoint'=>'index.html','files'=>['index.html'=>'<html><body><form><input name="name"><label><input type="checkbox">Accept the <a href="/terms/">terms</a>.</label><button type="submit">Send</button></form></body></html>']])->toArray();
+$plain = (new ArtifactCompiler())->compile(['entrypoint'=>'index.html','files'=>['index.html'=>'<html><body><form><label><input type="checkbox">Accept the <a href="/terms/">terms</a>.</label><button type="submit">Send</button></form></body></html>']])->toArray();
 $form = null;
 $find($plain);
 $assert(str_contains(json_encode($form['readable_blocks'], JSON_UNESCAPED_SLASHES), '<a href=\\"/terms/\\">terms</a>'), 'Unstyled labels retain rich inline content too.');

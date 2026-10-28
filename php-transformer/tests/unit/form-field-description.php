@@ -165,7 +165,7 @@ $assert(
 // That trailing copy is the label, not a description.
 $trailingNameControls = $controlsByName(
     '<main><form method="post" action="/join">'
-    . '<label><input type="radio" name="format" value="in-person"> In-person meeting</label><input name="name">'
+    . '<label><input type="radio" name="format" value="in-person"> In-person meeting</label>'
     . '<button type="submit">Send</button></form></main>'
 );
 $assert(

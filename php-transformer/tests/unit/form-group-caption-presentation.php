@@ -33,8 +33,6 @@ $choices = static fn (string $name): string => implode('', array_map(
 ));
 
 $compile = static function (string $html): array {
-    // These fixtures exercise provider graphs, not choice-only preference islands.
-    $html = str_replace('</form>', '<input name="reference"></form>', $html);
     return ( new ArtifactCompiler() )->compile(array( 'entrypoint' => 'index.html', 'files' => array( 'index.html' => $html ) ))->toArray();
 };
 $graph = static function (array $result): array {

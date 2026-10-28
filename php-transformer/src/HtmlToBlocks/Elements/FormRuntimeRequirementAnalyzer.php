@@ -75,6 +75,17 @@ final class FormRuntimeRequirementAnalyzer
         $freeText = false;
         $hasChoice = false;
         $onlyChoices = true;
+        $hasSubmit = false;
+        // Submission controls count even when they are not rendered/authored
+        // fields in the provider inventory (for example a hidden submit button).
+        foreach ( $form->getElementsByTagName('*') as $control ) {
+            $tag = strtolower($control->tagName);
+            $controlType = FormControlClassifier::controlType($control);
+            if ( in_array($tag, array( 'button', 'input' ), true)
+                && in_array($controlType, array( 'submit', 'image' ), true) ) {
+                $hasSubmit = true;
+            }
+        }
         foreach ( $controls as $control ) {
             $type = strtolower(SourceDom::attr($control, 'type'));
             $name = strtolower(SourceDom::attr($control, 'name'));
@@ -82,7 +93,10 @@ final class FormRuntimeRequirementAnalyzer
             $controlType = FormControlClassifier::controlType($control);
             if ( 'select' === $tag || ('input' === $tag && in_array($controlType, array( 'radio', 'checkbox' ), true)) ) {
                 $hasChoice = true;
-            } elseif ( 'button' !== $tag && ! in_array($controlType, array( 'submit', 'reset', 'button', 'image' ), true) ) {
+            } elseif ( ('button' === $tag && in_array(strtolower(SourceDom::attr($control, 'role')), array( 'radio', 'checkbox', 'switch' ), true))
+                || ('button' !== $tag && ! in_array($controlType, array( 'submit', 'reset', 'button', 'image' ), true)) ) {
+                // Custom stateful widgets are not plain button/reset controls;
+                // retain their existing provider composition and presentation.
                 $onlyChoices = false;
             }
             $quantity = $quantity || in_array($name, array( 'quantity', 'qty' ), true);
@@ -114,8 +128,8 @@ final class FormRuntimeRequirementAnalyzer
         }
 
         // Keep existing GET search/filter intents, but recognize bounded choice
-        // state independently of the submission method or destination.
-        if ( $hasChoice && $onlyChoices && ! $email ) return 'preference';
+        // state without a submit control independently of method or destination.
+        if ( $hasChoice && $onlyChoices && ! $hasSubmit && ! $email ) return 'preference';
 
         return 'unknown';
     }
