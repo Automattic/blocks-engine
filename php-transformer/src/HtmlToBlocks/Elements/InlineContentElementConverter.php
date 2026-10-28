@@ -123,7 +123,9 @@ final class InlineContentElementConverter implements ElementConverter
                     return ConversionOutcome::handled($this->group($element, $children));
                 }
             }
-            $content = SourceDom::innerHtml($element);
+            // Resolve descendants while their source ancestry still exists;
+            // detached RichText normalization cannot match scoped author rules.
+            $content = $this->context->richTextContent($element);
             if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
                 // The carrier keeps the author's hooks, so a media rule keeps
                 // addressing it; an inline resting value would outrank that rule.

@@ -418,8 +418,7 @@
             "retagged svg>figure [blocks-engine-synthetic-image-figure]": 2
         },
         "30-cursed-pangolin-fanwiki": {
-            "added div [blocks-engine-empty-visual-group]": 1,
-            "removed a": 1
+            "retagged plaintext>pre [wp-block-preformatted]": 1
         },
         "31-personal-cv-academic": {
             "added mark": 20,
@@ -1045,7 +1044,7 @@
             "added div [blocks-engine-control]": 12,
             "added figure [blocks-engine-synthetic-image-figure]": 2,
             "added img": 2,
-            "added mark": 1,
+            "added mark": 2,
             "added p [blocks-engine-inline-layout-carrier]": 5,
             "added p [blocks-engine-synthetic-paragraph]": 4,
             "removed button": 1,
