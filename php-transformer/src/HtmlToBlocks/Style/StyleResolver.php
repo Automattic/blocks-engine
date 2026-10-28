@@ -1850,6 +1850,41 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element, $nativeBackgroundColor);
     }
 
+    /** Restate source caption margins that differ from core/image's defaults. */
+    public function imageCaptionMarginClassName(DOMElement $caption): string
+    {
+        $declarations = $this->authorStructuralDeclarations($caption);
+        $margins = array('top' => '0', 'bottom' => '0');
+        foreach ($declarations as $property => $value) {
+            $value = trim(CssValueInspector::withoutImportant($value));
+            if ('margin' === $property) {
+                $sides = CssValueInspector::expandBoxShorthand($value);
+                $margins = array('top' => $sides[0], 'bottom' => $sides[2]);
+            } elseif (in_array($property, array('margin-top', 'margin-bottom'), true)) {
+                $margins[substr($property, 7)] = $value;
+            }
+        }
+        $restatements = array();
+        foreach (array('top' => '.5em', 'bottom' => '1em') as $side => $default) {
+            $value = $margins[$side];
+            if (in_array($value, array('initial', 'unset', 'revert', 'revert-layer'), true)) {
+                $value = '0';
+            }
+            $comparable = preg_replace('/^0\./', '.', CssValueInspector::comparable($value));
+            if ($comparable !== $default) {
+                $restatements[] = 'margin-' . $side . ':' . $value;
+            }
+        }
+        if (array() === $restatements) {
+            return '';
+        }
+        $className = $this->context->layoutGeometry()->allocateCarrier($this->geometryStructuralPath($caption) . "\nimage-caption-margin\n" . implode(';', $restatements));
+        // The figure's carrier plus the caption type outranks core's single
+        // class + :where(figcaption), without !important or load-order reliance.
+        $this->context->layoutGeometry()->registerRule($className, '.' . $className . ' figcaption{' . implode(';', $restatements) . '}');
+        return $className;
+    }
+
     /** Carry box spacing lost on a display:contents synthetic image figure. */
     public function syntheticFlexImageBoxClassName(DOMElement $image): string
     {
