@@ -565,10 +565,13 @@ final class StyleResolver implements ElementPresentationResolver
      * class tokens it retains, an authored id, or a marker assigned so id
      * selectors can be rewritten onto the carrier.
      *
+     * When the source tag and descendant topology are retained too, matching
+     * conditional selectors need no local class/id hook (for example `.brand b`).
+     *
      * @param array<string, string> $declarations
      * @return array<string, string>
      */
-    public function stripResponsiveClassOwnedDeclarations(DOMElement $element, array $declarations): array
+    public function stripResponsiveClassOwnedDeclarations(DOMElement $element, array $declarations, bool $retainsSourceSelector = false): array
     {
         if (array() === $declarations || array() === $this->context->sourceStyles()->conditionalRules()) {
             return $declarations;
@@ -577,12 +580,12 @@ final class StyleResolver implements ElementPresentationResolver
         $classes = SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'));
         $id = SourceDom::safeAnchor(SourceDom::attr($element, 'id'));
         $marker = trim(SourceDom::attr($element, 'data-blocks-engine-richtext-marker'));
-        if (array() === $classes && '' === $id && '' === $marker) {
+        if (! $retainsSourceSelector && array() === $classes && '' === $id && '' === $marker) {
             return $declarations;
         }
 
         $responsiveFamilies = array() === $classes ? array() : $this->responsiveClassFamiliesInPlay($element, $classes);
-        if ('' !== $id || '' !== $marker) {
+        if ($retainsSourceSelector || '' !== $id || '' !== $marker) {
             $responsiveFamilies += $this->conditionalFamiliesInPlay($element);
         }
         if (array() === $responsiveFamilies) {
