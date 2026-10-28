@@ -48,16 +48,17 @@ $assert(1 === preg_match('/@media \(max-width:767px\)\{\.' . preg_quote($splitCl
 
 // 3. Unscoped sizing is unchanged: no media rules are added.
 $plain = $transform('<style>' . $rules . '</style>' . $markup);
-$assert(1 === preg_match('/width:var\(--logged-out-icon-size,26px\)\s*!important/', $plain['serialized_blocks']), 'unscoped sizing still rides the inline style');
+[$plainClass, $plainCarrier] = $geometryRule($plain['serialized_blocks'], $css($plain));
+$assert(1 === preg_match('/width:var\(--logged-out-icon-size,26px\)\s*!important/', $plainCarrier), 'unscoped sizing rides the stylesheet carrier');
 $assert(!preg_match('/@media[^{]*\{\.be-inline-geometry-/', $css($plain)), 'no media-scoped carrier is emitted without media-scoped sizing');
 
 // 4. Media rules that do not size the icon change nothing.
 $unrelated = $transform('<style>@media (min-width:768px){.w svg{fill:red}.b{padding:4px}}</style><main><button class="b"><span class="w"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9"/></svg></span>Go</button></main>');
 $assert(!preg_match('/@media[^{]*\{\.be-inline-geometry-/', $css($unrelated)), 'a media rule without box properties adds no carrier rule');
 
-// 5. A static size that a media query also sets keeps today's static handling.
+// 5. A resting size still admits its media-query replacement.
 $mixed = $transform('<style>.w svg{width:20px;height:20px}@media (max-width:767px){.w svg{width:30px;height:30px}}</style><main><button class="b"><span class="w"><svg width="50" height="50" viewBox="0 0 50 50"><circle cx="25" cy="25" r="24"/></svg></span>Go</button></main>');
-$assert(!preg_match('/@media[^{]*\{\.be-inline-geometry-/', $css($mixed)), 'axes with a resting size are left to the existing path');
+$assert(1 === preg_match('/@media[^{]*\{\.be-inline-geometry-[^{]*\{width:30px;height:30px/', $css($mixed)), 'axes with a resting size carry their media override');
 
 $priority = $transform('<style>@media (min-width:768px){' . $rules . '#comp-login{--logged-out-icon-size:24px!important}.later{--logged-out-icon-size:40px}}</style>' . str_replace('id="comp-login"', 'id="comp-login" class="later"', $markup));
 [$priorityClass, $priorityCarrier] = $geometryRule($priority['serialized_blocks'], $css($priority));

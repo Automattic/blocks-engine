@@ -340,7 +340,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             $dimensions = array();
         }
         $geometryClass = '';
-        if ( $preserveInlineGeometry || $preserveBlockDisplay ) {
+        if ( $richTextImage || $preserveInlineGeometry || $preserveBlockDisplay ) {
             $imageDisplay = $preserveBlockDisplay ? 'block' : ('' === $sourceDisplay ? 'inline' : $sourceDisplay);
             $mediaBox = '';
             foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $property ) {
@@ -356,7 +356,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             $carriedProperties = $this->carriedCustomPropertyDeclarations($element, $mediaBox);
             $mediaBox = ( '' === $carriedProperties ? '' : ';' . $carriedProperties ) . $mediaBox;
             $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:' . $this->sourceVerticalAlign($element) : '') . $mediaBox . '}';
-            $conditionedBox = array() === $dimensions ? $this->mediaConditionedBoxRules($element, $presentation, $richTextImage ? '' : '>img') : array();
+            $conditionedBox = array() === $dimensions ? $this->mediaConditionedBoxRules($element, $richTextImage ? '' : '>img') : array();
             $conditionedItemDisplay = $preserveInlineGeometry && ! $richTextImage && $parent instanceof DOMElement
                 ? $this->mediaConditionedItemDisplay($parent, $imageDisplay)
                 : array();
@@ -460,7 +460,9 @@ final class SvgMaterializer implements SvgElementMaterializer
             $resolved = $this->richTextSvgDimensions($element, $presentation);
             $declarations = $this->styleResolver->cssDeclarations($style);
             foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $dimension ) {
-                if ( ! isset($resolved[$dimension]) || (isset($declarations[$dimension]) && ($presentation[$dimension] ?? '') === $resolved[$dimension]) ) {
+                // Unchanged stylesheet values already live on the geometry
+                // carrier, where conditioned rules can still override them.
+                if ( ! isset($resolved[$dimension]) || ($presentation[$dimension] ?? '') === $resolved[$dimension] ) {
                     continue;
                 }
                 $declarations[$dimension] = $resolved[$dimension];
@@ -1034,28 +1036,19 @@ final class SvgMaterializer implements SvgElementMaterializer
      * Source rules that size an inline SVG from a wrapper (`.icon svg{width:24px}`)
      * never reach the generated `<img>`: no `svg` selector matches it, and the
      * wrapper is often flattened. Resting sizes already move onto the carrier
-     * through {@see StyleResolver::presentationDeclarations()}; a size that
-     * only a media query states is not in that cascade, so the axis was written
-     * as `auto` and the image fell back to its intrinsic size. Carry each such
-     * width/height under the same media condition, only on axes the resting
-     * cascade leaves unsized, so other viewports keep the source's own
-     * behaviour.
+     * through {@see StyleResolver::presentationDeclarations()}. Carry their
+     * overrides and sizes stated only by media queries under the same conditions
+     * so other viewports keep the source's own behaviour.
      *
      * Returns rule strings with a `.{carrier}` placeholder for the class.
      *
-     * @param array<string, string> $presentation
      * @return list<string>
      */
-    private function mediaConditionedBoxRules(DOMElement $element, array $presentation, string $selectorSuffix): array
+    private function mediaConditionedBoxRules(DOMElement $element, string $selectorSuffix): array
     {
-        // Only the axes {@see unsizedMediaAxisDeclarations()} writes as `auto`.
-        $properties = array_values(array_filter(
-            array( 'width', 'height' ),
-            static fn (string $axis): bool => '' === trim((string) ($presentation[$axis] ?? ''))
-        ));
-        if ( array() === $properties ) {
-            return array();
-        }
+        // Both resting sizes and unsized-axis defaults belong to this
+        // carrier. Project their conditioned replacements at the same tier.
+        $properties = array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' );
 
         $rules = array();
         $current = null;

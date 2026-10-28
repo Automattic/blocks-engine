@@ -57,15 +57,18 @@ $button = $transform(
 $image = preg_match('/<img[^>]*>/', $button['blocks'], $match) ? $match[0] : '';
 
 $assert('' !== $image, '1: the button icon materializes as an image', $button['blocks']);
+preg_match('/be-inline-geometry-[a-f0-9]+/', $image, $imageClass);
+preg_match('/\.' . ($imageClass[0] ?? '') . '\{([^}]*)\}/', $button['css'], $imageRule);
+$carriedBox = $imageRule[1] ?? '';
 $assert(
-    str_contains($image, 'width:var(--size)') && str_contains($image, 'height:var(--size)'),
-    '2: the author declaration is still carried onto the image',
-    $image
+    str_contains($carriedBox, 'width:var(--size)') && str_contains($carriedBox, 'height:var(--size)'),
+    '2: the author declaration is carried onto the image geometry rule',
+    $carriedBox
 );
 $assert(
-    str_contains($image, '--size:24px'),
-    '3: the custom property the carried declaration reads is re-rooted on the image',
-    $image
+    str_contains($carriedBox, '--size:24px'),
+    '3: the custom property the carried declaration reads is re-rooted on the image geometry rule',
+    $carriedBox
 );
 
 // The same leak through the generated geometry carrier rule.
