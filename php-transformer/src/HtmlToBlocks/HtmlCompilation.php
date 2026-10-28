@@ -9970,6 +9970,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $caption = $this->firstChildElement($figure, 'figcaption');
             if ( $caption instanceof DOMElement ) {
                 $attrs['caption'] = $this->innerHtml($caption);
+                // core/image's save() writes the caption <figcaption> itself, so
+                // the source caption's classes have no attribute that reaches
+                // it. Carry them onto the rendered figcaption (see
+                // BlockFactory::imageHtml()) the way media-text carries its
+                // source figure's classes, so the caption keeps the box the
+                // author drew and rules keyed on those classes keep matching.
+                $captionClassName = trim($this->attr($caption, 'class'));
+                if ( '' !== $captionClassName ) {
+                    $attrs['captionClassName'] = $captionClassName;
+                }
             }
         }
 

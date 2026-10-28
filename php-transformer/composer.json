@@ -308,6 +308,7 @@
       "php tests/unit/image-link-anchor.php",
       "php tests/unit/image-transform-reference-box.php",
       "php tests/unit/image-class-figure-carrier.php",
+      "php tests/unit/image-figcaption-author-styling.php",
       "php tests/unit/separator-author-border.php",
       "php tests/unit/conditional-flex-image-figure.php",
       "php tests/unit/text-run-synthetic-paragraph.php",

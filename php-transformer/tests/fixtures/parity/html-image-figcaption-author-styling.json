@@ -1,0 +1,27 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-image-figcaption-author-styling",
+  "description": "A source <figcaption> with its own author styling (border-top, background, padding, smaller font size) keeps that box on the core/image caption: the rendered caption figcaption carries the source class, so the author rule keeps matching, and the caption stays the image block's editable caption (#3622).",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-image-figcaption-author-styling.json",
+    "notes": "Regression fixture for Automattic/blocks-engine#3622, reduced from a Studio static-site import where a styled figure caption lost its padding, background, border and font size."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Caption class carry is new conversion behavior with no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><meta charset=\"utf-8\"><title>Figcaption</title><style>body{margin:0;font-family:sans-serif;font-size:16px}figure{margin:40px;max-width:300px;border:1px solid #ddd;display:flex;flex-direction:column}figure img{width:100%;display:block}.cap{border-top:1px solid #ddd;background:#f8f5f1;padding:12px 16px;font-size:14px}.cap strong{font-weight:600}.cap span{display:block;color:#666}</style></head><body><main><figure><img src=\"https://picsum.photos/id/64/600/700\" width=\"600\" height=\"700\" alt=\"Portrait\"><figcaption class=\"cap\"><strong>Jane Doe</strong><span>Structural engineer.</span></figcaption></figure></main></body></html>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image " },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figcaption class=\"wp-element-caption cap\"><strong>Jane Doe</strong>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Structural engineer.</span></figcaption></figure><!-- /wp:image -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "captionClassName" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".cap{border-top:1px solid #ddd;background:#f8f5f1;padding:12px 16px;font-size:14px}" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".cap strong{font-weight:600}" }
+  ]
+}

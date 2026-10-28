@@ -221,6 +221,13 @@ final class BlockFactory
         if ( 'core/cover' === $name && 'px' === ($attrs['minHeightUnit'] ?? null) ) {
             unset($attrs['minHeightUnit']);
         }
+        if ( 'core/image' === $name ) {
+            // Internal-only: consumed by imageHtml() to build the caption
+            // figcaption's class list, but not a real core/image attribute —
+            // core's save() never reads it back, so it never belongs in the
+            // serialized comment.
+            unset($attrs['captionClassName']);
+        }
         if ( 'core/media-text' === $name ) {
             // Internal-only: consumed by mediaTextHtml() to build the media
             // pane's class list, but not a real core/media-text attribute —
@@ -807,7 +814,13 @@ final class BlockFactory
             );
             $img = '<a' . $this->htmlAttrs($linkAttrs) . '>' . $img . '</a>';
         }
-        $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $this->preserveRichTextPunctuation((string) $attrs['caption']) . '</figcaption>' : '';
+        // `captionClassName` is an internal-only key (stripped from the
+        // serialized comment attrs in commentAttrs()): core/image's save()
+        // writes the caption <figcaption> itself and has no attribute that
+        // reaches it, so a source <figcaption>'s classes are carried here
+        // directly rather than dropped. See HtmlCompilation::convertImageElement().
+        $captionClass = SourceDom::mergeClassNames('wp-element-caption', (string) ($attrs['captionClassName'] ?? ''));
+        $caption = ! empty($attrs['caption']) ? '<figcaption class="' . htmlspecialchars($captionClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $this->preserveRichTextPunctuation((string) $attrs['caption']) . '</figcaption>' : '';
         return '<figure' . $this->blockSupportAttrs($figureAttrs, $baseClass) . '>' . $img . $caption . '</figure>';
     }
 
