@@ -935,7 +935,9 @@
             "retagged svg>img": 1
         },
         "67-dataviz-studio": {
-            "added div [blocks-engine-control]": 8,
+            "added div [blocks-engine-control]": 2,
+            "added div [blocks-engine-layout-child-button]": 3,
+            "added div [blocks-engine-layout-neutral-buttons]": 3,
             "added figure [blocks-engine-synthetic-image-figure]": 1,
             "added img": 4,
             "removed nav": 1,
