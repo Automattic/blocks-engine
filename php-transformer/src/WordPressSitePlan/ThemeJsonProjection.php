@@ -361,10 +361,38 @@ final class ThemeJsonProjection
     private function representable(string $target, string $property, string $value): bool
     {
         if (str_contains($value, 'var(') || str_contains($value, 'calc(')) return false;
-        if (in_array($property, array('color', 'background-color'), true)) return (bool) preg_match('/^(?:#[0-9a-f]{3,8}|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\([^;]+\)|[a-z]+)$/i', $value);
+        if (in_array($property, array('color', 'background-color'), true)) {
+            // The button element style reaches every button block's link, and
+            // WordPress paints those links with white text: a transparent
+            // element background (a framework reset such as Tailwind preflight
+            // declares `button{background-color:transparent}`) would hide that
+            // text instead of the platform default it clears. The reset stays
+            // source-owned; the theme states no element button fill.
+            if ('element:button' === $target && 'background-color' === $property && self::isTransparentColor($value)) return false;
+            return (bool) preg_match('/^(?:#[0-9a-f]{3,8}|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\([^;]+\)|[a-z]+)$/i', $value);
+        }
         if (in_array($property, array('font-family', 'font-size', 'line-height', 'font-weight', 'letter-spacing', 'text-transform', 'font-style'), true)) return true;
         if ('body' === $target && in_array($property, array('padding', 'margin', 'gap'), true)) return (bool) preg_match('/^[0-9.]+(?:px|rem|em|%|vw|vh)$/i', $value);
         if ('layout' === $target && 'max-width' === $property) return (bool) preg_match('/^[0-9.]+(?:px|rem|em|%|vw|vh)$/i', $value);
+        return false;
+    }
+
+    /** Whether a colour paints nothing: the `transparent` keyword or a colour with a zero alpha channel. */
+    private static function isTransparentColor(string $value): bool
+    {
+        $value = strtolower(trim($value));
+        if ('transparent' === $value) return true;
+        if (1 === preg_match('/^#(?:[0-9a-f]{4}|[0-9a-f]{8})$/', $value)) {
+            $alpha = 5 === strlen($value) ? $value[4] : substr($value, 7, 2);
+            return 1 === preg_match('/^0{1,2}$/', $alpha);
+        }
+        if (1 === preg_match('/^(?:rgba?|hsla?)\(([^()]*)\)$/', $value, $match)) {
+            $body = str_replace(' ', '', $match[1]);
+            $alpha = str_contains($body, '/')
+                ? substr($body, (int) strrpos($body, '/') + 1)
+                : (explode(',', $body)[3] ?? '');
+            return 1 === preg_match('/^0(?:%)?(?:\.0+)?$/', trim($alpha));
+        }
         return false;
     }
 
