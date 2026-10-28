@@ -461,7 +461,11 @@ final class ThemeJsonProjection
      * of DesignSystem::unanimousElements() (link, button, heading and
      * `h1`–`h6`, with link and button `:hover` colours), as preset
      * references. A value the source
-     * stylesheets already project for the same target is kept. Also adds the
+     * stylesheets already project for the same target is kept. A heading
+     * colour equal to the root text colour is not emitted: it is the colour
+     * headings inherit, and an element style would override that inheritance
+     * wherever a section paints its own text (see the root-text guard
+     * below). Also adds the
      * content and wide widths when no `main` rule supplied them, and turns
      * off core's default presets so the editor offers the source's tokens.
      *
@@ -477,6 +481,20 @@ final class ThemeJsonProjection
         if (isset($system->root['background'])) $styles['color']['background'] ??= $color($system->root['background']);
         if (isset($system->root['color'])) $styles['color']['text'] ??= $color($system->root['color']);
         if (isset($system->root['font_family'])) $styles['typography']['fontFamily'] ??= $family($system->root['font_family']);
+        // A heading colour equal to the root text colour is the colour
+        // headings inherit, not one the source styles them with: as an
+        // element style it is a no-op at the root, while WordPress's
+        // `h1..h6 { color: … }` output overrides the inherited colour inside
+        // every section that paints its own text, leaving headings on a dark
+        // band invisible. Such an element colour is not emitted, however it
+        // was derived; the headings keep inheriting (see the guard after the
+        // element loop).
+        $rootText = null;
+        $projectedText = $styles['color']['text'] ?? null;
+        if (is_string($projectedText)) {
+            if (1 === preg_match('/^var:preset\\|color\\|([A-Za-z0-9_-]+)$/', $projectedText, $textMatch)) $projectedText = (string) $system->color($textMatch[1]);
+            $rootText = CssColor::hex($projectedText);
+        } elseif (is_string($system->root['color'] ?? null)) $rootText = CssColor::hex($system->root['color']);
         // A link or heading colour becomes an element default only when it
         // reads on the background just chosen for the theme root.
         $system = $system->withElementColorsReadableOn(self::rootBackground($styles, $system));
@@ -512,6 +530,19 @@ final class ThemeJsonProjection
                 else $target ??= $reference($value);
                 unset($target);
             }
+        }
+        // A heading element colour the root text colour already renders is
+        // inherited, never stated: drop it (also where an authored rule
+        // projected it first) so `h1..h6` keep following the section they sit
+        // in, and prune what the drop leaves empty.
+        if (null !== $rootText) foreach (array('heading', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $level) {
+            $written = $styles['elements'][$level]['color']['text'] ?? null;
+            if (!is_string($written)) continue;
+            if (1 === preg_match('/^var:preset\\|color\\|([A-Za-z0-9_-]+)$/', $written, $writtenMatch)) $written = (string) $system->color($writtenMatch[1]);
+            if (null === $written || CssColor::hex($written) !== $rootText) continue;
+            unset($styles['elements'][$level]['color']['text']);
+            if (array() === ($styles['elements'][$level]['color'] ?? array())) unset($styles['elements'][$level]['color']);
+            if (array() === ($styles['elements'][$level] ?? array())) unset($styles['elements'][$level]);
         }
         $settings = $theme['settings'];
         if (!isset($settings['layout']['contentSize']) && isset($system->layout['content'])) {
