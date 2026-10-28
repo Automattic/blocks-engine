@@ -858,6 +858,7 @@
       "php tests/unit/section-background-object-fit.php",
       "php tests/unit/button-stretch-flex.php",
       "php tests/unit/button-reset-flex-carriers.php",
+      "php tests/unit/conditional-flex-button-bar.php",
       "php tests/unit/native-button-default-background.php",
       "php tests/unit/generated-support-fragment-ownership.php",
       "php tests/unit/fixed-size-button-label-centering.php",
