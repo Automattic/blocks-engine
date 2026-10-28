@@ -1479,9 +1479,10 @@ final class AuthorStylesheetProjector
      * The figure selector for an `img.x` / `img#x` subject whose image became a
      * core/image block, or null when the subject can still reach an <img>.
      *
-     * Only a subject that names the image by class or id is moved: a type-only
-     * `img` still matches the <img> the figure renders, and attributes stay on
-     * that <img>. The classes and id must all be on the recorded figure, so a
+     * A subject naming the image by class or id follows that identity. A
+     * type-only positioned image also needs its figure to own the source box:
+     * leaving that figure static would introduce an in-flow flex/grid item.
+     * Attributes stay on the <img>. Classes and id must be on the figure, so a
      * class the figure did not keep leaves the authored selector alone.
      *
      * @param array<string, mixed> $parsed
@@ -1500,8 +1501,14 @@ final class AuthorStylesheetProjector
         }
         $compounds = $parsed['compounds'];
         $subject = CssSelectorCompoundInspector::rightmost($compounds);
+        $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? ''));
+        // Only an explicit type subject can use the existing type-span rewrite;
+        // an img nested in :where() must remain a leaf selector.
+        $positionedTypeSubject = in_array($position, array( 'absolute', 'fixed' ), true)
+            && 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
         if ( 'img' !== strtolower((string) ($subject['type'] ?? ''))
-            || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array()) )
+            || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array())
+                && ! $positionedTypeSubject )
             || array() !== ($subject['attributes'] ?? array())
         ) {
             return null;
