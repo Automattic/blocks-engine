@@ -694,6 +694,38 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // Only this carrier may split a list and trailing CTA controls. The
+        // wrapper still owns both blocks, including its responsive visibility;
+        // ordinary navigation recognition must not absorb these controls.
+        $clusterWrapper = null;
+        $clusterControls = array();
+        $clusterMenu = null;
+        foreach ( $cluster->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType
+                || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( null === $clusterMenu && $child instanceof DOMElement
+                && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                $clusterMenu = $child;
+                continue;
+            }
+            if ( $clusterMenu instanceof DOMElement && $child instanceof DOMElement
+                && ( 'button' === strtolower($child->tagName)
+                    || ( 'a' === strtolower($child->tagName)
+                        && $buttonSignals->hasTransformSignal($child, $navigationContext?->resolvedStyle($child) ?? '') ) )
+                && ! $this->isNavigationChromeElement($child) ) {
+                $clusterControls[] = $child;
+                continue;
+            }
+            $clusterControls = array();
+            break;
+        }
+        if ( array() !== $clusterControls && $clusterMenu instanceof DOMElement ) {
+            $clusterWrapper = $cluster;
+            $cluster = $clusterMenu;
+        }
+
         // Settle every cheap structural question before converting anything.
         // Both conversions below run against the real block factory and record
         // provenance and runtime islands, so a bail after them leaves recorded
@@ -866,6 +898,14 @@ final class NavigationPattern implements PatternRecognizerInterface
         // Past the last decline: the navigation is emitted, so its sources can
         // be recorded without leaving marks behind for output that never was.
         $this->recordNavigationSources($links, $directAnchors, $listItems, $cluster, $navigationContext);
+
+        if ( $clusterWrapper instanceof DOMElement ) {
+            $clusterBlocks = array( $navigation );
+            foreach ( $clusterControls as $control ) {
+                $clusterBlocks[] = $converter->element($control, $fallbacks, true);
+            }
+            $navigation = $createBlock('core/group', $presentationAttributes($clusterWrapper), $clusterBlocks, $clusterWrapper);
+        }
 
         if ( array() === $extraBlocks ) {
             return $createBlock('core/group', $carrierAttrs, $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand ), $element);

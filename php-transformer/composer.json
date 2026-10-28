@@ -595,6 +595,7 @@
       "php tests/unit/navigation-collapsed-item-band.php",
       "php tests/unit/navigation-underline-color-resolver.php",
       "php tests/unit/navigation-brand-anchor-hoist.php",
+      "php tests/unit/navigation-cluster-trailing-control.php",
       "php tests/unit/header-stacked-brand-lockup.php",
       "php tests/unit/navigation-brand-cue-carrier.php",
       "php tests/unit/navigation-author-rule-memory.php",
