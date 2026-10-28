@@ -565,7 +565,11 @@ final class GeneratedBlockStyleProjector
         // responsive cross-axis stretching. Intrinsic widths resolved at the
         // reference viewport must not pin it when that parent becomes a column.
         $hasWidth = array() !== ($this->styleResolver->authorDeclaredPropertyValues($control, array('width'))['width'] ?? array());
-        $isFlex = in_array(CssValueInspector::comparable((string) ($parentStyle['display'] ?? '')), array('flex', 'inline-flex'), true);
+        $parentDisplays = array((string) ($parentStyle['display'] ?? ''));
+        if ( $parent instanceof DOMElement ) {
+            $parentDisplays = array_merge($parentDisplays, array_values($this->styleResolver->conditionalDisplayRules($parent)));
+        }
+        $isFlex = (bool) array_intersect(array_map(CssValueInspector::comparable(...), $parentDisplays), array('flex', 'inline-flex'));
         // The wrapper stands in for the source control as its parent's flex or
         // grid item. When the source kept CSS's automatic minimum size, the
         // wrapper must keep it too: zeroing it lets the row shrink below its
