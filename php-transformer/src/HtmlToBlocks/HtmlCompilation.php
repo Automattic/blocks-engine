@@ -11905,13 +11905,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // Separate source boxes must keep separate selector ownership. Only
             // inert identities retain the historical class transport.
             $styledLeaf = $this->imageNeedsSeparateFigureBox($image, $figure);
-            // A marker allocated by author-selector discovery (an image named
-            // by a selector with no class of its own) must reach the markup so
-            // the projection's bridge arms stay bound.
-            $marker = $styledLeaf
-                ? $this->session->authorSelectorProjectionState()->ensureImageWrapperMarker($image->getNodePath() ?? '')
-                : $this->session->authorSelectorProjectionState()->imageWrapperMarker($image->getNodePath() ?? '');
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageFigureClassName($figure), '' !== $marker ? $marker : $this->nonCoreImageClassName($image), ...$this->authorSemanticMarkersForElement($image));
+            $marker = $styledLeaf ? $this->session->authorSelectorProjectionState()->ensureImageWrapperMarker($image->getNodePath() ?? '') : '';
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageFigureClassName($figure), $styledLeaf ? $marker : $this->nonCoreImageClassName($image), ...$this->authorSemanticMarkersForElement($image));
         } else {
             $attrs['className'] = $this->styleResolver->mergePresentationClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->injectedFigureHeightClassName($image));
         }

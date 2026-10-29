@@ -791,6 +791,9 @@ final class BlockFactory
     private function imageHtml(array $attrs): string
     {
         $figureAttrs = $attrs;
+        // A scope key only: unlike semantic markers, this must not change
+        // which source box owns an author's image declarations.
+        $figureAttrs['className'] = SourceDom::mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'blocks-engine-image');
         $baseClass = 'wp-block-image';
         $border = is_array($attrs['style']['border'] ?? null) ? $attrs['style']['border'] : array();
         $borderSupport = $this->styleSupport(array( 'border' => $border ));

@@ -3142,7 +3142,7 @@ $emptyCoverCandidate = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/decor.png);background-size:cover;min-height:400px"></div>'
 )->toArray();
 $emptyCoverCandidateSerialized = (string) ($emptyCoverCandidate['serialized_blocks'] ?? '');
-$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
+$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure blocks-engine-image"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
 $assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
 $assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
 
@@ -6782,7 +6782,7 @@ $borderedImage = $factory->create('core/image', array(
     'className' => 'source-image',
     'style' => array('border' => array('color' => '#ffffff', 'style' => 'solid')),
 ));
-$assert(str_contains($borderedImage['innerHTML'], '<figure class="wp-block-image source-image"><img'), 'core/image omits metadata-skipped border classes from its canonical markup');
+$assert(str_contains($borderedImage['innerHTML'], '<figure class="wp-block-image source-image blocks-engine-image"><img'), 'core/image omits metadata-skipped border classes from its canonical markup');
 $assert(! str_contains($borderedImage['innerHTML'], 'has-border-color') && ! str_contains($borderedImage['innerHTML'], 'border-color:#ffffff'), 'core/image does not serialize metadata-skipped border styles without a source carrier');
 
 $defaultTable = $factory->create(

@@ -77,7 +77,6 @@ final class AuthorSelectorSemanticPreparer
             $projections->ensureTagMarker($tagName);
         }
         $this->discoverAuthorControlPaths($authorSelectors, $authorStyles, $projections);
-        $this->discoverAuthorImageIdentityPaths($authorSelectors, $authorStyles, $projections);
         $applicableAuthorStyleRules = array();
         foreach ( $authorStyleRules as $rule ) {
             $rule['selectors'] = array_values(array_filter(
@@ -182,58 +181,6 @@ final class AuthorSelectorSemanticPreparer
                 }
             }
         }
-    }
-
-    /** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
-    /**
-     * An author selector that names an image without any class of its own —
-     * by bare element type (`p img`, `figure img`, `img`), by an id, or via
-     * core block classes — projects onto the generated figure's core class.
-     * Its bridge arms key on the per-image wrapper marker, so allocate one
-     * for every matched image up front: the markup carries it on the
-     * generated figure and the projection scopes each arm with it instead of
-     * falling back to a selector that stands on the bare core class alone.
-     *
-     * Selectors that already name a non-core class keep the ancestor-scoped
-     * bridge, which is copied onto the emitted markup unchanged.
-     *
-     * @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors
-     */
-    private function discoverAuthorImageIdentityPaths(array $authorSelectors, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
-    {
-        foreach ( $authorSelectors as $authorSelector ) {
-            $parsed = $authorSelector['parsed'];
-            if ( ! $parsed['supported'] ) {
-                continue;
-            }
-            if ( self::selectorCarriesNonCoreClass($authorSelector['selector']) ) {
-                continue;
-            }
-            foreach ( $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $parsed) as $element ) {
-                if ( 'img' !== strtolower($element->tagName) ) {
-                    continue;
-                }
-                $path = $element->getNodePath() ?? '';
-                if ( '' === $path ) {
-                    continue;
-                }
-                $projections->ensureImageWrapperMarker($path);
-            }
-        }
-    }
-
-    /** Whether any class token in the selector is outside core's block families. */
-    private static function selectorCarriesNonCoreClass(string $selector): bool
-    {
-        if ( ! preg_match_all('/\\.((?:\\\\.|[^\x00-\x7f]|[^\s.#:>+~,\[\]()\'"\\\\])+)/', $selector, $matches) ) {
-            return false;
-        }
-        foreach ( $matches[1] as $class ) {
-            if ( ! preg_match('/^(?:wp-block-|has-)/', str_replace('\\', '', $class)) ) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */

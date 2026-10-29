@@ -2663,8 +2663,8 @@ final class AuthorStylesheetProjector
      * Emits a projected image-rule arm only when every core block class it
      * names is reached through an importer-emitted class as well. An arm that
      * would stand on the bare core class is dropped and recorded instead of
-     * leaking onto blocks a host adds to the served page later; discovery
-     * marks matched images so the scoped marker arm carries the rule instead.
+     * leaking onto blocks a host adds to the served page later. Ordinary
+     * image arms carry a zero-specificity factory scope, not a semantic marker.
      *
      * @param list<string> $projected
      */
@@ -3435,7 +3435,17 @@ final class AuthorStylesheetProjector
                     );
                 }
             }
-            $projected[] = $this->replaceSelectorSpans($selector, $replacements);
+            $arm = $this->replaceSelectorSpans($selector, $replacements);
+            if ( ! (new CoreSelectorScoping())->selectorIsScoped($arm) ) {
+                // The factory class is only a scope key, never a semantic
+                // subject. Replacing * with :where() keeps its zero weight
+                // and leaves the declaration on the same native image leaf.
+                $arm = str_replace('*.wp-block-image', ':where(.blocks-engine-image).wp-block-image', $arm);
+                if ( ! (new CoreSelectorScoping())->selectorIsScoped($arm) ) {
+                    $arm = str_replace('.wp-block-image', ':where(.blocks-engine-image).wp-block-image', $arm);
+                }
+            }
+            $projected[] = $arm;
         }
         return implode(',', $projected);
     }
