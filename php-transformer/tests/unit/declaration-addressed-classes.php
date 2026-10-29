@@ -14,6 +14,35 @@ $address = static function (string $marker, string $css, array $context = array(
     return $identity->replacements(array(array('content' => str_replace('CONTROL', $marker, $css)) + $context))[$marker];
 };
 $base = '.CONTROL>.wp-block-button__link{COLOR: red; padding: 2px 4px;}';
+foreach (array('control', 'native-button') as $kind) {
+    $marker = str_replace('control', $kind, $a);
+    $other = str_replace('control', $kind, $b);
+    foreach (array(
+        '.row>:is(:where(.CONTROL),:where(.OTHER))',
+        '.fancybox.is-animated[aria-hidden=false]>:is(:where(.CONTROL):not(.be-c-0),:where(.OTHER):not(.be-c-0))',
+        '.row>:where(.CONTROL,.OTHER)',
+    ) as $selector) {
+        // Only alternatives naming this control participate; shared wrappers,
+        // guards and descendant surfaces still enter the signature.
+        $single = str_replace(array(',:where(.OTHER):not(.be-c-0)', ',:where(.OTHER)', ',.OTHER'), '', $selector);
+        $single = str_replace(array(':is(:where(.CONTROL))', ':is(:where(.CONTROL):not(.be-c-0))'), array(':where(.CONTROL)', ':where(.CONTROL):not(.be-c-0)'), $single);
+        $grouped = str_replace('OTHER', $other, $selector);
+        $assert($address($marker, '@media(min-width:700px){' . $single . '{opacity:.8}}') === $address($marker, '@media(min-width:700px){' . $grouped . '{opacity:.8}}'), 'Grouped marker alternatives do not include unrelated control bindings.');
+    }
+    $sheets = array(array('content' => '.' . $marker . '{color:red}'));
+    $withSupport = array_merge($sheets, array(array('stylesheet_placement' => 'after-author', 'content' => '.' . $other . '{background:blue}', 'path' => 'route-local.css')));
+    $assert($identity->replacements($sheets)[$marker] === $identity->replacements($withSupport)[$marker], 'Other controls\' page-local support assets do not affect identity.');
+}
+$bindings = array();
+$markup = '';
+foreach (array($a, $b) as $index => $marker) {
+    $search = '<!-- wp:button --><div class="' . $marker . '">Shared</div><!-- /wp:button -->';
+    $bindings[] = array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $search, 'occurrence' => 1, 'position' => array('offset' => strlen($markup), 'length' => strlen($search), 'block_index' => $index));
+    $markup .= $search;
+}
+$rebased = $identity->rewriteBindings($bindings, $markup, array($a => $b));
+$assert(1 === $rebased[0]['occurrence'] && 2 === $rebased[1]['occurrence'], 'Coalescing identical controls rebases exact binding occurrences.');
+$assert($rebased[1]['position']['offset'] === strlen($rebased[0]['search_block_markup']) && $rebased[1]['position']['length'] === strlen($rebased[1]['search_block_markup']), 'Binding positions address the final bytes even when provisional marker lengths differ.');
 $assert($address($a, $base) === $address($b, '.CONTROL>.wp-block-button__link{color:red;padding:2px 4px}'), 'Page bindings and insignificant declaration syntax do not enter the address.');
 $assert($address($a, '.CONTROL{color:red;padding:2px;opacity:.8}') === $address($b, '.CONTROL{opacity:.8;padding:2px;color:red}'), 'Independent declaration ordering is normalized.');
 $assert($address($a, '.CONTROL{padding:2px;padding-left:4px}') !== $address($b, '.CONTROL{padding-left:4px;padding:2px}'), 'Shorthand and longhand ordering is retained.');
@@ -31,6 +60,11 @@ foreach (array(
     $assert($address($a, $base) !== $address($b, $different), 'Different declarations, selector surfaces, states and conditions must not alias.');
 }
 $assert($address($a, $base) !== $address($b, $base, array('media' => 'print')), 'Link media conditions enter identity.');
+$assert($address($a, $base) !== $address($b, $base, array('stylesheet_placement' => 'after-author')), 'Cascade placement enters identity.');
+$packed = '.row>:is(:where(.CONTROL),:where(.' . $b . ')){color:red}';
+$assert($address($a, $packed) !== $address($a, str_replace('color:red', 'color:blue', $packed)), 'Distinct declarations remain distinct after grouped-arm expansion.');
+$assert($address($a, $packed . '.CONTROL{color:blue}') !== $address($a, $packed . '.CONTROL{color:blue}' . $packed), 'Expanded grouped rules retain A/B/A cascade order.');
+$assert($address($a, '.row>:is(:where(.CONTROL),#strong){color:red}') !== $address($a, '.row>:where(.CONTROL){color:red}'), 'Non-equivalent alternatives retain their specificity-bearing context.');
 $assert($address($a, $base) !== $address($b, $base, array('stylesheet_target' => 'editor')), 'Editor-only rules cannot alias frontend rules.');
 $ab = '.CONTROL{color:red}.CONTROL{color:blue}';
 $assert($address($a, $ab) !== $address($b, $ab . '.CONTROL{color:red}'), 'A/B/A cascade order is not deduplicated into A/B.');
