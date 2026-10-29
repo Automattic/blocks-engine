@@ -1349,7 +1349,9 @@ final class ArtifactCompiler
             foreach ( $row['bindings'] ?? array() as $binding ) $products[$productSlug]['bindings'][] = $binding;
             // Detail evidence owns identity and source URL; card bindings stay intact.
             foreach (array('name', 'slug', 'url') as $field) $products[$productSlug][$field] = $row[$field];
-            foreach ( array('description', 'image', 'category', 'sku', 'images', 'tags', 'variants', 'sale_price', 'stock_status') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+            // Detail-page descriptive evidence wins; cards fill only absent fields.
+            foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'stock_status') as $field ) if ( isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+            foreach ( array('tags', 'sale_price') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
         // Listing-owned forms are shop controls, not a second form-provider
         // surface. In particular a sort-only form and its select may serialize
