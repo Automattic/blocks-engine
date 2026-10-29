@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
+use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use InvalidArgumentException;
 
 /** Owns navigation content sharing and exact document occurrences. */
@@ -64,7 +65,7 @@ final class NavigationEntityProjection
                 $attrs['ref'] = WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $token . '}}';
                 $replacements[$occurrence['kind']][$occurrence['index']][] = array(
                     'offset' => $occurrence['block']['offset'], 'length' => $occurrence['block']['length'],
-                    'markup' => '<!-- wp:navigation ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . ' /-->',
+                    'markup' => '<!-- wp:navigation ' . BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR) . ' /-->',
                 );
             }
         }
