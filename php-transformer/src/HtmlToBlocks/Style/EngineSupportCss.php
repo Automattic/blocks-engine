@@ -482,20 +482,20 @@ final class EngineSupportCss
             // core/social-links paints its own icon for every service. The source
             // cluster painted icon-font glyphs through pseudo-elements on the very
             // items core now owns, so both icons would render on each link.
-            $parts[] = ':root .wp-block-social-links.blocks-engine-social-source-cluster .wp-social-link::before,'
-                . ':root .wp-block-social-links.blocks-engine-social-source-cluster .wp-social-link:not(:where(.blocks-engine-social-source-item))::after,'
-                . ':root .wp-block-social-links.blocks-engine-social-source-cluster .wp-social-link:not(:where(.blocks-engine-social-source-glyph))>a::before,'
-                . ':root .wp-block-social-links.blocks-engine-social-source-cluster .wp-social-link>a::after{content:none}';
+            $parts[] = ':root .wp-block-social-links:where(.blocks-engine-social-source-cluster) .wp-social-link::before,'
+                . ':root .wp-block-social-links:where(.blocks-engine-social-source-cluster) .wp-social-link:not(:where(.blocks-engine-social-source-item))::after,'
+                . ':root .wp-block-social-links:where(.blocks-engine-social-source-cluster) .wp-social-link:not(:where(.blocks-engine-social-source-glyph))>a::before,'
+                . ':root .wp-block-social-links:where(.blocks-engine-social-source-cluster) .wp-social-link>a::after{content:none}';
             // The source cluster was an inline box, so its container's text
             // alignment placed it. core's list is a full-width flex row, which
             // packs the items at the start instead. An inline flex row resolves
             // through that same alignment, for centered and start-aligned
             // containers alike, while an explicit justification still wins.
-            $parts[] = ':root ul.wp-block-social-links.blocks-engine-social-source-cluster:not([class*="is-content-justification-"]){display:inline-flex}';
-            $parts[] = ':root ul.wp-block-social-links.blocks-engine-social-source-cluster.is-content-justification-left{justify-content:flex-start}'
-                . ':root ul.wp-block-social-links.blocks-engine-social-source-cluster.is-content-justification-center{justify-content:center}'
-                . ':root ul.wp-block-social-links.blocks-engine-social-source-cluster.is-content-justification-right{justify-content:flex-end}'
-                . ':root ul.wp-block-social-links.blocks-engine-social-source-cluster.is-content-justification-space-between{justify-content:space-between}';
+            $parts[] = ':root ul.wp-block-social-links:where(.blocks-engine-social-source-cluster):not([class*="is-content-justification-"]){display:inline-flex}';
+            $parts[] = ':root ul.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-content-justification-left{justify-content:flex-start}'
+                . ':root ul.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-content-justification-center{justify-content:center}'
+                . ':root ul.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-content-justification-right{justify-content:flex-end}'
+                . ':root ul.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-content-justification-space-between{justify-content:space-between}';
         }
         if (str_contains($serializedBlocks, 'blocks-engine-social-source-row')) {
             $parts[] = ':root ul.wp-block-social-links.blocks-engine-social-source-row,'
@@ -643,7 +643,7 @@ final class EngineSupportCss
             $parts[] = '.wp-block-navigation.blocks-engine-native-responsive-navigation.blocks-engine-inline-navigation{display:inline-flex!important}';
         }
         if ( str_contains($serializedBlocks, 'wp:social-links') ) {
-            $parts[] = '.wp-block-social-links.blocks-engine-social-source-cluster.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}';
+            $parts[] = '.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-source-social-item-spacing') ) {
             $parts[] = '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}';

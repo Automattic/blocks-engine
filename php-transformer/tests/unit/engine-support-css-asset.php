@@ -194,7 +194,7 @@ $beforeFamilies = array(
 $assert(str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), '<figure class="wp-block-image blocks-engine-synthetic-image-figure blocks-engine-image"><img src="portrait.jpg" alt="Portrait"/></figure>'), 'direct source images mark their introduced core/image figure for margin normalization');
 $assert(! str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), 'authored-figure blocks-engine-synthetic-image-figure'), 'authored source figures retain their own spacing contract');
 $afterFamilies = array(
-    'logos-only social sprite neutralize' => '.wp-block-social-links.blocks-engine-social-source-cluster.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}',
+    'logos-only social sprite neutralize' => '.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}',
     'list-navigation host' => '@media(max-width:599px){.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}',
     'native-responsive desktop wrappers' => '.wp-block-navigation__responsive-container:not(.is-menu-open)',
     'list-navigation mobile overlay' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}',
