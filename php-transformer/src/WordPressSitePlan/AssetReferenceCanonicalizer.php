@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use InvalidArgumentException;
 
 /** Maps browser-visible asset URLs to declared plan tokens. */
@@ -265,15 +266,32 @@ final class AssetReferenceCanonicalizer
         $copied = 0;
         $chunks = array();
         foreach (self::attributes($tag, $cursor) as [$name, $start, $size]) {
-            if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style'), true)) continue;
+            if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style', CaptureEvidence::GALLERY_SEQUENCE), true)) continue;
             $original = substr($tag, $start, $size);
-            $value = 'style' === $name ? self::css($original, $replace, $element) : ('srcset' === $name ? self::srcset($original, static fn(string $reference): string => $replace($reference, $element, $name)) : $replace($original, $element, $name));
+            if (CaptureEvidence::GALLERY_SEQUENCE === $name) {
+                $value = self::gallerySequence($original, static fn(string $reference): string => $replace($reference, $element, $name));
+            } else {
+                $value = 'style' === $name ? self::css($original, $replace, $element) : ('srcset' === $name ? self::srcset($original, static fn(string $reference): string => $replace($reference, $element, $name)) : $replace($original, $element, $name));
+            }
             $chunks[] = substr($tag, $copied, $start - $copied);
             $chunks[] = $value;
             $copied = $start + $size;
         }
         $chunks[] = substr($tag, $copied);
         return implode('', $chunks);
+    }
+
+    /** Rewrite every URL input consumed by the pinned gallery sequence runtime.
+     * @param callable(string):string $replace
+     */
+    public static function gallerySequence(string $value, callable $replace): string
+    {
+        $sequence = json_decode(html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if (!is_array($sequence) || !array_is_list($sequence) || array_filter($sequence, static fn(mixed $url): bool => !is_string($url))) {
+            throw new ValidationException('Gallery sequence must be a JSON list of URL strings.', array('reason' => 'invalid_gallery_sequence'));
+        }
+        $rewritten = array_map($replace, $sequence);
+        return $rewritten === $sequence ? $value : htmlspecialchars(json_encode($rewritten, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), ENT_QUOTES | ENT_HTML5, 'UTF-8');
     }
 
     /** @param callable(string,string,string):string $replace */
@@ -298,6 +316,8 @@ final class AssetReferenceCanonicalizer
                         $field = strtolower((string) $key);
                         if ( is_array($value) ) {
                             $values[$key] = $rewriteModel($value);
+                        } elseif ( is_string($value) && CaptureEvidence::GALLERY_SEQUENCE === $field ) {
+                            $values[$key] = html_entity_decode(self::gallerySequence($value, static fn(string $reference): string => $replace($reference, '', $field)), ENT_QUOTES | ENT_HTML5, 'UTF-8');
                         } elseif ( is_string($value) && 'style' === $field ) {
                             $values[$key] = self::css($value, $replace);
                         } elseif ( is_string($value) && 'srcset' === $field ) {

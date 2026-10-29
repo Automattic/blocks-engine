@@ -384,7 +384,8 @@
     },
     "src/WordPressSitePlan/AssetReferenceCanonicalizer.php": {
       "InvalidArgumentException('WordPress site plan has colliding declared asset source identities.')": {"class": "integrity", "count": 1},
-      "ValidationException($error->getMessage())": {"class": "integrity", "count": 2}
+      "ValidationException($error->getMessage())": {"class": "integrity", "count": 2},
+      "ValidationException('Gallery sequence must be a JSON list of URL strings.')": {"class": "integrity", "count": 1}
     },
     "src/WordPressSitePlan/DocumentHeadContext.php": {
       "InvalidArgumentException('Document head '.$row['tag'].' asset is not bound to a declared write or external URL: '.mb_strcut((string)$reference,0,160,'UTF-8'))": {"class": "integrity", "count": 1, "finding": "wordpress_site_plan_omitted_link_declaration", "test": "tests/contract/unresolved-local-head-links.php"},

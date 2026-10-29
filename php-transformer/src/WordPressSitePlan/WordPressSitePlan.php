@@ -4899,7 +4899,7 @@ PHP;
                 elseif (is_string($script['url'] ?? null) && preg_match('~^(?:https?:)?//[^\x00-\x20]+$~i', $script['url'])) { $url = $script['url']; $unsupported('wordpress_site_plan_script_external_unproven', 'An external script URL is emitted but cannot prove its runtime references without a declared local artifact.'); }
                 else { $unsupported('wordpress_site_plan_script_url_unsupported', 'A document script must reference a declared local write or an absolute HTTP(S) URL.'); continue; }
             }
-            if (null !== $localTarget && $this->hasDynamicScriptReferences($contents[$localTarget] ?? '')) { $unsupported('wordpress_site_plan_script_dynamic_references', 'A local script contains dynamic imports, script injection, or runtime URL construction that cannot be proven from the canonical write.'); continue; }
+            if (null !== $localTarget && !CaptureEvidence::isRecognizedRuntime($contents[$localTarget] ?? '') && $this->hasDynamicScriptReferences($contents[$localTarget] ?? '')) { $unsupported('wordpress_site_plan_script_dynamic_references', 'A local script contains dynamic imports, script injection, or runtime URL construction that cannot be proven from the canonical write.'); continue; }
             $attributes = array('placement' => $script['placement'], 'local_target' => $localTarget, 'suffix' => $suffix, 'url' => $url, 'async' => $script['async'], 'defer' => $script['defer'], 'module' => $script['module'], 'nomodule' => $script['nomodule'], 'type' => $script['type'] ?? ($script['module'] ? 'module' : null), 'integrity' => $script['integrity'] ?? null, 'crossorigin' => $script['crossorigin'] ?? null, 'referrerpolicy' => $script['referrerpolicy'] ?? null, 'fetchpriority' => $script['fetchpriority'] ?? null);
             $scope = isset($document['placement']) ? array('kind' => 'global', 'order' => $script['order']) : array('kind' => 'post' === ($document['post_type'] ?? null) ? 'post' : 'page', 'source_path' => $document['source_path'], 'route_path' => trim($document['route']['path'], '/'), 'reconciliation_identity' => $document['reconciliation_identity'], 'front_page' => isset($frontPages[$document['reconciliation_identity']]), 'order' => $script['order']);
             $scopeKey = ($scope['kind'] ?? '') . ':' . ($scope['source_path'] ?? 'global');
@@ -6255,6 +6255,13 @@ PHP;
                     self::assertNoLocalBrowserReferences($value, $sourcePath, $context . ':companion_content', $report);
                     continue;
                 }
+                if (CaptureEvidence::GALLERY_SEQUENCE === strtolower((string) $name) && is_string($value)) {
+                    AssetReferenceCanonicalizer::gallerySequence($value, static function (string $reference) use ($assertReference): string {
+                        $assertReference($reference, CaptureEvidence::GALLERY_SEQUENCE);
+                        return $reference;
+                    });
+                    continue;
+                }
                 if (!is_string($name) || !is_string($value) || !in_array(strtolower($name), array('url', 'src', 'href', 'poster', 'action', 'srcset'), true)) continue;
                 $routeField = $route && 'url' === strtolower($name) ? 'route_url' : (in_array(strtolower($name), array('href', 'action'), true) ? 'route_' . strtolower($name) : strtolower($name));
                 foreach ('srcset' === strtolower($name) ? self::srcsetCandidates($value) : array($value) as $candidate) $assertReference($candidate, 'json:' . $routeField);
@@ -6262,6 +6269,13 @@ PHP;
         };
         foreach (HtmlMarkupParser::htmlMarkupNodes($content) as $node) {
             if ('tag' === $node['kind']) foreach ($node['attributes'] as $name => $value) {
+                if (CaptureEvidence::GALLERY_SEQUENCE === $name) {
+                    AssetReferenceCanonicalizer::gallerySequence($value, static function (string $reference) use ($assertReference, $name, $node): string {
+                        $assertReference($reference, $name, $node['name']);
+                        return $reference;
+                    });
+                    continue;
+                }
                 if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style'), true)) continue;
                 if ('action' === $name && 'form' !== $node['name']) continue;
                 if ('style' === $name) { $assertCss($value, 'style_attribute'); continue; }
