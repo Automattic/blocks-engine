@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -5887,10 +5889,10 @@ $capturedDialog = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(array(
+                'components' => captured_components(array(array(
                     'status' => 'captured',
                     'trigger' => array('selector' => 'body > header > nav > a:nth-of-type(2)', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
                     'dialog' => array(
@@ -5898,7 +5900,7 @@ $capturedDialog = $compiler->compile(array(
                         'htmlBytes' => strlen('<div role="dialog" aria-label="Contact"><form action="https://provider.example/forms"><label>Name<input name="name"></label><script>window.provider=true</script></form></div>'),
                         'htmlTruncated' => false,
                     ),
-                )),
+                ))),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -5936,10 +5938,10 @@ $capturedSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -5955,7 +5957,7 @@ $capturedSelectableSet = $compiler->compile(array(
                         'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 3, 'index' => 1),
                     ),
                     $selectableFailed,
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -5982,10 +5984,10 @@ $triggerRowSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -6000,7 +6002,7 @@ $triggerRowSelectableSet = $compiler->compile(array(
                         'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false),
                         'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1),
                     ),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6024,10 +6026,10 @@ $ariaTriggerRowSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -6042,7 +6044,7 @@ $ariaTriggerRowSelectableSet = $compiler->compile(array(
                         'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false),
                         'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1),
                     ),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6061,13 +6063,13 @@ $pillSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 0)),
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1)),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6093,14 +6095,14 @@ $classMarkedSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     $classMarkedMember(0, '01. First option', 'Panel A'),
                     $classMarkedMember(1, '02. Second option', 'Panel B'),
                     $classMarkedMember(2, '03. Third option', 'Panel C'),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6128,13 +6130,13 @@ $keyedSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'tabKey' => 'alpha-key', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 0)),
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'tabKey' => 'beta-key', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1)),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6154,13 +6156,13 @@ $stretchSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 0)),
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1)),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6189,13 +6191,13 @@ $sideBySideSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     $sideBySideTrigger(0, '01Alpha', $selectableAlpha, 3),
                     $sideBySideTrigger(1, '02Beta', $selectableBeta, 3),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6224,10 +6226,10 @@ $regionLayoutSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -6242,7 +6244,7 @@ $regionLayoutSelectableSet = $compiler->compile(array(
                         'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false),
                         'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1),
                     ),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6278,8 +6280,8 @@ $formSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
-            'pages' => array(array('sourceUrl' => 'https://example.com/', 'states' => array($formSelectableState(0, 'Alpha'), $formSelectableState(1, 'Beta')))),
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
+            'pages' => array(array('sourceUrl' => 'https://example.com/', 'components' => captured_components(array($formSelectableState(0, 'Alpha'), $formSelectableState(1, 'Beta'))))),
         ), JSON_UNESCAPED_SLASHES)),
     ),
 ))->toArray();
@@ -6325,10 +6327,10 @@ $graphicSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -6343,7 +6345,7 @@ $graphicSelectableSet = $compiler->compile(array(
                         'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $graphicBeta, 'htmlBytes' => strlen($graphicBeta), 'htmlTruncated' => false),
                         'set' => array('selector' => 'body > main > div:nth-of-type(1) > svg', 'size' => 2, 'index' => 1),
                     ),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6382,10 +6384,10 @@ $choiceGroupInput = array(
     'files' => array(
         array('path' => 'website/index.html', 'content' => '<main><form action="/collect" method="post"><label>Choose one</label><div><button type="button">One</button><button type="button">Two</button></div><textarea name="comment"></textarea><button type="submit">Send</button></form></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.com/', 'states' => array(
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.com/', 'components' => captured_components(array(
             $choiceState(0, '<div class="choices"><button type="button"><span>One</span></button><button type="button"><span>Two</span></button></div>'),
             $choiceState(1, '<div class="choices"><button type="button"><span>One</span></button><button type="button"><span>Two</span></button></div>'),
-        )))), JSON_UNESCAPED_SLASHES)),
+        ))))), JSON_UNESCAPED_SLASHES)),
     ),
 );
 $choiceGroupArtifact = $compiler->compile($choiceGroupInput)->toArray();

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
@@ -519,14 +521,14 @@ $assertReceiptEquality($responsiveShellArtifact, 'Shared responsive shell varian
 
 $dialogHtml = '<div role="dialog" aria-label="Contact"><p>Captured dialog</p></div>';
 $capturedStates = array(
-    'schema' => 'blocks-engine-capture/captured-interactions/v1',
+    'schema' => 'blocks-engine-capture/captured-interactions/v2',
     'pages' => array(array(
         'sourceUrl' => 'https://example.test/',
-        'states' => array(array(
+        'components' => captured_components(array(array(
             'status' => 'captured',
             'trigger' => array('selector' => 'body > main > a', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
             'dialog' => array('html' => $dialogHtml, 'htmlBytes' => strlen($dialogHtml), 'htmlTruncated' => false),
-        )),
+        ))),
     )),
 );
 $capturedDialogArtifact = array('site_slug' => 'staged-dialog', 'files' => array(

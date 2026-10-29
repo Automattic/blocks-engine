@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 /**
  * A projected modal opens in its source open state, not its rest state.
  *
@@ -54,7 +56,7 @@ $dialog = static function (string $css, string $triggerAttributes = ''): string 
     $artifact = array('entrypoint' => 'website/index.html', 'files' => array(
         array('path' => 'website/index.html', 'content' => $html),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array($state)))), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'components' => captured_components(array($state))))), JSON_UNESCAPED_SLASHES)),
     ));
     $compiler = new ArtifactCompiler();
     $shared = $compiler->prepareShared($artifact);

@@ -155,11 +155,19 @@ See [Native control state](../native-control-state.md).
 | `data-blocks-engine-capture-viewport-entrance` | attribute | JSON | Recorded entrance states of an element the source reveals as it scrolls into view; layout shells carrying it are labelled "Scroll reveal". |
 | `data-blocks-engine-capture-viewport-entrances` | attribute | presence | Marks the capture's own entrance activator `<script>`. It addresses entrance evidence, not source behavior, so runtime-selector analysis excludes it. |
 
+### Component replay
+
+| Name | Kind | Value | Meaning |
+| ---- | ---- | ----- | ------- |
+| `data-blocks-engine-capture-tabs` | attribute (flag) | ignored | Captured semantic tablist, with observed lazy panels materialized beside it. |
+| `data-blocks-engine-capture-component-runtime` | attribute on `<script>` | ignored | Portable tab replay helper; retired only when its exact recognized body is replaced by native tabs. |
+| `data-blocks-engine-capture-component-carousel-runtime` | attribute on `<script>` | ignored | Component carousel replay helper, with state HTML and click transitions in its config. |
+
 ### Sidecar schemas
 
 | Name | Kind | Meaning |
 | ---- | ---- | ------- |
-| `blocks-engine-capture/captured-interactions/v1` | `interaction-states.json` `schema` | Captured interaction report: dialogs, galleries, selectable sets, choice groups, filters. |
+| `blocks-engine-capture/captured-interactions/v2` | `interaction-states.json` `schema` | Component-owned interaction states and replay evidence (see below). |
 | `blocks-engine-capture/capture-receipt/v1` | capture receipt `schema` | Routes the report pages to captured documents. |
 | `blocks-engine-capture/source-interactivity/v1` | receipt `sourceInteractivity.schema` | Source interactivity summary. |
 | `blocks-engine-capture/finite-bootstrap/v1` | filter `finiteBootstrap.schema` | Finite collection bootstrap record. |
@@ -270,12 +278,38 @@ To check a body, run `php -r 'echo hash("sha256", trim(file_get_contents($argv[1
 `tests/contract/capture-evidence-vocabulary.php` holds the published
 constants to these fixture digests.
 
+### Interaction component contract
+
+`interaction-states.json` has `schema` and `pages`. Each page retains `sourceUrl`,
+`viewport`, `capturedAt` and optional route metadata, but carries **only** a
+`components` inventory, never a flat interaction inventory. A component has:
+
+- `selector`: source owner selector;
+- `kind`: `tabs`, `disclosure`, `dialog`, `listbox`, `carousel`, `menu`, `filter`, `choice-group` or `unsupported`;
+- `initial`: the initial observed state id;
+- `states`: observed `{ id, html, evidence? }` nodes; probe replay facts belong to `evidence`;
+- `transitions`: `{ from, to, trigger: { selector, action: "click" } }` edges;
+- `status`: `captured`, `partial` or `unsupported`, with optional `reason`.
+
+Projectors select component kinds and consume state-owned replay facts. They do
+not read another trigger inventory. Semantic tabs use observed panel HTML; lazy
+panels are sanitized before native tab projection. Semantic carousels use only
+observed active slides. Native details retain their authored `open` state.
+Unsupported components never materialize hidden content, even if they carry probe
+evidence. Partial nodes grant no unobserved states or complete-coverage claim.
+
+This is a breaking, lockstep replacement of the retired flat interaction reader.
+Refs Automattic/blocks-engine#3709. This change must ship together with
+Automattic/data-liberation-agent#1039.
+
 ### Published for downstream importers
 
 Blocks Engine does not read these names. Downstream importers do.
 
 | Name | Kind | Value | Meaning |
 | ---- | ---- | ----- | ------- |
+| `data-blocks-engine-capture-component-disclosure` | attribute | config index | Non-native disclosure replay config binding; native details retain authored open state. |
+| `data-blocks-engine-capture-component-disclosure-runtime` | attribute on `<script>` | ignored | Portable non-native disclosure helper. |
 | `data-blocks-engine-capture-device-selection` | attribute (flag) on `<script>` | ignored | The capture's device-selection bootstrap in `<head>`. |
 | `data-blocks-engine-capture-device-body` | attribute (flag) on `<script>` | ignored | The capture's device-document overlay script at the start of `<body>`. |
 | `data-blocks-engine-capture-selected-document` | attribute on `<html>` | profile id | The device profile the selection runtime chose. Written at runtime, so author selectors on it stay live. |

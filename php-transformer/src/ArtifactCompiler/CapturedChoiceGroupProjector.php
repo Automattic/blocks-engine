@@ -229,10 +229,10 @@ final class CapturedChoiceGroupProjector
         $diagnostics = array();
         $projected = 0;
         foreach ($report['pages'] as $page) {
-            if (! is_array($page) || ! is_string($page['sourceUrl'] ?? null) || ! is_array($page['states'] ?? null)) {
+            if (! is_array($page) || ! is_string($page['sourceUrl'] ?? null) || ! is_array($page['components'] ?? null)) {
                 continue;
             }
-            $groups = $this->groupedGroups($page['states'], $page['sourceUrl'], $diagnostics);
+            $groups = $this->groupedGroups(CapturedComponentStates::evidence($page['components'], array('choice-group')), $page['sourceUrl'], $diagnostics);
             if (array() === $groups) {
                 continue;
             }
