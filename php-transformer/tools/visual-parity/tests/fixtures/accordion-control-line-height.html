@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>FAQ</title>
+<style>
+body{margin:0;font-family:sans-serif;line-height:1.6}
+.flist{display:grid;gap:12px;max-width:334px;margin:40px auto}
+.qa{border:1px solid #dde;border-radius:8px}
+.q{display:flex;justify-content:space-between;gap:16px;width:100%;padding:18px 20px;background:none;border:0;font-size:1.02rem;font-weight:500;text-align:left;cursor:pointer}
+.a{display:none;padding:0 20px 18px}
+.qa.open .a{display:block}
+</style></head><body><main><div class="flist">
+<div class="qa"><button class="q" aria-expanded="false"><span>Are the drawings engineer-stamped for my county?</span><span aria-hidden="true">+</span></button><div class="a"><p>Yes, every set is stamped.</p></div></div>
+<div class="qa"><button class="q" aria-expanded="false"><span>Do you ship nationwide?</span><span aria-hidden="true">+</span></button><div class="a"><p>Yes.</p></div></div>
+</div></main>
+<script>document.querySelectorAll('.q').forEach(b=>b.addEventListener('click',()=>{const q=b.parentElement;q.classList.toggle('open');b.setAttribute('aria-expanded',q.classList.contains('open'))}))</script>
+</body></html>
