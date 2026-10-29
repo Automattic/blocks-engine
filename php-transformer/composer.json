@@ -430,6 +430,7 @@
       "php tests/unit/navigation-entities-after-repeated-chrome.php",
       "php tests/unit/wordpress-site-plan-stylesheet-order.php",
       "php tests/unit/wordpress-site-plan-frame-template-bindings.php",
+      "php tests/unit/shared-override-templates.php",
       "php tests/unit/wordpress-site-plan-post-chrome-unique-menu.php",
       "php tests/unit/wordpress-stylesheet-instances.php",
       "php tests/unit/shared-chrome-projection-media-instances.php",
