@@ -1067,23 +1067,8 @@ final class ArtifactCompiler
             if ( is_string($declaration['kind'] ?? null) && is_string($name) ) $keys[$declaration['kind'] . ':' . $name] = true;
         }
 
-        $slug = static function (string $value): string {
-            return \Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug::segment(trim($value));
-        };
-        $price = static function (mixed $value): string {
-            if ( ! is_scalar($value) ) return '';
-            $clean = preg_replace('/[^0-9.,]/', '', trim((string) $value)) ?? '';
-            if ( '' === $clean ) return '';
-            $commaCount = substr_count($clean, ',');
-            $dotCount = substr_count($clean, '.');
-            $decimal = '';
-            if ( 0 < $commaCount && 0 < $dotCount ) $decimal = strrpos($clean, ',') > strrpos($clean, '.') ? ',' : '.';
-            elseif ( 1 === $commaCount ) { $tail = strlen(substr($clean, (int) strrpos($clean, ',') + 1)); if ( 1 <= $tail && 2 >= $tail ) $decimal = ','; }
-            elseif ( 1 === $dotCount ) { $tail = strlen(substr($clean, (int) strrpos($clean, '.') + 1)); if ( 1 <= $tail && 2 >= $tail ) $decimal = '.'; }
-            if ( '' === $decimal ) return ltrim(preg_replace('/[^0-9]/', '', $clean) ?? '', '0') ?: '0';
-            $parts = explode($decimal, $clean); $fraction = preg_replace('/[^0-9]/', '', (string) array_pop($parts)) ?? ''; $integer = ltrim(preg_replace('/[^0-9]/', '', implode('', $parts)) ?? '', '0') ?: '0';
-            return strlen($fraction) > 2 ? number_format((float) ($integer . '.' . $fraction), 2, '.', '') : $integer . '.' . str_pad($fraction, 2, '0');
-        };
+        $slug = SchemaProductEvidence::productSlug(...);
+        $price = SchemaProductEvidence::productPrice(...);
 
         $productRoutes = array();
         $pageProducts = array();

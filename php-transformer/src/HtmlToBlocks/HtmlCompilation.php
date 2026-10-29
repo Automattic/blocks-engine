@@ -1700,7 +1700,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->runtimeIslands->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->interactionFallbackReporter->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $this->commerceReporter->appendProductGridFallbacks($body, $fallbacks, $blocks);
-        $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks);
+        $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks, (string) ($options['declarative_state_html'] ?? $html));
         $this->commerceReporter->appendCartViewFallbacks($body, $fallbacks);
         // Inserted into a theme the engine does not own, core's flow layout
         // spaces group children with the host's block gap; encode the

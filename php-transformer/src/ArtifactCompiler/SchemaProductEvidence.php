@@ -11,6 +11,37 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
  */
 final class SchemaProductEvidence
 {
+    public static function productSlug(string $value): string
+    {
+        return \Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug::segment(trim($value));
+    }
+
+    public static function productPrice(mixed $value): string
+    {
+        if ( ! is_scalar($value) ) return '';
+        $clean = preg_replace('/[^0-9.,]/', '', trim((string) $value)) ?? '';
+        if ( '' === $clean ) return '';
+        $commaCount = substr_count($clean, ',');
+        $dotCount = substr_count($clean, '.');
+        $decimal = '';
+        if ( 0 < $commaCount && 0 < $dotCount ) $decimal = strrpos($clean, ',') > strrpos($clean, '.') ? ',' : '.';
+        elseif ( 1 === $commaCount ) { $tail = strlen(substr($clean, (int) strrpos($clean, ',') + 1)); if ( 1 <= $tail && 2 >= $tail ) $decimal = ','; }
+        elseif ( 1 === $dotCount ) { $tail = strlen(substr($clean, (int) strrpos($clean, '.') + 1)); if ( 1 <= $tail && 2 >= $tail ) $decimal = '.'; }
+        if ( '' === $decimal ) return ltrim(preg_replace('/[^0-9]/', '', $clean) ?? '', '0') ?: '0';
+        $parts = explode($decimal, $clean); $fraction = preg_replace('/[^0-9]/', '', (string) array_pop($parts)) ?? ''; $integer = ltrim(preg_replace('/[^0-9]/', '', implode('', $parts)) ?? '', '0') ?: '0';
+        return strlen($fraction) > 2 ? number_format((float) ($integer . '.' . $fraction), 2, '.', '') : $integer . '.' . str_pad($fraction, 2, '0');
+    }
+
+    /** Use the same qualified, deduplicated rows as the compiler's purchase join. */
+    public static function hasSingleProduct(string $html): bool
+    {
+        return 1 === count(self::rows(
+            array(array('path' => 'index.html', 'content' => $html)),
+            self::productSlug(...),
+            self::productPrice(...)
+        ));
+    }
+
     /**
      * @param array<int,mixed> $files Compiled files (`path`, `content`).
      * @param callable(string):string $slug
