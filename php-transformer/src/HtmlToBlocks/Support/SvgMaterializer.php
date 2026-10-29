@@ -39,11 +39,13 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     public function inlineSvgBlockFromElement(DOMElement $element): ?array
     {
-        // Only preserve when there is actual artwork to keep. An SVG whose only
-        // content is unsafe (e.g. a lone <script>) has nothing left to render
-        // once sanitized, so it defers to the bounded fallback diagnostic.
+        // Childless passive SVGs render an empty graphic: direct character data
+        // is not painted without a <text> element. Preserve their box through the
+        // ordinary image path, but keep rejecting non-drawable active content
+        // (e.g. a lone <script> or a root event handler) before sanitization.
         $definitionsOnly = SourceDom::isDefinitionsOnlySvg($element);
-        if ( ! $definitionsOnly && ! SourceDom::svgHasDrawableContent($element) ) {
+        $childlessPassive = 0 === $element->getElementsByTagName('*')->length && self::isPassiveSvgMarkup($element);
+        if ( ! $definitionsOnly && ! $childlessPassive && ! SourceDom::svgHasDrawableContent($element) ) {
             return null;
         }
 
