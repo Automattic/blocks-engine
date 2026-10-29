@@ -284,8 +284,14 @@ final class GeneratedBlockStyleProjector
                 // width; an intrinsic one would shrink it to its label.
             } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex', 'inline-block', 'inline-grid', 'inline-table' ), true) ) {
                 if ( 'center' === $inheritedTextAlignment ) {
-                    $outerWrapperDeclarations[] = 'width:100%';
-                    $outerWrapperDeclarations[] = 'max-width:100%';
+                    // A flex or grid item shrinks to its content unless told to
+                    // fill. In block flow the wrapper already spans its line,
+                    // inside the margins the control's rules may give it; a
+                    // 100% width would push it past them and off center.
+                    if ( ! $this->sourceParentIsBlockContainer($sourceControl) ) {
+                        $outerWrapperDeclarations[] = 'width:100%';
+                        $outerWrapperDeclarations[] = 'max-width:100%';
+                    }
                 } else {
                     $outerWrapperDeclarations[] = 'width:max-content';
                     $outerWrapperDeclarations[] = 'max-width:100%';
@@ -815,6 +821,17 @@ final class GeneratedBlockStyleProjector
         }
         $parentDisplay = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? 'block'));
         return in_array($parentDisplay, array( '', 'block', 'flow-root', 'list-item' ), true);
+    }
+
+    private function sourceParentIsBlockContainer(DOMElement $sourceControl): bool
+    {
+        $parent = $sourceControl->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $display = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? ''));
+
+        return in_array($display, array( '', 'block', 'flow-root', 'list-item', 'inline-block', 'table-cell' ), true);
     }
 
     private function sourceControlFillsGridCell(DOMElement $sourceControl, array $sourceDeclarations): bool
