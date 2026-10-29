@@ -49,11 +49,11 @@ final class EngineSupportCss
     public function beforeAuthorCss(string $serializedBlocks): array
     {
         $parts = array();
-        if ( str_contains($serializedBlocks, 'wp-block-accordion-panel') ) {
+        if ( str_contains($serializedBlocks, 'blocks-engine-accordion-panel') ) {
             // Core owns the panel's hidden state. Projected source display rules
             // describe its open box and must not expose padding or borders while
             // Core has concealed the panel.
-            $parts[] = ':root .wp-block-accordion-panel[hidden]{display:none!important}';
+            $parts[] = ':root .blocks-engine-accordion-panel[hidden]{display:none!important}';
         }
         if (str_contains($serializedBlocks, 'blocks-engine-social-source-row')) {
             $parts[] = ':root .blocks-engine-social-source-row{font-size:inherit;line-height:inherit}';
@@ -167,7 +167,7 @@ final class EngineSupportCss
             // which carries none of them, so the bridge resolves to the initial
             // value and the source's crop is lost. Relay the figure's values
             // through the anchor so the bridge lands the same either way.
-            $parts[] = ':root :where(.wp-block-image)>a{object-fit:inherit;object-position:inherit;border-radius:inherit}';
+            $parts[] = ':root :where(.blocks-engine-linked-image-figure)>a{object-fit:inherit;object-position:inherit;border-radius:inherit}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS) ) {
             // This figure has no source box. Remove its layout box so image
@@ -330,8 +330,10 @@ final class EngineSupportCss
             // Core makes the inner code element a full-width break-spaces block.
             // Source pre/code is inline and inherits the preformatted whitespace
             // contract; restore that shape while authored code rules remain free
-            // to choose typography.
-            $parts[] = ':root :where(.wp-block-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}';
+            // to choose typography. The rule keys on the importer class every
+            // emitted code block carries (BlockFactory), not the bare core
+            // class, so it cannot reach blocks a host adds later.
+            $parts[] = ':root :where(.blocks-engine-source-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_GAP_CLASS) ) {
             // A collapsing space, not an estimated em/ch margin: the browser
@@ -480,20 +482,20 @@ final class EngineSupportCss
             // core/social-links paints its own icon for every service. The source
             // cluster painted icon-font glyphs through pseudo-elements on the very
             // items core now owns, so both icons would render on each link.
-            $parts[] = ':root .wp-block-social-links .wp-social-link::before,'
-                . ':root .wp-block-social-links .wp-social-link:not(:where(.blocks-engine-social-source-item))::after,'
-                . ':root .wp-block-social-links .wp-social-link:not(:where(.blocks-engine-social-source-glyph))>a::before,'
-                . ':root .wp-block-social-links .wp-social-link>a::after{content:none}';
+            $parts[] = ':root .wp-block-social-links.blocks-engine-social-source-cluster .wp-social-link::before,'
+                . ':root .wp-block-social-links.blocks-engine-social-source-cluster .wp-social-link:not(:where(.blocks-engine-social-source-item))::after,'
+                . ':root .wp-block-social-links.blocks-engine-social-source-cluster .wp-social-link:not(:where(.blocks-engine-social-source-glyph))>a::before,'
+                . ':root .wp-block-social-links.blocks-engine-social-source-cluster .wp-social-link>a::after{content:none}';
             // The source cluster was an inline box, so its container's text
             // alignment placed it. core's list is a full-width flex row, which
             // packs the items at the start instead. An inline flex row resolves
             // through that same alignment, for centered and start-aligned
             // containers alike, while an explicit justification still wins.
-            $parts[] = ':root ul.wp-block-social-links:not([class*="is-content-justification-"]){display:inline-flex}';
-            $parts[] = ':root ul.wp-block-social-links.is-content-justification-left{justify-content:flex-start}'
-                . ':root ul.wp-block-social-links.is-content-justification-center{justify-content:center}'
-                . ':root ul.wp-block-social-links.is-content-justification-right{justify-content:flex-end}'
-                . ':root ul.wp-block-social-links.is-content-justification-space-between{justify-content:space-between}';
+            $parts[] = ':root ul.wp-block-social-links.blocks-engine-social-source-cluster:not([class*="is-content-justification-"]){display:inline-flex}';
+            $parts[] = ':root ul.wp-block-social-links.blocks-engine-social-source-cluster.is-content-justification-left{justify-content:flex-start}'
+                . ':root ul.wp-block-social-links.blocks-engine-social-source-cluster.is-content-justification-center{justify-content:center}'
+                . ':root ul.wp-block-social-links.blocks-engine-social-source-cluster.is-content-justification-right{justify-content:flex-end}'
+                . ':root ul.wp-block-social-links.blocks-engine-social-source-cluster.is-content-justification-space-between{justify-content:space-between}';
         }
         if (str_contains($serializedBlocks, 'blocks-engine-social-source-row')) {
             $parts[] = ':root ul.wp-block-social-links.blocks-engine-social-source-row,'
@@ -641,7 +643,7 @@ final class EngineSupportCss
             $parts[] = '.wp-block-navigation.blocks-engine-native-responsive-navigation.blocks-engine-inline-navigation{display:inline-flex!important}';
         }
         if ( str_contains($serializedBlocks, 'wp:social-links') ) {
-            $parts[] = '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}';
+            $parts[] = '.wp-block-social-links.blocks-engine-social-source-cluster.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-source-social-item-spacing') ) {
             $parts[] = '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}';

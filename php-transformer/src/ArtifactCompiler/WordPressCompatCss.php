@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CoreSelectorScoping;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -118,6 +119,8 @@ final class WordPressCompatCss
         if ( '' === $css ) {
             return null;
         }
+
+        (new CoreSelectorScoping())->assertScoped($css, 'wordpress-compat');
 
         $hash = hash('sha256', $css);
         $path = 'assets/css/wordpress-compat-' . substr($hash, 0, 16) . '.css';

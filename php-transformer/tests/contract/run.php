@@ -915,12 +915,12 @@ $assert('social-item' === ($socialLinksBlock['innerBlocks'][0]['attrs']['classNa
 $assert(str_contains((string) ($socialLinksBlock['attrs']['className'] ?? ''), 'blocks-engine-source-social-item-spacing'), 'structural social items mark the wrapper so source item spacing remains authoritative');
 $socialLinksCss = implode("\n", array_column($socialLinksResult['assets'] ?? array(), 'content'));
 $assert(str_contains($socialLinksCss, '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}'), 'engine support CSS neutralizes the core default gap without adding invalid saved styles');
-$assert(str_contains($socialLinksCss, '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}'), 'logos-only social links drop source sprite backgrounds without !important');
+$assert(str_contains($socialLinksCss, '.wp-block-social-links.blocks-engine-social-source-cluster.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}'), 'logos-only social links drop source sprite backgrounds without !important');
 $assert(! str_contains($socialLinksMarkup, 'style="gap:') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the canonical social-links wrapper');
 $assert('pass' === ($socialLinksResult['source_reports']['wp_block_validity']['status'] ?? ''), 'dynamic social-link children and their static parent remain WordPress-valid');
 
 $visibleSocialLabels = ( new HtmlTransformer() )->transform('<div class="social-links"><a href="https://github.com/Automattic/blocks-engine">Blocks Engine</a><a href="https://github.com/Automattic/static-site-importer">Static Site Importer</a></div>')->toArray();
-$assert(str_contains((string) ($visibleSocialLabels['serialized_blocks'] ?? ''), 'class="wp-block-social-links has-visible-labels social-links"'), 'social-links save markup carries the canonical has-visible-labels class when labels are shown');
+$assert(str_contains((string) ($visibleSocialLabels['serialized_blocks'] ?? ''), 'class="wp-block-social-links blocks-engine-social-source-cluster has-visible-labels social-links"'), 'social-links save markup carries the canonical has-visible-labels class when labels are shown');
 
 $spanSocialSource = '<span class="wsite-social wsite-social-default"><a class="wsite-social-item wsite-social-facebook" href="https://www.facebook.com/tasteandtravelitaly" aria-label="Facebook"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-twitter" href="//#" aria-label="Twitter"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-instagram" href="https://instagram.com/tasteandtravel_italy" aria-label="Instagram"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-mail" href="mailto:hello@example.com" aria-label="Mail"><span class="wsite-social-item-inner"></span></a></span>';
 $spanSocialResult = ( new HtmlTransformer() )->transform($spanSocialSource)->toArray();
@@ -2830,7 +2830,7 @@ $syntaxCodeMarkup = (string) ($syntaxCodeResult['serialized_blocks'] ?? '');
 $syntaxCodeCss = implode("\n", array_column($syntaxCodeResult['assets'] ?? array(), 'content'));
 $assert(str_contains($syntaxCodeMarkup, '<span class="token comment"># npm</span>') && str_contains($syntaxCodeMarkup, '<span class="token function">install</span>'), 'core code preserves sanitized syntax-token markup');
 $assert(str_contains($syntaxCodeCss, '.token.comment{color:#8ea0c8}') && str_contains($syntaxCodeCss, '.token.function{color:#7dd3fc}'), 'syntax-token selectors remain targeted at their preserved core code descendants');
-$assert(1 === preg_match('/code:not\(\.be-c-[^)]+\)\{/', $syntaxCodeCss) && str_contains($syntaxCodeCss, ':where(.wp-block-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}'), 'native code keeps source inline preformatted geometry and authored code typography precedence');
+$assert(1 === preg_match('/code:not\(\.be-c-[^)]+\)\{/', $syntaxCodeCss) && str_contains($syntaxCodeCss, ':where(.blocks-engine-source-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}'), 'native code keeps source inline preformatted geometry and authored code typography precedence');
 $assert('pass' === ($syntaxCodeResult['source_reports']['wp_block_validity']['status'] ?? ''), 'syntax-token core code remains editor-valid');
 
 $linkedLogoResult = ( new HtmlTransformer() )->transform(
@@ -3852,7 +3852,7 @@ $centeredSocialLinks = ( new HtmlTransformer() )->transform(
 $assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), '"justifyContent":"center"'), 'social links inherit explicit alignment from their source wrapper');
 $assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), 'is-content-justification-center'), 'social link justification is present in rendered save markup');
 $centeredSocialLinksCss = implode("\n", array_column($centeredSocialLinks['assets'] ?? array(), 'content'));
-$assert(str_contains($centeredSocialLinksCss, '.wp-block-social-links.is-content-justification-center{justify-content:center}'), 'social link justification renders without depending on theme block CSS');
+$assert(str_contains($centeredSocialLinksCss, '.wp-block-social-links.blocks-engine-social-source-cluster.is-content-justification-center{justify-content:center}'), 'social link justification renders without depending on theme block CSS');
 
 $deduplicatedNestedNavigation = ( new HtmlTransformer() )->transform(
     '<main><section class="shell"><div class="desktop-wrap"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div><div class="mobile-nav drawer"><div class="drawer-panel"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div></div><article><h2>Services</h2><p>Copy</p></article></section></main>'

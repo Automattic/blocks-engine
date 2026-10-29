@@ -297,7 +297,12 @@ final class BlockFactory
         if ( 'core/code' === $name ) {
             // `content` is the escaped RichText value (see codeContent()); never
             // guess from its bytes, or code text that mentions a tag becomes one.
-            return '<pre' . $this->blockSupportAttrs($attrs, 'wp-block-code') . '><code>' . (string) ($attrs['content'] ?? '') . '</code></pre>';
+            // The engine class keys the code-shape support rule in
+            // EngineSupportCss so the selector does not stand on the bare core
+            // class alone.
+            $codeAttrs = $attrs;
+            $codeAttrs['className'] = SourceDom::mergeClassNames('blocks-engine-source-code', (string) ($attrs['className'] ?? ''));
+            return '<pre' . $this->blockSupportAttrs($codeAttrs, 'wp-block-code') . '><code>' . (string) ($attrs['content'] ?? '') . '</code></pre>';
         }
 
         if ( 'core/math' === $name ) {
@@ -377,6 +382,10 @@ final class BlockFactory
         }
 
         if ( 'core/accordion-panel' === $name ) {
+            // The importer class keys the `[hidden]` support rule in
+            // EngineSupportCss so it does not stand on the bare generated core
+            // class alone.
+            $attrs['className'] = SourceDom::mergeClassNames('blocks-engine-accordion-panel', (string) ($attrs['className'] ?? ''));
             return $this->roleWrapperHtml('region', $attrs, 'wp-block-accordion-panel');
         }
 
@@ -476,7 +485,10 @@ final class BlockFactory
             $justificationClass = in_array($justification, array( 'left', 'center', 'right', 'space-between' ), true) ? 'is-content-justification-' . $justification : '';
             $iconColorClass = '' !== trim((string) ($attrs['iconColorValue'] ?? '')) ? 'has-icon-color' : '';
             $iconBackgroundClass = '' !== trim((string) ($attrs['iconBackgroundColorValue'] ?? '')) ? 'has-icon-background-color' : '';
-            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $labelsClass . ' ' . $sizeClass . ' ' . $justificationClass . ' ' . $iconColorClass . ' ' . $iconBackgroundClass)) . '>', 'closing' => '</ul>' );
+            // The importer class keys the social-links support rules in
+            // EngineSupportCss so they do not stand on the bare core list class
+            // alone; every social-links list the importer emits carries it.
+            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links blocks-engine-social-source-cluster ' . $labelsClass . ' ' . $sizeClass . ' ' . $justificationClass . ' ' . $iconColorClass . ' ' . $iconBackgroundClass)) . '>', 'closing' => '</ul>' );
         }
 
         if ( 'core/social-link' === $name ) {
@@ -806,6 +818,12 @@ final class BlockFactory
 
         $img = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
         if ( ! empty($attrs['href']) ) {
+            // The linked-image relay in EngineSupportCss replicates core's
+            // `:where(.wp-block-image)>a` geometry inheritance for this
+            // importer's markup. Keying it on this importer-emitted class
+            // instead of the bare core class keeps the rule off blocks a
+            // host adds to the served page later.
+            $figureAttrs['className'] = SourceDom::mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'blocks-engine-linked-image-figure');
             $linkAttrs = array(
                 'href'        => (string) $attrs['href'],
                 'target'      => (string) ($attrs['linkTarget'] ?? ''),
