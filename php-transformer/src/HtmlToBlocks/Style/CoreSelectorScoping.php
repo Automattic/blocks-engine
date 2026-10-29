@@ -46,6 +46,12 @@ final class CoreSelectorScoping
 	 */
 	private const CLASS_TOKEN_PATTERN = '/\\.((?:\\\\.|[^\x00-\x7f]|[^\s.#:>+~,\[\]()\'"])+)/';
 
+	/** @var array<string, true> Stylesheets already proven scoped, by content hash. */
+	private static array $cleanStylesheets = array();
+
+	/** @var array<string, bool> Scoping verdict per selector text. */
+	private static array $selectorVerdicts = array();
+
 	/**
 	 * @throws \RuntimeException When a rule targets a core block class without
 	 *     an importer-emitted class in the same compound or ancestor chain.
@@ -65,6 +71,12 @@ final class CoreSelectorScoping
 	/** @return list<string> Unscoped selectors found in the stylesheet. */
 	public function violations(string $css): array
 	{
+		// Identical stylesheets recur across the routes of one site; each
+		// distinct stylesheet is parsed once per process.
+		$key = hash('xxh128', $css);
+		if ( isset(self::$cleanStylesheets[$key]) ) {
+			return array();
+		}
 		$violations = array();
 		( new CssStylesheetTransformer() )->visitStyleRules($css, function (string $selector, string $body) use (&$violations): void {
 			foreach ( CssStylesheetTransformer::splitSelectorList($selector) as $single ) {
@@ -73,6 +85,9 @@ final class CoreSelectorScoping
 				}
 			}
 		});
+		if ( array() === $violations ) {
+			self::$cleanStylesheets[$key] = true;
+		}
 		return array_values(array_unique($violations));
 	}
 
@@ -81,6 +96,11 @@ final class CoreSelectorScoping
 	 * importer-emitted class anywhere in the same compound or ancestor chain.
 	 */
 	public function selectorIsScoped(string $selector): bool
+	{
+		return self::$selectorVerdicts[$selector] ??= $this->computeSelectorIsScoped($selector);
+	}
+
+	private function computeSelectorIsScoped(string $selector): bool
 	{
 		$selectors = CssStylesheetTransformer::splitSelectorList($selector);
 		if ( null === $selectors ) {
