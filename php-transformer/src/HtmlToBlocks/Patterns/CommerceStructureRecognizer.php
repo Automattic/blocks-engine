@@ -186,6 +186,7 @@ final class CommerceStructureRecognizer
         return array_filter(array(
             'name'             => $name,
             'slug'             => $this->productLinkSlug($card, $name),
+            'url'              => $this->productLinkUrl($card, $name),
             'price'            => $prices['price'],
             'sale_price'       => $prices['sale_price'] ?? null,
             'description'      => $this->productDescriptionText($card, $name),
@@ -340,8 +341,18 @@ final class CommerceStructureRecognizer
      */
     private function productLinkSlug(DOMElement $card, string $name): ?string
     {
-        foreach ( $card->getElementsByTagName('a') as $link ) {
-            if ( $this->collapsedText($link) !== $name && SourceDom::attr($link, 'title') !== $name ) {
+        $url = $this->productLinkUrl($card, $name);
+        if (null === $url) return null;
+        $path = parse_url($url, PHP_URL_PATH);
+        $directory = rtrim((string) preg_replace('/(?:^|\/)index\.(?:html?|php)$/i', '', rtrim((string) $path, '/')), '/');
+        return rawurldecode((string) preg_replace('/\.(?:html?|php)$/i', '', basename($directory)));
+    }
+
+    private function productLinkUrl(DOMElement $card, string $name): ?string
+    {
+        $links = $card->getElementsByTagName('a');
+        foreach ( $links as $link ) {
+            if ( 1 !== $links->length && $this->collapsedText($link) !== $name && SourceDom::attr($link, 'title') !== $name ) {
                 continue;
             }
             $href = trim(SourceDom::attr($link, 'href'));
@@ -362,7 +373,7 @@ final class CommerceStructureRecognizer
                 continue;
             }
 
-            return rawurldecode($base);
+            return $href;
         }
 
         return null;

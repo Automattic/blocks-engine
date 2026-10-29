@@ -1082,6 +1082,8 @@ final class ArtifactCompiler
             return strlen($fraction) > 2 ? number_format((float) ($integer . '.' . $fraction), 2, '.', '') : $integer . '.' . str_pad($fraction, 2, '0');
         };
 
+        $productRoutes = array();
+        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes);
         $products = array();
         $forms = array();
         $orderLookups = array();
@@ -1099,6 +1101,10 @@ final class ArtifactCompiler
                 $gridItems = array();
                 foreach ( is_array($fallback['products'] ?? null) ? $fallback['products'] : array() as $product ) {
                     if ( ! is_array($product) ) continue;
+                    if (is_string($product['url'] ?? null)) {
+                        $route = SchemaProductEvidence::urlRoute($product['url'], $sourcePath);
+                        if (isset($productRoutes[$route])) $product['slug'] = $productRoutes[$route];
+                    }
                     if ( is_array($product['template_slots'] ?? null) && is_scalar($product['name'] ?? null) && '' !== trim((string) $product['name']) ) {
                         $gridItems[] = array('product' => $slug(is_scalar($product['slug'] ?? null) ? (string) $product['slug'] : trim((string) $product['name'])), 'slots' => $product['template_slots']);
                     }
@@ -1107,6 +1113,7 @@ final class ArtifactCompiler
                     $regularPrice = $price($product['price'] ?? null);
                     if ( '' === $name || '' === $productSlug || '' === $regularPrice ) continue;
                     $row = array('name' => $name, 'slug' => $productSlug, 'regular_price' => $regularPrice);
+                    if (is_string($product['url'] ?? null)) $row['url'] = $product['url'];
                     $salePrice = $price($product['sale_price'] ?? null); if ( '' !== $salePrice ) $row['sale_price'] = $salePrice;
                     if ( is_scalar($product['description'] ?? null) && '' !== trim((string) $product['description']) ) $row['description'] = (string) $product['description'];
                     $image = is_string($product['image'] ?? null) ? $product['image'] : (is_array($product['image'] ?? null) && is_string($product['image']['src'] ?? null) ? $product['image']['src'] : '');
@@ -1303,7 +1310,6 @@ final class ArtifactCompiler
                 $forms[$sourcePath . "\n" . $selector] = $form;
             }
         }
-        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics);
         // Only a page with one schema product can own an otherwise unclaimed
         // purchase form. Card descendants retain their existing card bindings.
         $pageProducts = array();
@@ -1333,8 +1339,11 @@ final class ArtifactCompiler
             unset($forms[$sourcePath . "\n" . $selector]);
         }
         foreach ( $schemaProducts as $productSlug => $row ) {
+            if (!isset($row['url'])) $row['url'] = '/' . $row['source_path'];
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
             foreach ( $row['bindings'] ?? array() as $binding ) $products[$productSlug]['bindings'][] = $binding;
+            // Detail evidence owns identity and source URL; card bindings stay intact.
+            foreach (array('name', 'slug', 'url') as $field) $products[$productSlug][$field] = $row[$field];
             foreach ( array('description', 'image', 'category', 'sku', 'images', 'tags', 'variants', 'sale_price', 'stock_status') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
         // Listing-owned forms are shop controls, not a second form-provider
