@@ -19,10 +19,12 @@ final class SchemaProductEvidence
      * @param array<string,string> $routes Source routes mapped to canonical product slugs.
      * @param array<string,list<string>> $pageProducts Canonical product slugs observed on each source page.
      * @param array<string,string> $detailPages Unambiguous detail source paths mapped to their product route (before deduplication).
+     * @param string $entryRoot Directory of the entrypoint; page routes are relative to it.
      * @return array<string,array<string,mixed>> Product rows keyed by slug.
      */
-    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array(), array &$pageProducts = array(), array &$detailPages = array()): array
+    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array(), array &$pageProducts = array(), array &$detailPages = array(), string $entryRoot = ''): array
     {
+        $entryRoot = trim($entryRoot, '/');
         $documents = array();
         foreach ($files as $file) {
             if (is_array($file) && is_string($file['path'] ?? null) && is_string($file['content'] ?? null) && false !== stripos($file['content'], 'ld+json')) $documents[$file['path']] = $file['content'];
@@ -33,7 +35,7 @@ final class SchemaProductEvidence
         $alternates = array();
         $defaults = array();
         foreach ($documents as $path => $content) {
-            $page = self::routePath($path);
+            $page = self::routePath(self::entryRelative($path, $entryRoot));
             foreach (HtmlMarkupParser::htmlMarkupNodes($content) as $node) {
                 if ('link' !== ($node['name'] ?? '')) continue;
                 $attrs = $node['attributes'] ?? array();
@@ -44,7 +46,7 @@ final class SchemaProductEvidence
             }
         }
         foreach ($documents as $path => $content) {
-            $pagePath = self::routePath($path);
+            $pagePath = self::routePath(self::entryRelative($path, $entryRoot));
             $schemas = array();
             foreach (HtmlMarkupParser::htmlMarkupNodes($content) as $node) {
                 if ('rawtext' !== ($node['kind'] ?? null) || 'script' !== ($node['name'] ?? null)) continue;
@@ -337,6 +339,12 @@ final class SchemaProductEvidence
             elseif ('' !== $part && '.' !== $part) $parts[] = $part;
         }
         return self::routePath(implode('/', $parts));
+    }
+
+    /** Source path relative to the entrypoint directory. */
+    private static function entryRelative(string $path, string $entryRoot): string
+    {
+        return '' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
     }
 
     /** Route-like path: no slashes at the ends, no `.html` extension, no trailing `index`. */

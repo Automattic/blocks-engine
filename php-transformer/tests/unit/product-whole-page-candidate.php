@@ -72,4 +72,15 @@ $assert($claims === $candidates($compactPlan), 'Compact entity records preserve 
 $replayed = json_decode(json_encode($compactPlan, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
 $resolved = (new WordPressSitePlanResolver())->resolve($replayed, array('theme_uri' => 'https://example.test/theme', 'approved_plan_identity' => $compactPlan['plan_identity']));
 $assert($claims === $candidates($resolved) && $compactPlan['plan_identity'] === $resolved['plan_identity'], 'Compact checkpoint replay preserves candidate and approved identity.');
+
+// Importers pass captures under an entry root; detail claims must survive it, and
+// unclaimed rows must not inherit a listing page's route.
+$rooted = array();
+foreach ($negative as $path => $content) $rooted['website/' . $path] = $content;
+$rootedResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $rooted))->toArray();
+$assert(array('website/products/lamp.html') === array_keys($candidates($planOf($rootedResult))), 'An entry-rooted detail page keeps its candidate.');
+foreach ($rootedResult['source_reports']['compiled_site']['runtime_declarations'] as $declaration) {
+    if ('products' !== ($declaration['type'] ?? null)) continue;
+    foreach ($declaration['payload']['entities'] as $row) $assert(isset($row['whole_page_candidate']) ? '/products/lamp' === ($row['source_route'] ?? null) : !isset($row['source_route']), 'Only claimed rows carry a source route: ' . $row['slug']);
+}
 echo "product-whole-page-candidate: ok\n";
