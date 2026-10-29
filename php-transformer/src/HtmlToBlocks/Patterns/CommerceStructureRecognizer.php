@@ -751,6 +751,14 @@ final class CommerceStructureRecognizer
                 continue;
             }
 
+            // A paragraph may be inside a stock/availability badge. Judge its
+            // source, not words that could also occur in genuine product copy.
+            for ( $source = $paragraph; $source instanceof DOMElement && $source !== $card; $source = $source->parentNode ) {
+                if ( $this->classifier->hasCommerceToken($source, array( 'badge', 'badges', 'stock', 'availability', 'soldout' )) || 'availability' === strtolower(SourceDom::attr($source, 'itemprop')) ) {
+                    continue 2;
+                }
+            }
+
             return mb_strlen($text) > 280 ? mb_substr($text, 0, 277) . '...' : $text;
         }
 
