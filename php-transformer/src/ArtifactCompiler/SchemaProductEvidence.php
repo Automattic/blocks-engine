@@ -11,6 +11,8 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
  */
 final class SchemaProductEvidence
 {
+    private const TRANSLATION_LIMIT = 8;
+    private const TEXT_LIMITS = array('name' => 256, 'description' => 4096, 'source_path' => 256, 'url' => 2048);
     /**
      * @param array<int,mixed> $files Compiled files (`path`, `content`).
      * @param callable(string):string $slug
@@ -44,8 +46,13 @@ final class SchemaProductEvidence
         }
         foreach ($documents as $path => $content) {
             $pagePath = self::routePath($path);
+            $language = '';
             $schemas = array();
             foreach (HtmlMarkupParser::htmlMarkupNodes($content) as $node) {
+                if ('html' === ($node['name'] ?? null)) {
+                    $lang = strtolower(trim($node['attributes']['lang'] ?? ''));
+                    if (preg_match('/^[a-z]{2,8}(?:-[a-z0-9]{1,8})*$/D', $lang) && strlen($lang) <= 63) $language = $lang;
+                }
                 if ('rawtext' !== ($node['kind'] ?? null) || 'script' !== ($node['name'] ?? null)) continue;
                 $type = strtolower(trim(explode(';', (string) ($node['attributes']['type'] ?? ''), 2)[0]));
                 if ('application/ld+json' !== $type) continue;
@@ -83,7 +90,7 @@ final class SchemaProductEvidence
                         $tokens[] = 'route:' . $route;
                         foreach ($alternates[$route] ?? array() as $alternate) $tokens[] = 'route:' . $alternate;
                     }
-                    $entries[] = array('fields' => $fields, 'tokens' => $tokens, 'routes' => $hasRoute ? array($route) : array(), 'score' => (isset($defaults[$route]) ? 2 : 0) + ($route === $pagePath ? 1 : 0));
+                    $entries[] = array('language' => $language, 'path' => $path, 'fields' => $fields, 'tokens' => $tokens, 'routes' => $hasRoute ? array($route) : array(), 'score' => (isset($defaults[$route]) ? 2 : 0) + ($route === $pagePath ? 1 : 0));
                 }
             }
         }
@@ -105,12 +112,31 @@ final class SchemaProductEvidence
         }
         $chosen = array();
         foreach ($groups as $group) {
-            usort($group['entries'], static fn (array $a, array $b): int => $b['score'] <=> $a['score'] ?: strcmp($a['fields']['source_path'], $b['fields']['source_path']));
+            usort($group['entries'], static fn (array $a, array $b): int => $b['score'] <=> $a['score'] ?: strcmp($a['path'], $b['path']));
+            foreach ($group['entries'] as &$entry) {
+                foreach (self::TEXT_LIMITS as $field => $limit) {
+                    if (isset($entry['fields'][$field])) $entry['fields'][$field] = mb_strcut($entry['fields'][$field], 0, $limit, 'UTF-8');
+                }
+            }
+            unset($entry);
             $fields = $group['entries'][0]['fields'];
+            $canonicalLanguage = $group['entries'][0]['language'];
+            $translations = array();
+            foreach ($group['entries'] as $entry) {
+                $language = $entry['language'];
+                // Language comes only from the document, never a URL or an alternate link.
+                if ('' === $language || $language === $canonicalLanguage || isset($translations[$language]) || count($translations) >= self::TRANSLATION_LIMIT) continue;
+                $translation = array();
+                foreach (self::TEXT_LIMITS as $field => $_limit) {
+                    if (isset($entry['fields'][$field]) && $entry['fields'][$field] !== ($fields[$field] ?? null)) $translation[$field] = $entry['fields'][$field];
+                }
+                if ($translation) $translations[$language] = $translation;
+            }
+            if ($translations) { ksort($translations, SORT_STRING); $fields['translations'] = $translations; }
             $chosen[$fields['slug']] = $fields;
             foreach ($group['entries'] as $entry) {
                 foreach ($entry['routes'] as $route) $routes[$route] = $fields['slug'];
-                $path = $entry['fields']['source_path'];
+                $path = $entry['path'];
                 if (!in_array($fields['slug'], $pageProducts[$path] ?? array(), true)) $pageProducts[$path][] = $fields['slug'];
             }
         }
