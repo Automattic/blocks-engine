@@ -39,4 +39,10 @@ foreach (array('{}', '&lt;', '&gt;') as $unsafe) {
         $assert('frontend' !== ($asset['stylesheet_target'] ?? 'both'), 'Unsafe document styles must be rejected');
     }
 }
+// Weight is one ID above the heaviest author selector, not a sum over the sheet.
+$weighted = '';
+foreach ($compile(str_replace('.tall{height:3000px}', '.tall{height:3000px}#a{color:red}#b #c{color:red}#d{color:red}', $html))['assets'] as $asset) {
+    if ('frontend' === ($asset['stylesheet_target'] ?? 'both')) $weighted .= $asset['content'] ?? '';
+}
+$assert(str_contains($weighted, ',' . str_repeat('#' . $class, 3) . ')') && !str_contains($weighted, str_repeat('#' . $class, 4)), 'Root carrier weight must be max author IDs + 1');
 echo "artifact root inline scroll passed\n";

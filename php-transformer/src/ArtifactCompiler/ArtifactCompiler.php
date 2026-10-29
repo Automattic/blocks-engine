@@ -3244,17 +3244,17 @@ final class ArtifactCompiler
             }
         }
         if (array() === $documents) return null;
-        // A deliberately conservative ID bound also covers nested selectors.
-        // The matching class arm of :is() supplies ID weight without requiring
-        // an authored ID, just like InlineGeometry's inline-style carriers.
-        $ids = 1;
+        // One ID more than the heaviest author selector outranks every rule,
+        // as inline style does. The matching class arm of :is() supplies the
+        // ID weight without an authored ID, like InlineGeometry's carriers.
+        $ids = 0;
         $transformer = new CssStylesheetTransformer();
         foreach ($files as $file) {
             if ('css' !== ($file['kind'] ?? '')) continue;
             $transformer->visitStyleRules((string) ($file['content'] ?? ''), static function (string $prelude) use (&$ids): void {
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     $weight = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::specificityCounts(\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::parse($selector));
-                    $ids += $weight['ids'];
+                    $ids = max($ids, $weight['ids']);
                 }
             });
         }
@@ -3262,7 +3262,7 @@ final class ArtifactCompiler
         foreach ($documents as $source => $styles) {
             $identity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
             $class = $this->routeClasses[$identity] ?? \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($identity);
-            $root = 'html.' . $class . ':is(.' . $class . ',' . str_repeat('#' . $class, $ids) . ')';
+            $root = 'html.' . $class . ':is(.' . $class . ',' . str_repeat('#' . $class, $ids + 1) . ')';
             foreach ($styles as $tag => $style) {
                 $rules[] = $root . ('body' === $tag ? ' body' : '') . '{' . $style . '}';
             }
