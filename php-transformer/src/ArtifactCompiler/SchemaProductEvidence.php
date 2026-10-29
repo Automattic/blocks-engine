@@ -233,7 +233,17 @@ final class SchemaProductEvidence
         }
         if ($tags) $fields['tags'] = $tags;
         if ($isGroup) {
-            if ($variants && $declared) $fields['variants'] = $variants;
+            $attributes = $variants[0]['attributes'] ?? array();
+            // An undeclared default title is a placeholder, not a shopper choice.
+            // Never discard real attributes or an explicitly declared variation axis.
+            $defaultTitle = empty($product['variesBy']) && 1 === count($attributes)
+                && 'title' === $attributes[0]['key'] && 'default-title' === $attributes[0]['value'];
+            if (1 === count($variants) && (!$attributes || $defaultTitle)) {
+                foreach (array('sku', 'regular_price', 'sale_price', 'stock_status') as $field) {
+                    unset($fields[$field]);
+                    if (isset($variants[0][$field])) $fields[$field] = $variants[0][$field];
+                }
+            } elseif ($variants && $declared) $fields['variants'] = $variants;
             else $fields['_variants_undeclared'] = true;
         }
         return array($productSlug, $fields, self::routePath($urlPath));
