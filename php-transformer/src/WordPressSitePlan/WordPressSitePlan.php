@@ -4316,8 +4316,18 @@ PHP;
             }
         }
         $compact = !array_filter($cards, fn(array $card): bool => !$this->isExcerptListingCard($markup, $card));
-        $transformed = $this->listingTransformRange($markup, $first, $first['post'], $first['route'], $compact ? ListingExcerptProjection::length($cards) : 0, $boundGroups);
-        if (!$transformed['title'] || '' === $transformed['markup']) {
+        $sharedText = null;
+        foreach ($cards as $card) {
+            $texts = array();
+            $cardMarkup = substr($markup, $card['offset'], $card['length']);
+            foreach (self::blockRanges($cardMarkup) as $leaf) {
+                if (array() !== self::childBlockRanges($cardMarkup, $leaf)) continue;
+                $texts[ListingExcerptProjection::text(substr($cardMarkup, $leaf['offset'], $leaf['length']))] = true;
+            }
+            $sharedText = null === $sharedText ? $texts : array_intersect_key($sharedText, $texts);
+        }
+        $transformed = $this->listingTransformRange($markup, $first, $first['post'], $first['route'], $compact ? ListingExcerptProjection::length($cards) : 0, $boundGroups, false, $sharedText ?? array());
+        if (null === $transformed || !$transformed['title'] || '' === $transformed['markup']) {
             return null;
         }
         $template = $transformed['markup'];
@@ -4372,9 +4382,10 @@ PHP;
     /**
      * @param array{offset:int,length:int} $range
      * @param array<string,mixed> $post
-     * @return array{markup:string,title:bool,content:bool}
+     * @param array<string,true> $sharedText
+     * @return array{markup:string,title:bool,content:bool}|null
      */
-    private function listingTransformRange(string $markup, array $range, array $post, string $route, int $excerptLength = 0, array $boundGroups = array(), bool $linkedContainer = false): array
+    private function listingTransformRange(string $markup, array $range, array $post, string $route, int $excerptLength = 0, array $boundGroups = array(), bool $linkedContainer = false, array $sharedText = array()): ?array
     {
         $slice = substr($markup, $range['offset'], $range['length']);
         if (isset($boundGroups[$range['offset']])) return array('markup' => $boundGroups[$range['offset']], 'title' => false, 'content' => false);
@@ -4423,6 +4434,12 @@ PHP;
             if ('featured-image' === $kind) {
                 return array('markup' => self::postFeaturedImageMarkup($slice), 'title' => false, 'content' => false);
             }
+            if ('unbound' === $kind) {
+                // Repeating an unbound per-post literal is no more truthful than
+                // rendering the full article in its place. Decline the listing.
+                if (!isset($sharedText[ListingExcerptProjection::text($slice)])) return null;
+                $kind = 'chrome';
+            }
             if ('comments' === $kind || 'chrome' === $kind) {
                 return array('markup' => $slice, 'title' => false, 'content' => false);
             }
@@ -4435,7 +4452,8 @@ PHP;
         $emittedContent = false;
         $replacements = array();
         foreach ($children as $child) {
-            $transformed = $this->listingTransformRange($markup, $child, $post, $route, $excerptLength, $boundGroups, $linkedContainer);
+            $transformed = $this->listingTransformRange($markup, $child, $post, $route, $excerptLength, $boundGroups, $linkedContainer, $sharedText);
+            if (null === $transformed) return null;
             $foundTitle = $foundTitle || $transformed['title'];
             if ($transformed['content'] && $emittedContent) {
                 $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
@@ -4536,7 +4554,16 @@ PHP;
         if ('' === $text || in_array($name, array('separator', 'spacer'), true) || preg_match('/\bseparator\b/', (string) (self::listingBlockAttributes($slice)['className'] ?? ''))) {
             return 'chrome';
         }
-        return 'body';
+        // Recognize actual article leaves before considering unbound card text.
+        $postMarkup = (string) ($post['canonical_block_markup'] ?? '');
+        foreach (self::blockRanges($postMarkup) as $range) {
+            if (array() !== self::childBlockRanges($postMarkup, $range)) continue;
+            if (ListingExcerptProjection::text(substr($postMarkup, $range['offset'], $range['length'])) === ListingExcerptProjection::text($slice)) return 'body';
+        }
+        // Keep the legacy content-listing contract for paragraphs without an
+        // authored summary. Summary cards must never infer body ownership from
+        // an otherwise unrecognized text leaf.
+        return ListingExcerptProjection::matches($slice, $post) || ('paragraph' === $name && null === ListingExcerptProjection::description($post)) ? 'body' : 'unbound';
     }
     /**
      * The single plan-owned image of a card slot, which the post owns as its
