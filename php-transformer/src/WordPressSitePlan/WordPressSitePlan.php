@@ -618,10 +618,15 @@ PHP;
             }
         }
         unset($asset);
-        foreach ($pages as $page) if (isset($page['route_template'])) $themeProjection['theme']['customTemplates'][] = array('name' => $page['route_template'], 'title' => $page['title'], 'postTypes' => array($page['post_type']));
         // Shell extraction needed the archive documents, but route overrides
         // belong only to documents that actually materialize in WordPress.
         $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single'], $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome']);
+        $sharedTemplateTitles = self::shareOverrideTemplates($pages, $parts, $templates);
+        $registeredTemplates = array();
+        foreach ($pages as $page) if (isset($page['route_template']) && !isset($registeredTemplates[$page['route_template']])) {
+            $registeredTemplates[$page['route_template']] = true;
+            $themeProjection['theme']['customTemplates'][] = array('name' => $page['route_template'], 'title' => $sharedTemplateTitles[$page['route_template']] ?? $page['title'], 'postTypes' => array($page['post_type']));
+        }
         foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if (self::archiveTemplateSlug($taxonomyEntity) === ($template['slug'] ?? null)) {
             $taxonomyEntity['archive']['presentation_markup'] = $template['canonical_block_markup'];
             continue 2;
@@ -3556,6 +3561,66 @@ PHP;
     public static function routeTemplateKey(array $page): string
     {
         return $page['route_template'] ?? (!empty($page['entrypoint']) ? 'front-page' : ('page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug']));
+    }
+
+    /**
+     * Share generated route overrides only after their final markup is known.
+     * Keep placement keys aligned with routeTemplateKey for binding validation.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $templates
+     * @return array<string,string> Shared template titles.
+     */
+    private static function shareOverrideTemplates(array &$pages, array &$parts, array &$templates): array
+    {
+        $bySlug = array_column($templates, null, 'slug');
+        $groups = array();
+        foreach ($pages as $index => $page) {
+            $key = self::routeTemplateKey($page);
+            $template = $bySlug[$key] ?? null;
+            if (!empty($page['entrypoint']) || !is_array($template) || isset($template['source_path'])) continue;
+            $groups[$page['post_type'] . "\0" . $template['canonical_block_markup']][] = $index;
+        }
+        $renames = array(); $titles = array(); $shared = array();
+        foreach ($groups as $indexes) {
+            if (count($indexes) < 2) continue;
+            $page = $pages[$indexes[0]];
+            $key = self::routeTemplateKey($page);
+            $prefix = 'page' === $page['post_type'] ? 'page-' : 'single-' . $page['post_type'] . '-';
+            $slug = $prefix . 'shared-' . substr(hash('sha256', $page['post_type'] . "\0" . $bySlug[$key]['canonical_block_markup']), 0, 12);
+            while (isset($bySlug[$slug]) || isset($titles[$slug])) $slug .= '-shared';
+            $labels = array();
+            foreach ($indexes as $index) {
+                $renames[self::routeTemplateKey($pages[$index])] = $slug;
+                $labels[] = $pages[$index]['title'];
+                $pages[$index]['route_template'] = $slug;
+                $pages[$index]['metadata']['post_meta']['_wp_page_template'] = $slug;
+            }
+            $titles[$slug] = implode(' / ', array_unique($labels));
+        }
+        foreach ($templates as &$template) {
+            $slug = $renames[$template['slug']] ?? null;
+            if (null === $slug || isset($shared[$slug])) continue;
+            $shared[$slug] = true;
+            $template['slug'] = $slug;
+            $template['target_path'] = 'templates/' . $slug . '.html';
+            $template['reconciliation_identity'] = self::identity('template', 'wordpress-site-plan/' . $template['target_path'], $template['target_path']);
+        }
+        unset($template);
+        $templates = array_values(array_filter($templates, static fn(array $template): bool => !isset($renames[$template['slug']])));
+        foreach ($parts as &$part) {
+            foreach (array('template_slugs', 'excluded_template_slugs') as $field) if (isset($part['placement'][$field])) {
+                $part['placement'][$field] = array_values(array_unique(array_map(static fn(string $slug): string => $renames[$slug] ?? $slug, $part['placement'][$field])));
+            }
+            if (isset($part['placement']['template_wrappers'])) {
+                $wrappers = array();
+                foreach ($part['placement']['template_wrappers'] as $slug => $wrapper) $wrappers[$renames[$slug] ?? $slug] = $wrapper;
+                $part['placement']['template_wrappers'] = $wrappers;
+            }
+        }
+        unset($part);
+        return $titles;
     }
 
     /** @param array<string,mixed> $part */
