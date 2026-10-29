@@ -558,7 +558,8 @@ final class InlineGeometry
         }
         $overridePropertyLookup = array_fill_keys(array_keys($overrideDeclarations), true);
         foreach ($geometry as $property => $value) {
-            if ( isset($inlineListMarkerPropertyLookup[$property])
+            if ( ('iframe' === strtolower($element->tagName) && ! CssValueInspector::isImportant((string) ($declarations[$property] ?? '')))
+                || isset($inlineListMarkerPropertyLookup[$property])
                 || isset($overridePropertyLookup[$property])
                 || ( isset($inlineLayoutPropertyLookup[$property]) && ! isset($forcedPropertyLookup[$property])
                     && ! ( 'display' === $property && 'contents' === CssValueInspector::comparable($value) ) )

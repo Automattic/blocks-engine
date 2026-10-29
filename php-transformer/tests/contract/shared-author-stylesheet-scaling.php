@@ -342,7 +342,7 @@ $assert(str_contains($routeText, 'html:where(') && str_contains($routeText, ':ro
 $droppedOverride = false;
 $conditionalImage = false;
 $transformer->visitStyleRules($routeText, static function (string $prelude, string $body, array $context) use (&$droppedOverride, &$conditionalImage, $classes): void {
-    if (str_contains($body, 'padding:7px!important')) {
+    if (str_contains($body, 'padding:7px')) {
         $droppedOverride = in_array('@media(min-width:1px)', $context, true);
     }
     if (str_contains($prelude, '.wp-block-image')) $conditionalImage = in_array('@media(min-width:1px)', $context, true);

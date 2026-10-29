@@ -2563,7 +2563,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $afterAuthorCss->absorb($engineSupportCss->secondaryBlockRenderRepairCss($serializedBlocks));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationItemStateAnchorRules($serializedBlocks, $sourceProvenance));
         $afterAuthorCss->absorb($this->navigationStyleProjector->directNavigationSupportCss($serializedBlocks));
-        $afterAuthorCss->absorb($this->navigationStyleProjector->directNavigationDisplayRules($serializedBlocks));
         $afterAuthorCss->absorb($this->generatedSupportStyles()->buttonAfterAuthorCss());
         $afterAuthorCss->addAll(CascadeLayer::CLOSED_STATE_REPAIR, $this->styleResolver->closedStateRepairCssRules());
         // A captured reveal whose driver did not survive import must still

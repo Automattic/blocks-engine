@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file. Entries are
 - address generated control classes by declarations
 
 ### Changed
+- Preserve source priority, conditions and rule position when projecting button geometry, direct-navigation display and image constraints. CSS-sized provider embeds now use the editable visual-iframe block instead of a fixed-height oEmbed wrapper; responsive image axes stay stylesheet-owned, including intermediate and container breakpoints. Public result schemas are unchanged. Refs #3689.
 - Document head replay now allowlists unowned presentation/resource metadata. Source charset, robots, canonical, SEO, generator, sitemap, manifest, telemetry and unknown metadata are omitted with `document_head_element_dropped` reasons; selectors no longer grant replay ownership. Existing descriptive metadata routing remains separate. Refs Automattic/static-site-importer#2430.
 - Address generated control and native-button classes by their normalized emitted rules rather than source-page context. Generated class names change; consumers should use emitted markup and stylesheets together, not persist individual generated names. Public result schemas are unchanged. Refs #3689.
 - Preserve source button line-height in accordion toggles

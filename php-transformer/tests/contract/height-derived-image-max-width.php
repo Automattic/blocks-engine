@@ -105,7 +105,7 @@ $assert(
 $rules = $carrierRules($fixture, $markup);
 $assert('' !== $rules, 'fixture: the image carries a be-inline-geometry box rule.', $markup);
 $assert(
-    str_contains($rules, 'max-width:none!important'),
+    str_contains($rules, 'max-width:none') && !str_contains($rules, '!important'),
     'fixture: the box rule neutralizes core\'s max-width:100% clamp so the derived width renders 82x82.',
     $rules
 );
@@ -137,8 +137,8 @@ $assert('' !== $markup, 'author max-width control: the page compiles to serializ
 $block = $imageBlock($markup);
 $rules = $carrierRules($authored, $markup);
 $assert(
-    '' !== $rules && str_contains($rules, 'max-width:100%!important'),
-    'author max-width control: the author\'s own max-width:100% clamp is kept on the carrier.',
+    !str_contains($rules, 'max-width:'),
+    'author max-width control: the source clamp stays in its authored rule, not a carrier.',
     $rules
 );
 $assert(
