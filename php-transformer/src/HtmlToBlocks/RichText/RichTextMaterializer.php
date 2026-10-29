@@ -260,7 +260,12 @@ final class RichTextMaterializer implements RichTextMaterialization
         // carrier replaces its inline style, so it must define them too.
         $declarations += $this->styleResolver->consumedInlineCustomProperties($element, $declarations);
         if ( ! SourceDom::hasAncestorTag($element, array( 'header' )) ) {
-            unset($declarations['box-shadow'], $declarations['place-items']);
+            unset($declarations['place-items']);
+            // An empty decorative inline is itself the painted box, not a
+            // text format: its shadow must travel with its dimensions/paint.
+            if ( '' !== trim($element->textContent ?? '') || 0 < SourceDom::childElementCount($element) ) {
+                unset($declarations['box-shadow']);
+            }
         }
         if ( in_array(strtolower($element->tagName), array( 'em', 'i' ), true) ) {
             if ( 'italic' === strtolower((string) ($declarations['font-style'] ?? '')) ) {
