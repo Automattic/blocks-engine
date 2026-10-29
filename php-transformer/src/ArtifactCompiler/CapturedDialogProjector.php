@@ -39,9 +39,11 @@ final class CapturedDialogProjector
      */
     public function project(array $files): array
     {
-        $popovers = $this->adoptSourcePopovers($files);
+        $components = $this->projectComponentCarousels($files);
+        $popovers = $this->adoptSourcePopovers($components['files']);
         $result = $this->projectCapturedStates($popovers['files']);
-        $result['projected_count'] += $popovers['projected_count'];
+        $result['projected_count'] += $popovers['projected_count'] + $components['projected_count'];
+        $result['native_runtime_replacements'] = array_merge($result['native_runtime_replacements'] ?? array(), $components['native_runtime_replacements']);
 
         return $result;
     }
@@ -50,6 +52,97 @@ final class CapturedDialogProjector
      * @param array<int, array<string, mixed>> $files
      * @return array{files:array<int, array<string, mixed>>, diagnostics:array<int, array<string, mixed>>, projected_count:int}
      */
+    private function projectComponentCarousels(array $files): array
+    {
+        $report = $this->jsonFile($files, 'interaction-states.json');
+        $receipt = $this->jsonFile($files, 'capture-receipt.json');
+        $count = 0;
+        $retired = array();
+        if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null)
+            || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)) {
+            return array('files' => $files, 'projected_count' => 0, 'native_runtime_replacements' => array());
+        }
+        $routes = array();
+        foreach ($receipt['routes'] ?? array() as $route) {
+            if (is_string($route['url'] ?? null) && is_string($route['path'] ?? null)) $routes[$this->normalizedUrl($route['url'])] = $route['path'];
+        }
+        foreach (array_slice($report['pages'] ?? array(), 0, self::MAX_PAGES) as $page) {
+            $path = $routes[$this->normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
+            foreach ($files as &$file) {
+                if ('' === $path || $path !== ($file['path'] ?? null) || !is_string($file['content'] ?? null)) continue;
+                $document = new DOMDocument('1.0', 'UTF-8');
+                $previous = libxml_use_internal_errors(true);
+                $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_NONET);
+                libxml_clear_errors();
+                libxml_use_internal_errors($previous);
+                if (!$loaded) continue;
+                $changed = false;
+                $selectors = array();
+                $bindings = new ScriptOccurrenceBindings($document);
+                foreach (array_slice($page['components'] ?? array(), 0, self::MAX_GALLERY_STATES_PER_PAGE) as $component) {
+                    if ('carousel' !== ($component['kind'] ?? null) || !in_array($component['status'] ?? null, array('captured', 'partial'), true)
+                        || !is_array($component['states'] ?? null) || array() !== CapturedComponentStates::evidence(array($component), array('carousel'))) continue;
+                    foreach ($this->documentScopes($document) as $scope) {
+                        $selector = (string) ($component['selector'] ?? '');
+                        $roots = str_starts_with($selector, '#')
+                            ? $this->identityMatches($scope, array('selector' => $selector))
+                            : $this->selectorMatches($scope, array('selector' => $selector));
+                        if (1 !== count($roots)) continue;
+                        $root = $roots[0];
+                        $slides = array();
+                        $initial = 0;
+                        foreach (array_slice($component['states'], 0, 24) as $state) {
+                            if (!is_string($state['html'] ?? null) || strlen($state['html']) > 524288) continue;
+                            $snapshot = new DOMDocument('1.0', 'UTF-8');
+                            $previous = libxml_use_internal_errors(true);
+                            $snapshot->loadHTML('<?xml encoding="UTF-8">' . SourceDom::safeFallbackHtmlString($state['html']), LIBXML_NONET);
+                            libxml_clear_errors();
+                            libxml_use_internal_errors($previous);
+                            $active = array();
+                            foreach ($snapshot->getElementsByTagName('*') as $slide) {
+                                if ('slide' === $slide->getAttribute('aria-roledescription') && !$slide->hasAttribute('hidden')
+                                    && !preg_match('/display\s*:\s*none/i', $slide->getAttribute('style'))) $active[] = $slide;
+                            }
+                            if (1 !== count($active) || !is_string($state['id'] ?? null) || isset($slides[$state['id']])) continue;
+                            if ($state['id'] === ($component['initial'] ?? null)) $initial = count($slides);
+                            $slides[$state['id']] = $active[0];
+                        }
+                        if (count($slides) < 2) continue;
+                        $oldSlides = array();
+                        foreach ($root->getElementsByTagName('*') as $slide) if ('slide' === $slide->getAttribute('aria-roledescription')) $oldSlides[] = $slide;
+                        if (array() === $oldSlides) continue;
+                        $parent = $oldSlides[0]->parentNode;
+                        if (!$parent instanceof DOMElement) continue;
+                        foreach ($oldSlides as $slide) if (!$slide->parentNode?->isSameNode($parent)) continue 2;
+                        $list = $document->createElement('div');
+                        $list->setAttribute('role', 'list');
+                        $list->setAttribute(CaptureEvidence::GALLERY_INITIAL, (string) $initial);
+                        $parent->insertBefore($list, $oldSlides[0]);
+                        foreach ($slides as $slide) {
+                            $item = $document->importNode($slide, true);
+                            $item->removeAttribute('hidden');
+                            $item->setAttribute('role', 'listitem');
+                            $list->appendChild($item);
+                        }
+                        foreach ($oldSlides as $slide) $parent->removeChild($slide);
+                        $changed = true;
+                        $selectors[] = $selector;
+                        ++$count;
+                    }
+                }
+                if ($changed) {
+                    $retired[$path] = CapturedComponentStates::retireRuntime($document, CaptureEvidence::COMPONENT_CAROUSEL_RUNTIME, $selectors);
+                    $file['content'] = HtmlSerialization::documentHtml($document);
+                    $file['bytes'] = strlen($file['content']);
+                    $bindings->rebind($files, $path);
+                }
+            }
+            unset($file);
+        }
+        $proofs = CapturedComponentStates::omitScripts($files, $retired);
+        return array('files' => $files, 'projected_count' => $count, 'native_runtime_replacements' => $proofs);
+    }
+
     private function projectCapturedStates(array $files): array
     {
         $diagnostics = array();
@@ -89,11 +182,11 @@ final class CapturedDialogProjector
         $projected = 0;
         $retired = array();
         foreach ($report['pages'] as $page) {
-            if (! is_array($page) || ! is_string($page['sourceUrl'] ?? null) || ! is_array($page['states'] ?? null)) {
-                $diagnostics[] = $this->diagnostic('captured_interaction_page_invalid', 'warning', 'A captured interaction page was ignored because its source URL or states are invalid.');
+            if (! is_array($page) || ! is_string($page['sourceUrl'] ?? null) || ! is_array($page['components'] ?? null)) {
+                $diagnostics[] = $this->diagnostic('captured_interaction_page_invalid', 'warning', 'A captured interaction page was ignored because its source URL or components are invalid.');
                 continue;
             }
-            $dialogStates = $this->dialogStates($page['states']);
+            $dialogStates = $this->dialogStates(CapturedComponentStates::evidence($page['components'], array('dialog', 'listbox', 'menu', 'disclosure', 'carousel')));
             $galleryCount = count(array_filter($dialogStates, static fn (array $state): bool => 'gallery' === ($state['kind'] ?? '')));
             $dialogCount = count($dialogStates) - $galleryCount;
             $exceededLimit = $dialogCount > self::MAX_DIALOG_STATES_PER_PAGE ? self::MAX_DIALOG_STATES_PER_PAGE : ($galleryCount > self::MAX_GALLERY_STATES_PER_PAGE ? self::MAX_GALLERY_STATES_PER_PAGE : null);
@@ -249,10 +342,10 @@ final class CapturedDialogProjector
     private function hasDialogStates(array $pages): bool
     {
         foreach ($pages as $page) {
-            if (! is_array($page) || ! is_array($page['states'] ?? null)) {
+            if (! is_array($page) || ! is_array($page['components'] ?? null)) {
                 continue;
             }
-            if (array() !== $this->dialogStates($page['states'])) {
+            if (array() !== $this->dialogStates(CapturedComponentStates::evidence($page['components'], array('dialog', 'listbox', 'menu', 'disclosure', 'carousel')))) {
                 return true;
             }
         }

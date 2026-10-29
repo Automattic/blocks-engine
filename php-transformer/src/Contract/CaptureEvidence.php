@@ -84,6 +84,14 @@ final class CaptureEvidence
     /** `true` on a container whose disclosures are mutually exclusive. */
     public const EXCLUSIVE_DISCLOSURES = 'data-blocks-engine-capture-exclusive-disclosures';
 
+    // Semantic component replay.
+
+    public const TABS = 'data-blocks-engine-capture-tabs';
+    public const COMPONENT_RUNTIME = 'data-blocks-engine-capture-component-runtime';
+    public const COMPONENT_DISCLOSURE = 'data-blocks-engine-capture-component-disclosure';
+    public const COMPONENT_DISCLOSURE_RUNTIME = 'data-blocks-engine-capture-component-disclosure-runtime';
+    public const COMPONENT_CAROUSEL_RUNTIME = 'data-blocks-engine-capture-component-carousel-runtime';
+
     // Listboxes.
 
     /** Listbox binding key on the button that opens a captured listbox. */
@@ -183,7 +191,7 @@ final class CaptureEvidence
     // Sidecar schemas.
 
     /** `interaction-states.json`: captured interaction report. */
-    public const CAPTURED_INTERACTIONS_SCHEMA = 'blocks-engine-capture/captured-interactions/v1';
+    public const CAPTURED_INTERACTIONS_SCHEMA = 'blocks-engine-capture/captured-interactions/v2';
     /** Capture receipt. */
     public const CAPTURE_RECEIPT_SCHEMA = 'blocks-engine-capture/capture-receipt/v1';
     /** Capture receipt `sourceInteractivity` record. */
@@ -223,6 +231,8 @@ final class CaptureEvidence
 
     /** Constants above that are published for downstream importers only. */
     public const PUBLISHED_FOR_DOWNSTREAM = array(
+        'COMPONENT_DISCLOSURE',
+        'COMPONENT_DISCLOSURE_RUNTIME',
         'DEVICE_SELECTION',
         'DEVICE_BODY',
         'SELECTED_DOCUMENT',

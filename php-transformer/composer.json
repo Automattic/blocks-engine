@@ -80,6 +80,7 @@
       "@test:packaging"
     ],
     "test:canonical": [
+      "php tests/contract/component-interactions.php",
       "php tests/unit/capture-inert-control.php",
       "php tests/contract/form-readable-shapes.php",
       "php tests/contract/navigation-current-item-shared-menu.php",

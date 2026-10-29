@@ -279,6 +279,7 @@ final class ArtifactCompiler
                 'projected_choice_group_count' => $choiceGroups['projected_count'],
                 'native_runtime_replacements' => array_merge(
                     $capturedDialogs['native_runtime_replacements'] ?? array(),
+                    $selectableSets['native_runtime_replacements'] ?? array(),
                     $collections['superseded_runtime_scripts'] ?? array()
                 ),
             ),

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 /**
  * Content every tab panel repeats is emitted once, as a synced pattern
  * (Automattic/blocks-engine#3132).
@@ -52,7 +54,7 @@ $plan = static function (callable $shared, string $css = '') use ($labels, $regi
         'files' => array(
             array('path' => 'website/index.html', 'content' => $source),
             array('path' => 'capture-receipt.json', 'content' => (string) json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-            array('path' => 'interaction-states.json', 'content' => (string) json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => $states))), JSON_UNESCAPED_SLASHES)),
+            array('path' => 'interaction-states.json', 'content' => (string) json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'components' => captured_components($states)))), JSON_UNESCAPED_SLASHES)),
         ),
         'reports' => array('capture-receipt.json', 'interaction-states.json'),
     ))->toWordPressSitePlanView()['wordpress_site_plan'] ?? array();

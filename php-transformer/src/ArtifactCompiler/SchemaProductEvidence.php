@@ -182,7 +182,7 @@ final class SchemaProductEvidence
         if ('' === trim($url) && $isGroup) $url = '/' . trim(preg_replace('~index\.html?$~i', '', $path) ?? $path, '/');
         $urlPath = (string) (parse_url($url, PHP_URL_PATH) ?: '');
         $segments = array_values(array_filter(explode('/', trim($urlPath, '/')), 'strlen'));
-        $productSlug = $slug($segments ? end($segments) : $name);
+        $productSlug = $slug($segments ? preg_replace('/\.html?$/i', '', (string) end($segments)) : $name);
         if ('' === $productSlug) return null;
         $fields = array('name' => $name, 'slug' => $productSlug, 'regular_price' => $regularPrice, 'source_path' => $path);
         $fields['url'] = '' !== $url ? $url : '/' . $path;

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedChoiceGroupProjector;
@@ -41,7 +43,7 @@ $states = array($state(0, $htmlFor(0)), $state(1, $htmlFor(1)), $state(2, $htmlF
 $files = array(
     array('path' => 'website/index.html', 'content' => $source),
     array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/feedback/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-    array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/feedback/', 'states' => $states))), JSON_UNESCAPED_SLASHES)),
+    array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.test/feedback/', 'components' => captured_components($states)))), JSON_UNESCAPED_SLASHES)),
 );
 $projected = (new CapturedChoiceGroupProjector())->project($files);
 $markup = (string) ($projected['files'][0]['content'] ?? '');
@@ -60,7 +62,7 @@ $assert(str_contains($sourcePreservedMarkup, 'Saved source label'), 'projection 
 
 $ineligible = $files;
 $ineligibleReport = json_decode((string) $ineligible[2]['content'], true);
-$ineligibleReport['pages'][0]['states'][0]['choiceGroup']['replay'] = 'unsupported';
+$ineligibleReport['pages'][0]['components'][0]['states'][1]['evidence']['choiceGroup']['replay'] = 'unsupported';
 $ineligible[2]['content'] = json_encode($ineligibleReport, JSON_UNESCAPED_SLASHES);
 $ineligibleResult = (new CapturedChoiceGroupProjector())->project($ineligible);
 $assert(0 === ($ineligibleResult['projected_count'] ?? -1), 'unsupported producer evidence is not projected');
@@ -70,20 +72,20 @@ $assert('behavior_loss' === ($ineligibleDiagnostic['conversion_classification'] 
 
 $contentChanging = $files;
 $contentChangingReport = json_decode((string) $contentChanging[2]['content'], true);
-$contentChangingReport['pages'][0]['states'][1]['choiceGroup']['transition']['html'] = str_replace('Choice controls', 'Changed controls', $contentChangingReport['pages'][0]['states'][1]['choiceGroup']['transition']['html']);
-$contentChangingReport['pages'][0]['states'][1]['choiceGroup']['transition']['htmlBytes'] = strlen($contentChangingReport['pages'][0]['states'][1]['choiceGroup']['transition']['html']);
+$contentChangingReport['pages'][0]['components'][1]['states'][1]['evidence']['choiceGroup']['transition']['html'] = str_replace('Choice controls', 'Changed controls', $contentChangingReport['pages'][0]['components'][1]['states'][1]['evidence']['choiceGroup']['transition']['html']);
+$contentChangingReport['pages'][0]['components'][1]['states'][1]['evidence']['choiceGroup']['transition']['htmlBytes'] = strlen($contentChangingReport['pages'][0]['components'][1]['states'][1]['evidence']['choiceGroup']['transition']['html']);
 $contentChanging[2]['content'] = json_encode($contentChangingReport, JSON_UNESCAPED_SLASHES);
 $contentChangingResult = (new CapturedChoiceGroupProjector())->project($contentChanging);
 $assert(0 === ($contentChangingResult['projected_count'] ?? -1), 'content-changing transitions are not projected without editable state bindings');
 
 $incomplete = $files;
-$incomplete[2]['content'] = json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/feedback/', 'states' => array($states[0], $states[1])))), JSON_UNESCAPED_SLASHES);
+$incomplete[2]['content'] = json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.test/feedback/', 'components' => captured_components(array($states[0], $states[1]))))), JSON_UNESCAPED_SLASHES);
 $incompleteResult = (new CapturedChoiceGroupProjector())->project($incomplete);
 $assert(0 === ($incompleteResult['projected_count'] ?? -1), 'incomplete observed transitions are not replayed');
 $assert(str_contains(json_encode($incompleteResult['diagnostics'] ?? array()), 'captured_choice_group_incomplete'), 'incomplete transitions emit a bounded diagnostic');
 
 $nullValue = json_decode((string) $files[2]['content'], true);
-$assert(array_key_exists('value', $nullValue['pages'][0]['states'][0]['choiceGroup']['choices'][0]) && null === $nullValue['pages'][0]['states'][0]['choiceGroup']['choices'][0]['value'], 'unknown original values remain explicit null evidence');
+$assert(array_key_exists('value', $nullValue['pages'][0]['components'][0]['states'][1]['evidence']['choiceGroup']['choices'][0]) && null === $nullValue['pages'][0]['components'][0]['states'][1]['evidence']['choiceGroup']['choices'][0]['value'], 'unknown original values remain explicit null evidence');
 
 if (0 !== $failures) {
     fwrite(STDERR, "captured-choice-group-projector failed: {$failures} failure(s), {$passes} pass(es)\n");
