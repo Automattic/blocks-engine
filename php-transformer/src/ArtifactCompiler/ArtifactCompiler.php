@@ -1087,7 +1087,19 @@ final class ArtifactCompiler
 
         $productRoutes = array();
         $pageProducts = array();
-        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts);
+        $detailPages = array();
+        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages);
+        // Match the plan's page route, including explicit routes and entry roots.
+        $pageRoutes = array();
+        $entryRoot = dirname($entryPath);
+        foreach ($files as $file) {
+            $path = $file['path'] ?? '';
+            $relative = '.' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
+            $route = SchemaProductEvidence::urlRoute('/' . $relative, $path);
+            $segments = array_map($slug, explode('/', $route));
+            $pageRoutes[$path] = $file['metadata']['route_path'] ?? '/' . implode('/', $segments);
+            if ('page' !== ($file['metadata']['post_type'] ?? 'page')) unset($detailPages[$path]);
+        }
         $products = array();
         $forms = array();
         $orderLookups = array();
@@ -1345,10 +1357,24 @@ final class ArtifactCompiler
         foreach ( $schemaProducts as $productSlug => $row ) {
             if ( isset($row['bindings']) ) usort($row['bindings'], static fn (array $a, array $b): int => strcmp($a['source_path'], $b['source_path']) ?: strcmp($a['search_block_markup'], $b['search_block_markup']));
             if (!isset($row['url'])) $row['url'] = '/' . $row['source_path'];
+            $source = $row['source_path'];
+            if (isset($detailPages[$source]) && $detailPages[$source] === ($pageRoutes[$source] ?? null)) {
+                foreach ($row['bindings'] ?? array() as $binding) {
+                    if ('commerce_add_to_cart_form' === ($binding['role'] ?? null) && $source === ($binding['source_path'] ?? null)) {
+                        $row['whole_page_candidate'] = 'blocks-engine/whole-page-candidate/v1';
+                        break;
+                    }
+                }
+            }
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
             foreach ( $row['bindings'] ?? array() as $binding ) $products[$productSlug]['bindings'][] = $binding;
             // Detail evidence owns identity and source URL; card bindings stay intact.
             foreach (array('name', 'slug', 'url') as $field) $products[$productSlug][$field] = $row[$field];
+            if (isset($row['whole_page_candidate'])) {
+                // The detail page, not an earlier listing card, owns the claim.
+                $products[$productSlug]['source_path'] = $source;
+                $products[$productSlug]['whole_page_candidate'] = $row['whole_page_candidate'];
+            }
             // Detail-page descriptive evidence wins; cards fill only absent fields.
             foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'stock_status') as $field ) if ( isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
             foreach ( array('tags', 'sale_price') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
@@ -1369,6 +1395,11 @@ final class ArtifactCompiler
             });
             if ( array() !== $owned && array() === $unclaimed ) unset($forms[$key]);
         }
+        foreach ($products as $productSlug => &$product) {
+            $product['id'] = 'product:' . hash('sha256', $productSlug);
+            $product['source_route'] = $pageRoutes[$product['source_path'] ?? $entryPath] ?? '/';
+        }
+        unset($product);
         ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($orderLookups, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
         $collections = array(
             array('capability' => 'shop', 'type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
