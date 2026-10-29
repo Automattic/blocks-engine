@@ -418,8 +418,7 @@
             "retagged svg>figure [blocks-engine-synthetic-image-figure]": 2
         },
         "30-cursed-pangolin-fanwiki": {
-            "added div [blocks-engine-empty-visual-group]": 1,
-            "removed a": 1
+            "retagged plaintext>pre [wp-block-preformatted]": 1
         },
         "31-personal-cv-academic": {
             "added mark": 20,
@@ -683,8 +682,8 @@
         "44-experimental-zine": {
             "added div [blocks-engine-attribute]": 3,
             "added div [blocks-engine-control]": 2,
-            "added figure [blocks-engine-synthetic-image-figure]": 2,
-            "added img": 2,
+            "added figure [blocks-engine-synthetic-image-figure]": 3,
+            "added img": 3,
             "added mark": 2,
             "added p [blocks-engine-inline-layout-carrier]": 6,
             "added p [blocks-engine-synthetic-paragraph]": 8,
@@ -692,7 +691,7 @@
             "removed a": 1,
             "removed button": 1,
             "removed span": 4,
-            "removed svg": 2,
+            "removed svg": 3,
             "removed ul": 3,
             "retagged div>p [blocks-engine-lowered-paragraph]": 3,
             "retagged nav>div [wp-block-group]": 3,

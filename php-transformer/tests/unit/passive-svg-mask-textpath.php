@@ -38,6 +38,12 @@ $cases = array(
         'cased' => 'startOffset="25%"',
         'artwork' => false,
     ),
+    'wrapper-sized textPath' => array(
+        'svg' => '<svg width="220" height="60" viewBox="0 0 220 60"><defs><path id="curve" d="M10 50 Q100 -20 210 50"></path></defs><text><textPath href="#curve" startOffset="25%">Curved label</textPath></text></svg>',
+        'cased' => 'startOffset="25%"',
+        'artwork' => false,
+        'css' => '.w{width:320px}.w svg{width:100%;filter:drop-shadow(6px 6px 0 #123456);fill:red}',
+    ),
 );
 
 foreach ($cases as $label => $case) {
@@ -45,7 +51,7 @@ foreach ($cases as $label => $case) {
     $document->loadXML($case['svg']);
     $assert(SvgMaterializer::isPassiveSvgMarkup($document->documentElement), "{$label}: markup classifies as passive SVG.");
 
-    $page = '<!doctype html><html><head><meta charset="utf-8"><title>T</title></head><body><main><h1>W</h1><div>' . "\n"
+    $page = '<!doctype html><html><head><meta charset="utf-8"><title>T</title><style>' . ($case['css'] ?? '') . '</style></head><body><main><h1>W</h1><div class="w">' . "\n"
         . $case['svg'] . "\n"
         . '</div></main></body></html>';
     $result = (new HtmlTransformer())->transform($page)->toArray();
@@ -70,6 +76,13 @@ foreach ($cases as $label => $case) {
     } else {
         $assert(str_contains($markup, '<!-- wp:image') && 1 === count($assets), "{$label}: materializes through the native image path.");
         $assert(str_contains((string) ($assets[0]['content'] ?? ''), $case['cased']), "{$label}: the materialized asset keeps the cased SVG attribute.");
+    }
+    if (isset($case['css'])) {
+        $css = implode("\n", array_column(array_filter($result['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null)), 'content'));
+        $assert(1 === preg_match('/([^{}]*wp-block-image[^{}]*> img[^{}]*)\\{([^{}]*filter:drop-shadow[^{}]*)\\}/', $css, $rule), "{$label}: the wrapper svg rule reaches the generated image.");
+        $assert(str_contains($rule[2], 'width:100%'), "{$label}: authored percentage width is projected, not the intrinsic width.");
+        $assert(!str_contains($rule[2], 'fill:'), "{$label}: SVG paint is not replayed onto the image.");
+        $assert(!str_contains($markup, 'width:220px'), "{$label}: emitted inline geometry does not pin the intrinsic width above author CSS.");
     }
     $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? null), "{$label}: emitted blocks remain Gutenberg-valid.");
 }

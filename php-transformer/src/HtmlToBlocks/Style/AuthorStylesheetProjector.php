@@ -230,9 +230,12 @@ final class AuthorStylesheetProjector
                 . ';max-width:' . ($declarations['max-width'] ?? 'none') . ';vertical-align:' . ($declarations['vertical-align'] ?? 'baseline') . '}';
             $imageRule .= $this->flexItemImageBoxRule($prelude, $imagePrelude, $declarations, $context);
         }
+        // Keep the normal bridge defaults, then the authored replaced-box
+        // declarations at this rule's cascade position. Do not promote them
+        // above SvgMaterializer's inline-geometry carrier or replay SVG paint.
         $svgImageRule = '' === $svgImagePrelude
             ? ''
-            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
+            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . ';' . $this->styleResolver->cssDeclarationString($this->imageApplicableSvgDeclarations($declarations)) . '}';
         $svgImageRule .= $this->flexItemImageBoxRule(
             $prelude,
             $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations, true),
@@ -2556,7 +2559,16 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
-            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && '' === ($context->selectorProjections->imageFigure($element->getNodePath() ?? '')['leafMarker'] ?? '') && ('svg' !== $tagName || ($flexBox && $this->styleResolver->imageIsFlexOrGridItem($element)) || $this->isProjectableFillSvg($element, $declarations))));
+            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool =>
+                $tagName === strtolower($element->tagName)
+                && '' === ($context->selectorProjections->imageFigure($element->getNodePath() ?? '')['leafMarker'] ?? '')
+                && ('svg' !== $tagName
+                    || ($flexBox && $this->styleResolver->imageIsFlexOrGridItem($element))
+                    || $this->isProjectableFillSvg($element, $declarations)
+                    || (! $flexBox
+                        && ! $context->selectorProjections->isSupersededControlPath($element->getNodePath() ?? '')
+                        && array() !== $this->imageApplicableSvgDeclarations($declarations)))
+            ));
             if ( array() === $imageMatches ) {
                 continue;
             }
@@ -2569,7 +2581,9 @@ final class AuthorStylesheetProjector
                 }
                 continue;
             }
-            if ( 'svg' === $tagName ) {
+            // Only the existing fill/flex paths need a synthetic wrapper box.
+            // Ordinary SVG presentation belongs on the replaced image itself.
+            if ( 'svg' === $tagName && ($flexBox || $this->isProjectableFillSvg($imageMatches[0], $declarations)) ) {
                 $projected[] = $this->projectImageSelector($selector, $parsed, $context, true);
             }
             $mediaTextImages = array_values(array_filter(
@@ -2701,6 +2715,23 @@ final class AuthorStylesheetProjector
             $hasTextBranch = $hasTextBranch || ( ! $containsImage && '' !== trim($child->textContent ?? '') );
         }
         return $branchCount >= 2 && $hasImageBranch && $hasTextBranch;
+    }
+
+    /**
+     * Only the outer replaced box survives SVG materialization. Paint such as
+     * fill/stroke still belongs to the asset, not the generated image.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private function imageApplicableSvgDeclarations(array $declarations): array
+    {
+        return array_filter($declarations, static fn (string $property): bool =>
+            NativeImageLeafPresentation::isBoxProperty($property)
+            || NativeImageLeafPresentation::isPlacementProperty($property)
+            || in_array($property, array('display', 'filter', 'opacity', 'object-fit', 'object-position', 'visibility'), true),
+            ARRAY_FILTER_USE_KEY
+        );
     }
 
     /** @param array<string, string> $declarations */
