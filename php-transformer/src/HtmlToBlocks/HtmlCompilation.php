@@ -5970,6 +5970,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // silence the responsive class rule at every other width.
             $declarations = $this->styleResolver->stripResponsiveClassOwnedDeclarations($element, $declarations);
         }
+        if ( ! $carrierReplacesSource && ! $sourceIsLink ) {
+            $declarations = $this->richTextMaterializer->withoutKeptFormatTagDeclarations($element, $declarations);
+        }
         $existingDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         if ( $sourceIsLink ) {
             // Only authored inline values move inside links. Author link rules
