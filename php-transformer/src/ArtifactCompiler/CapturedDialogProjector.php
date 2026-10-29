@@ -23,12 +23,6 @@ final class CapturedDialogProjector
     private const MAX_DIALOG_STATES_PER_PAGE = 16;
     private const MAX_GALLERY_STATES_PER_PAGE = 8;
     private const MAX_DIALOG_BYTES = 65536;
-    /** Capture runtime marker => sha256 of its published, trimmed body. */
-    private const RECOGNIZED_RUNTIMES = array(
-        CaptureEvidence::DISCLOSURE_RUNTIME => CaptureEvidence::DISCLOSURE_RUNTIME_SHA256,
-        CaptureEvidence::GALLERY_RUNTIME => CaptureEvidence::GALLERY_RUNTIME_SHA256,
-    );
-
 
     /** @var list<DOMElement> Panels proven by the existing complete gallery contract. */
     private array $nativeGalleryPanels = array();
@@ -981,9 +975,8 @@ final class CapturedDialogProjector
      */
     private static function isRecognizedRuntimeScript(DOMElement $script, string $marker): bool
     {
-        $digest = self::RECOGNIZED_RUNTIMES[$marker] ?? null;
-        return null !== $digest && 'script' === strtolower($script->tagName) && $script->hasAttribute($marker)
-            && $digest === hash('sha256', trim($script->textContent ?? ''));
+        return 'script' === strtolower($script->tagName) && $script->hasAttribute($marker)
+            && CaptureEvidence::isRecognizedRuntime($script->textContent ?? '', $marker);
     }
 
     /**
@@ -1014,7 +1007,7 @@ final class CapturedDialogProjector
     private function hasUnrecognizedRuntime(DOMDocument $document): bool
     {
         foreach ($document->getElementsByTagName('script') as $script) {
-            foreach (array_keys(self::RECOGNIZED_RUNTIMES) as $marker) {
+            foreach (array_keys(CaptureEvidence::RECOGNIZED_RUNTIMES) as $marker) {
                 if ($script instanceof DOMElement && $script->hasAttribute($marker) && !self::isRecognizedRuntimeScript($script, $marker)) return true;
             }
         }

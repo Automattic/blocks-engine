@@ -210,6 +210,20 @@ final class CaptureEvidence
     /** The choice-group runtime (CHOICE_GROUP_RUNTIME) with an empty config list (`var configs=[];`). */
     public const CHOICE_RUNTIME_SHA256 = '82806634d813434b72ca5cbc9532c88f26aa4bd3cec880c2e6c12580dd6849eb';
 
+    /** Capture runtime marker => sha256 of its published, trimmed body. */
+    public const RECOGNIZED_RUNTIMES = array(
+        self::DISCLOSURE_RUNTIME => self::DISCLOSURE_RUNTIME_SHA256,
+        self::GALLERY_RUNTIME => self::GALLERY_RUNTIME_SHA256,
+    );
+
+    /** Exact runtime identity, also available after script extraction loses the marker. */
+    public static function isRecognizedRuntime(string $content, ?string $marker = null): bool
+    {
+        $digest = hash('sha256', trim($content));
+        return null === $marker ? in_array($digest, self::RECOGNIZED_RUNTIMES, true)
+            : $digest === (self::RECOGNIZED_RUNTIMES[$marker] ?? null);
+    }
+
     // Published for downstream importers; Blocks Engine does not read these.
 
     /** Marker on the capture's device-selection bootstrap `<script>` in `<head>`. */

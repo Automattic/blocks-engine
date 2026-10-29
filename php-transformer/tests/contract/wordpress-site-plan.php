@@ -1233,6 +1233,20 @@ $throws(static fn() => WordPressSitePlan::assertValid($forgedSyntheticPage), 'Pu
 $dynamicScripts = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><body><main>Dynamic script</main><script src="assets/dynamic.js"></script></body></html>', 'assets/dynamic.js' => 'import("./chunk.js");')))->toArray();
 $dynamicPlan = $dynamicScripts['source_reports']['wordpress_site_plan'];
 $assert('not_proven' === ($dynamicPlan['reference_semantics']['dynamic_script_references'] ?? null) && 'not_proven' === ($dynamicPlan['reference_semantics']['dynamic_client_assets']['status'] ?? null) && true === ($dynamicPlan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) && in_array('wordpress_site_plan_script_dynamic_references', $dynamicPlan['reporting']['diagnostic_codes'] ?? array(), true), 'Dynamic imports leave both script-reference and aggregate asset capability unproven with a diagnostic.');
+$galleryRuntime = trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-gallery-runtime.js'));
+// An empty slot is runtime-valid (Number('') === 0), but cannot prove a native carousel.
+foreach (array('recognized' => array($galleryRuntime, 'proven'), 'unrecognized' => array($galleryRuntime . "\n// author modification", 'not_proven')) as $case => [$runtime, $expectedStatus]) {
+    $galleryArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+        'index.html' => '<main><div data-blocks-engine-capture-gallery data-blocks-engine-capture-gallery-sequence=\'["images/one.svg","images/two.svg?size=2#frame"]\'><img data-blocks-engine-capture-gallery-slot="" src="images/one.svg"><button data-blocks-engine-capture-gallery-direction="1">Next</button></div></main><script data-blocks-engine-capture-gallery-runtime>' . $runtime . '</script>',
+        'images/one.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>',
+        'images/two.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    )))->toArray();
+    $galleryPlan = $galleryArtifact['source_reports']['wordpress_site_plan'];
+    $assert($expectedStatus === ($galleryPlan['reference_semantics']['dynamic_client_assets']['status'] ?? null), $case . ' preserved gallery runtime has the expected dynamic client asset proof.');
+    $assert(str_contains($galleryPlan['pages'][0]['canonical_block_markup'], '<!-- wp:html') && str_contains($galleryPlan['pages'][0]['canonical_block_markup'], 'data-blocks-engine-capture-gallery-sequence') && !str_contains($galleryPlan['pages'][0]['canonical_block_markup'], 'wp:custom/authored-carousel'), 'The gallery remains a preserved island rather than a native replacement.');
+    $galleryResolved = (new WordPressSitePlanResolver())->resolve($galleryPlan, array('theme_uri' => 'https://example.test/theme'));
+    $assert(str_contains($galleryResolved['pages'][0]['resolved_block_markup'], 'https://example.test/theme/assets/images/two.svg?size=2#frame'), 'Sequence-only images resolve through declared asset writes with URL suffixes intact.');
+}
 $externalScripts = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><body><main>External script</main><script src="https://cdn.example.test/library.js" defer></script></body></html>')))->toArray();
 $externalPlan = $externalScripts['source_reports']['wordpress_site_plan'];
 $externalBootstrap = $writeMap($externalPlan['writes'])['functions.php']['payload']['data'] ?? '';
@@ -1815,9 +1829,17 @@ $anchorRootRoute = $plan; $anchorRootRoute['pages'][0]['canonical_block_markup']
 WordPressSitePlan::assertValid($anchorRootRoute); $assert(true, 'Anchor root-relative href values retain route semantics.');
 $unresolvedJsonMedia = $plan; $unresolvedJsonMedia['pages'][0]['canonical_block_markup'] .= '<!-- wp:image {"url":"/images/missing.svg"} /-->'; $unresolvedJsonMedia['pages'][0]['content_hash'] = WordPressSitePlan::contentHash($unresolvedJsonMedia['pages'][0]['canonical_block_markup']);
 $throws(static fn() => WordPressSitePlan::assertValid($unresolvedJsonMedia), 'Validation rejects unresolved root-relative Gutenberg media URLs.');
+foreach (array('["images/missing.svg"]', '{"0":"images/missing.svg"}', '[42]') as $invalidSequence) {
+    $invalidGallerySequence = $plan;
+    $invalidGallerySequence['pages'][0]['canonical_block_markup'] .= '<div data-blocks-engine-capture-gallery-sequence="' . htmlspecialchars($invalidSequence, ENT_QUOTES, 'UTF-8') . '"></div>';
+    $invalidGallerySequence['pages'][0]['content_hash'] = WordPressSitePlan::contentHash($invalidGallerySequence['pages'][0]['canonical_block_markup']);
+    $throws(static fn() => WordPressSitePlan::assertValid($invalidGallerySequence), 'Validation rejects unresolved or malformed capture gallery sequence inputs.');
+}
 $unresolvedGalleryImage = $plan; $unresolvedGalleryImage['pages'][0]['canonical_block_markup'] .= '<!-- wp:gallery {"images":[{"url":"/images/missing.svg"}]} /-->'; $unresolvedGalleryImage['pages'][0]['content_hash'] = WordPressSitePlan::contentHash($unresolvedGalleryImage['pages'][0]['canonical_block_markup']);
 $throws(static fn() => WordPressSitePlan::assertValid($unresolvedGalleryImage), 'Validation recursively rejects unresolved nested Gutenberg gallery image URLs.');
 $galleryCanonicalizer = new AssetReferenceCanonicalizer($plan['reference_tokens']);
+$sequenceBlockMarkup = $galleryCanonicalizer->content('<!-- wp:custom/authored-carousel {"sourceIdentityAttributes":{"data-blocks-engine-capture-gallery-sequence":"[\\"assets/logo.svg\\"]"}} /-->', 'index.html');
+$assert(str_contains($sequenceBlockMarkup, WordPressSitePlan::TOKEN_PREFIX) && !str_contains($sequenceBlockMarkup, 'assets/logo.svg'), 'Gallery sequence URLs in saved block attributes share the declared markup reference contract.');
 $declaredGalleryMarkup = $galleryCanonicalizer->content('<!-- wp:gallery {"images":[{"url":"assets/logo.svg"}]} /-->', 'index.html');
 $declaredNestedGallery = $plan; $declaredNestedGallery['pages'][0]['canonical_block_markup'] .= $declaredGalleryMarkup; $declaredNestedGallery['pages'][0]['content_hash'] = WordPressSitePlan::contentHash($declaredNestedGallery['pages'][0]['canonical_block_markup']);
 WordPressSitePlan::assertValid($declaredNestedGallery); $assert(str_contains($declaredGalleryMarkup, WordPressSitePlan::TOKEN_PREFIX), 'Nested Gutenberg gallery image URLs tokenize through declared assets before validation.');
