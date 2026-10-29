@@ -113,12 +113,6 @@ final class SchemaProductEvidence
         $chosen = array();
         foreach ($groups as $group) {
             usort($group['entries'], static fn (array $a, array $b): int => $b['score'] <=> $a['score'] ?: strcmp($a['path'], $b['path']));
-            foreach ($group['entries'] as &$entry) {
-                foreach (self::TEXT_LIMITS as $field => $limit) {
-                    if (isset($entry['fields'][$field])) $entry['fields'][$field] = mb_strcut($entry['fields'][$field], 0, $limit, 'UTF-8');
-                }
-            }
-            unset($entry);
             $fields = $group['entries'][0]['fields'];
             $canonicalLanguage = $group['entries'][0]['language'];
             $translations = array();
@@ -127,8 +121,9 @@ final class SchemaProductEvidence
                 // Language comes only from the document, never a URL or an alternate link.
                 if ('' === $language || $language === $canonicalLanguage || isset($translations[$language]) || count($translations) >= self::TRANSLATION_LIMIT) continue;
                 $translation = array();
-                foreach (self::TEXT_LIMITS as $field => $_limit) {
-                    if (isset($entry['fields'][$field]) && $entry['fields'][$field] !== ($fields[$field] ?? null)) $translation[$field] = $entry['fields'][$field];
+                // Bound translated evidence only; canonical fields stay whole.
+                foreach (self::TEXT_LIMITS as $field => $limit) {
+                    if (isset($entry['fields'][$field]) && $entry['fields'][$field] !== ($fields[$field] ?? null)) $translation[$field] = mb_strcut($entry['fields'][$field], 0, $limit, 'UTF-8');
                 }
                 if ($translation) $translations[$language] = $translation;
             }

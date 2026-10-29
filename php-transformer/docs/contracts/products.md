@@ -53,7 +53,7 @@ Schema.org `Product` and `ProductGroup` evidence can additionally supply:
   Product/ProductGroup pages. Keys are lowercased `<html lang>` tags, never
   inferred from routes or `hreflang`. Each entry retains only differing `name`,
   `description`, `source_path`, and `url`; canonical-language and unlabelled pages
-  add no entry. Schema rows and their translations share UTF-8-safe byte limits:
+  add no entry. Translation entries are bounded by UTF-8-safe byte limits (canonical fields stay whole):
   name/source path 256, description 4096, URL 2048. Selection follows the existing
   deterministic canonical-page ranking. This is evidence only; consumers choose
   how to render it.

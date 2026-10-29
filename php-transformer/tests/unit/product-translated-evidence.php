@@ -58,10 +58,10 @@ foreach (array('fr', 'de', 'es', 'it', 'nl', 'pt', 'sv', 'da', 'fi') as $languag
 $row = $read($bounded);
 $assert(8 === count($row['translations']), 'At most eight translated languages are retained.');
 foreach ($row['translations'] as $translation) {
-    $assert(256 === strlen($translation['name']) && 4096 === strlen($translation['description']) && 2048 === strlen($translation['url']), 'Translation fields share canonical byte limits.');
+    $assert(256 === strlen($translation['name']) && 4096 === strlen($translation['description']) && 2048 === strlen($translation['url']), 'Translation fields are byte-bounded.');
     $assert(mb_check_encoding($translation['name'], 'UTF-8') && mb_check_encoding($translation['description'], 'UTF-8'), 'Bounds preserve UTF-8.');
 }
 $longPath = 'fr/' . str_repeat('x', 300) . '/index.html';
 $row = $read(array('products/tote/index.html' => $files['products/tote/index.html'], $longPath => $files['fr/products/tote/index.html']));
-$assert(256 === strlen($row['translations']['fr']['source_path']), 'Translated source paths share the canonical byte limit.');
+$assert(256 === strlen($row['translations']['fr']['source_path']), 'Translated source paths are byte-bounded.');
 echo "product-translated-evidence: ok\n";
