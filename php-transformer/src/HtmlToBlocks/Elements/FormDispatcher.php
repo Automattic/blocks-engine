@@ -113,7 +113,7 @@ final class FormDispatcher
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function capturePseudoFormFallback(DOMElement $element, array &$fallbacks): void
     {
-        if ( $this->context->isPseudoForm($element) ) {
+        if ( $this->context->isProviderPseudoForm($element) ) {
             $fallbacks[] = $this->context->buildFallbackFinding($element, $this->context->buildReadableFormBlock($element, true));
         }
     }
