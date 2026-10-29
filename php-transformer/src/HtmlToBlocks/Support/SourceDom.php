@@ -630,19 +630,24 @@ final class SourceDom
     }
 
     /**
-     * Removes attributes named like an int array key (`0`, `512`) from the
-     * subtree ({@see HtmlAttributeName}).
+     * Removes invalid XML attribute names (including int array keys) and
+     * invalid xml:space values from the parsed subtree.
      *
-     * libxml 2.14+ keeps such names and older libxml drops them, so removing
-     * them right after parsing gives the same source tree on every libxml
-     * version. No later reader, serializer or SVG asset can then see them.
+     * Parser recovery varies across libxml versions. Discard these inert
+     * attributes before any reader, serializer or SVG classifier sees them;
+     * they cannot be carried into a standalone SVG document.
      */
     public static function removeIntegerKeyAttributes(DOMElement $root): void
     {
+        // XML 1.0 NameStartChar and NameChar. Keep Unicode names and namespace
+        // colons; an ASCII-only identifier rule would discard valid attributes.
+        $nameStart = ':A-Z_a-z\x{C0}-\x{D6}\x{D8}-\x{F6}\x{F8}-\x{2FF}\x{370}-\x{37D}\x{37F}-\x{1FFF}\x{200C}-\x{200D}\x{2070}-\x{218F}\x{2C00}-\x{2FEF}\x{3001}-\x{D7FF}\x{F900}-\x{FDCF}\x{FDF0}-\x{FFFD}\x{10000}-\x{EFFFF}';
+        $xmlName = '/\A[' . $nameStart . '][' . $nameStart . '\-.0-9\x{B7}\x{0300}-\x{036F}\x{203F}-\x{2040}]*\z/u';
         $removals = array();
         foreach ( array_merge(array( $root ), iterator_to_array($root->getElementsByTagName('*'), false)) as $element ) {
             foreach ( $element->attributes ?? array() as $attribute ) {
-                if ( HtmlAttributeName::isIntegerKey($attribute->nodeName) ) {
+                if ( 1 !== preg_match($xmlName, $attribute->nodeName)
+                    || ('xml:space' === $attribute->nodeName && ! in_array($attribute->nodeValue, array('default', 'preserve'), true)) ) {
                     $removals[] = $attribute;
                 }
             }
