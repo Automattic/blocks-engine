@@ -242,6 +242,18 @@ foreach ( $document->getElementsByTagName('p') as $element ) {
     $assert($oldMatch === $matcher::matches($element, $matcher::parse($after))['matches'], 'factored selector matches exactly the original union');
 }
 
+// Cached probe failures must not leak between routes sharing selector bytes.
+foreach (array(
+    array('.x{color:red}', '@page{margin:0}.x{color:red}', 'non-selector rule cannot be route scoped'),
+) as [$base, $unsafe, $reason]) {
+    $result = $transformer->scopeRouteVariants(array($base), array(
+        'unsafe' => array($unsafe),
+        'safe' => array('.y{color:red}'),
+        'unsafe-again' => array($unsafe),
+    ));
+    $assert(array('safe') === $result['scoped'] && array('unsafe' => $reason, 'unsafe-again' => $reason) === $result['reasons'], 'probe cache preserves route-local failures and successful validation');
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssStylesheetTransformer unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
