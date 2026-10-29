@@ -1969,13 +1969,20 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * Whether a media-conditioned author rule resizes this image axis between
-     * the desktop and mobile reference viewports. The `!important` box carrier
-     * would pin the desktop value over that rule, so such an axis is left to
-     * the projected stylesheet.
+     * Whether source conditions own this image axis. Conditional declarations
+     * stay in CSS even when desktop and mobile reference samples agree.
      */
     public function imageAxisVariesByViewport(DOMElement $image, string $property): bool
     {
+        // Sampling two viewports misses intermediate breakpoints and cannot
+        // evaluate container/supports queries. Any conditional declaration owns
+        // this axis in CSS; it must never become a native inline dimension.
+        foreach ($this->styleRuleCandidates($image, 'image-shape') as $rule) {
+            if ($property !== ($rule['property'] ?? '') || ! $this->matchesCssSelector($image, $rule['selector'])) continue;
+            foreach ($rule['conditions'] ?? array() as $condition) {
+                if (! preg_match('/^@layer\b/i', trim($condition))) return true;
+            }
+        }
         $desktop = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->referenceViewportAuthorDeclarations($image, array( $property ))[$property] ?? ''));
         $mobile = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->collapsedViewportAuthorDeclarations($image, array( $property ))[$property] ?? ''));
 
@@ -2113,10 +2120,22 @@ final class StyleResolver implements ElementPresentationResolver
             return '';
         }
 
+        // Stylesheet declarations already reach the image through projection.
+        // Replaying a reference-viewport winner here would escape its layer,
+        // conditions and source order. Only inline values and structural
+        // defaults (properties absent from the source cascade) need a carrier.
+        foreach ($box as $property => $value) {
+            if (isset($declarations[$property]) && ! ($declarations[$property]['inline'] ?? false)
+                && CssValueInspector::comparable((string) $declarations[$property]['value']) === CssValueInspector::comparable($value)) {
+                unset($box[$property]);
+            }
+        }
+        if (array() === $box) return '';
         ksort($box);
         $declarationList = array();
         foreach ($box as $property => $value) {
-            $declarationList[] = $property . ':' . $value . '!important';
+            $important = ($declarations[$property]['important'] ?? false) ? '!important' : '';
+            $declarationList[] = $property . ':' . $value . $important;
         }
         $signature = $this->geometryStructuralPath($image) . "\nimage-box-constraint\n" . implode(';', $declarationList);
         $className = $this->context->layoutGeometry()->allocateCarrier($signature);

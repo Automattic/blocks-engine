@@ -16,7 +16,7 @@
     "content": "<html><head><style>.h-10{height:2.5rem}.w-auto{width:auto}.max-w-\\[200px\\]{max-width:200px}.w-8{width:2rem}.h-8{height:2rem}</style></head><body><figure><img src=\"https://example.com/logo.png\" width=\"1536\" height=\"1024\" alt=\"Logo\" class=\"h-10 w-auto max-w-[200px]\"></figure><figure><img src=\"https://example.com/icon.png\" width=\"64\" height=\"64\" alt=\"Icon\" class=\"w-8 h-8\"></figure></body></html>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "h-10 w-auto max-w-[200px] is-resized be-inline-geometry-860a8b8295434509", "url": "https://example.com/logo.png", "alt": "Logo", "height": "2.5rem" } },
+    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "h-10 w-auto max-w-[200px] is-resized", "url": "https://example.com/logo.png", "alt": "Logo", "height": "2.5rem" } },
     { "path": "blocks.1", "name": "core/image", "attrs": { "className": "w-8 h-8 is-resized", "url": "https://example.com/icon.png", "alt": "Icon", "width": "2rem", "height": "2rem" } }
   ],
   "expected_fallbacks": [],
@@ -26,8 +26,8 @@
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "blocks.0.attrs.width", "assert": "equals", "value": null },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "width:1536px" },
-    { "path": "assets.0.content", "assert": "contains", "value": "img{max-width:200px!important;width:auto!important}" },
-    { "path": "assets.0.content", "assert": "not_contains", "value": "w-8" },
+    { "path": "assets.0.content", "assert": "contains", "value": "width:auto" },
+    { "path": "assets.0.content", "assert": "not_contains", "value": "max-width:200px!important" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }

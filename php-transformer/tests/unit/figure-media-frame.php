@@ -20,11 +20,11 @@ foreach ($images as $index => $image) {
     $assert(! empty($image['attrs']['caption']), 'native caption attribute');
     $assert(1 === preg_match('/be-inline-geometry-[a-f0-9]+/', $image['attrs']['className'], $marker), 'existing geometry carrier');
     $assert(1 === preg_match('/\.' . $marker[0] . ' img\{([^}]+)\}/', $css, $rule), 'geometry targets the image, not the caption');
-    foreach (array('aspect-ratio:4/3!important', 'height:auto!important', 'overflow:hidden!important') as $declaration) {
+    foreach (array('aspect-ratio:4/3', 'height:auto', 'overflow:hidden') as $declaration) {
         $assert(str_contains($rule[1], $declaration), 'media frame survives: ' . $declaration);
     }
     if (2 === $index) {
-        foreach (array('background:#fff!important', 'padding-left:12px!important', 'padding-top:12px!important', 'box-sizing:border-box!important') as $declaration) {
+        foreach (array('background:#fff', 'padding-left:12px', 'padding-top:12px', 'box-sizing:border-box') as $declaration) {
             $assert(str_contains($rule[1], $declaration), 'padded contain frame survives: ' . $declaration);
         }
         $assert('contain' === $image['attrs']['scale'], 'native contain paints inside the padded frame');

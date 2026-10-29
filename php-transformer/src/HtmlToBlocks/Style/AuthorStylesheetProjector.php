@@ -241,7 +241,8 @@ final class AuthorStylesheetProjector
         );
         $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context) . $this->separatorBorderRule($prelude, $declarations, $context);
         $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context)
-            . $this->navigationListBoxRule($prelude, $declarations, $context);
+            . $this->navigationListBoxRule($prelude, $declarations, $context)
+            . $this->directNavigationDisplayRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
 
@@ -261,6 +262,25 @@ final class AuthorStylesheetProjector
             . $navigationItemSpaceRule;
 
         return $this->withEditorProjectionRules($css, $prelude, $body, $context);
+    }
+
+    /** Project host display here, never in an after-author reference-value replay. */
+    private function directNavigationDisplayRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        if (!isset($declarations['display'])) return '';
+        $targets = array();
+        foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+            if (!preg_match('/^\.((?:\\\\.|[A-Za-z0-9_-])+)$/', trim($selector), $match)) continue;
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if (!$parsed['supported']) continue;
+            foreach ($this->matchingSourceElements($selector, $parsed, $context) as $element) {
+                if ('nav' === strtolower($element->tagName) && 0 === $element->getElementsByTagName('ul')->length && 0 === $element->getElementsByTagName('ol')->length) {
+                    $targets[] = ':root .wp-block-navigation.' . $match[1];
+                    break;
+                }
+            }
+        }
+        return array() === $targets ? '' : implode(',', array_unique($targets)) . '{display:' . $declarations['display'] . '}';
     }
 
     private function withEditorProjectionRules(string $css, string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
@@ -620,7 +640,7 @@ final class AuthorStylesheetProjector
      *
      * The button projection moves some declarations per control: layout and
      * placement onto the wrapper box each control's own layout participation
-     * picks, `!important` onto anchor-control layout, collapsed keyword widths
+     * picks, collapsed keyword widths
      * off the link. It finds those arms by their per-element marker, so a rule
      * carrying any such declaration keeps per-element arms. The test reads only
      * the rule itself, never the page, so every page decides alike; a subject
@@ -639,8 +659,7 @@ final class AuthorStylesheetProjector
             if ( '' === $name ) {
                 continue;
             }
-            // Anchor-control layout turns `!important` (padding keeps its
-            // authored importance, except that a universal reset drops it).
+            // Layout can move to wrapper boxes; retain exact subject identity.
             $padding = 'padding' === $name || str_starts_with($name, 'padding-');
             if ( $padding ? $universalReset : $this->isButtonLinkLayoutProperty($name) ) {
                 return false;
@@ -717,11 +736,8 @@ final class AuthorStylesheetProjector
     }
 
     /**
-     * core/button defaults and support styles are emitted after carried author CSS.
-     * Keep source button declarations authoritative after their selector is lowered
-     * to a generated marker. Padding preserves authored importance: responsive
-     * padding lives in these selectors, while explicit source/editor values
-     * retain their native inline priority.
+     * Drop only synthetic universal padding resets on lowered anchor controls.
+     * All remaining declarations keep their source importance and order.
      */
     private function buttonLinkCompatDeclarations(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
@@ -745,18 +761,7 @@ final class AuthorStylesheetProjector
             ) {
                 continue;
             }
-            if ( '' === $name || '' === $value || ! $this->isButtonLinkLayoutProperty($name) || preg_match('/\s*!important\s*$/i', $value) ) {
-                $declarations[] = $declaration;
-                continue;
-            }
-            // Conditional families remain stylesheet-owned rather than carrying
-            // an inline base. Preserve padding's authored importance so explicit
-            // source/editor padding keeps its normal priority at every width.
-            if ( 'padding' === $name || str_starts_with($name, 'padding-') ) {
-                $declarations[] = $declaration;
-                continue;
-            }
-            $declarations[] = $name . ':' . $value . '!important';
+            $declarations[] = $declaration;
         }
         return implode(';', $declarations);
     }
@@ -904,7 +909,7 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $exclusion = $this->nativeButtonEditedPropertyExclusion($name);
-            $declarations[$exclusion][] = preg_match('/\s*!important\s*$/i', $value) ? $name . ':' . $value : $name . ':' . $value . '!important';
+            $declarations[$exclusion][] = $name . ':' . $value;
         }
         if ( array() === $declarations ) {
             return '';
@@ -1279,21 +1284,21 @@ final class AuthorStylesheetProjector
                 $link = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)' . $linkTarget, $selectors));
             }
             if ( $hasDefiniteWidth ) {
-                $css .= $button . '{width:100%!important}'
-                    . $link . '{width:100%!important;max-width:100%!important}';
+                $css .= $button . '{width:100%}'
+                    . $link . '{width:100%;max-width:100%}';
             }
             if ( $hasDefiniteHeight ) {
-                $css .= $button . '{height:100%!important}'
-                    . $link . '{height:100%!important}';
+                $css .= $button . '{height:100%}'
+                    . $link . '{height:100%}';
             } elseif ( $hasAutoHeight && $clearInnerAutoHeight ) {
-                $css .= $button . '{height:auto!important}'
-                    . $link . '{height:auto!important}';
+                $css .= $button . '{height:auto}'
+                    . $link . '{height:auto}';
             }
             if ( $hasMinimumHeight ) {
                 // Percentage heights cannot resolve through an auto-height wrapper.
                 // Inherit the wrapper's authored computed minimum on both carriers.
-                $css .= $button . '{min-height:inherit!important}'
-                    . $link . '{min-height:inherit!important}';
+                $css .= $button . '{min-height:inherit}'
+                    . $link . '{min-height:inherit}';
             }
         }
         return $css . $rest;
@@ -2816,7 +2821,18 @@ final class AuthorStylesheetProjector
             $bridge[] = 'width:100%';
             $bridge[] = 'height:100%';
         }
-        $bridge[] = 'max-width:100%';
+        // Constraints and free axes belong to the replaced image, not its
+        // synthetic figure. Keep them at the source rule's cascade position
+        // instead of replaying a desktop winner in an important carrier.
+        foreach (array('min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio') as $property) {
+            if (isset($declarations[$property])) $bridge[] = $property . ':' . $declarations[$property];
+        }
+        if (!isset($declarations['max-width'])) $bridge[] = 'max-width:100%';
+        foreach (array('width', 'height') as $property) {
+            if ('auto' === CssValueInspector::comparable((string) ($declarations[$property] ?? ''))) {
+                $bridge[] = $property . ':' . $declarations[$property];
+            }
+        }
         $objectFit = $this->explicitObjectFit($declarations);
         $bridge[] = 'object-fit:' . ($preserveObjectFit && '' !== $objectFit ? $objectFit : 'inherit');
         $bridge[] = 'object-position:inherit';

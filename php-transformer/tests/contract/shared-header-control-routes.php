@@ -31,15 +31,15 @@ foreach (array('active snapshots' => array(true, true), 'identical snapshots' =>
         $responsiveHide = false;
         foreach ($plan['assets'] as $asset) {
             if ('css' !== ($asset['kind'] ?? null)) continue;
-            if (preg_match('/@media\\s*\\(max-width:\\s*980px\\)\\s*\\{[^@]*?blocks-engine-control-[^@]*?display:none!important/s', $asset['content'])) $responsiveHide = true;
+            if (preg_match('/@media\\s*\\(max-width:\\s*980px\\)\\s*\\{[^@]*?blocks-engine-control-[^@]*?display:none/s', $asset['content'])) $responsiveHide = true;
             (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $prelude, string $body) use ($brand, $cta, &$hits): void {
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     if (!str_contains($selector, '.blocks-engine-control-')) continue;
                     $parsed = CssSelectorMatcher::parse($selector);
-                    if (CssSelectorMatcher::matches($brand, $parsed)['matches'] && str_contains($body, 'display:flex!important')) $hits['brand'] = true;
+                    if (CssSelectorMatcher::matches($brand, $parsed)['matches'] && str_contains($body, 'display:flex')) $hits['brand'] = true;
                     if (CssSelectorMatcher::matches($cta, $parsed)['matches']) {
-                        if (str_contains($body, 'display:inline-flex!important')) $hits['cta'] = true;
-                        if (str_contains($body, 'display:none!important')) $hits['mobile'] = true;
+                        if (str_contains($body, 'display:inline-flex')) $hits['cta'] = true;
+                        if (str_contains($body, 'display:none')) $hits['mobile'] = true;
                     }
                 }
             });

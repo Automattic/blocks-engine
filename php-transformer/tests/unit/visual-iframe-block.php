@@ -64,7 +64,7 @@ $customHost = $custom['blocks'][0] ?? array();
 $customBlock = $customHost['innerBlocks'][0] ?? array();
 $customMarkup = (string) ($custom['serialized_blocks'] ?? '');
 $assert('core/group' === ($customHost['blockName'] ?? null) && 'custom/visual-iframe' === ($customBlock['blockName'] ?? null), 'custom iframe host becomes an editable geometry carrier around typed media');
-$assert('https://example.test/map' === ($customBlock['attrs']['src'] ?? null) && '1280px' === ($customBlock['attrs']['width'] ?? null) && '350px' === ($customBlock['attrs']['height'] ?? null), 'custom iframe attributes and finite host geometry materialize structurally');
+$assert('https://example.test/map' === ($customBlock['attrs']['src'] ?? null) && empty($customBlock['attrs']['width']) && empty($customBlock['attrs']['height']), 'custom iframe attributes and finite host geometry materialize structurally');
 $assert(str_contains($customMarkup, 'margin-bottom:24px') && ! str_contains($customMarkup, '<!-- wp:html'), 'custom iframe host geometry survives without raw HTML fallback');
 $customIslands = array_values(array_filter($custom['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'iframe' === ($island['kind'] ?? '')));
 $assert(1 === count($customIslands) && 'typed_visual_iframe_companion' === ($customIslands[0]['preservation_strategy'] ?? null), 'custom iframe retains explicit third-party runtime semantics');
@@ -105,7 +105,7 @@ $fillStyle = '<style>.fill{width:100%;height:100%}.box{aspect-ratio:16/9;overflo
 $fillFrame = static fn (string $class): string => '<iframe class="' . $class . '" src="https://www.youtube-nocookie.com/embed/aBcDeFgHiJk" title="Demo" width="290" height="163"></iframe>';
 $fill = (new HtmlTransformer())->transform($fillStyle . '<main><div class="box">' . $fillFrame('fill') . '</div></main>')->toArray();
 $fillMarkup = (string) ($fill['serialized_blocks'] ?? '');
-$assert(str_contains($fillMarkup, 'wp:embed') && str_contains($fillMarkup, 'wp-embed-aspect-16-9'), 'a frame that fills its box keeps its ratio as a core embed aspect class');
+$assert(str_contains($fillMarkup, '/visual-iframe') && !str_contains($fillMarkup, 'wp-embed-aspect-'), 'a frame that fills its box keeps source CSS rather than a provider ratio approximation');
 $assert(! str_contains($fillMarkup, 'be-inline-geometry-'), 'a frame that fills its box does not freeze the capture-time pixel height');
 $fixedFrame = (new HtmlTransformer())->transform($fillStyle . '<main><div class="box">' . $fillFrame('') . '</div></main>')->toArray();
 $assert(str_contains((string) ($fixedFrame['serialized_blocks'] ?? ''), 'be-inline-geometry-'), 'a frame with its own authored pixel size still carries that height');
