@@ -576,11 +576,9 @@ PHP;
          foreach ($taxonomyProjection['entities'] as $taxonomyEntity) {
              foreach ($pages as $page) if (($page['source_path'] ?? null) === ($taxonomyEntity['archive']['source_path'] ?? null)) {
                  if (!str_contains((string) ($page['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
-                     unset($taxonomyEntity['archive']['presentation_markup']);
-                     $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_presentation_template_hierarchy', 'severity' => 'info', 'message' => 'The captured archive presentation fell back to the WordPress template hierarchy because it could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
-                 } else {
-                     $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
+                     $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_presentation_static', 'severity' => 'warning', 'message' => 'The archive renders its captured presentation and static cards rather than a live query because the listing could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
                  }
+                 $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
                  $projectedTaxonomyEntities[] = $taxonomyEntity;
                  continue 2;
              }
@@ -3672,7 +3670,8 @@ PHP;
          $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm): string {
              $before = ''; $after = '';
              $container = null;
-             foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || self::shellPartAppliesToOverride($part, $templateSlug)) {
+             foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || self::shellPartAppliesToOverride($part, $templateSlug)
+                 || ('archive' === $templateSlug && 'header' === $part['area'] && in_array('index', $part['placement']['template_slugs'] ?? array(), true) && !in_array($part['slug'], $frames['archive']['shells'] ?? array(), true))) {
                  if (is_array($part['placement']['container'] ?? null)) $container = $part['placement']['container'];
                  $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '"} /-->' . "\n";
                  $wrapper = $part['placement']['template_wrappers'][$templateSlug] ?? null;
@@ -6669,16 +6668,17 @@ PHP;
         }
     }
 
-    /** Presentation is optional; when present it must be an inherited archive query. */
+    /** Presentation may retain captured static blocks or an inherited archive query. */
     private static function validArchivePresentation(array $archive): bool
     {
         if (!array_key_exists('presentation_markup', $archive)) return true;
         $markup = $archive['presentation_markup'];
-        return is_string($markup) && strlen($markup) <= 1000000
-            && str_contains($markup, '<!-- wp:query ')
-            && str_contains($markup, '"inherit":true')
-            && str_contains($markup, '<!-- wp:query-pagination ')
-            && str_contains($markup, '<!-- wp:query-no-results -->');
+        return is_string($markup) && '' !== trim($markup) && strlen($markup) <= 1000000
+            && (!str_contains($markup, '<!-- wp:query ') || (
+                str_contains($markup, '"inherit":true')
+                && str_contains($markup, '<!-- wp:query-pagination ')
+                && str_contains($markup, '<!-- wp:query-no-results -->')
+            ));
     }
 
     private static function assertTaxonomyEntities(array $entities, array $pagesBySource): void
