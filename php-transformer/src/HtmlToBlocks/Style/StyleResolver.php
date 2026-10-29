@@ -1167,6 +1167,13 @@ final class StyleResolver implements ElementPresentationResolver
             }
 
             $conditions = array_map('trim', $rule['conditions'] ?? array());
+            // A print or speech rule (Bootstrap's `@media print{.navbar{display:none}}`)
+            // never draws a screen box, so it is not a viewport variant.
+            foreach ( $conditions as $condition ) {
+                if ( preg_match('/^@media\s*(.*)$/is', $condition, $media ) && ! CssCascade::mediaConditionTargetsScreen($media[1]) ) {
+                    continue 2;
+                }
+            }
             // `@layer` scopes a declaration without conditioning it on the
             // viewport, so it is carried as the entry's layer rather than as a
             // condition the author could restate.
