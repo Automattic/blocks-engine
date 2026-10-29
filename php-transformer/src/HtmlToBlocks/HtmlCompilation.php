@@ -11646,6 +11646,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return true;
         }
 
+        // A link that is a flex or grid item is the item itself. Its in-flow
+        // image still sits on the link's own line, so the strut sizes the link.
+        if ($parent instanceof DOMElement && 'a' === strtolower($parent->tagName) && $this->styleResolver->imageIsFlexOrGridItem($parent)
+            && ! in_array($this->resolvedDeclaration($element, 'position'), array( 'absolute', 'fixed' ), true)
+            && in_array($this->resolvedDeclaration($element, 'float'), array( '', 'none' ), true)) {
+            return true;
+        }
+
         $table = $this->ancestorElement($element, 'table');
         if ($table instanceof DOMElement && $this->tableClassificationPolicy->lowersToColumns($table) && $this->layoutTableUsesAutoTracks($table)) {
             return true;
