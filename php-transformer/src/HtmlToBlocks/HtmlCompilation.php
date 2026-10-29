@@ -3553,7 +3553,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array(),
             fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src),
             fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : '',
-            fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item)
+            fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
+            fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement)
         );
     }
 
@@ -3644,6 +3645,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
              disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
              accordionToggle: fn (DOMElement $control, ?DOMElement $row = null): array => $this->disclosureControlPresentation()->accordionToggle($control, $row),
              accordionItemBox: fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
+             sourceElementVisuallyClipped: fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
              authoredIconColor: fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
              assetMetadata: fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array()
          );

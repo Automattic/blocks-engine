@@ -3604,6 +3604,19 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether the author clips the element's box out of sight, as a
+     * screen-reader-only label is, judged by the last value the author states
+     * for each clipping property.
+     */
+    public function isVisuallyClippedBox(DOMElement $element): bool
+    {
+        return CssValueInspector::isVisuallyClippedBox(array_map(
+            static fn (array $values): string => (string) end($values),
+            $this->authorDeclaredValuesAtAnyViewport($element, array( 'position', 'overflow', 'width', 'height', 'clip', 'clip-path' ))
+        ));
+    }
+
+    /**
      * Every value the author stylesheet states for these properties on this
      * element in its resting state, at any viewport, in source order with the
      * inline style last.

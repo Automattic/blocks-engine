@@ -108,7 +108,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             if ( '' === $label ) {
                 $label = trim($this->attr($anchor, 'title'));
             }
-            $text = trim((string) $anchor->textContent);
+            $text = $this->visibleText($anchor, $context);
             if ( '' === $label ) {
                 $label = $text;
             }
@@ -172,6 +172,27 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             return new PatternRecognitionResult($context->createBlock('core/group', $context->presentationAttributes($element), array($native), $element));
         }
         return new PatternRecognitionResult($context->createBlock('core/social-links', $attrs, $links, $element));
+    }
+
+    /**
+     * The anchor text a reader sees. An SVG's `<title>` and a visually clipped
+     * label name the link for assistive technology only; core/social-link
+     * keeps that name as its `label` and prints it the same hidden way.
+     */
+    private function visibleText(DOMElement $element, PatternContext $context): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof \DOMText ) {
+                $text .= $child->textContent;
+            } elseif ( $child instanceof DOMElement
+                && ! in_array(strtolower($child->tagName), array('svg', 'script', 'style', 'template', 'noscript'), true)
+                && ! $context->sourceElementStartsHidden($child)
+                && ! $context->sourceElementVisuallyClipped($child) ) {
+                $text .= $this->visibleText($child, $context);
+            }
+        }
+        return trim(str_replace("\u{00a0}", ' ', $text));
     }
 
     private function hasMixedParent(DOMElement $element): bool
