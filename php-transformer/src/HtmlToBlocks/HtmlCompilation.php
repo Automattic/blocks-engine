@@ -270,18 +270,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private const RUNTIME_TAG_SELECTORS = array( 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li', 'span', 'menu', 'menuitem' );
 
-    /**
-     * Generic class/id tokens that usually mark a JS-owned application surface
-     * rather than editorial content. Used only with runtime selector evidence.
-     *
-     * @var array<int, string>
-     */
-    private const RUNTIME_APP_ROOT_TOKENS = array(
-        'app', 'application', 'board', 'canvas', 'dashboard', 'desktop', 'editor',
-        'explorer', 'instrument', 'lab', 'playground', 'rack', 'scene', 'shell',
-        'simulator', 'stage', 'studio', 'terminal', 'viewport', 'workspace', 'world',
-    );
-
     private readonly BlockFactory $blockFactory;
     private readonly TableAttributesBuilder $tableAttributesBuilder;
     private readonly LinkWrapperPropagator $linkWrapperPropagator;
