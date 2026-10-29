@@ -1757,6 +1757,31 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             implode("\n\n", array_column($authorStylesheetProjections, 'content'))
             . ( '' === $this->authorStylesheetContentBoxCss ? '' : "\n\n" . $this->authorStylesheetContentBoxCss )
         );
+        // Publish declaration addresses only after every generated support
+        // family has contributed. Provisional source bindings never escape
+        // this compilation boundary as the identity of a control's styles.
+        $classIdentity = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DeclarationAddressedClasses();
+        $assets = $this->materializedAssets()->checkpoint();
+        // Author projections may already be materialized; count each source
+        // sheet once, then the generated sheets in their cascade placements.
+        // Isolated fallback fragments transfer structured support records to
+        // their owning compilation. Keep provisional keys until that owner
+        // has collected its complete rule set and finalizes once.
+        $classReplacements = $this->session->usesFallbackReductionMode() ? array() : $classIdentity->replacements(array_merge(
+            $authorStylesheetProjections,
+            array_values(array_filter($assets, static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && (array() === $authorStylesheetProjections || 'author-css' !== ($asset['source'] ?? ''))))
+        ));
+        $blocks = $classIdentity->rewrite($blocks, $classReplacements);
+        $serializedBlocks = $classIdentity->rewrite($serializedBlocks, $classReplacements);
+        $sourceProvenance = $classIdentity->rewrite($sourceProvenance, $classReplacements);
+        $fallbacks = $classIdentity->rewrite($fallbacks, $classReplacements);
+        $shellArtifacts = $classIdentity->rewrite($shellArtifacts, $classReplacements);
+        $authorStylesheetProjections = $classIdentity->rewrite($authorStylesheetProjections, $classReplacements);
+        $runtimeScriptProjections = $classIdentity->rewrite($runtimeScriptProjections, $classReplacements);
+        $responsiveCounterpartContracts = $classIdentity->rewrite($responsiveCounterpartContracts, $classReplacements);
+        $reusableComponentRecognition = $classIdentity->rewrite($reusableComponentRecognition, $classReplacements);
+        $this->projectedSelectorBindings = $classIdentity->rewrite($this->projectedSelectorBindings, $classReplacements);
+        $this->materializedAssets()->restore($classIdentity->rewrite($assets, $classReplacements));
         $blockValidityEvaluation = $this->runtime->evaluateBlockSerialization($blocks);
         $blockValidityReport = $blockValidityEvaluation->report();
         $semanticParityEvaluation = $this->semanticParityReporter->evaluate($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
