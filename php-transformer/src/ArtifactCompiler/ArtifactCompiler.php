@@ -391,7 +391,9 @@ final class ArtifactCompiler
         $sharedMarkup = '';
         $parts = array_merge($this->compiledSiteTemplateParts($normalized['files']), $entryBlocks['shell_artifacts'], $inlineShellCompilation['artifacts']);
         foreach ($compiledHtmlDocuments as $document) $parts = array_merge($parts, $document['shell_artifacts'] ?? array());
-        foreach ($parts as $part) $sharedMarkup .= "\n" . (string) ($part['block_markup'] ?? '');
+        // Pages sharing chrome each carry an identical copy of the same part;
+        // one copy is the same selector evidence, and every route appends this.
+        foreach (array_unique(array_map(static fn (array $part): string => (string) ($part['block_markup'] ?? ''), $parts)) as $partMarkup) $sharedMarkup .= "\n" . $partMarkup;
         foreach ($pageMarkup as &$markup) $markup .= "\n" . $sharedMarkup;
         unset($markup);
         $authoredFiles = $normalized['files'];
