@@ -25,6 +25,23 @@ $walk = static function (array $blocks) use (&$walk, $assert): void {
     }
 };
 $walk($result['blocks']);
+// Scoping must not allocate semantic wrapper identities: bare author image
+// rules still address the leaf, and every factory figure supplies the scope.
+$scopeResult = (new HtmlTransformer())->transform(
+    '<div style="display:flex"><img class="photo" src="https://example.org/photo.png"></div><figure><img src="https://example.org/photo.png"></figure><p><a href="/photo"><img src="https://example.org/photo.png"></a></p>',
+    array('static_css' => '*{box-sizing:border-box}img{display:block;max-width:100%}.photo{max-width:95%}')
+)->toArray();
+$scopeCss = implode("\n", array_column(array_filter($scopeResult['assets'], static fn (array $a): bool => 'css' === ($a['kind'] ?? '')), 'content'));
+$scopeDom = new DOMDocument();
+@$scopeDom->loadHTML($scopeResult['serialized_blocks']);
+$scopeFigures = $scopeDom->getElementsByTagName('figure');
+$assert(3 === $scopeFigures->length, 'Real, synthetic flex and linked images emit native figures.');
+foreach ($scopeFigures as $figure) {
+    $assert(in_array('blocks-engine-image', explode(' ', $figure->getAttribute('class')), true), 'Every emitted image figure carries the factory scope.');
+}
+$assert(str_contains($scopeCss, ':where(.blocks-engine-image).wp-block-image > img'), 'Universal image arms use a zero-specificity importer scope.');
+$assert(!str_contains($scopeCss, '*.wp-block-image'), 'No superseded unscoped universal image arms survive.');
+$assert(array() === (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CoreSelectorScoping())->violations($scopeCss), 'All projected image arms satisfy core-selector scoping.');
 // Navigation is dynamic in core. Materialize its public block attributes into
 // core's frontend shape; all other nodes use the actual emitted save markup.
 $markup = preg_replace_callback('/<!-- wp:navigation (\{.*?\}) -->(.*?)<!-- \/wp:navigation -->/s', static function (array $m): string {

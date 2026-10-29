@@ -1603,6 +1603,11 @@ final class AuthorStylesheetProjector
             }
         }
 
+        if ( ! (new CoreSelectorScoping())->selectorIsScoped($projected) ) {
+            $context->evidence->recordUnscopedCoreSelectorDrop($selector, 'no_importer_class_for_core_image_projection');
+            return null;
+        }
+
         return $projected;
     }
 
@@ -2613,7 +2618,7 @@ final class AuthorStylesheetProjector
             // Only the existing fill/flex paths need a synthetic wrapper box.
             // Ordinary SVG presentation belongs on the replaced image itself.
             if ( 'svg' === $tagName && ($flexBox || $this->isProjectableFillSvg($imageMatches[0], $declarations)) ) {
-                $projected[] = $this->projectImageSelector($selector, $parsed, $context, true);
+                $this->pushScopedImageArm($projected, $selector, $this->projectImageSelector($selector, $parsed, $context, true), $context);
             }
             $mediaTextImages = array_values(array_filter(
                 $imageMatches,
@@ -2648,10 +2653,31 @@ final class AuthorStylesheetProjector
                 $projected[] = NativeImageLeafPresentation::selectors(':where(.' . $marker . ').wp-block-image', $this->selectorSpecificityShims($parsed, $context) . $suffix);
             }
             if ( $hasUnmarkedImage ) {
-                $projected[] = $this->projectImageSelector($selector, $parsed, $context);
+                $this->pushScopedImageArm($projected, $selector, $this->projectImageSelector($selector, $parsed, $context), $context);
             }
         }
         return implode(',', array_values(array_unique($projected)));
+    }
+
+    /**
+     * Emits a projected image-rule arm only when every core block class it
+     * names is reached through an importer-emitted class as well. An arm that
+     * would stand on the bare core class is dropped and recorded instead of
+     * leaking onto blocks a host adds to the served page later. Ordinary
+     * image arms carry a zero-specificity factory scope, not a semantic marker.
+     *
+     * @param list<string> $projected
+     */
+    private function pushScopedImageArm(array &$projected, string $authoredSelector, string $arm, AuthorStylesheetProjectionContext $context): void
+    {
+        if ( '' === $arm ) {
+            return;
+        }
+        if ( ! (new CoreSelectorScoping())->selectorIsScoped($arm) ) {
+            $context->evidence->recordUnscopedCoreSelectorDrop($authoredSelector, 'no_importer_class_for_core_image_projection');
+            return;
+        }
+        $projected[] = $arm;
     }
 
     private function projectMediaTextImagePrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
@@ -3409,7 +3435,17 @@ final class AuthorStylesheetProjector
                     );
                 }
             }
-            $projected[] = $this->replaceSelectorSpans($selector, $replacements);
+            $arm = $this->replaceSelectorSpans($selector, $replacements);
+            if ( ! (new CoreSelectorScoping())->selectorIsScoped($arm) ) {
+                // The factory class is only a scope key, never a semantic
+                // subject. Replacing * with :where() keeps its zero weight
+                // and leaves the declaration on the same native image leaf.
+                $arm = str_replace('*.wp-block-image', ':where(.blocks-engine-image).wp-block-image', $arm);
+                if ( ! (new CoreSelectorScoping())->selectorIsScoped($arm) ) {
+                    $arm = str_replace('.wp-block-image', ':where(.blocks-engine-image).wp-block-image', $arm);
+                }
+            }
+            $projected[] = $arm;
         }
         return implode(',', $projected);
     }

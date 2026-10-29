@@ -1259,7 +1259,7 @@ $assertTrue(
 $revealImageResult = $transformHtml('<figure class="in"><img src="photo.jpg" width="100" height="100"></figure>');
 $assertSame('core/image', $revealImageResult['blocks'][0]['blockName'] ?? null, 'Image reveal fixture still converts to core/image.');
 $assertContains(
-    '<figure class="wp-block-image is-resized in">',
+    '<figure class="wp-block-image is-resized in blocks-engine-image">',
     (string) ($revealImageResult['blocks'][0]['innerHTML'] ?? ''),
     'Image case keeps preserving the source figure class on its own wrapper figure, exactly as before.'
 );

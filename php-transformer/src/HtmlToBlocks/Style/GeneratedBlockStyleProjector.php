@@ -60,7 +60,7 @@ final class GeneratedBlockStyleProjector
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $className);
             $generatedStyles->registerNavigationSubmenuBackground($className, $submenuBackground);
         }
-        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: array();
         if ( 'core/navigation' === $name && is_array($fallback['spacing']['padding'] ?? null) ) {
             foreach ( $classes as $class ) {
                 if ( 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {

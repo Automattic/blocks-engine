@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CoreSelectorScoping;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -115,9 +116,26 @@ final class WordPressCompatCss
     public function asset(array $files, string $staticCss, array $scriptContents): ?array
     {
         $css = trim($this->css($staticCss, $files, $scriptContents));
+        // ID-only source navigation has no copied author class to scope its
+        // runtime replay. Both native navigation routes already stamp these
+        // importer classes; a weightless gate preserves the source cascade.
+        $css = (new CssStylesheetTransformer())->transform($css, static function (string $prelude): string {
+            $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+            if ( null === $selectors ) {
+                return $prelude;
+            }
+            foreach ( $selectors as &$selector ) {
+                if ( ! (new CoreSelectorScoping())->selectorIsScoped($selector) ) {
+                    $selector = preg_replace('/\.wp-block-navigation(?![\w-])/', '.wp-block-navigation:where(.blocks-engine-list-navigation,.blocks-engine-direct-navigation)', $selector) ?? $selector;
+                }
+            }
+            return implode(',', $selectors);
+        });
         if ( '' === $css ) {
             return null;
         }
+
+        (new CoreSelectorScoping())->assertScoped($css, 'wordpress-compat');
 
         $hash = hash('sha256', $css);
         $path = 'assets/css/wordpress-compat-' . substr($hash, 0, 16) . '.css';
