@@ -16,9 +16,10 @@ final class SchemaProductEvidence
      * @param callable(string):string $slug
      * @param callable(mixed):string $price
      * @param array<int,array<string,mixed>> $diagnostics
+     * @param array<string,string> $routes Source routes mapped to canonical product slugs.
      * @return array<string,array<string,mixed>> Product rows keyed by slug.
      */
-    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array()): array
+    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array()): array
     {
         $documents = array();
         foreach ($files as $file) {
@@ -26,7 +27,20 @@ final class SchemaProductEvidence
         }
         ksort($documents, SORT_STRING);
 
-        $chosen = array();
+        $entries = array();
+        $alternates = array();
+        $defaults = array();
+        foreach ($documents as $path => $content) {
+            $page = self::routePath($path);
+            foreach (HtmlMarkupParser::htmlMarkupNodes($content) as $node) {
+                if ('link' !== ($node['name'] ?? '')) continue;
+                $attrs = $node['attributes'] ?? array();
+                if (!in_array('alternate', explode(' ', strtolower($attrs['rel'] ?? '')), true) || empty($attrs['hreflang']) || empty($attrs['href'])) continue;
+                $target = self::urlRoute($attrs['href'], $path);
+                $alternates[$page][] = $target;
+                if ('x-default' === strtolower($attrs['hreflang'])) $defaults[$target] = true;
+            }
+        }
         foreach ($documents as $path => $content) {
             $pagePath = self::routePath($path);
             $schemas = array();
@@ -52,13 +66,51 @@ final class SchemaProductEvidence
                         $diagnostics[] = array('code' => 'product_variants_undeclared', 'severity' => 'warning', 'source_path' => $path, 'message' => 'ProductGroup variants lack declared, distinct attribute combinations.', 'slug' => $row[0]);
                     }
                     if (null === $row) continue;
-                    [$productSlug, $fields, $urlPath] = $row;
-                    $matches = '' !== $urlPath && $urlPath === $pagePath;
-                    if (!isset($chosen[$productSlug]) || ($matches && !$chosen[$productSlug][1])) $chosen[$productSlug] = array($fields, $matches);
+                    [$productSlug, $fields] = $row;
+                    $tokens = array('slug:' . $productSlug);
+                    $identity = '';
+                    foreach (array('productGroupID', 'sku', '@id') as $key) {
+                        $value = $product[$key] ?? null;
+                        if (is_array($value)) $value = $value['value'] ?? null;
+                        $value = self::name($value);
+                        if ('' !== $value) { $identity = $key . ':' . $value; break; }
+                    }
+                    if ('' !== $identity) $tokens = array('id:' . $identity);
+                    $route = self::urlRoute($fields['url'] ?? '/' . $path, $path);
+                    $hasRoute = isset($product['url']) || isset($product['offers']['url']) || in_array('ProductGroup', (array) ($product['@type'] ?? array()), true);
+                    if ($hasRoute) {
+                        $tokens[] = 'route:' . $route;
+                        foreach ($alternates[$route] ?? array() as $alternate) $tokens[] = 'route:' . $alternate;
+                    }
+                    $entries[] = array('fields' => $fields, 'tokens' => $tokens, 'routes' => $hasRoute ? array($route) : array(), 'score' => (isset($defaults[$route]) ? 2 : 0) + ($route === $pagePath ? 1 : 0));
                 }
             }
         }
-        return array_map(static fn (array $entry): array => $entry[0], $chosen);
+        // Connected components join stable identifiers and explicit language alternates.
+        $groups = array();
+        foreach ($entries as $entry) {
+            $group = array('entries' => array($entry), 'tokens' => $entry['tokens']);
+            do {
+                $merged = false;
+                foreach ($groups as $key => $existing) {
+                    if (!array_intersect($group['tokens'], $existing['tokens'])) continue;
+                    $group['entries'] = array_merge($group['entries'], $existing['entries']);
+                    $group['tokens'] = array_unique(array_merge($group['tokens'], $existing['tokens']));
+                    unset($groups[$key]);
+                    $merged = true;
+                }
+            } while ($merged);
+            $groups[] = $group;
+        }
+        $chosen = array();
+        foreach ($groups as $group) {
+            usort($group['entries'], static fn (array $a, array $b): int => $b['score'] <=> $a['score'] ?: strcmp($a['fields']['source_path'], $b['fields']['source_path']));
+            $fields = $group['entries'][0]['fields'];
+            $chosen[$fields['slug']] = $fields;
+            foreach ($group['entries'] as $entry) foreach ($entry['routes'] as $route) $routes[$route] = $fields['slug'];
+        }
+        ksort($chosen, SORT_STRING);
+        return $chosen;
     }
 
     /** @return array<int,array<string,mixed>> */
@@ -127,11 +179,13 @@ final class SchemaProductEvidence
         }
         if ('' === $name || '' === $regularPrice) return null;
         $url = is_string($product['url'] ?? null) ? $product['url'] : (is_string($offers['url'] ?? null) ? $offers['url'] : '');
+        if ('' === trim($url) && $isGroup) $url = '/' . trim(preg_replace('~index\.html?$~i', '', $path) ?? $path, '/');
         $urlPath = (string) (parse_url($url, PHP_URL_PATH) ?: '');
         $segments = array_values(array_filter(explode('/', trim($urlPath, '/')), 'strlen'));
         $productSlug = $slug($segments ? end($segments) : $name);
         if ('' === $productSlug) return null;
         $fields = array('name' => $name, 'slug' => $productSlug, 'regular_price' => $regularPrice, 'source_path' => $path);
+        $fields['url'] = '' !== $url ? $url : '/' . $path;
         if (is_string($product['description'] ?? null)) {
             $description = trim(strip_tags(html_entity_decode($product['description'], ENT_QUOTES | ENT_HTML5, 'UTF-8')));
             if ('' !== $description) $fields['description'] = $description;
@@ -247,6 +301,19 @@ final class SchemaProductEvidence
     private static function name(mixed $value): string
     {
         return is_scalar($value) ? trim(html_entity_decode((string) $value, ENT_QUOTES | ENT_HTML5, 'UTF-8')) : '';
+    }
+
+    /** Resolve a source URL against the containing captured document. */
+    public static function urlRoute(string $url, string $source): string
+    {
+        $path = (string) (parse_url($url, PHP_URL_PATH) ?: '');
+        if (!str_starts_with($path, '/') && !parse_url($url, PHP_URL_HOST)) $path = dirname($source) . '/' . $path;
+        $parts = array();
+        foreach (explode('/', $path) as $part) {
+            if ('..' === $part) array_pop($parts);
+            elseif ('' !== $part && '.' !== $part) $parts[] = $part;
+        }
+        return self::routePath(implode('/', $parts));
     }
 
     /** Route-like path: no slashes at the ends, no `.html` extension, no trailing `index`. */
