@@ -755,6 +755,7 @@ final class CommerceFallbackReporter
      */
     public function appendCommerceControlsFallbacks(DOMElement $body, array &$fallbacks): void
     {
+        $this->appendFormlessPurchaseFallbacks($body, $fallbacks);
         $emitted = 0;
         foreach ( $body->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement ) {
@@ -789,6 +790,67 @@ final class CommerceFallbackReporter
                 'control_count'     => count($controlGroups),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
+        }
+    }
+
+    /**
+     * A formless purchase region needs both option inputs and a cart control.
+     * Ownership is deliberately left to the compiler's single-schema-product
+     * join; a button alone or an enclosing page landmark is not a purchase form.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function appendFormlessPurchaseFallbacks(DOMElement $body, array &$fallbacks): void
+    {
+        $regions = array();
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            if ( SourceDom::hasNonAuthoredAncestor($element) || ListingControlsRecognizer::inSearchContext($element) ) {
+                continue;
+            }
+            if ( in_array(strtolower($element->tagName), array('main', 'header', 'footer', 'nav', 'form'), true) ) {
+                continue;
+            }
+            for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+                if ( in_array(strtolower($ancestor->tagName), array('form', 'header', 'footer', 'nav'), true) ) {
+                    continue 2;
+                }
+            }
+            if ( $element->getElementsByTagName('form')->length > 0 ) {
+                continue;
+            }
+            $control = $this->recognizer->cartControlElement($element);
+            if ( null === $control || $control->hasAttribute('form') || SourceDom::hasNonAuthoredAncestor($control) ) {
+                continue;
+            }
+            $hasOptions = false;
+            foreach ( $element->getElementsByTagName('*') as $input ) {
+                $tag = strtolower($input->tagName);
+                if ( ('select' === $tag || ('input' === $tag && in_array(strtolower($input->getAttribute('type')), array('radio', 'checkbox'), true)))
+                    && '' !== trim($input->getAttribute('name')) && ! $input->hasAttribute('form') && ! SourceDom::hasNonAuthoredAncestor($input) ) {
+                    $hasOptions = true;
+                    break;
+                }
+            }
+            if ( ! $hasOptions ) {
+                continue;
+            }
+            // Document order visits outer wrappers first: retain the smallest
+            // region containing the control and its option inputs.
+            $regions[SourceDom::elementSelector($control)] = $element;
+        }
+        foreach ( array_slice($regions, 0, self::MAX_CANDIDATES) as $element ) {
+            $fallbacks[] = FallbackDiagnostic::build(array(
+                'type' => 'html',
+                'reason' => 'commerce_controls_require_runtime',
+                'diagnostic_code' => 'html_commerce_controls_fallback',
+                'kind' => 'html_commerce_controls_fallback',
+                'message' => 'Formless purchase options and a cart control require commerce runtime binding.',
+                'source_format' => 'html',
+                'tag' => strtolower($element->tagName),
+                'selector' => SourceDom::elementSelector($element),
+                'context' => $this->sourceContext($element),
+                'binding' => $this->blockBinding(array(), 'commerce_add_to_cart_form', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element),
+            ), $this->provenance->fallback());
         }
     }
 

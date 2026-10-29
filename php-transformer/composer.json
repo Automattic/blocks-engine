@@ -861,6 +861,7 @@
       "php tests/unit/product-card-link-slug.php",
       "php tests/unit/product-listing-small-catalog.php",
       "php tests/unit/product-page-add-to-cart-binding.php",
+      "php tests/unit/product-page-formless-add-to-cart-binding.php",
       "php tests/unit/product-grid-nested-container.php",
       "php tests/unit/product-grid-template-content.php",
       "php tests/unit/product-grid-custom-element-host.php",
