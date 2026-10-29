@@ -537,6 +537,7 @@ final class ThemeJsonProjection
             'hover_color' => array(array(':hover', 'color', 'text'), $color),
             'hover_background' => array(array(':hover', 'color', 'background'), $color),
         );
+        foreach (array('text_transform' => array('typography', 'textTransform'), 'letter_spacing' => array('typography', 'letterSpacing'), 'radius' => array('border', 'radius'), 'padding' => array('spacing', 'padding')) as $field => $path) $paths[$field] = array($path, static fn(string $value): string => $value);
         $properties = array('color' => array('color'), 'background' => array('background', 'background-color'), 'font_family' => array('font-family', 'font'), 'font_size' => array('font-size', 'font'), 'font_weight' => array('font-weight', 'font'), 'line_height' => array('line-height', 'font'));
         foreach ($system->elements as $element => $values) {
             $tags = 'heading' === $element ? array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') : array($element);
@@ -545,7 +546,8 @@ final class ThemeJsonProjection
                 if (!isset($paths[$field])) continue;
                 $differs = false;
                 foreach ($tags as $tag) foreach ($properties[$field] ?? array() as $property) foreach ($authored['element:' . $tag . "\n" . $property] ?? array() as $declared) $differs = $differs || !(self::sameElementValue($property, $declared, $value) || (1 === preg_match('/^h[1-6]$/', $element) && in_array($field, array('font_size', 'font_weight', 'line_height'), true) && in_array(trim($declared), array('inherit', 'unset'), true)));
-                if ($differs && !('button' === $element && 'color' === $field)) continue;
+                $dominantButton = 'button' === $element && isset($values['padding']);
+                if ($differs && !$dominantButton && !('button' === $element && 'color' === $field)) continue;
                 [$path, $reference] = $paths[$field];
                 $target = &$styles['elements'][$element];
                 foreach ($path as $key) $target = &$target[$key];
@@ -553,7 +555,7 @@ final class ThemeJsonProjection
                 // button's literal (PresetBinding::rendersThroughElement()),
                 // and every button block carried it (DesignSystem::withButtonElementsOwnedBy()),
                 // so it replaces a colour projected from an authored `button` rule.
-                if (('button' === $element && 'color' === $path[0]) || ':hover' === $path[0]) $target = $reference($value);
+                if ($dominantButton || ('button' === $element && 'color' === $path[0]) || ':hover' === $path[0]) $target = $reference($value);
                 elseif (1 === preg_match('/^h[1-6]$/', $element) && in_array($field, array('font_size', 'font_weight', 'line_height'), true) && in_array($target, array(null, 'inherit', 'unset'), true)) $target = $reference($value);
                 else $target ??= $reference($value);
                 unset($target);

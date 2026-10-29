@@ -91,6 +91,8 @@ final class DesignUsageCollector
     private array $classStyles = array();
     /** @var list<array<string,mixed>> One observation per rendered heading, never inherited from a text descendant. */
     private array $headingTypography = array();
+    /** @var list<array<string,string>> Resolved, explicitly authored button looks. */
+    private array $buttonLooks = array();
     private float $rootPx = 16.0;
     private int $elements = 0;
 
@@ -103,7 +105,7 @@ final class DesignUsageCollector
     {
         $this->text = $this->backgrounds = $this->spacing = $this->widths = $this->classStyles = array();
         $this->elements = 0;
-        $this->headingTypography = array();
+        $this->headingTypography = $this->buttonLooks = array();
         $this->rootPx = $this->resolver->documentRootFontSize($body) ?? 16.0;
         $html = $body->parentNode instanceof DOMElement && 'html' === strtolower($body->parentNode->tagName) ? $body->parentNode : null;
         $htmlDeclarations = null !== $html ? $this->declarations($html) : array();
@@ -153,6 +155,7 @@ final class DesignUsageCollector
             'widths' => self::rows($this->widths),
             'class_styles' => $this->classStyleRows(),
             'heading_typography' => $this->headingTypography,
+            'button_looks' => $this->buttonLooks,
             'total_mass' => max(1, $mass),
             'element_count' => $this->elements,
         );
@@ -195,6 +198,14 @@ final class DesignUsageCollector
         if ($opaque) {
             $context['background'] = (string) CssColor::hex($background);
             if ($control) $context['role'] = 'button';
+        }
+        if ($control && isset($declarations['padding'], $declarations['border-radius'], $declarations['font-size'], $declarations['font-family'])) {
+            $look = array();
+            foreach (array('font-family' => 'font_family', 'font-size' => 'font_size', 'font-weight' => 'font_weight', 'text-transform' => 'text_transform', 'letter-spacing' => 'letter_spacing', 'border-radius' => 'radius', 'padding' => 'padding', 'background-color' => 'background', 'color' => 'color') as $property => $field) {
+                $value = 'background' === $field ? $background : ($declarations[$property] ?? null);
+                if (null !== $value && !$this->resolver->hasConditionalStyleFamily($element, $property) && !$this->resolver->hasStateStyleFamily($element, $property) && !$this->resolver->readsConditionalCustomProperty($element, array($property))) $look[$field] = 'font_size' === $field ? CssLength::format((float) $context['size']) : $value;
+            }
+            $this->buttonLooks[] = $look;
         }
         $mass = $this->walkChildren($element, $context);
         if (isset(self::HEADING_EM[$tag])) {

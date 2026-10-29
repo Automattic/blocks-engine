@@ -478,6 +478,7 @@
       "php tests/unit/theme-json-projection-route-defaults.php",
       "php tests/unit/theme-json-projection-responsive-breakpoints.php",
       "php tests/unit/design-system-usage-derivation.php",
+      "php tests/unit/dominant-button-element.php",
       "php tests/unit/hover-variant-buttons.php",
       "php tests/unit/wrapped-hover-variant-buttons.php",
       "php tests/unit/non-palette-hover-buttons.php",
