@@ -1,0 +1,4 @@
+.menu{display:flex;list-style:none;margin:0;padding:0}
+.site-nav .menu-item{position:relative}
+.submenu{position:absolute;top:100%;left:0;display:none}
+.site-footer p{color:#333}
