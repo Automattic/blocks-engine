@@ -4085,6 +4085,7 @@ final class StyleResolver implements ElementPresentationResolver
             || $this->isHiddenPositionedLayer($element, $declarations)
             || $this->hasKeyboardFocusReveal($element, $declarations)
             || $this->context->hasRetainedPresentationRuntime($element)
+            || $this->hasRetainedCaptureDialogTrigger($element)
             || $this->isNativeNavigationDropdownPanel($element)
         ) {
             return $declarations;
@@ -4113,6 +4114,27 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $normalized['declarations'];
+    }
+
+    /** Source-wired capture panels remain reachable without dialog projection. */
+    private function hasRetainedCaptureDialogTrigger(DOMElement $element): bool
+    {
+        $key = trim(SourceDom::attr($element, CaptureEvidence::DIALOG_PANEL));
+        if ('' === $key || $key !== SourceDom::attr($element, 'id')) {
+            return false;
+        }
+
+        foreach ($element->ownerDocument?->getElementsByTagName('*') ?? array() as $trigger) {
+            if (
+                $trigger instanceof DOMElement
+                && $key === trim(SourceDom::attr($trigger, CaptureEvidence::DIALOG_TRIGGER))
+                && $key === trim(SourceDom::attr($trigger, 'aria-controls'))
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isNativeNavigationDropdownPanel(DOMElement $element): bool

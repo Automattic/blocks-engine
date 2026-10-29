@@ -9876,6 +9876,47 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return 1 === $imageChildren;
     }
 
+    /**
+     * core/image keeps only the image inside its link, so the image is the
+     * link's whole content and its alt is the link's accessible name. When the
+     * source named the link with something else (`aria-label`, text such as a
+     * screen-reader-only label, or a title) and left the image unnamed, carry
+     * that name on the image rather than leave the link nameless.
+     */
+    private function linkedImageAlt(DOMElement $image, ?DOMElement $link): string
+    {
+        $alt = $this->attr($image, 'alt');
+        if ( ! $link instanceof DOMElement || '' !== trim($alt) ) {
+            return $alt;
+        }
+        $text = '';
+        foreach ( $this->textNodesOutside($link, $image) as $node ) {
+            $text .= ' ' . $node->textContent;
+        }
+        foreach ( array( trim($this->attr($link, 'aria-label')), trim(preg_replace('/\s+/u', ' ', $text) ?? ''), trim($this->attr($link, 'title')) ) as $name ) {
+            if ( '' !== $name ) {
+                return $name;
+            }
+        }
+        return $alt;
+    }
+
+    /** @return list<\DOMText> */
+    private function textNodesOutside(DOMElement $element, DOMElement $excluded): array
+    {
+        $nodes = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof \DOMText ) {
+                $nodes[] = $child;
+            } elseif ( $child instanceof DOMElement && ! $child->isSameNode($excluded)
+                && ! $child->hasAttribute('hidden') && 'true' !== strtolower(trim($this->attr($child, 'aria-hidden')))
+                && ! in_array(strtolower($child->tagName), array( 'script', 'style', 'template', 'noscript', 'svg' ), true) ) {
+                array_push($nodes, ...$this->textNodesOutside($child, $excluded));
+            }
+        }
+        return $nodes;
+    }
+
     private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null, bool $nativeImage = false): ?array
     {
         $this->imageDimensions()->fillParentImageViewportPair($image);
@@ -9923,7 +9964,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $attrs = array_filter(array_merge($attrs, array(
             'url'    => $url,
-            'alt'    => $this->attr($image, 'alt'),
+            'alt'    => $this->linkedImageAlt($image, $link),
             'title'  => $this->attr($image, 'title'),
             'width'  => $width,
             'height' => $height,

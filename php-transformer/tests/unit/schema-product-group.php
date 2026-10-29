@@ -107,7 +107,7 @@ $cards = '<div class="grid">';
 foreach (array('Field Shirt', 'Notebook', 'Pencil', 'Folder') as $name) $cards .= '<div class="card"><img src="https://assets.example/card.jpg" alt="' . $name . '"><h3>' . $name . '</h3><span class="price">$40.00</span></div>';
 $cards .= '</div>';
 $merged = array_column($entities($compile($group, $cards)), null, 'slug')['field-shirt'] ?? array();
-$assert('40.00' === ($merged['regular_price'] ?? null) && 'https://assets.example/card.jpg' === ($merged['image'] ?? null) && !empty($merged['bindings']), 'Card prices, image and bindings win.');
+$assert('40.00' === ($merged['regular_price'] ?? null) && ($row['image'] ?? null) === ($merged['image'] ?? null) && !empty($merged['bindings']), 'Card prices and bindings survive; detail image wins.');
 $assert(($merged['variants'] ?? null) == $variants && ($merged['images'] ?? null) == ($row['images'] ?? null) && ($merged['sku'] ?? null) === 'SH#GROUP' && ($merged['tags'] ?? null) === $row['tags'], 'Schema enrichments fill missing card fields.');
 if ($failures) exit(1);
 echo "schema-product-group: ok\n";
