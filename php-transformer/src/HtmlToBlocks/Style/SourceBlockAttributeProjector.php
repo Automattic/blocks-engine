@@ -106,6 +106,11 @@ final class SourceBlockAttributeProjector
                     self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
                     $this->styleResolver->syntheticFlexImageBoxClassName($sourceElement)
                 );
+            } elseif ('' !== (string) ($attrs['href'] ?? '') && $this->sourceImageLinkIsFlexOrGridItem($sourceElement)) {
+                // The link core/image re-emits around the image was the item.
+                // A figure box would put it on a line instead, adding the strut
+                // below an inline-level link that a blockified item never had.
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS);
             }
             // The source image was inline content that its parent aligned. A
             // synthesized figure is a block box that fills the line instead,
@@ -302,6 +307,15 @@ final class SourceBlockAttributeProjector
     private function sourceImageIsFlexOrGridItem(DOMElement $image): bool
     {
         return $this->styleResolver->imageIsFlexOrGridItem($image);
+    }
+
+    private function sourceImageLinkIsFlexOrGridItem(DOMElement $image): bool
+    {
+        $link = $image->parentNode;
+        if ( ! $link instanceof DOMElement || 'a' !== strtolower($link->tagName) ) {
+            return false;
+        }
+        return $this->styleResolver->imageIsFlexOrGridItem($link);
     }
 
     private static function isHiddenAccessibilitySupportElement(DOMElement $element): bool
