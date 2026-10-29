@@ -53,6 +53,26 @@ $assert(
     'combined visitor reports nested style rules and vendor-prefixed keyframes'
 );
 
+// Cold and warm structure lookups must retain the distinction between a
+// whole-sheet transform and a visitor that can report a valid prefix.
+$nested = '@media screen{@supports (display:grid){@layer base{/*{}*/.before{content:"{}"}}}}';
+foreach (array(
+    array($nested, str_replace('.before', '.after', $nested), 1),
+    array($nested . '.before{', $nested . '.before{', 1),
+    array($nested . '.before{content:"}', $nested . '.before{content:"}', 1),
+    array($nested . '.before[)', $nested . '.before[)', 1),
+) as [$input, $expected, $visitCount]) {
+    for ($pass = 0; $pass < 2; ++$pass) {
+        $walker = new CssStylesheetTransformer();
+        $assert($expected === $walker->transform($input, $rename), 'nested or truncated rules retain exact bytes on cold and warm lookups');
+        $visits = array();
+        $walker->visitStyleRules($input, static function (string $prelude, string $body, array $ancestors) use (&$visits): void {
+            $visits[] = array($prelude, $body, $ancestors);
+        });
+        $assert($visitCount === count($visits) && array('.before', 'content:"{}"', array('@media screen', '@supports (display:grid)', '@layer base')) === $visits[0], 'visitors retain complete nested rules before a malformed tail');
+    }
+}
+
 // 5: commas inside nested syntax are not selector-list separators.
 $parts = CssStylesheetTransformer::splitSelectorList(':is(.a,.b), :not([data-x="a,b"]), [title="x,y"]');
 $assert(array( ':is(.a,.b)', ' :not([data-x="a,b"])', ' [title="x,y"]' ) === $parts, 'selector lists split only on top-level commas');

@@ -61,12 +61,14 @@ final class CssStylesheetTransformer
         $parts = array();
         $start = 0;
         $offset = 0;
-        while ( null !== ($boundary = $this->nextRuleBoundary($body, $offset)) ) {
+        foreach ( CssRuleStructureIndex::forText($body)->entries as $entry ) {
+            $offset = $entry['start'];
+            $boundary = $entry['boundary'];
             if ( ';' === $body[$boundary] ) {
                 $offset = $boundary + 1;
                 continue;
             }
-            $end = $this->matchingBrace($body, $boundary);
+            $end = $entry['end'];
             if ( null === $end ) {
                 return array(array('declarations' => $body));
             }
@@ -314,7 +316,7 @@ final class CssStylesheetTransformer
             $id = serialize(array($unit['context'], $unit['text']));
             if (isset($keys[$id])) return $keys[$id];
             $rule = self::splitLeadingComments($unit['text'])[1];
-            $brace = $this->nextRuleBoundary($rule, 0);
+            $brace = CssRuleStructureIndex::forText($rule)->entries[0]['boundary'] ?? null;
             $selector = null !== $brace && '{' === $rule[$brace] && !$this->isAtRule($rule);
             return $keys[$id] = serialize(array($unit['context'], $selector ? substr($rule, $brace) : $normal($unit)));
         };
@@ -431,7 +433,7 @@ final class CssStylesheetTransformer
         $carriers = self::markerCarriers($markup);
         $emitArms = function (array $units, array $prototype) use (&$output, &$unionOutput, &$armLists, &$parsedArms, $routeClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex): void {
             [$lead, $rule] = self::splitLeadingComments($prototype['text']);
-            $brace = (int) $this->nextRuleBoundary($rule, 0);
+            $brace = (int) (CssRuleStructureIndex::forText($rule)->entries[0]['boundary'] ?? null);
             $body = substr($rule, $brace);
             $members = array();
             foreach ($units as $owner => $unit) {
@@ -439,7 +441,7 @@ final class CssStylesheetTransformer
                 $text = $unit['text'];
                 if (!isset($armLists[$text])) {
                     [, $rule] = self::splitLeadingComments($text);
-                    $start = (int) $this->nextRuleBoundary($rule, 0);
+                    $start = (int) (CssRuleStructureIndex::forText($rule)->entries[0]['boundary'] ?? null);
                     $armLists[$text] = (array) self::splitSelectorList(CssSelectorListCompactor::expand(CssSyntaxScanner::withoutComments(substr($rule, 0, $start))));
                 }
                 foreach ($armLists[$text] as $arm) {
@@ -575,7 +577,7 @@ final class CssStylesheetTransformer
         $name = self::atRuleName($rule);
         // A late @charset is ignored; dedupe it by text, never conflict.
         if ('charset' === $name) return '@charset ' . $rule;
-        $brace = $this->nextRuleBoundary($rule, 0);
+        $brace = CssRuleStructureIndex::forText($rule)->entries[0]['boundary'] ?? null;
         if (null === $brace || '{' !== $rule[$brace] || !str_ends_with($rule, '}')) return null;
         $prelude = trim(substr($rule, strlen($name) + 1, $brace - strlen($name) - 1));
         if (preg_match('/^(?:-[a-z]+-)?keyframes$/', $name)) return '@keyframes ' . trim($prelude, '"\'');
@@ -612,7 +614,7 @@ final class CssStylesheetTransformer
     private function probeRouteUnit(array $unit, ?string &$reason, array &$parsedArms): void
     {
         [, $rule] = self::splitLeadingComments($unit['text']);
-        $brace = $this->nextRuleBoundary($rule, 0);
+        $brace = CssRuleStructureIndex::forText($rule)->entries[0]['boundary'] ?? null;
         if (null === $brace || '{' !== $rule[$brace] || $this->isAtRule($rule) || !$unit['dedupable']) { $reason = 'non-selector rule cannot be route scoped'; return; }
         $arms = self::splitSelectorList(trim(CssSyntaxScanner::withoutComments(substr($rule, 0, $brace))));
         if (null === $arms) { $reason = 'unparseable selector list'; return; }
@@ -809,16 +811,9 @@ final class CssStylesheetTransformer
     private function collectRuleUnits(string $css, array $context, array &$units): void
     {
         $offset = 0;
-        $length = strlen($css);
-        while ( $offset < $length ) {
-            $boundary = $this->nextRuleBoundary($css, $offset);
-            if ( null === $boundary ) {
-                if ( '' !== trim(substr($css, $offset)) ) {
-                    $units[] = array( 'context' => $context, 'text' => substr($css, $offset), 'dedupable' => false );
-                }
-                return;
-            }
-            $end = ';' === $css[ $boundary ] ? $boundary : $this->matchingBrace($css, $boundary);
+        foreach ( CssRuleStructureIndex::forText($css)->entries as $entry ) {
+            $boundary = $entry['boundary'];
+            $end = $entry['end'];
             if ( null === $end ) {
                 $units[] = array( 'context' => $context, 'text' => substr($css, $offset), 'dedupable' => false );
                 return;
@@ -839,6 +834,9 @@ final class CssStylesheetTransformer
             }
             $offset = $end + 1;
         }
+        if ( '' !== trim(substr($css, $offset)) ) {
+            $units[] = array( 'context' => $context, 'text' => substr($css, $offset), 'dedupable' => false );
+        }
     }
 
     /**
@@ -847,11 +845,10 @@ final class CssStylesheetTransformer
     public function splitLeadingAtRulePreamble(string $stylesheet): array
     {
         $offset = 0;
-        $length = strlen($stylesheet);
         $statements = array();
-        while ( $offset < $length ) {
-            $boundary = $this->nextRuleBoundary($stylesheet, $offset);
-            if ( null === $boundary || ';' !== $stylesheet[ $boundary ] ) {
+        foreach ( CssRuleStructureIndex::forText($stylesheet)->entries as $entry ) {
+            $boundary = $entry['boundary'];
+            if ( ';' !== $stylesheet[ $boundary ] ) {
                 break;
             }
 
@@ -912,14 +909,8 @@ final class CssStylesheetTransformer
     {
         $output = '';
         $offset = 0;
-        $length = strlen($css);
-
-        while ( $offset < $length ) {
-            $boundary = $this->nextRuleBoundary($css, $offset);
-            if ( null === $boundary ) {
-                return $output . substr($css, $offset);
-            }
-
+        foreach ( CssRuleStructureIndex::forText($css)->entries as $entry ) {
+            $boundary = $entry['boundary'];
             $token = $css[ $boundary ];
             if ( ';' === $token ) {
                 $output .= substr($css, $offset, $boundary - $offset + 1);
@@ -927,7 +918,7 @@ final class CssStylesheetTransformer
                 continue;
             }
 
-            $blockEnd = $this->matchingBrace($css, $boundary);
+            $blockEnd = $entry['end'];
             if ( null === $blockEnd ) {
                 return $output . substr($css, $offset);
             }
@@ -961,21 +952,19 @@ final class CssStylesheetTransformer
             $offset = $blockEnd + 1;
         }
 
-        return $output;
+        return $output . substr($css, $offset);
     }
 
     /** @param callable(string, string, list<string>): void $visitStyleRule @param callable(string, string): void|null $visitKeyframes @param list<string> $ancestors */
     private function visitRules(string $css, callable $visitStyleRule, ?callable $visitKeyframes, array $ancestors): void
     {
-        $offset = 0;
-        $length = strlen($css);
-        while ($offset < $length) {
-            $boundary = $this->nextRuleBoundary($css, $offset);
-            if (null === $boundary || ';' === $css[$boundary]) {
-                $offset = null === $boundary ? $length : $boundary + 1;
+        foreach ( CssRuleStructureIndex::forText($css)->entries as $entry ) {
+            $offset = $entry['start'];
+            $boundary = $entry['boundary'];
+            if (';' === $css[$boundary]) {
                 continue;
             }
-            $blockEnd = $this->matchingBrace($css, $boundary);
+            $blockEnd = $entry['end'];
             if (null === $blockEnd) {
                 return;
             }
@@ -996,7 +985,6 @@ final class CssStylesheetTransformer
             } elseif ($this->isStylePrelude($prelude)) {
                 $visitStyleRule($prelude, $body, $ancestors);
             }
-            $offset = $blockEnd + 1;
         }
     }
 
@@ -1009,51 +997,6 @@ final class CssStylesheetTransformer
         }
 
         return trim($name);
-    }
-
-    private function nextRuleBoundary(string $css, int $offset): ?int
-    {
-        $state  = CssSyntaxScanner::state();
-        $length = strlen($css);
-        for ( $index = $offset; $index < $length; ++$index ) {
-            $index = CssSyntaxScanner::inertEnd($css, $index, $state, '{;');
-            if ( $index >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $index, $state);
-            if ( null === $next ) {
-                return null;
-            }
-            if ( $topLevel && $next === $index + 1 && ('{' === $css[ $index ] || ';' === $css[ $index ]) ) {
-                return $index;
-            }
-            $index = $next - 1;
-        }
-
-        return null;
-    }
-
-    private function matchingBrace(string $css, int $openingBrace): ?int
-    {
-        $state  = CssSyntaxScanner::state();
-        $depth  = 0;
-        $length = strlen($css);
-        for ( $index = $openingBrace; $index < $length; ++$index ) {
-            $index = CssSyntaxScanner::inertEnd($css, $index, $state, '{}');
-            if ( $index >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $index, $state);
-            if ( null === $next ) {
-                return null;
-            }
-            if ( $topLevel && $next === $index + 1 && '{' === $css[ $index ] ) {
-                ++$depth;
-            } elseif ( $topLevel && $next === $index + 1 && '}' === $css[ $index ] && 0 === --$depth ) {
-                return $index;
-            }
-            $index = $next - 1;
-        }
-
-        return null;
     }
 
     private function isAtRule(string $prelude): bool
@@ -1078,29 +1021,7 @@ final class CssStylesheetTransformer
 
     private function isWellFormedStylesheet(string $css): bool
     {
-        $state = CssSyntaxScanner::state();
-        $braces = 0;
-        $length = strlen($css);
-        for ( $offset = 0; $offset < $length; ) {
-            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{}');
-            if ( $offset >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $offset, $state);
-            if ( null === $next ) {
-                return false;
-            }
-            if ( $topLevel && $next === $offset + 1 ) {
-                if ( '{' === $css[ $offset ] ) {
-                    ++$braces;
-                } elseif ( '}' === $css[ $offset ] ) {
-                    if ( --$braces < 0 ) {
-                        return false;
-                    }
-                }
-            }
-            $offset = $next;
-        }
-        return 0 === $braces && CssSyntaxScanner::isComplete($state);
+        return CssRuleStructureIndex::forText($css)->wellFormed;
     }
 
     private static function firstSignificantCharacter(string $value): string
