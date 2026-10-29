@@ -411,6 +411,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @var array<string, true> */
     private array $sharedStylesheetPaths = array();
 
+    private bool $projectsOnlyMatchedAuthorRules = false;
+
     private const SYNTHETIC_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS;
     private const SYNTHETIC_SVG_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_SVG_PARAGRAPH_CLASS;
 
@@ -1555,6 +1557,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->currentSourcePath = (string) ($options['source'] ?? 'html');
         $this->session->installSourcePath($this->currentSourcePath);
         $this->sharedStylesheetPaths = array();
+        $this->projectsOnlyMatchedAuthorRules = ! empty($options['project_only_matched_author_rules']);
         foreach ( is_array($options['shared_stylesheet_paths'] ?? null) ? $options['shared_stylesheet_paths'] : array() as $path ) {
             if ( is_string($path) && '' !== $path ) {
                 $this->sharedStylesheetPaths[$path] = true;
@@ -2727,7 +2730,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $keepAuthorClassSelectors,
                 $bindings,
                 $this->emittedStyleMarkup,
-                $contentBoxRestatements ?? new ContentBoxRestatements()
+                $contentBoxRestatements ?? new ContentBoxRestatements(),
+                $this->projectsOnlyMatchedAuthorRules
             ),
             '' === $media ? array() : array( '@media ' . $media )
         );

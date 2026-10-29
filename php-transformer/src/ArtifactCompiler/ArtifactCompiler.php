@@ -1709,6 +1709,9 @@ final class ArtifactCompiler
             'generated_block_namespace' => $generatedBlockNamespace,
             'generated_asset_root'       => $this->generatedAssetRoot,
             'extract_global_shell'       => $extractGlobalShell,
+            // A shared shell's projection joins every page's stylesheet, where
+            // a rule it left unprojected would bypass the page's projection.
+            'project_only_matched_author_rules' => 'artifact-shared-shell' === $sourceScope,
             'layout_geometry_proof'      => $this->layoutGeometryProofForSource($files, $sourcePath),
         ));
         $blockCompilationOutput = $result->blockCompilationOutput;
