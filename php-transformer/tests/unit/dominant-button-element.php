@@ -62,7 +62,7 @@ foreach ($compile($reversed)['writes'] as $write) {
 foreach (array('tie', 'responsive', 'unstyled') as $case) {
     $input = $fixture;
     foreach ($input['files'] as &$html) {
-        if ('tie' === $case) $html = str_replace('btn-primary hero-cta', 'btn-ghost', $html);
+        if ('tie' === $case) $html = str_replace(array('btn-primary hero-cta', '.btn-ghost{border:1px solid #fff;color:#fff}'), array('btn-ghost', '.btn-ghost{border:1px solid #fff;color:#fff;background:transparent}'), $html);
         if ('responsive' === $case) $html = str_replace('</style>', '@media(max-width:600px){.btn{font-size:1.1rem}}</style>', $html);
         if ('unstyled' === $case) $html = str_replace('</body>', '<button>Plain</button></body>', $html);
     }

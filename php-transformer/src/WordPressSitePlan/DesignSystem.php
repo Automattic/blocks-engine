@@ -1080,9 +1080,11 @@ final class DesignSystem
             $rows = $usage['button_looks'] ?? array();
             foreach ($rows as $look) {
                 ++$count;
-                // A partially observed look (state, media or inherited value)
-                // cannot establish a replacement for the source cascade.
-                if (!isset($look['font_family'], $look['font_size'], $look['font_weight'], $look['radius'], $look['padding'], $look['color'], $look['background'])) return array();
+                // A partially observed look (state, media or inherited value,
+                // or an outline control with no authored fill) cannot become
+                // the element look. It does not vote; binding still requires
+                // every block to own the values it yields to the element.
+                if (!isset($look['font_family'], $look['font_size'], $look['font_weight'], $look['radius'], $look['padding'], $look['color'], $look['background'])) continue;
                 ksort($look);
                 $key = json_encode($look, JSON_THROW_ON_ERROR);
                 $looks[$key] = $look;
