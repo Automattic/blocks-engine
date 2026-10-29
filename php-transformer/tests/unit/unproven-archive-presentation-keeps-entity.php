@@ -28,11 +28,11 @@ $plan = (new WordPressSitePlan())->fromCompilerResult($result);
 $terms = array_column($plan['taxonomy_entities'], null, 'slug');
 $assert(isset($terms['programming'], $terms['wordpress']), 'Both taxonomy entities survive presentation failure.');
 $assert('Programming' === $terms['programming']['name'] && 'WordPress' === $terms['wordpress']['name'] && 'programming' === $terms['wordpress']['parent'], 'Term identity and parent survive.');
-$assert(isset($terms['programming']['archive']['presentation_markup']) && !array_key_exists('presentation_markup', $terms['wordpress']['archive']), 'Only the projected parent carries presentation.');
+$assert(isset($terms['programming']['archive']['presentation_markup'], $terms['wordpress']['archive']['presentation_markup']), 'Both native and static term presentations survive.');
 $assert(array('first.html', 'second.html') === $terms['wordpress']['membership_source_paths'], 'Child retains members from its pagination capture.');
 $author = $plan['author_entities'][0] ?? array();
 $assert('adam' === ($author['slug'] ?? null) && 'Adam' === $author['name'] && array('first.html', 'second.html') === $author['membership_source_paths'], 'Unprojectable author keeps identity and all membership.');
-$assert(!array_key_exists('presentation_markup', $author['archive']), 'Unprojectable author has no presentation.');
+$assert(isset($author['archive']['presentation_markup']), 'Unprojectable author retains its captured presentation.');
 $pages = array_column($plan['pages'], null, 'source_path');
 $archiveSources = array('category/programming.html', 'category/programming/wordpress.html', 'author/adam.html');
 foreach (array_merge($archiveSources, array('category/programming/wordpress/page-two.html', 'author/page-two.html')) as $source) {
@@ -45,10 +45,10 @@ foreach ($pages as $page) {
     $assert(!in_array($parent, $archiveSources, true), 'No page is parented to an archive.');
 }
 $slugs = array_column($plan['templates'], 'slug');
-$assert(in_array('category-programming', $slugs, true) && !in_array('category-wordpress', $slugs, true) && !in_array('author-adam', $slugs, true), 'Only a proven presentation emits a per-entity template.');
+$assert(in_array('category-programming', $slugs, true) && in_array('category-wordpress', $slugs, true) && in_array('author-adam', $slugs, true), 'Every proven archive emits its captured per-entity template.');
 foreach (array('taxonomy' => 'category/programming/wordpress.html', 'author' => 'author/adam.html') as $kind => $source) {
-    $findings = array_values(array_filter($plan['diagnostics'], static fn(array $d): bool => 'wordpress_site_plan_' . $kind . '_archive_presentation_template_hierarchy' === $d['code'] && $source === ($d['source_path'] ?? null)));
-    $assert(1 === count($findings) && 'info' === $findings[0]['severity'] && isset($findings[0]['source_route']) && str_contains($findings[0]['message'], 'template hierarchy'), 'One source-owned info diagnostic describes the presentation fallback.');
+    $findings = array_values(array_filter($plan['diagnostics'], static fn(array $d): bool => 'wordpress_site_plan_' . $kind . '_archive_presentation_static' === $d['code'] && $source === ($d['source_path'] ?? null)));
+    $assert(1 === count($findings) && 'warning' === $findings[0]['severity'] && isset($findings[0]['source_route']) && str_contains($findings[0]['message'], 'static cards'), 'One source-owned warning describes the static presentation.');
 }
 $assert(!str_contains(json_encode($plan['diagnostics']), '_archive_query_unproven'), 'Retired query-unproven diagnostic is not emitted.');
 WordPressSitePlan::assertValid($plan);
