@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationPr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ListingControlsRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
 use DOMNode;
 
@@ -872,7 +873,7 @@ final class CommerceFallbackReporter
     public function appendCartViewFallbacks(DOMElement $body, array &$fallbacks): void
     {
         $scopes = array();
-        foreach ( $this->recognizer->cartSummaries($body) as $summary ) {
+        foreach ( $this->recognizer->cartSummaries($body, fn (DOMElement $node): bool => array() !== $this->runtimeIslands->runtimeDomSelectorsForElement($node)) as $summary ) {
             if ( SourceDom::hasNonAuthoredAncestor($summary) ) {
                 continue;
             }
@@ -896,6 +897,7 @@ final class CommerceFallbackReporter
                 'tag'               => strtolower($scope->tagName),
                 'selector'          => SourceDom::elementSelector($scope),
                 'summary_selector'  => SourceDom::elementSelector($summary),
+                'placement'         => $this->cartViewPlacement($scope),
                 'runtime_selectors' => $runtimeSelectors,
                 'context'           => $this->sourceContext($scope),
                 'binding'           => $this->blockBinding(array(), 'commerce_cart', $runtimeSelectors, $scope),
@@ -903,12 +905,27 @@ final class CommerceFallbackReporter
         }
     }
 
+    /** Hidden carts outside the page's main content are reusable site chrome. */
+    private function cartViewPlacement(DOMElement $scope): string
+    {
+        $hidden = SourceDom::hasAriaHiddenAncestor($scope);
+        for ( $node = $scope; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'main' === strtolower($node->tagName) || 'main' === strtolower(SourceDom::attr($node, 'role')) ) {
+                return '';
+            }
+            $hidden = $hidden || $node->hasAttribute('hidden');
+        }
+
+        return $hidden ? 'site_chrome' : '';
+    }
+
     /** The outermost runtime DOM target around `$summary` below the page landmarks, else the summary. */
     private function cartViewScope(DOMElement $summary): DOMElement
     {
         $scope = $summary;
         for ( $node = $summary; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( in_array(strtolower($node->tagName), array( 'body', 'main', 'header', 'footer', 'nav' ), true) ) {
+            if ( in_array(strtolower($node->tagName), array( 'html', 'body', 'main', 'header', 'footer', 'nav' ), true)
+                || '' !== ShellLandmarkPolicy::landmarkKind($node->tagName, SourceDom::attr($node, 'role')) ) {
                 break;
             }
             if ( array() !== $this->runtimeIslands->runtimeDomSelectorsForElement($node) ) {

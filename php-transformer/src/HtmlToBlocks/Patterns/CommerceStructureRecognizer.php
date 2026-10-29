@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
 
 /**
@@ -593,13 +594,16 @@ final class CommerceStructureRecognizer
      *
      * A cart view's order summary is the innermost element that holds a
      * checkout control together with at least two amount rows (subtotal,
-     * shipping, total) and a total label. It is detected from structure and
-     * generic commerce vocabulary on the control and row text, class, id and
+     * shipping, total) and a total label. At a form, runtime target or landmark
+     * boundary, a single subtotal also qualifies an empty cart; prices outside
+     * that boundary must never contribute to its totals. Detection uses structure
+     * and generic commerce vocabulary on the control and row text, class, id and
      * `data-*` attribute names — never a shop-provider name or fixture class.
      *
+     * @param null|callable(DOMElement): bool $isRuntimeScope Source runtime-target evidence.
      * @return array<int, DOMElement>
      */
-    public function cartSummaries(DOMElement $root): array
+    public function cartSummaries(DOMElement $root, ?callable $isRuntimeScope = null): array
     {
         $summaries = array();
         foreach ( $root->getElementsByTagName('*') as $element ) {
@@ -607,8 +611,20 @@ final class CommerceStructureRecognizer
                 continue;
             }
             for ( $node = $element->parentNode; $node instanceof DOMElement && $node !== $root->parentNode; $node = $node->parentNode ) {
-                if ( $this->hasCartTotals($node) ) {
+                $tag = strtolower($node->tagName);
+                if ( in_array($tag, array( 'html', 'body' ), true) ) {
+                    break;
+                }
+                $boundary = 'form' === $tag
+                    || '' !== ShellLandmarkPolicy::landmarkKind($tag, SourceDom::attr($node, 'role'))
+                    || in_array($tag, array( 'aside', 'dialog' ), true)
+                    || in_array(strtolower(SourceDom::attr($node, 'role')), array( 'region', 'complementary', 'dialog' ), true)
+                    || (null !== $isRuntimeScope && $isRuntimeScope($node));
+                if ( $this->hasCartTotals($node, $boundary ? 1 : 2) ) {
                     $summaries[spl_object_id($node)] = $node;
+                    break;
+                }
+                if ( $boundary ) {
                     break;
                 }
             }
@@ -643,8 +659,8 @@ final class CommerceStructureRecognizer
         return $this->classifier->hasTokenBoundary($this->vocabulary($element), 'checkout');
     }
 
-    /** At least two amount leaves and one total label: subtotal/shipping/total rows. */
-    private function hasCartTotals(DOMElement $element): bool
+    /** Amount leaves and a total label: subtotal/shipping/total rows. */
+    private function hasCartTotals(DOMElement $element, int $minimumAmounts = 2): bool
     {
         $amounts = 0;
         $hasTotal = false;
@@ -661,7 +677,7 @@ final class CommerceStructureRecognizer
             }
         }
 
-        return $hasTotal && $amounts >= 2;
+        return $hasTotal && $amounts >= $minimumAmounts;
     }
 
     /** Text, class, id, aria-label and `data-*` attribute names, tokenized on non-alphanumerics. */
