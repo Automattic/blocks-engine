@@ -1316,7 +1316,9 @@ final class ArtifactCompiler
             }
         }
         foreach ( $fallbacks as $fallback ) {
-            if ( 'commerce_add_to_cart' !== ($fallback['form_intent'] ?? '') ) continue;
+            $formlessPurchase = 'html_commerce_controls_fallback' === ($fallback['diagnostic_code'] ?? '')
+                && 'commerce_add_to_cart_form' === ($fallback['binding']['role'] ?? '');
+            if ( 'commerce_add_to_cart' !== ($fallback['form_intent'] ?? '') && ! $formlessPurchase ) continue;
             $sourcePath = $fallback['source'] ?? $entryPath;
             if ( 1 !== count($pageProducts[$sourcePath] ?? array()) ) continue;
             $selector = $fallback['selector'] ?? '';
