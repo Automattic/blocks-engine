@@ -795,15 +795,16 @@ final class CommerceFallbackReporter
     }
 
     /**
-     * A formless purchase region needs both option inputs and a cart control.
-     * Ownership is deliberately left to the compiler's single-schema-product
-     * join; a button alone or an enclosing page landmark is not a purchase form.
+     * A formless purchase region needs a cart control and either option inputs
+     * or structural product evidence. Ownership is deliberately left to the
+     * compiler's single-schema-product join and product-grid card guards.
      *
      * @param array<int, array<string, mixed>> $fallbacks
      */
     private function appendFormlessPurchaseFallbacks(DOMElement $body, array &$fallbacks): void
     {
         $regions = array();
+        $optionRegions = array();
         foreach ( $body->getElementsByTagName('*') as $element ) {
             if ( SourceDom::hasNonAuthoredAncestor($element) || ListingControlsRecognizer::inSearchContext($element) ) {
                 continue;
@@ -833,19 +834,31 @@ final class CommerceFallbackReporter
                 }
             }
             if ( ! $hasOptions ) {
-                continue;
+                if ( null === $this->recognizer->productCardData($element) ) {
+                    continue;
+                }
+                // Grid controls already have their own diagnostic and card ownership.
+                for ( $node = $control; $node instanceof DOMElement; $node = $node->parentNode ) {
+                    if ( $this->recognizer->isProductGridContainer($node) ) {
+                        continue 2;
+                    }
+                }
             }
-            // Document order visits outer wrappers first: retain the smallest
-            // region containing the control and its option inputs.
-            $regions[SourceDom::elementSelector($control)] = $element;
+            // Prefer the smallest option-bearing region when present; otherwise
+            // retain the smallest region with structural product evidence.
+            $selector = SourceDom::elementSelector($control);
+            $regions[$selector] = $element;
+            if ( $hasOptions ) {
+                $optionRegions[$selector] = $element;
+            }
         }
-        foreach ( array_slice($regions, 0, self::MAX_CANDIDATES) as $element ) {
+        foreach ( array_slice(array_replace($regions, $optionRegions), 0, self::MAX_CANDIDATES) as $element ) {
             $fallbacks[] = FallbackDiagnostic::build(array(
                 'type' => 'html',
                 'reason' => 'commerce_controls_require_runtime',
                 'diagnostic_code' => 'html_commerce_controls_fallback',
                 'kind' => 'html_commerce_controls_fallback',
-                'message' => 'Formless purchase options and a cart control require commerce runtime binding.',
+                'message' => 'A formless cart control, with or without purchase options, requires commerce runtime binding.',
                 'source_format' => 'html',
                 'tag' => strtolower($element->tagName),
                 'selector' => SourceDom::elementSelector($element),

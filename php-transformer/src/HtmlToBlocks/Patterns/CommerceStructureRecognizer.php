@@ -24,7 +24,7 @@ final class CommerceStructureRecognizer
 
     public function looksLikePriceText(string $text): bool
     {
-        return (bool) preg_match('/(?:\p{Sc}\s?\d|\d+(?:[.,]\d{2})?\s?(?:usd|eur|gbp|cad|aud)\b)/iu', trim($text));
+        return (bool) preg_match('/(?:\p{Sc}[\s\x{a0}]?\d|\d[\d\s\x{a0}.,]*[\s\x{a0}]?\p{Sc}|\d+(?:[.,]\d{2})?[\s\x{a0}]?(?:usd|eur|gbp|cad|aud)\b)/iu', trim($text));
     }
 
     /**
@@ -571,7 +571,7 @@ final class CommerceStructureRecognizer
             return '';
         }
 
-        if ( preg_match('/\p{Sc}\s?\d[\d.,]*|\d[\d.,]*\s?(?:usd|eur|gbp|cad|aud)\b/iu', $text, $matches) ) {
+        if ( preg_match('/\p{Sc}[\s\x{a0}]?\d[\d.,]*|\d[\d\s\x{a0}.,]*[\s\x{a0}]?\p{Sc}|\d[\d.,]*[\s\x{a0}]?(?:usd|eur|gbp|cad|aud)\b/iu', $text, $matches) ) {
             return trim($matches[0]);
         }
 

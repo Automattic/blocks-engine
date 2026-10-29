@@ -859,6 +859,8 @@
       "php tests/unit/runtime-app-shell-content-embed.php",
       "php tests/unit/app-shell-captured-dialog-template.php",
       "php tests/unit/commerce-structure-recognizer.php",
+      "php tests/unit/commerce-price-text.php",
+      "php tests/unit/product-page-localized-price-binding.php",
       "php tests/unit/hidden-cart-view-scope.php",
       "php tests/unit/product-grid-card-identity.php",
       "php tests/unit/product-card-link-slug.php",
