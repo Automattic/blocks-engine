@@ -411,6 +411,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @var array<string, true> */
     private array $sharedStylesheetPaths = array();
 
+    private bool $projectsOnlyMatchedAuthorRules = false;
+
     private const SYNTHETIC_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS;
     private const SYNTHETIC_SVG_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_SVG_PARAGRAPH_CLASS;
 
@@ -1555,6 +1557,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->currentSourcePath = (string) ($options['source'] ?? 'html');
         $this->session->installSourcePath($this->currentSourcePath);
         $this->sharedStylesheetPaths = array();
+        $this->projectsOnlyMatchedAuthorRules = ! empty($options['project_only_matched_author_rules']);
         foreach ( is_array($options['shared_stylesheet_paths'] ?? null) ? $options['shared_stylesheet_paths'] : array() as $path ) {
             if ( is_string($path) && '' !== $path ) {
                 $this->sharedStylesheetPaths[$path] = true;
@@ -2727,7 +2730,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $keepAuthorClassSelectors,
                 $bindings,
                 $this->emittedStyleMarkup,
-                $contentBoxRestatements ?? new ContentBoxRestatements()
+                $contentBoxRestatements ?? new ContentBoxRestatements(),
+                $this->projectsOnlyMatchedAuthorRules
             ),
             '' === $media ? array() : array( '@media ' . $media )
         );
@@ -3549,7 +3553,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array(),
             fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src),
             fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : '',
-            fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item)
+            fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
+            fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement)
         );
     }
 
@@ -3640,6 +3645,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
              disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
              accordionToggle: fn (DOMElement $control, ?DOMElement $row = null): array => $this->disclosureControlPresentation()->accordionToggle($control, $row),
              accordionItemBox: fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
+             sourceElementVisuallyClipped: fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
              authoredIconColor: fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
              assetMetadata: fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array()
          );
@@ -5969,6 +5975,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // would freeze the breakpoint it came from onto the mark and
             // silence the responsive class rule at every other width.
             $declarations = $this->styleResolver->stripResponsiveClassOwnedDeclarations($element, $declarations);
+        }
+        if ( ! $carrierReplacesSource && ! $sourceIsLink ) {
+            $declarations = $this->richTextMaterializer->withoutKeptFormatTagDeclarations($element, $declarations);
         }
         $existingDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         if ( $sourceIsLink ) {
@@ -9869,6 +9878,47 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return 1 === $imageChildren;
     }
 
+    /**
+     * core/image keeps only the image inside its link, so the image is the
+     * link's whole content and its alt is the link's accessible name. When the
+     * source named the link with something else (`aria-label`, text such as a
+     * screen-reader-only label, or a title) and left the image unnamed, carry
+     * that name on the image rather than leave the link nameless.
+     */
+    private function linkedImageAlt(DOMElement $image, ?DOMElement $link): string
+    {
+        $alt = $this->attr($image, 'alt');
+        if ( ! $link instanceof DOMElement || '' !== trim($alt) ) {
+            return $alt;
+        }
+        $text = '';
+        foreach ( $this->textNodesOutside($link, $image) as $node ) {
+            $text .= ' ' . $node->textContent;
+        }
+        foreach ( array( trim($this->attr($link, 'aria-label')), trim(preg_replace('/\s+/u', ' ', $text) ?? ''), trim($this->attr($link, 'title')) ) as $name ) {
+            if ( '' !== $name ) {
+                return $name;
+            }
+        }
+        return $alt;
+    }
+
+    /** @return list<\DOMText> */
+    private function textNodesOutside(DOMElement $element, DOMElement $excluded): array
+    {
+        $nodes = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof \DOMText ) {
+                $nodes[] = $child;
+            } elseif ( $child instanceof DOMElement && ! $child->isSameNode($excluded)
+                && ! $child->hasAttribute('hidden') && 'true' !== strtolower(trim($this->attr($child, 'aria-hidden')))
+                && ! in_array(strtolower($child->tagName), array( 'script', 'style', 'template', 'noscript', 'svg' ), true) ) {
+                array_push($nodes, ...$this->textNodesOutside($child, $excluded));
+            }
+        }
+        return $nodes;
+    }
+
     private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null, bool $nativeImage = false): ?array
     {
         $this->imageDimensions()->fillParentImageViewportPair($image);
@@ -9916,7 +9966,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $attrs = array_filter(array_merge($attrs, array(
             'url'    => $url,
-            'alt'    => $this->attr($image, 'alt'),
+            'alt'    => $this->linkedImageAlt($image, $link),
             'title'  => $this->attr($image, 'title'),
             'width'  => $width,
             'height' => $height,

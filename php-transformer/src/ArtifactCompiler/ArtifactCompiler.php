@@ -439,6 +439,8 @@ final class ArtifactCompiler
             if (isset($generatedAssetIdentities[$identity])) continue;
             $generatedAssetIdentities[$identity] = true; $generatedAssets[] = $asset;
         }
+        $rootInlineAsset = $this->documentInlineStyleAsset($normalized['files']);
+        if (null !== $rootInlineAsset) $generatedAssets[] = $rootInlineAsset;
         $projectedAdminBarAsset = $this->projectedViewportChromeAsset($normalized['files']);
         if (null !== $projectedAdminBarAsset) {
             $generatedAssets[] = $projectedAdminBarAsset;
@@ -1087,7 +1089,19 @@ final class ArtifactCompiler
 
         $productRoutes = array();
         $pageProducts = array();
-        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts);
+        $detailPages = array();
+        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages);
+        // Match the plan's page route, including explicit routes and entry roots.
+        $pageRoutes = array();
+        $entryRoot = dirname($entryPath);
+        foreach ($files as $file) {
+            $path = $file['path'] ?? '';
+            $relative = '.' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
+            $route = SchemaProductEvidence::urlRoute('/' . $relative, $path);
+            $segments = array_map($slug, explode('/', $route));
+            $pageRoutes[$path] = $file['metadata']['route_path'] ?? '/' . implode('/', $segments);
+            if ('page' !== ($file['metadata']['post_type'] ?? 'page')) unset($detailPages[$path]);
+        }
         $products = array();
         $forms = array();
         $orderLookups = array();
@@ -1345,11 +1359,27 @@ final class ArtifactCompiler
         foreach ( $schemaProducts as $productSlug => $row ) {
             if ( isset($row['bindings']) ) usort($row['bindings'], static fn (array $a, array $b): int => strcmp($a['source_path'], $b['source_path']) ?: strcmp($a['search_block_markup'], $b['search_block_markup']));
             if (!isset($row['url'])) $row['url'] = '/' . $row['source_path'];
+            $source = $row['source_path'];
+            if (isset($detailPages[$source]) && $detailPages[$source] === ($pageRoutes[$source] ?? null)) {
+                foreach ($row['bindings'] ?? array() as $binding) {
+                    if ('commerce_add_to_cart_form' === ($binding['role'] ?? null) && $source === ($binding['source_path'] ?? null)) {
+                        $row['whole_page_candidate'] = 'blocks-engine/whole-page-candidate/v1';
+                        break;
+                    }
+                }
+            }
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
             foreach ( $row['bindings'] ?? array() as $binding ) $products[$productSlug]['bindings'][] = $binding;
             // Detail evidence owns identity and source URL; card bindings stay intact.
             foreach (array('name', 'slug', 'url') as $field) $products[$productSlug][$field] = $row[$field];
-            foreach ( array('description', 'image', 'category', 'sku', 'images', 'tags', 'variants', 'sale_price', 'stock_status') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+            if (isset($row['whole_page_candidate'])) {
+                // The detail page, not an earlier listing card, owns the claim.
+                $products[$productSlug]['source_path'] = $source;
+                $products[$productSlug]['whole_page_candidate'] = $row['whole_page_candidate'];
+            }
+            // Detail-page descriptive evidence wins; cards fill only absent fields.
+            foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'stock_status') as $field ) if ( isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+            foreach ( array('tags', 'sale_price') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
         // Listing-owned forms are shop controls, not a second form-provider
         // surface. In particular a sort-only form and its select may serialize
@@ -1367,6 +1397,11 @@ final class ArtifactCompiler
             });
             if ( array() !== $owned && array() === $unclaimed ) unset($forms[$key]);
         }
+        foreach ($products as $productSlug => &$product) {
+            $product['id'] = 'product:' . hash('sha256', $productSlug);
+            $product['source_route'] = $pageRoutes[$product['source_path'] ?? $entryPath] ?? '/';
+        }
+        unset($product);
         ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($orderLookups, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
         $collections = array(
             array('capability' => 'shop', 'type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
@@ -1709,6 +1744,9 @@ final class ArtifactCompiler
             'generated_block_namespace' => $generatedBlockNamespace,
             'generated_asset_root'       => $this->generatedAssetRoot,
             'extract_global_shell'       => $extractGlobalShell,
+            // A shared shell's projection joins every page's stylesheet, where
+            // a rule it left unprojected would bypass the page's projection.
+            'project_only_matched_author_rules' => 'artifact-shared-shell' === $sourceScope,
             'layout_geometry_proof'      => $this->layoutGeometryProofForSource($files, $sourcePath),
         ));
         $blockCompilationOutput = $result->blockCompilationOutput;
@@ -3192,6 +3230,48 @@ final class ArtifactCompiler
             $sources[] = array('path' => (string) ($file['path'] ?? 'css:input'), 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])));
         }
         return self::sortedByPath($sources);
+    }
+
+    /** Front-end-only document mechanics; never part of the editor carrier. */
+    private function documentInlineStyleAsset(array $files): ?array
+    {
+        $documents = array();
+        foreach ($files as $file) {
+            if ('html' !== ($file['kind'] ?? '')) continue;
+            foreach (array('html', 'body') as $tag) {
+                $style = \Automattic\BlocksEngine\PhpTransformer\Support\InlineBodyStyle::declarations((string) ($file['content'] ?? ''), $tag);
+                if ('' !== $style) $documents[(string) $file['path']][$tag] = $style;
+            }
+        }
+        if (array() === $documents) return null;
+        // A deliberately conservative ID bound also covers nested selectors.
+        // The matching class arm of :is() supplies ID weight without requiring
+        // an authored ID, just like InlineGeometry's inline-style carriers.
+        $ids = 1;
+        $transformer = new CssStylesheetTransformer();
+        foreach ($files as $file) {
+            if ('css' !== ($file['kind'] ?? '')) continue;
+            $transformer->visitStyleRules((string) ($file['content'] ?? ''), static function (string $prelude) use (&$ids): void {
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    $weight = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::specificityCounts(\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::parse($selector));
+                    $ids += $weight['ids'];
+                }
+            });
+        }
+        $rules = array();
+        foreach ($documents as $source => $styles) {
+            $identity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
+            $class = $this->routeClasses[$identity] ?? \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($identity);
+            $root = 'html.' . $class . ':is(.' . $class . ',' . str_repeat('#' . $class, $ids) . ')';
+            foreach ($styles as $tag => $style) {
+                $rules[] = $root . ('body' === $tag ? ' body' : '') . '{' . $style . '}';
+            }
+        }
+        if (array() === $rules) return null;
+        $content = implode("\n", $rules) . "\n";
+        $hash = hash('sha256', $content);
+        $path = 'assets/css/document-inline-' . substr($hash, 0, 16) . '.css';
+        return array('source' => 'engine-support', 'path' => $path, 'target_path' => $path, 'kind' => 'css', 'role' => 'stylesheet', 'stylesheet_placement' => 'after-author', 'stylesheet_target' => 'frontend', 'mime_type' => 'text/css', 'media_type' => 'text/css', 'bytes' => strlen($content), 'encoding' => 'utf-8', 'binary' => false, 'content' => $content, 'hash' => $hash, 'source_hash' => $hash);
     }
 
     /**

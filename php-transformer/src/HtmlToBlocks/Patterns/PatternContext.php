@@ -28,6 +28,7 @@ final class PatternContext
      * @param Closure(string, string): void|null $glyphColorUndecodable
      * @param Closure(DOMElement): string|null $capturedGlyphColor
      * @param Closure(DOMElement): array<string, string>|null $accordionItemBox
+     * @param Closure(DOMElement): bool|null $sourceElementVisuallyClipped
      */
     public function __construct(
         private readonly Closure $presentationAttributes,
@@ -49,7 +50,8 @@ final class PatternContext
         private readonly ?Closure $assetMetadata = null,
         private readonly ?Closure $glyphColorUndecodable = null,
         private readonly ?Closure $capturedGlyphColor = null,
-        private readonly ?Closure $accordionItemBox = null
+        private readonly ?Closure $accordionItemBox = null,
+        private readonly ?Closure $sourceElementVisuallyClipped = null
     ) {
     }
 
@@ -132,6 +134,12 @@ final class PatternContext
         return $element->hasAttribute('hidden')
             || 'true' === strtolower(trim($element->getAttribute('aria-hidden')))
             || 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)(?:\s*!important)?\s*(?:;|$)/i', $element->getAttribute('style'));
+    }
+
+    /** The source box is clipped to nothing, as a screen-reader-only label is. */
+    public function sourceElementVisuallyClipped(DOMElement $element): bool
+    {
+        return null !== $this->sourceElementVisuallyClipped && ($this->sourceElementVisuallyClipped)($element);
     }
 
     public function authoredIconColor(DOMElement $element): string

@@ -18,9 +18,10 @@ final class SchemaProductEvidence
      * @param array<int,array<string,mixed>> $diagnostics
      * @param array<string,string> $routes Source routes mapped to canonical product slugs.
      * @param array<string,list<string>> $pageProducts Canonical product slugs observed on each source page.
+     * @param array<string,string> $detailPages Unambiguous detail source paths mapped to their product route (before deduplication).
      * @return array<string,array<string,mixed>> Product rows keyed by slug.
      */
-    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array(), array &$pageProducts = array()): array
+    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array(), array &$pageProducts = array(), array &$detailPages = array()): array
     {
         $documents = array();
         foreach ($files as $file) {
@@ -59,6 +60,12 @@ final class SchemaProductEvidence
                     if ('' !== $name) $siteNames[] = $name;
                 }
             }
+            $pageClaims = array();
+            $listing = false;
+            foreach ($schemas as $schema) {
+                $pageClaims = array_merge($pageClaims, self::typedNodes($schema, 'Product'));
+                $listing = $listing || array() !== self::typedNodes($schema, 'ItemList');
+            }
             foreach ($schemas as $schema) {
                 foreach (self::typedNodes($schema, 'Product') as $product) {
                     $row = self::row($product, $path, $slug, $price, $siteNames);
@@ -78,6 +85,7 @@ final class SchemaProductEvidence
                     }
                     if ('' !== $identity) $tokens = array('id:' . $identity);
                     $route = self::urlRoute($fields['url'] ?? '/' . $path, $path);
+                    if (!$listing && 1 === count($pageClaims) && '' !== $pagePath && $route === $pagePath) $detailPages[$path] = '/' . $route;
                     $hasRoute = isset($product['url']) || isset($product['offers']['url']) || in_array('ProductGroup', (array) ($product['@type'] ?? array()), true);
                     if ($hasRoute) {
                         $tokens[] = 'route:' . $route;
@@ -233,7 +241,17 @@ final class SchemaProductEvidence
         }
         if ($tags) $fields['tags'] = $tags;
         if ($isGroup) {
-            if ($variants && $declared) $fields['variants'] = $variants;
+            $attributes = $variants[0]['attributes'] ?? array();
+            // An undeclared default title is a placeholder, not a shopper choice.
+            // Never discard real attributes or an explicitly declared variation axis.
+            $defaultTitle = empty($product['variesBy']) && 1 === count($attributes)
+                && 'title' === $attributes[0]['key'] && 'default-title' === $attributes[0]['value'];
+            if (1 === count($variants) && (!$attributes || $defaultTitle)) {
+                foreach (array('sku', 'regular_price', 'sale_price', 'stock_status') as $field) {
+                    unset($fields[$field]);
+                    if (isset($variants[0][$field])) $fields[$field] = $variants[0][$field];
+                }
+            } elseif ($variants && $declared) $fields['variants'] = $variants;
             else $fields['_variants_undeclared'] = true;
         }
         return array($productSlug, $fields, self::routePath($urlPath));

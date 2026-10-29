@@ -106,6 +106,12 @@ final class AuthorStylesheetProjector
     /** @param list<string> $ancestors @param list<string> $outerConditions */
     private function projectStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false, array $ancestors = array(), array $outerConditions = array()): string
     {
+        if ( $context->onlyMatchedRules ) {
+            $prelude = $this->matchedSelectorPrelude($prelude, $context);
+            if ( '' === $prelude ) {
+                return '';
+            }
+        }
         $lifted = ColorSchemeVariant::liftPrelude($prelude);
         $this->contentBoxRestated = false;
         $this->contentBoxOrder = null;
@@ -117,6 +123,23 @@ final class AuthorStylesheetProjector
         }
 
         return $this->moveContentBoxRestatements($css, $context, array( ...$outerConditions, ...$ancestors ));
+    }
+
+    /**
+     * The selectors of `$prelude` that may reach an element of this document.
+     * A selector the matcher cannot evaluate is kept: it may.
+     */
+    private function matchedSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return $prelude;
+        }
+        $matched = array_filter($selectors, function (string $selector) use ($context): bool {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            return ! ($parsed['supported'] ?? false) || array() !== $this->matchingSourceElements($selector, $parsed, $context);
+        });
+        return count($matched) === count($selectors) ? $prelude : implode(',', $matched);
     }
 
     /**

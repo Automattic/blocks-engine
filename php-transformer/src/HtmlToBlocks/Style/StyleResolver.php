@@ -1167,6 +1167,13 @@ final class StyleResolver implements ElementPresentationResolver
             }
 
             $conditions = array_map('trim', $rule['conditions'] ?? array());
+            // A print or speech rule (Bootstrap's `@media print{.navbar{display:none}}`)
+            // never draws a screen box, so it is not a viewport variant.
+            foreach ( $conditions as $condition ) {
+                if ( preg_match('/^@media\s*(.*)$/is', $condition, $media ) && ! CssCascade::mediaConditionTargetsScreen($media[1]) ) {
+                    continue 2;
+                }
+            }
             // `@layer` scopes a declaration without conditioning it on the
             // viewport, so it is carried as the entry's layer rather than as a
             // condition the author could restate.
@@ -3597,6 +3604,19 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether the author clips the element's box out of sight, as a
+     * screen-reader-only label is, judged by the last value the author states
+     * for each clipping property.
+     */
+    public function isVisuallyClippedBox(DOMElement $element): bool
+    {
+        return CssValueInspector::isVisuallyClippedBox(array_map(
+            static fn (array $values): string => (string) end($values),
+            $this->authorDeclaredValuesAtAnyViewport($element, array( 'position', 'overflow', 'width', 'height', 'clip', 'clip-path' ))
+        ));
+    }
+
+    /**
      * Every value the author stylesheet states for these properties on this
      * element in its resting state, at any viewport, in source order with the
      * inline style last.
@@ -4078,6 +4098,7 @@ final class StyleResolver implements ElementPresentationResolver
             || $this->isHiddenPositionedLayer($element, $declarations)
             || $this->hasKeyboardFocusReveal($element, $declarations)
             || $this->context->hasRetainedPresentationRuntime($element)
+            || $this->hasRetainedCaptureDialogTrigger($element)
             || $this->isNativeNavigationDropdownPanel($element)
         ) {
             return $declarations;
@@ -4106,6 +4127,27 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $normalized['declarations'];
+    }
+
+    /** Source-wired capture panels remain reachable without dialog projection. */
+    private function hasRetainedCaptureDialogTrigger(DOMElement $element): bool
+    {
+        $key = trim(SourceDom::attr($element, CaptureEvidence::DIALOG_PANEL));
+        if ('' === $key || $key !== SourceDom::attr($element, 'id')) {
+            return false;
+        }
+
+        foreach ($element->ownerDocument?->getElementsByTagName('*') ?? array() as $trigger) {
+            if (
+                $trigger instanceof DOMElement
+                && $key === trim(SourceDom::attr($trigger, CaptureEvidence::DIALOG_TRIGGER))
+                && $key === trim(SourceDom::attr($trigger, 'aria-controls'))
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isNativeNavigationDropdownPanel(DOMElement $element): bool
