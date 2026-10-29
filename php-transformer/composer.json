@@ -298,6 +298,7 @@
       "php tests/unit/form-physical-box-ownership.php",
       "php tests/unit/form-layout-graph-important-facts.php",
       "php tests/unit/choice-only-control-group.php",
+      "php tests/unit/script-driven-pseudo-form.php",
       "php tests/unit/html-markup-parser-linear.php",
       "php tests/unit/css-ident-escape.php",
       "php tests/unit/selector-match-cache-batch-eviction.php",
