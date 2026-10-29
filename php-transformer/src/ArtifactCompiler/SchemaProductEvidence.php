@@ -17,9 +17,10 @@ final class SchemaProductEvidence
      * @param callable(mixed):string $price
      * @param array<int,array<string,mixed>> $diagnostics
      * @param array<string,string> $routes Source routes mapped to canonical product slugs.
+     * @param array<string,list<string>> $pageProducts Canonical product slugs observed on each source page.
      * @return array<string,array<string,mixed>> Product rows keyed by slug.
      */
-    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array()): array
+    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array(), array &$pageProducts = array()): array
     {
         $documents = array();
         foreach ($files as $file) {
@@ -107,7 +108,11 @@ final class SchemaProductEvidence
             usort($group['entries'], static fn (array $a, array $b): int => $b['score'] <=> $a['score'] ?: strcmp($a['fields']['source_path'], $b['fields']['source_path']));
             $fields = $group['entries'][0]['fields'];
             $chosen[$fields['slug']] = $fields;
-            foreach ($group['entries'] as $entry) foreach ($entry['routes'] as $route) $routes[$route] = $fields['slug'];
+            foreach ($group['entries'] as $entry) {
+                foreach ($entry['routes'] as $route) $routes[$route] = $fields['slug'];
+                $path = $entry['fields']['source_path'];
+                if (!in_array($fields['slug'], $pageProducts[$path] ?? array(), true)) $pageProducts[$path][] = $fields['slug'];
+            }
         }
         ksort($chosen, SORT_STRING);
         return $chosen;

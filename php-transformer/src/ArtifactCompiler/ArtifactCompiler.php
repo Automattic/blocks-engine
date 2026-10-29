@@ -1086,7 +1086,8 @@ final class ArtifactCompiler
         };
 
         $productRoutes = array();
-        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes);
+        $pageProducts = array();
+        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts);
         $products = array();
         $forms = array();
         $orderLookups = array();
@@ -1315,9 +1316,9 @@ final class ArtifactCompiler
         }
         // Only a page with one schema product can own an otherwise unclaimed
         // purchase form. Card descendants retain their existing card bindings.
-        $pageProducts = array();
+        // Ownership includes every contributing schema page, not only the
+        // chosen canonical row's source path after identity/language merging.
         $cardSelectors = array();
-        foreach ( $schemaProducts as $productSlug => $row ) $pageProducts[$row['source_path']][] = $productSlug;
         foreach ( $fallbacks as $fallback ) {
             if ( 'html_product_grid_fallback' !== ($fallback['diagnostic_code'] ?? '') ) continue;
             foreach ( $fallback['products'] ?? array() as $card ) {
@@ -1342,6 +1343,7 @@ final class ArtifactCompiler
             unset($forms[$sourcePath . "\n" . $selector]);
         }
         foreach ( $schemaProducts as $productSlug => $row ) {
+            if ( isset($row['bindings']) ) usort($row['bindings'], static fn (array $a, array $b): int => strcmp($a['source_path'], $b['source_path']) ?: strcmp($a['search_block_markup'], $b['search_block_markup']));
             if (!isset($row['url'])) $row['url'] = '/' . $row['source_path'];
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
             foreach ( $row['bindings'] ?? array() as $binding ) $products[$productSlug]['bindings'][] = $binding;
