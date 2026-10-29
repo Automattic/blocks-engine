@@ -1265,6 +1265,26 @@ $assert(3 === ($runtimeAppShellIsland['target_count'] ?? null), 'runtime app she
 $assert(in_array('app_root_token', $runtimeAppShellIsland['app_shell_signals'] ?? array(), true), 'runtime app shell reports app-root token evidence');
 $assert(str_contains((string) ($runtimeAppShell['serialized_blocks'] ?? ''), '<main class="app-shell">'), 'runtime app shell preserves the source root markup');
 
+// Engine capture classes are metadata, not author naming: an app-like token
+// inside the data-blocks-engine-capture- namespace never marks a subtree as an
+// application shell, while the same token as an author class still does.
+$appShellRuntimeSelectors = array(
+    'runtime_dom_selectors'   => array('#run', '#log', '#status'),
+    'runtime_script_metadata' => array(array('path' => 'app.js')),
+);
+$captureTokenShell = ( new HtmlTransformer() )->transform(
+    '<main class="data-blocks-engine-capture-desktop-only"><section><button id="run">Run</button><div id="log"></div><span id="status"></span></section></main>',
+    $appShellRuntimeSelectors
+)->toArray();
+$captureTokenAppShells = array_values(array_filter($captureTokenShell['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'runtime_app_shell' === ($island['preservation_reason'] ?? '')));
+$assert(array() === $captureTokenAppShells, 'an engine capture class alone does not mark an application shell root');
+$authorTokenShell = ( new HtmlTransformer() )->transform(
+    '<main class="desktop"><section><button id="run">Run</button><div id="log"></div><span id="status"></span></section></main>',
+    $appShellRuntimeSelectors
+)->toArray();
+$authorTokenAppShells = array_values(array_filter($authorTokenShell['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'runtime_app_shell' === ($island['preservation_reason'] ?? '')));
+$assert(1 === count($authorTokenAppShells) && in_array('app_root_token', $authorTokenAppShells[0]['app_shell_signals'] ?? array(), true), 'an author desktop class still marks an application shell root');
+
 $inlineSemanticRuntime = ( new HtmlTransformer() )->transform(
     '<span class="qty-display" aria-live="polite">1</span>',
     array('runtime_dom_selectors' => array('.qty-display'), 'runtime_script_metadata' => array(array('path' => 'app.js')))

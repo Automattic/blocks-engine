@@ -795,9 +795,9 @@ final class CommerceFallbackReporter
     }
 
     /**
-     * A formless purchase region needs a cart control and either option inputs
-     * or structural product evidence. Ownership is deliberately left to the
-     * compiler's single-schema-product join and product-grid card guards.
+     * A formless purchase region needs a cart control, with optional option inputs.
+     * Ownership is deliberately left to the compiler's single-schema-product
+     * join and product-grid card guards, not inferred from the control alone.
      *
      * @param array<int, array<string, mixed>> $fallbacks
      */
@@ -844,8 +844,8 @@ final class CommerceFallbackReporter
                     }
                 }
             }
-            // Prefer the smallest option-bearing region when present; otherwise
-            // retain the smallest region with structural product evidence.
+            // Document order visits outer wrappers first. Prefer the smallest
+            // region with options; otherwise retain the smallest control wrapper.
             $selector = SourceDom::elementSelector($control);
             $regions[$selector] = $element;
             if ( $hasOptions ) {
