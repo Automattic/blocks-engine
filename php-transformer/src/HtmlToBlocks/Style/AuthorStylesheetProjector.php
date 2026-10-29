@@ -251,6 +251,12 @@ final class AuthorStylesheetProjector
             );
             $imageRule .= implode(',', $inlineSelectors) . '{display:' . ($declarations['display'] ?? 'inline')
                 . ';max-width:' . ($declarations['max-width'] ?? 'none') . ';vertical-align:' . ($declarations['vertical-align'] ?? 'baseline') . '}';
+            // Any inline-flow image aligns on its line as the source declared,
+            // not at the bottom where core's Image rule would put it.
+            if ( isset($declarations['vertical-align']) ) {
+                $imageRule .= str_replace('.wp-block-image', '.wp-block-image:where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . ')', $imagePrelude)
+                    . '{vertical-align:' . $declarations['vertical-align'] . '}';
+            }
             $imageRule .= $this->flexItemImageBoxRule($prelude, $imagePrelude, $declarations, $context);
         }
         $svgImageRule = '' === $svgImagePrelude
