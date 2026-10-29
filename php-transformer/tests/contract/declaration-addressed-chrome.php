@@ -51,6 +51,36 @@ foreach ($plan['templates'] as $template) {
     $assert(str_contains($template['canonical_block_markup'], '"slug":"' . $parts[0]['slug'] . '"'), 'Every template references the single header part.');
 }
 
+// Re-ingested generated markup can retain provisional control bindings. The
+// navigation editor-state repair is identical until declaration finalization;
+// route hover rules then give that binding different declaration addresses.
+foreach (array(
+    'route-specific editor state' => array('index' => '.7', 'about' => '.9', 'copy' => '.7'),
+) as $case => $routes) {
+    $site = array('entrypoint' => 'index.html', 'files' => array());
+    $states = array();
+    foreach ($routes as $slug => $opacity) {
+        $site['files'][$slug . '.html'] = '<!doctype html><html><head><link rel="stylesheet" href="' . $slug . '.css"></head><body><header><p class="blocks-engine-control-aaaaaaaaaaaa-0">Menu</p></header><main><h1>Page</h1></main></body></html>';
+        $css = '.blocks-engine-control-aaaaaaaaaaaa-0{opacity:0}.blocks-engine-control-aaaaaaaaaaaa-0:hover{opacity:' . $opacity . '}';
+        $site['files'][$slug . '.css'] = $css;
+    }
+    $sitePlan = (new WordPressSitePlan())->fromCompilerResult((new ArtifactCompiler())->compile($site)->toArray());
+    WordPressSitePlan::assertValid($sitePlan);
+    foreach ($routes as $slug => $opacity) {
+        $page = (new HtmlTransformer())->transform($site['files'][$slug . '.html'], array('static_css' => $site['files'][$slug . '.css']))->toArray();
+        $state = current(array_filter($page['assets'], static fn (array $asset): bool => 'editor-static-state' === ($asset['source'] ?? '')));
+        $assert(is_array($state), $case . ': fixture materializes navigation editor-state CSS.');
+        $assert(str_contains($state['path'], substr(hash('sha256', $state['content']), 0, 16)), $case . ': generated path addresses final bytes.');
+        $assert($state['hash'] === hash('sha256', $state['content']) && $state['source_hash'] === $state['hash'] && $state['bytes'] === strlen($state['content']), $case . ': integrity metadata addresses final bytes.');
+        $states[$slug] = $state;
+    }
+    $normalize = static fn (string $css): string => preg_replace('/blocks-engine-control-[a-f0-9]{12}-[0-9]+/', 'CONTROL', $css);
+    $assert($normalize($states['index']['content']) === $normalize($states['about']['content']) && $states['index']['content'] !== $states['about']['content'], $case . ': editor-state CSS differs only in finalized declaration addresses.');
+    $assert($states['index']['path'] !== $states['about']['path'] && $states['index']['path'] === $states['copy']['path'], $case . ': different bytes diverge and identical bytes share a path.');
+    $stateAssets = array_values(array_filter($sitePlan['assets'], static fn (array $asset): bool => 'editor-static-state' === ($asset['source'] ?? '')));
+    $assert(2 === count($stateAssets), $case . ': identical final editor-state assets coalesce across routes.');
+}
+
 // Use the public site's materialized theme presets and CSS, not compiler state.
 $writes = array_column($plan['writes'], null, 'target_path');
 $theme = json_decode($writes['theme.json']['payload']['data'], true);

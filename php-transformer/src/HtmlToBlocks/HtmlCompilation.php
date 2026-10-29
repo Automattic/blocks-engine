@@ -1771,6 +1771,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $authorStylesheetProjections,
             array_values(array_filter($assets, static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && (array() === $authorStylesheetProjections || 'author-css' !== ($asset['source'] ?? ''))))
         ));
+        $classReplacements += $classIdentity->assetPathReplacements($assets, $classReplacements);
         $blocks = $classIdentity->rewrite($blocks, $classReplacements);
         $serializedBlocks = $classIdentity->rewrite($serializedBlocks, $classReplacements);
         $sourceProvenance = $classIdentity->rewrite($sourceProvenance, $classReplacements);

@@ -55,6 +55,34 @@ final class DeclarationAddressedClasses
     }
 
     /**
+     * Generated stylesheet paths address the published bytes, not provisional
+     * control bindings. Include paths in the same rewrite as all their users.
+     * @param array<string, array<string, mixed>> $assets
+     * @param array<string, string> $replacements
+     * @return array<string, string>
+     */
+    public function assetPathReplacements(array $assets, array $replacements): array
+    {
+        $paths = array();
+        foreach ($assets as $asset) {
+            if (!self::isContentAddressedStylesheet($asset)) continue;
+            $content = $this->rewrite($asset['content'], $replacements);
+            $path = $asset['path'];
+            $paths[$path] = substr($path, 0, -20) . substr(hash('sha256', $content), 0, 16) . '.css';
+        }
+        return $paths;
+    }
+
+    /** @param array<string, mixed> $asset */
+    private static function isContentAddressedStylesheet(array $asset): bool
+    {
+        return 'css' === ($asset['kind'] ?? '')
+            && '' === ($asset['source_path'] ?? '')
+            && is_string($asset['content'] ?? null)
+            && str_ends_with((string) ($asset['path'] ?? ''), '-' . substr(hash('sha256', $asset['content']), 0, 16) . '.css');
+    }
+
+    /**
      * Normalize declaration syntax, not semantics: preserve fallback and
      * shorthand order, custom-property case, strings and !important.
      * @return list<string>
@@ -94,24 +122,24 @@ final class DeclarationAddressedClasses
     public function rewrite(mixed $value, array $replacements): mixed
     {
         if (is_string($value)) {
-            return preg_replace_callback(self::PATTERN, static fn (array $match): string => $replacements[$match[0]] ?? $match[0], $value) ?? $value;
+            $value = preg_replace_callback(self::PATTERN, static fn (array $match): string => $replacements[$match[0]] ?? $match[0], $value) ?? $value;
+            $paths = array_filter($replacements, static fn (string $key): bool => str_starts_with($key, 'assets/css/'), ARRAY_FILTER_USE_KEY);
+            return strtr($value, $paths);
         }
         if (!is_array($value)) return $value;
         $originalContent = $value['content'] ?? null;
-        foreach ($value as $key => $item) $value[$key] = $this->rewrite($item, $replacements);
+        $contentAddressed = self::isContentAddressedStylesheet($value);
+        $rewritten = array();
+        foreach ($value as $key => $item) {
+            $rewritten[is_string($key) ? strtr($key, $replacements) : $key] = $this->rewrite($item, $replacements);
+        }
+        $value = $rewritten;
         if (is_string($originalContent) && $originalContent !== $value['content']) {
             if (isset($value['bytes'])) $value['bytes'] = strlen($value['content']);
             foreach (array('hash', 'content_hash') as $key) {
                 if (isset($value[$key])) $value[$key] = hash('sha256', $value['content']);
             }
-            if ('engine-support' === ($value['source'] ?? '')) {
-                $value['source_hash'] = hash('sha256', $value['content']);
-                foreach (array('path', 'target_path') as $key) {
-                    if (isset($value[$key])) {
-                        $value[$key] = preg_replace('/-[a-f0-9]{16}\.css$/', '-' . substr($value['source_hash'], 0, 16) . '.css', $value[$key]);
-                    }
-                }
-            }
+            if ($contentAddressed) $value['source_hash'] = hash('sha256', $value['content']);
         }
         return $value;
     }
