@@ -439,6 +439,8 @@ final class ArtifactCompiler
             if (isset($generatedAssetIdentities[$identity])) continue;
             $generatedAssetIdentities[$identity] = true; $generatedAssets[] = $asset;
         }
+        $rootInlineAsset = $this->documentInlineStyleAsset($normalized['files']);
+        if (null !== $rootInlineAsset) $generatedAssets[] = $rootInlineAsset;
         $projectedAdminBarAsset = $this->projectedViewportChromeAsset($normalized['files']);
         if (null !== $projectedAdminBarAsset) {
             $generatedAssets[] = $projectedAdminBarAsset;
@@ -3229,6 +3231,48 @@ final class ArtifactCompiler
             $sources[] = array('path' => (string) ($file['path'] ?? 'css:input'), 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])));
         }
         return self::sortedByPath($sources);
+    }
+
+    /** Front-end-only document mechanics; never part of the editor carrier. */
+    private function documentInlineStyleAsset(array $files): ?array
+    {
+        $documents = array();
+        foreach ($files as $file) {
+            if ('html' !== ($file['kind'] ?? '')) continue;
+            foreach (array('html', 'body') as $tag) {
+                $style = \Automattic\BlocksEngine\PhpTransformer\Support\InlineBodyStyle::declarations((string) ($file['content'] ?? ''), $tag);
+                if ('' !== $style) $documents[(string) $file['path']][$tag] = $style;
+            }
+        }
+        if (array() === $documents) return null;
+        // One ID more than the heaviest author selector outranks every rule,
+        // as inline style does. The matching class arm of :is() supplies the
+        // ID weight without an authored ID, like InlineGeometry's carriers.
+        $ids = 0;
+        $transformer = new CssStylesheetTransformer();
+        foreach ($files as $file) {
+            if ('css' !== ($file['kind'] ?? '')) continue;
+            $transformer->visitStyleRules((string) ($file['content'] ?? ''), static function (string $prelude) use (&$ids): void {
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    $weight = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::specificityCounts(\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::parse($selector));
+                    $ids = max($ids, $weight['ids']);
+                }
+            });
+        }
+        $rules = array();
+        foreach ($documents as $source => $styles) {
+            $identity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
+            $class = $this->routeClasses[$identity] ?? \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($identity);
+            $root = 'html.' . $class . ':is(.' . $class . ',' . str_repeat('#' . $class, $ids + 1) . ')';
+            foreach ($styles as $tag => $style) {
+                $rules[] = $root . ('body' === $tag ? ' body' : '') . '{' . $style . '}';
+            }
+        }
+        if (array() === $rules) return null;
+        $content = implode("\n", $rules) . "\n";
+        $hash = hash('sha256', $content);
+        $path = 'assets/css/document-inline-' . substr($hash, 0, 16) . '.css';
+        return array('source' => 'engine-support', 'path' => $path, 'target_path' => $path, 'kind' => 'css', 'role' => 'stylesheet', 'stylesheet_placement' => 'after-author', 'stylesheet_target' => 'frontend', 'mime_type' => 'text/css', 'media_type' => 'text/css', 'bytes' => strlen($content), 'encoding' => 'utf-8', 'binary' => false, 'content' => $content, 'hash' => $hash, 'source_hash' => $hash);
     }
 
     /**

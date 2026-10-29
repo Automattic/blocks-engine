@@ -275,6 +275,7 @@
       "php tests/unit/block-markup-input-repair.php",
       "php tests/unit/cover-own-markup.php",
       "php tests/unit/artifact-inline-body-spacing.php",
+      "php tests/unit/artifact-root-inline-scroll.php",
       "php tests/unit/artifact-inline-display.php",
       "php tests/unit/host-block-gap.php",
       "php tests/unit/host-block-gap-relative.php",
