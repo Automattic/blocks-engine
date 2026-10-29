@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use InvalidArgumentException;
 
-/** Ordered, source-owned head DOM. Asset bodies come from canonical writes. */
+/** Ordered head DOM allowlisted to facts with no WordPress/platform owner. */
 final class DocumentHeadContext
 {
     public const SCHEMA = 'blocks-engine/document-head/v1';
@@ -81,9 +81,9 @@ final class DocumentHeadContext
     }
 
     /**
-     * Drops what a head cannot carry, smallest unit first: an event handler,
-     * an invalid or oversized attribute, then an element that is still over a
-     * budget. Malformed structure is left in place for assertValid() to reject.
+     * Drops elements outside the ownership allowlist, then what an allowed
+     * element cannot carry: invalid attributes followed by over-budget elements.
+     * Malformed structure is left in place for assertValid() to reject.
      *
      * @param array<string,mixed> $head
      * @return array{0:array<string,mixed>,1:list<array{code:string,reason_code:string,tag:string,name:string}>} The head and one row per dropped attribute or element.
@@ -95,6 +95,11 @@ final class DocumentHeadContext
         $elements = array();
         foreach ($head['elements'] as $row) {
             if (!is_array($row) || !is_string($row['tag'] ?? null) || !is_array($row['attributes'] ?? null)) { $elements[] = $row; continue; }
+            $reason = self::ownershipDropReason($row);
+            if (null !== $reason) {
+                $dropped[] = array('code' => 'document_head_element_dropped', 'reason_code' => $reason, 'tag' => $row['tag'], 'name' => '');
+                continue;
+            }
             foreach ($row['attributes'] as $name => $value) {
                 $reason = self::unrepresentableAttribute($name, $value);
                 if (null === $reason) continue;
@@ -109,6 +114,34 @@ final class DocumentHeadContext
         foreach (array_slice($elements, self::MAX_ELEMENTS) as $row) $dropped[] = array('code' => 'document_head_element_dropped', 'reason_code' => 'element_budget', 'tag' => is_array($row) ? (string) ($row['tag'] ?? '') : '', 'name' => '');
         $head['elements'] = array_slice($elements, 0, self::MAX_ELEMENTS);
         return array($head, $dropped);
+    }
+
+    /**
+     * Positive ownership allowlist, not a blacklist of known source vendors.
+     * Route SEO belongs to WordPress/platform fields, never this DOM replay.
+     * Resource loading and inert data retain their existing binding contracts.
+     * Unknown metadata is deliberately not assumed to be source-owned.
+     */
+    private static function ownershipDropReason(array $row): ?string
+    {
+        $attributes = $row['attributes'];
+        if ('meta' === $row['tag']) {
+            $name = strtolower(trim((string) ($attributes['name'] ?? $attributes['property'] ?? '')));
+            if (isset($attributes['charset']) || 'content-type' === strtolower(trim((string) ($attributes['http-equiv'] ?? '')))) return 'wordpress_owned_charset';
+            if (in_array($name, array('robots', 'googlebot', 'bingbot'), true)) return 'platform_owned_robots';
+            if ('generator' === $name) return 'platform_owned_generator';
+            if (in_array($name, array('sentry-trace', 'baggage'), true)) return 'third_party_telemetry';
+            if (in_array($name, array('description', 'og:title', 'og:description', 'og:image', 'og:url', 'og:locale', 'og:site_name'), true) || str_starts_with($name, 'twitter:')) return 'platform_owned_seo';
+            return in_array($name, array('viewport', 'theme-color', 'color-scheme', 'keywords', 'application-name'), true) && !isset($attributes['http-equiv']) ? null : 'not_allowlisted';
+        }
+        if ('link' === $row['tag']) {
+            $relations = preg_split('/\s+/', strtolower(trim((string) ($attributes['rel'] ?? '')))) ?: array();
+            if (in_array('canonical', $relations, true)) return 'platform_owned_canonical';
+            if (in_array('sitemap', $relations, true)) return 'platform_owned_sitemap';
+            if (in_array('manifest', $relations, true)) return 'platform_owned_manifest';
+            return array() !== $relations && array() === array_diff($relations, array('stylesheet', 'preload', 'modulepreload', 'preconnect', 'dns-prefetch', 'icon', 'shortcut', 'apple-touch-icon', 'mask-icon')) ? null : 'not_allowlisted';
+        }
+        return in_array($row['tag'], array('style', 'script'), true) ? null : 'not_allowlisted';
     }
 
     private static function unrepresentableAttribute(mixed $name, mixed $value): ?string
@@ -220,6 +253,9 @@ final class DocumentHeadContext
         $byToken = $this->byToken;
         $html = '';
         foreach ($head['elements'] as $row) {
+            // Defense at the output boundary as well as during materialization:
+            // callers rendering a raw head cannot bypass the ownership contract.
+            if (null !== self::ownershipDropReason($row)) continue;
             $tag = $row['tag']; $attributes = $row['attributes']; $body = '';
             $reference = $row['asset_reference'] ?? $row['url'] ?? '';
             if ('link' === $tag || ('script' === $tag && !$row['inline'])) $attributes['link' === $tag ? 'href' : 'src'] = $reference;
