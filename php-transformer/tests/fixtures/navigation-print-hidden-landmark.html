@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Navigation hidden for print</title>
+<style>
+.navbar{display:flex}
+.navbar-nav{display:flex;flex-direction:column;list-style:none;padding-left:0;margin:0}
+@media(min-width:992px){.navbar-nav{flex-direction:row}}
+@media print{.navbar{display:none}}
+</style></head>
+<body><header>
+<nav class="navbar">
+  <a class="navbar-brand" href="/"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 36'%3E%3Crect width='200' height='36' fill='navy'/%3E%3C/svg%3E" alt="Brand"></a>
+  <div class="navbar-collapse">
+    <ul class="navbar-nav"><li><a href="/a/">About</a></li><li><a href="/b/">News</a></li><li><a href="/c/">Contact</a></li></ul>
+  </div>
+</nav>
+</header></body></html>
