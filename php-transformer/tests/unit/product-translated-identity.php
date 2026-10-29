@@ -48,4 +48,12 @@ foreach (array(
         $expected = $entities;
     }
 }
+$result = (new ArtifactCompiler())->compile(array('entrypoint' => 'products/desk-lamp.html', 'files' => array(
+    'products/desk-lamp.html' => '<html><head><title>Desk Lamp</title><script type="application/ld+json">{"@type":"ProductGroup","name":"Desk Lamp","offers":{"@type":"Offer","price":"20"}}</script></head><body><main><h1>Desk Lamp</h1></main></body></html>',
+)))->toArray();
+$entities = array();
+foreach ($result['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array() as $declaration) {
+    if ('products' === ($declaration['type'] ?? null)) $entities = $declaration['payload']['entities'];
+}
+$assert(array('desk-lamp') === array_column($entities, 'slug'), 'URL-less ProductGroup on products/desk-lamp.html uses the extensionless slug');
 echo "product-translated-identity: ok\n";
