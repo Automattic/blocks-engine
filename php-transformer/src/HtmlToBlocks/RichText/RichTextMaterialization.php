@@ -19,6 +19,15 @@ interface RichTextMaterialization
     /** @return array<string, string> */
     public function inlineVisualDeclarations(DOMElement $element): array;
 
+    /**
+     * Drop the parent-relative declarations a format tag keeps once RichText
+     * strips its class and style; its nested carrier inherits them already.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    public function withoutKeptFormatTagDeclarations(DOMElement $element, array $declarations): array;
+
     public function contentWithoutDecorativeSvg(DOMElement $element): string;
 
     public function contentWithMaterializedSvgImages(DOMElement $element, string $content): ?string;
