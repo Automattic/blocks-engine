@@ -1088,10 +1088,10 @@ final class ArtifactCompiler
         $productRoutes = array();
         $pageProducts = array();
         $detailPages = array();
-        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages);
+        $entryRoot = dirname($entryPath);
+        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot);
         // Match the plan's page route, including explicit routes and entry roots.
         $pageRoutes = array();
-        $entryRoot = dirname($entryPath);
         foreach ($files as $file) {
             $path = $file['path'] ?? '';
             $relative = '.' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
@@ -1397,7 +1397,8 @@ final class ArtifactCompiler
         }
         foreach ($products as $productSlug => &$product) {
             $product['id'] = 'product:' . hash('sha256', $productSlug);
-            $product['source_route'] = $pageRoutes[$product['source_path'] ?? $entryPath] ?? '/';
+            // Only a claimed detail page names the product's route; others keep their URL.
+            if (isset($product['whole_page_candidate'])) $product['source_route'] = $pageRoutes[$product['source_path']];
         }
         unset($product);
         ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($orderLookups, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
