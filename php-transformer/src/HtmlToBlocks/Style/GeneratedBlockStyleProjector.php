@@ -242,7 +242,7 @@ final class GeneratedBlockStyleProjector
             $inlineDeclarations = $this->styleResolver->cssDeclarations($sourceControl->getAttribute('style'));
             $hasAuthoredWidth = isset($inlineDeclarations['width'])
                 || array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
-            $definiteAncestorWidth = $hasAuthoredWidth ? '' : $this->definiteAncestorWidth($sourceControl);
+            $definiteAncestorWidth = $hasAuthoredWidth ? '' : $this->definiteAncestorWidth($sourceControl, $sourceDeclarations);
             $stretchingFlex = $this->sourceControlStretchesFlex($sourceDeclarations);
             $height = CssValueInspector::comparable((string) ($sourceDeclarations['height'] ?? ''));
             if ( '' !== $definiteAncestorWidth ) {
@@ -854,14 +854,30 @@ final class GeneratedBlockStyleProjector
             || 1 === preg_match('/^[1-9]/', $flex);
     }
 
-    private function definiteAncestorWidth(DOMElement $sourceControl): string
+    /**
+     * The px width of the nearest sized ancestor, when the control actually
+     * fills it. Only a block-level control spans its container, and only
+     * through ancestors in block flow: an inline-level control, or any
+     * shrink-to-fit, flex, floated or out-of-flow box on the way up, sizes the
+     * control to its content instead of the sized ancestor.
+     *
+     * @param array<string, string> $sourceDeclarations
+     */
+    private function definiteAncestorWidth(DOMElement $sourceControl, array $sourceDeclarations): string
     {
+        if ( ! $this->sourceControlFillsFlowLine($sourceControl, $sourceDeclarations) ) {
+            return '';
+        }
         for ( $ancestor = $sourceControl->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            $width = CssValueInspector::comparable(
-                (string) ($this->styleResolver->presentationDeclarations($ancestor)['width'] ?? '')
-            );
+            $declarations = $this->styleResolver->presentationDeclarations($ancestor);
+            $width = CssValueInspector::comparable((string) ($declarations['width'] ?? ''));
             if ( preg_match('/^(?:\d+(?:\.\d+)?)px$/', $width) ) {
                 return $width;
+            }
+            if ( ! in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( '', 'block', 'flow-root', 'list-item' ), true)
+                || in_array(CssValueInspector::comparable((string) ($declarations['float'] ?? '')), array( 'left', 'right' ), true)
+                || in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true) ) {
+                return '';
             }
         }
 
