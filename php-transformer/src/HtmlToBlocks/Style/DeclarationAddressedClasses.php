@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 
@@ -33,6 +34,9 @@ final class DeclarationAddressedClasses
             );
             $transformer->visitStyleRules((string) $stylesheet['content'], static function (string $selector, string $body, array $parents) use (&$records, $context): void {
                 $declarations = self::declarations($body);
+                // Expand cascade-equivalent marker alternatives only for identity;
+                // published selectors and their specificity remain untouched.
+                $selector = CssSelectorListCompactor::expand($selector);
                 foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $arm) {
                     preg_match_all(self::PATTERN, $arm, $matches);
                     foreach (array_unique($matches[0]) as $marker) {
@@ -52,6 +56,34 @@ final class DeclarationAddressedClasses
             $replacements[$marker] = 'blocks-engine-' . $kind[1] . '-' . substr(hash('sha256', $signature), 0, 12) . '-0';
         }
         return $replacements;
+    }
+
+    /**
+     * Rebase exact binding positions and occurrences after formerly distinct
+     * controls coalesce. Use the original position, never a first-match search.
+     * @param array<string|int, mixed> $value
+     * @param array<string, string> $replacements
+     * @return array<string|int, mixed>
+     */
+    public function rewriteBindings(array $value, string $markup, array $replacements): array
+    {
+        $rewritten = $this->rewrite($value, $replacements);
+        $finalMarkup = $this->rewrite($markup, $replacements);
+        $rebase = function (array &$item, array $original) use (&$rebase, $markup, $finalMarkup, $replacements): void {
+            $position = $original['position'] ?? null;
+            if ('generic/block-binding/v1' === ($original['schema'] ?? null) && is_array($position) && isset($original['search_block_markup'])) {
+                $offset = strlen($this->rewrite(substr($markup, 0, $position['offset']), $replacements));
+                $search = $item['search_block_markup'];
+                $item['position']['offset'] = $offset;
+                $item['position']['length'] = strlen($search);
+                $item['occurrence'] = substr_count(substr($finalMarkup, 0, $offset + strlen($search)), $search);
+            }
+            foreach ($original as $key => $child) {
+                if (is_array($child) && is_array($item[$key] ?? null)) $rebase($item[$key], $child);
+            }
+        };
+        $rebase($rewritten, $value);
+        return $rewritten;
     }
 
     /**

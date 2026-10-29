@@ -9,6 +9,20 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
 };
+// The second route adds a differently styled control to the same projected
+// author selector. Its binding and support rules must not enter Shared's hash.
+$sharedAddresses = array();
+foreach (array('shared-only' => '', 'with-extra' => '<button class="blocks-engine-control-bbbbbbbbbbbb-0 extra">Extra</button>') as $route => $extra) {
+    $page = (new HtmlTransformer())->transform(
+        '<!doctype html><html><body><main><div class="row"><button class="blocks-engine-control-aaaaaaaaaaaa-0">Shared</button>' . $extra . '</div></main></body></html>',
+        array('static_css' => '.row>:is(.blocks-engine-control-aaaaaaaaaaaa-0,.blocks-engine-control-bbbbbbbbbbbb-0){color:red;padding:8px}.extra{color:blue;border-radius:12px}')
+    )->toArray();
+    preg_match('/\b(blocks-engine-(?:control|native-button)-[a-f0-9]{12}-[0-9]+)\b/', $page['serialized_blocks'], $shared);
+    $assert(isset($shared[1]), $route . ': fixture exercises a generated shared button.');
+    $sharedAddresses[$route] = $shared[1];
+}
+$assert($sharedAddresses['shared-only'] === $sharedAddresses['with-extra'], 'Shared control address is independent of extra controls in grouped author selectors and page-local support rules.');
+
 $fixture = require dirname(__DIR__) . '/fixtures/declaration-addressed-chrome.php';
 $headers = array();
 $baselines = array();

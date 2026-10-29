@@ -1773,9 +1773,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         ));
         $classReplacements += $classIdentity->assetPathReplacements($assets, $classReplacements);
         $blocks = $classIdentity->rewrite($blocks, $classReplacements);
+        $fallbacks = $classIdentity->rewriteBindings($fallbacks, $serializedBlocks, $classReplacements);
         $serializedBlocks = $classIdentity->rewrite($serializedBlocks, $classReplacements);
         $sourceProvenance = $classIdentity->rewrite($sourceProvenance, $classReplacements);
-        $fallbacks = $classIdentity->rewrite($fallbacks, $classReplacements);
         $shellArtifacts = $classIdentity->rewrite($shellArtifacts, $classReplacements);
         $authorStylesheetProjections = $classIdentity->rewrite($authorStylesheetProjections, $classReplacements);
         $runtimeScriptProjections = $classIdentity->rewrite($runtimeScriptProjections, $classReplacements);
