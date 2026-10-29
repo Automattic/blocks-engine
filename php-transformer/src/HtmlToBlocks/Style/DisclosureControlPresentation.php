@@ -143,10 +143,10 @@ final class DisclosureControlPresentation
         $iconSource = null;
         if ( $isAccordionToggle ) {
             $icon = $this->accordionIcon($control);
-            $iconSource = array() !== $icon ? $control : null;
+            $iconSource = isset($icon['svg']) ? $control : null;
             if ( array() === $icon && $row instanceof DOMElement && ! $row->isSameNode($control) ) {
                 $icon = $this->accordionIcon($row);
-                $iconSource = array() !== $icon ? $row : null;
+                $iconSource = isset($icon['svg']) ? $row : null;
             }
             $css = $this->accordionToggleBoxCss($control, $row, $iconSource, $css);
         }
@@ -268,7 +268,7 @@ final class DisclosureControlPresentation
         return $this->styles->safeVisualDeclarations($layout);
     }
 
-    /** Core owns the icon span; carry observed passive SVG artwork through CSS.
+    /** Core owns the icon span; carry matching text-icon geometry or passive SVG artwork.
      * Expanded class/style attributes come from a verified producer drive.
      * No icon shape or vendor class name defines an expanded-state rotation.
      * @return array<string, string>
@@ -276,6 +276,17 @@ final class DisclosureControlPresentation
     private function accordionIcon(DOMElement $control): array
     {
         $icons = $control->getElementsByTagName('svg');
+        if ( 0 === $icons->length && ! in_array('wp-block-accordion-heading__toggle', preg_split('/\s+/', $control->getAttribute('class')) ?: array(), true) ) {
+            // Core's text icon has a fixed 1.2em box. A source using the same
+            // glyph with an intrinsic box must not acquire that minimum height.
+            foreach ( $control->getElementsByTagName('span') as $span ) {
+                if ( 'true' !== $span->getAttribute('aria-hidden') || '+' !== trim($span->textContent) ) continue;
+                $declarations = $this->styles->safeVisualDeclarations($this->styles->resolvedPresentationDeclarations($span));
+                $box = array_intersect_key($declarations, array_flip(array('width', 'height', 'min-width', 'min-height', 'font-size', 'line-height')));
+                $css = $this->styles->cssDeclarationString(array_merge(array('width' => 'auto', 'height' => 'auto'), $box));
+                return array('closed' => $css, 'open' => $css);
+            }
+        }
         if ( null === $this->svgMarkup || 1 !== $icons->length ) return array();
         $svg = $icons->item(0);
         if ( ! $svg instanceof DOMElement || ! SourceDom::svgHasDrawableContent($svg) ) return array();
@@ -378,9 +389,15 @@ final class DisclosureControlPresentation
         // restating it on the summary reaches the label again, and any rule the
         // label still owns keeps winning over it.
         $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
-        // A source button inherits body type; the generated h3 introduces a
-        // theme heading font between it and that ancestor. Carry the authored
-        // inherited winner across that new semantic wrapper.
+        // Buttons do not inherit line-height by default. Preserve their UA
+        // normal line box rather than walking past the control to body type.
+        // Explicit values (including inherit) still use the authored cascade.
+        if ( ! $carrySummaryLayout && 'button' === strtolower($control->tagName) && ! isset($declarations['line-height'])
+            && ! in_array('wp-block-accordion-heading__toggle', preg_split('/\s+/', $control->getAttribute('class')) ?: array(), true) ) {
+            $carried['line-height'] = 'normal';
+        }
+        // The generated h3 introduces theme heading type between the control
+        // and its source ancestors. Carry explicitly inherited winners across it.
         foreach ( array('font-family', 'line-height') as $property ) {
             if ( ! isset($carried[$property]) || in_array(strtolower(trim($carried[$property])), array('inherit', 'unset'), true) ) {
                 $value = $this->styles->authoredInheritedPropertyWinner($control, $property);

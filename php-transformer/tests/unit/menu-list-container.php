@@ -20,7 +20,7 @@ $unsupported = array_filter($result['fallbacks'] ?? array(), static fn (array $r
 $assert(array() === $unsupported, 'menu beside navigation must not produce unsupported-element fallbacks');
 $markup = $result['serialized_blocks'] ?? '';
 $assert(str_contains($markup, '<!-- wp:button ') && str_contains($markup, '>Menu</button>'), 'menu button survives as a native button');
-$assert(str_contains($markup, '<!-- wp:paragraph') && str_contains($markup, '<p><span>Home</span></p>'), 'menu label survives as native text, separately from the navigation link');
+$assert(str_contains($markup, '<!-- wp:paragraph') && 1 === preg_match('~<p(?: class="[^"]*")?><span>Home</span></p>~', $markup), 'menu label survives as native text, separately from the navigation link');
 $assert(str_contains($markup, '<!-- wp:navigation-link '), 'adjacent navigation remains native');
 
 // A semantic unordered list also supports ordinary items and nested lists.
