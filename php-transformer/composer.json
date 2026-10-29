@@ -758,6 +758,7 @@
       "php tests/unit/social-links-source-context.php",
       "php tests/unit/social-anchor-ancestor-selector.php",
       "php tests/unit/social-links-icon-color.php",
+      "php tests/unit/linked-image-link-name.php",
       "php tests/unit/monochrome-glyph-color.php",
       "php tests/unit/captured-glyph-color.php",
       "php tests/unit/pattern-registry-staged-dispatch.php",
