@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 /**
  * Staged prepare/compilePage/compose transport extracted from ArtifactCompiler.
@@ -290,6 +291,7 @@ trait StagedTransport
             $files,
             $entryPath
         );
+        $pagePlan['terminal_reduction']['site_plan_facts'] = WordPressSitePlan::documentFacts($compiledDocuments, $pageArtifact['files']);
         unset($pagePlan['terminal_reduction']['files'], $pagePlan['terminal_reduction']['entry_blocks']);
         if (array() !== $omittedPages) {
             ksort($omittedPages, SORT_STRING);
@@ -521,7 +523,9 @@ trait StagedTransport
         $blockTypes = array();
         $entryBlocks = null;
         $omittedPages = array();
+        $sitePlanFacts = array('blocks' => array(), 'heads' => array(), 'stylesheets' => array());
         foreach ($reductions as $reduction) {
+            foreach ($sitePlanFacts as $kind => $_) $sitePlanFacts[$kind] += $reduction['site_plan_facts'][$kind] ?? array();
             foreach ($reduction['omitted_pages'] ?? array() as $omittedPage) $omittedPages[$omittedPage['source_path']] = $omittedPage;
             $files = array_merge($files, $reduction['files']);
             foreach ($reduction['source_documents']['documents'] as $document) $documents['documents'][] = $document;
@@ -570,6 +574,7 @@ trait StagedTransport
             'block_types' => $this->dedupeRows($blockTypes),
             'entry_blocks' => $entryBlocks,
             'omitted_pages' => $omittedPages,
+            'site_plan_facts' => $sitePlanFacts,
             'compiled_documents' => array_filter($compiledDocuments, fn(string $path): bool => $path !== ($sharedPlan['analysis']['entry_path'] ?? ''), ARRAY_FILTER_USE_KEY),
             'inline_shell_compilation' => $sharedReduction['inline_shell_compilation'] ?? array('artifacts' => array(), 'assets' => array(), 'author_stylesheet_projections' => array(), 'runtime_script_projections' => array()),
             'captured_dialogs' => $sharedPlan['analysis']['captured_dialogs'] ?? array('diagnostics' => array(), 'projected_count' => 0),

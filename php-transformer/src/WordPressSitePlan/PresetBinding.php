@@ -188,25 +188,23 @@ final class PresetBinding
      * @param array<int,array<string,mixed>> $assets
      * @param array<string,array<string,mixed>> $usageBySource Design usage keyed by document source path.
      */
-    public function __construct(private readonly DesignSystem $system, array $assets, array $usageBySource = array())
+    public function __construct(private readonly ?DesignSystem $system, array $assets, array $usageBySource = array(), array $stylesheetFacts = array())
     {
-        $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()): void {
-                $this->indexRule($prelude, $body);
-                $this->indexVariables($prelude, $body, $ancestors);
-                if (array() === $ancestors) {
-                    foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
-                        // A plain class (including its projected control exclusion)
-                        // proves a resting rule; contextual/conditional selectors do not.
-                        if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', trim($selector), $match)) continue;
-                        foreach (self::declarations($body) as [$property, $value]) {
-                            if (in_array($property, array('color', 'background-color', 'background'), true)) $this->classColors[$match[1]][$property][] = $value;
-                        }
-                    }
-                }
-            });
+            // Projections can change even route-owned CSS during composition.
+            // Only reuse evidence for the exact bytes that survived them.
+            $facts = $stylesheetFacts[hash('sha256', $asset['content'])] ?? self::stylesheetFacts($asset['content']);
+            foreach (array('importantRules', 'styleTextRules', 'stateTokens') as $field) {
+                foreach ($facts[$field] as $family => $rules) $this->{$field}[$family] = array_merge($this->{$field}[$family] ?? array(), $rules);
+            }
+            foreach ($facts['classColors'] as $class => $properties) {
+                foreach ($properties as $property => $values) $this->classColors[$class][$property] = array_merge($this->classColors[$class][$property] ?? array(), $values);
+            }
+            $this->markRules = $this->markRules || $facts['markRules'];
+            // Variable definitions must be replayed in cascade order, across
+            // shared and route-owned stylesheets, before resolving conflicts.
+            foreach ($facts['variables'] as [$prelude, $body, $ancestors]) $this->indexVariables($prelude, $body, $ancestors);
         }
         foreach ($this->scopedVariables as $name => $values) {
             if (!array_key_exists($name, $this->variables) && 1 === count($values)) $this->uniformVariables[$name] = (string) array_key_first($values);
@@ -214,6 +212,31 @@ final class PresetBinding
             if (!array_key_exists($name, $this->variables)) $this->variables[$name] = false;
         }
         $this->classStyles = self::mergeClassStyles($usageBySource);
+    }
+
+    /**
+     * Source-only evidence, independent of the site-wide token selection.
+     * @return array<string,mixed>
+     */
+    public static function stylesheetFacts(string $css): array
+    {
+        // Indexing selectors needs no design system. Only binding their values
+        // later needs the tokens selected from every document's usage.
+        $index = new self(null, array());
+        $variables = array();
+        (new CssStylesheetTransformer())->visitStyleRules($css, static function (string $prelude, string $body, array $ancestors) use ($index, &$variables): void {
+            $index->indexRule($prelude, $body);
+            if (str_contains($body, '--')) $variables[] = array($prelude, $body, $ancestors);
+            if (array() !== $ancestors) return;
+            foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                // Only a plain class proves an unconditional resting colour.
+                if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', trim($selector), $match)) continue;
+                foreach (self::declarations($body) as [$property, $value]) {
+                    if (in_array($property, array('color', 'background-color', 'background'), true)) $index->classColors[$match[1]][$property][] = $value;
+                }
+            }
+        });
+        return array('importantRules' => $index->importantRules, 'styleTextRules' => $index->styleTextRules, 'stateTokens' => $index->stateTokens, 'classColors' => $index->classColors, 'markRules' => $index->markRules, 'variables' => $variables);
     }
 
     /**

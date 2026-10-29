@@ -645,7 +645,8 @@ final class ArtifactCompiler
                 'terminal_reduction_count' => 1,
             ),
             $startedAt,
-            fn(?array $plan): array => ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks, $plan)
+            fn(?array $plan): array => ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks, $plan),
+            $reduction['site_plan_facts'] ?? WordPressSitePlan::documentFacts(array_merge(array($entryBlocks), $compiledHtmlDocuments), $normalized['files'])
         );
     }
 

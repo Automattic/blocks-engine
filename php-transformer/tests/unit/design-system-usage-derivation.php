@@ -354,6 +354,18 @@ $assert(str_contains($sourceRead, '.a{color:var(--wp--preset--color--' . $slug .
 $quotedPreset = '.a{content:"--wp--preset--color--accent-2";/* --wp--preset--color--accent-2 */outline-color:var(--wp--preset--color--accent-2)}';
 $assert(str_contains($sheet($quotedPreset), 'content:"--wp--preset--color--accent-2"') && str_contains($sheet($quotedPreset), 'outline-color:var(--be--source--preset--color--accent-2)'), 'source projection leaves quoted content alone while rewriting variable reads');
 $assert(str_contains($sheet('@media(min-width:1px){.a{--wp--preset--spacing--40:3px;padding:var(--wp--preset--spacing--40)}}'), '--be--source--preset--spacing--40:3px;padding:var(--be--source--preset--spacing--40)'), 'conditional source definitions and reads share the source namespace');
+// Receipt evidence may precede a site-wide stylesheet projection. Reuse
+// exact matches only, and replay variables across sheets in cascade order.
+foreach (array(
+    'matching receipt' => array(':root{--brand:#e11d48}', ':root{--brand:#e11d48}'),
+    'projected receipt' => array(':root{--brand:#e11d48}', '.dark{--brand:#111111}'),
+) as $label => [$sourceCss, $finalCss]) {
+    $assets = array(array('kind' => 'css', 'content' => ':root{--brand:#e11d48}'), array('kind' => 'css', 'content' => $finalCss));
+    $facts = array(hash('sha256', $sourceCss) => PresetBinding::stylesheetFacts($sourceCss));
+    $inline = new PresetBinding($bindSystem, $assets);
+    $receipt = new PresetBinding($bindSystem, $assets, array(), $facts);
+    $assert($inline->bindStylesheet('.a{color:var(--brand)}') === $receipt->bindStylesheet('.a{color:var(--brand)}'), "$label: portable selector evidence preserves cross-sheet variable conflicts");
+}
 $opacity = '.text-x{--tw-text-opacity:1;color:rgb(225 29 72 / var(--tw-text-opacity, 1))}';
 $assert(str_contains($sheet($opacity), 'color:var(--wp--preset--color--' . $slug . ',rgb(225 29 72 / var(--tw-text-opacity, 1)))'), 'a Tailwind opacity variable every rule sets to its fallback resolves');
 $assert(!str_contains($sheet($opacity . '.text-opacity-50{--tw-text-opacity:.5}'), '--wp--preset--color--'), 'an opacity variable another rule sets differently keeps the literal');

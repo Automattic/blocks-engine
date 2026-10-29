@@ -160,7 +160,7 @@ PHP;
      *        reference names a local file the artifact never packaged, instead
      *        of recovering it as an explicit placeholder and warning.
      */
-    public function __construct(private readonly bool $strictMissingMedia = false)
+    public function __construct(private readonly bool $strictMissingMedia = false, private readonly array $documentFacts = array())
     {
         $this->shellExtraction = new ShellExtraction($this);
         $this->missingMedia = new MissingMediaRecovery($strictMissingMedia);
@@ -319,7 +319,7 @@ PHP;
         // which is what tells a button that renders through them apart from
         // one that never had the value.
         $this->designSystem = DesignSystem::fromUsage(self::designUsage($documents))?->withButtonElementsOwnedBy(array_values(array_filter(array_column($documents, 'block_markup'), 'is_string')));
-        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, self::designUsage($documents));
+        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, self::designUsage($documents), $this->documentFacts['stylesheets'] ?? array());
         $tokens = $this->tokens($assets);
         $surfaces = $this->templateSurfaces($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
@@ -2729,12 +2729,11 @@ PHP;
             unset($row);
         }
         if (isset($metadata['head'])) {
-            if (is_array($metadata['head'])) {
-                [$metadata['head'], $droppedHead] = DocumentHeadContext::withoutUnrepresentable($metadata['head']);
-                foreach ($droppedHead as $drop) $this->recordDroppedHeadItem(self::value($document, 'source_path'), $drop);
-            }
-            DocumentHeadContext::assertValid($metadata['head'], false, false);
-            [$metadata['head'], $droppedViewports] = DocumentHeadContext::keepLastViewport($metadata['head']);
+            if (!is_array($metadata['head'])) DocumentHeadContext::assertValid($metadata['head'], false, false);
+            $headFacts = $this->documentFacts['heads'][RuntimeDeclarations::hash($metadata['head'])] ?? self::headFacts($metadata['head']);
+            $metadata['head'] = $headFacts['head'];
+            foreach ($headFacts['dropped'] as $drop) $this->recordDroppedHeadItem(self::value($document, 'source_path'), $drop);
+            $droppedViewports = $headFacts['viewports'];
             if (0 < $droppedViewports) $this->recordDuplicateViewport(self::value($document, 'source_path'), $droppedViewports);
             DocumentHeadContext::assertValid($metadata['head'], false);
             foreach ($metadata['head']['elements'] as &$row) {
@@ -2751,6 +2750,54 @@ PHP;
             $metadata['head']['elements'] = array_values(array_filter($metadata['head']['elements'], static fn(mixed $row): bool => is_array($row)));
         }
         return $metadata;
+    }
+
+    /**
+     * Portable source analysis for one worker's documents and route-owned CSS.
+     * Final route, asset, design-token and entity ownership decisions require
+     * the complete site and deliberately remain in fromCompilerInput().
+     * @param array<string,array<string,mixed>> $documents
+     * @param list<array<string,mixed>> $files
+     * @return array<string,array<string,mixed>>
+     */
+    public static function documentFacts(array $documents, array $files): array
+    {
+        $facts = array('blocks' => array(), 'heads' => array(), 'stylesheets' => array());
+        foreach ($documents as $document) {
+            $markup = $document['serialized_blocks'] ?? $document['block_markup'] ?? null;
+            if (is_string($markup)) $facts['blocks'][hash('sha256', $markup)] = self::blockRanges($markup);
+            foreach ($document['assets'] ?? array() as $asset) {
+                if ('css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null)) $facts['stylesheets'][hash('sha256', $asset['content'])] = PresetBinding::stylesheetFacts($asset['content']);
+            }
+        }
+        foreach ($files as $file) {
+            if (!is_string($file['content'] ?? null)) continue;
+            if ('css' === ($file['kind'] ?? null)) $facts['stylesheets'][hash('sha256', $file['content'])] = PresetBinding::stylesheetFacts($file['content']);
+            if ('html' !== ($file['kind'] ?? null)) continue;
+            try {
+                $head = DocumentHeadContext::fromHtml($file['content'], $file['path'], $files);
+                if (null !== $head) $facts['heads'][RuntimeDeclarations::hash($head)] = self::headFacts($head);
+            } catch (InvalidArgumentException) {
+                // Keep the existing terminal plan failure channel, rather than
+                // turning an invalid head into a failed page worker.
+            }
+        }
+        return $facts;
+    }
+
+    /** Source-local head decisions; URL binding and diagnostic budgets remain site-wide. */
+    public static function headFacts(array $head): array
+    {
+        [$head, $dropped] = DocumentHeadContext::withoutUnrepresentable($head);
+        DocumentHeadContext::assertValid($head, false, false);
+        [$head, $viewports] = DocumentHeadContext::keepLastViewport($head);
+        return array('head' => $head, 'dropped' => $dropped, 'viewports' => $viewports);
+    }
+
+    /** @return list<array{offset:int,length:int}> */
+    private function documentBlockRanges(string $markup): array
+    {
+        return $this->documentFacts['blocks'][hash('sha256', $markup)] ?? self::blockRanges($markup);
     }
 
     /**
@@ -5662,7 +5709,7 @@ PHP;
                 $isAnchorSource = static fn(string $markup, array $range): bool => $anchor['source_block_length'] === $range['length'] && hash_equals($anchor['source_block_hash'], hash('sha256', substr($markup, $range['offset'], $range['length'])));
                 $sourceMarkup = $sourceMarkupBySource[$identity['source']] ?? null;
                 if (!is_string($sourceMarkup)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
-                $sourceRanges = self::blockRanges($sourceMarkup); $canonicalRanges = self::blockRanges($markup);
+                $sourceRanges = $this->documentBlockRanges($sourceMarkup); $canonicalRanges = $this->documentBlockRanges($markup);
                 $sourceMatches = array_values(array_filter($sourceRanges, static fn(array $range): bool => $isAnchorSource($sourceMarkup, $range)));
                 if (isset($anchor['source_occurrence_count']) && $anchor['source_occurrence_count'] !== count($sourceMatches)) throw new InvalidArgumentException('A runtime entity binding source anchor is ambiguous after reprojection.');
                 $canonicalMatches = array_values(array_filter($canonicalRanges, static fn(array $range): bool => $search === substr($markup, $range['offset'], $range['length'])));
@@ -5709,7 +5756,7 @@ PHP;
                     $range = $landing['range'];
                 }
                 $canonical = substr($documentMarkup, $range['offset'], $range['length']);
-                $blockIndex = array_search($range, self::blockRanges($documentMarkup), true);
+                $blockIndex = array_search($range, $this->documentBlockRanges($documentMarkup), true);
                 if (!is_string($canonical) || '' === $canonical || !is_int($blockIndex)) throw new InvalidArgumentException('A runtime entity binding resolved to empty canonical block markup.');
                 $anchored[$identity['id']] = true;
                 $binding['search_block_markup'] = $canonical;
