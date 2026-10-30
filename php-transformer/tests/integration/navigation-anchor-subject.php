@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
@@ -16,8 +18,8 @@ $files = array('index.html' => $source, 'other.html' => $source);
 if ($scopedDropdown) {
     $files['capture-receipt.json'] = json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'index.html'), array('url' => 'https://example.test/other', 'path' => 'other.html'))));
     $pages = array();
-    foreach (array('https://example.test/', 'https://example.test/other') as $url) $pages[] = array('sourceUrl' => $url, 'states' => array(array('status' => 'captured', 'trigger' => array('selector' => 'missing', 'label' => 'Open menu', 'tag' => 'div', 'ariaHaspopup' => 'menu'), 'dialog' => array('html' => '<div>Panel</div>', 'htmlBytes' => 16, 'htmlTruncated' => false, 'presentation' => 'dropdown'))));
-    $files['interaction-states.json'] = json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => $pages));
+    foreach (array('https://example.test/', 'https://example.test/other') as $url) $pages[] = array('sourceUrl' => $url, 'components' => captured_components(array(array('status' => 'captured', 'trigger' => array('selector' => 'missing', 'label' => 'Open menu', 'tag' => 'div', 'ariaHaspopup' => 'menu'), 'dialog' => array('html' => '<div>Panel</div>', 'htmlBytes' => 16, 'htmlTruncated' => false, 'presentation' => 'dropdown')))));
+    $files['interaction-states.json'] = json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => $pages));
 }
 $compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files));
 $plan = $compiled->toWordPressSitePlanView()['wordpress_site_plan'];

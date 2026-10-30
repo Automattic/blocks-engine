@@ -62,7 +62,7 @@ $gridIntro = array_values(array_filter($gridEntities, static fn (array $row): bo
 $assert(1 === count($gridIntro), 'A shared slug merges into one entity.', json_encode($gridEntities));
 $gridIntro = $gridIntro[0] ?? array();
 $assert('40.00' === ($gridIntro['regular_price'] ?? null) && 'index.html' === ($gridIntro['source_path'] ?? null) && isset($gridIntro['selector']) && !empty($gridIntro['bindings']), 'The grid row keeps its bindings, selector and source path.', json_encode($gridIntro));
-$assert('https://cdn.example/g.jpg' === ($gridIntro['image'] ?? null) && 'The first course.' === ($gridIntro['description'] ?? null), 'JSON-LD only fills a missing description; grid image stays.', json_encode($gridIntro));
+$assert('https://cdn.example/a.jpg' === ($gridIntro['image'] ?? null) && 'The first course.' === ($gridIntro['description'] ?? null), 'Detail JSON-LD owns description and image; grid bindings stay.', json_encode($gridIntro));
 $assert($gridEntities === $shop(array_reverse($gridFiles, true)), 'Merged output is order independent.');
 
 if ($failures > 0) exit(1);

@@ -18,6 +18,7 @@ final class RichTextMaterializationFixture implements RichTextMaterialization
     public function requiresHtmlFallback(string $content): bool { return isset($this->operations['requiresHtmlFallback']) && ($this->operations['requiresHtmlFallback'])($content); }
     public function hasStructuralHtml(string $content): bool { return isset($this->operations['hasStructuralHtml']) && ($this->operations['hasStructuralHtml'])($content); }
     public function inlineVisualDeclarations(DOMElement $element): array { return isset($this->operations['inlineVisualDeclarations']) ? ($this->operations['inlineVisualDeclarations'])($element) : array(); }
+    public function withoutKeptFormatTagDeclarations(DOMElement $element, array $declarations): array { return $declarations; }
     public function contentWithoutDecorativeSvg(DOMElement $element): string { return $this->content($element); }
     public function contentWithMaterializedSvgImages(DOMElement $element, string $content): ?string { return isset($this->operations['contentWithMaterializedSvgImages']) ? ($this->operations['contentWithMaterializedSvgImages'])($element, $content) : $content; }
     public function contentWithInlineSafeButtonsLowered(DOMElement $element, string $content): ?string { return isset($this->operations['contentWithInlineSafeButtonsLowered']) ? ($this->operations['contentWithInlineSafeButtonsLowered'])($element, $content) : null; }

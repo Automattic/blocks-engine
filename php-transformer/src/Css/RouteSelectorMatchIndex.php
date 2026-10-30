@@ -10,6 +10,8 @@ final class RouteSelectorMatchIndex
 {
     private CssSelectorMatchCache $cache;
     private array $elements = array();
+    private array $owners = array();
+    private array $elementOwners = array();
     private array $keys = array();
     private array $selectors = array();
     private array $hits = array();
@@ -19,14 +21,15 @@ final class RouteSelectorMatchIndex
     {
         $this->cache = new CssSelectorMatchCache();
         foreach ($documents as $owner => $document) {
-            $this->elements[$owner] = array();
-            $this->keys[$owner] = array();
+            $this->owners[$owner] = true;
             foreach ($document->getElementsByTagName('*') as $element) {
-                $this->elements[$owner][] = $element;
+                $id = count($this->elements);
+                $this->elements[$id] = $element;
+                $this->elementOwners[$id] = $owner;
                 $keys = array('t:' . strtolower($element->tagName));
                 if ($element->hasAttribute('id')) $keys[] = 'i:' . $element->getAttribute('id');
                 foreach ($this->cache->classTokens($element) as $class) $keys[] = 'c:' . $class;
-                foreach ($keys as $key) $this->keys[$owner][$key][] = $element;
+                foreach ($keys as $key) $this->keys[$key][$id] = true;
             }
         }
     }
@@ -74,23 +77,29 @@ final class RouteSelectorMatchIndex
                 }
                 if (null !== $leaf['type']) $keys[] = 't:' . strtolower($leaf['type']);
             }
-            $this->selectors[$arm] = array($parsed, $keys);
+            // Pick the smallest subject-key union once across all routes.
+            // Integer element ids deduplicate id/editor-anchor alternatives.
+            $candidates = null;
+            foreach ($keys as $key) {
+                $list = array();
+                foreach ((array) $key as $alternative) $list += $this->keys[$alternative] ?? array();
+                if (null === $candidates || count($list) < count($candidates)) $candidates = $list;
+                if (!$candidates) break;
+            }
+            $byOwner = array();
+            foreach (null === $candidates ? array_keys($this->elements) : array_keys($candidates) as $id) {
+                $byOwner[$this->elementOwners[$id]][] = $id;
+            }
+            $this->selectors[$arm] = array($parsed, $byOwner);
         }
-        [$parsed, $keys] = $this->selectors[$arm];
+        [$parsed, $byOwner] = $this->selectors[$arm];
         if (!$parsed['supported']) return false;
         foreach ($outside as $owner => $_) {
-            if (!isset($this->elements[$owner])) return false;
+            if (!isset($this->owners[$owner])) return false;
             if (!isset($this->hits[$arm][$owner])) {
-                $candidates = $this->elements[$owner];
-                foreach ($keys as $key) {
-                    $list = array();
-                    foreach ((array) $key as $alternative) $list = array_merge($list, $this->keys[$owner][$alternative] ?? array());
-                    if (count($list) < count($candidates)) $candidates = $list;
-                    if (!$candidates) break;
-                }
                 $hit = false;
-                foreach ($candidates as $element) {
-                    $match = CssSelectorMatcher::matches($element, $parsed, true, $this->cache);
+                foreach ($byOwner[$owner] ?? array() as $id) {
+                    $match = $this->cache->matches($this->elements[$id], $arm, $parsed, true);
                     if (!$match['supported'] || $match['matches']) { $hit = true; break; }
                 }
                 $this->hits[$arm][$owner] = $hit;

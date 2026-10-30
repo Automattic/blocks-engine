@@ -9,7 +9,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAn
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
@@ -236,7 +235,11 @@ JS;
             $url = $this->customVisualIframeUrl($iframe, $surface);
         }
         $providerNameSlug = '' === $url ? '' : $this->embedProviderSlug($url);
-        if ( '' !== $providerNameSlug ) {
+        // A provider round-trip replaces the source iframe with a new box and
+        // cannot preserve its conditional geometry. CSS-sized frames use the
+        // existing editable iframe block so source selectors still own the box.
+        $sourceSized = $this->sourceOwnsIframeGeometry($surface, $styleResolver);
+        if ( '' !== $providerNameSlug && ! $sourceSized ) {
             $embedAttrs = array_merge($styleResolver->presentationAttributes($surface), array(
                 'url'              => $this->canonicalEmbedUrl($url),
                 'type'             => $this->embedTypeForSlug($providerNameSlug),
@@ -529,16 +532,17 @@ JS;
         $attributes = $this->safeEmbedAttributes($iframe);
         $width = $this->boundedVisualIframeDimension($iframe, 'width', $styleResolver);
         $height = $this->boundedVisualIframeDimension($iframe, 'height', $styleResolver);
-        if ( null === $width || null === $height ) {
+        $sourceSized = $this->sourceOwnsIframeGeometry($iframe, $styleResolver);
+        if ( ! $sourceSized && ( null === $width || null === $height ) ) {
             return null;
         }
 
         return array_filter(array(
             'src' => $url,
             'title' => $attributes['title'] ?? '',
-            'width' => SourceDom::attr($iframe, 'width') ?: $width,
-            'height' => SourceDom::attr($iframe, 'height') ?: $height,
-            'className' => $attributes['class'] ?? '',
+            'width' => $sourceSized ? '' : (SourceDom::attr($iframe, 'width') ?: $width),
+            'height' => $sourceSized ? '' : (SourceDom::attr($iframe, 'height') ?: $height),
+            'className' => $sourceSized ? ($styleResolver->presentationAttributes($iframe)['className'] ?? '') : ($attributes['class'] ?? ''),
             'allow' => $attributes['allow'] ?? '',
             'loading' => $attributes['loading'] ?? '',
             'sandbox' => $attributes['sandbox'] ?? '',
@@ -547,85 +551,23 @@ JS;
         ), static fn (mixed $value): bool => '' !== $value && false !== $value);
     }
 
-    /**
-     * A source iframe's own authored sizing expresses the visual intent it
-     * was designed at (e.g. a Spotify playlist embed sized tall enough to
-     * show several tracks). oEmbed's default render for the same URL
-     * routinely ignores that intent and substitutes the provider's own
-     * default height, since core/embed's autoembed path re-fetches the
-     * embed HTML from the provider with no way to request our attributes
-     * back (`WP_Embed::autoembed_callback()` calls `shortcode()` with an
-     * empty attribute array, so nothing stored on the block can influence
-     * the provider request).
-     *
-     * An ABSOLUTE authored height (see {@see StyleResolver::
-     * embedWrapperHeightClassName()}) wins first and is carried exactly,
-     * since it's the author's literal, unambiguous intent. A bare RATIO
-     * (an authored CSS `aspect-ratio` with no concrete height at all) is
-     * only a proportional approximation of that intent and is kept as the
-     * fallback #1918 already established, via core's own seven
-     * `wp-embed-aspect-*` presets. Returns '' when the source expressed no
-     * sizing signal at all, so the provider default remains untouched.
-     */
+    /** Any source sizing rule owns geometry, even outside the reference viewport. */
+    private function sourceOwnsIframeGeometry(DOMElement $iframe, StyleResolver $styleResolver): bool
+    {
+        return array() !== $styleResolver->authorDeclaredPropertyValues($iframe, array( 'width', 'height', 'aspect-ratio', 'position' ))
+            || 1 === preg_match('/(?:^|;)\s*(?:width|height|aspect-ratio|position)\s*:/i', SourceDom::attr($iframe, 'style'));
+    }
+
+    /** Only attribute-sized, CSS-free provider embeds reach this path. */
     private function embedSizingClassName(DOMElement $iframe, StyleResolver $styleResolver): string
     {
-        $height = $this->explicitPixelIframeDimension($iframe, 'height', $styleResolver);
-        if ( null !== $height && 0.0 < $height && $this->iframeFillsContainerHeight($iframe, $styleResolver) ) {
-            // The frame stretches to its parent (`height:100%`), so its width and
-            // height attributes only record the box it had when it was captured at
-            // one viewport. Keep that box as a ratio, never as a fixed height.
-            $width = $this->explicitPixelIframeDimension($iframe, 'width', $styleResolver);
-
-            return $this->nearestEmbedAspectRatioClassName(null !== $width && 0.0 < $width ? $width / $height : 16 / 9);
-        }
-        $fixedHeight = $this->authorFixedIframeHeight($iframe, $styleResolver);
-        if ( null !== $fixedHeight ) {
-            $carrier = $styleResolver->embedWrapperHeightClassName($iframe, $this->cssPixelValue($fixedHeight));
-            if ('' === $carrier) return '';
-            $width = $this->explicitPixelIframeDimension($iframe, 'width', $styleResolver);
-            $ratio = null !== $width && 0.0 < $width ? $width / $height : 16 / 9;
-            return SourceDom::mergeClassNames($carrier, $this->nearestEmbedAspectRatioClassName($ratio));
-        }
-
-        $ratio = $this->embedAspectRatioCssValue($iframe, $styleResolver);
-        if ( null === $ratio && null !== $height && 0.0 < $height ) {
-            // Author CSS replaced the attribute height with a non-fixed one;
-            // the attributes still record the frame's shape.
-            $width = $this->explicitPixelIframeDimension($iframe, 'width', $styleResolver);
-            $ratio = null !== $width && 0.0 < $width ? $width / $height : 16 / 9;
-        }
-
-        return null === $ratio ? '' : $this->nearestEmbedAspectRatioClassName($ratio);
-    }
-
-    /**
-     * The fixed pixel height the source frame renders at, or null.
-     *
-     * A `height` attribute is a presentational hint: any author CSS `height`
-     * overrides it. A frame captured as `height="507"` but styled
-     * `height:auto;aspect-ratio:16/9` renders at its ratio, so only the
-     * ratio may size the embed; pinning the wrapper to the attribute both
-     * freezes it at one viewport and drifts from the ratio's own rounding.
-     * The author value is the cascade winner at the reference viewport, so a
-     * height stated in a `<style media>` block or `@media` rule counts.
-     */
-    private function authorFixedIframeHeight(DOMElement $iframe, StyleResolver $styleResolver): ?float
-    {
-        $authored = $styleResolver->referenceViewportAuthorDeclarations($iframe, array( 'height' ))['height'] ?? null;
-        if ( null !== $authored ) {
-            $authored = CssValueInspector::withoutImportant((string) $authored);
-
-            return $this->sourceElementClassifier->isPositiveIframeDimension($authored) ? (float) $authored : null;
-        }
-        $attribute = trim(SourceDom::attr($iframe, 'height'));
-
-        return $this->sourceElementClassifier->isPositiveIframeDimension($attribute) ? (float) $attribute : null;
-    }
-
-    /** True when the source CSS makes the frame as tall as its parent (`height:100%`). */
-    private function iframeFillsContainerHeight(DOMElement $iframe, StyleResolver $styleResolver): bool
-    {
-        return '100%' === preg_replace('/\s+/', '', (string) ($styleResolver->authoredPresentationDeclarations($iframe)['height'] ?? ''));
+        $height = trim(SourceDom::attr($iframe, 'height'));
+        if (! $this->sourceElementClassifier->isPositiveIframeDimension($height)) return '';
+        $carrier = $styleResolver->embedWrapperHeightClassName($iframe, $this->cssPixelValue((float) $height));
+        if ('' === $carrier) return '';
+        $width = trim(SourceDom::attr($iframe, 'width'));
+        $ratio = $this->sourceElementClassifier->isPositiveIframeDimension($width) ? (float) $width / (float) $height : 16 / 9;
+        return SourceDom::mergeClassNames($carrier, $this->nearestEmbedAspectRatioClassName($ratio));
     }
 
     /**
@@ -651,53 +593,12 @@ JS;
         return '' === $closestClassName ? '' : $closestClassName . ' wp-has-aspect-ratio';
     }
 
-    /**
-     * A bare ratio, expressed the same way a source stylesheet would
-     * express "I know my proportions but not my absolute size": the CSS
-     * `aspect-ratio` shorthand (`16/9`, `16 / 9`, or a bare number). Unlike
-     * an explicit pixel `height`, this never resolves to an ABSOLUTE box —
-     * only ever to the closest of core's seven presets.
-     */
-    private function embedAspectRatioCssValue(DOMElement $iframe, StyleResolver $styleResolver): ?float
-    {
-        $value = CssValueInspector::withoutImportant(trim((string) ($styleResolver->referenceViewportAuthorDeclarations($iframe, array( 'aspect-ratio' ))['aspect-ratio'] ?? '')));
-        if ( '' === $value || 1 !== preg_match('/^(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+(?:\.\d+)?))?$/', $value, $matches) ) {
-            return null;
-        }
-
-        $width = (float) $matches[1];
-        $height = isset($matches[2]) && '' !== $matches[2] ? (float) $matches[2] : 1.0;
-
-        return 0.0 < $width && 0.0 < $height ? $width / $height : null;
-    }
-
     /** A trimmed CSS pixel length for a positive value, e.g. `520` -> `'520px'`. */
     private function cssPixelValue(float $value): string
     {
         $formatted = rtrim(rtrim(sprintf('%.3f', $value), '0'), '.');
 
         return $formatted . 'px';
-    }
-
-    /**
-     * A concrete pixel value for `$dimension`, checked as an explicit HTML
-     * attribute first and then as a resolved CSS declaration. Percentage or
-     * otherwise non-absolute values return null: they cannot anchor a real
-     * aspect ratio, and the provider default should win in that case.
-     */
-    private function explicitPixelIframeDimension(DOMElement $iframe, string $dimension, StyleResolver $styleResolver): ?float
-    {
-        $attribute = trim(SourceDom::attr($iframe, $dimension));
-        if ( $this->sourceElementClassifier->isPositiveIframeDimension($attribute) ) {
-            return (float) $attribute;
-        }
-
-        $declaration = trim((string) ($styleResolver->presentationDeclarations($iframe)[$dimension] ?? ''));
-        if ( $this->sourceElementClassifier->isPositiveIframeDimension($declaration) ) {
-            return (float) $declaration;
-        }
-
-        return null;
     }
 
     private function boundedVisualIframeDimension(DOMElement $iframe, string $dimension, StyleResolver $styleResolver): ?string

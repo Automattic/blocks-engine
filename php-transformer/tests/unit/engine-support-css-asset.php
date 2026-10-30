@@ -58,7 +58,7 @@ $assert(1 === $navigationSubjectRules, 'G2: source anchor color stays in its ori
 // The control marker's seed is an identity hash, not part of the contract.
 $normalizedAuthorCss = preg_replace('/blocks-engine-control-[a-f0-9]{12}-(\d+)/', 'blocks-engine-control-#-$1', $normalizedAuthorCss) ?? $normalizedAuthorCss;
 $assert(
-    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons){width:100%!important}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button){width:100%!important}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link):not(be-t-0){width:100%!important;max-width:100%!important}:where(.blocks-engine-control-#-0):not(.be-c-0)>:where(.wp-block-button__link):not(be-t-0){display:inline-flex!important;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
+    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons){width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button){width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link):not(be-t-0){width:100%;max-width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0)>:where(.wp-block-button__link):not(be-t-0){display:inline-flex;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
     'G2: author-css contains only its leading at-rule preamble and rewritten author stylesheet'
 );
 $mixedAccessibleButton = ( new HtmlTransformer() )->transform(
@@ -191,10 +191,10 @@ $beforeFamilies = array(
     'non-overlay list-navigation transport' => '.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation)>.wp-block-navigation__container{display:contents!important}',
     'nativeSearchTriggerCssRules' => 'flex:0 0 24px!important;width:24px!important;height:80px!important',
 );
-$assert(str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), '<figure class="wp-block-image blocks-engine-synthetic-image-figure"><img src="portrait.jpg" alt="Portrait"/></figure>'), 'direct source images mark their introduced core/image figure for margin normalization');
+$assert(str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), '<figure class="wp-block-image blocks-engine-synthetic-image-figure blocks-engine-image"><img src="portrait.jpg" alt="Portrait"/></figure>'), 'direct source images mark their introduced core/image figure for margin normalization');
 $assert(! str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), 'authored-figure blocks-engine-synthetic-image-figure'), 'authored source figures retain their own spacing contract');
 $afterFamilies = array(
-    'logos-only social sprite neutralize' => '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}',
+    'logos-only social sprite neutralize' => '.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}',
     'list-navigation host' => '@media(max-width:599px){.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}',
     'native-responsive desktop wrappers' => '.wp-block-navigation__responsive-container:not(.is-menu-open)',
     'list-navigation mobile overlay' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}',

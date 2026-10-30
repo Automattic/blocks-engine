@@ -13,6 +13,30 @@ final class CssSyntaxScanner
     }
 
     /**
+     * End of the inert byte run starting at $offset, without changing state.
+     * The byte at the returned offset still needs consume() (unless at EOF).
+     * Callers inspecting delimiters must include them in $stops, including
+     * whitespace when relevant. Stops only apply outside comments, strings
+     * and unquoted url() bodies, where those bytes can be structure.
+     *
+     * @param array{quote: string, comment: bool, url: bool, parens: int, brackets: int} $state
+     */
+    public static function inertEnd(string $value, int $offset, array $state, string $stops = ''): int
+    {
+        if ( $state['comment'] ) {
+            $end = strpos($value, '*/', $offset);
+            return false === $end ? strlen($value) : $end;
+        }
+        if ( $state['url'] ) {
+            return $offset + strcspn($value, '\\)', $offset);
+        }
+        if ( '' !== $state['quote'] ) {
+            return $offset + strcspn($value, '\\' . $state['quote'], $offset);
+        }
+        return $offset + strcspn($value, "\\\"'/()[]" . $stops, $offset);
+    }
+
+    /**
      * Consume one CSS lexical unit and return the next byte offset.
      *
      * @param array{quote: string, comment: bool, url: bool, parens: int, brackets: int} $state
@@ -121,14 +145,20 @@ final class CssSyntaxScanner
         $output = '';
         $length = strlen($value);
         for ( $offset = 0; $offset < $length; ) {
-            $wasComment = $state['comment'];
+            $end = self::inertEnd($value, $offset, $state);
+            if ( $end > $offset ) {
+                $output .= substr($value, $offset, $end - $offset);
+                $offset = $end;
+                continue;
+            }
             $next = self::consume($value, $offset, $state);
             if ( null === $next ) {
                 return $output . substr($value, $offset);
             }
-            if ( ! $wasComment && $state['comment'] ) {
+            if ( $state['comment'] ) {
                 $start = $offset;
-                while ( $state['comment'] && $next < $length ) {
+                $next = self::inertEnd($value, $next, $state);
+                if ( $next < $length ) {
                     $next = (int) self::consume($value, $next, $state);
                 }
                 $before = $start > 0 ? $value[ $start - 1 ] : '';
@@ -179,9 +209,7 @@ final class CssSyntaxScanner
         $offset = $open;
 
         while ( $offset < $length ) {
-            // Skip only inert bytes. Quotes, comment delimiters, escapes and
-            // grouping punctuation still pass through the lexical state machine.
-            $offset += strcspn($value, "\\\"'/*()[]{}", $offset);
+            $offset = self::inertEnd($value, $offset, $state, '{}');
             if ( $offset >= $length ) break;
             if ( self::isTopLevel($state) ) {
                 if ( '{' === $value[ $offset ] ) {

@@ -26,8 +26,8 @@ final class CapturedCollectionFilterProjector
         foreach ($receipt['routes'] ?? array() as $route) $routes[rtrim($route['url'] ?? '', '/')] = $route['path'] ?? '';
         if (count($report['pages'] ?? array()) > 128) return $files;
         foreach ($report['pages'] ?? array() as $page) {
-            if (!is_array($page) || !is_array($page['states'] ?? null)) continue;
-            $states = array_values(array_filter($page['states'], static fn($state): bool => is_array($state) && 'typed-search' === ($state['kind'] ?? '') && 'captured' === ($state['status'] ?? '') && is_array($state['collectionFilter'] ?? null)));
+            if (!is_array($page) || !is_array($page['components'] ?? null)) continue;
+            $states = array_values(array_filter(CapturedComponentStates::evidence($page['components'], array('filter')), static fn($state): bool => is_array($state) && 'typed-search' === ($state['kind'] ?? '') && 'captured' === ($state['status'] ?? '') && is_array($state['collectionFilter'] ?? null)));
             if (array() === $states) continue;
             $path = $routes[rtrim($page['sourceUrl'] ?? '', '/')] ?? '';
             foreach ($files as &$file) {

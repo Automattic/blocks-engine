@@ -42,7 +42,17 @@ final class ProjectedNavigationConverter implements ElementConverter
             && $this->retainsRuntimeButtonBinding($element);
         $projectedNavigation = $runtimeButton ? $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element) : null;
         if ( $runtimeButton && ! $projectedNavigation instanceof DOMElement ) {
-            return ConversionOutcome::unhandled();
+            // The runtime binding keeps ordinary wired controls interactive.
+            // A hamburger whose menu the emitted core/navigation already owns
+            // is not one: Core renders its own open button in the control's
+            // slot and the hidden panel the control opened is superseded, so
+            // the kept button would be a second, inert menu toggle beside
+            // the navigation.
+            if ( ! $this->navigationToggleSuppressor->isMenuToggleSupersededByNativeNavigationOpener($element) ) {
+                return ConversionOutcome::unhandled();
+            }
+            $this->supersedeRuntimeSelectorsForControl($element);
+            return ConversionOutcome::handled(null);
         }
 
         if ($runtimeButton && $projectedNavigation instanceof DOMElement) {

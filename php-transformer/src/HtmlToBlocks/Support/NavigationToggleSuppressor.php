@@ -360,7 +360,7 @@ final class NavigationToggleSuppressor
         // viewports. Only the former is a control's hidden counterpart; the
         // latter must keep its own document position and let the toggle
         // become core/navigation's native responsive affordance instead.
-        if ( ! $this->targetHiddenAtReferenceViewport($target) ) {
+        if ( ! $this->targetHiddenAtReferenceViewport($target) || $this->isCapturedInlineNavigationPanel($target) ) {
             return null;
         }
 
@@ -404,6 +404,20 @@ final class NavigationToggleSuppressor
         }
 
         return null;
+    }
+
+    /** Capture's mobile hidden state must not move an observed inline desktop menu. */
+    private function isCapturedInlineNavigationPanel(DOMElement $target): bool
+    {
+        if ( ! $target->hasAttribute(CaptureEvidence::DIALOG_PANEL)
+            || $this->isSemanticDialog($target)
+            || $this->isHiddenAtDefaultViewport($target) ) {
+            return false;
+        }
+        $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($target, array('position'), true);
+        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+
+        return ! in_array($position, array('absolute', 'fixed'), true);
     }
 
     private function isSemanticDialog(DOMElement $element): bool
@@ -464,6 +478,81 @@ final class NavigationToggleSuppressor
     public function isProjectedNavigationSuppressed(DOMElement $element): bool
     {
         return $this->context->navigationProjection()->isSuppressed($element);
+    }
+
+    /**
+     * Whether a converted core/navigation has replaced this control as the
+     * header's menu opener: the emitted navigation renders its own responsive
+     * open button in the control's place and supersedes the hidden panel the
+     * control used to open. A preserved runtime binding (a capture dialog
+     * trigger the source script still drives) must not also keep the source
+     * control: its panel is gone, so it would render as a second, inert menu
+     * toggle beside the navigation.
+     *
+     * A navigation strictly inside a controlled panel is excluded: the panel
+     * survives as the surface the control opens (a preserved dialog with its
+     * navigation). When the panel IS the converted navigation landmark, its
+     * native opener replaces the control instead; a dialog container that
+     * merely matches a navigation pattern still needs its runtime control.
+     */
+    public function isMenuToggleSupersededByNativeNavigationOpener(DOMElement $control): bool
+    {
+        if ( ! $this->isHamburgerMenuToggleControl($control) && ! $this->isProjectableHashAnchorMenuToggle($control) ) {
+            return false;
+        }
+
+        $controlledPanels = array();
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array() as $controlledId ) {
+            $target = '' === trim($controlledId) ? null : $this->elementWithId($control, trim($controlledId));
+            if ( $target instanceof DOMElement && ! $target->isSameNode($control) ) {
+                $controlledPanels[] = $target;
+            }
+        }
+        // A control that opens something other than a menu (a notes or
+        // search dialog) is not a menu toggle, however it is drawn.
+        foreach ( $controlledPanels as $panel ) {
+            if ( ! $this->panelHoldsNavigation($panel) ) {
+                return false;
+            }
+        }
+
+        $scope = $this->menuToggleScope($control);
+        foreach ( $scope->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || $candidate->isSameNode($control)
+                || ! $this->isAssociatedNavigationTarget($candidate)
+                || ! $this->convertsToCoreNavigation($candidate) ) {
+                continue;
+            }
+            $toggle = $this->navigationToggleControl($candidate);
+            if ( ! $toggle instanceof DOMElement || ! $toggle->isSameNode($control) ) {
+                continue;
+            }
+            foreach ( $controlledPanels as $panel ) {
+                if ( SourceDom::elementContains($panel, $candidate)
+                    && ! ( $panel->isSameNode($candidate) && $this->isNavigationLandmark($panel) ) ) {
+                    continue 2;
+                }
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private function panelHoldsNavigation(DOMElement $panel): bool
+    {
+        if ( $this->isAssociatedNavigationTarget($panel) ) {
+            return true;
+        }
+        foreach ( $panel->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->isAssociatedNavigationTarget($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

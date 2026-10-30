@@ -315,7 +315,14 @@ final class RuntimeIslandAnalyzer
 
     public function hasRuntimeAppRootToken(DOMElement $element): bool
     {
-        $tokens = preg_split('/[^A-Za-z0-9]+/', strtolower(trim(SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'class')))) ?: array();
+        // Capture-evidence classes are engine metadata, not author naming, so
+        // they never feed this author-token heuristic (a capture class such as
+        // `…-capture-desktop-only` must not yield the token `desktop`).
+        $authorClasses = array_values(array_filter(
+            SourceDom::classNames($element),
+            static fn (string $class): bool => ! str_starts_with($class, CaptureEvidence::ATTRIBUTE_PREFIX)
+        ));
+        $tokens = preg_split('/[^A-Za-z0-9]+/', strtolower(trim(SourceDom::attr($element, 'id') . ' ' . implode(' ', $authorClasses)))) ?: array();
         foreach ( $tokens as $token ) {
             if ( in_array($token, self::RUNTIME_APP_ROOT_TOKENS, true) ) {
                 return true;

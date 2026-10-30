@@ -15,12 +15,8 @@ final class InlineBodyStyle
      */
     public static function rule(string $html): string
     {
-        if ( 1 !== preg_match('/<body\b[^>]*\sstyle\s*=\s*(?:"([^"]*)"|\'([^\']*)\')/i', $html, $matches) ) {
-            return '';
-        }
-
-        $style = html_entity_decode('' !== ($matches[1] ?? '') ? $matches[1] : ($matches[2] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        if ( '' === trim($style) || preg_match('/[{}<>]/', $style) ) {
+        $style = self::declarations($html, 'body');
+        if ( '' === $style ) {
             return '';
         }
 
@@ -43,5 +39,20 @@ final class InlineBodyStyle
         }
 
         return array() === $declarations ? '' : 'body{' . implode(';', $declarations) . '}';
+    }
+
+    /** Full declarations are available only to the front-end document carrier. */
+    public static function declarations(string $html, string $tag): string
+    {
+        if ( ! in_array($tag, array('html', 'body'), true) || 1 !== preg_match('/<' . $tag . '\b[^>]*\sstyle\s*=\s*(?:"([^"]*)"|\'([^\']*)\')/i', $html, $matches) ) {
+            return '';
+        }
+
+        $style = html_entity_decode('' !== ($matches[1] ?? '') ? $matches[1] : ($matches[2] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if ( '' === trim($style) || preg_match('/[{}<>]/', $style) ) {
+            return '';
+        }
+
+        return trim($style);
     }
 }

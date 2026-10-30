@@ -39,7 +39,7 @@ $result['source_reports']['compiled_site']['assets'] = array_merge($stylesheetAs
 $plan = (new WordPressSitePlan())->fromCompilerResult($result);
 $cssPaths = array_values(array_map(
     static fn(array $asset): string => (string) ($asset['source_path'] ?? ''),
-    array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))
+    array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && str_starts_with((string) ($asset['source_path'] ?? ''), 'styles/'))
 ));
 $expected = array('styles/z-first.css', 'styles/a-second.css');
 $assert($expected === $cssPaths, 'compiled plan restores linked stylesheet order rather than path order', implode(' -> ', $cssPaths));

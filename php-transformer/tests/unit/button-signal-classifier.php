@@ -101,7 +101,7 @@ $streamRowCss = implode("\n", array_map(static fn (array $asset): string => (str
 $assert('core/buttons' === ($streamRow['blocks'][0]['blockName'] ?? '') && 2 === count($streamRow['blocks'][0]['innerBlocks'] ?? array()), '22: direct anchor CTA rows group explicit stylesheet surfaces as buttons', json_encode($streamRow['blocks'] ?? array()));
 require_once dirname(__DIR__) . '/Support/expand-compacted-selectors.php';
 $streamRowCss = expandCompactedSelectors($streamRowCss);
-$assert(2 === substr_count($streamRowCss, '> :where(.wp-block-button__link)') && str_contains($streamRowCss, '{display:inline-flex!important;padding:10px 16px;background:#135e96'), '23: direct anchor CTA stylesheet selectors remain on both rendered button links', $streamRowCss);
+$assert(2 === substr_count($streamRowCss, '> :where(.wp-block-button__link)') && str_contains($streamRowCss, '{display:inline-flex;padding:10px 16px;background:#135e96'), '23: direct anchor CTA stylesheet selectors remain on both rendered button links', $streamRowCss);
 
 $buttonResult = ( new HtmlTransformer() )->transform('<button style="padding:12px 18px;background:#135e96;color:#fff">Buy tickets</button>', array())->toArray();
 $nativeButton = $buttonResult['blocks'][0]['innerBlocks'][0] ?? array();

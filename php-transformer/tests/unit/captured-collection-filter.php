@@ -1,5 +1,7 @@
 <?php
 declare(strict_types=1);
+
+require_once __DIR__ . '/../fixtures/captured-components.php';
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
@@ -24,7 +26,7 @@ $evidence = array(
 $files = static fn (array $evidence): array => array(
     array('path' => 'website/index.html', 'content' => $source),
     array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
-    array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
+    array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'components' => captured_components(array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence)))))))),
 );
 $projected = (new CapturedCollectionProjector())->project($files($evidence));
 $baseline = (new HtmlTransformer())->transform($source)->toArray();
@@ -132,7 +134,7 @@ $finiteFiles = static function (array $evidence) use ($finiteSource): array {
     return array(
         array('path' => 'website/index.html', 'content' => $finiteSource),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'components' => captured_components(array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence)))))))),
     );
 };
 $finiteProjected = (new CapturedCollectionProjector())->project($finiteFiles($finite));
@@ -207,7 +209,7 @@ $statusFiles = static function (string $html, array $evidence): array {
     return array(
         array('path' => 'website/index.html', 'content' => $html),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'components' => captured_components(array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence)))))))),
     );
 };
 $legacy = $statusCase['evidence'];
@@ -326,7 +328,7 @@ $withSelectable = static function (array $projectedFiles, array $states): array 
     foreach ($rows as &$row) {
         if ('interaction-states.json' !== ($row['path'] ?? '')) continue;
         $report = json_decode((string) $row['content'], true);
-        $report['pages'][0]['states'] = array_merge($report['pages'][0]['states'], $states);
+        $report['pages'][0]['components'] = array_merge($report['pages'][0]['components'], captured_components($states));
         $row['content'] = json_encode($report);
     }
     unset($row);

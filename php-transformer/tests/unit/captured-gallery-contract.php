@@ -1,5 +1,7 @@
 <?php
 declare(strict_types=1);
+
+require_once __DIR__ . '/../fixtures/captured-components.php';
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedDialogProjector;
@@ -16,7 +18,7 @@ $items = static fn(array $keys): string => implode('', array_map(static fn(strin
 $galleryRuntime = trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-gallery-runtime.js'));
 $galleryScript = '<script data-blocks-engine-capture-gallery-runtime>' . $galleryRuntime . '</script>';
 $html = '<html><head>' . $galleryScript . '</head><body><section id="pictures" data-blocks-engine-capture-gallery data-blocks-engine-capture-gallery-source="#pictures" data-blocks-engine-capture-gallery-capture-width="1440"><h2>Pictures</h2><div class="gallery carousel"><div id="stage" data-blocks-engine-capture-gallery-stage data-blocks-engine-capture-gallery-initial="1" data-blocks-engine-capture-dialog-trigger="panel" aria-controls="panel">' . $items(array('/inline/a.png', '/inline/b.png', '/inline/c.png')) . '</div><button aria-label="Previous image">Previous</button><button aria-label="Next image">Next</button></div><div id="panel" data-blocks-engine-capture-dialog-panel="panel" hidden><div data-blocks-engine-capture-gallery-stage>' . $items(array('/full/c.png', '/full/a.png', '/full/b.png')) . '</div></div></section></body></html>';
-$report = array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://neutral.test/', 'states' => array($state))));
+$report = array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://neutral.test/', 'components' => captured_components(array($state)))));
 $receipt = array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://neutral.test/', 'path' => 'website/index.html')));
 $files = array('website/index.html' => $html, 'interaction-states.json' => json_encode($report), 'capture-receipt.json' => json_encode($receipt));
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $files))->toArray();
@@ -85,7 +87,7 @@ foreach (array(
         $boundedStates[] = $galleryState;
     }
     $boundedReport = $report;
-    $boundedReport['pages'][0]['states'] = $boundedStates;
+    $boundedReport['pages'][0]['components'] = captured_components($boundedStates);
     $bounded = (new CapturedDialogProjector())->project(array(
         array('path' => 'website/index.html', 'content' => '<html><head>' . $galleryScript . '</head><body>' . $dialogSource . $gallerySource . '</body></html>'),
         array('path' => 'interaction-states.json', 'content' => json_encode($boundedReport)),
@@ -99,7 +101,7 @@ foreach (array(
     $assert(!str_contains($boundedHtml, 'data-blocks-engine-capture-gallery-runtime'), $label . ': gallery runtime is retired');
 }
 
-$report['pages'][0]['states'][0]['gallery']['selection'] = array(0, 1, 2);
+$report['pages'][0]['components'][0]['states'][1]['evidence']['gallery']['selection'] = array(0, 1, 2);
 $rows = array(); foreach ($files as $path => $content) $rows[] = array('path' => $path, 'content' => 'interaction-states.json' === $path ? json_encode($report) : $content);
 $invalid = (new CapturedDialogProjector())->project($rows);
 $assert(in_array('captured_gallery_selection_invalid', array_column($invalid['diagnostics'], 'code'), true), 'A shape-valid selection with mismatched image identities remains diagnosed');
@@ -117,7 +119,7 @@ $knownRuntime = trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/ca
 $assert(CaptureEvidence::GALLERY_RUNTIME_SHA256 === hash('sha256', $galleryRuntime), 'the gallery fixture is the published gallery runtime');
 $coexistHtml = str_replace($galleryScript, '<script data-blocks-engine-capture-disclosure-runtime>' . $knownRuntime . '</script>' . $galleryScript, $html);
 $coexistHtml = str_replace(array('<body>', '</body>'), array('<body><div class="data-blocks-engine-capture-desktop-document" data-blocks-engine-capture-document-scope="">', '</div>' . $mobileHtml . '</body>'), $coexistHtml);
-$coexistReport = array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://neutral.test/', 'states' => array($state))));
+$coexistReport = array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://neutral.test/', 'components' => captured_components(array($state)))));
 $coexistFiles = array('website/index.html' => $coexistHtml, 'interaction-states.json' => json_encode($coexistReport), 'capture-receipt.json' => json_encode($receipt));
 $coexist = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $coexistFiles))->toArray();
 $coexistTree = $visit($runtime->parseBlocks($coexist['serialized_blocks']));
@@ -134,7 +136,7 @@ $unknownGalleryFiles['website/index.html'] = str_replace('function all(selector,
 $unknownGallery = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $unknownGalleryFiles))->toArray();
 $assert(array() === array_filter($unknownGallery['source_reports']['native_runtime_replacements'] ?? array(), static fn(array $proof): bool => 'data-blocks-engine-capture-disclosure-runtime' === $proof['attribute']), 'an unknown gallery body keeps the captured disclosure runtime');
 $assert(str_contains(json_encode($unknownGallery['assets']), 'function triggers()'), 'the kept disclosure runtime still ships with the page');
-$coexistReport['pages'][0]['states'][0]['status'] = 'observed-incomplete';
+$coexistReport['pages'][0]['components'][0]['states'][1]['evidence']['status'] = 'observed-incomplete';
 $coexistFiles['interaction-states.json'] = json_encode($coexistReport);
 $partial = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $coexistFiles))->toArray();
 $assert(array() === array_filter($partial['source_reports']['native_runtime_replacements'] ?? array(), static fn(array $proof): bool => 'data-blocks-engine-capture-disclosure-runtime' === $proof['attribute']), 'an incomplete gallery prevents an all-native disclosure retirement claim');

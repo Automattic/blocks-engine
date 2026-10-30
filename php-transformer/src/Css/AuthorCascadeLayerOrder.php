@@ -70,6 +70,8 @@ final class AuthorCascadeLayerOrder
         $cursor = 0;
 
         while ($cursor < $length) {
+            $cursor = CssSyntaxScanner::inertEnd($css, $cursor, $state, '{}@');
+            if ($cursor >= $length) break;
             $character = $css[$cursor];
 
             if (CssSyntaxScanner::isTopLevel($state)) {
@@ -99,7 +101,9 @@ final class AuthorCascadeLayerOrder
                 if (0 === $depth && '@' === $character && 0 === substr_compare($css, '@import', $cursor, 7, true)) {
                     $end = $cursor;
                     $importState = CssSyntaxScanner::state();
-                    while ($end < $length && !(CssSyntaxScanner::isTopLevel($importState) && ';' === $css[$end])) {
+                    while ($end < $length) {
+                        $end = CssSyntaxScanner::inertEnd($css, $end, $importState, ';');
+                        if ($end >= $length || (CssSyntaxScanner::isTopLevel($importState) && ';' === $css[$end])) break;
                         $end = CssSyntaxScanner::consume($css, $end, $importState) ?? ($end + 1);
                     }
                     // The URL is one lexical token; only subsequent import

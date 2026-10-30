@@ -39,11 +39,13 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     public function inlineSvgBlockFromElement(DOMElement $element): ?array
     {
-        // Only preserve when there is actual artwork to keep. An SVG whose only
-        // content is unsafe (e.g. a lone <script>) has nothing left to render
-        // once sanitized, so it defers to the bounded fallback diagnostic.
+        // Childless passive SVGs render an empty graphic: direct character data
+        // is not painted without a <text> element. Preserve their box through the
+        // ordinary image path, but keep rejecting non-drawable active content
+        // (e.g. a lone <script> or a root event handler) before sanitization.
         $definitionsOnly = SourceDom::isDefinitionsOnlySvg($element);
-        if ( ! $definitionsOnly && ! SourceDom::svgHasDrawableContent($element) ) {
+        $childlessPassive = 0 === $element->getElementsByTagName('*')->length && self::isPassiveSvgMarkup($element);
+        if ( ! $definitionsOnly && ! $childlessPassive && ! SourceDom::svgHasDrawableContent($element) ) {
             return null;
         }
 
@@ -340,7 +342,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             $dimensions = array();
         }
         $geometryClass = '';
-        if ( $preserveInlineGeometry || $preserveBlockDisplay ) {
+        if ( $richTextImage || $preserveInlineGeometry || $preserveBlockDisplay ) {
             $imageDisplay = $preserveBlockDisplay ? 'block' : ('' === $sourceDisplay ? 'inline' : $sourceDisplay);
             $mediaBox = '';
             foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $property ) {
@@ -356,7 +358,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             $carriedProperties = $this->carriedCustomPropertyDeclarations($element, $mediaBox);
             $mediaBox = ( '' === $carriedProperties ? '' : ';' . $carriedProperties ) . $mediaBox;
             $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:' . $this->sourceVerticalAlign($element) : '') . $mediaBox . '}';
-            $conditionedBox = array() === $dimensions ? $this->mediaConditionedBoxRules($element, $presentation, $richTextImage ? '' : '>img') : array();
+            $conditionedBox = array() === $dimensions ? $this->mediaConditionedBoxRules($element, $richTextImage ? '' : '>img') : array();
             $conditionedItemDisplay = $preserveInlineGeometry && ! $richTextImage && $parent instanceof DOMElement
                 ? $this->mediaConditionedItemDisplay($parent, $imageDisplay)
                 : array();
@@ -460,7 +462,9 @@ final class SvgMaterializer implements SvgElementMaterializer
             $resolved = $this->richTextSvgDimensions($element, $presentation);
             $declarations = $this->styleResolver->cssDeclarations($style);
             foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $dimension ) {
-                if ( ! isset($resolved[$dimension]) || (isset($declarations[$dimension]) && ($presentation[$dimension] ?? '') === $resolved[$dimension]) ) {
+                // Unchanged stylesheet values already live on the geometry
+                // carrier, where conditioned rules can still override them.
+                if ( ! isset($resolved[$dimension]) || ($presentation[$dimension] ?? '') === $resolved[$dimension] ) {
                     continue;
                 }
                 $declarations[$dimension] = $resolved[$dimension];
@@ -1034,28 +1038,19 @@ final class SvgMaterializer implements SvgElementMaterializer
      * Source rules that size an inline SVG from a wrapper (`.icon svg{width:24px}`)
      * never reach the generated `<img>`: no `svg` selector matches it, and the
      * wrapper is often flattened. Resting sizes already move onto the carrier
-     * through {@see StyleResolver::presentationDeclarations()}; a size that
-     * only a media query states is not in that cascade, so the axis was written
-     * as `auto` and the image fell back to its intrinsic size. Carry each such
-     * width/height under the same media condition, only on axes the resting
-     * cascade leaves unsized, so other viewports keep the source's own
-     * behaviour.
+     * through {@see StyleResolver::presentationDeclarations()}. Carry their
+     * overrides and sizes stated only by media queries under the same conditions
+     * so other viewports keep the source's own behaviour.
      *
      * Returns rule strings with a `.{carrier}` placeholder for the class.
      *
-     * @param array<string, string> $presentation
      * @return list<string>
      */
-    private function mediaConditionedBoxRules(DOMElement $element, array $presentation, string $selectorSuffix): array
+    private function mediaConditionedBoxRules(DOMElement $element, string $selectorSuffix): array
     {
-        // Only the axes {@see unsizedMediaAxisDeclarations()} writes as `auto`.
-        $properties = array_values(array_filter(
-            array( 'width', 'height' ),
-            static fn (string $axis): bool => '' === trim((string) ($presentation[$axis] ?? ''))
-        ));
-        if ( array() === $properties ) {
-            return array();
-        }
+        // Both resting sizes and unsized-axis defaults belong to this
+        // carrier. Project their conditioned replacements at the same tier.
+        $properties = array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' );
 
         $rules = array();
         $current = null;
@@ -1906,26 +1901,29 @@ final class SvgMaterializer implements SvgElementMaterializer
             'rect', 'stop', 'svg', 'symbol', 'text', 'textpath', 'title', 'tspan', 'use',
         ));
         $allowedAttributes = array_flip(array(
-            'alt', 'amplitude', 'aria-hidden', 'aria-label', 'azimuth', 'basefrequency', 'bias',
+            'alt', 'amplitude', 'aria-hidden', 'aria-label', 'azimuth', 'basefrequency', 'baseprofile', 'bias',
             'class', 'clip-path', 'clip-rule', 'clippathunits', 'cliprule', 'color-interpolation', 'color-interpolation-filters',
             'color', 'color-rendering', 'cx', 'cy', 'd',
             'data-bbox', 'data-color', 'data-testid', 'data-type',
-            'diffuseconstant', 'divisor', 'dominant-baseline', 'dx', 'dy', 'edgemode',
+            'diffuseconstant', 'divisor', 'alignment-baseline', 'dominant-baseline', 'dx', 'dy', 'edgemode',
             'elevation', 'enable-background', 'exponent', 'fill', 'fill-opacity', 'fill-rule', 'fillrule', 'flood-color',
             'flood-opacity', 'font-family',
             'filter', 'filterunits', 'focusable', 'font-size', 'font-style', 'font-weight', 'gradienttransform', 'gradientunits',
-            'height', 'id', 'image-rendering', 'letter-spacing', 'marker-end', 'marker-mid', 'marker-start',
+            'height', 'id', 'image-rendering', 'lengthadjust', 'letter-spacing', 'marker-end', 'marker-mid', 'marker-start',
             'intercept', 'k1', 'k2', 'k3', 'k4', 'kernelmatrix', 'kernelunitlength',
-            'lighting-color', 'markerheight', 'markerunits', 'markerwidth', 'mask', 'mode',
+            'lighting-color', 'limitingconeangle', 'markerheight', 'markerunits', 'markerwidth', 'mask',
+            'maskcontentunits', 'maskunits', 'mode',
             'numoctaves', 'offset', 'opacity', 'operator', 'order', 'orient', 'overflow', 'paint-order',
-            'href', 'patterncontentunits', 'patterntransform', 'patternunits', 'points',
+            'href', 'patterncontentunits', 'patterntransform', 'patternunits', 'pathlength', 'points',
+            'pointsatx', 'pointsaty', 'pointsatz',
             'preservealpha', 'preserveaspectratio', 'primitiveunits', 'r', 'radius', 'refx', 'refy',
             'result', 'role', 'rotate', 'rx', 'ry', 'scale', 'seed', 'shape-rendering', 'slope',
             'specularconstant', 'specularexponent',
             'spreadmethod', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray',
             'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit',
             'stitchtiles', 'stroke-opacity', 'stroke-width', 'stddeviation', 'style', 'surfacescale',
-            'tablevalues', 'targetx', 'targety', 'text-anchor', 'text-rendering', 'transform', 'type',
+            'tablevalues', 'targetx', 'targety', 'text-anchor', 'text-rendering', 'textlength', 'startoffset',
+            'transform', 'type',
             'values', 'vector-effect', 'version', 'viewbox', 'width', 'x', 'x1', 'x2',
             'xchannelselector', 'xlink:href', 'xml:space', 'y', 'y1', 'y2', 'ychannelselector', 'in', 'in2', 'title',
             'xmlns', 'xmlns:xlink',

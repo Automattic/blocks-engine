@@ -319,6 +319,14 @@ final class ReadableFormBlockBuilder
         // Force the authored companion so even an unstyled submit keeps
         // its type instead of collapsing to a paragraph.
         $forceNative = FormControlClassifier::isSubmitLikeControl($control);
+        // Preference islands retain their choice state in the readable tree,
+        // including responsive navigation alternatives built from selects.
+        for ( $form = $control->parentNode; $form instanceof DOMElement; $form = $form->parentNode ) {
+            if ( 'form' === strtolower($form->tagName) ) {
+                $forceNative = $forceNative || 'preference' === FormRuntimeRequirementAnalyzer::formIntent($form);
+                break;
+            }
+        }
 
         // The control's own label is a source fact the degraded form must
         // keep, so it rides on the control block as a real `<label>` rather

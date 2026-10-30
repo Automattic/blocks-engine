@@ -69,7 +69,7 @@ $cappedBlocks = (string) ($capped['serialized_blocks'] ?? '');
 $cappedCss = $cssOf($capped);
 $assert(2 === preg_match_all('/<figure class="[^"]*\b' . preg_quote($flex, '/') . '\b/', $cappedBlocks), 'both flex-item images lower to flex image figures', $cappedBlocks);
 $assert(str_contains($cappedCss, ':root :where(figure.' . $flex . ').wp-block-image>img{max-width:none}'), 'the flex image figure lifts the core/image max-width cap', $cappedCss);
-$assert(1 === preg_match('/\{max-width:10px\s*!important\}/', $cappedCss), 'an authored image max-width is still projected', $cappedCss);
+$assert(1 === preg_match('/\{max-width:10px\}/', $cappedCss), 'an authored image max-width is still projected', $cappedCss);
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "conditional flex image figure FAILED: {$passes} passed, {$failures} failed\n");

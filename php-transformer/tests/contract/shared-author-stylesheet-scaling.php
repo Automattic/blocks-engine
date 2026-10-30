@@ -342,7 +342,7 @@ $assert(str_contains($routeText, 'html:where(') && str_contains($routeText, ':ro
 $droppedOverride = false;
 $conditionalImage = false;
 $transformer->visitStyleRules($routeText, static function (string $prelude, string $body, array $context) use (&$droppedOverride, &$conditionalImage, $classes): void {
-    if (str_contains($body, 'padding:7px!important')) {
+    if (str_contains($body, 'padding:7px')) {
         $droppedOverride = in_array('@media(min-width:1px)', $context, true);
     }
     if (str_contains($prelude, '.wp-block-image')) $conditionalImage = in_array('@media(min-width:1px)', $context, true);
@@ -528,7 +528,7 @@ foreach (array(2, 6, 10) as $count) {
     $assert(1 === count($site['assets']) && !str_contains($text, 'be-r-') && !$fallbacks, $count . ' private marker pages: unscoped shared asset without fallback');
 }
 $markerText = implode('', $site['assets']);
-$assert((bool) preg_match('/:where\((?:\.blocks-engine-control-[a-f0-9]{12}-\d+,)+/', $markerText), 'same-route page-local markers still recompact into :where() lists');
+$assert(1 === count(array_unique(preg_match_all('/blocks-engine-control-[a-f0-9]{12}-\d+/', $markerText, $m) ? $m[0] : array('', 'x'))), 'identical page-local controls share one declaration address', json_encode(array_values(array_unique($m[0] ?? array()))));
 // Growth is limited to marker names, not route scopes or cascade copies.
 $assert($markerSizes[10] < 1.2 * $markerSizes[2] && $markerSizes[10] - $markerSizes[6] < 1.2 * ($markerSizes[6] - $markerSizes[2]) + 512, 'site-wide sheet bytes stay roughly constant in the page count', json_encode($markerSizes));
 $markerProbe = static function (array $plan, array $row): array {

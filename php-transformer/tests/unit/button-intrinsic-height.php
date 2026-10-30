@@ -21,7 +21,7 @@ if (!preg_match('/:where\(\.' . $neutral . ':not\(\.' . $neutral . '-author-heig
     fwrite(STDERR, "FAIL: flattened controls must reset core's percentage height\n{$css}\n");
     exit(1);
 }
-if (!preg_match('/wp-block-button__link[^{}]*\{height:100%!important[;}]/', $css)) {
+if (!preg_match('/wp-block-button__link[^{}]*\{height:100%[;}]/', $css)) {
     fwrite(STDERR, "FAIL: authored stretch must override the intrinsic-height reset\n{$css}\n");
     exit(1);
 }

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -913,12 +915,12 @@ $assert('social-item' === ($socialLinksBlock['innerBlocks'][0]['attrs']['classNa
 $assert(str_contains((string) ($socialLinksBlock['attrs']['className'] ?? ''), 'blocks-engine-source-social-item-spacing'), 'structural social items mark the wrapper so source item spacing remains authoritative');
 $socialLinksCss = implode("\n", array_column($socialLinksResult['assets'] ?? array(), 'content'));
 $assert(str_contains($socialLinksCss, '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}'), 'engine support CSS neutralizes the core default gap without adding invalid saved styles');
-$assert(str_contains($socialLinksCss, '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}'), 'logos-only social links drop source sprite backgrounds without !important');
+$assert(str_contains($socialLinksCss, '.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}'), 'logos-only social links drop source sprite backgrounds without !important');
 $assert(! str_contains($socialLinksMarkup, 'style="gap:') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the canonical social-links wrapper');
 $assert('pass' === ($socialLinksResult['source_reports']['wp_block_validity']['status'] ?? ''), 'dynamic social-link children and their static parent remain WordPress-valid');
 
 $visibleSocialLabels = ( new HtmlTransformer() )->transform('<div class="social-links"><a href="https://github.com/Automattic/blocks-engine">Blocks Engine</a><a href="https://github.com/Automattic/static-site-importer">Static Site Importer</a></div>')->toArray();
-$assert(str_contains((string) ($visibleSocialLabels['serialized_blocks'] ?? ''), 'class="wp-block-social-links has-visible-labels social-links"'), 'social-links save markup carries the canonical has-visible-labels class when labels are shown');
+$assert(str_contains((string) ($visibleSocialLabels['serialized_blocks'] ?? ''), 'class="wp-block-social-links blocks-engine-social-source-cluster has-visible-labels social-links"'), 'social-links save markup carries the canonical has-visible-labels class when labels are shown');
 
 $spanSocialSource = '<span class="wsite-social wsite-social-default"><a class="wsite-social-item wsite-social-facebook" href="https://www.facebook.com/tasteandtravelitaly" aria-label="Facebook"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-twitter" href="//#" aria-label="Twitter"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-instagram" href="https://instagram.com/tasteandtravel_italy" aria-label="Instagram"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-mail" href="mailto:hello@example.com" aria-label="Mail"><span class="wsite-social-item-inner"></span></a></span>';
 $spanSocialResult = ( new HtmlTransformer() )->transform($spanSocialSource)->toArray();
@@ -1262,6 +1264,26 @@ $assert('runtime_app_shell' === ($runtimeAppShellIsland['preservation_reason'] ?
 $assert(3 === ($runtimeAppShellIsland['target_count'] ?? null), 'runtime app shell reports bounded descendant runtime target count');
 $assert(in_array('app_root_token', $runtimeAppShellIsland['app_shell_signals'] ?? array(), true), 'runtime app shell reports app-root token evidence');
 $assert(str_contains((string) ($runtimeAppShell['serialized_blocks'] ?? ''), '<main class="app-shell">'), 'runtime app shell preserves the source root markup');
+
+// Engine capture classes are metadata, not author naming: an app-like token
+// inside the data-blocks-engine-capture- namespace never marks a subtree as an
+// application shell, while the same token as an author class still does.
+$appShellRuntimeSelectors = array(
+    'runtime_dom_selectors'   => array('#run', '#log', '#status'),
+    'runtime_script_metadata' => array(array('path' => 'app.js')),
+);
+$captureTokenShell = ( new HtmlTransformer() )->transform(
+    '<main class="data-blocks-engine-capture-desktop-only"><section><button id="run">Run</button><div id="log"></div><span id="status"></span></section></main>',
+    $appShellRuntimeSelectors
+)->toArray();
+$captureTokenAppShells = array_values(array_filter($captureTokenShell['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'runtime_app_shell' === ($island['preservation_reason'] ?? '')));
+$assert(array() === $captureTokenAppShells, 'an engine capture class alone does not mark an application shell root');
+$authorTokenShell = ( new HtmlTransformer() )->transform(
+    '<main class="desktop"><section><button id="run">Run</button><div id="log"></div><span id="status"></span></section></main>',
+    $appShellRuntimeSelectors
+)->toArray();
+$authorTokenAppShells = array_values(array_filter($authorTokenShell['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'runtime_app_shell' === ($island['preservation_reason'] ?? '')));
+$assert(1 === count($authorTokenAppShells) && in_array('app_root_token', $authorTokenAppShells[0]['app_shell_signals'] ?? array(), true), 'an author desktop class still marks an application shell root');
 
 $inlineSemanticRuntime = ( new HtmlTransformer() )->transform(
     '<span class="qty-display" aria-live="polite">1</span>',
@@ -2131,7 +2153,7 @@ $flexAnchorButtonMarkup = (string) ($flexAnchorButton['serialized_blocks'] ?? ''
 $flexAnchorButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorButton['assets'] ?? array()));
 $assert(str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'product-row'), 'styled anchor button uses a generated control marker instead of its source anchor class');
 $assert(! str_contains($flexAnchorButtonMarkup, 'wp-block-button product-row') && ! str_contains($flexAnchorButtonMarkup, 'wp-element-button product-row'), 'styled anchor button keeps source anchor classes out of canonical core/button markup');
-$assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link):not(be-t-0){display:flex!important;align-items:center!important;gap:1rem!important') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor root and descendant selectors project through the generated marker with priority over core button defaults');
+$assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link):not(be-t-0){display:flex;align-items:center;gap:1rem') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor root and descendant selectors project through the generated marker with priority over core button defaults');
 $assert(1 === preg_match('/class="product-row__name[ "]/', $flexAnchorButtonMarkup), 'styled anchor button preserves descendant classes in its RichText content');
 $assert('pass' === ($flexAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled anchor button remains editor-valid with marker-projected source selectors');
 
@@ -2160,7 +2182,7 @@ $assert(
     $flexChainButtonCenteredMarkup
 );
 $assert(
-    str_contains($flexChainButtonCenteredCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0}')
+    str_contains($flexChainButtonCenteredCss, '.wp-block-buttons){display:block!important;gap:0!important}')
         && str_contains($flexChainButtonCenteredCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}')
         && str_contains($flexChainButtonCenteredCss, '.wp-block-button__link){box-sizing:border-box}')
         && ! preg_match('/\.wp-block-buttons\)\{[^}]*width:100%!important/', $flexChainButtonCenteredCss)
@@ -2176,7 +2198,7 @@ $flexAnchorAutoMargin = ( new HtmlTransformer() )->transform(
 $flexAnchorAutoMarginMarkup = (string) ($flexAnchorAutoMargin['serialized_blocks'] ?? '');
 $flexAnchorAutoMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorAutoMargin['assets'] ?? array()));
 $assert(preg_match('/\.wp-block-buttons\.blocks-engine-control-[^{]+\{margin-right:auto\}/', $flexAnchorAutoMarginCss) && 2 === substr_count($flexAnchorAutoMarginMarkup, 'wp-block-buttons'), 'direct flex anchor preserves its authored auto margin on the lowered source flex-item wrapper beside navigation and button siblings');
-$assert(str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0}') && ! str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important;min-width:0}') && str_contains($flexAnchorAutoMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}'), 'direct flex bridge leaves source wrapper margins intact while neutralizing only the synthetic inner wrapper');
+$assert(str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important}') && ! str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important}') && str_contains($flexAnchorAutoMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}'), 'direct flex bridge leaves source wrapper margins intact while neutralizing only the synthetic inner wrapper');
 $assert('pass' === ($flexAnchorAutoMargin['source_reports']['wp_block_validity']['status'] ?? ''), 'direct flex anchor with auto margin remains editor-valid beside navigation and button siblings');
 
 $anchorButtonMarginCases = array(
@@ -2229,7 +2251,7 @@ $fullWidthNativeButtonAttrs = $fullWidthNativeButton['blocks'][0]['innerBlocks']
 $fullWidthNativeButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthNativeButton['assets'] ?? array()));
 $assert(! isset($fullWidthNativeButtonAttrs['width']) && str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'selector-submit'), 'styled full-width native button omits the legacy width attribute and uses a generated marker instead of source root classes');
 $assert(! str_contains($fullWidthNativeButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthNativeButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width native button keeps source root classes out of canonical markup');
-$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && '#123456' === ($fullWidthNativeButtonAttrs['style']['color']['background'] ?? null) && str_contains($fullWidthNativeButtonMarkup, 'style="background-color:#123456;') && str_contains($fullWidthNativeButtonCss, ':not([style*="background"]){background:none!important}'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
+$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && '#123456' === ($fullWidthNativeButtonAttrs['style']['color']['background'] ?? null) && str_contains($fullWidthNativeButtonMarkup, 'style="background-color:#123456;') && str_contains($fullWidthNativeButtonCss, ':not([style*="background"]){background:none}'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
 $assert(str_contains($fullWidthNativeButtonMarkup, 'class="wp-block-button__link has-background wp-element-button"') && str_contains($fullWidthNativeButtonMarkup, 'background-color:#123456'), 'a filled button variant serializes its fill on the link, as core/button save() does');
 $assert(str_contains($fullWidthNativeButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthNativeButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width native button projects root geometry through the wrapper chain without overriding source wrapper margins');
 $assert('pass' === ($fullWidthNativeButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width native button wrapper chain remains editor-valid');
@@ -2242,7 +2264,7 @@ $responsiveFullWidthButtonCss = implode("\n", array_map(static fn (array $asset)
 $responsiveFullWidthButtonMarker = preg_match('/\bblocks-engine-control-[^\s"]+/', $responsiveFullWidthButtonMarkup, $matches) ? $matches[0] : '';
 $assert(str_contains($responsiveFullWidthButtonCss, '@media(min-width:992px)') && str_contains($responsiveFullWidthButtonCss, 'width:auto'), 'responsive full-width button retains its desktop intrinsic-width author rule');
 $assert(str_contains($responsiveFullWidthButtonMarkup, '<img src="assets/materialized-svg/') && str_contains($responsiveFullWidthButtonMarkup, '<span>Sign Up</span>'), 'responsive full-width button retains nested icon and label content');
-$assert(str_contains($responsiveFullWidthButtonCss, 'display:flex!important;align-items:center!important;justify-content:center!important;gap:8px!important') && str_contains($responsiveFullWidthButtonCss, '@media(min-width:992px)') && str_contains($responsiveFullWidthButtonCss, 'padding:8px 16px') && ! str_contains($responsiveFullWidthButtonCss, 'padding:8px 16px!important') && ! str_contains($responsiveFullWidthButtonCss, 'padding-top:12px!important'), 'responsive icon button keeps its authored flex row and stylesheet-owned desktop padding without overriding editor padding');
+$assert(str_contains($responsiveFullWidthButtonCss, 'display:flex;align-items:center;justify-content:center;gap:8px') && str_contains($responsiveFullWidthButtonCss, '@media(min-width:992px)') && str_contains($responsiveFullWidthButtonCss, 'padding:8px 16px') && ! str_contains($responsiveFullWidthButtonCss, 'padding:8px 16px!important') && ! str_contains($responsiveFullWidthButtonCss, 'padding-top:12px!important'), 'responsive icon button keeps its authored flex row and stylesheet-owned desktop padding without overriding editor padding');
 $assert('' !== $responsiveFullWidthButtonMarker && ! str_contains($responsiveFullWidthButtonCss, ':where(.' . $responsiveFullWidthButtonMarker . '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}'), 'responsive full-width button does not emit an unconditional generated full-width wrapper bridge');
 $assert(str_contains($responsiveFullWidthButtonMarkup, 'wp-block-buttons blocks-engine-control-') && str_contains($responsiveFullWidthButtonMarkup, 'wp-block-button blocks-engine-control-') && 'pass' === ($responsiveFullWidthButton['source_reports']['wp_block_validity']['status'] ?? ''), 'responsive full-width button keeps the canonical wrapper save shape and validity');
 
@@ -2808,7 +2830,7 @@ $syntaxCodeMarkup = (string) ($syntaxCodeResult['serialized_blocks'] ?? '');
 $syntaxCodeCss = implode("\n", array_column($syntaxCodeResult['assets'] ?? array(), 'content'));
 $assert(str_contains($syntaxCodeMarkup, '<span class="token comment"># npm</span>') && str_contains($syntaxCodeMarkup, '<span class="token function">install</span>'), 'core code preserves sanitized syntax-token markup');
 $assert(str_contains($syntaxCodeCss, '.token.comment{color:#8ea0c8}') && str_contains($syntaxCodeCss, '.token.function{color:#7dd3fc}'), 'syntax-token selectors remain targeted at their preserved core code descendants');
-$assert(1 === preg_match('/code:not\(\.be-c-[^)]+\)\{/', $syntaxCodeCss) && str_contains($syntaxCodeCss, ':where(.wp-block-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}'), 'native code keeps source inline preformatted geometry and authored code typography precedence');
+$assert(1 === preg_match('/code:not\(\.be-c-[^)]+\)\{/', $syntaxCodeCss) && str_contains($syntaxCodeCss, ':where(.blocks-engine-source-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}'), 'native code keeps source inline preformatted geometry and authored code typography precedence');
 $assert('pass' === ($syntaxCodeResult['source_reports']['wp_block_validity']['status'] ?? ''), 'syntax-token core code remains editor-valid');
 
 $linkedLogoResult = ( new HtmlTransformer() )->transform(
@@ -2951,7 +2973,8 @@ $inlineFlexSvgResult = ( new HtmlTransformer() )->transform(
 $inlineFlexSvgMarkup = (string) ($inlineFlexSvgResult['serialized_blocks'] ?? '');
 $assert(! str_contains($inlineFlexSvgMarkup, 'wp-block-blocks-engine-author-layout') && str_contains($inlineFlexSvgMarkup, '<!-- wp:paragraph'), 'inline flex text and SVG retain valid native paragraph blocks');
 $assert(str_contains($inlineFlexSvgMarkup, 'token') && str_contains($inlineFlexSvgMarkup, '<img src="assets/materialized-svg/'), 'inline flex text and its native SVG image retain source styling and materialized media');
-$assert(str_contains($inlineFlexSvgMarkup, 'style="width:18px;height:18px"'), 'CSS-owned inline SVG geometry is carried onto the materialized RichText image');
+$inlineFlexSvgCss = implode("\n", array_column($inlineFlexSvgResult['assets'] ?? array(), 'content'));
+$assert(! str_contains($inlineFlexSvgMarkup, 'style="width:18px;height:18px"') && str_contains($inlineFlexSvgCss, 'width:18px;height:18px'), 'CSS-owned inline SVG geometry is carried by stylesheet rather than frozen inline');
 
 $nestedControlSvg = ( new HtmlTransformer() )->transform('<style>.nested-control{display:flex;align-items:center;gap:14px;height:72px;border:6px solid #65625d;border-top-left-radius:36px;border-top-right-radius:36px;border-bottom-right-radius:36px;border-bottom-left-radius:36px}.nested-control>.nested-icon{width:36px;height:36px}.nested-control>.nested-icon>*{width:100%;height:100%}.nested-icon-source{width:77px;height:77px}</style><button class="nested-control"><span>WhatsApp</span><div class="nested-icon" data-source-visual-width="77" data-source-visual-height="77"><div class="nested-icon-source" data-source-visual-width="77" data-source-visual-height="77"><svg width="100%" height="100%" viewBox="0 0 77 77" aria-hidden="true"><path d="M0 0h77v77H0z"/></svg></div></div></button>')->toArray();
 $nestedControlSvgMarkup = (string) ($nestedControlSvg['serialized_blocks'] ?? '');
@@ -3119,7 +3142,7 @@ $emptyCoverCandidate = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/decor.png);background-size:cover;min-height:400px"></div>'
 )->toArray();
 $emptyCoverCandidateSerialized = (string) ($emptyCoverCandidate['serialized_blocks'] ?? '');
-$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
+$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure blocks-engine-image"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
 $assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
 $assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
 
@@ -3829,7 +3852,7 @@ $centeredSocialLinks = ( new HtmlTransformer() )->transform(
 $assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), '"justifyContent":"center"'), 'social links inherit explicit alignment from their source wrapper');
 $assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), 'is-content-justification-center'), 'social link justification is present in rendered save markup');
 $centeredSocialLinksCss = implode("\n", array_column($centeredSocialLinks['assets'] ?? array(), 'content'));
-$assert(str_contains($centeredSocialLinksCss, '.wp-block-social-links.is-content-justification-center{justify-content:center}'), 'social link justification renders without depending on theme block CSS');
+$assert(str_contains($centeredSocialLinksCss, '.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-content-justification-center{justify-content:center}'), 'social link justification renders without depending on theme block CSS');
 
 $deduplicatedNestedNavigation = ( new HtmlTransformer() )->transform(
     '<main><section class="shell"><div class="desktop-wrap"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div><div class="mobile-nav drawer"><div class="drawer-panel"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div></div><article><h2>Services</h2><p>Copy</p></article></section></main>'
@@ -5886,10 +5909,10 @@ $capturedDialog = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(array(
+                'components' => captured_components(array(array(
                     'status' => 'captured',
                     'trigger' => array('selector' => 'body > header > nav > a:nth-of-type(2)', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
                     'dialog' => array(
@@ -5897,7 +5920,7 @@ $capturedDialog = $compiler->compile(array(
                         'htmlBytes' => strlen('<div role="dialog" aria-label="Contact"><form action="https://provider.example/forms"><label>Name<input name="name"></label><script>window.provider=true</script></form></div>'),
                         'htmlTruncated' => false,
                     ),
-                )),
+                ))),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -5935,10 +5958,10 @@ $capturedSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -5954,7 +5977,7 @@ $capturedSelectableSet = $compiler->compile(array(
                         'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 3, 'index' => 1),
                     ),
                     $selectableFailed,
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -5981,10 +6004,10 @@ $triggerRowSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -5999,7 +6022,7 @@ $triggerRowSelectableSet = $compiler->compile(array(
                         'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false),
                         'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1),
                     ),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6023,10 +6046,10 @@ $ariaTriggerRowSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -6041,7 +6064,7 @@ $ariaTriggerRowSelectableSet = $compiler->compile(array(
                         'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false),
                         'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1),
                     ),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6060,13 +6083,13 @@ $pillSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 0)),
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1)),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6092,14 +6115,14 @@ $classMarkedSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     $classMarkedMember(0, '01. First option', 'Panel A'),
                     $classMarkedMember(1, '02. Second option', 'Panel B'),
                     $classMarkedMember(2, '03. Third option', 'Panel C'),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6127,13 +6150,13 @@ $keyedSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'tabKey' => 'alpha-key', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 0)),
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'tabKey' => 'beta-key', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1)),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6153,13 +6176,13 @@ $stretchSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 0)),
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1)),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6188,13 +6211,13 @@ $sideBySideSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     $sideBySideTrigger(0, '01Alpha', $selectableAlpha, 3),
                     $sideBySideTrigger(1, '02Beta', $selectableBeta, 3),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6223,10 +6246,10 @@ $regionLayoutSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -6241,7 +6264,7 @@ $regionLayoutSelectableSet = $compiler->compile(array(
                         'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false),
                         'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1),
                     ),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6277,8 +6300,8 @@ $formSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
-            'pages' => array(array('sourceUrl' => 'https://example.com/', 'states' => array($formSelectableState(0, 'Alpha'), $formSelectableState(1, 'Beta')))),
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
+            'pages' => array(array('sourceUrl' => 'https://example.com/', 'components' => captured_components(array($formSelectableState(0, 'Alpha'), $formSelectableState(1, 'Beta'))))),
         ), JSON_UNESCAPED_SLASHES)),
     ),
 ))->toArray();
@@ -6324,10 +6347,10 @@ $graphicSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -6342,7 +6365,7 @@ $graphicSelectableSet = $compiler->compile(array(
                         'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $graphicBeta, 'htmlBytes' => strlen($graphicBeta), 'htmlTruncated' => false),
                         'set' => array('selector' => 'body > main > div:nth-of-type(1) > svg', 'size' => 2, 'index' => 1),
                     ),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6381,10 +6404,10 @@ $choiceGroupInput = array(
     'files' => array(
         array('path' => 'website/index.html', 'content' => '<main><form action="/collect" method="post"><label>Choose one</label><div><button type="button">One</button><button type="button">Two</button></div><textarea name="comment"></textarea><button type="submit">Send</button></form></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.com/', 'states' => array(
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.com/', 'components' => captured_components(array(
             $choiceState(0, '<div class="choices"><button type="button"><span>One</span></button><button type="button"><span>Two</span></button></div>'),
             $choiceState(1, '<div class="choices"><button type="button"><span>One</span></button><button type="button"><span>Two</span></button></div>'),
-        )))), JSON_UNESCAPED_SLASHES)),
+        ))))), JSON_UNESCAPED_SLASHES)),
     ),
 );
 $choiceGroupArtifact = $compiler->compile($choiceGroupInput)->toArray();
@@ -6759,7 +6782,7 @@ $borderedImage = $factory->create('core/image', array(
     'className' => 'source-image',
     'style' => array('border' => array('color' => '#ffffff', 'style' => 'solid')),
 ));
-$assert(str_contains($borderedImage['innerHTML'], '<figure class="wp-block-image source-image"><img'), 'core/image omits metadata-skipped border classes from its canonical markup');
+$assert(str_contains($borderedImage['innerHTML'], '<figure class="wp-block-image source-image blocks-engine-image"><img'), 'core/image omits metadata-skipped border classes from its canonical markup');
 $assert(! str_contains($borderedImage['innerHTML'], 'has-border-color') && ! str_contains($borderedImage['innerHTML'], 'border-color:#ffffff'), 'core/image does not serialize metadata-skipped border styles without a source carrier');
 
 $defaultTable = $factory->create(

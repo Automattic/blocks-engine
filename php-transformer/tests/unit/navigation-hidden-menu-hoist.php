@@ -108,6 +108,8 @@ foreach ( array(
     'static author display' => $inlineFixture,
     'capture disclosure stylesheet' => str_replace('</head>', '<style data-blocks-engine-capture-disclosure="true">[data-blocks-engine-capture-dialog-panel][hidden]:not([data-blocks-engine-capture-resting-panel]){display:none!important}</style></head>', $inlineFixture),
     'capture disclosure base stylesheet' => str_replace('</head>', '<style data-blocks-engine-capture-disclosure-base="true">[data-blocks-engine-capture-dialog-panel][hidden]:not([data-blocks-engine-capture-resting-panel]){display:none!important}</style></head>', $inlineFixture),
+    'inline menu before CTA' => (string) file_get_contents(dirname(__DIR__) . '/fixtures/captured-inline-navigation-before-cta.html'),
+    'off-flow drawer before CTA' => str_replace('.nav nav{display:flex;', '.nav nav{position:absolute;display:none;', (string) file_get_contents(dirname(__DIR__) . '/fixtures/captured-inline-navigation-before-cta.html')),
     'conditional author display' => str_replace('.nav nav{display:flex;', '@media (min-width:981px){.nav nav{display:flex}}.nav nav{', $inlineFixture),
     'inline author display' => str_replace('id="primaryNav"', 'id="primaryNav" style="display:flex"', $inlineFixture),
 ) as $case => $html ) {
@@ -120,9 +122,16 @@ foreach ( array(
         static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
         $inlineResult['assets'] ?? array()
     ));
+    $isDrawer = 'off-flow drawer before CTA' === $case;
+    if ( 'inline menu before CTA' === $case || $isDrawer ) {
+        $brandPosition = strpos($inlineMarkup, '>Brand</a>');
+        $navigationPosition = strpos($inlineMarkup, '<!-- wp:navigation ');
+        $ctaPosition = strpos($inlineMarkup, '>Free Estimate</a>');
+        $assertions[] = array(false !== $brandPosition && false !== $navigationPosition && false !== $ctaPosition && $brandPosition < min($navigationPosition, $ctaPosition) && ($isDrawer ? $ctaPosition < $navigationPosition : $navigationPosition < $ctaPosition), $case . ': navigation occupies the ' . ($isDrawer ? 'toggle' : 'panel') . ' slot');
+    }
     $assertions[] = array(1 === $countBlocks($inlineResult['blocks'] ?? array(), 'core/navigation') && str_contains($inlineMarkup, '"label":"Alpha"') && str_contains($inlineMarkup, '"label":"Beta"') && str_contains($inlineMarkup, '"label":"Gamma"'), $case . ': the single source menu retains all three destinations');
     $assertions[] = array(str_contains($inlineMarkup, '"overlayMenu":"mobile"') && str_contains($inlineCss, '@media(min-width:600px) and (max-width:980px)'), $case . ': the mobile overlay extends to the author breakpoint');
-    $assertions[] = array(0 === preg_match('/@media\(min-width:981px\)\{\.wp-block-navigation[^{}]*blocks-engine-native-navigation-toggle-[a-f0-9]{12}\{display:none!important\}\}/', $inlineCss), $case . ': capture hidden does not hide the inline desktop menu');
+    $assertions[] = array(($isDrawer ? 1 : 0) === preg_match('/@media\(min-width:981px\)\{\.wp-block-navigation[^{}]*blocks-engine-native-navigation-toggle-[a-f0-9]{12}\{display:none!important\}\}/', $inlineCss), $case . ': only a mobile-only drawer hides above the source boundary');
 }
 
 $capturedFallback = ( new HtmlTransformer() )->transform(

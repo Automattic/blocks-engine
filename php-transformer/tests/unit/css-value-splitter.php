@@ -65,6 +65,16 @@ $assert(
     '2c: collapses leading/trailing/repeated whitespace'
 );
 
+// Bulk scanning must preserve trim()'s historical byte set, not substitute
+// CSS whitespace (which includes form feed but excludes NUL and vertical tab).
+foreach ( array( " " => true, "\t" => true, "\n" => true, "\r" => true, "\0" => true, "\x0B" => true, "\f" => false ) as $separator => $splits ) {
+    $input = 'red' . $separator . 'blue';
+    $assert(
+        CssValueSplitter::splitTopLevelWhitespace($input) === ( $splits ? array( 'red', 'blue' ) : array( $input ) ),
+        '2d: whitespace byte ' . bin2hex($separator) . ' retains its existing splitting behavior'
+    );
+}
+
 // ---------------------------------------------------------------------------
 // 3. Top-level declaration split keeps `;` inside functions intact.
 // ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
@@ -229,6 +230,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');
     private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
+    /** @var array<string, true>|null Source paths selected against the converted block budget. */
+    private ?array $deepMediaBoundaryPaths = null;
+
+    /** @var array<string, true> Boundaries discovered by the converted-tree pass. */
+    private array $discoveredDeepMediaBoundaryPaths = array();
+
     private string $capturedRootTheme = '';
     private string $emittedStyleMarkup = '';
 
@@ -262,18 +269,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * @var array<int, string>
      */
     private const RUNTIME_TAG_SELECTORS = array( 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li', 'span', 'menu', 'menuitem' );
-
-    /**
-     * Generic class/id tokens that usually mark a JS-owned application surface
-     * rather than editorial content. Used only with runtime selector evidence.
-     *
-     * @var array<int, string>
-     */
-    private const RUNTIME_APP_ROOT_TOKENS = array(
-        'app', 'application', 'board', 'canvas', 'dashboard', 'desktop', 'editor',
-        'explorer', 'instrument', 'lab', 'playground', 'rack', 'scene', 'shell',
-        'simulator', 'stage', 'studio', 'terminal', 'viewport', 'workspace', 'world',
-    );
 
     private readonly BlockFactory $blockFactory;
     private readonly TableAttributesBuilder $tableAttributesBuilder;
@@ -415,6 +410,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     /** @var array<string, true> */
     private array $sharedStylesheetPaths = array();
+
+    private bool $projectsOnlyMatchedAuthorRules = false;
 
     private const SYNTHETIC_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS;
     private const SYNTHETIC_SVG_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_SVG_PARAGRAPH_CLASS;
@@ -578,6 +575,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): string => $this->elementSelector($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (DOMElement $element): array => $this->formContextTypography($element),
+            fn (DOMElement $element): array => $this->formContextPaint($element),
             fn (DOMElement $element, DOMElement $boundary): ?array => $this->formContextHiddenState($element, $boundary),
             fn (DOMElement $element): string => $this->authorSelectorProjections()->tagMarker($element->tagName)
         );
@@ -783,7 +781,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             },
             fn (DOMElement $element): bool => $this->formRuntimeRequirementAnalyzer->requiresPreservation($element),
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
-            fn (DOMElement $element): bool => $this->pseudoFormAnalyzer->isPseudoForm($element)
+            fn (DOMElement $element): bool => $this->pseudoFormAnalyzer->isProviderPseudoForm($element)
         ));
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $buttonConverter = new ButtonElementConverter(new ButtonElementContext(
@@ -961,7 +959,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             capturePseudoFormFallback: function (DOMElement $element, array &$fallbacks): void { $this->formDispatcher->capturePseudoFormFallback($element, $fallbacks); },
             recognizePatterns: fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
             flankedSeparatorBlock: fn (DOMElement $element): ?array => $this->flankedSeparatorBlockFromElement($element),
-            capturedMediaLayoutBlock: fn (DOMElement $element): ?array => $this->capturedMediaLayoutBoundaryBlock($element),
             canCaptureExternalSvgFragmentDependency: fn (DOMElement $element): bool => ! $this->runtimeIslands->isRuntimeDomTarget($element) && ! $this->hasRuntimeTargetInSubtree($element),
             sourceElementClassifier: $this->sourceElementClassifier,
             responsiveMediaBlock: fn (DOMElement $element): array => $this->responsiveMediaBlock($element),
@@ -1395,6 +1392,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
+    /**
+     * The paint one form control renders, through the same cascade. Held per
+     * transform so the stylesheet analysis runs once.
+     */
+    private function formContextPaint(DOMElement $element): array
+    {
+        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->paintStyles(
+            $element,
+            $this->authorStyles()->stylesheetAssets(),
+            $this->sourceStyles()->formLayoutCss()
+        );
+    }
+
     /** @return array<string, string>|null */
     private function formContextHiddenState(DOMElement $element, DOMElement $boundary): ?array
     {
@@ -1547,6 +1557,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->currentSourcePath = (string) ($options['source'] ?? 'html');
         $this->session->installSourcePath($this->currentSourcePath);
         $this->sharedStylesheetPaths = array();
+        $this->projectsOnlyMatchedAuthorRules = ! empty($options['project_only_matched_author_rules']);
         foreach ( is_array($options['shared_stylesheet_paths'] ?? null) ? $options['shared_stylesheet_paths'] : array() as $path ) {
             if ( is_string($path) && '' !== $path ) {
                 $this->sharedStylesheetPaths[$path] = true;
@@ -1667,6 +1678,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->collectGeneratedComponentCandidates($body);
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates(), $this->transformationProvenance()->sourceCollapsedWrapperHiddenStates());
         $blocks = $this->compressProjectedGroupChains($blocks);
+        if (null === $this->deepMediaBoundaryPaths) {
+            $blocks = $this->captureDeepMediaLayoutBoundaries($blocks);
+            if (array() !== $this->discoveredDeepMediaBoundaryPaths) {
+                // Discovery converts before boxing so it can use the real block
+                // budget. None of that speculative work may reach the result:
+                // replay in a fresh session, treating only the selected source
+                // regions as opaque. This also preserves independent registrations
+                // in extracted shell/template artifacts, even with shared names.
+                $compilation = new self($this->runtime, $this->analysisCache);
+                $compilation->deepMediaBoundaryPaths = $this->discoveredDeepMediaBoundaryPaths;
+                return $compilation->transform($html, $options);
+            }
+        }
         $fallbacks = array_merge($fallbacks, $this->transformationEvidence()->responsiveImageFallbacks());
         $this->reconcileNativeListItemFallbacks($fallbacks, $blocks);
         $this->reconcileFormControlGroupFallbacks($body, $fallbacks);
@@ -1676,7 +1700,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->runtimeIslands->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->interactionFallbackReporter->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $this->commerceReporter->appendProductGridFallbacks($body, $fallbacks, $blocks);
-        $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks);
+        $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks, (string) ($options['declarative_state_html'] ?? $html));
         $this->commerceReporter->appendCartViewFallbacks($body, $fallbacks);
         // Inserted into a theme the engine does not own, core's flow layout
         // spaces group children with the host's block gap; encode the
@@ -1724,6 +1748,32 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             implode("\n\n", array_column($authorStylesheetProjections, 'content'))
             . ( '' === $this->authorStylesheetContentBoxCss ? '' : "\n\n" . $this->authorStylesheetContentBoxCss )
         );
+        // Publish declaration addresses only after every generated support
+        // family has contributed. Provisional source bindings never escape
+        // this compilation boundary as the identity of a control's styles.
+        $classIdentity = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DeclarationAddressedClasses();
+        $assets = $this->materializedAssets()->checkpoint();
+        // Author projections may already be materialized; count each source
+        // sheet once, then the generated sheets in their cascade placements.
+        // Isolated fallback fragments transfer structured support records to
+        // their owning compilation. Keep provisional keys until that owner
+        // has collected its complete rule set and finalizes once.
+        $classReplacements = $this->session->usesFallbackReductionMode() ? array() : $classIdentity->replacements(array_merge(
+            $authorStylesheetProjections,
+            array_values(array_filter($assets, static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && (array() === $authorStylesheetProjections || 'author-css' !== ($asset['source'] ?? ''))))
+        ));
+        $classReplacements += $classIdentity->assetPathReplacements($assets, $classReplacements);
+        $blocks = $classIdentity->rewrite($blocks, $classReplacements);
+        $fallbacks = $classIdentity->rewriteBindings($fallbacks, $serializedBlocks, $classReplacements);
+        $serializedBlocks = $classIdentity->rewrite($serializedBlocks, $classReplacements);
+        $sourceProvenance = $classIdentity->rewrite($sourceProvenance, $classReplacements);
+        $shellArtifacts = $classIdentity->rewrite($shellArtifacts, $classReplacements);
+        $authorStylesheetProjections = $classIdentity->rewrite($authorStylesheetProjections, $classReplacements);
+        $runtimeScriptProjections = $classIdentity->rewrite($runtimeScriptProjections, $classReplacements);
+        $responsiveCounterpartContracts = $classIdentity->rewrite($responsiveCounterpartContracts, $classReplacements);
+        $reusableComponentRecognition = $classIdentity->rewrite($reusableComponentRecognition, $classReplacements);
+        $this->projectedSelectorBindings = $classIdentity->rewrite($this->projectedSelectorBindings, $classReplacements);
+        $this->materializedAssets()->restore($classIdentity->rewrite($assets, $classReplacements));
         $blockValidityEvaluation = $this->runtime->evaluateBlockSerialization($blocks);
         $blockValidityReport = $blockValidityEvaluation->report();
         $semanticParityEvaluation = $this->semanticParityReporter->evaluate($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
@@ -1860,6 +1910,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'responsive_geometry_ambiguities' => $this->transformationEvidence()->responsiveGeometryAmbiguities(),
             'responsive_height_ambiguities' => $this->transformationEvidence()->responsiveHeightAmbiguities(),
             'grid_placement_carrier_findings' => $this->transformationEvidence()->gridPlacementCarrierFindings(),
+            'unscoped_core_selector_drops' => $this->transformationEvidence()->unscopedCoreSelectorDrops(),
             'has_description_list_block' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class),
         ), $blockCompilationOutput);
     }
@@ -2505,7 +2556,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $afterAuthorCss->absorb($engineSupportCss->secondaryBlockRenderRepairCss($serializedBlocks));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationItemStateAnchorRules($serializedBlocks, $sourceProvenance));
         $afterAuthorCss->absorb($this->navigationStyleProjector->directNavigationSupportCss($serializedBlocks));
-        $afterAuthorCss->absorb($this->navigationStyleProjector->directNavigationDisplayRules($serializedBlocks));
         $afterAuthorCss->absorb($this->generatedSupportStyles()->buttonAfterAuthorCss());
         $afterAuthorCss->addAll(CascadeLayer::CLOSED_STATE_REPAIR, $this->styleResolver->closedStateRepairCssRules());
         // A captured reveal whose driver did not survive import must still
@@ -2519,7 +2569,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ? $authorCss
             : implode("\n\n", array_column($authorStylesheetProjections, 'content'));
         $afterAuthorCss->addAll(CascadeLayer::REVEAL_SETTLE, ( new RevealAnimationSettler() )->settleRules($settleableAuthorCss));
-        $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, ( new EditorCanvasBodyBackground() )->supportCss($settleableAuthorCss));
+        // DOMDocument synthesizes a body for fragments; its margin belongs to
+        // the host document, not to the imported content.
+        $bodyDeclarations = preg_match('/<(?:html|body)\b/i', $html)
+            ? $this->styleResolver->authorStructuralDeclarations($this->authorStyles()->sourceBody())
+            : null;
+        $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, ( new EditorCanvasBodyBackground() )->supportCss($settleableAuthorCss, $bodyDeclarations));
         // Engine support CSS may join an author cascade layer, and naming a
         // layer registers it. The editor injects author CSS after the enqueued
         // editor styles, so that registration would otherwise arrive first and
@@ -2676,7 +2731,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $keepAuthorClassSelectors,
                 $bindings,
                 $this->emittedStyleMarkup,
-                $contentBoxRestatements ?? new ContentBoxRestatements()
+                $contentBoxRestatements ?? new ContentBoxRestatements(),
+                $this->projectsOnlyMatchedAuthorRules
             ),
             '' === $media ? array() : array( '@media ' . $media )
         );
@@ -3498,7 +3554,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array(),
             fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src),
             fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : '',
-            fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item)
+            fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
+            fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement)
         );
     }
 
@@ -3589,6 +3646,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
              disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
              accordionToggle: fn (DOMElement $control, ?DOMElement $row = null): array => $this->disclosureControlPresentation()->accordionToggle($control, $row),
              accordionItemBox: fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
+             sourceElementVisuallyClipped: fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
              authoredIconColor: fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
              assetMetadata: fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array()
          );
@@ -3600,6 +3658,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
+        if (isset($this->deepMediaBoundaryPaths[$element->getNodePath()])) {
+            return $this->capturedMediaLayoutBoundaryBlock($element, true);
+        }
+
         $tagName = strtolower($element->tagName);
 
         $authoredMotion = (new AuthoredMotionMarkerConverter($this->session, $this))->convert($element);
@@ -4495,13 +4557,91 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // is built from these attributes and so carries them too.
         $attrs = $this->withRichTextCarrierClasses($attrs);
 
-        return $this->blockMaterializer->materialize(
+        return $this->withSourceInterItemSpaces($this->blockMaterializer->materialize(
             $name,
             $attrs,
             $innerBlocks,
             $sourceMaterializationFacts,
             $this->transformationProvenance()
-        );
+        ), $sourceElement);
+    }
+
+    /**
+     * Inline-level items that the source separated by collapsible whitespace
+     * share their line with one space of the parent's font between each pair.
+     * A container block's inner blocks serialize back to back, so the items
+     * lost that space. Keep one between their placeholders, where WordPress
+     * renders it as the source did.
+     *
+     * @param array<string, mixed> $block
+     * @return array<string, mixed>
+     */
+    private function withSourceInterItemSpaces(array $block, ?DOMElement $sourceElement): array
+    {
+        $innerContent = $block['innerContent'] ?? null;
+        if ( ! $sourceElement instanceof DOMElement || ! is_array($innerContent) || ! $this->sourceChildrenAreSpaceSeparatedInline($sourceElement, count($block['innerBlocks'] ?? array())) ) {
+            return $block;
+        }
+        $spaced = array();
+        $previousWasBlock = false;
+        foreach ( $innerContent as $part ) {
+            if ( null === $part && $previousWasBlock ) {
+                $spaced[] = ' ';
+            }
+            $spaced[] = $part;
+            $previousWasBlock = null === $part;
+        }
+        $block['innerContent'] = $spaced;
+        $block['innerHTML'] = implode('', array_filter($spaced, 'is_string'));
+
+        return $block;
+    }
+
+    private function sourceChildrenAreSpaceSeparatedInline(DOMElement $parent, int $innerBlockCount): bool
+    {
+        if ( $innerBlockCount < 2 ) {
+            return false;
+        }
+        // The source markup first: one element per inner block, with only
+        // collapsible whitespace (and comments) around them and some between
+        // every pair. `</li><li>` has no space to give back.
+        $items = array();
+        $whitespace = null;
+        foreach ( $parent->childNodes as $node ) {
+            if ( $node instanceof DOMElement ) {
+                if ( array() !== $items && '' === $whitespace ) {
+                    return false;
+                }
+                $items[] = $node;
+                $whitespace = '';
+            } elseif ( XML_TEXT_NODE === $node->nodeType ) {
+                if ( 1 !== preg_match('/^[ \t\n\r\f]*$/', (string) $node->nodeValue) ) {
+                    return false;
+                }
+                $whitespace .= (string) $node->nodeValue;
+            } elseif ( XML_COMMENT_NODE !== $node->nodeType ) {
+                return false;
+            }
+        }
+        if ( count($items) !== $innerBlockCount
+            || 1 === preg_match('/flex|grid|box|contents|none|table/', $this->resolvedDeclaration($parent, 'display'))
+            || ! in_array($this->resolvedDeclaration($parent, 'white-space'), array( '', 'normal', 'nowrap' ), true) ) {
+            return false;
+        }
+        // Then each item shares the parent's line box: inline-level and in flow.
+        foreach ( $items as $item ) {
+            $display = $this->resolvedDeclaration($item, 'display');
+            $inline = '' === $display
+                ? $this->sourceElementClassifier->isInlineSourceElement(strtolower($item->tagName)) || in_array(strtolower($item->tagName), array( 'button', 'img', 'input', 'select', 'textarea' ), true)
+                : 1 === preg_match('/^inline(?:-[a-z-]+)?$/', $display);
+            if ( ! $inline
+                || ! in_array($this->resolvedDeclaration($item, 'float'), array( '', 'none' ), true)
+                || in_array($this->resolvedDeclaration($item, 'position'), array( 'absolute', 'fixed' ), true) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -5914,6 +6054,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // would freeze the breakpoint it came from onto the mark and
             // silence the responsive class rule at every other width.
             $declarations = $this->styleResolver->stripResponsiveClassOwnedDeclarations($element, $declarations);
+        }
+        if ( ! $carrierReplacesSource && ! $sourceIsLink ) {
+            $declarations = $this->richTextMaterializer->withoutKeptFormatTagDeclarations($element, $declarations);
         }
         $existingDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         if ( $sourceIsLink ) {
@@ -8596,7 +8739,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $lists = array();
         foreach ( $item->childNodes as $child ) {
-            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol', 'menu' ), true) ) {
                 $lists[] = $child;
             }
         }
@@ -8669,7 +8812,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $list = $item->parentNode;
         return $list instanceof DOMElement
-            && in_array(strtolower($list->tagName), array( 'ul', 'ol' ), true)
+            && in_array(strtolower($list->tagName), array( 'ul', 'ol', 'menu' ), true)
             && $this->listContainsStructuralItemContent($list);
     }
 
@@ -8728,12 +8871,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $content = $item->cloneNode(true);
         if ( ! $content instanceof DOMElement ) {
-            return $this->innerHtmlWithoutTags($item, array( 'ul', 'ol' ));
+            return $this->innerHtmlWithoutTags($item, array( 'ul', 'ol', 'menu' ));
         }
 
         $directLists = array();
         foreach ( $content->childNodes as $child ) {
-            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol', 'menu' ), true) ) {
                 $directLists[] = $child;
             }
         }
@@ -9814,6 +9957,47 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return 1 === $imageChildren;
     }
 
+    /**
+     * core/image keeps only the image inside its link, so the image is the
+     * link's whole content and its alt is the link's accessible name. When the
+     * source named the link with something else (`aria-label`, text such as a
+     * screen-reader-only label, or a title) and left the image unnamed, carry
+     * that name on the image rather than leave the link nameless.
+     */
+    private function linkedImageAlt(DOMElement $image, ?DOMElement $link): string
+    {
+        $alt = $this->attr($image, 'alt');
+        if ( ! $link instanceof DOMElement || '' !== trim($alt) ) {
+            return $alt;
+        }
+        $text = '';
+        foreach ( $this->textNodesOutside($link, $image) as $node ) {
+            $text .= ' ' . $node->textContent;
+        }
+        foreach ( array( trim($this->attr($link, 'aria-label')), trim(preg_replace('/\s+/u', ' ', $text) ?? ''), trim($this->attr($link, 'title')) ) as $name ) {
+            if ( '' !== $name ) {
+                return $name;
+            }
+        }
+        return $alt;
+    }
+
+    /** @return list<\DOMText> */
+    private function textNodesOutside(DOMElement $element, DOMElement $excluded): array
+    {
+        $nodes = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof \DOMText ) {
+                $nodes[] = $child;
+            } elseif ( $child instanceof DOMElement && ! $child->isSameNode($excluded)
+                && ! $child->hasAttribute('hidden') && 'true' !== strtolower(trim($this->attr($child, 'aria-hidden')))
+                && ! in_array(strtolower($child->tagName), array( 'script', 'style', 'template', 'noscript', 'svg' ), true) ) {
+                array_push($nodes, ...$this->textNodesOutside($child, $excluded));
+            }
+        }
+        return $nodes;
+    }
+
     private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null, bool $nativeImage = false): ?array
     {
         $this->imageDimensions()->fillParentImageViewportPair($image);
@@ -9861,7 +10045,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $attrs = array_filter(array_merge($attrs, array(
             'url'    => $url,
-            'alt'    => $this->attr($image, 'alt'),
+            'alt'    => $this->linkedImageAlt($image, $link),
             'title'  => $this->attr($image, 'title'),
             'width'  => $width,
             'height' => $height,
@@ -9918,7 +10102,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             (string) ($attrs['height'] ?? ''),
             isset($shape['aspectRatio']),
             '' === (string) ($attrs['width'] ?? '') && $this->imageDimensions()->authorResolvesDimensionToAuto($image, 'width'),
-            '' === (string) ($attrs['height'] ?? '') && $this->imageDimensions()->authorResolvesDimensionToAuto($image, 'height')
+            '' === (string) ($attrs['height'] ?? '') && $this->imageDimensions()->authorResolvesDimensionToAuto($image, 'height'),
+            $figure
         );
         if ( '' !== $boxCarrier ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $boxCarrier);
@@ -9928,6 +10113,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $caption = $this->firstChildElement($figure, 'figcaption');
             if ( $caption instanceof DOMElement ) {
                 $attrs['caption'] = $this->innerHtml($caption);
+                $captionMarginClassName = $this->styleResolver->imageCaptionMarginClassName($caption);
+                if ( '' !== $captionMarginClassName ) {
+                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $captionMarginClassName);
+                }
+                // core/image's save() writes the caption <figcaption> itself, so
+                // the source caption's classes have no attribute that reaches
+                // it. Carry them onto the rendered figcaption (see
+                // BlockFactory::imageHtml()) the way media-text carries its
+                // source figure's classes, so the caption keeps the box the
+                // author drew and rules keyed on those classes keep matching.
+                $captionClassName = trim($this->attr($caption, 'class'));
+                if ( '' !== $captionClassName ) {
+                    $attrs['captionClassName'] = $captionClassName;
+                }
             }
         }
 
@@ -10547,17 +10746,89 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
-    /** @return array<string, mixed>|null */
-    private function capturedMediaLayoutBoundaryBlock(DOMElement $element): ?array
+    /**
+     * Place captures on the converted tree, after wrapper coalescing. A branching
+     * region can keep its shallow children editable; a single-chain region needs
+     * only one boundary. Never descend past the policy's actual block budget.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<string, bool>|null $represented
+     * @return array<int, array<string, mixed>>
+     */
+    private function captureDeepMediaLayoutBoundaries(array $blocks, int $depth = 1, ?array $represented = null): array
     {
-        if ( ! in_array(strtolower($element->tagName), array('main', 'article', 'section', 'div', 'figure'), true)
+        if (null === $represented) {
+            $represented = array();
+            $collect = function (array $items) use (&$collect, &$represented): void {
+                foreach ($items as $item) {
+                    $ids = $item['_source_provenance_ids'] ?? array($item['_source_provenance_id'] ?? null);
+                    foreach ($ids as $id) {
+                        $source = is_int($id) ? $this->transformationProvenance()->sourceElement($id) : null;
+                        if ($source instanceof DOMElement) $represented[$source->getNodePath()] = true;
+                    }
+                    $collect($item['innerBlocks'] ?? array());
+                }
+            };
+            $collect($blocks);
+        }
+        foreach ($blocks as &$block) {
+            $id = $block['_source_provenance_id'] ?? ($block['_source_provenance_ids'][0] ?? null);
+            $element = is_int($id) ? $this->transformationProvenance()->sourceElement($id) : null;
+            // Inert wrappers may vanish entirely. Their surviving carrier still
+            // represents that source region, up to the next native ancestor.
+            $captureElement = $element;
+            $parent = $element?->parentNode;
+            while ($parent instanceof DOMElement && 'body' !== strtolower($parent->tagName) && !isset($represented[$parent->getNodePath()])) {
+                if ($this->sourceElementNestingDepth($parent) > self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING) $captureElement = $parent;
+                $parent = $parent->parentNode;
+            }
+            $children = $block['innerBlocks'] ?? array();
+            $branch = $children;
+            while (1 === count($branch)) {
+                $branch = $branch[0]['innerBlocks'] ?? array();
+            }
+            $converted = null;
+            if (count($branch) > 1 && $depth < EditabilityPolicy::THRESHOLDS['max_nesting_depth']) {
+                $converted = $this->captureDeepMediaLayoutBoundaries($children, $depth + 1, $represented);
+                if ($converted !== $children) {
+                    $block['innerBlocks'] = $converted;
+                    continue;
+                }
+            }
+            $exceedsBudget = $depth + $this->convertedBlockNestingDepth($children) > EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
+            $boundary = $captureElement instanceof DOMElement ? $this->capturedMediaLayoutBoundaryBlock($captureElement, $exceedsBudget) : null;
+            if (null !== $boundary) {
+                $this->discoveredDeepMediaBoundaryPaths[$captureElement->getNodePath()] = true;
+                $block = $boundary;
+            } elseif (array() !== $children) {
+                $block['innerBlocks'] = $converted ?? $this->captureDeepMediaLayoutBoundaries($children, $depth + 1, $represented);
+            }
+        }
+        unset($block);
+        return $blocks;
+    }
+
+    /** @param array<int, array<string, mixed>> $blocks */
+    private function convertedBlockNestingDepth(array $blocks): int
+    {
+        $depth = 0;
+        foreach ($blocks as $block) {
+            $depth = max($depth, 1 + $this->convertedBlockNestingDepth($block['innerBlocks'] ?? array()));
+        }
+        return $depth;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function capturedMediaLayoutBoundaryBlock(DOMElement $element, bool $exceedsBlockBudget = false): ?array
+    {
+        if ( ! in_array(strtolower($element->tagName), array('main', 'article', 'section', 'div', 'figure', 'ul', 'ol', 'li'), true)
             || $this->runtimeIslands->isRuntimeDomTarget($element)
             || $this->hasRuntimeTargetInSubtree($element)
             || $this->hasLayoutGeometryProofInSubtree($element)
             || $this->containsDocumentShellLandmarks($element)
-            || $this->sourceElementNestingDepth($element) <= self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING
+            || (!$exceedsBlockBudget && $this->sourceElementNestingDepth($element) <= self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING)
             || ! $this->sourceElementClassifier->hasCapturedMediaContent($element)
-            || ('main' !== strtolower($element->tagName) && '' === trim((string) $element->textContent))
+            || (!$exceedsBlockBudget && ! in_array(strtolower($element->tagName), array('main', 'ul', 'ol', 'li'), true) && '' === trim((string) $element->textContent))
         ) {
             return null;
         }
@@ -11451,6 +11722,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ($parent instanceof DOMElement
             && $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
             && in_array($this->resolvedDeclaration($parent, 'display'), array('', 'inline'), true)) {
+            return true;
+        }
+
+        // A link that is a flex or grid item is the item itself. Its in-flow
+        // image still sits on the link's own line, so the strut sizes the link.
+        if ($parent instanceof DOMElement && 'a' === strtolower($parent->tagName) && $this->styleResolver->imageIsFlexOrGridItem($parent)
+            && ! in_array($this->resolvedDeclaration($element, 'position'), array( 'absolute', 'fixed' ), true)
+            && in_array($this->resolvedDeclaration($element, 'float'), array( '', 'none' ), true)) {
             return true;
         }
 

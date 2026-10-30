@@ -23,7 +23,7 @@
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-source-p-" },
+    { "path": "assets.1.content", "assert": "contains", "value": ":where(.blocks-engine-source-p-" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:html" }
   ]
 }

@@ -36,12 +36,15 @@ $compile = static function (string $bodyAttributes, string $head = '<style>.x{co
         'files' => array( 'website/index.html' => $html ),
     ))->toArray();
     $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
+    // This contract concerns the editor-loaded carrier. Full document
+    // mechanics now travel separately in a front-end-only stylesheet.
+    $editorAssets = array_filter($plan['assets'] ?? array(), static fn(array $asset): bool => 'frontend' !== ($asset['stylesheet_target'] ?? 'both'));
     $css = '';
-    foreach ( $plan['assets'] ?? array() as $asset ) {
+    foreach ( $editorAssets as $asset ) {
         $css .= (string) ( $asset['content'] ?? '' );
     }
 
-    return array( $css, count($plan['assets'] ?? array()) );
+    return array( $css, count($editorAssets) );
 };
 
 $hasBodyRule = static fn (string $css): bool => 1 === preg_match('/(?:^|[^-\w])body\s*\{/', $css);

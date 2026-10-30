@@ -30,6 +30,7 @@ final class LogoPattern implements PatternRecognizerInterface
         if (
             'a' === strtolower($element->tagName)
             && '' !== LinkUrlSanitizer::sanitize($element->hasAttribute('href') ? $element->getAttribute('href') : '')
+            && ! $this->hasStructuredAnchorChrome($element)
             && InlineStackingClassifier::stacksInlineChildren($element, $logo->structuralPresentationDeclarations(...))
         ) {
             return null;
@@ -44,10 +45,7 @@ final class LogoPattern implements PatternRecognizerInterface
             $context->createBlock(...)
         );
 
-        if ( 'core/buttons' === ($block['blockName'] ?? '') ) {
-            // Override predicted independent blocks or inline-layout carriers
-            // inside the saved link. Keep the RichText projections that already
-            // agree with the materialized label, including their reset rules.
+        if ( null !== $block && 'a' === strtolower($element->tagName) && $this->hasStructuredAnchorChrome($element) ) {
             $context->buttonContext()?->retainSourceDescendants($element, onlyProjectedTopology: true);
         }
 
@@ -75,28 +73,14 @@ final class LogoPattern implements PatternRecognizerInterface
         }
 
         if ( 'a' === $tagName && $this->hasStructuredAnchorChrome($element) ) {
-            $content = $materializeSvgImages($element, $innerHtml($element)) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $innerHtml($element)) ?? $innerHtml($element));
-            $attrs = array_filter(array(
-                'text'  => trim($content),
-                'url'   => SourceDom::safeNavigationUrl($element->hasAttribute('href') ? $element->getAttribute('href') : ''),
-                'title' => trim($element->hasAttribute('aria-label') ? $element->getAttribute('aria-label') : ''),
-				'style' => array(
-                    'color' => array( 'background' => 'transparent' ),
-                    'border' => array( 'radius' => '0' ),
-                    'spacing' => array(
-                        'padding' => array( 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0' ),
-                    ),
-                ),
-            ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
-
-            $margin = $presentationAttributes($element)['style']['spacing']['margin'] ?? null;
-            $wrapperAttrs = is_array($margin) && array() !== $margin
-                ? array( 'style' => array( 'spacing' => array( 'margin' => $margin ) ) )
-                : array();
-
-            return $createBlock('core/buttons', $wrapperAttrs, array(
-                $createBlock('core/button', $attrs, array(), $element, $element),
-            ), $element);
+            // Media is not button chrome. Keep the source anchor and its
+            // layout in a native RichText host, without button theme defaults.
+            $html = $outerHtml($element);
+            $label = $materializeSvgImages($element, $innerHtml($element)) ?? $innerHtml($element);
+            $content = substr($html, 0, (int) strpos($html, '>') + 1) . $label . '</a>';
+            $attrs = LoweredLinkHost::attributes($presentationAttributes($element), $element);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-inline-layout-carrier');
+            return $createBlock('core/paragraph', array_merge($attrs, array('content' => $content, 'preserveInlineLayoutLeaf' => true)), array(), $element);
         }
 
         // The logo cue proves branding, not inline semantics. A whole heading

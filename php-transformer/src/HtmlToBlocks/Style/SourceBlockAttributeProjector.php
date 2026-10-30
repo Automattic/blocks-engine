@@ -106,6 +106,11 @@ final class SourceBlockAttributeProjector
                     self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
                     $this->styleResolver->syntheticFlexImageBoxClassName($sourceElement)
                 );
+            } elseif ('' !== (string) ($attrs['href'] ?? '') && $this->sourceImageLinkIsFlexOrGridItem($sourceElement)) {
+                // The link core/image re-emits around the image was the item.
+                // A figure box would put it on a line instead, adding the strut
+                // below an inline-level link that a blockified item never had.
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS);
             }
             // The source image was inline content that its parent aligned. A
             // synthesized figure is a block box that fills the line instead,
@@ -151,7 +156,15 @@ final class SourceBlockAttributeProjector
             }
         }
         $baseClassName = (string) ($attrs['className'] ?? '');
-        $projectionClassName = $this->sourceProjectionClassName($sourceElement, $context, $baseClassName);
+        // A RichText marker is already the selector projection of this source
+        // element. Its paragraph is only a validity carrier, not a second box.
+        $richTextMarker = $context->selectorProjections->richTextMarker($sourceElement->getNodePath() ?? '');
+        $contentOwnsProjection = 'core/paragraph' === $name && $facts->isInlineSourceElement
+            && '' !== $richTextMarker
+            && str_contains((string) ($attrs['content'] ?? ''), '--blocks-engine-richtext-marker:' . $richTextMarker);
+        $projectionClassName = $contentOwnsProjection
+            ? $baseClassName
+            : $this->sourceProjectionClassName($sourceElement, $context, $baseClassName);
         if ( '' !== $projectionClassName ) {
             $attrs['className'] = 'core/paragraph' === $name && 'a' === $sourceTagName && $facts->isInlineSourceElement
                 ? self::withoutContentAnchorClasses($projectionClassName, $baseClassName, (string) ($attrs['content'] ?? ''))
@@ -294,6 +307,15 @@ final class SourceBlockAttributeProjector
     private function sourceImageIsFlexOrGridItem(DOMElement $image): bool
     {
         return $this->styleResolver->imageIsFlexOrGridItem($image);
+    }
+
+    private function sourceImageLinkIsFlexOrGridItem(DOMElement $image): bool
+    {
+        $link = $image->parentNode;
+        if ( ! $link instanceof DOMElement || 'a' !== strtolower($link->tagName) ) {
+            return false;
+        }
+        return $this->styleResolver->imageIsFlexOrGridItem($link);
     }
 
     private static function isHiddenAccessibilitySupportElement(DOMElement $element): bool
@@ -631,10 +653,13 @@ final class SourceBlockAttributeProjector
     /** @return array<string,string> */
     public function syntheticInlineParagraphAttributes(DOMElement $container): array
     {
+        // This carrier adds no source box, regardless of its links.
+        $attrs = array('className' => self::SYNTHETIC_PARAGRAPH_CLASS);
         $anchors = $container->getElementsByTagName('a');
-        if (0 === $anchors->length) return array();
-        foreach ($anchors as $anchor) if (!$anchor instanceof DOMElement || !$this->sourceAnchorHasNoTextDecoration($anchor)) return array();
-        return array('className' => self::SYNTHETIC_PARAGRAPH_CLASS . ' ' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
+        if (0 === $anchors->length) return $attrs;
+        foreach ($anchors as $anchor) if (!$anchor instanceof DOMElement || !$this->sourceAnchorHasNoTextDecoration($anchor)) return $attrs;
+        $attrs['className'] .= ' ' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS;
+        return $attrs;
     }
 
     /**

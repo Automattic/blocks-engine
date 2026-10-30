@@ -273,12 +273,21 @@ final class MediaTextPattern implements PatternRecognizerInterface
             if ( 0.0 < $textGrow && 0.0 < $mediaGrow && $textGrow !== $mediaGrow ) {
                 return null;
             }
-            if ( $elementChildren[$mediaIndex] !== $resolution['media'] ) {
-                $wrapperDeclarations = $this->styleDeclarations($childStyles[$mediaIndex]);
-                foreach ( array( 'perspective', 'transform', 'filter', 'box-shadow', 'background', 'background-color', 'background-image' ) as $property ) {
-                    if ( isset($wrapperDeclarations[$property]) ) {
-                        return null;
-                    }
+        }
+
+        // The generated media figure discards the source wrapper chain. Keep
+        // authored boxes in ordinary group/image lowering for grids as well as
+        // flex rows, using the full style resolver (not the layout gate subset).
+        for ( $wrapper = $resolution['media']->parentNode; $wrapper instanceof DOMElement && $wrapper !== $element; $wrapper = $wrapper->parentNode ) {
+            try {
+                $wrapperDeclarations = $this->styleDeclarations($mergedPresentationStyle($wrapper) . ';' . $fullPresentationStyle($wrapper));
+            } catch ( \Throwable ) {
+                return null;
+            }
+            foreach ( array_keys($wrapperDeclarations) as $property ) {
+                if ( in_array($property, array( 'perspective', 'transform', 'filter', 'box-shadow', 'aspect-ratio', 'overflow', 'overflow-x', 'overflow-y' ), true)
+                    || preg_match('/^(?:background|border|padding)(?:-|$)/', $property) ) {
+                    return null;
                 }
             }
         }

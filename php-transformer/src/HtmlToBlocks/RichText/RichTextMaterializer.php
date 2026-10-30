@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
 use DOMElement;
+use DOMNode;
 
 /** Materializes source inline markup into content accepted by block RichText. */
 final class RichTextMaterializer implements RichTextMaterialization
@@ -55,6 +56,62 @@ final class RichTextMaterializer implements RichTextMaterialization
     {
         return in_array(strtolower($element->tagName), array( 'span', 'font', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true)
             || RichTextInlineTags::isUnknownHtmlElement($element);
+    }
+
+    /**
+     * Format tags RichText keeps by name, with the user-agent styling a bare
+     * tag carries.
+     */
+    private const FORMAT_TAG_DEFAULTS = array(
+        'strong' => array( 'font-weight' => 'bolder' ),
+        'b' => array( 'font-weight' => 'bolder' ),
+        'em' => array( 'font-style' => 'italic' ),
+        'i' => array( 'font-style' => 'italic' ),
+        'small' => array( 'font-size' => 'smaller' ),
+        'sub' => array( 'font-size' => 'smaller', 'vertical-align' => 'sub' ),
+        'sup' => array( 'font-size' => 'smaller', 'vertical-align' => 'super' ),
+    );
+
+    /**
+     * What a format tag still receives once RichText strips its class and
+     * style: its user-agent styling plus author rules that match the bare tag.
+     *
+     * Its carrier nests inside the kept tag, so these values already reach it.
+     * A restated parent-relative value (`bolder`, `1.5em`) would resolve
+     * against the tag instead of its parent and compound, so it is dropped;
+     * absolute values restate harmlessly. A clone stands in for the source
+     * inline so the source's cached matches stay untouched.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    public function withoutKeptFormatTagDeclarations(DOMElement $element, array $declarations): array
+    {
+        $parent = $element->parentNode;
+        if ( ! isset(self::FORMAT_TAG_DEFAULTS[strtolower($element->tagName)]) ) {
+            return $declarations;
+        }
+        $bare = $element->cloneNode(true);
+        if ( ! $parent instanceof DOMNode || ! $bare instanceof DOMElement ) {
+            return $declarations;
+        }
+        $bare->removeAttribute('class');
+        $bare->removeAttribute('style');
+        $parent->replaceChild($bare, $element);
+        try {
+            $kept = array_merge(self::FORMAT_TAG_DEFAULTS[strtolower($element->tagName)], $this->inlineVisualDeclarations($bare));
+        } finally {
+            $parent->replaceChild($element, $bare);
+        }
+        foreach ( array( 'font-weight', 'font-size' ) as $property ) {
+            $value = CssValueInspector::comparable((string) ($declarations[$property] ?? ''));
+            if ( '' !== $value && $value === CssValueInspector::comparable((string) ($kept[$property] ?? ''))
+                && 1 === preg_match('/^(?:bolder|lighter|smaller|larger|[\d.]+(?:em|%))$/', $value) ) {
+                unset($declarations[$property]);
+            }
+        }
+
+        return $declarations;
     }
 
     /** @param array<int, string> $excludedTags */
@@ -113,6 +170,7 @@ final class RichTextMaterializer implements RichTextMaterialization
             }
 
             $inline = $this->inlineVisualDeclarations($sourceInline);
+            $inline = $this->withoutKeptFormatTagDeclarations($sourceInline, $inline);
             $marker = $this->inlinePolicy->richTextMarker($sourceInline);
             if ( '' !== $marker ) {
                 $headerCarrier = array_intersect_key($inline, array( 'place-items' => true, 'box-shadow' => true ));
@@ -127,7 +185,11 @@ final class RichTextMaterializer implements RichTextMaterialization
             // value projected here would freeze the breakpoint it came from onto
             // the carrier and silence the responsive class rule at every width.
             $projected = $inline;
-            $inline = $this->styleResolver->stripResponsiveClassOwnedDeclarations($sourceInline, $inline);
+            $inline = $this->styleResolver->stripResponsiveClassOwnedDeclarations(
+                $sourceInline,
+                $inline,
+                strtolower($sourceInline->tagName) === strtolower($targetInline->tagName)
+            );
             $this->carryStrippedLegacyFontSize($sourceInline, $marker, $projected, $inline);
             // The resolved `size` hint is final here, where the full source
             // cascade is visible; a later pass over the detached content must
@@ -256,7 +318,12 @@ final class RichTextMaterializer implements RichTextMaterialization
         // carrier replaces its inline style, so it must define them too.
         $declarations += $this->styleResolver->consumedInlineCustomProperties($element, $declarations);
         if ( ! SourceDom::hasAncestorTag($element, array( 'header' )) ) {
-            unset($declarations['box-shadow'], $declarations['place-items']);
+            unset($declarations['place-items']);
+            // An empty decorative inline is itself the painted box, not a
+            // text format: its shadow must travel with its dimensions/paint.
+            if ( '' !== trim($element->textContent ?? '') || 0 < SourceDom::childElementCount($element) ) {
+                unset($declarations['box-shadow']);
+            }
         }
         if ( in_array(strtolower($element->tagName), array( 'em', 'i' ), true) ) {
             if ( 'italic' === strtolower((string) ($declarations['font-style'] ?? '')) ) {

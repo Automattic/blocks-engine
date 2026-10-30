@@ -57,15 +57,18 @@ $button = $transform(
 $image = preg_match('/<img[^>]*>/', $button['blocks'], $match) ? $match[0] : '';
 
 $assert('' !== $image, '1: the button icon materializes as an image', $button['blocks']);
+preg_match('/be-inline-geometry-[a-f0-9]+/', $image, $imageClass);
+preg_match('/\.' . ($imageClass[0] ?? '') . '\{([^}]*)\}/', $button['css'], $imageRule);
+$carriedBox = $imageRule[1] ?? '';
 $assert(
-    str_contains($image, 'width:var(--size)') && str_contains($image, 'height:var(--size)'),
-    '2: the author declaration is still carried onto the image',
-    $image
+    str_contains($carriedBox, 'width:var(--size)') && str_contains($carriedBox, 'height:var(--size)'),
+    '2: the author declaration is carried onto the image geometry rule',
+    $carriedBox
 );
 $assert(
-    str_contains($image, '--size:24px'),
-    '3: the custom property the carried declaration reads is re-rooted on the image',
-    $image
+    str_contains($carriedBox, '--size:24px'),
+    '3: the custom property the carried declaration reads is re-rooted on the image geometry rule',
+    $carriedBox
 );
 
 // The same leak through the generated geometry carrier rule.
@@ -158,9 +161,11 @@ foreach ( array(
                 foreach ( CssValueSplitter::splitTopLevel($selector, array(',')) as $arm ) {
                     $parsed = CssSelectorMatcher::parse($arm);
                     foreach ( array('icon' => $icon, 'photo' => $photo) as $name => $element ) {
-                        if ( ! CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) continue;
-                        if ( str_contains($body, 'margin-top:2em') ) $matches[$name . '-margin'] = true;
-                        if ( str_contains($body, 'position:absolute!important') && str_contains($body, 'width:100%!important') ) $matches[$name . '-fill'] = true;
+                        if ( CssSelectorMatcher::matches($element, $parsed, true)['matches'] && str_contains($body, 'margin-top:2em') ) $matches[$name . '-margin'] = true;
+                        // Positioned image rules now follow the source box to
+                        // its synthetic figure; the bridge fills its leaf.
+                        $box = 'photo' === $name && $element->parentNode instanceof DOMElement && 'figure' === $element->parentNode->tagName ? $element->parentNode : $element;
+                        if ( CssSelectorMatcher::matches($box, $parsed, true)['matches'] && str_contains($body, 'position:absolute!important') && str_contains($body, 'width:100%!important') ) $matches[$name . '-fill'] = true;
                     }
                     if ( $carrier instanceof DOMElement && str_contains($body, 'transform:scale(1.1)') && CssSelectorMatcher::matches($carrier, $parsed, true)['matches'] ) $matches['class-paint'] = true;
                 }
