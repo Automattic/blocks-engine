@@ -130,10 +130,11 @@ function recurseInner(
   ctx: ConversionContext,
   htmlFallback: HtmlFallbackEmitter,
 ): string {
-  const nested = genericHtmlToBlocks(html, ctx, htmlFallback);
-  if (nested && nested.trim()) return `\n${nested}\n`;
-  const clean = sanitize(html).trim();
-  return clean ? clean : '';
+  if (!sanitize(html).trim()) return '';
+  // Inner content is always block markup: a container block saves only its
+  // inner blocks, so raw HTML inside it is discarded on the editor's re-save.
+  const nested = genericHtmlToBlocks(html, ctx, htmlFallback) ?? htmlFallback(html);
+  return `\n${nested}\n`;
 }
 
 const HEADING_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
@@ -189,11 +190,11 @@ function tryCallout(
   if (!CALLOUT_RE.test(cls)) return null;
   const inner = recurseInner($el.html() ?? '', ctx, htmlFallback);
   if (!inner.trim()) return null;
-  const matchedClass = (cls.match(CALLOUT_RE) || [])[0] ?? 'callout';
-  const className = `wp-block-group is-style-${matchedClass}`;
+  // The authored classes are what the site's CSS targets; keep them as is.
+  const className = cls.split(/\s+/).filter((name) => name && name !== 'wp-block-group').join(' ');
   return (
     `<!-- wp:group {"className":${JSON.stringify(className)},"layout":{"type":"constrained"}} -->\n` +
-    `<div class="${escapeAttr(className)}">${inner}</div>\n` +
+    `<div class="${escapeAttr(`wp-block-group ${className}`)}">${inner}</div>\n` +
     `<!-- /wp:group -->`
   );
 }

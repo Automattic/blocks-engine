@@ -29,8 +29,8 @@ $plan = $result['source_reports']['wordpress_site_plan'];
 $resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => 'https://example.test/theme', 'require_proven_dynamic_client_assets' => true));
 $head = DocumentHeadContext::fromPlan($resolved, 'index.html');
 $assert(1 === substr_count($head, 'name="viewport"') && str_contains($head, 'data-selected-viewport=""') && str_contains($head, 'content="width=device-width, initial-scale=1"'), 'Emitted contract retains a unique viewport, the target attribute and initial authored content.');
-$assert(array('meta', 'meta', 'script', 'style', 'style', 'link', 'script') === array_column($plan['pages'][0]['document_metadata']['head']['elements'], 'tag'), 'The mixed head sequence preserves parser order, including adjacent same-media styles.');
-$assert(str_contains($head, '<style data-document-scope="phone" media="not all">') && str_contains($head, 'data-source-media="screen"') && str_contains($head, 'media="not all"'), 'Activation media, authored-media provenance and document scope remain distinct.');
+$assert(array('meta', 'script', 'style', 'style', 'link', 'script') === array_column($plan['pages'][0]['document_metadata']['head']['elements'], 'tag'), 'The mixed head sequence preserves parser order, including adjacent same-media styles.');
+$assert(1 === preg_match('~<link rel="stylesheet" href="\{\{wordpress-site-plan:asset:[^"]+\}\}" data-document-scope="phone" media="not all">~', $head) && !str_contains($head, '<style') && !str_contains($head, '.phone{') && str_contains($head, 'data-source-media="screen"') && str_contains($head, 'media="not all"'), 'Activation media, authored-media provenance and document scope remain distinct.');
 $dependencies = $result['source_reports']['runtime_dependency_parity']['dependencies'];
 $headDependencies = array_values(array_filter($dependencies, static fn(array $row): bool => 'meta[data-selected-viewport]' === $row['selector']));
 $assert(2 === count($headDependencies) && array('declared_document_head') === array_values(array_unique(array_column($headDependencies, 'generated_target_evidence'))), 'Both scripts use actual declared head evidence.');
@@ -59,7 +59,7 @@ $assert(1 === count($both['findings']), 'A selector shared by head and body must
 $bothPresent = $report->fromArtifact($sharedFiles, str_replace('</body>', '<div data-selected-viewport=""></div></body>', $artifact['files']['index.html']), '<div data-selected-viewport=""></div>', 'index.html', wordpressSitePlan: $plan);
 $assert(array() === $bothPresent['findings'], 'A shared selector passes when head and body are both emitted.');
 $badResolved = $resolved;
-$badResolved['pages'][0]['document_metadata']['head']['elements'][2]['resolved_url'] = 'https://example.test/tampered.js';
+$badResolved['pages'][0]['document_metadata']['head']['elements'][1]['resolved_url'] = 'https://example.test/tampered.js';
 $assert($rejects(static fn() => WordPressSitePlan::assertValid($badResolved)), 'Strict resolver rejects a tampered head asset destination.');
 $unboundScript = $result;
 $unboundScript['source_reports']['compiled_site']['pages'][0]['document_metadata']['scripts'] = array();
@@ -78,7 +78,8 @@ $rooted['files'] = array_combine(array_map(static fn(string $path): string => 'w
 $rooted['files']['website/index.html'] = str_replace('url(icon.svg)', 'url(/icon.svg)', $rooted['files']['website/index.html']);
 $rootedResult = (new ArtifactCompiler())->compile($rooted)->toArray();
 $rootedPlan = (new WordPressSitePlanResolver())->resolve($rootedResult['source_reports']['wordpress_site_plan'], array('theme_uri' => 'https://example.test/theme', 'require_proven_dynamic_client_assets' => true));
-$assert(str_contains(DocumentHeadContext::fromPlan($rootedPlan, 'website/index.html'), 'background-image:url({{wordpress-site-plan:asset:'), 'Packaged website roots canonicalize absolute inline head CSS references through declared assets.');
+$rootedCss = implode('', array_map(static fn(array $write): string => (string) ($write['payload']['data'] ?? ''), array_filter($rootedResult['source_reports']['wordpress_site_plan']['writes'], static fn(array $write): bool => str_ends_with($write['target_path'], '.css') && str_contains((string) ($write['payload']['data'] ?? ''), 'background-image'))));
+$assert(str_contains($rootedCss, 'background-image:url({{wordpress-site-plan:asset:') && !str_contains(DocumentHeadContext::fromPlan($rootedPlan, 'website/index.html'), 'background-image'), 'Packaged website roots canonicalize absolute inline head CSS references in the written stylesheet, which the head links.');
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
 $staged = $compiler->compose($shared, $compiler->compilePreparedPages($shared, $compiler->preparePages($artifact, $shared)))->toArray();
@@ -142,7 +143,7 @@ $dataLinkErrors = array_values(array_filter($dataLinkResult['diagnostics'], stat
 $assert(array() === $dataLinkErrors && isset($dataLinkResult['source_reports']['wordpress_site_plan']), 'A head data: link produces a materializable plan: ' . json_encode($dataLinkErrors, JSON_UNESCAPED_SLASHES));
 $dataLinkPlan = (new WordPressSitePlanResolver())->resolve($dataLinkResult['source_reports']['wordpress_site_plan'], array('theme_uri' => 'https://example.test/theme', 'require_proven_dynamic_client_assets' => true));
 $dataLinkHead = DocumentHeadContext::fromPlan($dataLinkPlan, 'index.html');
-$assert(str_starts_with($dataLinkHead, '<meta charset="utf-8">' . "\n" . '<link rel="icon" href="' . htmlspecialchars($dataIcon, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '">' . "\n"), 'A head data: link keeps its source position and exact URL.');
+$assert(str_starts_with($dataLinkHead, '<link rel="icon" href="' . htmlspecialchars($dataIcon, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '">' . "\n"), 'A head data: link keeps its source position and exact URL.');
 $oversized = array('schema' => DocumentHeadContext::SCHEMA, 'elements' => array(array('tag' => 'link', 'attributes' => array('rel' => 'icon'), 'url' => 'data:,' . str_repeat('a', 1048576), 'selector' => 'link:nth-of-type(1)')));
 $assert($rejects(static fn() => DocumentHeadContext::assertValid($oversized)), 'A head data: link stays within the inline data budget.');
 $unboundLink = $artifact;
@@ -164,10 +165,10 @@ $noUrlLinksResult = (new ArtifactCompiler())->compile($noUrlLinks)->toArray();
 $noUrlLinksErrors = array_values(array_filter($noUrlLinksResult['diagnostics'], static fn(array $row): bool => 'error' === ($row['severity'] ?? '')));
 $assert(array() === $noUrlLinksErrors && isset($noUrlLinksResult['source_reports']['wordpress_site_plan']), 'Head links without a URL produce a materializable plan: ' . json_encode($noUrlLinksErrors, JSON_UNESCAPED_SLASHES));
 $noUrlLinksPage = $noUrlLinksResult['source_reports']['wordpress_site_plan']['pages'][0];
-$assert(array('meta', 'meta', 'script', 'style', 'style', 'link', 'script') === array_column($noUrlLinksPage['document_metadata']['head']['elements'], 'tag') && array('link:nth-of-type(3)') === array_values(array_filter(array_column($noUrlLinksPage['document_metadata']['head']['elements'], 'selector'))), 'Head links without a URL are skipped and later links keep their source occurrence.');
+$assert(array('meta', 'script', 'style', 'style', 'link', 'script') === array_column($noUrlLinksPage['document_metadata']['head']['elements'], 'tag') && array('link:nth-of-type(3)') === array_values(array_filter(array_column($noUrlLinksPage['document_metadata']['head']['elements'], 'selector'))), 'Head links without a URL are skipped and later links keep their source occurrence.');
 $assert(array('stylesheet') === array_column($noUrlLinksPage['document_metadata']['links'], 'rel'), 'Document link metadata skips the same links.');
 $noUrlLinksHead = DocumentHeadContext::fromPlan((new WordPressSitePlanResolver())->resolve($noUrlLinksResult['source_reports']['wordpress_site_plan'], array('theme_uri' => 'https://example.test/theme', 'require_proven_dynamic_client_assets' => true)), 'index.html');
-$assert(1 === substr_count($noUrlLinksHead, '<link ') && !str_contains($noUrlLinksHead, 'imagesrcset') && !str_contains($noUrlLinksHead, 'href=""'), 'The emitted head has no link without a URL.');
+$assert(3 === substr_count($noUrlLinksHead, '<link ') && 2 === substr_count($noUrlLinksHead, ' data-document-scope=') && !str_contains($noUrlLinksHead, 'imagesrcset') && !str_contains($noUrlLinksHead, 'href=""'), 'The emitted head has no link without a URL.');
 
 // Execute the actual emitted PHP registration and template/head hook path.
 // This proves bootstrap behavior, not a claim of a full WordPress installation.
@@ -206,8 +207,10 @@ ksort($hooks['wp_head']);
 foreach ($hooks['wp_head'] as $callbacks) foreach ($callbacks as $callback) $callback();
 $emitted = ob_get_clean();
 $expected = WordPressSitePlanResolver::resolvePayload($head, WordPressSitePlanResolver::references($plan['reference_tokens'], 'https://example.test/theme'));
-$assert($expected === $emitted && 1 === substr_count($emitted, 'name="viewport"'), 'Executed theme bootstrap emits exactly the proven head and replaces Core viewport.');
-$assert(str_contains($emitted, 'https://example.test/theme/assets/icon.svg'), 'Inline head CSS resolves its asset URLs against declared writes, not the page route.');
+$headEmitted = preg_replace('/<link data-printed-handle="[^"]+">/', '', $emitted);
+$assert($expected === $headEmitted && 1 === substr_count($emitted, 'name="viewport"'), 'Executed theme bootstrap emits exactly the proven head and replaces Core viewport.');
+$assert(str_contains($emitted, '<link rel="stylesheet" href="https://example.test/theme/assets/index.inline-1.css" data-document-scope="phone" media="not all">') && !str_contains($emitted, '.phone{') && !str_contains($plan['writes'][$writeIndex]['payload']['data'], '.phone{'), 'A head style links its written stylesheet in place; no CSS body ships in the head or functions.php.');
+$assert(str_contains(array_column($resolved['writes'], null, 'target_path')['assets/index.inline-1.css']['payload']['data'], 'background-image:url(icon.svg)'), 'The written head stylesheet resolves its asset URLs against its own target path (assets/icon.svg), not the page route.');
 $assert(array() === $enqueuedScripts, 'Head-owned scripts execute only at their parser positions.');
 // #2877: a head-owned stylesheet loads once, at its parser position; its
 // ordered instance enqueue (#2634) is dequeued.
@@ -237,13 +240,48 @@ $orderedEmitted = ob_get_clean();
 $beforeAuthor = array_values(array_filter($plan['assets'], static fn(array $asset): bool => 'before-author' === ($asset['stylesheet_placement'] ?? null)));
 $assert(array() !== $beforeAuthor, 'The ordering fixture produces before-author engine support.');
 $printed = strpos($orderedEmitted, 'data-printed-handle="blocks-engine-' . substr(hash('sha256', $beforeAuthor[0]['target_path']), 0, 12) . '"');
-$assert(false !== $printed && false !== strpos($orderedEmitted, '<style id="author"') && $printed < strpos($orderedEmitted, '<style id="author"'), 'Before-author engine support prints ahead of the replayed head stylesheet.');
+$assert(false !== $printed && false !== strpos($orderedEmitted, ' id="author"') && $printed < strpos($orderedEmitted, ' id="author"'), 'Before-author engine support prints ahead of the replayed head stylesheet.');
 $core = strpos($orderedEmitted, 'data-printed-handle="wp-block-navigation"');
 $assert(false !== $core && $core < $printed, 'Core block styles print ahead of before-author engine support, so engine restatements of Core CSS win.');
 $afterAuthor = array_values(array_filter(WordPressSitePlan::documentStylesheets($plan, 'index.html'), static fn(array $row): bool => str_contains($row['target_path'], 'after-author')));
 $assert(array() !== $afterAuthor, 'The ordering fixture produces after-author engine support.');
-foreach ($afterAuthor as $row) $assert(1 === substr_count($orderedEmitted, 'data-printed-handle="' . $row['handle'] . '"') && strpos($orderedEmitted, 'data-printed-handle="' . $row['handle'] . '"') > strpos($orderedEmitted, '<style id="author"'), 'After-author support ' . $row['handle'] . ' prints once, after the replayed head stylesheet.');
+foreach ($afterAuthor as $row) $assert(1 === substr_count($orderedEmitted, 'data-printed-handle="' . $row['handle'] . '"') && strpos($orderedEmitted, 'data-printed-handle="' . $row['handle'] . '"') > strpos($orderedEmitted, ' id="author"'), 'After-author support ' . $row['handle'] . ' prints once, after the replayed head stylesheet.');
 $assert(array() === array_filter($enqueuedStyles, static fn(string $src): bool => str_contains($src, 'inline')), 'The replayed head stylesheet has no remaining WordPress enqueue.');
+
+// Route variants retain source order between replayed stylesheet links.
+$companions = array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<!doctype html><html><head><link id="a" rel="stylesheet" href="a.css"><meta name="fixture" content="order"><link id="b" rel="stylesheet" href="b.css"></head><body><main><p class="sample">Sample</p></main></body></html>',
+    'other.html' => '<!doctype html><html><head><link id="a" rel="stylesheet" href="a.css"><link id="b" rel="stylesheet" href="b.css"></head><body><main><p><span class="sample">Sample</span></p></main></body></html>',
+    'a.css' => '.sample{color:red}',
+    'b.css' => '.sample{color:blue}',
+));
+$plan = (new ArtifactCompiler())->compile($companions)->toArray()['source_reports']['wordpress_site_plan'];
+// The secondary route's span lowering produces page-specific projections;
+// select its identity through the harness's first-page get_post_meta() stub.
+$plan['pages'] = array_reverse($plan['pages']);
+$sequence = WordPressSitePlan::documentStylesheets($plan, 'other.html');
+$authorSequence = array_values(array_filter($sequence, static fn(array $row): bool => 1 === preg_match('~/[ab](?:\\.page-[^.]+)?\\.css$~', $row['target_path'])));
+$assert(2 === count($authorSequence), 'The two-source fixture keeps route projections in the two source stylesheets.');
+$assert(1 === preg_match('~/a\\.css$~', $authorSequence[0]['target_path']) && 1 === preg_match('~/b\\.css$~', $authorSequence[1]['target_path']), 'The enqueue order remains a.css, b.css without projected companions.');
+$hooks = array(); $enqueuedStyles = array();
+add_action('wp_head', 'wp_print_styles', 8);
+eval(substr(array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'], 5));
+foreach ($hooks['template_include'] as $callbacks) foreach ($callbacks as $callback) $callback('template-canvas.php');
+ksort($hooks['wp_enqueue_scripts']);
+foreach ($hooks['wp_enqueue_scripts'] as $callbacks) foreach ($callbacks as $callback) $callback();
+ob_start();
+ksort($hooks['wp_head']);
+foreach ($hooks['wp_head'] as $callbacks) foreach ($callbacks as $callback) $callback();
+$companionHead = ob_get_clean();
+$positions = array();
+foreach ($authorSequence as $index => $stylesheet) {
+    $needle = 'href="https://example.test/theme/' . $stylesheet['target_path'] . '"';
+    $assert(1 === substr_count($companionHead, $needle), 'Each source stylesheet prints exactly once.');
+    $positions[] = strpos($companionHead, $needle);
+}
+$sortedPositions = $positions;
+sort($sortedPositions);
+$assert($positions === $sortedPositions, 'Rendered stylesheet order is a.css, b.css.');
 
 $repeated = $artifact;
 $repeated['files']['index.html'] = str_replace('</body>', '<script src="check.js"></script></body>', $repeated['files']['index.html']);
@@ -256,5 +294,29 @@ foreach ($hooks['template_include'] as $callbacks) foreach ($callbacks as $callb
 ksort($hooks['wp_enqueue_scripts']);
 foreach ($hooks['wp_enqueue_scripts'] as $callbacks) foreach ($callbacks as $callback) $callback();
 $assert(1 === count($enqueuedScripts), 'A body occurrence of a head-owned script URL still enqueues at its declared body position.');
+
+// Ownership is enforced by the public compiler and the actual theme bootstrap,
+// including declarations with selectors (selectors do not confer ownership).
+$ownership = require dirname(__DIR__) . '/fixtures/document-head-ownership.php';
+$ownershipResult = (new ArtifactCompiler())->compile($ownership)->toArray();
+$plan = $ownershipResult['source_reports']['wordpress_site_plan'];
+$reasons = array_column(array_filter($plan['diagnostics'], static fn(array $row): bool => 'document_head_element_dropped' === ($row['code'] ?? '')), 'reason_code');
+foreach (array('wordpress_owned_charset', 'platform_owned_robots', 'platform_owned_seo', 'platform_owned_generator', 'third_party_telemetry', 'platform_owned_canonical', 'platform_owned_sitemap', 'platform_owned_manifest', 'not_allowlisted') as $reason) {
+    $assert(in_array($reason, $reasons, true), 'Ownership omission records reason ' . $reason);
+}
+$hooks = array(); $enqueuedStyles = array(); $enqueuedScripts = array();
+add_action('wp_head', '_block_template_viewport_meta_tag', 0);
+eval(substr(array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'], 5));
+foreach ($hooks['template_include'] as $callbacks) foreach ($callbacks as $callback) $callback('template-canvas.php');
+ob_start();
+ksort($hooks['wp_head']);
+foreach ($hooks['wp_head'] as $callbacks) foreach ($callbacks as $callback) $callback();
+$ownershipHead = ob_get_clean();
+$assert(DocumentHeadContext::fromPlan($plan, 'index.html') === $ownershipHead, 'Bootstrap emits exactly the ownership-filtered public head.');
+$assert(1 === substr_count($ownershipHead, 'name="viewport"') && !str_contains($ownershipHead, 'width=980') && !str_contains($ownershipHead, 'charset'), 'Source charsets are platform-owned; duplicate viewport is suppressed.');
+foreach (array('noindex', 'robots', 'googlebot', 'og:', 'generator', 'description', 'canonical', 'sitemap', 'manifest', 'importer-internals', 'sentry-trace', 'baggage', 'source.example', 'unknown-vendor') as $forbidden) {
+    $assert(!str_contains(strtolower($ownershipHead), $forbidden), 'Bootstrap never replays ' . $forbidden);
+}
+$assert(str_contains($ownershipHead, '<link rel="preconnect" href="https://fonts.example">') && str_contains($ownershipHead, 'name="theme-color"') && str_contains($ownershipHead, 'application/ld+json'), 'Unowned resource hints, presentation metadata and structured data survive.');
 
 fwrite(STDOUT, "Document head runtime contract passed: {$passes} assertions\n");

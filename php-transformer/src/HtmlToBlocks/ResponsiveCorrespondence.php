@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ResponsiveDocumentVariants;
 
@@ -216,7 +218,8 @@ final class ResponsiveCorrespondence
             if (null !== $variant) {
                 return $variant;
             }
-            if (array_key_exists(CaptureEvidence::DOCUMENT_SCOPE, $attributes) && is_string($attributes[CaptureEvidence::DEVICE_DOCUMENT] ?? null) && preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $attributes[CaptureEvidence::DEVICE_DOCUMENT])) return $attributes[CaptureEvidence::DEVICE_DOCUMENT];
+            $device = $attributes[EngineMarker::DEVICE_SCOPE_ATTRIBUTE] ?? $attributes[CaptureEvidence::DEVICE_DOCUMENT] ?? null;
+            if (array_key_exists(CaptureEvidence::DOCUMENT_SCOPE, $attributes) && is_string($device) && preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $device)) return $device;
         }
         return null;
     }

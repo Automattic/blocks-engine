@@ -12,9 +12,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
  * block validates and stays editable. Before, the `<img>` tripped the RichText
  * fallback gate and the whole heading became a core/html island.
  *
- * The narrow scope is part of the contract: text beside an image, `<picture>`
- * and lazy placeholder images keep the core/html fallback, and image-only
- * paragraphs keep their core/image route.
+ * Wrapped and mixed inline images share the paragraph RichText path, while
+ * `<picture>` and lazy placeholder images keep the core/html fallback.
+ * Image-only paragraphs keep their core/image route.
  */
 
 $findBlock = static function (array $blocks, string $name) use (&$findBlock): ?array {
@@ -82,12 +82,47 @@ if ( null === $heading
     $failures[] = 'Image-only heading keeps its source class on the native heading: ' . $markup;
 }
 
-// 4. Boundaries keep today's behavior.
+// 4. Every issue #3496 shape keeps its heading, level, alignment and image sources.
+$image = '<img alt="" src="/a.png" style="width:50px;height:50px">';
+$inlineImages = array(
+    'bare image' => $image,
+    'image beside text' => $image . ' Text',
+    'span-wrapped image' => '<span>' . $image . '</span>',
+    'nested marks' => '<strong><u><span>' . $image . '</span></u></strong>',
+    'wrapped image beside text' => '<u><span>' . $image . '</span></u> Text',
+    'multiple marked images' => '<u>' . $image . '</u> <span><img alt="" src="/b.png"></span>',
+    'linked image beside text' => '<a href="/details">' . $image . ' Read more</a>',
+);
+foreach ( $inlineImages as $label => $inlineContent ) {
+    foreach ( range(1, 6) as $level ) {
+        $result = $transform('<h' . $level . ' style="text-align:center">' . $inlineContent . '</h' . $level . '>');
+        $markup = (string) ($result['serialized_blocks'] ?? '');
+        $heading = $findBlock($result['blocks'] ?? array(), 'core/heading');
+        $content = (string) ($heading['attrs']['content'] ?? '');
+        if ( null === $heading
+            || $level !== ($heading['attrs']['level'] ?? null)
+            || 'center' !== ($heading['attrs']['align'] ?? null)
+            || null !== $findBlock($result['blocks'] ?? array(), 'core/html')
+            || null !== $findBlock($result['blocks'] ?? array(), 'core/image')
+            || 'pass' !== ($result['source_reports']['wp_block_validity']['status'] ?? '') ) {
+            $failures[] = 'h' . $level . ' (' . $label . ') keeps native heading semantics: ' . $markup;
+        }
+        preg_match_all('/src="([^"]+)"/', $inlineContent, $sources);
+        foreach ( $sources[1] as $src ) {
+            if ( ! str_contains($content, 'src="' . $src . '"') ) {
+                $failures[] = 'h' . $level . ' (' . $label . ') keeps image source ' . $src . ': ' . $markup;
+            }
+        }
+        if ( str_contains($inlineContent, 'Text') && ! str_contains($content, 'Text') ) {
+            $failures[] = 'h' . $level . ' (' . $label . ') keeps its text: ' . $markup;
+        }
+    }
+}
+
+// 5. Boundaries keep today's behavior.
 $boundaries = array(
-    'text beside an image stays core/html'          => array( '<h3>Title <img alt="" src="/media/icon.png" width="20" height="20"></h3>', 'core/html' ),
     'a picture element stays core/html'             => array( '<h3><picture><source srcset="/media/logo.webp" type="image/webp"><img alt="Logo" src="/media/logo.png"></picture></h3>', 'core/html' ),
     'a lazy placeholder image stays core/html'      => array( '<h3><img alt="Logo" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" data-src="/media/logo.png"></h3>', 'core/html' ),
-    'a link with text and an image stays core/html' => array( '<h3><a href="https://example.com/"><img alt="" src="/media/icon.png"> Read more</a></h3>', 'core/html' ),
     'an image-only paragraph still becomes core/image' => array( '<p><a href="https://example.com/"><img alt="Logo" src="/media/logo.png" width="270" height="45"></a></p>', 'core/image' ),
 );
 foreach ( $boundaries as $label => [ $html, $expected ] ) {
@@ -97,7 +132,7 @@ foreach ( $boundaries as $label => [ $html, $expected ] ) {
     }
 }
 
-// 5. Markup the sanitized fallback would clean (event handlers, unsafe URLs)
+// 6. Markup the sanitized fallback would clean (event handlers, unsafe URLs)
 //    never enters RichText unchanged: it takes the sanitized core/html path,
 //    whose fallback reduction may then rebuild the clean heading natively.
 $unsafe = array(

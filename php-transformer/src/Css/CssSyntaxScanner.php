@@ -13,6 +13,30 @@ final class CssSyntaxScanner
     }
 
     /**
+     * End of the inert byte run starting at $offset, without changing state.
+     * The byte at the returned offset still needs consume() (unless at EOF).
+     * Callers inspecting delimiters must include them in $stops, including
+     * whitespace when relevant. Stops only apply outside comments, strings
+     * and unquoted url() bodies, where those bytes can be structure.
+     *
+     * @param array{quote: string, comment: bool, url: bool, parens: int, brackets: int} $state
+     */
+    public static function inertEnd(string $value, int $offset, array $state, string $stops = ''): int
+    {
+        if ( $state['comment'] ) {
+            $end = strpos($value, '*/', $offset);
+            return false === $end ? strlen($value) : $end;
+        }
+        if ( $state['url'] ) {
+            return $offset + strcspn($value, '\\)', $offset);
+        }
+        if ( '' !== $state['quote'] ) {
+            return $offset + strcspn($value, '\\' . $state['quote'], $offset);
+        }
+        return $offset + strcspn($value, "\\\"'/()[]" . $stops, $offset);
+    }
+
+    /**
      * Consume one CSS lexical unit and return the next byte offset.
      *
      * @param array{quote: string, comment: bool, url: bool, parens: int, brackets: int} $state
@@ -103,6 +127,61 @@ final class CssSyntaxScanner
         return $offset >= $length || ( '"' !== $value[ $offset ] && "'" !== $value[ $offset ] );
     }
 
+    /**
+     * The value with every comment removed. Comment openers inside strings and
+     * unquoted url() bodies are literal and kept. A comment that sat between
+     * two name characters leaves one space so the tokens stay apart; any
+     * other comment leaves nothing (a comment is not whitespace, so `.a`, a
+     * comment and `.b` with no space between form the compound `.a.b`).
+     * An unterminated comment runs to
+     * the end of the value and is dropped with it.
+     */
+    public static function withoutComments(string $value): string
+    {
+        if ( ! str_contains($value, '/*') ) {
+            return $value;
+        }
+        $state  = self::state();
+        $output = '';
+        $length = strlen($value);
+        for ( $offset = 0; $offset < $length; ) {
+            $end = self::inertEnd($value, $offset, $state);
+            if ( $end > $offset ) {
+                $output .= substr($value, $offset, $end - $offset);
+                $offset = $end;
+                continue;
+            }
+            $next = self::consume($value, $offset, $state);
+            if ( null === $next ) {
+                return $output . substr($value, $offset);
+            }
+            if ( $state['comment'] ) {
+                $start = $offset;
+                $next = self::inertEnd($value, $next, $state);
+                if ( $next < $length ) {
+                    $next = (int) self::consume($value, $next, $state);
+                }
+                $before = $start > 0 ? $value[ $start - 1 ] : '';
+                $after  = $value[ $next ] ?? '';
+                if ( self::isNameCharacter($before) && self::isNameCharacter($after) ) {
+                    $output .= ' ';
+                }
+                $state['comment'] = false;
+                $offset = $next;
+                continue;
+            }
+            $output .= substr($value, $offset, $next - $offset);
+            $offset = $next;
+        }
+
+        return $output;
+    }
+
+    private static function isNameCharacter(string $character): bool
+    {
+        return '' !== $character && ( ctype_alnum($character) || '-' === $character || '_' === $character || ord($character) >= 0x80 );
+    }
+
     public static function isCssWhitespace(string $character): bool
     {
         return " " === $character || "\t" === $character || "\n" === $character || "\r" === $character || "\f" === $character;
@@ -130,9 +209,7 @@ final class CssSyntaxScanner
         $offset = $open;
 
         while ( $offset < $length ) {
-            // Skip only inert bytes. Quotes, comment delimiters, escapes and
-            // grouping punctuation still pass through the lexical state machine.
-            $offset += strcspn($value, "\\\"'/*()[]{}", $offset);
+            $offset = self::inertEnd($value, $offset, $state, '{}');
             if ( $offset >= $length ) break;
             if ( self::isTopLevel($state) ) {
                 if ( '{' === $value[ $offset ] ) {

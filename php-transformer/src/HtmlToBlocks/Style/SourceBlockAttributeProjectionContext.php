@@ -9,6 +9,8 @@ final class SourceBlockAttributeProjectionContext
     public function __construct(
         public readonly AuthorStyleAnalysis $authorStyles,
         public readonly AuthorSelectorProjectionState $selectorProjections,
-        public readonly GeneratedSupportStylesheetState $generatedStyles
+        public readonly GeneratedSupportStylesheetState $generatedStyles,
+        /** @var array<string, string> */
+        public readonly array $reducedButtonSourceBoxes = array()
     ) {}
 }

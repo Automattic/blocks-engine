@@ -295,9 +295,6 @@ $globalPresentation = array_column($plan['assets'] ?? array(), null, 'source_pat
 $authorPresentationPaths = array_values(array_map(static fn(array $asset): string => (string) ($asset['target_path'] ?? ''), array_filter($plan['assets'] ?? array(), static fn(array $asset): bool => 'author-css' === ($asset['source'] ?? ''))));
 $authorPresentationHandles = array_map(static fn(string $path): string => 'blocks-engine-editor-' . substr(hash('sha256', $path), 0, 12), $authorPresentationPaths);
 $linkFor = static function (string $assets, string $path): string { return 1 === preg_match('/<link\\b[^>]*\\bhref=([\'"])' . preg_quote(get_theme_file_uri($path), '/') . '(?:\\?[^\'"]*)?\\1[^>]*>/', $assets, $match) ? $match[0] : ''; };
-// A stylesheet split for visitors reaches the editor through its editor copy.
-$editorCopies = array(); foreach ($plan['assets'] ?? array() as $asset) if (is_string($asset['frontend_counterpart'] ?? null)) $editorCopies[$asset['frontend_counterpart']] = (string) $asset['target_path'];
-$editorPath = static fn (string $path): string => $editorCopies[$path] ?? $path;
 $post = $frontPage;
 set_current_screen('front');
 $frontRequestThemeJsonCss = (string) ((apply_filters('wp_theme_json_data_theme', new WP_Theme_JSON_Data(array('version' => 3), 'theme'))->get_data())['styles']['css'] ?? '');
@@ -309,10 +306,10 @@ $siteEditor = $editorSettings(null, 'core/edit-site');
 $siteEditorAssets = (string) (($siteEditor['settings']['__unstableResolvedAssets']['styles'] ?? ''));
 set_current_screen('front');
 $assert(array() === array_values(array_intersect($authorPresentationHandles, $frontEditor['outer_presentation_handles'])) && array() === array_values(array_intersect($authorPresentationHandles, $aboutEditor['outer_presentation_handles'])) && array() === array_values(array_intersect($authorPresentationHandles, $siteEditor['outer_presentation_handles'])), 'Authored presentation styles are absent from the outer post and site editor documents.');
-$assert('' !== $linkFor($frontEditorAssets, $editorPath('assets/assets/global.css')) && '' === $linkFor($frontEditorAssets, $editorPath('assets/nested/about.inline.css')) && '' !== $linkFor($aboutEditorAssets, $editorPath('assets/assets/global.css')) && '' !== $linkFor($aboutEditorAssets, $editorPath('assets/nested/about.inline.css')) && 1 === substr_count($aboutEditorAssets, get_theme_file_uri($editorPath('assets/assets/global.css'))) && 1 === substr_count($aboutEditorAssets, get_theme_file_uri($editorPath('assets/nested/about.inline.css'))), 'Route-matched authored stylesheets are loaded by URL into the editor canvas iframe, once each, and only for the edited route.');
+$assert('' !== $linkFor($frontEditorAssets, 'assets/assets/global.css') && '' === $linkFor($frontEditorAssets, 'assets/nested/about.inline.css') && '' !== $linkFor($aboutEditorAssets, 'assets/assets/global.css') && '' !== $linkFor($aboutEditorAssets, 'assets/nested/about.inline.css') && 1 === substr_count($aboutEditorAssets, get_theme_file_uri('assets/assets/global.css')) && 1 === substr_count($aboutEditorAssets, get_theme_file_uri('assets/nested/about.inline.css')), 'Route-matched authored stylesheets are loaded by URL into the editor canvas iframe, once each, and only for the edited route.');
 $assert(!str_contains($frontEditorCss, '.global-presentation{display:block}') && !str_contains($aboutEditorCss, '.global-presentation{display:block}') && !str_contains($aboutEditorCss, '.about-owned{color:#654321}') && array() === array_filter(array_merge($frontEditorSettings['styles'] ?? array(), $aboutEditorSettings['styles'] ?? array()), static fn(mixed $style): bool => is_array($style) && in_array($style['baseURL'] ?? null, array_map('get_theme_file_uri', $authorPresentationPaths), true)), 'Authored stylesheet contents are never inlined into the editor settings payload.');
-$assert(1 === preg_match('/\\bmedia=([\'"])\\(min-width: 48rem\\)\\1/', $linkFor($aboutEditorAssets, $editorPath('assets/nested/about.inline.css'))) && strpos($aboutEditorAssets, get_theme_file_uri($editorPath('assets/assets/global.css'))) < strpos($aboutEditorAssets, get_theme_file_uri($editorPath('assets/nested/about.inline.css'))), 'Iframe stylesheet links preserve responsive stylesheet media and source cascade order.');
-$assert('' !== $linkFor($siteEditorAssets, $editorPath('assets/assets/global.css')) && '' !== $linkFor($siteEditorAssets, $editorPath('assets/nested/about.inline.css')) && !str_contains(implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $siteEditor['settings']['styles'] ?? array())), '.about-owned{color:#654321}'), 'The site editor canvas loads the complete declared authored presentation set by URL, not inlined.');
+$assert(1 === preg_match('/\\bmedia=([\'"])\\(min-width: 48rem\\)\\1/', $linkFor($aboutEditorAssets, 'assets/nested/about.inline.css')) && strpos($aboutEditorAssets, get_theme_file_uri('assets/assets/global.css')) < strpos($aboutEditorAssets, get_theme_file_uri('assets/nested/about.inline.css')), 'Iframe stylesheet links preserve responsive stylesheet media and source cascade order.');
+$assert('' !== $linkFor($siteEditorAssets, 'assets/assets/global.css') && '' !== $linkFor($siteEditorAssets, 'assets/nested/about.inline.css') && !str_contains(implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $siteEditor['settings']['styles'] ?? array())), '.about-owned{color:#654321}'), 'The site editor canvas loads the complete declared authored presentation set by URL, not inlined.');
 $assert('' === $frontRequestThemeJsonCss && '' === $frontEditorThemeJsonCss && '' === $aboutEditorThemeJsonCss, 'Presentation CSS is not duplicated through frontend or editor theme JSON.');
 $assert(str_contains($frontEditorCss, WordPressSitePlan::EDITOR_CORE_IMAGE_INTERACTION_CSS) && str_contains($frontEditorCss, WordPressSitePlan::EDITOR_POST_TITLE_INTERACTION_CSS) && str_contains($frontEditorCss, WordPressSitePlan::EDITOR_LINK_INTERACTION_CSS), 'Editor interaction compatibility remains a bounded editor-settings rule.');
 global $wp_query;
@@ -455,12 +452,13 @@ $assert(str_contains($frontSharedRendered, '<a class="wp-block-navigation-item__
 // disposable second theme materializes the corroborated taxonomy fixture, the
 // bootstrap's emitted rewrite rules register through init, and the actual
 // source page-2 path is resolved the way WordPress resolves a request.
-$taxonomyArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+$postRouteFixture = require dirname(__DIR__) . '/contract/fixtures/post-route-rewrites-spare-pages.php';
+$taxonomyArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array_merge($postRouteFixture['files'], array(
     'index.html' => '<main><h1>Home</h1></main>',
     array('path' => 'archives/field-notes.html', 'content' => '<main><h1>Field Notes</h1><article><h2><a href="/stories/one">One</a></h2><p>One summary.</p></article><article><h2><a href="/stories/two">Two</a></h2><p>Two summary.</p></article></main>', 'metadata' => array('route_path' => '/journal/category/field-notes')),
     array('path' => 'stories/one.html', 'content' => '<article><h1>One</h1><p>Full one.</p><a href="/journal/category/field-notes">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
     array('path' => 'stories/two.html', 'content' => '<article><h1>Two</h1><p>Full two.</p><a href="/journal/category/field-notes">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
-)))->toArray();
+))))->toArray();
 $taxonomyPlan = $taxonomyArtifact['source_reports']['wordpress_site_plan'] ?? array();
 $assert(1 === count($taxonomyPlan['taxonomy_entities'] ?? array()) && '/journal/category/field-notes' === ($taxonomyPlan['taxonomy_entities'][0]['archive']['source_route'] ?? null), 'The taxonomy fixture projects one corroborated term on its source route.');
 $taxonomyTheme = $theme . '-taxonomy';
@@ -495,6 +493,40 @@ $resolveRequest = static function (string $path): array {
     $request->parse_request('');
     return $request->query_vars;
 };
+// #3360: generated post rewrites must leave hierarchical pages to core,
+// including a child whose slug also belongs to a default-locale root page.
+$fixtureIds = array();
+$fixtureIdentities = array();
+foreach ($taxonomyPlan['pages'] as $plannedPage) {
+    $fixtureIdentities[$plannedPage['route']['path']] = $plannedPage['reconciliation_identity'];
+}
+foreach ($postRouteFixture['files'] as $file) {
+    if (!is_array($file)) continue;
+    $route = $file['metadata']['route_path'];
+    $type = $file['metadata']['post_type'];
+    $id = wp_insert_post(array(
+        'post_type' => $type, 'post_status' => 'publish',
+        'post_title' => $route, 'post_name' => basename($route),
+        'post_parent' => 'page' === $type ? ($fixtureIds[dirname($route)] ?? 0) : 0,
+    ), true);
+    if (is_wp_error($id)) throw new RuntimeException($id->get_error_message());
+    update_post_meta($id, '_blocks_engine_reconciliation_identity', $fixtureIdentities[$route]);
+    $fixtureIds[$route] = $id;
+    $pageIds['post-route-' . $route] = $id;
+}
+$assert('first-note' === get_post_field('post_name', $fixtureIds['/north/first-note']) && 'first-note-2' === get_post_field('post_name', $fixtureIds['/south/first-note']), 'WordPress assigns unique post names to shared source slugs.');
+flush_rewrite_rules(false);
+foreach ($fixtureIds as $route => $id) {
+    $assert($id === url_to_postid(home_url($route . '/')), 'Source route resolves to its own post or page: ' . $route);
+    $routeVars = $resolveRequest($route . '/');
+    if ('post' === get_post_type($id)) $assert($id === ($routeVars['p'] ?? null) && !isset($routeVars['name']), 'Post request resolves by identity to p, never name: ' . $route);
+    $routeQuery = new WP_Query($routeVars);
+    $assert($id === $routeQuery->get_queried_object_id() && !$routeQuery->is_404(), 'Core request resolves the intended object: ' . $route);
+    if ('page' === get_post_type($id)) $assert($routeQuery->is_page(), 'Child routes retain native page query semantics.');
+}
+delete_post_meta($fixtureIds['/south/first-note'], '_blocks_engine_reconciliation_identity');
+$assert('404' === ($resolveRequest('/south/first-note/')['error'] ?? null), 'A missing identity owner produces a native 404 instead of the other locale post.');
+$assert(0 === url_to_postid(home_url('/south/first-note/')), 'Direct URL lookup also refuses a route without an identity owner.');
 $baseRouteVars = $resolveRequest('/journal/category/field-notes/');
 $pageTwoVars = $resolveRequest('/journal/category/field-notes/page/2/');
 $zeroPageVars = $resolveRequest('/journal/category/field-notes/page/0/');

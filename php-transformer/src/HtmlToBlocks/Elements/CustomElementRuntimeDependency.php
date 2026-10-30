@@ -260,7 +260,14 @@ final class CustomElementRuntimeDependency
         return true;
     }
 
-    private function hasConfigurationAttribute(DOMElement $element): bool
+    /**
+     * @param bool $paintOnly The element is empty and its painted output is
+     *        already inline CSS. Its `data-*` values (`data-tiled-image-info`,
+     *        `data-motion-part`) can then only parameterize that existing paint
+     *        for an unproven script, so they are not configuration on their own;
+     *        any other non-global attribute still is.
+     */
+    public function hasConfigurationAttribute(DOMElement $element, bool $paintOnly = false): bool
     {
         foreach ( $element->attributes ?? array() as $attribute ) {
             $name = strtolower($attribute->name);
@@ -271,6 +278,9 @@ final class CustomElementRuntimeDependency
                 continue;
             }
             if ( str_starts_with($name, 'aria-') || str_starts_with($name, 'data-wp-') || 1 === preg_match('/^on[a-z]+$/', $name) ) {
+                continue;
+            }
+            if ( $paintOnly && str_starts_with($name, 'data-') ) {
                 continue;
             }
 

@@ -47,9 +47,9 @@ if (preg_match_all('/(blocks-engine-attribute-(?!state-)[a-f0-9-]+)/', $partMark
 }
 $marker = $markers[0] ?? '';
 $assert('' !== $marker && (bool) preg_match('/(?:where\()?\.' . preg_quote($marker, '/') . '[^{}]*\{min-height:102px\}/', $css), 'desktop carrier geometry projects onto the emitted marker');
-$desktopAssets = array_values(array_filter($plan['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null) && '(min-width:601px)' === ($asset['media'] ?? null) && array(array('kind' => 'global')) === ($asset['scopes'] ?? array())));
+$desktopAssets = array_values(array_filter($plan['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null) && '(min-width:601px)' === ($asset['media'] ?? null) && array(array('kind' => 'global')) === ($asset['scopes'] ?? array()) && str_contains((string) ($asset['content'] ?? ''), 'min-height:102px')));
 $assert(1 === count($desktopAssets) && str_contains((string) ($desktopAssets[0]['content'] ?? ''), 'min-height:102px'), 'desktop carrier geometry remains globally scoped for tablet and desktop widths');
-$phoneAssets = array_values(array_filter($plan['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null) && '(max-width:600px)' === ($asset['media'] ?? null) && array(array('kind' => 'global')) === ($asset['scopes'] ?? array())));
+$phoneAssets = array_values(array_filter($plan['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null) && '(max-width:600px)' === ($asset['media'] ?? null) && array(array('kind' => 'global')) === ($asset['scopes'] ?? array()) && str_contains((string) ($asset['content'] ?? ''), 'min-height:56px')));
 $assert(1 === count($phoneAssets) && array_filter($markers, static fn (string $candidate): bool => str_contains((string) ($phoneAssets[0]['content'] ?? ''), '.' . $candidate)) && str_contains((string) ($phoneAssets[0]['content'] ?? ''), 'min-height:56px'), 'phone carrier geometry keeps its media scope on the emitted marker');
 $viewportHeights = array();
 foreach (array(390, 768, 1440) as $viewport) {

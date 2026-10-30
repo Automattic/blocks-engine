@@ -9,6 +9,15 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanRe
 
 $fixture = require dirname(__DIR__) . '/fixtures/stylesheet-activation.php';
 $plan = (new ArtifactCompiler())->compile($fixture)->toWordPressSitePlanView()['wordpress_site_plan'];
+// Require actual page-scoped slices; the browser checks their generated links,
+// rather than only the unsliced parent links retained from the source head.
+$deviceSlices = array();
+foreach (array('desktop' => 'desktop wide', 'mobile' => 'mobile') as $device => $keys) {
+    foreach ($plan['assets'] as $asset) {
+        if (str_starts_with($asset['source_path'], $device . '.page-')) $deviceSlices[$asset['target_path']] = $keys;
+    }
+    if (!in_array($keys, $deviceSlices, true)) throw new RuntimeException('The device fixture must produce a page-scoped slice for ' . $device);
+}
 $theme = 'stylesheet-activation-proof';
 $directory = WP_CONTENT_DIR . '/themes/' . $theme;
 $resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => home_url('/wp-content/themes/' . $theme)));
@@ -43,8 +52,7 @@ $context = new WP_Block_Editor_Context(array('post' => $GLOBALS['post']));
 wp_scripts();
 $settings = get_block_editor_settings(array(), $context);
 $editorAssets = $settings['__unstableResolvedAssets']['styles'] ?? '';
-// A split stylesheet reaches the editor as its `.editor.css` copy.
-if (!preg_match('~/dark(?:\.editor)?\.css~', $editorAssets) || preg_match('~/(?:light|other)(?:\.editor)?\.css~', $editorAssets)) throw new RuntimeException('Editor iframe stylesheet activation differs from source defaults.');
+if (!preg_match('~/dark\.css~', $editorAssets) || preg_match('~/(?:light|other)\.css~', $editorAssets)) throw new RuntimeException('Editor iframe stylesheet activation differs from source defaults.');
 $editorCss = implode("\n", array_column($settings['styles'] ?? array(), 'css'));
 if (str_contains($editorCss, 'background:white') || str_contains($editorCss, 'background:red')) throw new RuntimeException('Inactive stylesheet leaked into editor defaults.');
 echo wp_json_encode(array('pages' => array_map('get_permalink', $ids), 'theme' => $theme, 'save_reload' => 'passed', 'editor_activation' => 'passed')) . "\n";

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 return static function (string $variant = 'desktop', bool $application = false): array {
     $key = 'gallery-' . $variant;
     $trigger = '<button id="open-' . $key . '" type="button" data-blocks-engine-capture-dialog-trigger="' . $key . '" data-blocks-engine-capture-dialog-ancestor-unverified="ancestor-limit" aria-controls="' . $key . '" aria-expanded="false" aria-haspopup="dialog">Open gallery</button>';
@@ -37,7 +39,7 @@ JS;
         'dialog' => array('selector' => '#' . $key, 'html' => $panel, 'htmlTruncated' => false, 'ancestorState' => array('status' => 'incomplete', 'reason' => 'ancestor-limit')),
         'closed' => array('verified' => true),
     );
-    $interactions = array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://fixture.test/gallery', 'states' => array($state))));
+    $interactions = array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://fixture.test/gallery', 'components' => captured_components(array($state)))));
     $files = array(
         'index.html' => $html,
         'capture-receipt.json' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://fixture.test/gallery', 'path' => 'index.html'))), JSON_THROW_ON_ERROR),

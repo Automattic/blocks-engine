@@ -66,7 +66,7 @@ final class NativeGetFormBlockBuilder
             'noValidate' => $form->hasAttribute('novalidate'),
         )), static fn (mixed $value): bool => is_bool($value) || '' !== $value);
         $markup = $generator->markup($attrs);
-        return array( 'blockName' => $registry->blockName(AuthoredNativeFormBlockGenerator::LOCAL_NAME), 'attrs' => $attrs, 'innerBlocks' => $children, 'innerHTML' => $markup['opening'] . $markup['closing'], 'innerContent' => array_merge(array($markup['opening']), array_fill(0, count($children), null), array($markup['closing'])) );
+        return array( '_source_anchor_selector' => SourceDom::elementSelector($form), 'blockName' => $registry->blockName(AuthoredNativeFormBlockGenerator::LOCAL_NAME), 'attrs' => $attrs, 'innerBlocks' => $children, 'innerHTML' => $markup['opening'] . $markup['closing'], 'innerContent' => array_merge(array($markup['opening']), array_fill(0, count($children), null), array($markup['closing'])) );
     }
 
     private function isSafeNativeGetForm(DOMElement $form): bool
@@ -101,7 +101,7 @@ final class NativeGetFormBlockBuilder
         }
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
             if ( ! in_array(strtolower($control->tagName), array( 'input', 'select', 'button' ), true)
-                || ! FormControlClassifier::isReadableControl($control)
+                || ! FormControlClassifier::hasProseSummary($control)
                 || $control->hasAttribute('formaction')
                 || $control->hasAttribute('formmethod')
                 || ( 'button' === strtolower($control->tagName) && $this->hasAnchorAncestor($control, $form) )

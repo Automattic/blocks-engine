@@ -86,6 +86,34 @@ $handler = ( new HtmlTransformer() )->transform(
 $handlerBlock = $findCopy($handler['blocks'] ?? array());
 $assert('From handler' === ($handlerBlock['attrs']['copyText'] ?? null), 'a clipboard.writeText handler is copy evidence and supplies the payload');
 
+foreach ( array( 'A' => '', 'B' => '<h1>T</h1>' ) as $case => $heading ) {
+    $embedded = ( new HtmlTransformer() )->transform(
+        '<main>' . $heading . '<div class="code"><span role="button" tabindex="0" aria-label="Copy"><pre aria-hidden="true"><textarea readonly>' . "echo hello\n  echo world" . '</textarea></pre></span><pre><code>echo hello' . "\n" . '  echo world</code></pre></div></main>'
+    )->toArray();
+    $embeddedBlock = $findCopy($embedded['blocks'] ?? array());
+    $assert(null !== $embeddedBlock && "echo hello\n  echo world" === ($embeddedBlock['attrs']['copyText'] ?? null), "case $case: an embedded textarea supplies exactly the copy payload, line breaks and indentation intact");
+    $assert('Copy' === ($embeddedBlock['attrs']['ariaLabel'] ?? null) && '' === ($embeddedBlock['attrs']['label'] ?? ''), "case $case: the hidden payload is not a visible label");
+    $embeddedLoss = array_filter(
+        $embedded['fallbacks'] ?? array(),
+        static fn (array $fallback): bool => 'interactive_control_behavior_lost' === ($fallback['diagnostic_code'] ?? '')
+    );
+    $assert(array() === $embeddedLoss, "case $case: an embedded payload does not lose copy behavior");
+}
+
+foreach ( array(
+    'input payload' => array( '', '<input readonly value="Input payload">', 'Input payload' ),
+    'textarea payload before handler' => array( ' onclick="navigator.clipboard.writeText(\'Handler payload\')"', '<textarea>Textarea payload</textarea>', 'Textarea payload' ),
+    'explicit text before payload' => array( ' data-clipboard-text="Explicit payload"', '<textarea>Textarea payload</textarea>', 'Explicit payload' ),
+    'explicit target before payload' => array( ' data-clipboard-target="#explicit"', '<input value="Input payload">', 'Explicit payload' ),
+) as $case => list( $attributes, $payloadHtml, $expected ) ) {
+    $result = ( new HtmlTransformer() )->transform(
+        '<main><p id="explicit">Explicit payload</p><span role="button"' . $attributes . '>Copy<span aria-hidden="true">Hidden caption</span>' . $payloadHtml . '</span></main>'
+    )->toArray();
+    $block = $findCopy($result['blocks'] ?? array());
+    $assert($expected === ($block['attrs']['copyText'] ?? null), "$case: copy payload precedence is respected");
+    $assert('Copy' === ($block['attrs']['label'] ?? null), "$case: hidden captions and form payloads are excluded from the visible label");
+}
+
 $english = ( new HtmlTransformer() )->transform(
     '<article><p>Card body for English copy.</p><button type="button">Copy</button></article>'
 )->toArray();

@@ -9,12 +9,13 @@ $assert = static function (bool $condition, string $message): void { if (! $cond
 $is = static function (string $segment, string $expected) use ($assert): void { $actual = RouteSlug::segment($segment); $assert($expected === $actual, "RouteSlug::segment('{$segment}') is '{$actual}', expected '{$expected}'."); };
 
 // WordPress's own sanitization, so the slugs these become read the way the
-// author wrote them: accents fold onto ASCII and separators survive as `-`.
+// author wrote them: accents fold onto ASCII, separators survive as `-`, and
+// the underscores WordPress keeps in a post slug stay.
 $is('Alisados Orgánicos', 'alisados-organicos');
 $is('Para ellos', 'para-ellos');
 $is('mañana', 'manana');
 $is('Café', 'cafe');
-$is('Our_Team', 'our-team');
+$is('Our_Team', 'our_team');
 $is('FAQ', 'faq');
 $is('f.a.q.', 'f-a-q');
 $is('ÄÖÜ ß', 'aou-s');

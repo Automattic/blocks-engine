@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
@@ -23,14 +25,14 @@ $result = (new ArtifactCompiler())->compile(array(
             'routes' => array(array('url' => 'https://example.test/registration', 'path' => 'website/registration/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.test/registration',
-                'states' => array(array(
+                'components' => captured_components(array(array(
                     'status' => 'captured',
                     'trigger' => array('selector' => 'body > main > button', 'tag' => 'button', 'role' => 'combobox', 'label' => 'Select country'),
                     'dialog' => array('role' => 'listbox', 'html' => $dialog, 'htmlBytes' => strlen($dialog), 'htmlTruncated' => false),
-                )),
+                ))),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),

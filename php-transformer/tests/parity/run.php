@@ -714,7 +714,7 @@ function normalizeEngineMarkerSeeds(mixed $value): mixed
     if ( null === $pattern ) {
         // Mirrors the marker shape Allocators hand out; not the EngineMarker
         // pattern so the test keeps passing without the classes loaded.
-        $pattern = '/(blocks-engine-(?:source-[a-z][a-z0-9-]*|attribute|attribute-state|control|media-text-image|native-button|navigation-anchor|navigation-item|navigation-box|navigation-artwork|richtext|root-child|semantic|table))-[0-9a-f]{12}-(\d+)/';
+        $pattern = '/(blocks-engine-(?:source-[a-z][a-z0-9-]*|attribute|attribute-state|control|media-text-image|native-button|navigation-anchor|navigation-item|navigation-box|navigation-list-box|navigation-artwork|richtext|root-child|semantic|table))-[0-9a-f]{12}-(\d+)/';
     }
 
     return preg_replace($pattern, '$1-#-$2', $value) ?? $value;

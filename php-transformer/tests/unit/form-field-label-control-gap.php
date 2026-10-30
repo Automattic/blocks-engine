@@ -137,6 +137,25 @@ $assert(
     json_encode($controlGaps($layoutNodes($calc)))
 );
 
+$consentHtml = '<form><div class="consent"><input type="checkbox" id="news" name="news"><label for="news">Send me news</label></div><button type="submit">Send</button></form>';
+$consentCases = array(
+    'default row flex' => array( 'display:flex;gap:8px', array() ),
+    'explicit row flex' => array( 'display:flex;flex-direction:row;gap:8px', array() ),
+    'column flex' => array( 'display:flex;flex-direction:column;gap:8px', array( '8px' ) ),
+    'reverse column inline flex' => array( 'display:inline-flex;flex-direction:column-reverse;gap:8px', array( '8px' ) ),
+    'block' => array( 'display:block;gap:8px', array() ),
+    'flow root' => array( 'display:flow-root;gap:8px', array() ),
+    'undeclared display' => array( 'gap:8px', array() ),
+    'grid row gap' => array( 'display:grid;gap:8px 16px', array( '8px' ) ),
+    'resolved column flex' => array( '--layout:flex;--axis:column;--space:8px;display:var(--layout);flex-direction:var(--axis);gap:var(--space)', array( '8px' ) ),
+    'resolved row flex' => array( '--layout:flex;--axis:row;display:var(--layout);flex-direction:var(--axis);gap:8px', array() ),
+);
+foreach ( $consentCases as $case => [$declarations, $expected] ) {
+    $consent = $transformer->transform($consentHtml, array( 'static_css' => '.consent{' . $declarations . '}' ))->toArray();
+    $assert(array( 'Send me news' ) === $labels($consent), $case . ' retains the checkbox label');
+    $assert($expected === $labelGaps($consent), $case . ' carries only block-axis spacing onto the presentation graph label', json_encode($labelGaps($consent)));
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Form field label-control gap tests: {$failures} failed, {$passes} passed\n");
     exit(1);

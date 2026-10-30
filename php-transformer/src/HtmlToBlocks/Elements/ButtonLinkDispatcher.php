@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonAnchorPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LoweredLinkHost;
 use DOMElement;
 
 /**
@@ -48,6 +49,15 @@ final class ButtonLinkDispatcher
             return $this->context->htmlPreservationBlock($element);
         }
 
+        // Flow content must not reach label/image projections that flatten its
+        // descendants. Keep one real anchor around the editable inner blocks.
+        if ( '' !== trim($element->textContent) && $this->context->hasBlockLevelDescendant($element) ) {
+            $container = $this->context->convertLinkWrapperGroup($element, $fallbacks);
+            if ( null !== $container ) {
+                return $container;
+            }
+        }
+
         $linkedLogo = $this->context->linkedSvgLogoBlockFromAnchor($element, $fallbacks);
         if ( null !== $linkedLogo ) {
             return $linkedLogo;
@@ -72,11 +82,12 @@ final class ButtonLinkDispatcher
             return $this->paragraphHost($element);
         }
 
-        // A childless whitespace-only link still owns its destination and may
-        // own a CSS hitbox. Use the same native RichText host as other links;
-        // neither a duplicate sibling destination nor absent text proves that
-        // it is safe to omit. Keep media-bearing anchors on their own lowering.
-        if ( 0 === SourceDom::childElementCount($element)
+        // A whitespace-only link, including empty inline decoration, still
+        // owns its destination and may own a CSS-painted hitbox. Use the same
+        // native RichText host as other links; neither a duplicate sibling
+        // destination nor absent text proves that it is safe to omit. Keep
+        // media-bearing and flow-content anchors on their own lowering.
+        if ( $this->hasOnlyEmptyInlineDecoration($element)
             && '' === trim($element->textContent ?? '')
             && '' !== $this->context->safeLinkUrl(SourceDom::attr($element, 'href')) ) {
             return $this->paragraphHost($element);
@@ -120,6 +131,23 @@ final class ButtonLinkDispatcher
         // Its id remains on the inner link, the node that source selectors and
         // fragment navigation actually address.
         return $this->paragraphHost($element);
+    }
+
+    /**
+     * Empty inline descendants are CSS decoration, not media or inner blocks.
+     * Keep their source markup in the destination link's native RichText host.
+     */
+    private function hasOnlyEmptyInlineDecoration(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement
+                && ( ! $this->context->isInlineContentElement(strtolower($child->tagName))
+                    || ! $this->hasOnlyEmptyInlineDecoration($child) ) ) {
+                return false;
+            }
+        }
+
+        return '' === trim($element->textContent ?? '');
     }
 
     /**
@@ -191,7 +219,7 @@ final class ButtonLinkDispatcher
     {
         return $this->context->createBlock(
             'core/paragraph',
-            array_merge($this->nonButtonAnchorWrapperAttributes($element), array( 'content' => SourceDom::outerHtml($element) )),
+            array_merge($this->nonButtonAnchorWrapperAttributes($element), array( 'content' => $this->context->richTextOuterHtml($element) )),
             array(),
             $element
         );
@@ -212,57 +240,9 @@ final class ButtonLinkDispatcher
             );
         }
 
-        // Source class identity belongs exclusively to the saved link. Keep only
-        // generated geometry classes and mapped presentation on its paragraph host.
-        $sourceClasses = preg_split('/\s+/', trim(SourceDom::attr($anchor, 'class'))) ?: array();
-        $classes = array_values(array_filter(
-            preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(),
-            static fn (string $class): bool => ! in_array($class, $sourceClasses, true)
-        ));
-        if ( array() === $classes ) {
-            unset($attrs['className']);
-        } else {
-            $attrs['className'] = implode(' ', $classes);
-        }
-
-        // The same reasoning covers the presentation those classes resolve to.
-        // The host saves the anchor verbatim, so spacing or inherited type the
-        // author wrote on the anchor still arrives with it; restating either
-        // as a block attribute applies it a second time, once on the host box
-        // and once on the link inside it. Spacing or type the author never
-        // wrote on the anchor has no source to arrive from, so only the
-        // duplicated half is dropped.
-        //
-        // A restated line-height/font-size is not just redundant: it is a
-        // genuine line box on the host paragraph, sized from the anchor's own
-        // (frequently smaller) type instead of the host's inherited font. The
-        // source anchor was bare inline content — no wrapper of its own — so
-        // its line box came from its block ancestor, not from itself. Dropping
-        // these properties here is safe specifically because they are the
-        // ordinarily-inherited ones: with nothing restated on the host, the
-        // saved anchor still resolves the same value by inheriting through the
-        // host exactly as it inherited through its source ancestor.
-        // `textDecoration` is deliberately excluded: unlike the properties
-        // above it does not inherit on its own (only the literal `inherit`
-        // keyword propagates it), so a host that resolved it from an ancestor
-        // must keep restating it or a saved `text-decoration:inherit` anchor
-        // would resolve against the host's own default instead.
-        if ( '' !== trim(SourceDom::attr($anchor, 'class')) ) {
-            unset($attrs['style']['spacing']);
-            if ( is_array($attrs['style']['typography'] ?? null) ) {
-                foreach ( array( 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textTransform', 'fontStyle' ) as $inheritedTypographyProperty ) {
-                    unset($attrs['style']['typography'][$inheritedTypographyProperty]);
-                }
-                if ( array() === $attrs['style']['typography'] ) {
-                    unset($attrs['style']['typography']);
-                }
-            }
-            if ( array() === ($attrs['style'] ?? null) ) {
-                unset($attrs['style']);
-            }
-        }
-
-        return $attrs;
+        // Source class identity, and the inherited presentation it resolves
+        // to, belong to the saved link {@see LoweredLinkHost}.
+        return LoweredLinkHost::attributes($attrs, $anchor);
     }
 
     private function isPositionedFragmentLink(DOMElement $anchor): bool

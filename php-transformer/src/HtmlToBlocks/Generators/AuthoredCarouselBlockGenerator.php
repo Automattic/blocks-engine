@@ -77,6 +77,7 @@ final class AuthoredCarouselBlockGenerator
             'autoplayInterval' => array('type' => 'number', 'default' => 0),
             'showDots' => array('type' => 'boolean', 'default' => false),
             'showStatus' => array('type' => 'boolean', 'default' => false),
+            'statusFormat' => array('type' => 'string', 'default' => ''),
             'fullBleed' => array('type' => 'boolean', 'default' => false),
             'thumbnails' => array('type' => 'array', 'default' => array()),
             'thumbnailPosition' => array('type' => 'string', 'default' => 'right'),
@@ -124,6 +125,7 @@ final class AuthoredCarouselBlockGenerator
         var carouselClasses = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle );
         if ( 'src-swap' === presentation ) carouselClasses = 'blocks-engine-authored-carousel--src-swap';
         var props = { className: carouselClasses + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        if ( attributes.statusFormat ) { var context = JSON.parse( props[ 'data-wp-context' ] ); context.statusFormat = attributes.statusFormat; props[ 'data-wp-context' ] = JSON.stringify( context ); }
         Object.keys( attributes.sourceIdentityAttributes || {} ).forEach( function( name ) { props[ name ] = attributes.sourceIdentityAttributes[ name ]; } );
         if ( attributes.sourceControlArtwork ) { props.className += ' blocks-engine-authored-carousel--source-control-artwork'; }
         if ( attributes.showStatus ) { props.className += ' blocks-engine-authored-carousel--show-status'; }
@@ -382,7 +384,9 @@ store( 'blocks-engine/carousel', {
         },
         get statusText() {
             const context = getContext();
-            return 'Slide ' + ( context.index + 1 ) + ' of ' + context.count;
+            return context.statusFormat
+                ? context.statusFormat.replace( '{index}', context.index + 1 ).replace( '{count}', context.count )
+                : 'Slide ' + ( context.index + 1 ) + ' of ' + context.count;
         },
         get playing() {
             return true === getContext().playing;
@@ -454,7 +458,7 @@ JS;
         $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0;transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
         $style .= '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__dot{pointer-events:auto}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{visibility:hidden!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{visibility:visible!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){visibility:hidden!important}';
 
-        $style .= '.blocks-engine-authored-carousel--slideshow{margin-block-start:0;margin-block-end:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{min-height:var(--blocks-engine-carousel-stage-min-height,0)}.blocks-engine-authored-carousel__track>.wp-block-group{min-height:var(--blocks-engine-carousel-stage-min-height,auto);margin-block-start:0;margin-block-end:0}';
+        $style .= '.blocks-engine-authored-carousel__source-stage{width:100%;min-width:0}.blocks-engine-authored-carousel--slideshow{margin-block-start:0;margin-block-end:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{min-height:var(--blocks-engine-carousel-stage-min-height,0)}.blocks-engine-authored-carousel__track>.wp-block-group{min-height:var(--blocks-engine-carousel-stage-min-height,auto);margin-block-start:0;margin-block-end:0}';
         $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next::before{content:none}';
         $style .= '.blocks-engine-authored-carousel--show-status>.blocks-engine-authored-carousel__status{position:static;width:auto;height:auto;margin:0;clip:auto;overflow:visible;white-space:normal}';
         $style .= '.blocks-engine-authored-carousel--source-control-topology .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--source-control-topology .blocks-engine-authored-carousel__next{position:static;inset:auto;width:auto;height:auto;padding:0;border:0;border-radius:0;background:transparent;color:inherit;transform:none}';
@@ -497,7 +501,7 @@ JS;
         // scrollable column beside the stage rather than a second slide track.
         $style .= '.blocks-engine-authored-carousel--thumbnails{--blocks-engine-carousel-thumbnail-size:80px}'
             . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-right{display:grid;position:relative;grid-template-columns:minmax(0,1fr) var(--blocks-engine-carousel-thumbnail-size);gap:var(--blocks-engine-carousel-gap);align-items:start}'
-            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-bottom{display:grid;position:relative;grid-template-rows:minmax(0,1fr) auto;gap:var(--blocks-engine-carousel-gap)}'
+            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-bottom{display:grid;position:relative;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;gap:var(--blocks-engine-carousel-gap)}'
             . '.blocks-engine-authored-carousel--thumbnails .blocks-engine-authored-carousel__thumbnails{display:grid;gap:calc(var(--blocks-engine-carousel-gap)/2);min-width:0;margin:0;padding:0}'
             . '.blocks-engine-authored-carousel--thumbnails-right .blocks-engine-authored-carousel__thumbnails{grid-auto-flow:row;grid-auto-rows:max-content;max-height:var(--blocks-engine-carousel-height,100%);overflow-y:auto;overscroll-behavior:contain}'
             . '.blocks-engine-authored-carousel--thumbnails-bottom .blocks-engine-authored-carousel__thumbnails{grid-auto-flow:column;grid-auto-columns:var(--blocks-engine-carousel-thumbnail-size);overflow-x:auto;overscroll-behavior:contain}'
@@ -598,7 +602,7 @@ JS;
         $styleAttribute = array() === $styleDeclarations ? '' : ' style="' . implode(';', $styleDeclarations) . '"';
 
         $context = htmlspecialchars(
-            (string) json_encode(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => 0, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false, 'playing' => 0 < $autoplayInterval), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            (string) json_encode(array_merge(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => 0, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false, 'playing' => 0 < $autoplayInterval), empty($attributes['statusFormat']) ? array() : array('statusFormat' => $attributes['statusFormat'])), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
             ENT_QUOTES | ENT_SUBSTITUTE,
             'UTF-8'
         );
@@ -718,9 +722,45 @@ JS;
         return '<button type="button" class="blocks-engine-authored-carousel__' . $direction . ' ' . $boundedClasses . '"' . ('' !== $style ? ' style="' . $style . '"' : '') . $sourceAttributes . ' data-carousel-' . $direction . '="true" data-wp-on--click="' . $action . '" data-wp-bind--disabled="' . $bound . '" aria-label="' . $label . ' slide">' . $this->safeControlVisual($visual) . '</button>';
     }
 
+    /** A host-local slide with no interaction has only static light DOM. */
+    public function isStaticSingleSlideCarousel(DOMElement $element): bool
+    {
+        if ( ! $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
+            return false;
+        }
+        [$list, $items] = $this->outermostCarouselList($element);
+        // When the only list found is itself a slide, the host's real track
+        // went unrecognized and its slide count is unknown.
+        if ( ! $list instanceof DOMElement || 1 !== count($items)
+            || $this->sourceElementClassifier->isCarouselSlideChild($list)
+            || null !== $this->playbackToggleElement($element)
+            || 0 !== $this->carouselPaginationCount($element)
+            || array() !== $this->thumbnailPagerItems($element, $list)
+        ) {
+            return false;
+        }
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement && $this->sourceElementClassifier->isCarouselControl($candidate, $element) ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** @return array<string, mixed>|null */
     public function convert(DOMElement $element): ?array
     {
+        // All callers, including flow-container dispatch, must leave static
+        // hosts to ordinary content conversion. An ancestor must not combine
+        // their media with controls belonging to a different carousel.
+        if ( $this->isStaticSingleSlideCarousel($element) ) {
+            return null;
+        }
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement && $this->isStaticSingleSlideCarousel($candidate) ) {
+                return null;
+            }
+        }
         $styleResolver = $this->styleResolver ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
         $createBlock = $this->createBlock ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
         $blockFactory = $this->blockFactory ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
@@ -843,12 +883,27 @@ JS;
             $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
         [$list, $items] = $this->richestCarouselList($element);
+        if ( $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
+            [$outerList, $outerItems] = $this->outermostCarouselList($element);
+            if ( $outerList instanceof DOMElement ) {
+                $list = $outerList;
+                $items = $outerItems;
+            }
+        }
         $localList = $list;
         // Let the smallest complete carousel own its list and controls. An
         // enclosing gallery section still converts its heading and other copy.
         if ( $list instanceof DOMElement ) {
             $rootControls = $this->allNavigationControls($element);
             for ( $owner = $list->parentNode; $owner instanceof DOMElement && $owner !== $element; $owner = $owner->parentNode ) {
+                if ( $this->sourceElementClassifier->hasCarouselIdentity($owner) ) {
+                    [$ownerList] = $this->outermostCarouselList($owner);
+                    // An ancestor cannot promote a slide's nested media list
+                    // into slides, even if controls exist elsewhere below it.
+                    if ( $ownerList instanceof DOMElement && $ownerList !== $list && $this->containsNode($ownerList, $list) ) {
+                        return null;
+                    }
+                }
                 if ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) {
                     return null;
                 }
@@ -914,7 +969,9 @@ JS;
         }
         foreach ( $items as $sourceItem ) {
             [$item, $temporary] = $this->carouselItemInRoot($sourceItem, $element, $localList);
-            $image = $item->getElementsByTagName('img')->item(0);
+            // Only simple image slides can use caption conversion. Rich slides
+            // retain their media, links and authored text through child conversion.
+            $image = $this->sourceElementClassifier->isSingleMediaSlide($item, 'img') ? $item->getElementsByTagName('img')->item(0) : null;
             if ( $image instanceof DOMElement ) {
                 $slide = $convertImage($image);
                 if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
@@ -954,9 +1011,9 @@ JS;
 
         $listIdentity = strtolower(implode(' ', array($list->tagName, SourceDom::attr($list, 'class'), SourceDom::attr($list, 'role'), SourceDom::attr($list, 'data-hook'))));
         $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
-        $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?)(?:[^a-z0-9]|$)/', $listIdentity);
+        $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slider)(?:[^a-z0-9]|$)/', $listIdentity);
         $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
-        if ( ! $isTrackList && $this->sourceElementClassifier->isHomogeneousImageSlideList($list) ) {
+        if ( ! $isTrackList && $this->sourceElementClassifier->isHomogeneousMediaSlideList($list) ) {
             $visible = 0;
             $hidden = 0;
             $active = 0;
@@ -1079,6 +1136,7 @@ JS;
             ? $this->stageBoxForItems($items, $styleResolver)
             : array('ratio' => '', 'width' => 0);
 
+        $status = $this->slideStatus($list);
         $registry->register(self::class, $this->definition($registry->namespace()));
         $attributes = array(
             'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
@@ -1086,7 +1144,8 @@ JS;
             'controlPresentation' => array(),
             'sourcePresentationClasses' => implode(' ', array_unique(array_merge(
                 SourceDom::boundedClassTokens((string) $sourceScope['className']),
-                SourceDom::boundedClassTokens((string) $sourceScope['stageClassName'])
+                SourceDom::boundedClassTokens((string) $sourceScope['stageClassName']),
+                $status instanceof DOMElement ? SourceDom::boundedClassTokens($styleResolver->liveRegionVisibilityClassName($status)) : array()
             ))),
             'sourceControlClasses' => $sourceScope['controlClassName'],
             'sourceControlAttributes' => $sourceScope['controlAttributes'],
@@ -1111,8 +1170,8 @@ JS;
             'sourceRootGeometry' => array_intersect_key($styleResolver->sourceGeometryPresentationDeclarations($element), array_flip(self::ROOT_GEOMETRY_PROPERTIES)),
             'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
             'autoplayInterval' => !$capturedGallery && 'slideshow' === $presentation ? $autoplayInterval : 0,
-            'showStatus' => $capturedGallery,
-            'showDots' => 'slideshow' === $presentation && $showDots && array() === $thumbnails,
+            'showStatus' => $capturedGallery || $status instanceof DOMElement,
+            'showDots' => $showDots && array() === $thumbnails,
             'fullBleed' => 'slideshow' === $presentation && $fullBleed,
             'thumbnails' => $thumbnails,
             'thumbnailPosition' => $thumbnailPosition,
@@ -1123,6 +1182,9 @@ JS;
             'playControlPosition' => $playbackPlacement['position'],
             'playControlInset' => $playbackPlacement['inset'],
         );
+        if ($status instanceof DOMElement && preg_match('~^\s*[0-9]+(\s*/\s*)[0-9]+\s*$~', $status->textContent ?? '', $statusMatch)) {
+            $attributes['statusFormat'] = '{index}' . $statusMatch[1] . '{count}';
+        }
         $shell = $this->shell($attributes);
         $innerContent = array($shell['opening']);
         foreach ( $slides as $_ ) {
@@ -1494,6 +1556,14 @@ JS;
     {
         foreach ( self::SLIDE_INDEX_ATTRIBUTES as $attribute ) {
             if ( ctype_digit(trim(SourceDom::attr($element, $attribute))) ) {
+                return true;
+            }
+        }
+        if ( 'li' === strtolower($element->tagName) && ctype_digit(trim(SourceDom::attr($element, 'aria-label'))) ) {
+            $list = $element->parentNode;
+            if ( $list instanceof DOMElement && in_array(strtolower($list->tagName), array('ol', 'ul'), true)
+                && 1 === preg_match('/(?:^|[^a-z0-9])(?:dots?|pagination|pager)(?:[^a-z0-9]|$)/', strtolower(SourceDom::attr($list, 'class') . ' ' . SourceDom::attr($list, 'id')))
+            ) {
                 return true;
             }
         }
@@ -2145,6 +2215,34 @@ JS;
         return $thumbnails;
     }
 
+    /**
+     * Only outermost lists describe the host's slides. Nested lists, such as
+     * responsive image pairs in a slide background, are slide content.
+     *
+     * @return array{0: DOMElement|null, 1: array<int, DOMElement>}
+     */
+    private function outermostCarouselList(DOMElement $root): array
+    {
+        $list = null;
+        $items = array();
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root) ) {
+                continue;
+            }
+            for ( $ancestor = $candidate->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode ) {
+                if ( $this->sourceElementClassifier->isCarouselList($ancestor) ) {
+                    continue 2;
+                }
+            }
+            $candidateItems = $this->carouselListItems($candidate);
+            if ( count($candidateItems) > count($items) && $this->carouselItemsHaveContent($candidateItems) ) {
+                $list = $candidate;
+                $items = $candidateItems;
+            }
+        }
+        return array($list, $items);
+    }
+
     /** @return array{0: DOMElement|null, 1: array<int, DOMElement>} */
     private function richestCarouselList(DOMElement $root): array
     {
@@ -2172,6 +2270,7 @@ JS;
                 return false;
             }
             if ( 0 === $item->getElementsByTagName('img')->length
+                && ! $this->sourceElementClassifier->isNativeVideoSlide($item)
                 && '' === trim(str_replace("\xc2\xa0", ' ', $item->textContent ?? ''))
             ) {
                 return false;
@@ -2184,7 +2283,7 @@ JS;
     {
         $count = 0;
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( $candidate instanceof DOMElement && in_array(strtolower($candidate->tagName), array('a', 'button'), true) && $this->isPaginationControl($candidate) ) {
+            if ( $candidate instanceof DOMElement && in_array(strtolower($candidate->tagName), array('a', 'button', 'li'), true) && $this->isPaginationControl($candidate) ) {
                 ++$count;
             }
         }
@@ -2218,27 +2317,26 @@ JS;
         return array($clone, true);
     }
 
+    /** Responsive copies share an id; shared class tokens are not identity. */
     private function sharesCarouselIdentity(DOMElement $left, DOMElement $right): bool
     {
-        if ( ! $this->sourceElementClassifier->hasCarouselIdentity($right) ) {
-            return false;
-        }
-        $leftId = trim(SourceDom::attr($left, 'id'));
-        if ( '' !== $leftId && $leftId === trim(SourceDom::attr($right, 'id')) ) {
-            return true;
-        }
+        $id = trim(SourceDom::attr($left, 'id'));
+        return '' !== $id && $id === trim(SourceDom::attr($right, 'id'))
+            && $this->sourceElementClassifier->hasCarouselIdentity($right);
+    }
 
-        $identityClasses = static function (string $classes): array {
-            $matches = array();
-            foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
-                $words = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), $class));
-                if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $words) ) {
-                    $matches[] = $class;
-                }
-            }
-            return $matches;
-        };
-        return array() !== array_intersect($identityClasses(SourceDom::attr($left, 'class')), $identityClasses(SourceDom::attr($right, 'class')));
+    private function isSlideStatus(DOMElement $element): bool
+    {
+        return 'status' === strtolower(trim(SourceDom::attr($element, 'role')))
+            || 1 === preg_match('~^\s*[0-9]+\s*/\s*[0-9]+\s*$~', $element->textContent ?? '');
+    }
+
+    private function slideStatus(DOMElement $list): ?DOMElement
+    {
+        foreach ($list->childNodes as $child) {
+            if ($child instanceof DOMElement && $this->isSlideStatus($child)) return $child;
+        }
+        return null;
     }
 
     /** @return array<int, DOMElement> */
@@ -2247,6 +2345,13 @@ JS;
         $items = array();
         foreach ( $list->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            // Navigation and slide status share the stage, but do not belong
+            // to its content sequence (nor to the thumbnail/slide count).
+            if ($this->sourceElementClassifier->isCarouselControl($child, $list)
+                || $this->containsNavigationPair($child) || $this->isSlideStatus($child)
+            ) {
                 continue;
             }
             if ( 'listitem' === strtolower(trim(SourceDom::attr($child, 'role'))) || 'li' === strtolower($child->tagName) ) {
@@ -2261,7 +2366,7 @@ JS;
                 SourceDom::attr($child, 'data-testid'),
             )));
             if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item|group)(?:[^a-z0-9]|$)/', $identity)
-                && 0 < $child->getElementsByTagName('img')->length
+                && (0 < $child->getElementsByTagName('img')->length || $this->sourceElementClassifier->isNativeVideoSlide($child))
             ) {
                 $items[] = $child;
                 continue;

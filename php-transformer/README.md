@@ -173,13 +173,15 @@ Public entrypoints accept a generic options array. `source` and `scope` are copi
 
 `context.strict` and `context.allow_fallbacks` are normalized into the result `context`. Top-level `strict` and `allow_fallbacks` are also accepted for simple callers. `HtmlTransformer` keeps default fallback behavior unchanged; callers that pass `allow_fallbacks => false` receive `success_with_warnings`, or `failed` when `strict` is also true and unsupported HTML is encountered.
 
+`HtmlTransformer::transform()` also accepts block markup. When the input contains block delimiters at element boundaries, it is parsed with `Runtime::parseBlocks()` and every parsed block is kept as written. Only top-level freeform HTML and loose HTML inside a container block (between its wrapper tags, before, between or after its inner blocks) is converted, then spliced into `innerBlocks`/`innerContent` at its position and serialized with `Runtime::serializeBlocks()`. Whitespace and comment-only strings are untouched. The merged result carries every converted fragment's assets, diagnostics, fallbacks and metrics; status is `success` only when every input block survives and every fragment converted cleanly. HTML that cannot be converted stays in the output with a `block_markup_input_html_kept` diagnostic. Delimiters that sit inside HTML elements (block comments pasted into page text) mark an HTML document: it takes the HTML path, and the result reports `block_markup_input_stray_delimiters` instead of `success`. Delimiters that do not pair by name (a block without its closer, a block closed by a closer with another block's name, or an extra closer after an element closer browsers ignore) are repaired before parsing by pairing each closer with its block by the element nesting depth around it; a block whose element has ended and that only the next sibling's opener or an outer block's closer would close ends with its element. The result reports `block_markup_input_repaired_delimiters` naming each repaired block. Input whose delimiters cannot be paired this way keeps the behaviour above.
+
 `FormatBridge::convertResult()` forwards the original options array to adapters and exposes the normalized context/provenance metadata on the returned `TransformerResult`.
 
 The result envelope includes generic `metrics` for wrapper reporting: `input_bytes`, `block_count`, `fallback_count`, `diagnostic_count`, `transform_duration_ms`, and `output_bytes`.
 
 `source_reports.html.source_provenance` exposes bounded source context for converted blocks: selector, safe source attributes, sanitized source fragment, ancestor context, nearby heading text, safe `data-*` attributes, and generic structure hints such as card-like or grid-like wrappers. `source_reports.html.structure_signals` records those card/grid/static layout hints separately so callers can inspect them without relying on block attributes.
 
-`source_reports.conversion_report` exposes a compact generic projection for wrappers that previously reconstructed report slices from lower-level result fields. It includes fallback diagnostics, sanitized fallback context, event attribute projections, source/selector summaries, asset references, navigation candidates, presentation and structure signals, and metrics. Routes, navigation, menus, and theme writes are self-contained in `wordpress-site-plan/v2`; callers still own media imports, navigation entity creation, visual repair policy, and acceptance gates.
+`source_reports.conversion_report` exposes a compact generic projection for wrappers that previously reconstructed report slices from lower-level result fields. It includes fallback diagnostics, sanitized fallback context, event attribute projections, source/selector summaries, asset references, navigation candidates, presentation and structure signals, and metrics. Routes, navigation, menus, and theme writes are self-contained in `wordpress-site-plan/v3`; callers still own media imports, navigation entity creation, visual repair policy, and acceptance gates.
 
 ### Core Block Inventories
 
@@ -187,7 +189,7 @@ HTML conversion coverage and `source_reports.conversion_report` distinguish thre
 
 Visual parity tooling should use the product-neutral report/config contracts in `docs/contracts/visual-parity-report.md`. The report covers source and target render metadata, viewports, optional screenshot paths, DOM candidate matches, computed-style deltas, optional visual diff metrics, severity, selector evidence, and recommendations. Button, menu, card, and form fields are modeled as generic UI facts rather than product-specific entities.
 
-WordPress materializers that consume the self-contained `wordpress-site-plan/v2` contract should use `WordPressSitePlan\WordPressSitePlanView::fromResult()`. It preserves the exact canonical plan plus Gutenberg gaps, companion-plugin payload, font materialization metadata, and plan diagnostics while omitting the duplicated compiled-site, root asset, document, and block projections.
+WordPress materializers that consume the self-contained `wordpress-site-plan/v3` contract should use `WordPressSitePlan\WordPressSitePlanView::fromResult()`. It preserves the exact canonical plan plus Gutenberg gaps, companion-plugin payload, font materialization metadata, and plan diagnostics while omitting the duplicated compiled-site, root asset, document, and block projections.
 
 Capture tools describe what they observed in a rendered source (document variants, dialog and disclosure bindings, galleries, collection filters, glyph colour) with the producer-neutral capture-evidence vocabulary: `data-blocks-engine-capture-*` attributes and classes plus `blocks-engine-capture/*` sidecar schemas, published as `Contract\CaptureEvidence` and documented in [Capture evidence](docs/contracts/capture-evidence.md). Any capture producer may emit it.
 
@@ -215,7 +217,7 @@ Unsupported or unsafe artifact inputs are reported through diagnostics instead o
 
 ## WordPress Site Plans
 
-`WordPressSitePlan` projects a self-contained `blocks-engine/wordpress-site-plan/v2` materialization contract from a compiler result. Its normalized document metadata and generic reporting summaries let a consumer project reports from a resolved plan plus its own receipt, without reading the compiler envelope or source files. See [WordPress Site Plan v2](docs/wordpress-site-plan.md) for the metadata shape, ordering, supported attributes, and resolver boundary.
+`WordPressSitePlan` projects a self-contained `blocks-engine/wordpress-site-plan/v3` materialization contract from a compiler result. Its normalized document metadata and generic reporting summaries let a consumer project reports from a resolved plan plus its own receipt, without reading the compiler envelope or source files. See [WordPress Site Plan v3](docs/wordpress-site-plan.md) for the metadata shape, ordering, supported attributes, and resolver boundary.
 
 ## Parity Checks
 

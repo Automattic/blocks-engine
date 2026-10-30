@@ -319,9 +319,11 @@ final class InlineGeometry
      * must ride: restate exactly the background declarations and authored inline alpha through the same
      * generated stylesheet, tiering, and URL rewriting as the standard
      * carrier. Every other inline property is excluded, so class-owned rules
-     * and the preserved className keep owning the box's geometry.
+     * and the preserved className keep owning the box's geometry. Callers that
+     * save native background colour support can opt out of carrying fully
+     * mapped solid colours, avoiding an important rule that defeats editing.
      */
-    public function emptyElementBackgroundCarrierClassName(DOMElement $element): string
+    public function emptyElementBackgroundCarrierClassName(DOMElement $element, bool $nativeBackgroundColor = false): string
     {
         $declarations = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
         $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? $declarations['background-color'] ?? '');
@@ -336,6 +338,16 @@ final class InlineGeometry
         )));
 
         $forced = array_merge($this->backgroundCarrierProperties(), array( 'background-color' ));
+        // A fully mapped solid colour is saved by native background support.
+        // Restating it as !important would prevent editor recolouring. Complex
+        // backgrounds still need their carrier (images, gradients and layers).
+        $background = array_intersect_key($declarations, array_flip(array( 'background', 'background-color' )));
+        $mapped = $this->styleAttributeMapper()->map($background);
+        if ( $nativeBackgroundColor && isset($mapped['style']['color']['background']) && array() === $mapped['leftover'] ) {
+            $nativeProperties = array_keys($background);
+            $excludedProperties = array_merge($excludedProperties, $nativeProperties);
+            $forced = array_values(array_diff($forced, $nativeProperties));
+        }
         // A source inline opacity belongs to this empty painted boundary. Core
         // background supports cannot represent alpha on that boundary without
         // also applying it to content, so keep the authored alpha alongside
@@ -345,6 +357,23 @@ final class InlineGeometry
         }
 
         return $this->className($element, $excludedProperties, $forced);
+    }
+
+    /** Carry the source box properties a transparent figure cannot honour. */
+    public function syntheticFlexImageBoxClassName(DOMElement $element): string
+    {
+        // The synthetic figure is display:contents. Box spacing and item
+        // alignment therefore belong to the rendered image, not its wrapper.
+        // Stylesheet-owned boxes are projected at each rule's cascade position,
+        // including media conditions. Do not freeze their desktop values into
+        // an unconditional important carrier.
+        $resolved = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
+        $box = array_filter($resolved, NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY);
+        if ( array() === $box ) {
+            return '';
+        }
+        $inline = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
+        return $this->className($element, array_values(array_diff(array_keys($inline), array_keys($box))), array_keys($box), $box, false, true);
     }
 
     /**
@@ -520,12 +549,8 @@ final class InlineGeometry
         $forcedPropertyLookup = array_fill_keys($forcedProperties, true);
         $inlineLayoutPropertyLookup = array_fill_keys($this->layoutCarrierProperties(), true);
         $inlineListMarkerPropertyLookup = array_fill_keys($this->listMarkerCarrierProperties(), true);
-        // Author-override carriers stay in the non-important tier. At (0,2,0)
-        // the `:root .x` selector already outranks the plain single-class rule
-        // being overridden, at every viewport, because a media query adds no
-        // specificity. The !important tier would additionally beat authored
-        // non-important `:hover`/`:focus` rules and delete the interactive
-        // states the source still wants.
+        // Keep normal-priority carriers non-important: specificity can restore
+        // inline precedence without incorrectly beating source !important rules.
         // Background-image heroes pin a definite box through :root .carrier
         // (0,2,0). Other height carriers still need !important to beat IDs.
         if ( isset($geometry['height']) && preg_match('/\burl\s*\(/i', $inlineBackground) ) {
@@ -533,7 +558,8 @@ final class InlineGeometry
         }
         $overridePropertyLookup = array_fill_keys(array_keys($overrideDeclarations), true);
         foreach ($geometry as $property => $value) {
-            if ( isset($inlineListMarkerPropertyLookup[$property])
+            if ( ('iframe' === strtolower($element->tagName) && ! CssValueInspector::isImportant((string) ($declarations[$property] ?? '')))
+                || isset($inlineListMarkerPropertyLookup[$property])
                 || isset($overridePropertyLookup[$property])
                 || ( isset($inlineLayoutPropertyLookup[$property]) && ! isset($forcedPropertyLookup[$property])
                     && ! ( 'display' === $property && 'contents' === CssValueInspector::comparable($value) ) )
@@ -541,9 +567,7 @@ final class InlineGeometry
                 // Preserve source inline layout and list markers over a later
                 // plain author class without introducing !important.
                 $normalPriorityDeclarations[] = $property . ':' . $value;
-                if ( isset($overridePropertyLookup[$property]) ) {
-                    $normalPriorityOverrides[] = $property;
-                }
+                $normalPriorityOverrides[] = $property;
                 continue;
             }
 
@@ -557,11 +581,11 @@ final class InlineGeometry
         $rules = array();
         if ( array() !== $normalPriorityDeclarations ) {
             $carrier = ':root ' . $this->normalTierCarrierCompound($element, $className, $normalPriorityOverrides);
-            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors($carrier) : $carrier;
+            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors(':root .wp-block-image' . $this->normalTierCarrierCompound($element, $className, $normalPriorityOverrides)) : $carrier;
             $rules[] = $selector . '{' . implode(';', $normalPriorityDeclarations) . '}';
         }
         if ( array() !== $importantDeclarations ) {
-            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors('.' . $className) : '.' . $className;
+            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors('.wp-block-image.' . $className) : '.' . $className;
             $rules[] = $selector . '{' . implode(';', $importantDeclarations) . '}';
         }
         if ('video' === strtolower($element->tagName) && isset($geometry['object-fit'], $geometry['width'], $geometry['height'])) {
@@ -640,13 +664,12 @@ final class InlineGeometry
      * The carrier class compound for the non-important tier.
      *
      * A source inline declaration outranks every normal author rule, but its
-     * restated carrier only wins on specificity: `:root .x` is (0,2,0) and
-     * ties with, then loses by rule order to, a later author rule such as
-     * `.page .section`. Repeating the carrier class lifts the selector just
-     * past the most specific class-level author rule that declares one of
-     * the override properties, the inline declarations already known to
-     * conflict with an author rule. Rules with ID selectors keep their
-     * existing outcome.
+     * restated carrier must beat the most specific matching normal author
+     * rule, independently of asset order. Repeat classes, or use an :is() ID
+     * arm when needed; the class arm always matches. Unlike !important this
+     * leaves source important declarations in the higher cascade tier.
+     * Only declarations already owned by this carrier are weighted: stylesheet
+     * paint remains in the author cascade, including hover/state rules (#3053).
      *
      * @param list<string> $overrides
      */
@@ -658,9 +681,11 @@ final class InlineGeometry
         [$ids, $classes] = ($this->authorNormalDeclarationSpecificity)($element, $overrides);
         // `:root` contributes one class-level unit, so a single carrier class
         // already beats any rule with fewer than two.
-        $repeat = 0 === $ids ? max(1, $classes) : 1;
+        if ( 0 < $ids ) {
+            return '.' . $className . ':is(.' . $className . ',' . str_repeat('#' . $className, $ids + 1) . ')';
+        }
 
-        return str_repeat('.' . $className, $repeat);
+        return str_repeat('.' . $className, max(1, $classes));
     }
 
     /**

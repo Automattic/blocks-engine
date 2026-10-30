@@ -22,7 +22,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "assets.1.path", "assert": "equals", "value": "assets/buttons.css" },
     { "path": "assets.2.path", "assert": "equals", "value": "assets/type.css" },
-    { "path": "assets.1.content", "assert": "contains", "value": "> :where(.wp-block-button__link):hover" },
+    { "path": "assets.1.content", "assert": "contains", "value": "> :where(.wp-block-button__link):not(be-t-0):hover" },
     { "path": "assets.1.content", "assert": "not_contains", "value": "a.cta:hover" },
     { "path": "assets.2.content", "assert": "contains", "value": ":where(.blocks-engine-source-p-" },
     { "path": "assets.2.content", "assert": "not_contains", "value": "p{color:red}" },

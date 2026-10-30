@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedDialogProjector;
@@ -49,11 +51,11 @@ $project = static function (string $html, array $trigger, string $dialogHtml): a
     $files = array(
         array('path' => 'website/index.html', 'content' => $html),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array(
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'components' => captured_components(array(array(
             'status' => 'captured',
             'trigger' => $trigger,
             'dialog' => array('html' => $dialogHtml, 'htmlBytes' => strlen($dialogHtml), 'htmlTruncated' => false, 'presentation' => 'dropdown'),
-        ))))), JSON_UNESCAPED_SLASHES)),
+        )))))), JSON_UNESCAPED_SLASHES)),
     );
     $result = ( new CapturedDialogProjector() )->project($files);
 

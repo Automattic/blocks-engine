@@ -115,6 +115,14 @@ final class ElementTreeDiff
 
     private static function identity(DOMElement $element): string
     {
+        // An element the engine synthesized, with no source id or class of its
+        // own, is no source element's counterpart by tag alone: pairing it with
+        // a sibling of the same tag would mismatch both. It pairs by text, and
+        // pair() then finds the source element it wraps.
+        if ( '' === self::looseIdentity($element) && str_starts_with(self::marker($element), 'blocks-engine-synthetic-') ) {
+            return '';
+        }
+
         return self::tag($element) . '#' . $element->getAttribute('id') . '.' . implode('.', self::sourceClasses($element));
     }
 
@@ -128,9 +136,15 @@ final class ElementTreeDiff
 
     private static function textIdentity(DOMElement $element): string
     {
-        $text = trim((string) preg_replace('/\s+/u', ' ', $element->textContent));
+        $runs = array();
+        foreach ( ( new \DOMXPath($element->ownerDocument) )->query('.//text()', $element) ?: array() as $node ) {
+            $run = trim((string) preg_replace('/\s+/u', ' ', $node->nodeValue));
+            if ( '' !== $run ) {
+                $runs[] = $run;
+            }
+        }
 
-        return '' !== $text ? $text : '';
+        return implode(' ', $runs);
     }
 
     /**

@@ -36,9 +36,9 @@ foreach ($arms as $arm) {
     if (!preg_match('/:where\(\.(blocks-engine-attribute-[a-f0-9]+-\d+)/', $arm, $marker)) continue;
     $onButtons = in_array($marker[1], explode(' ', $buttons[1]), true);
     $onButton = in_array($marker[1], explode(' ', $button[1]), true);
-    if (str_ends_with($arm, '> :where(.wp-block-button)> :where(.wp-block-button__link)')) {
+    if (str_ends_with($arm, '> :where(.wp-block-button)> :where(.wp-block-button__link):not(be-t-0)')) {
         $reachesLink = $reachesLink || $onButtons;
-    } elseif (str_ends_with($arm, '> :where(.wp-block-button__link)')) {
+    } elseif (str_ends_with($arm, '> :where(.wp-block-button__link):not(be-t-0)')) {
         $reachesLink = $reachesLink || $onButton;
     } elseif (!str_contains($arm, ':not(.wp-block-buttons,.wp-block-button))')) {
         // An arm on the marker itself must exclude the generated wrappers.

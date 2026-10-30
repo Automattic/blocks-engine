@@ -44,6 +44,15 @@ $assert(
     $css
 );
 
+// A sized ancestor only fills controls that span its line. Inline-level
+// buttons in inline-block list items keep their content width.
+$out = ( new HtmlTransformer() )->transform(
+    '<style>.circle{display:flex;flex-direction:column;width:320px}.amounts{padding:0;list-style:none}.amounts li{display:inline-block}.btn{display:inline-block;min-width:80px;padding:8px 24px;border:2px solid #484848;border-radius:40px;background:transparent}</style>'
+    . '<main><div class="circle"><ul class="amounts"><li><button class="btn" type="button">50</button></li><li><button class="btn" type="button">100</button></li></ul></div></main>'
+)->toArray();
+$css = $cssOf($out);
+$assert(! preg_match('/wp-block-buttons\{width:320px/', $css), 'inline-level buttons do not take a sized ancestor width', $css);
+
 if ( $failures > 0 ) {
     exit(1);
 }

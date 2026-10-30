@@ -45,7 +45,14 @@ final class CssRuleAnalyzer
      * @var array<string, list<array<string, mixed>>>
      */
     private static array $streams = array();
-    private const STREAM_CACHE_SIZE = 128;
+    /**
+     * The cache is bounded by the selector entries it holds, not by stream
+     * count: one page can need hundreds of small streams (stylesheets times
+     * property lists), while a few huge stylesheets must still evict. 100k
+     * entries holds a real 77-stylesheet page's ~316 streams.
+     */
+    private const STREAM_CACHE_ENTRY_BUDGET = 100000;
+    private static int $streamEntries = 0;
     private static int $stylesheetWalks = 0;
 
     /** Number of stylesheet walks performed since process start; observable for tests. */
@@ -79,9 +86,15 @@ final class CssRuleAnalyzer
         }
         $stream = array();
         $this->walkStylesheet($css, $path, $hash, $condition, $properties, $maxCssBytes, $maxConditionDepth, $layerRanks, $stream);
-        if ( count(self::$streams) >= self::STREAM_CACHE_SIZE ) {
-            unset(self::$streams[ array_key_first(self::$streams) ]);
+        if ( count($stream) > self::STREAM_CACHE_ENTRY_BUDGET ) {
+            return $stream;
         }
+        while ( self::$streamEntries + count($stream) > self::STREAM_CACHE_ENTRY_BUDGET ) {
+            $oldest                = array_key_first(self::$streams);
+            self::$streamEntries -= count(self::$streams[ $oldest ]);
+            unset(self::$streams[ $oldest ]);
+        }
+        self::$streamEntries += count($stream);
         return self::$streams[ $key ] = $stream;
     }
 
@@ -264,6 +277,7 @@ final class CssRuleAnalyzer
         $state = CssSyntaxScanner::state();
         $length = strlen($body);
         for ( $offset = 0; $offset <= $length; ++$offset ) {
+            $offset = CssSyntaxScanner::inertEnd($body, $offset, $state, ';');
             $boundary = $offset === $length || ( ';' === $body[ $offset ] && CssSyntaxScanner::isTopLevel($state) );
             if ( $boundary ) {
                 $declaration = trim(substr($body, $start, $offset - $start));
@@ -296,6 +310,8 @@ final class CssRuleAnalyzer
     {
         $state = CssSyntaxScanner::state();
         for ( $offset = 0, $length = strlen($value); $offset < $length; ) {
+            $offset = CssSyntaxScanner::inertEnd($value, $offset, $state, ':');
+            if ( $offset >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($value, $offset, $state);
             if ( null === $next ) {
@@ -373,6 +389,8 @@ final class CssRuleAnalyzer
     {
         $state = CssSyntaxScanner::state();
         for ( $length = strlen($css); $offset < $length; ) {
+            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{;');
+            if ( $offset >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($css, $offset, $state);
             if ( null === $next ) {
@@ -454,6 +472,8 @@ final class CssRuleAnalyzer
         $state = CssSyntaxScanner::state();
         $depth = 0;
         for ( $offset = $openingBrace, $length = strlen($css); $offset < $length; ) {
+            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{}');
+            if ( $offset >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($css, $offset, $state);
             if ( null === $next ) {

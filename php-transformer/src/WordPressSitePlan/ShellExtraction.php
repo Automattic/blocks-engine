@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
+use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 
 /**
@@ -25,6 +26,109 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
  */
 final class ShellExtraction
 {
+    /**
+     * Capture-document siblings after the root owning main are page chrome,
+     * not article content. Keep their device scope when moving them to the
+     * shared single template. Visibility is deliberately irrelevant: hidden
+     * blocks inside main (and ordinary authored wrappers) remain content.
+     * Runtime-bound siblings stay put rather than stranding their bindings.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @param array<int,array<string,mixed>> $runtimeEntityRecords
+     * @return array{pages:array<int,array<string,mixed>>,chrome:array<string,string>,diagnostics:array<int,array<string,mixed>>}
+     */
+    public function separateCaptureDocumentChrome(array $pages, array $runtimeDeclarations, array $runtimeEntityRecords = array()): array
+    {
+        $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
+        $chrome = array();
+        $variants = array();
+        $diagnostics = array();
+        $postCount = count(array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null)));
+        foreach ($pages as $index => $page) {
+            if ('post' !== ($page['post_type'] ?? null)) continue;
+            $markup = (string) ($page['canonical_block_markup'] ?? '');
+            $nodes = self::blockNodes($markup);
+            $removals = array();
+            foreach (self::topLevelNodeIds($nodes) as $id) {
+                $wrapper = $nodes[$id];
+                $children = $wrapper['children'];
+                if (count($children) < 2) continue;
+                $opening = substr($markup, $wrapper['offset'], $nodes[$children[0]]['offset'] - $wrapper['offset']);
+                if (!preg_match('/\bclass="([^"]*)"/', $opening, $match)) continue;
+                $classes = preg_split('/\s+/', $match[1]) ?: array();
+                if (array() === array_intersect($classes, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS))) continue;
+                $roots = array();
+                foreach ($children as $position => $child) {
+                    if (self::nodesHoldMain($markup, $nodes, array($child))) $roots[] = $position;
+                }
+                if (1 !== count($roots)) continue;
+                // The content root contains main; main itself is not the root.
+                // In a flat header/main/footer document the footer remains the
+                // shell extractor's responsibility, not a trailing scaffold.
+                $root = $nodes[$children[$roots[0]]];
+                if (preg_match('/"tagName"\s*:\s*"main"/', $root['attributes'])) continue;
+                $trailing = array_slice($children, $roots[0] + 1);
+                if (array() === $trailing) continue;
+                $closing = substr($markup, $nodes[$children[count($children) - 1]]['end'], $wrapper['end'] - $nodes[$children[count($children) - 1]]['end']);
+                $device = in_array(CaptureEvidence::MOBILE_DOCUMENT_CLASS, $classes, true) ? 'mobile' : 'desktop';
+                foreach ($trailing as $child) {
+                    $range = array('offset' => $nodes[$child]['offset'], 'length' => $nodes[$child]['end'] - $nodes[$child]['offset']);
+                    $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($range));
+                    if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
+                    $sibling = substr($markup, $range['offset'], $range['length']);
+                    // Compare complete sibling content, not just its outer shell:
+                    // avatar lists and other per-request data are not design.
+                    $identity = self::documentChromeIdentity($sibling);
+                    $variants[$device]['opening'] ??= $opening;
+                    $variants[$device]['closing'] ??= $closing;
+                    $variants[$device]['siblings'][$identity]['markup'] ??= $sibling;
+                    $variants[$device]['siblings'][$identity]['sources'][(string) $page['source_path']] = true;
+                    $removals[] = $range;
+                }
+            }
+            if (array() === $removals) continue;
+            usort($removals, static fn(array $a, array $b): int => $b['offset'] <=> $a['offset']);
+            foreach ($removals as $range) $markup = substr_replace($markup, '', $range['offset'], $range['length']);
+            $pages[$index]['canonical_block_markup'] = $markup;
+            $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
+        }
+        $shared = '';
+        foreach ($variants as $variant) {
+            $siblings = '';
+            foreach ($variant['siblings'] as $sibling) {
+                if (count($sibling['sources']) === $postCount) {
+                    $siblings .= $sibling['markup'];
+                    continue;
+                }
+                preg_match('/"anchor"\s*:\s*"([^"]+)"|\bid="([^"]+)"|\bclass="([^"]+)"/', $sibling['markup'], $label);
+                $anchor = $label[1] ?? '';
+                if ('' === $anchor) $anchor = $label[2] ?? '';
+                if ('' === $anchor) $anchor = $label[3] ?? 'unlabelled sibling';
+                foreach (array_keys($sibling['sources']) as $source) {
+                    $diagnostics[] = array('code' => 'wordpress_site_plan_document_chrome_varying_omitted', 'severity' => 'info', 'source_path' => $source, 'anchor_or_class' => $anchor, 'message' => 'Omitted per-post document chrome (' . $anchor . '); per-request output is not shared template design.');
+                }
+            }
+            if ('' !== $siblings) $shared .= $variant['opening'] . $siblings . $variant['closing'];
+        }
+        if ('' !== $shared) $chrome['single'] = $shared;
+        return array('pages' => $pages, 'chrome' => $chrome, 'diagnostics' => $diagnostics);
+    }
+
+    private static function documentChromeIdentity(string $markup): string
+    {
+        // Only generated identity is ignored; authored ids, classes and all
+        // content remain significant. Device variants are compared separately.
+        $markup = preg_replace('/be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
+        $markup = preg_replace('/' . preg_quote((string) DocumentVariantIds::suffixForClass(CaptureEvidence::MOBILE_DOCUMENT_CLASS), '/') . '\b/', '', $markup) ?? $markup;
+        $markup = preg_replace_callback('/("className"\s*:\s*"|\bclass=")([^"]*)"/', static function (array $match): string {
+            $classes = preg_split('/\s+/', trim($match[2])) ?: array();
+            sort($classes, SORT_STRING);
+            return $match[1] . implode(' ', $classes) . '"';
+        }, $markup) ?? $markup;
+        return $markup;
+    }
+
     /** @var array<string,array<int,array<string,mixed>>> Entities of this call's manifest declarations, by payload hash. */
     private array $manifestEntities = array();
 
@@ -615,8 +719,8 @@ final class ShellExtraction
                 foreach ($pages as $page) {
                     if (!empty($page['synthetic']) || !isset($part['provenance']['sources'][$page['source_path'] ?? ''])) continue;
                     if (!empty($page['entrypoint'])) $selected = in_array('front-page', $part['placement']['template_slugs'] ?? array(), true);
-                    elseif ('post' === ($page['post_type'] ?? null)) $selected = in_array('single', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded['single-' . ($page['slug'] ?? '')]);
-                    else $selected = in_array('page', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded['page-' . ($page['slug'] ?? '')]);
+                    elseif ('post' === ($page['post_type'] ?? null)) $selected = in_array('single', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded[WordPressSitePlan::routeTemplateKey($page)]);
+                    else $selected = in_array('page', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded[WordPressSitePlan::routeTemplateKey($page)]);
                     if ($selected) $sourcePaths[] = (string) $page['source_path'];
                 }
             }
@@ -837,6 +941,18 @@ final class ShellExtraction
         }
         $rows = array_values(array_filter($rows, static fn(array $row): bool => array() === array_diff($row['main_ancestors'], $shellMains ?? array())));
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        // Block-tree ranges are either nested or disjoint. A same-area landmark
+        // inside another belongs to that outer shell, not to a responsive variant.
+        // Filter here so every consumer (including additional_ranges) receives
+        // disjoint ranges before identities and variant counts are considered.
+        $disjoint = array(); $outerEnd = -1;
+        foreach ($rows as $row) {
+            $end = $row['offset'] + $row['length'];
+            if ($end <= $outerEnd) continue;
+            $disjoint[] = $row;
+            $outerEnd = $end;
+        }
+        $rows = $disjoint;
         foreach ($rows as $variant => &$row) { unset($row['main_ancestors']); $row['variant'] = $variant; } unset($row);
         return $rows;
     }
@@ -903,12 +1019,94 @@ final class ShellExtraction
     }
 
     /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
-    public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array(), array $runtimeEntityRecords = array()): array
+    public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), bool $partitionTypes = true, bool $partitionHeaders = true): array
     {
         $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
         $parts = array(); $diagnostics = array(); $unremovable = array();
         $areas = array('footer', 'header');
         while (null !== ($area = array_shift($areas))) {
+            // A multilingual capture has independent shell populations. A
+            // dominant language must not leave every other language's header
+            // inline, nor supply its menu as their template fallback.
+            $languages = array();
+            foreach ($pages as $index => $page) {
+                if (!empty($page['synthetic'])) continue;
+                $language = strtolower((string) ($page['document_metadata']['root_attributes']['lang'] ?? ''));
+                $languages[$language][] = $index;
+            }
+            if ($partitionHeaders && 'header' === $area && count($languages) > 1 && !isset($languages['']) && !isset($reservedSlugs[$area])) {
+                // Document language is not shell identity: translated posts
+                // can still carry the original header. Join them to the pages
+                // with that header, not to a different locale's fallback.
+                $populations = array();
+                $entryIdentity = null;
+                foreach ($pages as $index => $page) {
+                    if (!empty($page['synthetic'])) continue;
+                    $headers = array_values(array_filter($page['shell_candidates'] ?? array(), static fn(array $candidate): bool => 'header' === $candidate['area']));
+                    if (1 !== count($headers)) continue;
+                    $identity = hash('sha256', $headers[0]['identity_markup'] ?? $headers[0]['markup']);
+                    $populations[$identity][] = $index;
+                    if (!empty($page['entrypoint'])) $entryIdentity = $identity;
+                }
+                foreach ($populations as $identity => $indexes) {
+                    $language = strtolower((string) ($pages[$indexes[0]]['document_metadata']['root_attributes']['lang'] ?? ''));
+                    $subset = array();
+                    foreach ($indexes as $index) {
+                        $subset[$index] = $pages[$index];
+                        $subset[$index]['shell_candidates'] = array_values(array_filter($pages[$index]['shell_candidates'] ?? array(), static fn(array $candidate): bool => 'header' === $candidate['area']));
+                    }
+                    $populationReserved = $reservedSlugs;
+                    unset($populationReserved['header']);
+                    $resolved = $this->sharedShells($subset, $populationReserved, $runtimeDeclarations, $runtimeEntityRecords, $partitionTypes, false);
+                    $runtimeDeclarations = $resolved['runtime_declarations'];
+                    $adoptedSources = array();
+                    foreach ($resolved['pages'] as $index => $page) {
+                        if ($page['canonical_block_markup'] !== $subset[$index]['canonical_block_markup']) $adoptedSources[] = $page['source_path'];
+                    }
+                    // Language parts are placed at the authored position. This
+                    // avoids installing a locale's shell on unrelated routes.
+                    $renames = array();
+                    foreach ($resolved['parts'] as &$part) {
+                        $old = $part['slug'];
+                        $slug = $old . ($identity === $entryIdentity ? '' : '-' . explode('-', $language)[0]);
+                        for ($suffix = 2; isset($reservedSlugs[$slug]); ++$suffix) $slug = $old . '-' . $language . '-' . $suffix;
+                        $reservedSlugs[$slug] = true;
+                        $renames[$old] = $slug;
+                        $oldSource = $part['source_path'];
+                        $part['slug'] = $slug;
+                        $part['source_path'] = 'wordpress-site-plan/shared/' . $slug . '#header';
+                        $part['placement'] = array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => $adoptedSources);
+                        $part['document_metadata']['source_context']['source_path'] = $part['source_path'];
+                        $part['reconciliation_identity'] = WordPressSitePlan::identity('template-part', $part['source_path'], 'parts/' . $slug . '.html');
+                        foreach ($runtimeDeclarations as &$declaration) {
+                            if (!isset($declaration['payload']['entities'])) continue;
+                            foreach ($declaration['payload']['entities'] as &$entity) {
+                                if (($entity['source_path'] ?? null) === $oldSource) $entity['source_path'] = $part['source_path'];
+                                foreach ($entity['bindings'] ?? array() as $key => $binding) {
+                                    if (($binding['source_path'] ?? null) === $oldSource) $entity['bindings'][$key]['source_path'] = $part['source_path'];
+                                }
+                            }
+                            unset($entity, $declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
+                        }
+                        unset($declaration);
+                    }
+                    unset($part);
+                    foreach ($resolved['pages'] as $index => $page) {
+                        $markup = $page['canonical_block_markup'];
+                        foreach ($renames as $old => $slug) {
+                            $markup = str_replace('"slug":"' . $old . '"', '"slug":"' . $slug . '"', $markup);
+                            if (in_array($page['source_path'], $adoptedSources, true) && !str_contains($markup, '"slug":"' . $slug . '"')) $markup = '<!-- wp:template-part {"slug":"' . $slug . '","tagName":"div"} /-->' . $markup;
+                        }
+                        $page['canonical_block_markup'] = $markup;
+                        $page['content_hash'] = WordPressSitePlan::contentHash($markup);
+                        $pages[$index] = $page;
+                    }
+                    array_push($parts, ...$resolved['parts']);
+                    array_push($diagnostics, ...$resolved['diagnostics']);
+                    $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
+                }
+                continue;
+            }
             $candidates = array(); $clusters = array(); $excluded = array(); $overrides = array();
             $templateSlugs = array(); $excludedTemplateSlugs = array();
             if ('footer' === $area && array_reduce($pages, static fn(bool $found, array $page): bool => $found || (bool) array_filter($page['shell_candidates'] ?? array(), static fn(array $candidate): bool => 'footer' === ($candidate['area'] ?? null) && !empty($candidate['wrapper_contract_shell'])), false)) {
@@ -934,6 +1132,86 @@ final class ShellExtraction
             $identity = array_key_first($clusters);
             $cluster = null === $identity ? null : $clusters[$identity];
             $runnerUp = array_values($clusters)[1] ?? null;
+            // A cluster cannot establish a fallback for a type it never contains.
+            // Resolve those disjoint populations independently, including ties
+            // between equally sized page and post shells.
+            $types = array();
+            foreach ($applicable as $index => $page) $types[$page['post_type']][] = $index;
+            $disjointType = false;
+            foreach ($types as $indexes) {
+                if (is_array($cluster) && array() === array_intersect($indexes, $cluster['indexes'])) $disjointType = true;
+            }
+            $responsive = (bool) array_filter($applicable, fn(array $page): bool => $this->retainsResponsiveVariantLandmark($page['canonical_block_markup'], $area));
+            if ($partitionTypes && count($types) > 1 && $disjointType && !$responsive) {
+                // Types represented in the dominant cluster remain one population
+                // and retain the site's portable header/footer part slugs.
+                $dominantIndexes = array();
+                foreach ($types as $type => $indexes) {
+                    if (array() === array_intersect($indexes, $cluster['indexes'])) continue;
+                    array_push($dominantIndexes, ...$indexes);
+                    unset($types[$type]);
+                }
+                $types = array('' => $dominantIndexes) + $types;
+                foreach ($types as $type => $indexes) {
+                    $dominant = '' === $type;
+                    $subset = array();
+                    foreach ($indexes as $index) {
+                        $subset[$index] = $pages[$index];
+                        $subset[$index]['shell_candidates'] = array_values(array_filter($pages[$index]['shell_candidates'] ?? array(), static fn(array $candidate): bool => $area === $candidate['area']));
+                    }
+                    $resolved = $this->sharedShells($subset, $reservedSlugs, $runtimeDeclarations, $runtimeEntityRecords, false);
+                    $renames = array();
+                    $runtimeDeclarations = $resolved['runtime_declarations'];
+                    foreach ($resolved['parts'] as &$part) {
+                        $oldSlug = $part['slug'];
+                        $baseSlug = $dominant ? $oldSlug : $oldSlug . '-' . $type;
+                        $slug = $baseSlug;
+                        for ($suffix = 2; isset($reservedSlugs[$slug]); ++$suffix) $slug = $baseSlug . '-' . $suffix;
+                        $renames[$oldSlug] = $slug;
+                        $oldSource = $part['source_path'];
+                        $part['slug'] = $slug;
+                        $part['source_path'] = 'wordpress-site-plan/shared/' . $slug . '#' . $area;
+                        $part['placement']['source_path'] = 'wordpress-site-plan/shared/' . $slug;
+                        $part['document_metadata']['source_context']['source_path'] = $part['source_path'];
+                        $part['reconciliation_identity'] = WordPressSitePlan::identity('template-part', $part['source_path'], 'parts/' . $slug . '.html');
+                        if (in_array($part['placement']['kind'], array('shared_shell', 'entry_shell'), true)) {
+                            $allowed = $dominant
+                                ? array_merge(WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS, array_values(array_unique(array_map(static fn(array $page): string => 'post' === $page['post_type'] ? 'single' : 'page', $subset))))
+                                : array('post' === $type ? 'single' : 'page');
+                            if (array_filter($subset, static fn(array $page): bool => !empty($page['entrypoint']))) $allowed[] = 'front-page';
+                            if (array() !== array_intersect($indexes, $cluster['indexes'])) $allowed = array_merge($allowed, WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS);
+                            $part['placement']['template_slugs'] = array_values(array_intersect($part['placement']['template_slugs'] ?? array(), $allowed));
+                            $populationTypes = array_values(array_unique(array_column($subset, 'post_type')));
+                            if (1 === count($populationTypes)) $part['placement']['post_type'] = $populationTypes[0];
+                        }
+                        // Composition declarations are materialized before shell binding
+                        // hoists; update only the newly hoisted part owner.
+                        foreach ($runtimeDeclarations as &$declaration) {
+                            if (!isset($declaration['payload']['entities'])) continue;
+                            foreach ($declaration['payload']['entities'] as &$entity) {
+                                if (($entity['source_path'] ?? null) === $oldSource) $entity['source_path'] = $part['source_path'];
+                                if (!isset($entity['bindings'])) continue;
+                                foreach ($entity['bindings'] as &$binding) if (($binding['source_path'] ?? null) === $oldSource) $binding['source_path'] = $part['source_path'];
+                                unset($binding);
+                            }
+                            unset($entity);
+                            unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
+                        }
+                        unset($declaration);
+                    }
+                    unset($part);
+                    foreach ($resolved['pages'] as $index => $page) {
+                        $page['shell_candidates'] = array_values(array_filter($pages[$index]['shell_candidates'] ?? array(), static fn(array $candidate): bool => $area !== $candidate['area']));
+                        foreach ($renames as $oldSlug => $slug) $page['canonical_block_markup'] = str_replace('"slug":"' . $oldSlug . '"', '"slug":"' . $slug . '"', $page['canonical_block_markup']);
+                        $page['content_hash'] = WordPressSitePlan::contentHash($page['canonical_block_markup']);
+                        $pages[$index] = $page;
+                    }
+                    array_push($parts, ...$resolved['parts']);
+                    array_push($diagnostics, ...$resolved['diagnostics']);
+                    $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
+                }
+                continue;
+            }
             // A multi-route capture can carry chrome on the entry page only
             // (single-page apps whose legal pages render bare). When no other
             // route has any candidate for this area, nothing disagrees with
@@ -983,7 +1261,7 @@ final class ShellExtraction
                 // shell; excluded routes get their own override templates.
                 $templateSlugs[] = 'post' === ($page['post_type'] ?? null) ? 'single' : 'page';
                 if (!$selected) {
-                    $slug = 'page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug'];
+                    $slug = WordPressSitePlan::routeTemplateKey($page);
                     if (isset($overrides[$slug])) {
                         $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell exclusions cannot be assigned distinct route templates.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'route_template_ambiguous', $candidates));
                         continue 2;
@@ -1036,7 +1314,7 @@ final class ShellExtraction
                 if (1 !== count($ranges)) continue;
                 $wrapper = self::soleChromeWrapper($pages[$index]['canonical_block_markup'], $ranges[0]);
                 if (null === $wrapper) continue;
-                $slug = !empty($pages[$index]['entrypoint']) ? 'front-page' : ('post' === ($pages[$index]['post_type'] ?? null) ? 'single-' . $pages[$index]['post_type'] . '-' . $pages[$index]['slug'] : 'page-' . $pages[$index]['slug']);
+                $slug = WordPressSitePlan::routeTemplateKey($pages[$index]);
                 $templateWrappers[$slug] = array('opening' => $wrapper['opening'], 'closing' => $wrapper['closing']);
                 if ('page' === ($pages[$index]['post_type'] ?? null) && empty($pages[$index]['entrypoint'])) $pageWrappers[$index] = $templateWrappers[$slug];
                 $withoutShells[$index] = $wrapper['page'];
@@ -1106,7 +1384,7 @@ final class ShellExtraction
                         // shell; excluded routes get their own override templates.
                         $templateSlugs[] = 'post' === ($page['post_type'] ?? null) ? 'single' : 'page';
                         if (!$selected) {
-                            $slug = 'page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug'];
+                            $slug = WordPressSitePlan::routeTemplateKey($page);
                             if (isset($overrides[$slug])) {
                                 $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell exclusions cannot be assigned distinct route templates.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'route_template_ambiguous', $candidates));
                                 continue 2;
@@ -1205,7 +1483,10 @@ final class ShellExtraction
             // landmark repeats on more routes than any of them (that landmark
             // is the site's single shell; the edges only differ around it).
             $firstBlocks = array_map(static fn(array $group): string => $edges[$group['indexes'][0]][0]['identity'], $groups);
-            if (isset($groups[1]) && count(array_unique($firstBlocks)) === count($groups) && max(array_map(static fn(array $group): int => count($group['indexes']), $groups)) >= $largestCluster) {
+            $typeIndexes = array();
+            foreach ($applicable as $index => $page) $typeIndexes[$page['post_type']][] = $index;
+            $disjointTypes = count($typeIndexes) > 1 && (bool) array_filter($typeIndexes, static fn(array $indexes): bool => isset($groups[0]) && array() === array_intersect($indexes, $groups[0]['indexes']));
+            if (!$disjointTypes && isset($groups[1]) && count(array_unique($firstBlocks)) === count($groups) && max(array_map(static fn(array $group): int => count($group['indexes']), $groups)) >= $largestCluster) {
                 $variants = $this->edgeVariantParts($pages, $edges, $groups, $area, $reservedSlugs, $runtimeDeclarations);
                 $pages = $variants['pages'];
                 array_push($parts, ...$variants['parts']);
@@ -1628,7 +1909,7 @@ final class ShellExtraction
         foreach ($split as $index => $frame) {
             $page = $pages[$index];
             $shared = null !== $generic && isset($inner[$index]) && self::frameIdentity($frame) === self::frameIdentity($generic);
-            $slug = !empty($page['entrypoint']) ? 'front-page' : ($shared ? 'page' : 'page-' . $page['slug']);
+            $slug = !empty($page['entrypoint']) ? 'front-page' : ($shared ? 'page' : WordPressSitePlan::routeTemplateKey($page));
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
             $frames[$slug] = array('opening' => $frame['opening'], 'closing' => $frame['closing'], 'shells' => array_values(array_unique($slugs[1])));
             $pages[$index]['canonical_block_markup'] = $frame['content'];
@@ -1638,9 +1919,26 @@ final class ShellExtraction
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $generic['opening'] . $generic['closing'], $slugs);
             $frames['page'] = array('opening' => $generic['opening'], 'closing' => $generic['closing'], 'shells' => array_values(array_unique($slugs[1])));
         }
+        // With only one authored route, its frame is the site frame for every
+        // native lifecycle template, including pages created later in WordPress.
+        $authored = array_filter($pages, static fn(array $page): bool => empty($page['synthetic']));
+        if (1 === count($authored) && isset($frames['front-page'])) {
+            foreach (array('page', 'single', 'index', 'archive', 'search', '404') as $slug) $frames[$slug] = $frames['front-page'];
+            $genericSource = (string) $pages[array_key_first($authored)]['source_path'];
+        }
+        // The selected generic page frame is also the site frame for native
+        // lifecycle fallbacks. Route-specific frames remain on their routes.
+        if (isset($frames['page'])) {
+            $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
+            foreach (array('single', 'index', 'archive', 'search', '404') as $slug) {
+                // Captured posts retain occurrence-owned chrome in their layout.
+                if ('single' === $slug && $hasCapturedPosts) continue;
+                $frames[$slug] = $frames['page'];
+            }
+        }
         // A page that keeps its chrome in its own content must not also get the
         // generic frame, so it renders through a plain route template.
-        if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames['page-' . $page['slug']] = array('opening' => '', 'closing' => '', 'shells' => array());
+        if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames[WordPressSitePlan::routeTemplateKey($page)] = array('opening' => '', 'closing' => '', 'shells' => array());
         return array('pages' => $pages, 'frames' => $frames, 'generic_source' => $genericSource);
     }
 
@@ -1692,8 +1990,9 @@ final class ShellExtraction
             $level = null === $level ? $chain : array_values(array_intersect($level, $chain));
         }
         $parent = array() === $level ? null : $level[0];
-        // A single reference does not mark where the content is. Climb to the
-        // first level where a sibling holds the main landmark.
+        // A single reference needs a main landmark or a page heading beside it.
+        // Plain main wrappers can be flattened during HTML transformation; a
+        // heading still identifies their content, unlike incidental shell text.
         while (true) {
             $siblings = null === $parent ? self::topLevelNodeIds($nodes) : $nodes[$parent]['children'];
             $positions = array();
@@ -1704,7 +2003,7 @@ final class ShellExtraction
             }
             $from = isset($positions['header']) ? $positions['header'] + 1 : 0;
             $to = isset($positions['footer']) ? $positions['footer'] - 1 : count($siblings) - 1;
-            if ($from <= $to && (count($refs) > 1 || self::nodesHoldMain($markup, $nodes, array_slice($siblings, $from, $to - $from + 1)))) break;
+            if ($from <= $to && (count($refs) > 1 || (null !== $parent && self::nodesHoldPageHeading($markup, $nodes, array_slice($siblings, $from, $to - $from + 1))) || self::nodesHoldMain($markup, $nodes, array_slice($siblings, $from, $to - $from + 1)))) break;
             if (null === $parent || count($refs) > 1) return null;
             $parent = $nodes[$parent]['parent'];
         }
@@ -1718,7 +2017,7 @@ final class ShellExtraction
         // A frame belongs to one captured device document. When the shells sit
         // in one of several device documents, the others are page content, not
         // chrome around it.
-        preg_match_all('/' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . '(?:":"|=")([^"]+)"/', $opening . $closing, $documents);
+        preg_match_all('/' . '(?:' . preg_quote(EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . '|' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . ')' . '(?:":"|=")([^"]+)"/', $opening . $closing, $documents);
         if (count(array_unique($documents[1])) > 1) return null;
         return array('opening' => $opening, 'closing' => $closing, 'content' => $content);
     }
@@ -1758,6 +2057,13 @@ final class ShellExtraction
     private static function nodesHoldMain(string $markup, array $nodes, array $ids): bool
     {
         foreach ($ids as $id) if (preg_match('/"tagName":"main"/', substr($markup, $nodes[$id]['offset'], $nodes[$id]['end'] - $nodes[$id]['offset']))) return true;
+        return false;
+    }
+
+    /** @param array<int,array<string,mixed>> $nodes @param array<int,int> $ids */
+    private static function nodesHoldPageHeading(string $markup, array $nodes, array $ids): bool
+    {
+        foreach ($ids as $id) if (preg_match('/<h1\\b/i', substr($markup, $nodes[$id]['offset'], $nodes[$id]['end'] - $nodes[$id]['offset']))) return true;
         return false;
     }
 
@@ -1864,7 +2170,7 @@ final class ShellExtraction
         foreach ($indexes as $index) {
             $pageKeys = array();
             foreach ($shellBindings[$index] ?? array() as $ref) {
-                $key = self::hoistableEntityKey($declarations[$ref['declaration']]['payload']['entities'][$ref['entity']], (string) ($declarations[$ref['declaration']]['type'] ?? ''));
+                $key = EntityEquivalence::key($declarations[$ref['declaration']]['payload']['entities'][$ref['entity']], (string) ($declarations[$ref['declaration']]['type'] ?? ''));
                 if (null === $key) return null;
                 $pageKeys[] = $key;
             }
@@ -1895,50 +2201,6 @@ final class ShellExtraction
         }
         foreach ($keep as $position => $ref) { $identities = array_values(array_unique($ref['replaced_fallback_identities'])); sort($identities, SORT_STRING); $keep[$position]['replaced_fallback_identities'] = $identities; }
         return array('keep' => $keep, 'drop' => $drop);
-    }
-
-    /** @param array<string,mixed> $entity */
-    private static function hoistableEntityKey(array $entity, string $type = ''): ?string
-    {
-        $bindings = $entity['bindings'] ?? null;
-        if (!is_array($bindings) || 1 !== count($bindings) || !empty($entity['superseded_scripts'])) return null;
-        $role = (string) ($bindings[array_key_first($bindings)]['role'] ?? '');
-        unset($entity['bindings'], $entity['reconciliation_identity'], $entity['fallback_identity'], $entity['replaced_fallback_identities']);
-        // External metric rows repeated in equivalent shared chrome are
-        // per-document anchors for one source fact. The first row owns the
-        // shared-part binding; route-specific IDs are transport identities, not
-        // metric semantics, so comparing them would incorrectly retain every
-        // otherwise-identical shell page.
-        if ('external_metrics' === $type && is_array($entity['source'] ?? null) && isset($entity['metric'], $entity['aggregation'], $entity['fallback'])) {
-            unset($entity['id']);
-            // Unlike ordinary source-location provenance, external metric
-            // provenance establishes why a remote fact is trustworthy.
-            // Keep its kind, repository revision and source path in the
-            // equivalence key so coalescing cannot discard a distinct mapping.
-            return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson($entity));
-        }
-        return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson(self::withoutSourcePaths($entity)));
-    }
-
-    /**
-     * Where an entity was read from, and in what cascade order, is provenance,
-     * not identity; so are the conversion diagnostics a graph collects while
-     * reading its page's stylesheet (every rule it could not evaluate, most of
-     * them about other elements). A grid placement written as the `area`
-     * shorthand is the same placement as its `row` and `column` longhands.
-     */
-    private static function withoutSourcePaths(array $value): array
-    {
-        unset($value['source_path'], $value['provenance'], $value['source_order'], $value['diagnostics']);
-        if (is_string($value['area'] ?? null) && 4 === count($lines = array_map('trim', explode('/', $value['area'])))) {
-            unset($value['area']);
-            $value['row'] = $lines[0] . ' / ' . $lines[2];
-            $value['column'] = $lines[1] . ' / ' . $lines[3];
-        }
-        foreach (array('row', 'column') as $line) if (is_string($value[$line] ?? null)) $value[$line] = preg_replace('/\s*\/\s*/', ' / ', trim($value[$line]));
-        foreach ($value as $key => $child) if (is_array($child)) $value[$key] = self::withoutSourcePaths($child);
-        if (!array_is_list($value)) ksort($value, SORT_STRING);
-        return $value;
     }
 
     /**
@@ -2029,7 +2291,7 @@ final class ShellExtraction
                 // shell; excluded routes get their own override templates.
                 $templateSlugs[] = 'post' === ($page['post_type'] ?? null) ? 'single' : 'page';
                 if (!$selected) {
-                    $slug = 'page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug'];
+                    $slug = WordPressSitePlan::routeTemplateKey($page);
                     if (isset($overrides[$slug])) return null;
                     $overrides[$slug] = $index;
                 }
@@ -2463,8 +2725,10 @@ final class ShellExtraction
         $markup = self::withoutCurrentNavigationState($markup, true);
         $markup = self::withoutScrollStateCarrierIdentity($markup);
         $markup = preg_replace('/\s*' . EngineMarker::patternBody() . '/', '', $markup) ?? $markup;
-        $markup = preg_replace('/\s*blocks-engine-(?:specificity-class|disclosure-summary)-[a-f0-9]{6,}(?:-\d+)?/', '', $markup) ?? $markup;
-        // A captured dialog's generated id, and its triggers' ids, carry a per-document hash.
+        $markup = preg_replace('/\s*(?:' . EngineMarker::specificityPatternBody('specificity-class') . '|blocks-engine-disclosure-summary-[a-f0-9]{6,}(?:-\d+)?)/', '', $markup) ?? $markup;
+        // A captured dialog's generated id, and its triggers' ids, carry a per-document hash;
+        // the capture's own panel handle (id, panel attribute, aria-controls) carries a per-document ordinal.
+        $markup = preg_replace('/\b' . preg_quote(CaptureEvidence::DIALOG_CLASS, '/') . '-\d+\b/', CaptureEvidence::DIALOG_CLASS, $markup) ?? $markup;
         $markup = preg_replace('/blocks-engine-dialog-trigger-[a-f0-9]+-(\d+)/', 'blocks-engine-dialog-trigger-$1', $markup) ?? $markup;
         $markup = preg_replace('/blocks-engine-dialog-[a-f0-9]{16}\b/', 'blocks-engine-dialog', $markup) ?? $markup;
         $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;

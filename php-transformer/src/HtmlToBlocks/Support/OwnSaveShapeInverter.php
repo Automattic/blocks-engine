@@ -28,7 +28,7 @@ final class OwnSaveShapeInverter
     private const ACCORDION_TOGGLE_TITLE_CLASS = 'wp-block-accordion-heading__toggle-title';
     private const ACCORDION_TOGGLE_ICON_CLASS = 'wp-block-accordion-heading__toggle-icon';
 
-    public static function invert(DOMElement $root): void
+    public static function invert(DOMElement $root, ?callable $hasAuthoredStyle = null): void
     {
         self::invertAccordionHeadings($root);
         $containers = array();
@@ -41,6 +41,20 @@ final class OwnSaveShapeInverter
             $controls = self::buttonControls($container);
             if ( null === $controls ) {
                 continue;
+            }
+            // A save-shaped source is not necessarily our generated chrome.
+            // Removing its identities or ancestry before style resolution would
+            // destroy author selectors, including descendant-owned control paint.
+            if ( null !== $hasAuthoredStyle ) {
+                $subjects = array_merge(array( $container ), $controls);
+                foreach ( $controls as $control ) {
+                    $subjects[] = $control->parentNode;
+                }
+                foreach ( $subjects as $subject ) {
+                    if ( $subject instanceof DOMElement && $hasAuthoredStyle($subject) ) {
+                        continue 2;
+                    }
+                }
             }
             foreach ( $controls as $control ) {
                 self::liftButtonWrapper($control);

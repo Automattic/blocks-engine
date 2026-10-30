@@ -39,12 +39,12 @@ final class CapturedCollectionProjector
         $retired = array();
         $consumed = array();
         foreach (array_slice($report['pages'] ?? array(), 0, 128) as $page) {
-            if (!is_array($page) || !is_string($page['sourceUrl'] ?? null) || !is_array($page['states'] ?? null)) continue;
+            if (!is_array($page) || !is_string($page['sourceUrl'] ?? null) || !is_array($page['components'] ?? null)) continue;
             $index = $indices[$routes[rtrim($page['sourceUrl'] ?? '', '/')] ?? ''] ?? null;
             if (!is_int($index) || !is_string($files[$index]['content'] ?? null)) continue;
             $document = null;
             $pageCount = 0;
-            foreach (array_slice($page['states'] ?? array(), 0, 128) as $state) {
+            foreach (array_slice(CapturedComponentStates::evidence($page['components'], array('filter')), 0, 128) as $state) {
                 if (!is_array($state)) continue;
                 if ('typed-search' !== ($state['kind'] ?? null)) continue;
                 $evidence = $state['collectionFilter'] ?? null;

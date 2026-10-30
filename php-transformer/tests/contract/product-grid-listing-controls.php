@@ -142,7 +142,7 @@ $countControls = array_values(array_filter($listingsByGrid[$gridA]['controls'] ?
 $assert(1 === count($countControls) && $countA === ($countControls[0]['selector'] ?? null) && '3 products' === ($countControls[0]['label'] ?? null), 'Group A\'s listing counts its own cards, not the sibling group\'s: ' . json_encode($listingsByGrid[$gridA]['controls'] ?? array()));
 $countBindings = array_values(array_filter($listingsByGrid[$gridA]['bindings'] ?? array(), static fn (array $binding): bool => 'result_count' === ($binding['control'] ?? null)));
 $countBinding = $countBindings[0] ?? array();
-$countAnchor = (string) ($countBinding['projected_anchor']['source_block_markup'] ?? $countBinding['search_block_markup'] ?? '');
+$countAnchor = (string) ($countBinding['search_block_markup'] ?? '');
 $assert(1 === count($countBindings) && str_contains($countAnchor, '3 products') && ! str_contains($countAnchor, '6 products'), 'The result_count binding anchors on group A\'s own count block: ' . json_encode($countBinding));
 $assert(! isset($listingsByGrid[$gridB]), 'Group B, whose count label does not match its card count, declares no listing that could bind group A\'s count.');
 

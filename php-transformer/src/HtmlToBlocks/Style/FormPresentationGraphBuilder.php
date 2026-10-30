@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -38,6 +39,10 @@ final class FormPresentationGraphBuilder
      */
     private const TYPOGRAPHY_PROPERTIES = array(
         'color', 'font', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'text-transform',
+    );
+    /** The paint properties one control renders itself: its text colour and background fill. */
+    private const PAINT_PROPERTIES = array(
+        'color', 'background', 'background-color',
     );
     /** A block-level caption carrier fills its button, so its padding sizes the button box. */
     private const CAPTION_BOX_PROPERTIES = array(
@@ -216,6 +221,34 @@ final class FormPresentationGraphBuilder
         $matched = $this->matched($element, $this->typographyAnalysis['rules']);
         return $this->styles(
             array_intersect_key($matched['base'], array_flip(self::TYPOGRAPHY_PROPERTIES)),
+            $element,
+            null,
+            $this->typographyAnalysis['customProperties']
+        );
+    }
+
+    /**
+     * The paint one element renders — the text colour and background fill its
+     * own matched rules declare (shorthand or longhand), through the same
+     * cascade the presentation graph reports with. A form provider materializes
+     * a control into a block that carries its paint as style attributes, so the
+     * declaration must state it even where block presentation leaves the
+     * class-owned paint to the projected stylesheet (buttons do: their fill is
+     * read from the same rules the graph proves). Buttons do not inherit
+     * colour, so only the element's own declarations count. Memoized analysis;
+     * empty when the bounded cascade was truncated.
+     *
+     * @param list<array<string, mixed>> $stylesheets @return array<string, string>
+     */
+    public function paintStyles(DOMElement $element, array $stylesheets, string $inlineCss = ''): array
+    {
+        $this->typographyAnalysis ??= $this->typographyAnalysis($stylesheets, $inlineCss);
+        if ( $this->typographyAnalysis['truncated'] ) {
+            return array();
+        }
+        $matched = $this->matched($element, $this->typographyAnalysis['rules']);
+        return $this->styles(
+            array_intersect_key($matched['base'], array_flip(self::PAINT_PROPERTIES)),
             $element,
             null,
             $this->typographyAnalysis['customProperties']
@@ -845,12 +878,25 @@ final class FormPresentationGraphBuilder
             return;
         }
         $matched = $this->matched($wrapper, $rules);
+        $layoutFacts = array_intersect_key($matched['base'], array_flip(array( 'display', 'flex-direction' )));
+        $layoutStyles = $this->styles($layoutFacts, $wrapper, null, $customPropertyRules);
+        $display = CssValueInspector::comparable($layoutStyles['display'] ?? '');
+        $direction = CssValueInspector::comparable($layoutStyles['flex_direction'] ?? 'row');
+        // Only a grid row gap or a column flex gap spaces the label above its
+        // control; a row flex gap is inline spacing and block flow has no gap.
+        $stacksBlockAxis = in_array($display, array( 'grid', 'inline-grid' ), true)
+            || ( in_array($display, array( 'flex', 'inline-flex' ), true) && in_array($direction, array( 'column', 'column-reverse' ), true) );
+        if ( ! $stacksBlockAxis ) {
+            return;
+        }
         $gapFacts = array_intersect_key($matched['base'], array_flip(array( 'gap' )));
         $gapStyles = $this->styles($gapFacts, $wrapper, null, $customPropertyRules);
         $gap = $gapStyles['gap'] ?? null;
         if ( ! is_string($gap) || '' === trim($gap) ) {
             return;
         }
+        // The first gap component is the row gap; preserve whitespace in calc().
+        $gap = CssValueSplitter::splitTopLevelWhitespace($gap)[0] ?? '';
         $gap = preg_replace('/(?<![0-9])\.(\d+)/', '0.$1', $gap) ?? $gap;
         $facts = array();
         foreach ( $gapFacts as $fact ) {
@@ -1068,7 +1114,7 @@ final class FormPresentationGraphBuilder
     /** A visual part describes source identity and facts, never an inferred semantic role. */
     private static function assertVisualPart(mixed $part): void
     {
-        if ( ! is_array($part) || array_diff(array_keys($part), array( 'id', 'index', 'kind', 'source_selector', 'markup', 'intrinsic_size', 'source_css' )) || ! is_string($part['id'] ?? null) || ! preg_match('/^control-[0-9]+-svg-[0-9]+$/', $part['id']) || ! is_int($part['index'] ?? null) || $part['index'] < 0 || $part['index'] >= self::MAX_CONTROLS || ! is_string($part['source_selector'] ?? null) || '' === trim($part['source_selector']) || strlen($part['source_selector']) > 2048 || 'inline_svg' !== ($part['kind'] ?? null) || ! is_string($part['markup'] ?? null) || strlen($part['markup']) > self::MAX_VISUAL_BYTES || ! SourceDom::isSafeInlineSvgMarkup($part['markup']) || ! is_array($part['source_css'] ?? null) || ! in_array($part['source_css']['state'] ?? null, array( 'known', 'unknown' ), true) ) throw new InvalidArgumentException('Form presentation visual part is invalid.');
+        if ( ! is_array($part) || array_diff(array_keys($part), array( 'id', 'index', 'kind', 'source_selector', 'markup', 'intrinsic_size', 'source_css', 'label_side' )) || ! is_string($part['id'] ?? null) || ! preg_match('/^control-[0-9]+-svg-[0-9]+$/', $part['id']) || ! is_int($part['index'] ?? null) || $part['index'] < 0 || $part['index'] >= self::MAX_CONTROLS || ! is_string($part['source_selector'] ?? null) || '' === trim($part['source_selector']) || strlen($part['source_selector']) > 2048 || ! in_array($part['label_side'] ?? null, array( 'before', 'after' ), true) || 'inline_svg' !== ($part['kind'] ?? null) || ! is_string($part['markup'] ?? null) || strlen($part['markup']) > self::MAX_VISUAL_BYTES || ! SourceDom::isSafeInlineSvgMarkup($part['markup']) || ! is_array($part['source_css'] ?? null) || ! in_array($part['source_css']['state'] ?? null, array( 'known', 'unknown' ), true) ) throw new InvalidArgumentException('Form presentation visual part is invalid.');
         if ( isset($part['intrinsic_size']) && (! is_array($part['intrinsic_size']) || array_diff(array_keys($part['intrinsic_size']), array( 'width', 'height' )) || ! self::validDimension($part['intrinsic_size']['width'] ?? null) || ! self::validDimension($part['intrinsic_size']['height'] ?? null)) ) throw new InvalidArgumentException('Form presentation visual part dimensions are invalid.');
         $sourceCss = $part['source_css'];
         if ( 'known' === $sourceCss['state'] ) {
@@ -1143,6 +1189,17 @@ final class FormPresentationGraphBuilder
         return FormControlLabel::element($control);
     }
 
+    private function labelSide(DOMElement $control, DOMElement $svg): string
+    {
+        // Walk descendants in document order, including text in nested wrappers.
+        $nodes = (new \DOMXPath($control->ownerDocument))->query('.//node()', $control);
+        foreach ( $nodes as $node ) {
+            if ( $node->isSameNode($svg) ) return 'before';
+            if ( $node instanceof \DOMText && '' !== trim($node->textContent) ) return 'after';
+        }
+        return 'before';
+    }
+
     /** @return list<array{part: array<string,mixed>, variants: list<array<string,mixed>>, group?: array<string,mixed>, group_variants?: list<array<string,mixed>>}> */
     private function visualParts(DOMElement $control, int $index, array $rules, array $customPropertyRules): array
     {
@@ -1161,7 +1218,7 @@ final class FormPresentationGraphBuilder
             if ( strlen($markup) > self::MAX_VISUAL_BYTES || ! SourceDom::isSafeInlineSvgMarkup($markup) ) { $this->diagnostics[] = 'unsafe_visual_part'; continue; }
             $matched = $this->matched($svg, $rules);
             $styles = $this->styles($matched['base'], $svg, null, $customPropertyRules);
-            $part = array( 'id' => 'control-' . $index . '-svg-' . $ordinal++, 'index' => $index, 'kind' => 'inline_svg', 'source_selector' => $selector, 'markup' => $markup, 'source_css' => array( 'state' => 'unknown' ) );
+            $part = array( 'id' => 'control-' . $index . '-svg-' . $ordinal++, 'index' => $index, 'kind' => 'inline_svg', 'label_side' => $this->labelSide($control, $svg), 'source_selector' => $selector, 'markup' => $markup, 'source_css' => array( 'state' => 'unknown' ) );
             $size = $this->intrinsicSize($svg);
             if ( array() !== $size ) $part['intrinsic_size'] = $size;
             if ( array() !== $styles ) $part['source_css'] = array( 'state' => 'known', 'styles' => $styles, 'provenance' => $this->provenance($matched['base'], null) );

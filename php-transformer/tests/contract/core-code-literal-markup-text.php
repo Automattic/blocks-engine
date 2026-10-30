@@ -85,7 +85,7 @@ $assert(
 // Plain code without markup in its text keeps the byte-identical saved shape.
 $plain = ( new HtmlTransformer() )->transform('<pre><code>if (a &lt; b &amp;&amp; c &gt; d) { run("x"); }</code></pre>')->toArray();
 $assert(
-    '<pre class="wp-block-code"><code>if (a &lt; b &amp;&amp; c &gt; d) { run("x"); }</code></pre>' === (string) ($plain['blocks'][0]['innerHTML'] ?? ''),
+    '<pre class="wp-block-code blocks-engine-source-code"><code>if (a &lt; b &amp;&amp; c &gt; d) { run("x"); }</code></pre>' === (string) ($plain['blocks'][0]['innerHTML'] ?? ''),
     'plain code keeps its exact saved markup',
     (string) ($plain['blocks'][0]['innerHTML'] ?? '')
 );

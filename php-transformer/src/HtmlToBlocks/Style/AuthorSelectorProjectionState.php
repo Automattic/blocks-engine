@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Closure;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
@@ -126,7 +127,7 @@ final class AuthorSelectorProjectionState
      * so an author subject that names the image by class or id has to follow
      * them there.
      *
-     * @var array<string, array{classes: list<string>, anchor: string, linked: bool}>
+     * @var array<string, array{classes: list<string>, anchor: string, linked: bool, leafMarker: string}>
      */
     private array $imageFigures = array();
 
@@ -168,6 +169,39 @@ final class AuthorSelectorProjectionState
     /** @var array<string, string> Source subject path => its exact native CSS target. */
     private array $navigationSubjects = array();
 
+    private array $navigationListBoxSubjects = array();
+
+    /** @var array<string, string> Source list path => native display of the list when shown. */
+    private array $navigationListShownDisplays = array();
+
+    /** Source list box properties that the native root renders after the list becomes display:contents. */
+    public const NAVIGATION_LIST_BOX_PROPERTIES = array('display', 'overflow', 'overflow-x', 'overflow-y', 'columns', 'column-count', 'column-width', 'column-gap', 'column-fill', 'column-rule', 'column-rule-color', 'column-rule-style', 'column-rule-width');
+
+    /**
+     * Target class for the native root that renders source list `$path`'s box.
+     * A dedicated marker kind, so the root receives only the list's box rules
+     * and never becomes a semantic carrier of the list or its landmark.
+     * `$shownDisplay` is the root's display wherever the source shows the list.
+     */
+    public function installNavigationListBoxSubject(string $path, string $shownDisplay): string
+    {
+        $marker = $this->allocatePathMarker('navigation-list-box', $path);
+        $this->navigationListBoxSubjects[$path] = ':where(nav.wp-block-navigation.' . $marker . ')';
+        $this->navigationListShownDisplays[$path] = $shownDisplay;
+
+        return $marker;
+    }
+
+    public function navigationListShownDisplay(string $path): string
+    {
+        return $this->navigationListShownDisplays[$path] ?? 'flex';
+    }
+
+    public function navigationListBoxSubject(string $path): string
+    {
+        return $this->navigationListBoxSubjects[$path] ?? '';
+    }
+
     public function installNavigationSubject(string $path, string $selector): void
     {
         $this->navigationSubjects[$path] ??= $selector;
@@ -203,7 +237,13 @@ final class AuthorSelectorProjectionState
         if (1 === preg_match('/\[\s*aria-current\b/i', $selector)) return true;
         preg_match_all('/\.((?:\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
         foreach ($classes[1] as $class) {
-            if (isset($this->currentNavigationClasses[stripslashes($class)])) return true;
+            // Recognize class-only router state before a captured current item
+            // has been visited. Otherwise its conditional paint alone creates
+            // a source subject marker that none of its resting peers receives.
+            // A container named current-menu is not an item-state signal.
+            if (isset($this->currentNavigationClasses[stripslashes($class)])
+                || (MenuVocabulary::containsCurrentStateToken(stripslashes($class))
+                    && (!MenuVocabulary::containsMenuToken(stripslashes($class)) || str_contains($class, 'item')))) return true;
         }
         return false;
     }
@@ -216,7 +256,14 @@ final class AuthorSelectorProjectionState
      */
     public static function currentNavigationSubject(string $subject): string
     {
-        return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:has(.wp-block-navigation-item__content[aria-current])', $subject, 1);
+        // The captured item's marker is not a runtime constraint: another
+        // item must receive this paint when Core renders another route.
+        // Source boxes restored around the anchor are not necessarily direct
+        // children of the LI, so target Core's current anchor as a descendant.
+        if (str_contains($subject, '.wp-block-navigation-item__content')) {
+            return (string) preg_replace('/\.wp-block-navigation-item(?![\w-]).*$/', '.wp-block-navigation-item .wp-block-navigation-item__content[aria-current="page"]', $subject, 1);
+        }
+        return (string) preg_replace('/\.wp-block-navigation-item(?![\w-])/', '.wp-block-navigation-item:has(.wp-block-navigation-item__content[aria-current="page"])', $subject, 1);
     }
 
     /** @var array<string,string> Source anchor paths whose identity belongs to Core's rendered a, not li. */
@@ -487,6 +534,12 @@ final class AuthorSelectorProjectionState
         return array( 'reached' => $reached, 'covered' => $covered );
     }
 
+    /** Subject identity for a collapsed surface; its rules still target the logical control. */
+    public function buttonPresentationCarrierClasses(string $path): array
+    {
+        return $this->carrierClasses($this->allocatePathMarker('control', $path), $path);
+    }
+
     public function installButtonPresentationMarker(string $path, string $marker): void
     {
         $this->controlMarkers[$path] = $marker;
@@ -522,7 +575,7 @@ final class AuthorSelectorProjectionState
     }
 
     /** Remember which figure a source image became, and what identity the figure carries. */
-    public function recordImageFigure(string $path, string $className, string $anchor, bool $linked): void
+    public function recordImageFigure(string $path, string $className, string $anchor, bool $linked, string $leafMarker = ''): void
     {
         if ( '' === $path ) {
             return;
@@ -531,10 +584,11 @@ final class AuthorSelectorProjectionState
             'classes' => array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array(), static fn (string $class): bool => '' !== $class)),
             'anchor' => $anchor,
             'linked' => $linked,
+            'leafMarker' => $leafMarker,
         );
     }
 
-    /** @return array{classes: list<string>, anchor: string, linked: bool}|null */
+    /** @return array{classes: list<string>, anchor: string, linked: bool, leafMarker: string}|null */
     public function imageFigure(string $path): ?array
     {
         return $this->imageFigures[$path] ?? null;
@@ -583,7 +637,12 @@ final class AuthorSelectorProjectionState
     public function adoptAsSemanticBlock(string $path): string
     {
         unset($this->richTextMarkers[$path], $this->inlineLayoutCarrierPaths[$path]);
-        return $this->ensureSemanticMarker($path);
+        $marker = $this->ensureSemanticMarker($path);
+        // An earlier pass may have withheld this carrier while it was still
+        // routed as an inline layout carrier or RichText run; as a block of
+        // its own it carries subject classes, so subject arms cover it.
+        unset($this->withheldSubjectCarriers['semantic'][$marker]);
+        return $marker;
     }
 
     public function markInlineLayoutCarrierPath(string $path): void
@@ -604,6 +663,11 @@ final class AuthorSelectorProjectionState
     public function isRetainedSourcePath(string $path): bool
     {
         return isset($this->retainedSourcePaths[$path]);
+    }
+
+    public function hasRetainedSourcePaths(): bool
+    {
+        return array() !== $this->retainedSourcePaths;
     }
 
     /**

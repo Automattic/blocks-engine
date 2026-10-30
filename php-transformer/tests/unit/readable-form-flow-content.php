@@ -36,4 +36,51 @@ $wrapped = (string) ((new HtmlTransformer())->transform(
 )->toArray()['serialized_blocks'] ?? '');
 $assert(1 >= substr_count($wrapped, 'Message'), 'Text inside a wrapping label belongs to its control and is not converted again as flow content.', $wrapped);
 
+// A form or fieldset the author lays out as a flex column stays CSS-owned like
+// any author layout container. A core flex layout would add
+// align-items:flex-start and shrink every field to its content width.
+$cardResult = (new HtmlTransformer())->transform(
+    '<form style="display:flex;flex-direction:column;gap:18px;padding:28px"><fieldset style="display:flex;flex-direction:column;gap:8px;border:0"><legend>Topic</legend><label><input type="radio" name="t" value="a">A</label><label><input type="radio" name="t" value="b">B</label></fieldset><label style="display:flex;flex-direction:column;gap:6px">Message<textarea name="m"></textarea></label><button type="submit">Send</button></form>'
+)->toArray();
+$card = (string) ($cardResult['serialized_blocks'] ?? '');
+preg_match_all('/<!-- wp:group (\{.*?\}) -->/', $card, $groups);
+$assert(2 <= count($groups[1]) && str_contains($groups[1][0], '"tagName":"form"'), 'The flex form and its fieldset each convert to a group.', $card);
+foreach (array_slice($groups[1], 0, 2) as $json) {
+    $attrs = json_decode($json, true);
+    $assert(! isset($attrs['layout']) && str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-css-owned-layout'), 'An author flex form container keeps its layout CSS-owned.', $json);
+}
+$assert(str_contains(json_encode($cardResult['assets'] ?? array(), JSON_UNESCAPED_SLASHES), 'flex-direction:column !important;gap:18px'), 'The form carries its authored column and gap.', $card);
+
+// A form kept as a runtime island ships its readable tree for a provider to
+// put on the page. That tree's generated layout classes need their rules in
+// the page stylesheet, though the page markup holds only the island.
+$islandResult = (new HtmlTransformer())->transform(
+    '<form method="post" style="display:flex;flex-direction:column;gap:22px;padding:28px;border:1px solid #ccc;border-radius:24px"><div style="display:flex;gap:16px"><label style="display:flex;flex-direction:column;gap:6px">Name<input name="n"></label><label style="display:flex;flex-direction:column;gap:6px">Email<input type="email" name="email"></label></div><label style="display:flex;flex-direction:column;gap:6px">Message<textarea name="m"></textarea></label><button type="submit">Send</button></form>'
+)->toArray();
+$islandRoot = (string) ($islandResult['fallbacks'][0]['readable_blocks'][0]['attrs']['className'] ?? '');
+$islandCss = implode("\n", array_column(array_filter($islandResult['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(1 === preg_match('/be-inline-geometry-[0-9a-f]{16}/', $islandRoot, $islandClass), 'The island form readable root carries a generated layout class.', $islandRoot);
+$assert(str_contains($islandCss, '.' . ($islandClass[0] ?? '') . '{display:flex !important;flex-direction:column !important;gap:22px !important}'), 'The readable root layout rule reaches the page stylesheet.', $islandCss);
+
+// Provider substitution consumes readable_blocks, not the original hidden DOM.
+// A trap-only field box disappears; a box shared with a real field survives.
+foreach (array(false, true) as $shared) {
+    $trap = '<label for="extra">extra</label><input id="extra" name="extra" type="text" tabindex="-1">';
+    $name = '<div><label for="name">Name</label><input id="name" name="name" type="text"></div>';
+    $html = $shared
+        ? '<form><div class="shared-field-box"><label for="extra">extra</label><input id="extra" name="extra" type="text" tabindex="-1" aria-hidden="true" style="display:none">' . $name . '</div><button type="submit">Send</button></form>'
+        : '<form><div class="trap-only-box" style="opacity:0;position:absolute;z-index:-999;pointer-events:none">' . $trap . '</div>' . $name . '<button type="submit">Send</button></form>';
+    $result = (new HtmlTransformer())->transform($html)->toArray();
+    $tree = $result['fallbacks'][0]['readable_blocks'] ?? array();
+    $json = (string) json_encode($tree, JSON_UNESCAPED_SLASHES);
+    $assert(array() !== $tree, 'The form emits a readable substitution tree.', $json);
+    $assert(! str_contains($json, 'extra'), 'The readable tree omits the trap label and input.', $json);
+    $assert(! str_contains($json, 'trap-only-box'), 'The readable tree omits the trap-only container.', $json);
+    $assert(str_contains($json, '"anchor":"name"') && str_contains($json, '"form_field":{"kind":"control","label":"Name"}'), 'The real Name field stays in the readable tree.', $json);
+    $assert(str_contains($json, 'Send') && str_contains($json, 'submit'), 'The submit stays in the readable tree.', $json);
+    if ($shared) {
+        $assert(str_contains($json, 'shared-field-box'), 'A container shared with a real control stays.', $json);
+    }
+}
+
 echo 'Readable form flow content tests: ' . $assertions . ' passed' . PHP_EOL;

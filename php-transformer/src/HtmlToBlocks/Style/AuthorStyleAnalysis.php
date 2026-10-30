@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
@@ -29,6 +31,9 @@ final class AuthorStyleAnalysis
     private array $sourceIds = array();
     /** @var array<string, true> */
     private array $sourceClasses = array();
+    /** @var array<string, true> Source `class` attribute values. */
+    private array $sourceClassAttributes = array();
+    private ?ClassAttributeSelectorProjection $classAttributeSelectors = null;
     /** @var array<string, list<DOMElement>> */
     private array $selectorMatches = array();
     private ?CssSelectorMatchCache $selectorMatchCache;
@@ -65,7 +70,7 @@ final class AuthorStyleAnalysis
         $this->selectorMatchCache = new CssSelectorMatchCache();
         // Ignore generated-looking markers while hashing each input separately,
         // preserving deterministic identities without duplicating large CSS.
-        $markerPattern = '/blocks-engine-(?:source-[a-z][a-z0-9-]*|control|table|media-text-image|specificity(?:-(?:class|id))?)-[a-f0-9]+-\d+/';
+        $markerPattern = '/(?:blocks-engine-(?:source-[a-z][a-z0-9-]*|control|table|media-text-image)-[a-f0-9]+-\d+|' . EngineMarker::specificityPatternBody() . ')/';
         $normalizedHtml = preg_match($markerPattern, $html) ? (preg_replace($markerPattern, '', $html) ?? '') : $html;
         $normalizedCss = preg_match($markerPattern, $combinedCss) ? (preg_replace($markerPattern, '', $combinedCss) ?? '') : $combinedCss;
         $seed = hash_init('sha256');
@@ -117,6 +122,11 @@ final class AuthorStyleAnalysis
     public function sourceElementIds(): array { return array_keys($this->sourceElementsById); }
     /** @return list<DOMElement> */
     public function sourceElementsById(string $id): array { return $this->sourceElementsById[$id] ?? array(); }
+    /** Author class attribute predicates bound to this document's source class tokens. */
+    public function classAttributeSelectors(): ClassAttributeSelectorProjection
+    {
+        return $this->classAttributeSelectors ??= new ClassAttributeSelectorProjection(array_map('strval', array_keys($this->sourceClassAttributes)));
+    }
     public function specificityShim(): string { return $this->specificityShim; }
     public function classSpecificityShim(): string { return $this->classSpecificityShim; }
     public function idSpecificityShim(): string { return $this->idSpecificityShim; }
@@ -380,7 +390,7 @@ final class AuthorStyleAnalysis
     {
         $suffix = 0;
         do {
-            $marker = 'blocks-engine-' . $kind . '-site-' . $suffix++;
+            $marker = (EngineMarker::SPECIFICITY_PREFIXES[$kind] ?? 'blocks-engine-' . $kind . '-site-') . $suffix++;
             $collision = false;
             foreach ($avoidTexts as $text) {
                 if (str_contains($text, $marker)) {
@@ -417,7 +427,7 @@ final class AuthorStyleAnalysis
     public function selectorCandidates(array $parsed): array
     {
         $compounds = $parsed['compounds'] ?? array();
-        $rightmost = $compounds[array_key_last($compounds)] ?? array();
+        $rightmost = CssSelectorCompoundInspector::rightmost($compounds);
         $candidates = array();
         foreach ( $rightmost['ids'] ?? array() as $id ) {
             // A projected captured dialog stands in for the id's holder through
@@ -535,6 +545,10 @@ final class AuthorStyleAnalysis
     private function recordSelectorSignals(DOMElement $element): void
     {
         $this->sourceTags[strtolower($element->tagName)] = true;
+        $classAttribute = $element->getAttribute('class');
+        if ( '' !== trim($classAttribute) ) {
+            $this->sourceClassAttributes[$classAttribute] = true;
+        }
         $id = $element->getAttribute('id');
         if ( '' !== $id ) {
             $this->sourceIds[$id] = true;

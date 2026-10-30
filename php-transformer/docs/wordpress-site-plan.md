@@ -1,6 +1,6 @@
-# WordPress Site Plan v2
+# WordPress Site Plan v3
 
-`blocks-engine/wordpress-site-plan/v2` is a destination-independent materialization contract. A consumer resolves it with `WordPressSitePlanResolver` and combines the resolved plan with its own materialization receipt. Destination IDs, paths outside declared writes, and product report formats remain consumer-owned.
+`blocks-engine/wordpress-site-plan/v3` is a destination-independent materialization contract. A consumer resolves it with `WordPressSitePlanResolver` and combines the resolved plan with its own materialization receipt. Destination IDs, paths outside declared writes, and product report formats remain consumer-owned.
 
 ## Omitted Pages
 
@@ -101,13 +101,63 @@ materializer applies its configured post permalink policy. This preserves the
 source route for deterministic references without claiming it is a post
 permalink.
 
+## Author Archives
+
+The additive, required `author_entities` list contains at most 256 proven authors:
+
+```js
+author_entities: [{
+  kind: 'author',
+  slug: 'adam', // nicename: ^[a-z0-9][a-z0-9-]{0,49}$
+  name: 'Adam Zieliński',
+  membership_source_paths: ['stories/first.html', 'stories/second.html'],
+  archive: {
+    source_path: 'author/adam/index.html',
+    source_route: '/author/adam',
+    presentation_markup: '<!-- wp:query ... -->...',
+    query: { post_type: 'post', author: 'adam' }
+  },
+  evidence: { membership: true, name: true, archive: true }
+}]
+```
+
+The slug equals the archive route leaf. The name is the exact archive heading
+name (a single named element beside prefix text, such as
+`Author: <span>Adam Zieliński</span>`, names the author). At least one canonical
+post listed by the archive must link back with that exact name. Membership
+contains posts only, is unique and sorted, and is bounded to 10,000 source paths.
+Link resolution, source-file aliases, same-origin restrictions and heading
+extraction are shared with taxonomy proof. Matching numbered archive captures
+can contribute reciprocal members; pagination captures remain suppressed views.
+
+Duplicate slug claims produce `wordpress_site_plan_author_archive_ambiguous_slug`;
+a post claimed by multiple proven authors produces
+`wordpress_site_plan_author_membership_ambiguous`. Conflicting authors are
+withheld entirely, without guessing either identity or membership. Unproven
+archives remain ordinary documents with
+`wordpress_site_plan_author_archive_unproven`. A presentation that cannot become
+a native inherited query keeps the author and membership, omits
+`archive.presentation_markup`, and emits the info diagnostic
+`wordpress_site_plan_author_archive_presentation_template_hierarchy` with the
+source path and route. No per-author template is emitted; WordPress's template
+hierarchy serves the archive.
+
+Proven archives follow the category presentation path into native WordPress
+`author` fallback template and `author-<slug>` source-specific templates, retaining
+source-owned shell and head resources. As with category entities, the canonical
+archive document remains source evidence in the plan, but its source path and
+pagination sources are absent from `pages`, `routes`, and page operations. Consumers create users
+with the nicename and display name and assign each member post to that user.
+Core's author rewrite owns `/author/<slug>/` and pagination; no custom author
+rewrite is registered. New posts then appear through the inherited native query.
+
 ## Taxonomy Archives
 
 The additive `taxonomy_entities` list contains only proven native term/archive
 relationships. The producer recognizes a captured category document only when
 its canonical route has category-archive form, its visible heading names a
-bounded slug on that route, it links to multiple canonical source documents
-classified as posts, and those article documents link back to that exact route
+bounded slug on that route, it links to at least one canonical source document
+classified as a post, and those article documents link back to that exact route
 with the same visible term name. Thus the route is one evidence source, not a
 guessing rule. Uncorroborated collection candidates remain ordinary documents
 and produce `wordpress_site_plan_taxonomy_archive_unproven` when they list
@@ -119,8 +169,34 @@ entity that could fail the whole plan. Link evidence counts only when it is
 root-relative or absolute on the declared source origin, so an unrelated
 external link can never corroborate local term membership.
 
+Hierarchical routes (`/category/parent/child`, at any depth) use the leaf as
+`slug` and carry an optional `parent` string naming the immediate parent's slug
+in the same taxonomy. Top-level entities omit `parent`. The parent must itself
+have a proven archive at the immediate ancestor route; otherwise the child
+stays unproven with `wordpress_site_plan_taxonomy_archive_unproven_parent`
+naming the missing parent route. Presentation failure does not invalidate a
+proven parent or its descendants. Leaf slugs are unique across the taxonomy, not just
+within one parent. Child membership and numbered captures use the same proof
+as top-level archives. Validation rejects absent, self-referential, malformed,
+or route-detached parents, independently of entity order.
+
+The original two-member threshold (introduced in `0535c3e5`) had no documented
+single-member false-positive case. Reciprocal matching-label links, canonical
+post classification, and same-origin checks remain mandatory. Single-card
+query conversion is allowed only for proven taxonomy archives; ordinary
+listing inference still requires multiple cards.
+
+SSI's current `materialize_taxonomy_entities()` does not read `parent`: it
+inserts terms with only `slug`. To persist this hierarchy, SSI must resolve the
+optional parent slug to a term ID in the same taxonomy (parents first, or in a
+second pass), pass that ID as WordPress's `parent` argument on insertion, and
+reconcile existing terms' parent IDs with ownership/conflict protection,
+rollback, and receipts. Missing `parent` means a root term. The plan field is a
+slug, not a WordPress database ID. SSI's existing exact archive-route rewrites
+already accept nested source paths and need no route-contract change.
+
 Each emitted `taxonomy_term` records its bounded canonical post source paths,
-the archive source identity and route, captured presentation markup, and native
+the archive source identity and route, optional captured presentation markup, and native
 query scope (`post_type`, taxonomy, and term). A consumer materializes the term
 and memberships and uses the archive document as presentation evidence, not as
 a frozen page owner. The generated theme scaffold retains an exact rewrite and
@@ -128,6 +204,15 @@ term-link mapping for the source route, and rewrites the source route's
 `/page/N` suffix onto the same native term query with `paged` for bounded
 positive page numbers, without changing the destination's global category/tag
 base. Future posts belong to WordPress's native archive query.
+
+If presentation cannot become an inherited Query Loop, the term keeps its name,
+parent, membership, and pagination ownership but omits `presentation_markup` and
+its per-term template. The info diagnostic
+`wordpress_site_plan_taxonomy_archive_presentation_template_hierarchy` records
+the source path and route; WordPress's template hierarchy serves the archive.
+Neither projected nor fallback archive sources materialize as plan pages, and
+page ancestry skips archive sources so every nonempty `parent_source_path`
+names a materialized page.
 
 The producer-only HTTP acceptance serves a resolved generated theme in a
 disposable WordPress 7.1 runtime without SSI. It follows the rendered base-page
@@ -168,6 +253,16 @@ order unchanged: a page's slice of a shared stylesheet, its compatibility
 replay or its editor state is then one file for all the pages that produce it,
 instead of one copy per page. Consumers must enqueue such an asset for each
 scope, as they already do for an asset scoped by the pages that link it.
+
+## Asset consumers and destinations
+
+Every asset row carries `consumers`, `destination` and `theme_write_reasons`, derived from where its token lands in final block markup and stylesheet writes, not from source selectors:
+
+- `consumers[]`: `{kind: "block", document_kind, document, block_name, block_path, attribute_path, count}` for pages, templates, template parts and synced patterns (`attribute_path` is `url` for a core/image `<img src>`, `innerHTML` for saved markup, otherwise the dotted attribute path), or `{kind: "stylesheet", target_path, count}` for CSS writes.
+- `destination`: `media_library` when any block consumes the asset, otherwise `theme`.
+- `theme_write_reasons[]`: for `media_library` assets, one `{reason: "attachment_url_required", target_path, count}` per stylesheet consumer. Theme CSS has no portable reference to uploads, so the theme write is kept unless the publisher resolves the asset.
+
+`WordPressSitePlanResolver::resolve()` accepts `attachment_resolutions` (`token => {id, url}`, positive integer id, absolute http(s) URL) for `media_library` assets only. A resolved asset loses its theme write; every reference, including stylesheets, resolves to the attachment URL; and image blocks carry core attachment attributes: `id` + `url` (core/image, plus the `wp-image-<id>` class) and core/cover, `mediaId` + `mediaUrl` (core/media-text), and `style.background.backgroundImage` `{id, url, source: "file"}`. The resolved plan records the map under `resolution.attachment_resolutions`. Without attachment resolutions the output is byte-identical to theme-URL resolution.
 
 Meta rows preserve `charset`, `name`, `property`, `http_equiv`, and `content`. Link rows preserve `rel`, `type`, `media`, `integrity`, `crossorigin`, `referrerpolicy`, `as`, `fetchpriority`, and `sizes`. Script rows preserve `type`, `integrity`, `crossorigin`, `referrerpolicy`, and `fetchpriority`, plus independent booleans for `async`, `defer`, `module`, and `nomodule`. Explicitly present empty values are retained as `''` so consumers can distinguish them from absent attributes, except `crossorigin`: its empty or boolean HTML state is normalized to `anonymous`, matching browser CORS semantics. `effective_loading` records browser loading semantics: `async` wins over `defer`; non-async module scripts are `defer`; other scripts are `blocking`. Inline scripts carry `source_kind: inline` and `body_hash`, not their source body.
 
@@ -225,6 +320,37 @@ Post article chrome (one single template) and listing cards (one query loop
 template) keep one copy of repeated markup. They do so only when the kept copy
 renders the same menus as every dropped copy; otherwise the posts or the listing
 stay as captured, so no menu entity is left without a reference.
+
+Synced patterns follow the same token-and-entity model. `core/tabs` admits only a
+tab list and its panels, so content a captured selectable set leaves unchanged is
+repeated in every `core/tab-panel`. A maximal block subtree whose serialized
+markup is identical at the same position in every panel of one tabs block is
+declared once in the optional `synced_patterns` group as
+`{identity, title, canonical_block_markup, source_path, provenance}`. It must
+render in every panel: a subtree a panel hides (a `hidden` attribute, inline
+`display:none`, or a class some stylesheet rule hides) stays inline, as do the
+panel's whole content and single text blocks (paragraph, heading, list). Each
+panel references it as `<!-- wp:block {"ref":"{{wordpress-site-plan:pattern:pattern-<16hex>}}"} /-->`,
+where the token is `pattern-` plus the first 16 hex of `identity`
+(`SyncedPatternProjection`). The title is the subtree's first heading, else the
+nearest heading before it in the panel, else the tab list label, else `Shared
+content`. `source_path` is `wordpress-site-plan/synced-patterns/<token>`, and
+`provenance.occurrences` records each page, panel count and in-panel block path.
+The group and `reference_semantics.synced_patterns` (`explicit_refs/v1`) are
+present only when a pattern is declared. `core/block` renders pattern content in
+place without a wrapper on the front end, so panel-ancestor author styles still
+apply; in the editor its wrapper takes no box and the editor restatement of child
+combinators tolerates it.
+
+Runtime bindings inside a synced pattern belong to the pattern document, like
+bindings in a shared template part. The final `canonicalEntityBindings()` pass
+matches bindings on the page markup before the projection, then rebases each
+one: a binding in the first panel's copy moves to the pattern `source_path` with
+`occurrence` and `position` recomputed on the pattern markup, the copies in the
+other panels are dropped (with entities left without bindings, whose fallback
+identities the kept entity lists in `replaced_fallback_identities`), and the
+remaining page bindings renumber on the final page markup. Consumers apply
+bindings to synced pattern documents as they do to template parts.
 
 Consumers persist declared entities and resolve their references to integer IDs.
 They do not rediscover menu equivalence. The plan validator checks declarations

@@ -35,6 +35,12 @@ final class ReadableFormControlBlockConverter
     ) {
     }
 
+    /** A label or legend as inline rich text, links and emphasis kept. */
+    public function labelMarkup(DOMElement $label): string
+    {
+        return $this->authoredBlockConverter->labelMarkup($label);
+    }
+
     /**
      * @param DOMElement|null $label The element the source uses to label this control, when one was resolved.
      * @return array<string, mixed>|null
@@ -86,6 +92,14 @@ final class ReadableFormControlBlockConverter
             return ($this->htmlPreservationBlock)($element);
         }
 
+        // Prose summaries cannot carry an associated label's inline markup.
+        // Keep the native labelled control when it owns links or formatting.
+        if (null !== $label) {
+            foreach (array('a', 'em', 'strong', 'b', 'i', 'u', 's', 'mark') as $inlineTag) {
+                if (0 < $label->getElementsByTagName($inlineTag)->length) $forceNative = true;
+            }
+        }
+
         if ( 'select' === $tagName ) {
             $selectBlock = $this->authoredBlockConverter->select($element, $forceNative, $label);
             if ( null !== $selectBlock ) {
@@ -102,7 +116,8 @@ final class ReadableFormControlBlockConverter
                 && array() === FormControlClassifier::controlElements($externalLabel)) {
                 $forceNative = true;
             }
-            $inputBlock = $this->authoredBlockConverter->input($element, $label, false, $forceNative);
+            // Types without a dedicated prose degradation remain native inputs.
+            $inputBlock = $this->authoredBlockConverter->input($element, $label, false, $forceNative || ! FormControlClassifier::hasProseSummary($element));
             if ( null !== $inputBlock ) {
                 return $inputBlock;
             }
@@ -193,7 +208,7 @@ final class ReadableFormControlBlockConverter
         }
 
         return '' !== $label
-            ? $this->createBlock->createBlock('core/paragraph', array( 'content' => $label ), array(), $element)
+            ? $this->createBlock->createBlock('core/paragraph', array_merge(($this->presentationAttributes)($element), array( 'content' => $label )), array(), $element)
             : null;
     }
 

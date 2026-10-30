@@ -26,8 +26,11 @@ $root = dirname(__DIR__, 2);
 $vocabularyFile = $root . '/src/Contract/CaptureEvidence.php';
 $constants = (new ReflectionClass(CaptureEvidence::class))->getConstants();
 $downstream = $constants['PUBLISHED_FOR_DOWNSTREAM'];
-unset($constants['PUBLISHED_FOR_DOWNSTREAM']);
+unset($constants['PUBLISHED_FOR_DOWNSTREAM'], $constants['RECOGNIZED_RUNTIMES']);
 $failures = array();
+if ( 'data-blocks-engine-capture-inert-control' !== ($constants['INERT_CONTROL'] ?? null) ) {
+    $failures[] = 'CaptureEvidence::INERT_CONTROL must publish the capture-proven inert control attribute';
+}
 foreach ( $downstream as $name ) {
     if ( ! is_string($constants[$name] ?? null) ) {
         $failures[] = "PUBLISHED_FOR_DOWNSTREAM flags {$name}, which is not a published name";
@@ -39,6 +42,13 @@ if ( count($downstream) !== count(array_unique($downstream)) ) {
 $namePattern = '/(?:data-)?blocks-engine-capture(?:-|\/)/';
 
 $uses = array_fill_keys(array_keys($constants), 0);
+// Shared runtime identity consumes its component constants inside the vocabulary.
+foreach (array_keys(CaptureEvidence::RECOGNIZED_RUNTIMES) as $marker) {
+    ++$uses[array_search($marker, $constants, true)];
+}
+foreach (CaptureEvidence::RECOGNIZED_RUNTIMES as $digest) {
+    ++$uses[array_search($digest, $constants, true)];
+}
 $sources = 0;
 foreach ( new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/src', FilesystemIterator::SKIP_DOTS)) as $file ) {
     if ( 'php' !== $file->getExtension() || realpath($file->getPathname()) === realpath($vocabularyFile) ) {
@@ -54,6 +64,7 @@ foreach ( new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '
     }
     if ( preg_match_all('/\bCaptureEvidence::([A-Z][A-Z0-9_]*)\b/', $source, $matches) ) {
         foreach ( $matches[1] as $name ) {
+            if ( 'RECOGNIZED_RUNTIMES' === $name ) continue;
             if ( ! array_key_exists($name, $uses) ) {
                 $failures[] = "{$relative} references undefined CaptureEvidence::{$name}";
                 continue;

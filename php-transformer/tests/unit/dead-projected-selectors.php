@@ -33,9 +33,9 @@ $deadMarker = 'blocks-engine-semantic-8ed8be17a645-5';
 $liveMarker = 'blocks-engine-semantic-8ed8be17a645-9';
 $richtextMarker = 'blocks-engine-richtext-8ed8be17a645-22';
 
-$deadProjected = ':where(.' . $deadMarker . '):not(.blocks-engine-specificity-class-aaa-1)';
-$liveProjected = ':where(.' . $liveMarker . '):not(.blocks-engine-specificity-class-aaa-1)';
-$richtextProjected = ':where(span[data-blocks-engine-richtext-marker="' . $richtextMarker . '"]):not(.blocks-engine-specificity-class-aaa-1)';
+$deadProjected = ':where(.' . $deadMarker . '):not(.be-c-aaa-1)';
+$liveProjected = ':where(.' . $liveMarker . '):not(.be-c-aaa-1)';
+$richtextProjected = ':where(span[data-blocks-engine-richtext-marker="' . $richtextMarker . '"]):not(.be-c-aaa-1)';
 $keptClassProjected = '.h-9:not(:where(.' . $deadMarker . ')),' . $deadProjected;
 
 $deadHaystack = '<!-- wp:group --><div class="wp-block-group logo-slot"><img alt="Brand"/></div><!-- /wp:group -->';

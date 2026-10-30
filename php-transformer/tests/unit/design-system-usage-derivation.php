@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DesignSystem;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PresetBinding;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeJsonProjection;
@@ -25,6 +26,121 @@ $compile = static function (array $artifact): array {
     foreach ($plan['writes'] ?? array() as $write) if ('theme.json' === $write['target_path']) $theme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
     return array($plan, $theme, $result['source_reports']['editability_report'] ?? array());
 };
+// Reduced heading case: class-owned typography becomes editable without
+// changing the source declarations' values, including at a breakpoint.
+foreach (array(false, true) as $responsive) {
+    $css = '.t6{font-size:3.75rem;line-height:1;font-weight:800}.t4{font-size:2.25rem;line-height:2.5rem;font-weight:700}.t5{font-size:1.25rem;font-weight:700}';
+    if ($responsive) $css = '.t6{font-size:2rem;line-height:1;font-weight:800}@media(min-width:48rem){.t6{font-size:3.75rem}}' . substr($css, strpos($css, '.t4'));
+    [$headingPlan, $headingTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><style>' . $css . '</style></head><body><h1 class="t6">Hero</h1><h2 class="t4">Section</h2><h2 class="t4">Section</h2><h3 class="t5">Card</h3><h3 class="t5">Card</h3></body></html>')));
+    $sizes = array_column($headingTheme['settings']['typography']['fontSizes'] ?? array(), 'size', 'slug');
+    $heroSlug = array_search('60px', $sizes, true);
+    $assert(false !== $heroSlug, 'reduced headings: the largest rendered size is a preset, including breakpoint-only sizes');
+    foreach (array('h1' => array('60px', '800', '1'), 'h2' => array('36px', '700', '2.5rem'), 'h3' => array('20px', '700', null)) as $level => [$size, $weight, $lineHeight]) {
+        $type = $headingTheme['styles']['elements'][$level]['typography'] ?? array();
+        $expectedSize = $responsive && 'h1' === $level ? null : 'var:preset|font-size|' . array_search($size, $sizes, true);
+        $assert($expectedSize === ($type['fontSize'] ?? null) && $weight === ($type['fontWeight'] ?? null) && $lineHeight === ($type['lineHeight'] ?? null), 'reduced headings: ' . $level . ' exposes its rendered size, weight and line height: ' . json_encode($type));
+    }
+    $headingCss = implode('', array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? null) ? ($asset['content'] ?? '') : '', $headingPlan['assets']));
+    $assert(str_contains($headingCss, 'font-size:var(--wp--preset--font-size--' . $heroSlug . ',3.75rem)'), 'reduced headings: source size reads its preset with the original fallback');
+    $assert(str_contains($headingCss, 'line-height:1') && str_contains($headingCss, 'font-weight:800'), 'reduced headings: source weight and line height remain intact');
+    if ($responsive) {
+        $markup = implode('', array_column($headingPlan['pages'], 'canonical_block_markup'));
+        $assert(!preg_match('/<!-- wp:heading [^>]*"level":1[^>]*"fontSize"/', $markup), 'reduced headings: no important core size class freezes the responsive heading');
+        $assert(str_contains($headingCss, '@media') && (str_contains($headingCss, ',2rem)') || str_contains($headingCss, 'font-size:2rem')), 'reduced headings: mobile size and media rule retain their original fallback');
+    }
+}
+// A contextual/inherited heading must not receive a sibling's declarations.
+$neutralCss = 'body{line-height:1.6}.display{font-size:3.75rem;line-height:1;font-weight:800}.context{font-size:1.25rem;line-height:1.4}.inherited{font-size:inherit;font-weight:inherit}.card{font-size:1.25rem;font-weight:700}';
+[$neutralPlan, $neutralTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<html><head><style>' . $neutralCss . '</style></head><body><h1 class="display">A prominent page title</h1><section class="context"><h1 class="inherited">Other</h1></section><h3 class="card">A card with inherited leading</h3></body></html>')));
+$neutralElements = $neutralTheme['styles']['elements'];
+$assert(!isset($neutralElements['h1']['typography']['lineHeight']) && !str_starts_with($neutralElements['h1']['typography']['fontSize'] ?? '', 'var:preset|') && !isset($neutralElements['h1']['typography']['fontWeight']), 'contextual heading: no dominant sibling typography leaks into an inherited heading');
+$assert(!isset($neutralElements['h3']['typography']['lineHeight']), 'class-owned size does not prove ownership of inherited line height');
+
+// Solved-site promotion regression: baseline presets are byte-identical to
+// trunk; h1's matched .hero h1 rule alone proves weight and leading.
+$solvedRoot = dirname(__DIR__, 3) . '/fixtures/solved/89-static-site-importer-architecture';
+$solvedFiles = array();
+foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($solvedRoot)) as $file) {
+    if ($file->isFile() && in_array($file->getExtension(), array('html', 'css'), true)) $solvedFiles[substr($file->getPathname(), strlen($solvedRoot) + 1)] = file_get_contents($file->getPathname());
+}
+[, $solvedTheme] = $compile(array('entrypoint' => 'index.html', 'files' => $solvedFiles));
+$trunkSizes = array();
+foreach (array('xx-small' => '12.48px', 'x-small' => '13.12px', 'small' => '13.76px', 'medium' => '16px', 'large' => '16.8px', 'x-large' => '18.72px', 'xx-large' => '20px', 'xxx-large' => '24px') as $slug => $size) {
+    $trunkSizes[] = array('slug' => $slug, 'name' => ucwords(str_replace('-', ' ', preg_replace_callback('/^x+(?=-)/', static fn(array $m): string => strtoupper($m[0]), $slug))), 'size' => $size);
+}
+$assert(json_encode($trunkSizes) === json_encode(array_slice($solvedTheme['settings']['typography']['fontSizes'], 0, 8)), 'solved architecture: original body presets remain byte-identical to trunk');
+$solvedTypography = array();
+foreach ($solvedTheme['styles']['elements'] as $level => $element) {
+    $fields = array_intersect_key($element['typography'] ?? array(), array_flip(array('fontSize', 'fontWeight', 'lineHeight')));
+    if (array() !== $fields) $solvedTypography[$level] = $fields;
+}
+$assert(array('h1' => array('fontWeight' => '500', 'lineHeight' => '.92')) === $solvedTypography, 'solved architecture: only the h1 declarations shared by every heading of that level become element fields');
+
+// Rendered stacks need no @font-face to become editable role presets (#3302).
+$systemStackCss = ':root{--font-body:ui-sans-serif,system-ui,sans-serif;--font-display:Georgia,serif}'
+    . 'body{font-family:var(--font-body)} h1,h2{font-family:var(--font-display)}';
+[$systemStackPlan, $systemStackTheme] = $compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array('index.html' => '<!doctype html><html><head><style>' . $systemStackCss . '</style></head><body><h1>Title</h1><p>Body</p></body></html>'),
+));
+$systemStackFamilies = array_column($systemStackTheme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
+$assert(array('heading' => 'Georgia,serif', 'body' => 'ui-sans-serif,system-ui,sans-serif') === $systemStackFamilies, 'rendered system stacks: body and heading presets contain the rendered stacks without font faces');
+$assert('var:preset|font-family|body' === ($systemStackTheme['styles']['typography']['fontFamily'] ?? null), 'rendered system stacks: root typography references body');
+$assert('var:preset|font-family|heading' === ($systemStackTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'rendered system stacks: heading typography references heading (' . json_encode($systemStackTheme['styles'] ?? array()) . ')');
+$systemStackAssets = implode('', array_column($systemStackPlan['assets'] ?? array(), 'content'));
+foreach (array('body' => 'body', 'heading' => 'display') as $role => $token) {
+    $assert(str_contains($systemStackAssets, 'font-family:var(--wp--preset--font-family--' . $role . ',var(--font-' . $token . '))'), 'rendered system stacks: ' . $role . ' source declaration binds with its original var() fallback');
+}
+
+// Channel custom properties are colours only in the consuming function, not
+// standalone palette values. Keep the authored expression as the CSS fallback.
+foreach (array('hsl(var(--foreground))', 'hsl(var(--foreground) / 1)', 'rgb(var(--channels))', 'rgb(var(--channels) / 100%)') as $expression) {
+    [$channelPlan, $channelTheme] = $compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array('index.html' => '<!doctype html><html><head><style>:root{--foreground:0 0% 3.9%;--muted:215 16% 47%;--channels:10 10 10;--paper:255 255 255}body{color:' . $expression . ';background-color:rgb(var(--paper) / 1)}.muted{color:hsl(var(--muted))}.ink{color:#000}.surface{background:linear-gradient(' . $expression . ',rgb(var(--paper) / 100%))}</style></head><body><p class="surface">' . str_repeat('Lots of body copy. ', 20) . '</p><p class="muted">Secondary copy.</p><p class="ink">A little black text</p></body></html>'),
+    ));
+    $channelPalette = array_column($channelTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+    $channelSlug = array_search('#0a0a0a', $channelPalette, true);
+    $assert(false !== $channelSlug, $expression . ': rendered channel colour belongs to the palette');
+    $assert('#0a0a0a' === ($channelPalette['contrast'] ?? null), $expression . ': dominant body copy determines contrast, not the small literal black run');
+    $assert('var:preset|color|' . $channelSlug === ($channelTheme['styles']['color']['text'] ?? null), $expression . ': root text references its matching preset');
+    $assert('var:preset|color|base' === ($channelTheme['styles']['color']['background'] ?? null), $expression . ': root background references its matching preset');
+    $channelCss = implode("\n", array_column($channelPlan['assets'], 'content'));
+    $assert(str_contains($channelCss, 'color:var(--wp--preset--color--' . $channelSlug . ',' . $expression . ')'), $expression . ': CSS binds with the original expression as fallback');
+    $assert(str_contains($channelCss, 'linear-gradient(var(--wp--preset--color--' . $channelSlug . ',' . $expression . '),var(--wp--preset--color--base,rgb(var(--paper) / 100%)))'), $expression . ': compound colour tokens resolve and retain their original fallbacks too');
+}
+
+// A late shared WordPress capture stylesheet cannot redefine generated presets.
+[$sourcePresetPlan, $sourcePresetTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/source-wordpress-presets.php');
+$sourcePalette = array_column($sourcePresetTheme['settings']['color']['palette'], 'color', 'slug');
+$assert('#ffffff' === ($sourcePalette['accent-2'] ?? null), 'shared WordPress fixture binds white to accent-2');
+$assert(2 === count($sourcePresetPlan['pages']), 'WordPress preset collision fixture retains both routes');
+foreach ($sourcePresetPlan['pages'] as $page) {
+    $assert(str_contains($page['canonical_block_markup'], '"backgroundColor":"accent-2"'), 'each white card binds to the generated accent-2');
+}
+$sharedPresetCss = '';
+foreach ($sourcePresetPlan['assets'] as $asset) {
+    if ('css' !== ($asset['kind'] ?? null)) continue;
+    $css = $asset['content'] ?? '';
+    $assert(1 !== preg_match('/--wp--preset--[a-zA-Z0-9_-]+\\s*:/', $css), 'carried CSS never declares a generated preset');
+    if (str_contains($css, '.card{')) $sharedPresetCss .= $css;
+}
+$assert(1 === preg_match('/--be--source--preset--color--accent-2:(?:#F6CFF4|var\(--wp--preset--color--[a-z0-9-]+,#F6CFF4\))/', $sharedPresetCss), 'shared capture CSS keeps the source palette in its own namespace, optionally bound to its own token');
+foreach (array('color', 'background-color', 'border-color', 'gradient-background', 'font-size', 'font-family') as $suffix) {
+    $class = 'has-accent-2-' . $suffix;
+    $marker = SourceClassIdentity::marker($class);
+    $assert('' !== $marker, 'core preset utility gets a source-only identity: ' . $suffix);
+}
+$sourceUtilityMarker = SourceClassIdentity::marker('has-accent-2-background-color');
+$assert(str_contains($sharedPresetCss, '.' . $sourceUtilityMarker), 'source preset utility selectors target source-only identities');
+foreach ($sourcePresetPlan['pages'] as $page) {
+    $assert(str_contains($page['canonical_block_markup'], $sourceUtilityMarker), 'authored preset utility keeps its source-only identity on both routes');
+}
+$assert(str_contains($sharedPresetCss, 'background-color:var(--wp--preset--color--accent-2,rgb(255,255,255))'), 'card CSS reads the generated preset, not the source preset');
+$assert(str_contains($sharedPresetCss, 'outline-color:var(--be--source--preset--color--accent-2)'), 'unbound source reads keep following the source palette');
+foreach (array('font-size--large:31px', 'spacing--40:19px', 'font-family--body:Georgia') as $preset) {
+    $assert(str_contains($sharedPresetCss, '--be--source--preset--' . $preset), 'non-colour source presets are isolated too: ' . $preset);
+}
 $roleSlug = '/^(?:base|contrast|primary|secondary|accent-\d+)$/';
 $sizeSlug = '/^(?:medium|(?:x{0,5}-)?small|(?:x{0,5}-)?large)$/';
 
@@ -45,7 +161,7 @@ foreach ($unusedFamilies as $fixture => $unusedFamily) {
     $assert(count($slugs) === count(array_unique(array_map('strtolower', array_column($palette, 'color')))), "$fixture: palette colours are distinct");
     $sizes = $theme['settings']['typography']['fontSizes'] ?? array();
     $assert(count($sizes) >= 4 && count($sizes) <= 8, "$fixture: type scale has 4-8 steps (" . count($sizes) . ')');
-    $assert(in_array('medium', array_column($sizes, 'slug'), true) && array() === array_filter(array_column($sizes, 'slug'), static fn(string $slug): bool => 1 !== preg_match($sizeSlug, $slug)), "$fixture: type scale uses t-shirt slugs around medium");
+    $assert(in_array('medium', array_column($sizes, 'slug'), true) && array() === array_filter(array_column($sizes, 'slug'), static fn(string $slug): bool => 1 !== preg_match($sizeSlug, $slug) && !str_starts_with($slug, 'heading-')), "$fixture: type scale uses t-shirt slugs around medium");
     $families = $theme['settings']['typography']['fontFamilies'] ?? array();
     $assert(in_array('body', array_column($families, 'slug'), true), "$fixture: body family is a preset");
     $assert(array() === array_filter($families, static fn(array $family): bool => str_contains((string) $family['fontFamily'], $unusedFamily)), "$fixture: the declared but unrendered $unusedFamily stack is not a preset");
@@ -103,6 +219,27 @@ $darkTokens['files']['assets/app.css'] .= '@media (prefers-color-scheme:dark){:r
 $darkMarkup = implode('', array_column($compile($darkTokens)[0]['pages'], 'canonical_block_markup'));
 $assert(!preg_match('/<!-- wp:paragraph \{"className":"text-base text-slate-900"[^}]*"textColor"/', $darkMarkup) && !preg_match('/"className":"bg-slate-900 text-slate-50 p-8"[^}]*"backgroundColor"/', $darkMarkup) && str_contains($darkMarkup, '"textColor"'), 'a colour read from a custom property the dark theme redefines is not bound');
 
+// Lightning CSS (Tailwind v4) writes each colour token twice: a hex value,
+// then a CIE `lab()` override inside `@supports (color:lab(0% 0 0))`. The
+// override wins the cascade, so the palette must read `lab()` and match the
+// palette of the same site written in plain hex.
+$labOf = array(
+    '#1d3557' => 'lab(21.5916% -0.1886 -23.7709)', '#2b2b2b' => 'lab(17.5333% -0.0038 -0.0025)', '#555555' => 'lab(36.1459% -0.0059 -0.0038)',
+    '#a8dadc' => 'lab(83.606% -16.4153 -6.5702)', '#e63946' => 'lab(52.8521% 66.4167 35.8209)', '#f1faee' => 'lab(97.3437% -4.6664 4.6824)',
+    '#f4f1ea' => 'lab(95.2345% 0.1259 3.7551)',
+);
+$tokens = array_combine(array_keys($labOf), array_map(static fn(int $i): string => '--c' . $i, array_keys(array_keys($labOf))));
+$lightning = require dirname(__DIR__) . '/fixtures/design-system/plain-css.php';
+$lightning['files']['style.css'] = ':root{' . implode('', array_map(static fn(string $hex, string $token): string => "$token:$hex;", array_keys($tokens), $tokens)) . '}'
+    . '@supports (color:lab(0% 0 0)){:root{' . implode('', array_map(static fn(string $hex, string $token): string => "$token:{$labOf[$hex]};", array_keys($tokens), $tokens)) . '}}'
+    . strtr($lightning['files']['style.css'], array_map(static fn(string $token): string => "var($token)", $tokens));
+$assert('#e63946' === CssColor::hex('lch(52.8521% 75.4618 28.3423)') && '#e63946' === CssColor::hex('lab(52.8521 53.13% 28.66%)') && '#e6394680' === CssColor::hex('lab(52.8521% 66.4167 35.8209 / 0.5)'), 'CIE lch(), percentage lab() channels and lab() alpha parse to sRGB');
+$hexPalette = array_column($plans['plain-css'][1]['settings']['color']['palette'] ?? array(), 'color', 'slug');
+$labPalette = array_column($compile($lightning)[1]['settings']['color']['palette'] ?? array(), 'color', 'slug');
+ksort($hexPalette);
+ksort($labPalette);
+$assert(count($hexPalette) >= 5 && $hexPalette === $labPalette, 'lab() tokens behind a hex fallback give the same palette as plain hex (' . json_encode($labPalette) . ')');
+
 // Clustering and roles from usage alone.
 $usage = static fn(array $text, array $backgrounds = array(), array $root = array()): array => array('schema' => DesignSystem::USAGE_SCHEMA, 'root_font_size_px' => 16, 'root' => $root, 'text' => $text, 'backgrounds' => $backgrounds, 'spacing' => array(), 'widths' => array());
 $row = static fn(string $color, int $weight, string $role = 'body', float $size = 16, string $background = '#ffffff'): array => array('role' => $role, 'color' => $color, 'font_family' => 'Inter, sans-serif', 'font_size_px' => $size, 'background' => $background, 'count' => 1, 'weight' => $weight);
@@ -121,6 +258,23 @@ foreach (array(12, 14, 16, 16.2, 18, 20, 24, 30, 36, 48, 60, 72) as $index => $s
 $scale = DesignSystem::fromUsage(array('a.html' => $usage($sizes)));
 $scaleSlugs = array_column($scale?->fontSizes ?? array(), 'slug');
 $assert(8 === count($scaleSlugs) && 'medium' === ($scale?->fontSizeSlug('16px')) && null === ($scale?->fontSizeSlug('16.2px')) && in_array('small', $scaleSlugs, true) && in_array('large', $scaleSlugs, true), 'font sizes within half a pixel merge, only the preset\'s own size binds, and the scale is capped at eight steps');
+// Heading additions preserve every baseline preset, including its slug.
+// Disagreeing per-level declarations must not become element defaults.
+$crowdedSizes = array();
+foreach (array(12, 14, 16, 18, 20, 24, 30, 36) as $size) $crowdedSizes[] = $row('#111111', 1000, 'body', $size);
+$crowdedSizes[] = $row('#111111', 1, 'heading', 60) + array('heading_level' => 1, 'font_weight' => 800, 'line_height' => '1');
+$crowdedSizes[] = $row('#111111', 2, 'heading', 36) + array('heading_level' => 2, 'font_weight' => 700, 'line_height' => '1.2');
+$crowdedSizes[] = $row('#111111', 1, 'heading', 24) + array('heading_level' => 2, 'font_weight' => 400, 'line_height' => '1.5');
+$crowdedUsage = $usage($crowdedSizes);
+$baselineSystem = DesignSystem::fromUsage(array('a.html' => $crowdedUsage));
+$crowdedUsage['heading_typography'] = array(
+    array('level' => 1, 'size_px' => 60, 'font_size' => 60, 'font_weight' => 800, 'line_height' => '1'),
+    array('level' => 2, 'size_px' => 36, 'font_size' => 36, 'font_weight' => 700, 'line_height' => '1.2'),
+    array('level' => 2, 'size_px' => 24, 'font_size' => 24, 'font_weight' => 400, 'line_height' => '1.5'),
+);
+$crowdedSystem = DesignSystem::fromUsage(array('a.html' => $crowdedUsage));
+$assert(9 === count($crowdedSystem?->fontSizes ?? array()) && null !== $crowdedSystem?->fontSizeSlug('60px') && $baselineSystem?->fontSizes === array_slice($crowdedSystem?->fontSizes ?? array(), 0, 8), 'a low-mass heading adds a preset without changing the established scale');
+$assert(array() === array_intersect_key($crowdedSystem?->elements['h2'] ?? array(), array_flip(array('font_size', 'font_weight', 'line_height'))), 'disagreeing headings have no per-level typography defaults');
 // Three per-page copies of one stylesheet ship three times its bytes.
 $copies = array_fill(0, 3, array('kind' => 'css', 'source' => 'files', 'content' => str_repeat('a{color:#111111}', 10)));
 $sizeMetrics = DesignSystem::fromUsage(array('a.html' => $usage(array($row('#111111', 5)))))?->metrics(array('<!-- wp:paragraph --><p>a</p><!-- /wp:paragraph -->'), $copies, array(), array(), 160);
@@ -215,11 +369,36 @@ $assert('.a{color:#00ff00;border-color:#111111;font-size:23px}' === $sheet('.a{c
 $assert('.a{font-size:var(--wp--preset--font-size--large,1.5rem)}' === $sheet('.a{font-size:1.5rem}'), 'a font size equal to a preset length binds');
 $assert('.a{font-size:24.4px}' === $sheet('.a{font-size:24.4px}'), 'a font size within tolerance but not equal stays, so no layout moves');
 $assert(':root{--brand:var(--wp--preset--color--' . $slug . ',#e11d48)}' === $sheet(':root{--brand:#e11d48}'), 'a custom property that is a token colour binds, so every utility reading it follows');
+$sourceRead = $sheet(':root{--wp--preset--color--accent-2:#e11d48}.a{color:var(--wp--preset--color--accent-2)}');
+$assert(str_contains($sourceRead, '--be--source--preset--color--accent-2:var(--wp--preset--color--' . $slug . ',#e11d48)'), 'a source preset definition matching a token follows it under a source-owned name');
+$assert(str_contains($sourceRead, '.a{color:var(--wp--preset--color--' . $slug . ',var(--be--source--preset--color--accent-2))}'), 'a resolved source preset read binds to the generated token with a source-owned fallback');
+$quotedPreset = '.a{content:"--wp--preset--color--accent-2";/* --wp--preset--color--accent-2 */outline-color:var(--wp--preset--color--accent-2)}';
+$assert(str_contains($sheet($quotedPreset), 'content:"--wp--preset--color--accent-2"') && str_contains($sheet($quotedPreset), 'outline-color:var(--be--source--preset--color--accent-2)'), 'source projection leaves quoted content alone while rewriting variable reads');
+$assert(str_contains($sheet('@media(min-width:1px){.a{--wp--preset--spacing--40:3px;padding:var(--wp--preset--spacing--40)}}'), '--be--source--preset--spacing--40:3px;padding:var(--be--source--preset--spacing--40)'), 'conditional source definitions and reads share the source namespace');
 $opacity = '.text-x{--tw-text-opacity:1;color:rgb(225 29 72 / var(--tw-text-opacity, 1))}';
 $assert(str_contains($sheet($opacity), 'color:var(--wp--preset--color--' . $slug . ',rgb(225 29 72 / var(--tw-text-opacity, 1)))'), 'a Tailwind opacity variable every rule sets to its fallback resolves');
 $assert(!str_contains($sheet($opacity . '.text-opacity-50{--tw-text-opacity:.5}'), '--wp--preset--color--'), 'an opacity variable another rule sets differently keeps the literal');
 $assert(!str_contains($sheet('.a{color:hsl(var(--x))}', array(array('kind' => 'css', 'content' => ':root{--x:347 77% 50%}.dark{--x:0 0% 7%}'))), '--wp--preset--color--'), 'a colour read from a custom property a scope redefines keeps the literal');
 $assert('.a{font-family:var(--wp--preset--font-family--body,Inter, sans-serif)}.b{font-family:Inter,Arial}' === $sheet('.a{font-family:Inter, sans-serif}.b{font-family:Inter,Arial}'), 'only the preset\'s own font stack binds, so fallbacks do not change');
+$fontVariables = ':root{--family:Inter, sans-serif;--other:Inter,Arial}.a{font-family:var(--family)}.b{font-family:var(--other)}';
+$assert(str_contains($sheet($fontVariables), '.a{font-family:var(--wp--preset--font-family--body,var(--family))}') && str_contains($sheet($fontVariables), '.b{font-family:var(--other)}'), 'resolved font declarations bind only an exact stack and retain the original variable fallback');
+$assert('.a{font-family:var(--wp--preset--font-family--body,"Inter",sans-serif)}.b{font-family:"In ter",sans-serif}' === $sheet('.a{font-family:"Inter",sans-serif}.b{font-family:"In ter",sans-serif}'), 'font stack comparison preserves spaces inside family names');
+
+// Compound colour values follow the palette without interpreting positions,
+// variable fallbacks or URLs as colour tokens.
+$compoundSystem = (new \ReflectionClass(DesignSystem::class))->newInstanceWithoutConstructor();
+$compoundConstructor = new \ReflectionMethod(DesignSystem::class, '__construct');
+$compoundConstructor->invoke($compoundSystem, array(
+    array('slug' => 'primary', 'color' => '#2563eb'),
+    array('slug' => 'accent', 'color' => '#1d4ed8'),
+), array(), array(), array(), array(), array(), array(), 16.0, 1);
+$compoundBinding = new PresetBinding($compoundSystem, array());
+$compoundCss = '.a{--x:#1d4ed8 var(--pos);--stops:var(--a), #2563eb var(--b), var(--c);background-image:linear-gradient(135deg,#1d4ed8,#2563eb 60%,#000);--fade:#1d4ed800 var(--pos);background:url("#1d4ed8") #abcdef;--other:var(--missing,#1d4ed8) #abcdef}';
+$compoundExpected = '.a{--x:var(--wp--preset--color--accent,#1d4ed8) var(--pos);--stops:var(--a), var(--wp--preset--color--primary,#2563eb) var(--b), var(--c);background-image:linear-gradient(135deg,var(--wp--preset--color--accent,#1d4ed8),var(--wp--preset--color--primary,#2563eb) 60%,#000);--fade:color-mix(in srgb, var(--wp--preset--color--accent,#1d4ed8) 0%, transparent) var(--pos);background:url("#1d4ed8") #abcdef;--other:var(--missing,#1d4ed8) #abcdef}';
+$assert($compoundExpected === $compoundBinding->bindStylesheet($compoundCss), 'compound custom properties and gradient stops bind exact palette colours and translucent variants, leaving references, positions, URLs and other colours untouched');
+$assert(5 === $compoundBinding->boundCount(), 'each bound compound colour token is counted once');
+$assert('.a{background:linear-gradient(to right, var(--wp--preset--color--accent,rgb(29,78,216)), var(--wp--preset--color--primary,rgba(37,99,235,1)) 60%, #000)!important}' === $compoundBinding->bindStylesheet('.a{background:linear-gradient(to right, rgb(29,78,216), rgba(37,99,235,1) 60%, #000)!important}'), 'background gradients keep functional colours whole and preserve angles, stops and importance');
+$assert('.a{--x:var(--be--source--preset--color--old) var(--wp--preset--color--accent,#1d4ed8)}' === $compoundBinding->bindStylesheet('.a{--x:var(--wp--preset--color--old) #1d4ed8}'), 'compound source reads stay source-owned while generated preset reads keep the WordPress namespace');
 
 // A document whose root is 10px names its sizes in rem. A rule on the root
 // element itself resolves rem, em and % against the initial 16px, so binding
@@ -333,7 +512,7 @@ $preset = static fn(string $hex): string => 'var:preset|color|' . ($elementSlug[
 $elements = $elementTheme['styles']['elements'] ?? array();
 $assert($preset('#0f766e') === ($elements['link']['color']['text'] ?? null) && $preset('#134e4a') === ($elements['link'][':hover']['color']['text'] ?? null), 'element-styles: link colour and hover colour are palette references (' . json_encode($elements['link'] ?? null) . ')');
 $assert($preset('#ffffff') === ($elements['button']['color']['text'] ?? null) && $preset('#0f766e') === ($elements['button']['color']['background'] ?? null) && $preset('#134e4a') === ($elements['button'][':hover']['color']['background'] ?? null) && '600' === ($elements['button']['typography']['fontWeight'] ?? null), 'element-styles: button colours, hover background and weight project (' . json_encode($elements['button'] ?? null) . ')');
-$assert($preset('#134e4a') === ($elements['heading']['color']['text'] ?? null) && 'var:preset|font-family|heading' === ($elements['heading']['typography']['fontFamily'] ?? null) && '700' === ($elements['heading']['typography']['fontWeight'] ?? null), 'element-styles: heading colour, family and weight project (' . json_encode($elements['heading'] ?? null) . ')');
+$assert($preset('#134e4a') === ($elements['heading']['color']['text'] ?? null) && 'var:preset|font-family|heading' === ($elements['heading']['typography']['fontFamily'] ?? null) && !isset($elements['heading']['typography']['fontWeight']), 'element-styles: heading colour and family project without an unproven shared weight (' . json_encode($elements['heading'] ?? null) . ')');
 // An element style outranks author element rules (`:root :where(h1)`), so a
 // usage-derived value never fills a property an author stylesheet sets to
 // another value: here a selectable `light` set makes `h1` weight 300.
@@ -377,10 +556,34 @@ foreach (array('dark-hero-headings' => false, 'dark-hero-headings control' => tr
     $assert(array('#ffffff', '#ffffff', '#ffffff') === $h1Colors, "$label: each H1 still renders #fff through its block or its section (" . json_encode($h1Colors) . ')');
 }
 
+// A heading whose colour comes from the section it sits in inherits it: no
+// rule styles the heading, usage records the inherited root text colour, and
+// an element colour equal to the root text colour is a no-op that must not be
+// emitted — WordPress's `h1..h6 { color: … }` output would override the
+// section's inheritance and paint the band's headings dark-on-dark. Headings
+// that state the root colour themselves (the control) keep rendering it
+// through their own blocks instead of an element style.
+$inherited = require dirname(__DIR__) . '/fixtures/design-system/inherited-section-heading.php';
+foreach (array('inherited-section-heading' => false, 'inherited-section-heading control' => true) as $label => $styled) {
+    [$bandPlan, $bandTheme] = $compile($inherited($styled));
+    $bandPalette = array_column($bandTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+    $bandElements = $bandTheme['styles']['elements'] ?? array();
+    $assert('var:preset|color|contrast' === ($bandTheme['styles']['color']['text'] ?? null) && '#1e2024' === ($bandPalette['contrast'] ?? null), "$label: the root text colour is the dark contrast role (" . json_encode($bandTheme['styles']['color'] ?? null) . ')');
+    $assert(!isset($bandElements['heading']['color']) && !isset($bandElements['h1']['color']) && !isset($bandElements['h2']['color']), "$label: no heading element colour equal to the root text colour is emitted (" . json_encode($bandElements) . ')');
+    $bandMarkup = implode('', array_column($bandPlan['pages'], 'canonical_block_markup'));
+    $bandCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($bandPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
+    if ($styled) {
+        $assert(2 === preg_match_all('/<!-- wp:heading [^>]*"textColor":"contrast"/', $bandMarkup), "$label: headings that state the root colour themselves keep rendering it through their blocks");
+        continue;
+    }
+    $assert(!preg_match('/<!-- wp:heading [^>]*"textColor"/', $bandMarkup), "$label: inherited headings carry no colour binding");
+    $assert(str_contains($bandCss, 'var(--band-fg)'), "$label: the band's class rule still supplies the colour its heading inherits");
+}
+
 // A size a breakpoint changes stays with the source: an element style
 // would override the responsive variant.
 [, $v4Theme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/tailwind-v4.php');
-$assert(!isset($v4Theme['styles']['elements']['h1']['typography']['fontSize']), 'tailwind-v4: the responsive h1 size is not an element style');
+$assert(!isset($v4Theme['styles']['elements']['h1']['typography']['fontSize']), 'tailwind-v4: conditional heading sizes do not become fixed element defaults');
 
 // Root styles name roles, and restyle coverage is reported for every fixture.
 foreach ($plans as $fixture => [$plan, $theme]) {

@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
@@ -56,6 +57,22 @@ $badge = ( new HtmlTransformer() )->transform(
 $badgeMarkup = (string) ( $badge['serialized_blocks'] ?? '' );
 $assert(str_contains($badgeMarkup, 'featured-badge') && str_contains($badgeMarkup, HtmlCompilation::LOWERED_PARAGRAPH_CLASS) && ! preg_match('/<p class="[^"]*featured-badge[^"]*' . $synthetic . '/', $badgeMarkup), 'a text-only source div is one lowered paragraph that keeps its padded, positioned box', $badgeMarkup);
 $assert('pass' === ( $badge['source_reports']['wp_block_validity']['status'] ?? '' ), 'the lowered badge paragraph remains editor-valid');
+
+// Both unmarked and data-only spans must avoid UA paragraph margins.
+foreach ( array('plain' => '', 'data hook' => ' data-hook="x"') as $label => $attributes ) {
+    $result = ( new ArtifactCompiler() )->compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array('index.html' => '<style>.price{display:inline-block;font-size:26px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}</style><main><div class="price"><span' . $attributes . '>R$ 85,00</span><span class="sr-only">Price</span></div></main>'),
+    ))->toArray();
+    $markup = (string) ($result['serialized_blocks'] ?? '');
+    $dom = new DOMDocument();
+    $dom->loadHTML('<?xml encoding="UTF-8">' . $markup);
+    $paragraphs = ( new DOMXPath($dom) )->query('//p[contains(., "R$ 85,00")]');
+    $assert(1 === $paragraphs->length, $label . ': price has one paragraph carrier', $markup);
+    $paragraph = $paragraphs->item(0);
+    $assert($paragraph instanceof DOMElement && in_array($synthetic, explode(' ', $paragraph->getAttribute('class')), true), $label . ': price inline carrier resets paragraph margins', $markup);
+    $assert($paragraph instanceof DOMElement && ! str_contains($paragraph->getAttribute('class'), SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS), $label . ': no undecorated-anchor class without anchors');
+}
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "synthetic paragraph inline box: {$failures} failed, {$passes} passed\n");

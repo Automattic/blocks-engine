@@ -21,6 +21,9 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, string> */
     private array $disclosureSummaryPresentation = array();
 
+    /** @var array<string, bool> */
+    private array $disclosureSummaryMarkerSuppression = array();
+
     /** @var array<string, string> */
     private array $disclosureSummaryContentCarrierPresentation = array();
 
@@ -228,9 +231,10 @@ final class GeneratedSupportStylesheetState
         return $this->navigationAnchorLineHeights[$className] ?? '';
     }
 
-    public function registerDisclosureSummaryPresentation(string $className, string $declarations): void
+    public function registerDisclosureSummaryPresentation(string $className, string $declarations, bool $suppressMarker = false): void
     {
         $this->disclosureSummaryPresentation[$className] = $declarations;
+        $this->disclosureSummaryMarkerSuppression[$className] = $suppressMarker;
     }
 
     public function registerDisclosureSummaryContentCarrierPresentation(string $className, string $declarations): void
@@ -289,6 +293,14 @@ final class GeneratedSupportStylesheetState
     public function navigationLinkLeadingIcon(string $className): string
     {
         return $this->navigationLinkLeadingIcons[$className] ?? '';
+    }
+
+    /** @var array<string, array{box: string, glyph: string}> */
+    private array $navigationSubmenuIconGeometry = array();
+
+    public function registerNavigationSubmenuIconGeometry(string $className, string $box, string $glyph): void
+    {
+        $this->navigationSubmenuIconGeometry[$className] = array('box' => $box, 'glyph' => $glyph);
     }
 
     public function registerNavigationSubmenuBackground(string $className, string $color): void
@@ -369,6 +381,15 @@ final class GeneratedSupportStylesheetState
     public function conditionalAfterAuthorCss(string $serializedBlocks): array
     {
         $parts = array();
+        foreach ($this->navigationSubmenuIconGeometry as $className => $geometry) {
+            if (str_contains($serializedBlocks, $className)) {
+                // Core owns overlay spacing; this bridge is only for the
+                // non-overlay menu. Do not alter its accessible toggle markup.
+                $selector = '.wp-block-navigation .wp-block-navigation-item.' . $className . ':not(.is-menu-open *)>.wp-block-navigation__submenu-icon';
+                $parts[] = $selector . '{' . $geometry['box'] . '}';
+                $parts[] = $selector . '>svg{' . $geometry['glyph'] . '}';
+            }
+        }
         foreach ($this->navigationSubmenuBackgrounds as $className => $color) {
             if (str_contains($serializedBlocks, $className)) {
                 $parts[] = '.wp-block-navigation-item.' . $className . '>.wp-block-navigation__submenu-container{background-color:' . $color . '}';
@@ -381,6 +402,9 @@ final class GeneratedSupportStylesheetState
                 $parts[] = '.wp-block-details.' . $className . '>summary{' . $declarations . '}';
                 $carrier = '>span.' . DisclosureControlPresentation::SUMMARY_CONTENT_CARRIER_CLASS;
                 $summary = '.wp-block-details.' . $className . '>summary';
+                if ( $this->disclosureSummaryMarkerSuppression[$className] ?? false ) {
+                    $parts[] = $summary . '::-webkit-details-marker{display:none}';
+                }
                 $parts[] = $summary . ':has(' . $carrier . '){padding:0!important;border:0!important;background:none!important;box-shadow:none!important}';
             }
         }

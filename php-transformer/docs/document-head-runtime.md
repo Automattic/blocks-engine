@@ -29,7 +29,19 @@ materialization. Ordinary descriptive metadata retains its existing routing.
 
 ## Materialization and evidence
 
-- `elements` retains the mixed source order of head metadata, linked stylesheets,
+- Head replay is an ownership allowlist. Allowed metadata names are `viewport`,
+  `theme-color`, `color-scheme`, `keywords` and `application-name`. Allowed link
+  relations are `stylesheet`, `preload`, `modulepreload`, `preconnect`,
+  `dns-prefetch`, `icon`, `shortcut`, `apple-touch-icon` and `mask-icon` (every
+  relation token must be allowed). Scripts and styles retain their existing
+  binding contracts, including structured data. Unknown metadata is not replayed.
+  Source charset, robots, canonical, social/description SEO, generator, sitemap,
+  manifests and telemetry never pass through, even with selector attributes.
+  WordPress/platform owners supply those facts; this slice does not populate SEO
+  owner fields. Drops use `document_head_element_dropped` findings with ownership
+  reasons (`wordpress_owned_*`, `platform_owned_*`, `third_party_telemetry` or
+  `not_allowlisted`). Rendering applies the same allowlist as materialization.
+- `elements` retains the mixed source order of allowed metadata, linked stylesheets,
   inline styles, and scripts. Styles retain separate DOM identities even when
   adjacent stylesheet payloads would otherwise coalesce.
 - Attribute maps preserve source-owned attributes with bounded names and values:
@@ -37,15 +49,18 @@ materialization. Ordinary descriptive metadata retains its existing routing.
   values. Event-handler attributes and embedded URL attributes use the owning
   declaration/asset contract instead of opaque attribute strings.
 - Executable inline scripts and styles bind declared canonical assets. The
-  emitted bootstrap prints their bodies inline, preserving parser-time behavior.
+  emitted bootstrap prints script bodies inline, preserving parser-time behavior.
+  A style row renders as `<link rel="stylesheet" href="<asset token>">` in its
+  source position, carrying its `media`, `id`, `class`, `nonce`, `title` and `data-*` attributes; the CSS bytes
+  live only in the written theme file, never in `functions.php`.
   External scripts and links retain their source semantics and token-bound URLs.
   Inert inline script data retains its body and the existing document metadata
   body hash, bounded to one MiB. Head script declarations must match the existing
   script-loading contract; strict dynamic-client-asset resolution still applies.
 - Linked stylesheet rows also carry their source `link:nth-of-type(N)` occurrence
   so enqueue aliases can hand ownership to the actual emitted head element.
-  Non-subresource document relationships, such as canonical links, resolve through
-  the existing route map; stylesheet and preload URLs remain asset references.
+  Stylesheet and preload URLs remain asset references; platform-owned document
+  relationships are omitted before URL binding.
 - A link URL that is a `data:` URL, such as an inline SVG favicon, carries its own
   bytes. It has no write to bind, so the row keeps the URL as written, bounded to
   one MiB. Scripts keep the script-loading contract.
@@ -54,14 +69,14 @@ materialization. Ordinary descriptive metadata retains its existing routing.
   that names its image only in `imagesrcset`.
 - The theme bootstrap selects the route by reconciliation identity (with existing
   front-page/page-route fallback), installs the head emitter after template
-  selection and emits at `wp_head` priority `-1`. A declared unique viewport
+  selection and emits at `wp_head` priority `8`. A declared unique viewport
   replaces Core's `_block_template_viewport_meta_tag` callback. Head-owned
   scripts/styles are not independently emitted by the theme enqueue path.
 - A page that declares more than one viewport meta keeps the last one, as
   browsers do, and the plan records a `document_head_duplicate_viewport`
   warning with the page's `source_path`. The import is not failed.
 - A local head `<link>` that names neither a captured asset nor an artifact route
-  (icon, canonical, alternate, preload, stylesheet) is dropped from the head and the
+  (icon, preload, stylesheet) is dropped from the head and the
   plan records a `wordpress_site_plan_omitted_link_declaration` warning
   (`reason_code` `unresolved_local_url`). The import is not failed; the strict head
   validator still rejects a head that declares such a link.

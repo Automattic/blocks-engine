@@ -48,6 +48,25 @@ foreach (array(array_replace($input, array('checked' => 'true')), array_replace(
     $doc = new DOMDocument(); $doc->loadHTML('<input type="checkbox"' . $marker($invalid) . '>');
     $assert(null === NativeControlState::attributes($doc->getElementsByTagName('input')->item(0)), 'invalid or open payload is rejected before adaptation');
 }
+// Only observed non-rendering excludes a CSS-hidden control from search topology.
+$trapState = array('version' => 1, 'kind' => 'textarea', 'value' => '', 'defaultValue' => '');
+foreach (array(
+    'not rendered' => array('rendered' => false),
+    'rendered' => array('rendered' => true),
+    'absent' => array(),
+    'invalid string' => array('rendered' => 'false'),
+    'invalid zero' => array('rendered' => 0),
+) as $case => $observation) {
+    $state = $trapState + $observation;
+    $html = '<form action="/search"><textarea class="d-none" name="trap"' . $marker($state)
+        . '></textarea><input name="q"><button type="submit">Search</button></form>';
+    $search = (new HtmlTransformer())->transform($html)->toArray();
+    $assert(('not rendered' === $case) === in_array('core/search', array_column($flatten($search['blocks']), 'blockName'), true), "{$case}: only rendered:false permits core/search");
+    $doc = new DOMDocument(); $doc->loadHTML($html);
+    $control = $doc->getElementsByTagName('textarea')->item(0);
+    $valid = in_array($case, array('not rendered', 'rendered', 'absent'), true);
+    $assert($valid === (null !== NativeControlState::attributes($control)), "{$case}: optional rendering observation must be boolean");
+}
 $sourceWithReplay = $source . '<script data-blocks-engine-capture-native-control-runtime>window.capturedReplayExecuted=true;document.querySelector("input[data-blocks-engine-capture-native-control-state]").checked=true;</script>';
 $artifact = (new ArtifactCompiler())->compile(array('block_namespace' => 'neutral', 'files' => array('index.html' => $sourceWithReplay)))->toArray();
 $payload = $artifact['source_reports']['companion_plugin_payload'];

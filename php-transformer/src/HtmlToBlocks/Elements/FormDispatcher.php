@@ -19,6 +19,11 @@ final class FormDispatcher
      */
     public function convert(DOMElement $element, array &$fallbacks): ?array
     {
+        $loginBlock = $this->context->loginBlockFromForm($element);
+        if ( null !== $loginBlock ) {
+            return $loginBlock;
+        }
+
         $searchBlock = $this->context->searchBlockFromForm($element);
         if ( null !== $searchBlock ) {
             return $searchBlock;
@@ -36,18 +41,33 @@ final class FormDispatcher
             return $this->context->htmlPreservationBlock($element);
         }
 
+        // Choice-only state needs runtime behavior, not provider substitution.
+        // Reuse the button-only preference path: readable blocks and one island.
+        if ( 'preference' === FormRuntimeRequirementAnalyzer::formIntent($element) ) {
+            $readableFormBlock = $this->context->buildReadableFormBlock($element, true, $fallbacks);
+            $this->context->recordForm($element, $readableFormBlock);
+            return $readableFormBlock;
+        }
+
         $hasChoiceGroups = FormControlClassifier::hasCapturedChoiceGroups($element);
-        if ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) {
+        // A control without a prose summary (date, time, ...) keeps the exact
+        // preserved form on the page; the finding still carries the readable tree.
+        $summarizable = FormControlClassifier::controlsHaveProseSummaries($element);
+        if ( $summarizable && ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) ) {
             $composition = $this->context->compose($element, $fallbacks);
             if ( null !== $composition ) {
-                $fallbacks[] = $this->context->buildFallbackFinding($element, $composition['block'], $composition['slot']);
+                // The composed block already reported this subtree's findings;
+                // the readable tree is only the provider substitution input.
+                $readableFallbacks = array();
+                $readable = $this->context->buildReadableFormBlock($element, true, $readableFallbacks);
+                $fallbacks[] = $this->context->buildFallbackFinding($element, $readable, $composition['slot']);
                 $this->context->recordForm($element, $composition['block']);
                 return $composition['block'];
             }
         }
 
         $readableFormBlock = $this->context->buildReadableFormBlock($element, false, $fallbacks);
-        if ( null !== $readableFormBlock && ! $this->context->requiresPreservation($element) ) {
+        if ( null !== $readableFormBlock && ! $this->context->requiresPreservation($element) && $summarizable ) {
             if ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) {
                 $fallbacks[] = $this->context->buildFallbackFinding($element, $readableFormBlock);
             }
@@ -93,7 +113,7 @@ final class FormDispatcher
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function capturePseudoFormFallback(DOMElement $element, array &$fallbacks): void
     {
-        if ( $this->context->isPseudoForm($element) ) {
+        if ( $this->context->isProviderPseudoForm($element) ) {
             $fallbacks[] = $this->context->buildFallbackFinding($element, $this->context->buildReadableFormBlock($element, true));
         }
     }

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 /**
  * A capture panel that wraps the source's own native `<dialog>` projects as
  * one dialog. The capture opens the source dialog for its snapshot
@@ -38,7 +40,7 @@ $state = array(
 $files = array(
     array('path' => 'website/index.html', 'content' => $html),
     array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-    array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array($state)))), JSON_UNESCAPED_SLASHES)),
+    array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'components' => captured_components(array($state))))), JSON_UNESCAPED_SLASHES)),
 );
 
 $projected = (string) ((new CapturedDialogProjector())->project($files)['files'][0]['content'] ?? '');

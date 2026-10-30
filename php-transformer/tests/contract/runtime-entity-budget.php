@@ -57,7 +57,10 @@ WordPressSitePlan::assertValid($catalogPlan);
 
 // 2. One product whose site-plan record exceeds the payload limit is dropped
 // with its bindings. Its block stays static and the other products keep theirs.
-$grid = $card('Huge Item', '10.00', 'data:image/png;base64,' . str_repeat('A', 1800000)) . $card('Small Item', '11.00', 'https://cdn.example.test/s.jpg') . $card('Tiny Item', '12.00', 'https://cdn.example.test/t.jpg') . $card('Wee Item', '13.00', 'https://cdn.example.test/w.jpg');
+// The record carries the image in its fields and its binding's block markup,
+// so an image over half the limit is over it, while the page stays a file the
+// compiler accepts.
+$grid = $card('Huge Item', '10.00', 'data:image/png;base64,' . str_repeat('A', intdiv(RuntimeDeclarations::MAX_PAYLOAD_BYTES, 2) + 100000)) . $card('Small Item', '11.00', 'https://cdn.example.test/s.jpg') . $card('Tiny Item', '12.00', 'https://cdn.example.test/t.jpg') . $card('Wee Item', '13.00', 'https://cdn.example.test/w.jpg');
 $oversized = $compile(array('index.html' => '<main><h1>Shop</h1><div class="grid">' . $grid . '</div></main>'));
 $oversizedPlan = $oversized['source_reports']['wordpress_site_plan'] ?? null;
 $assert('success_with_warnings' === $oversized['status'] && is_array($oversizedPlan), 'One oversized product entity no longer fails the site: ' . json_encode(array_column($findings($oversized['diagnostics'], 'wordpress_site_plan_not_self_contained'), 'message')));

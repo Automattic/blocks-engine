@@ -1,0 +1,24 @@
+<!doctype html><html><head><title>Component capture</title></head><body>
+<main>
+<button id="open-dialog" aria-haspopup="dialog" aria-controls="dialog-panel" aria-expanded="false">Open dialog</button>
+<div id="dialog-panel" role="dialog" aria-label="Information" hidden><button id="close-dialog">Close</button><p>Observed dialog content</p></div>
+<button id="open-listbox" aria-haspopup="listbox" aria-controls="options" aria-expanded="false">Choose size</button>
+<div id="options" role="listbox" aria-label="Size" hidden><div role="option" aria-selected="true">Small</div><div role="option">Large</div></div>
+<section id="tab-owner"><div id="tabs" role="tablist" aria-label="Topics"><button id="first-tab" role="tab" aria-controls="first-panel" aria-selected="true">First</button><button id="lazy-tab" role="tab" aria-controls="lazy-panel" aria-selected="false">Lazy</button></div><div id="first-panel" role="tabpanel" aria-labelledby="first-tab"><p>Initial panel content</p></div></section>
+<details id="disclosure" open><summary>Answer</summary><p>Authored open answer</p></details>
+<section id="carousel" aria-roledescription="carousel" aria-label="Highlights"><div aria-roledescription="slide"><p>First slide</p></div><div aria-roledescription="slide" hidden><p>Second slide</p></div><button id="previous-slide" aria-label="Previous slide">Previous slide</button><button id="next-slide" aria-label="Next slide">Next slide</button></section>
+<button id="unsupported" aria-expanded="false" aria-controls="unknown-panel" aria-haspopup="true">Unknown</button>
+</main>
+<script>
+for (const [trigger,panel,close] of [['open-dialog','dialog-panel','close-dialog'],['open-listbox','options',null]]) {
+ const button=document.getElementById(trigger), surface=document.getElementById(panel);
+ button.onclick=()=>{surface.hidden=!surface.hidden;button.setAttribute('aria-expanded',String(!surface.hidden));};
+ if(close)document.getElementById(close).onclick=()=>{surface.hidden=true;button.setAttribute('aria-expanded','false');};
+}
+for(const button of document.querySelectorAll('[role="tab"]'))button.onclick=()=>{
+ if(button.id==='lazy-tab'&&!document.getElementById('lazy-panel'))document.getElementById('tab-owner').insertAdjacentHTML('beforeend','<div id="lazy-panel" role="tabpanel" aria-labelledby="lazy-tab"><p>Lazy observed content</p></div>');
+ for(const tab of document.querySelectorAll('[role="tab"]')){tab.setAttribute('aria-selected',String(tab===button));const panel=document.getElementById(tab.getAttribute('aria-controls'));if(panel)panel.hidden=tab!==button;}
+};
+let slide=0;for(const id of ['previous-slide','next-slide'])document.getElementById(id).onclick=()=>{slide=1-slide;document.querySelectorAll('[aria-roledescription="slide"]').forEach((node,i)=>node.hidden=i!==slide);};
+document.getElementById('unsupported').onclick=()=>{if(!document.getElementById('unknown-panel'))document.body.insertAdjacentHTML('beforeend','<div id="unknown-panel">Unsupported secret content</div>');};
+</script></body></html>

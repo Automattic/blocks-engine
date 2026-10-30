@@ -41,7 +41,6 @@ $operations = array(
         return 'spacer' === $state->mode && array( SpacerPattern::class ) === $patterns ? array( 'blockName' => 'core/spacer' ) : null;
     },
     'flankedSeparatorBlock' => $null,
-    'capturedMediaLayoutBlock' => $null,
     'canCaptureExternalSvgFragmentDependency' => static fn (): bool => true,
     'sourceElementClassifier' => new SourceElementClassifier(),
     'responsiveMediaBlock' => static fn (): array => array( 'blockName' => 'responsive-media' ),

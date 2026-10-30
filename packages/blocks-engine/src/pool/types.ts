@@ -21,6 +21,7 @@ export interface FixResult {
   htmlIslandOccurrences?: HtmlIslandOccurrence[];
   htmlIslandDistinctCount?: number;
   htmlIslandOccurrencesTruncated?: boolean;
+  preservedBlocks?: string[];
   degraded: boolean;
 }
 

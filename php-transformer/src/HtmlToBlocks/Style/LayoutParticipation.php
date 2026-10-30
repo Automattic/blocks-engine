@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /**
@@ -39,16 +40,22 @@ final class LayoutParticipation
         public readonly string $context,
         public readonly string $sourceDisplay,
         public readonly bool $positioned,
-        public readonly bool $sourceIsNativeControl = false
+        public readonly bool $sourceIsNativeControl = false,
+        public readonly bool $sourceWrappersAreNative = false
     ) {}
 
     public static function resolve(DOMElement $element, StyleResolver $styleResolver): self
     {
         $positioned = $styleResolver->hasChildOwnedPositionedOffsets($element);
         $parent = $element->parentNode;
-        $parentDisplay = '';
+        $parentDisplays = array();
         if ( $parent instanceof DOMElement ) {
-            $parentDisplay = self::resolvedDisplay($parent, $styleResolver);
+            $parentDisplays[] = self::resolvedDisplay($parent, $styleResolver);
+            // Synthesized wrappers must preserve item participation even when
+            // the parent only establishes that context at another breakpoint.
+            foreach ( $styleResolver->conditionalDisplayRules($parent) as $display ) {
+                $parentDisplays[] = CssValueInspector::comparable($display);
+            }
         }
         $sourceDisplay = self::resolvedDisplay($element, $styleResolver);
         if ( '' === $sourceDisplay ) {
@@ -58,9 +65,18 @@ final class LayoutParticipation
                 : ( in_array($tag, self::UA_INLINE_BLOCK, true) ? 'inline-block' : 'block' );
         }
 
-        if ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true) ) {
+        // A link lowered together with its sole native button represents the
+        // button's box, not the surrounding inline anchor's line box.
+        if ( 'inline' === $sourceDisplay && 'a' === strtolower($element->tagName) && 1 === $element->childElementCount ) {
+            $child = $element->firstElementChild;
+            if ( $child instanceof DOMElement && 'button' === strtolower($child->tagName) ) {
+                $sourceDisplay = self::resolvedDisplay($child, $styleResolver) ?: 'inline-block';
+            }
+        }
+
+        if ( array_intersect($parentDisplays, array( 'flex', 'inline-flex' )) ) {
             $context = self::FLEX_ITEM;
-        } elseif ( in_array($parentDisplay, array( 'grid', 'inline-grid' ), true) ) {
+        } elseif ( array_intersect($parentDisplays, array( 'grid', 'inline-grid' )) ) {
             $context = self::GRID_ITEM;
         } elseif ( 'inline' === $sourceDisplay ) {
             $context = self::INLINE;
@@ -72,8 +88,25 @@ final class LayoutParticipation
             $context,
             $sourceDisplay,
             $positioned,
-            in_array(strtolower($element->tagName), array( 'button', 'input' ), true)
+            in_array(strtolower($element->tagName), array( 'button', 'input' ), true),
+            self::hasNativeButtonSaveWrappers($element)
         );
+    }
+
+    /**
+     * Source markup that is already core's button save output
+     * (`.wp-block-buttons > .wp-block-button > link`) keeps both wrappers as
+     * the source's own boxes. None of them is synthesized, so nothing moves
+     * the link's own geometry onto a wrapper.
+     */
+    private static function hasNativeButtonSaveWrappers(DOMElement $element): bool
+    {
+        $button = $element->parentNode;
+        $buttons = $button instanceof DOMElement ? $button->parentNode : null;
+
+        return $button instanceof DOMElement && $buttons instanceof DOMElement
+            && SourceDom::hasClass($button, 'wp-block-button')
+            && SourceDom::hasClass($buttons, 'wp-block-buttons');
     }
 
     public function isLayoutItem(): bool
@@ -137,7 +170,7 @@ final class LayoutParticipation
         if ( $this->positioned ) {
             return self::BOX_BUTTON_WRAPPER;
         }
-        if ( $this->isInline() || $this->flattensInnerSaveWrapper() ) {
+        if ( $this->sourceWrappersAreNative || $this->isInline() || $this->flattensInnerSaveWrapper() ) {
             return self::BOX_LINK;
         }
 
@@ -151,13 +184,16 @@ final class LayoutParticipation
      *
      * `display: contents` does not remove the ancestor from the tree, so
      * core's `.wp-block-buttons .wp-block-button__link { width: 100% }` still
-     * matches. `:where()` cannot outrank that descendant selector; these
-     * declarations are therefore important. Author `!important` widths that
+     * matches, as does core's link `height:100%`. Restore auto height so the
+     * participating link sizes intrinsically (or stretches via the source flex
+     * alignment), rather than resolving core's percentage against the row.
+     * `:where()` cannot outrank those selectors; these
+     * declarations are therefore important. Author `!important` sizes that
      * arrive later still win.
      */
     public static function transferredItemDeclarations(): string
     {
-        return 'display:inline!important;width:fit-content!important;word-break:normal!important';
+        return 'display:inline!important;width:fit-content!important;height:auto!important;word-break:normal!important';
     }
 
     /**

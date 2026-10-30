@@ -1,0 +1,20 @@
+<!doctype html>
+<html><head><title>Scoped control</title><style>
+.action-button[data-scope]{
+    padding:calc(var(--space) - var(--border-width));
+    background-color:var(--background-color,var(--button-background));
+    color:var(--font-color,#fff);
+    border:var(--border-width) solid var(--border-color,#000);
+    border-radius:var(--radius,6px);
+}
+@media (max-width:920px){
+    .action-button[data-scope]{
+        background-color:var(--background-color,var(--button-background));
+        color:var(--font-color,#fff);
+        border-radius:var(--radius,6px);
+    }
+}
+</style></head><body>
+<a class="action-button" data-scope="" href="#contact" style="--space:20px;--border-width:0px;--background-color:rgb(125,28,40);--radius:6px">Contact</a>
+<p>Read the <a class="action-button" data-scope="" href="#details">details</a> first.</p>
+</body></html>

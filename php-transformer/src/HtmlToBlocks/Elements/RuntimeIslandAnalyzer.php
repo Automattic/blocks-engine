@@ -149,7 +149,10 @@ final class RuntimeIslandAnalyzer
         $count = 0;
         foreach ( $this->context->descendantElements($element) as $descendant ) {
             if ( $this->isRuntimeCanvasTarget($descendant)
-                || ( $this->isRuntimeDomTarget($descendant) && ! $this->isCapturedAttributeRuntimeBinding($descendant) )
+                || ( $this->isRuntimeDomTarget($descendant)
+                    && ! $this->isCapturedAttributeRuntimeBinding($descendant)
+                    && ! $this->isCapturedDialogRuntimeBinding($descendant)
+                )
             ) {
                 if ( ++$count >= $limit ) {
                     break;
@@ -158,6 +161,25 @@ final class RuntimeIslandAnalyzer
         }
 
         return $count;
+    }
+
+    /** Dialog controls own a bounded panel, not the surrounding page. */
+    private function isCapturedDialogRuntimeBinding(DOMElement $element): bool
+    {
+        if ( SourceDom::isBoundCapturedDialogTrigger($element) || SourceDom::isBoundCapturedDialogCloser($element) ) {
+            return true;
+        }
+
+        foreach ( array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_CLOSE) as $binding ) {
+            $key = trim(SourceDom::attr($element, $binding));
+            if ( '' === $key ) continue;
+            $panel = $element->ownerDocument?->getElementById($key);
+            if ( $panel instanceof DOMElement && $key === SourceDom::attr($panel, CaptureEvidence::DIALOG_PANEL) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -293,7 +315,14 @@ final class RuntimeIslandAnalyzer
 
     public function hasRuntimeAppRootToken(DOMElement $element): bool
     {
-        $tokens = preg_split('/[^A-Za-z0-9]+/', strtolower(trim(SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'class')))) ?: array();
+        // Capture-evidence classes are engine metadata, not author naming, so
+        // they never feed this author-token heuristic (a capture class such as
+        // `…-capture-desktop-only` must not yield the token `desktop`).
+        $authorClasses = array_values(array_filter(
+            SourceDom::classNames($element),
+            static fn (string $class): bool => ! str_starts_with($class, CaptureEvidence::ATTRIBUTE_PREFIX)
+        ));
+        $tokens = preg_split('/[^A-Za-z0-9]+/', strtolower(trim(SourceDom::attr($element, 'id') . ' ' . implode(' ', $authorClasses)))) ?: array();
         foreach ( $tokens as $token ) {
             if ( in_array($token, self::RUNTIME_APP_ROOT_TOKENS, true) ) {
                 return true;
@@ -361,6 +390,7 @@ final class RuntimeIslandAnalyzer
     {
         return $this->isDataAttributeRuntimeTarget($element)
             && ! $this->retainsDataAttributeRuntimeTargetInShell($element)
+            && ! $this->retainsRuntimeTextLeafInRichText($element)
             // An image-only custom element host belongs to the media path, which
             // keeps a non-inert host verbatim as responsive media.
             && null === SourceDom::imageOnlyCustomElement($element);
@@ -501,6 +531,20 @@ final class RuntimeIslandAnalyzer
         return false;
     }
 
+    /**
+     * Inline text a script finds only by its `data-*` hooks and rewrites, such
+     * as a live result count. Paragraph rich text saves the element verbatim
+     * with those hooks, which nothing rewrites, so the script finds the same
+     * node in an editable block. Text addressed by class or id keeps its island.
+     */
+    public function retainsRuntimeTextLeafInRichText(DOMElement $element): bool
+    {
+        return $this->context->isInlineContentElement(strtolower($element->tagName))
+            && SourceDom::isStandaloneTextLeaf($element)
+            && $this->isRuntimeDomTarget($element)
+            && $this->isAddressedOnlyByAttributes($element);
+    }
+
     private function isAddressedOnlyByAttributes(DOMElement $element): bool
     {
         foreach ($this->runtimeDomSelectorsForElement($element) as $selector) {
@@ -555,8 +599,12 @@ final class RuntimeIslandAnalyzer
         // children stay editable blocks (a hidden shell shows itself in the editor
         // while selected). A text-only wrapper lowers to a paragraph instead, which
         // cannot carry the attribute.
+        // An empty paragraph is the same mount point: a status line the script
+        // reveals and writes once a form is sent. With nothing inside, the shell
+        // saves it exactly as the source wrote it.
+        $emptyParagraph = 'p' === strtolower($element->tagName) && ! $element->hasChildNodes();
         if ( $isLayoutShell && (
-            ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true)
+            ( ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) && ! $emptyParagraph )
             || ( ! $this->hasBlockLevelChildElement($element) && '' !== trim($element->textContent) )
         ) ) {
             return false;

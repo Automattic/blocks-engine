@@ -1,0 +1,252 @@
+{
+  "schema": "blocks-engine-capture/captured-interactions/v2",
+  "pages": [
+    {
+      "schema": "blocks-engine-capture/interaction-states/v2",
+      "sourceUrl": "https://example.test/",
+      "routeNavigation": [],
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "capturedAt": "2026-10-29T02:36:04.035Z",
+      "components": [
+        {
+          "selector": "#open-dialog",
+          "kind": "dialog",
+          "initial": "closed",
+          "states": [
+            {
+              "id": "closed",
+              "html": "<button id=\"open-dialog\" aria-haspopup=\"dialog\" aria-controls=\"dialog-panel\" aria-expanded=\"false\">Open dialog</button><div id=\"dialog-panel\" role=\"dialog\" aria-label=\"Information\" hidden=\"\"><button id=\"close-dialog\">Close</button><p>Observed dialog content</p></div>"
+            },
+            {
+              "id": "open",
+              "html": "<div id=\"dialog-panel\" role=\"dialog\" aria-label=\"Information\" style=\"display: block !important; visibility: visible !important;\"><button id=\"close-dialog\">Close</button><p>Observed dialog content</p></div>",
+              "evidence": {
+                "status": "captured",
+                "trigger": {
+                  "selector": "#open-dialog",
+                  "tag": "button",
+                  "id": "open-dialog",
+                  "ariaHaspopup": "dialog",
+                  "ariaControls": "dialog-panel",
+                  "label": "Open dialog",
+                  "dataBindings": {}
+                },
+                "dialog": {
+                  "selector": "#dialog-panel",
+                  "tag": "div",
+                  "id": "dialog-panel",
+                  "role": "dialog",
+                  "ariaModal": false,
+                  "ariaLabel": "Information",
+                  "presentation": "dropdown",
+                  "html": "<div id=\"dialog-panel\" role=\"dialog\" aria-label=\"Information\" style=\"display: block !important; visibility: visible !important;\"><button id=\"close-dialog\">Close</button><p>Observed dialog content</p></div>",
+                  "htmlBytes": 205,
+                  "htmlTruncated": false,
+                  "ancestorState": {
+                    "status": "verified",
+                    "ancestors": [],
+                    "placement": {
+                      "parentSelector": "body > main:nth-of-type(1)",
+                      "parentDepth": 1,
+                      "beforeSelector": "#open-listbox",
+                      "position": "static"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "transitions": [
+            {
+              "from": "closed",
+              "to": "open",
+              "trigger": {
+                "selector": "#open-dialog",
+                "action": "click"
+              }
+            }
+          ],
+          "status": "captured"
+        },
+        {
+          "selector": "#open-listbox",
+          "kind": "listbox",
+          "initial": "closed",
+          "states": [
+            {
+              "id": "closed",
+              "html": "<button id=\"open-listbox\" aria-haspopup=\"listbox\" aria-controls=\"options\" aria-expanded=\"false\">Choose size</button><div id=\"options\" role=\"listbox\" aria-label=\"Size\" hidden=\"\"><div role=\"option\" aria-selected=\"true\">Small</div><div role=\"option\">Large</div></div>"
+            },
+            {
+              "id": "open",
+              "html": "<div id=\"options\" role=\"listbox\" aria-label=\"Size\" style=\"display: block !important; visibility: visible !important;\"><div role=\"option\" aria-selected=\"true\">Small</div><div role=\"option\">Large</div></div>",
+              "evidence": {
+                "status": "captured",
+                "trigger": {
+                  "selector": "#open-listbox",
+                  "tag": "button",
+                  "id": "open-listbox",
+                  "ariaHaspopup": "listbox",
+                  "ariaControls": "options",
+                  "label": "Choose size",
+                  "dataBindings": {}
+                },
+                "dialog": {
+                  "selector": "#options",
+                  "tag": "div",
+                  "id": "options",
+                  "role": "listbox",
+                  "ariaModal": false,
+                  "ariaLabel": "Size",
+                  "presentation": "dropdown",
+                  "html": "<div id=\"options\" role=\"listbox\" aria-label=\"Size\" style=\"display: block !important; visibility: visible !important;\"><div role=\"option\" aria-selected=\"true\">Small</div><div role=\"option\">Large</div></div>",
+                  "htmlBytes": 205,
+                  "htmlTruncated": false,
+                  "ancestorState": {
+                    "status": "verified",
+                    "ancestors": [],
+                    "placement": {
+                      "parentSelector": "body > main:nth-of-type(1)",
+                      "parentDepth": 1,
+                      "beforeSelector": "#tab-owner",
+                      "position": "static"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "transitions": [
+            {
+              "from": "closed",
+              "to": "open",
+              "trigger": {
+                "selector": "#open-listbox",
+                "action": "click"
+              }
+            }
+          ],
+          "status": "captured"
+        },
+        {
+          "selector": "#tabs",
+          "kind": "tabs",
+          "initial": "tab-0",
+          "states": [
+            {
+              "id": "tab-0",
+              "html": "<div id=\"first-panel\" role=\"tabpanel\" aria-labelledby=\"first-tab\"><p>Initial panel content</p></div>"
+            },
+            {
+              "id": "tab-1",
+              "html": "<div id=\"lazy-panel\" role=\"tabpanel\" aria-labelledby=\"lazy-tab\"><p>Lazy observed content</p></div>"
+            }
+          ],
+          "transitions": [
+            {
+              "from": "tab-0",
+              "to": "tab-1",
+              "trigger": {
+                "selector": "#lazy-tab",
+                "action": "click"
+              }
+            },
+            {
+              "from": "tab-1",
+              "to": "tab-0",
+              "trigger": {
+                "selector": "#first-tab",
+                "action": "click"
+              }
+            }
+          ],
+          "status": "captured"
+        },
+        {
+          "selector": "#disclosure",
+          "kind": "disclosure",
+          "initial": "open",
+          "states": [
+            {
+              "id": "open",
+              "html": "<details id=\"disclosure\" open=\"\"><summary>Answer</summary><p>Authored open answer</p></details>"
+            },
+            {
+              "id": "closed",
+              "html": "<details id=\"disclosure\"><summary>Answer</summary><p>Authored open answer</p></details>"
+            }
+          ],
+          "transitions": [
+            {
+              "from": "open",
+              "to": "closed",
+              "trigger": {
+                "selector": "body > main:nth-of-type(1) > details:nth-of-type(1) > summary:nth-of-type(1)",
+                "action": "click"
+              }
+            },
+            {
+              "from": "closed",
+              "to": "open",
+              "trigger": {
+                "selector": "body > main:nth-of-type(1) > details:nth-of-type(1) > summary:nth-of-type(1)",
+                "action": "click"
+              }
+            }
+          ],
+          "status": "captured"
+        },
+        {
+          "selector": "#carousel",
+          "kind": "carousel",
+          "initial": "slide-0",
+          "states": [
+            {
+              "id": "slide-0",
+              "html": "<section id=\"carousel\" aria-roledescription=\"carousel\" aria-label=\"Highlights\"><div aria-roledescription=\"slide\"><p>First slide</p></div><div aria-roledescription=\"slide\" hidden=\"\"><p>Second slide</p></div><button id=\"previous-slide\" aria-label=\"Previous slide\">Previous slide</button><button id=\"next-slide\" aria-label=\"Next slide\">Next slide</button></section>"
+            },
+            {
+              "id": "slide-1",
+              "html": "<section id=\"carousel\" aria-roledescription=\"carousel\" aria-label=\"Highlights\"><div aria-roledescription=\"slide\" hidden=\"\"><p>First slide</p></div><div aria-roledescription=\"slide\"><p>Second slide</p></div><button id=\"previous-slide\" aria-label=\"Previous slide\">Previous slide</button><button id=\"next-slide\" aria-label=\"Next slide\">Next slide</button></section>"
+            }
+          ],
+          "transitions": [
+            {
+              "from": "slide-0",
+              "to": "slide-1",
+              "trigger": {
+                "selector": "#next-slide",
+                "action": "click"
+              }
+            },
+            {
+              "from": "slide-1",
+              "to": "slide-0",
+              "trigger": {
+                "selector": "#next-slide",
+                "action": "click"
+              }
+            }
+          ],
+          "status": "captured"
+        },
+        {
+          "selector": "#unsupported",
+          "kind": "unsupported",
+          "initial": "closed",
+          "states": [
+            {
+              "id": "closed",
+              "html": "<button id=\"unsupported\" aria-expanded=\"false\" aria-controls=\"unknown-panel\" aria-haspopup=\"true\">Unknown</button>"
+            }
+          ],
+          "transitions": [],
+          "status": "unsupported"
+        }
+      ]
+    }
+  ]
+}

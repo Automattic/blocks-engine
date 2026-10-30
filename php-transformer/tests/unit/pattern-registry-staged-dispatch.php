@@ -86,7 +86,8 @@ $declinedCodeWindow = (new HtmlTransformer())->transform('<div class="code-windo
 $assert('core/preformatted' === ($declinedCodeWindow['blocks'][0]['innerBlocks'][0]['blockName'] ?? null), 'A code window without a code child declines to ordinary preformatted lowering.');
 
 $logo = (new HtmlTransformer())->transform('<a class="site-logo" href="/">Mara Vale</a>')->toArray();
-$assert('site-logo blocks-engine-synthetic-paragraph' === ($logo['blocks'][0]['attrs']['className'] ?? null), 'The direct logo recognizer preserves the logo signal on its synthetic paragraph.');
+$assert('blocks-engine-synthetic-paragraph' === ($logo['blocks'][0]['attrs']['className'] ?? null), 'The direct logo recognizer leaves no source class on its synthetic paragraph.');
+$assert(str_contains((string) ($logo['serialized_blocks'] ?? ''), '<a class="site-logo" href="/">Mara Vale</a>'), 'The direct logo recognizer preserves the logo signal on the saved link.');
 
 $declinedLogo = (new HtmlTransformer())->transform('<a href="/">Mara Vale</a>')->toArray();
 $assert('blocks-engine-synthetic-paragraph' === ($declinedLogo['blocks'][0]['attrs']['className'] ?? null), 'An ordinary anchor without a logo signal declines to normal anchor lowering.');

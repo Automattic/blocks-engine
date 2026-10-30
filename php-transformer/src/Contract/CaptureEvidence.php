@@ -84,6 +84,14 @@ final class CaptureEvidence
     /** `true` on a container whose disclosures are mutually exclusive. */
     public const EXCLUSIVE_DISCLOSURES = 'data-blocks-engine-capture-exclusive-disclosures';
 
+    // Semantic component replay.
+
+    public const TABS = 'data-blocks-engine-capture-tabs';
+    public const COMPONENT_RUNTIME = 'data-blocks-engine-capture-component-runtime';
+    public const COMPONENT_DISCLOSURE = 'data-blocks-engine-capture-component-disclosure';
+    public const COMPONENT_DISCLOSURE_RUNTIME = 'data-blocks-engine-capture-component-disclosure-runtime';
+    public const COMPONENT_CAROUSEL_RUNTIME = 'data-blocks-engine-capture-component-carousel-runtime';
+
     // Listboxes.
 
     /** Listbox binding key on the button that opens a captured listbox. */
@@ -151,13 +159,20 @@ final class CaptureEvidence
 
     // Choice groups and native controls.
 
+    /** `true` when capture observed no effect from activating this control. */
+    public const INERT_CONTROL = 'data-blocks-engine-capture-inert-control';
+
     /** Config key of a choice group the capture's choice runtime replays. */
     public const CHOICE_GROUP = 'data-blocks-engine-capture-choice-group';
     /** Capture-internal option index; stripped from projected choice markup. */
     public const CHOICE_INDEX = 'data-blocks-engine-capture-choice-index';
     /** Marker on the capture's choice-group runtime `<script>`. */
     public const CHOICE_RUNTIME = 'data-blocks-engine-capture-choice-runtime';
-    /** JSON version-1 native control state facts. */
+    /**
+     * JSON version-1 native control state facts. Optional boolean `rendered`
+     * records observed rendering: false makes the control non-authored;
+     * omission preserves classification from markup alone.
+     */
     public const NATIVE_CONTROL_STATE = 'data-blocks-engine-capture-native-control-state';
     /** Marker on the capture's native control helper `<script>`. */
     public const NATIVE_CONTROL_RUNTIME = 'data-blocks-engine-capture-native-control-runtime';
@@ -176,7 +191,7 @@ final class CaptureEvidence
     // Sidecar schemas.
 
     /** `interaction-states.json`: captured interaction report. */
-    public const CAPTURED_INTERACTIONS_SCHEMA = 'blocks-engine-capture/captured-interactions/v1';
+    public const CAPTURED_INTERACTIONS_SCHEMA = 'blocks-engine-capture/captured-interactions/v2';
     /** Capture receipt. */
     public const CAPTURE_RECEIPT_SCHEMA = 'blocks-engine-capture/capture-receipt/v1';
     /** Capture receipt `sourceInteractivity` record. */
@@ -189,11 +204,25 @@ final class CaptureEvidence
     // Recognized capture runtimes: sha256 of the trimmed `<script>` body.
 
     /** The site-independent disclosure interpreter (DISCLOSURE_RUNTIME). */
-    public const DISCLOSURE_RUNTIME_SHA256 = 'b545f43a77b79d075373048431101fe11d7ff8cdfe7987de6d7971512763d88f';
+    public const DISCLOSURE_RUNTIME_SHA256 = '67e77fd6348495edd9113e0ba1632abcd0907314aa46b5201fd1ff749544732c';
     /** The gallery helper (GALLERY_RUNTIME) that may coexist with a replaced disclosure interpreter. */
     public const GALLERY_RUNTIME_SHA256 = '456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b';
     /** The choice-group runtime (CHOICE_GROUP_RUNTIME) with an empty config list (`var configs=[];`). */
     public const CHOICE_RUNTIME_SHA256 = '82806634d813434b72ca5cbc9532c88f26aa4bd3cec880c2e6c12580dd6849eb';
+
+    /** Capture runtime marker => sha256 of its published, trimmed body. */
+    public const RECOGNIZED_RUNTIMES = array(
+        self::DISCLOSURE_RUNTIME => self::DISCLOSURE_RUNTIME_SHA256,
+        self::GALLERY_RUNTIME => self::GALLERY_RUNTIME_SHA256,
+    );
+
+    /** Exact runtime identity, also available after script extraction loses the marker. */
+    public static function isRecognizedRuntime(string $content, ?string $marker = null): bool
+    {
+        $digest = hash('sha256', trim($content));
+        return null === $marker ? in_array($digest, self::RECOGNIZED_RUNTIMES, true)
+            : $digest === (self::RECOGNIZED_RUNTIMES[$marker] ?? null);
+    }
 
     // Published for downstream importers; Blocks Engine does not read these.
 
@@ -216,12 +245,13 @@ final class CaptureEvidence
 
     /** Constants above that are published for downstream importers only. */
     public const PUBLISHED_FOR_DOWNSTREAM = array(
+        'COMPONENT_DISCLOSURE',
+        'COMPONENT_DISCLOSURE_RUNTIME',
         'DEVICE_SELECTION',
         'DEVICE_BODY',
         'SELECTED_DOCUMENT',
         'SELECTED_VIEWPORT',
         'DOCUMENT_UNAVAILABLE',
-        'DEVICE_STYLE',
         'MEMBER_LOGIN',
         'MEMBER_LOGIN_CLASS_PREFIX',
     );

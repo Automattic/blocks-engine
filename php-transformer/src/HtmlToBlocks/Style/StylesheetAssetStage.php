@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 
 /** Materialize ordered stylesheet contributions into the run's asset contract. */
@@ -40,10 +42,12 @@ final class StylesheetAssetStage
     /** @param array<int, string> $cssParts */
     public function generated(array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void
     {
-        $css = trim(implode("\n\n", $cssParts));
+        $css = EngineMarker::compactDeviceScope(trim(implode("\n\n", $cssParts)));
         if ( '' === $css ) {
             return;
         }
+
+        (new CoreSelectorScoping())->assertScoped($css, 'generated:' . $placement);
 
         $content = $css . "\n";
         $hash = hash('sha256', $content);
@@ -77,6 +81,11 @@ final class StylesheetAssetStage
         if ( '' === $path || '' === $css ) {
             return;
         }
+
+        // Deliberately not invariant-checked: projected author stylesheets keep
+        // authored rules whose selectors matched source markup, and source
+        // pages legitimately style their own `wp-block-*`-shaped classes. The
+        // invariant governs compiler-authored CSS, which `generated()` covers.
 
         $content = $css . "\n";
         $hash = hash('sha256', $content);

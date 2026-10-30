@@ -40,12 +40,12 @@
     {
       "path": "assets.1.content",
       "assert": "contains",
-      "value": ":where(.wp-block-buttons)> :where(.wp-block-button)> :where(.wp-block-button__link){height:100%!important}"
+      "value": ":where(.wp-block-buttons)> :where(.wp-block-button)> :where(.wp-block-button__link):not(be-t-0){height:100%}"
     },
     {
       "path": "assets.1.content",
       "assert": "contains",
-      "value": "display:flex!important;align-items:center!important;justify-content:center!important"
+      "value": "display:flex;align-items:center;justify-content:center"
     },
     {
       "path": "assets.1.content",
