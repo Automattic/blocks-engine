@@ -6015,6 +6015,18 @@ final class StyleResolver implements ElementPresentationResolver
             ? $this->cascadedCustomProperties($element)
             : $this->context->sourceStyles()->customProperties();
 
+        // Conditional palette definitions are runtime values, not capture
+        // constants. Keep their references live in every emitted carrier.
+        if ($element instanceof DOMElement) {
+            for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
+                foreach ($this->matchingStyleRules($node, 'conditional') as $rule) {
+                    if (!str_contains(implode(' ', $rule['conditions'] ?? array()), 'prefers-color-scheme')) continue;
+                    foreach ($rule['cascadedDeclarations'] ?? array() as $name => $_declared) {
+                        if (str_starts_with((string) $name, '--')) $customProperties[$name] = 'var(' . $name . ')';
+                    }
+                }
+            }
+        }
         return $this->expandCssVariableReferences($value, $customProperties);
     }
 

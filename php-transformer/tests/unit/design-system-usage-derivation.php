@@ -26,6 +26,15 @@ $compile = static function (array $artifact): array {
     foreach ($plan['writes'] ?? array() as $write) if ('theme.json' === $write['target_path']) $theme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
     return array($plan, $theme, $result['source_reports']['editability_report'] ?? array());
 };
+// Public artifact regression: a builder's rem base is not readable body text.
+[, $readableTheme] = $compile(require dirname(__DIR__) . '/fixtures/global-styles-readability.php');
+$readableSizes = array_column($readableTheme['settings']['typography']['fontSizes'], 'size', 'slug');
+$readableSize = $readableTheme['styles']['typography']['fontSize'];
+if (str_starts_with($readableSize, 'var:preset|font-size|')) $readableSize = $readableSizes[substr($readableSize, strlen('var:preset|font-size|'))];
+$assert('16px' === $readableSize, 'builder root: base typography comes from readable body text');
+$assert('1.5' === $readableTheme['styles']['typography']['lineHeight'], 'builder root: readable body leading is preserved');
+$assert('var(--ink)' === $readableTheme['styles']['color']['text'] && 'var(--paper)' === $readableTheme['styles']['color']['background'], 'scheme palette: editor root retains live source variables');
+$assert(!isset($readableTheme['styles']['elements']['heading']['color']['text']), 'section heading colours are not global element defaults');
 // Reduced heading case: class-owned typography becomes editable without
 // changing the source declarations' values, including at a breakpoint.
 foreach (array(false, true) as $responsive) {

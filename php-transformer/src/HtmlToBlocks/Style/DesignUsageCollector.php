@@ -122,6 +122,8 @@ final class DesignUsageCollector
             'heading_level' => 0,
             'weight' => 400,
             'hover_color' => null,
+            'color_authored' => false,
+            'line_height' => 'normal',
             'conditional' => array(),
         );
         $htmlContext = null !== $html ? $this->inherit($rootContext, $html, $htmlDeclarations) : $rootContext;
@@ -239,6 +241,14 @@ final class DesignUsageCollector
     {
         $tag = strtolower($element->tagName);
         $context = $parent;
+        if (isset(self::HEADING_EM[$tag]) || in_array($tag, array('a', 'button', 'input'), true)) {
+            $own = $this->declarations($element, true);
+            $context['color_authored'] = null !== CssColor::parse($own['color'] ?? '');
+        }
+        $leading = self::clean($declarations['line-height'] ?? '');
+        if ('' !== $leading && !in_array($leading, array('inherit', 'unset'), true)) {
+            $context['line_height'] = $leading;
+        }
         if (isset(self::HEADING_EM[$tag])) {
             $context['role'] = 'heading';
             $context['heading_level'] = (int) $tag[1];
@@ -347,13 +357,15 @@ final class DesignUsageCollector
         $hover = in_array($context['role'], array('link', 'button'), true) ? $context['hover_color'] : null;
         $conditional = $context['conditional'];
         sort($conditional, SORT_STRING);
-        $key = implode("\n", array($context['role'], $context['color'], (string) $family, CssLength::format($context['size']), $context['background'], (string) $level, (string) $context['weight'], (string) $hover, implode(',', $conditional)));
+        $key = implode("\n", array((string) $context['color_authored'], $context['line_height'], $context['role'], $context['color'], (string) $family, CssLength::format($context['size']), $context['background'], (string) $level, (string) $context['weight'], (string) $hover, implode(',', $conditional)));
         $row = $this->text[$key] ?? array(
             'role' => $context['role'],
             'color' => $context['color'],
             'font_family' => $family,
             'font_size_px' => self::number($context['size']),
             'font_weight' => (int) $context['weight'],
+            'color_authored' => $context['color_authored'],
+            'line_height' => $context['line_height'],
             'background' => $context['background'],
             'count' => 0,
             'weight' => 0,
