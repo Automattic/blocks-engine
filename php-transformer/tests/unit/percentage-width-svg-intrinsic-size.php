@@ -81,6 +81,24 @@ foreach ( $cases as $name => $case ) {
             "$name: the image keeps the source percentage width on the page.\n$page\n$css"
         );
     }
+
+    // The source percentage resolved against the SVG's definite block
+    // container. The synthetic figure must offer the image that same box
+    // rather than shrink-wrapping it: a shrink-to-fit figure around
+    // `img{width:100%}` makes the percentage cyclic, so a lazy image that has
+    // not loaded yet contributes 0 width and is never loaded.
+    $class = preg_match('/<figure class="[^"]*\b(be-inline-geometry-[a-f0-9]{16})\b/', $page, $m) ? $m[1] : '';
+    $assert('' !== $class, "$name: the synthetic figure carries a geometry class.\n$page");
+    $figureWidth = preg_match_all('/(?<=^|[},])\s*(?:\.wp-block-image)?\.' . $class . '\s*(?:,[^{]*)?\{([^}]*)\}/', $css, $rules)
+        ? implode(';', $rules[1])
+        : '';
+    $figureFills = 1 === preg_match('/(?:^|;)\s*width\s*:\s*100%/', $figureWidth);
+    $assert(
+        $case['percent'] === $figureFills,
+        $case['percent']
+            ? "$name: the figure takes a definite percentage width instead of shrink-to-fit.\n$page\n$css"
+            : "$name: an absolute-size figure keeps its shrink-to-fit geometry.\n$page\n$css"
+    );
 }
 
 echo "Percentage-width SVG intrinsic size unit test passed ({$assertions} assertions).\n";

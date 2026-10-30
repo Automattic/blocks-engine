@@ -382,7 +382,17 @@ final class SvgMaterializer implements SvgElementMaterializer
             $fillFigureRule = '{margin:0;width:100%;height:100%;line-height:0}';
             $fillObjectFit = '' === $sourceObjectFit ? 'contain' : $sourceObjectFit;
             $fillImgRule = '>img{width:100%;height:100%;-o-object-fit:' . $fillObjectFit . ';object-fit:' . $fillObjectFit . '}';
-            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule . implode("\n", $conditionedBox) . implode("\n", $conditionedItemDisplay)
+            // A percentage SVG width resolved against the SVG's definite
+            // containing block. Give the figure that box so the image's
+            // percentage resolves against it too. A shrink-to-fit figure makes
+            // the percentage cyclic: an image that has not loaded yet (lazy)
+            // contributes 0 width, so the figure and image stay 0x0.
+            $figureFillsContainer = ! $richTextImage && (
+                null !== $this->svgPercentageWidth((string) ($dimensions['width'] ?? ''))
+                || null !== $this->svgPercentageWidth(trim((string) ($presentation['width'] ?? '')))
+            );
+            $figureWidthRule = $figureFillsContainer ? '{width:100%}' : '';
+            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule . $figureWidthRule . implode("\n", $conditionedBox) . implode("\n", $conditionedItemDisplay)
                 . (array() === $conditionedFills ? '' : "\nfill:" . implode("\n", array_map(static fn (array $conditions): string => implode('{', $conditions), $conditionedFills))));
             // The image rule must outrank the generic author image bridge
             // (`:where(figure):not(<type>).wp-block-image > img{display:block}`),
@@ -390,6 +400,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             // native wrapper class and reaches the linked image too, as the
             // parent fill rules do.
             $geometryCss = ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '')
+                . ('' === $figureWidthRule ? '' : '.wp-block-image.' . $geometryClass . $figureWidthRule)
                 . ($richTextImage
                     ? '.' . $geometryClass . $rule
                     : '.wp-block-image.' . $geometryClass . '>img,.wp-block-image.' . $geometryClass . '>a' . $rule);
