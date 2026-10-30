@@ -58,6 +58,7 @@ describe('worker pool contract', () => {
       }[];
       htmlIslandDistinctCount?: number;
       htmlIslandOccurrencesTruncated?: boolean;
+      preservedBlocks?: string[];
       degraded: boolean;
     }>();
 

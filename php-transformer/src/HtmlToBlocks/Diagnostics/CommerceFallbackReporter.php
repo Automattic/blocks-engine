@@ -3,12 +3,14 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ListingControlsRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
 use DOMNode;
 
@@ -753,8 +755,9 @@ final class CommerceFallbackReporter
      *
      * @param array<int, array<string, mixed>> $fallbacks
      */
-    public function appendCommerceControlsFallbacks(DOMElement $body, array &$fallbacks): void
+    public function appendCommerceControlsFallbacks(DOMElement $body, array &$fallbacks, string $sourceHtml = ''): void
     {
+        $this->appendFormlessPurchaseFallbacks($body, $fallbacks, $sourceHtml);
         $emitted = 0;
         foreach ( $body->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement ) {
@@ -793,6 +796,87 @@ final class CommerceFallbackReporter
     }
 
     /**
+     * A formless purchase region needs a cart control, with optional option inputs.
+     * Ownership is deliberately left to the compiler's single-schema-product
+     * join and product-grid card guards, not inferred from the control alone.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function appendFormlessPurchaseFallbacks(DOMElement $body, array &$fallbacks, string $sourceHtml): void
+    {
+        $regions = array();
+        $optionRegions = array();
+        $hasSingleProduct = null;
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            if ( SourceDom::hasNonAuthoredAncestor($element) || ListingControlsRecognizer::inSearchContext($element) ) {
+                continue;
+            }
+            if ( in_array(strtolower($element->tagName), array('main', 'header', 'footer', 'nav', 'form'), true) ) {
+                continue;
+            }
+            for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+                if ( in_array(strtolower($ancestor->tagName), array('form', 'header', 'footer', 'nav'), true) ) {
+                    continue 2;
+                }
+            }
+            if ( $element->getElementsByTagName('form')->length > 0 ) {
+                continue;
+            }
+            $control = $this->recognizer->cartControlElement($element);
+            if ( null === $control || $control->hasAttribute('form') || SourceDom::hasNonAuthoredAncestor($control) ) {
+                continue;
+            }
+            $hasOptions = false;
+            foreach ( $element->getElementsByTagName('*') as $input ) {
+                $tag = strtolower($input->tagName);
+                if ( ('select' === $tag || ('input' === $tag && in_array(strtolower($input->getAttribute('type')), array('radio', 'checkbox'), true)))
+                    && '' !== trim($input->getAttribute('name')) && ! $input->hasAttribute('form') && ! SourceDom::hasNonAuthoredAncestor($input) ) {
+                    $hasOptions = true;
+                    break;
+                }
+            }
+            if ( ! $hasOptions ) {
+                if ( null === $this->recognizer->productCardData($element) ) {
+                    continue;
+                }
+                // Grid controls already have their own diagnostic and card ownership.
+                for ( $node = $control; $node instanceof DOMElement; $node = $node->parentNode ) {
+                    if ( $this->recognizer->isProductGridContainer($node) ) {
+                        continue 2;
+                    }
+                }
+                // A price and checkout control alone can describe a paywall or
+                // upsell. Outside a grid, require the compiler's product evidence.
+                $hasSingleProduct ??= SchemaProductEvidence::hasSingleProduct($sourceHtml);
+                if ( ! $hasSingleProduct ) {
+                    continue;
+                }
+            }
+            // Document order visits outer wrappers first. Prefer the smallest
+            // region with options; otherwise retain the smallest control wrapper.
+            $selector = SourceDom::elementSelector($control);
+            $regions[$selector] = $element;
+            if ( $hasOptions ) {
+                $optionRegions[$selector] = $element;
+            }
+        }
+        foreach ( array_slice(array_replace($regions, $optionRegions), 0, self::MAX_CANDIDATES) as $element ) {
+            $fallbacks[] = FallbackDiagnostic::build(array(
+                'type' => 'html',
+                'reason' => 'commerce_controls_require_runtime',
+                'diagnostic_code' => 'html_commerce_controls_fallback',
+                'kind' => 'html_commerce_controls_fallback',
+                'message' => 'A formless cart control, with or without purchase options, requires commerce runtime binding.',
+                'source_format' => 'html',
+                'tag' => strtolower($element->tagName),
+                'selector' => SourceDom::elementSelector($element),
+                'context' => $this->sourceContext($element),
+                'binding' => $this->blockBinding(array(), 'commerce_add_to_cart_form', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element),
+            ), $this->provenance->fallback());
+        }
+    }
+
+    /**
      * Surface each cart view — a script-owned region holding the order summary
      * (amount rows, a total and a checkout control) and the line items the
      * script renders into it — so a shop provider can put its own cart where
@@ -810,7 +894,7 @@ final class CommerceFallbackReporter
     public function appendCartViewFallbacks(DOMElement $body, array &$fallbacks): void
     {
         $scopes = array();
-        foreach ( $this->recognizer->cartSummaries($body) as $summary ) {
+        foreach ( $this->recognizer->cartSummaries($body, fn (DOMElement $node): bool => array() !== $this->runtimeIslands->runtimeDomSelectorsForElement($node)) as $summary ) {
             if ( SourceDom::hasNonAuthoredAncestor($summary) ) {
                 continue;
             }
@@ -834,6 +918,7 @@ final class CommerceFallbackReporter
                 'tag'               => strtolower($scope->tagName),
                 'selector'          => SourceDom::elementSelector($scope),
                 'summary_selector'  => SourceDom::elementSelector($summary),
+                'placement'         => $this->cartViewPlacement($scope),
                 'runtime_selectors' => $runtimeSelectors,
                 'context'           => $this->sourceContext($scope),
                 'binding'           => $this->blockBinding(array(), 'commerce_cart', $runtimeSelectors, $scope),
@@ -841,12 +926,27 @@ final class CommerceFallbackReporter
         }
     }
 
+    /** Hidden carts outside the page's main content are reusable site chrome. */
+    private function cartViewPlacement(DOMElement $scope): string
+    {
+        $hidden = SourceDom::hasAriaHiddenAncestor($scope);
+        for ( $node = $scope; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'main' === strtolower($node->tagName) || 'main' === strtolower(SourceDom::attr($node, 'role')) ) {
+                return '';
+            }
+            $hidden = $hidden || $node->hasAttribute('hidden');
+        }
+
+        return $hidden ? 'site_chrome' : '';
+    }
+
     /** The outermost runtime DOM target around `$summary` below the page landmarks, else the summary. */
     private function cartViewScope(DOMElement $summary): DOMElement
     {
         $scope = $summary;
         for ( $node = $summary; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( in_array(strtolower($node->tagName), array( 'body', 'main', 'header', 'footer', 'nav' ), true) ) {
+            if ( in_array(strtolower($node->tagName), array( 'html', 'body', 'main', 'header', 'footer', 'nav' ), true)
+                || '' !== ShellLandmarkPolicy::landmarkKind($node->tagName, SourceDom::attr($node, 'role')) ) {
                 break;
             }
             if ( array() !== $this->runtimeIslands->runtimeDomSelectorsForElement($node) ) {

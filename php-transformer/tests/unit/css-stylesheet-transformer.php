@@ -84,7 +84,7 @@ foreach (array(str_repeat('ordinary', 4096), "caf\xc3\xa9\0tail") as $run) {
     $transformer->visitStyleRules('@media screen{' . $css . '}', static function (string $selector, string $declarations, array $ancestors) use (&$visited): void {
         $visited[] = array($selector, $declarations, $ancestors);
     });
-    $assert(array(array($prelude, $body, array('@media screen'))) === $visited, 'long runs retain complete nested visitor payloads');
+    $assert(array(array(' .before[data-label="' . $run . ',}\"x"]', $body, array('@media screen'))) === $visited, 'long runs retain complete nested visitor payloads, the prelude without its comment');
     foreach (array('/*' . $run, '.before{content:"' . $run, '.before{--x:' . $run . '\\', '.before{--x:(' . $run . ';}') as $malformed) {
         $assert($malformed === $transformer->transform($malformed, $rename), 'malformed long-run input stays byte-identical');
     }
@@ -213,6 +213,20 @@ $namespaceCss = '@namespace url(example);.catalog .one,.catalog .two{color:red}'
 $assert($namespaceCss === \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::stylesheet($namespaceCss), 'namespace-sensitive sheets remain unchanged');
 $splitRules = '.catalog .one{color:red}.catalog .other{color:blue}.catalog .two{color:red}';
 $assert($splitRules === \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::stylesheet($splitRules), 'identical declarations never merge across an intervening rule');
+// Page-local marker lists expand back into arms for cross-page alignment and
+// merge into one zero-weight :where() list for the site-wide sheet.
+$compactor = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::class;
+$m1 = 'blocks-engine-control-4041d29655d8-0';
+$m2 = 'blocks-engine-control-f9b2c417568b-0';
+$packed = $compact('.row-cols-6>:where(.' . $m1 . '),.row-cols-6>:where(.' . $m2 . ')');
+$assert('.row-cols-6>:is(:where(.' . $m1 . '),:where(.' . $m2 . '))' === $packed, 'per-page projection packs marker arms');
+$assert('.row-cols-6>:where(.' . $m1 . '),.row-cols-6>:where(.' . $m2 . ')' === $compactor::expand($packed), 'packed marker arms expand back into one arm per marker');
+$merged = $compactor::mergeMarkerLists('.row-cols-6>:where(.' . $m1 . '):not(.be-c-0),#x,.row-cols-6>:where(.' . $m2 . '):not(.be-c-0)');
+$assert('.row-cols-6>:where(.' . $m1 . ',.' . $m2 . '):not(.be-c-0),#x' === $merged, 'arms differing by one marker merge into a :where() list');
+$assert('.row-cols-6>:where(.' . $m1 . '):not(.be-c-0),.row-cols-6>:where(.' . $m2 . '):not(.be-c-0),#x' === $compactor::expand($merged), 'merged marker lists expand back into arms');
+$assert('.a :is(.one,.two)' === $compactor::expand('.a :is(.one,.two)') && ':not(:where(.' . $m1 . ',.' . $m2 . ')) a,b' === $compactor::mergeMarkerLists(':not(:where(.' . $m1 . ',.' . $m2 . ')) a,b'), 'non-marker lists and negated marker lists stay as authored');
+$unequalMarkers = '.a :is(:where(.' . $m1 . '),#b)';
+$assert($unequalMarkers === $compactor::expand($unequalMarkers), 'unequal-weight alternatives are never expanded');
 $before = '.catalog .one,.catalog .two,.catalog .three';
 $after = $compact($before);
 $matcher = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::class;
@@ -226,6 +240,18 @@ foreach ( $document->getElementsByTagName('p') as $element ) {
         $assert($matcher::specificityCounts($parsed) === $matcher::specificityCounts($matcher::parse($after)), 'factoring preserves the full specificity tuple');
     }
     $assert($oldMatch === $matcher::matches($element, $matcher::parse($after))['matches'], 'factored selector matches exactly the original union');
+}
+
+// Cached probe failures must not leak between routes sharing selector bytes.
+foreach (array(
+    array('.x{color:red}', '@page{margin:0}.x{color:red}', 'non-selector rule cannot be route scoped'),
+) as [$base, $unsafe, $reason]) {
+    $result = $transformer->scopeRouteVariants(array($base), array(
+        'unsafe' => array($unsafe),
+        'safe' => array('.y{color:red}'),
+        'unsafe-again' => array($unsafe),
+    ));
+    $assert(array('safe') === $result['scoped'] && array('unsafe' => $reason, 'unsafe-again' => $reason) === $result['reasons'], 'probe cache preserves route-local failures and successful validation');
 }
 
 if ( $failures > 0 ) {

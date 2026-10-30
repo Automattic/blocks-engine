@@ -48,9 +48,14 @@ final class LayoutParticipation
     {
         $positioned = $styleResolver->hasChildOwnedPositionedOffsets($element);
         $parent = $element->parentNode;
-        $parentDisplay = '';
+        $parentDisplays = array();
         if ( $parent instanceof DOMElement ) {
-            $parentDisplay = self::resolvedDisplay($parent, $styleResolver);
+            $parentDisplays[] = self::resolvedDisplay($parent, $styleResolver);
+            // Synthesized wrappers must preserve item participation even when
+            // the parent only establishes that context at another breakpoint.
+            foreach ( $styleResolver->conditionalDisplayRules($parent) as $display ) {
+                $parentDisplays[] = CssValueInspector::comparable($display);
+            }
         }
         $sourceDisplay = self::resolvedDisplay($element, $styleResolver);
         if ( '' === $sourceDisplay ) {
@@ -69,9 +74,9 @@ final class LayoutParticipation
             }
         }
 
-        if ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true) ) {
+        if ( array_intersect($parentDisplays, array( 'flex', 'inline-flex' )) ) {
             $context = self::FLEX_ITEM;
-        } elseif ( in_array($parentDisplay, array( 'grid', 'inline-grid' ), true) ) {
+        } elseif ( array_intersect($parentDisplays, array( 'grid', 'inline-grid' )) ) {
             $context = self::GRID_ITEM;
         } elseif ( 'inline' === $sourceDisplay ) {
             $context = self::INLINE;

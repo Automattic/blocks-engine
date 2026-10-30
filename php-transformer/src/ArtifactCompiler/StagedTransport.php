@@ -598,6 +598,7 @@ trait StagedTransport
             'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
             'native_runtime_replacements' => array_merge(
                 $capturedDialogsProjection['native_runtime_replacements'] ?? array(),
+                $selectableSetsProjection['native_runtime_replacements'] ?? array(),
                 $collectionsProjection['superseded_runtime_scripts'] ?? array()
             ),
         );

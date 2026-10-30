@@ -70,6 +70,9 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private array $coreGridParentCache = array();
 
+    /** @var array<string, array<string, string>> */
+    private array $verbatimCssDeclarationsCache = array();
+
     /**
      * Resolved presentation attributes for the active transform, keyed by the
      * DOMElement wrapper object id plus node path. PHP may reuse wrapper object
@@ -565,10 +568,13 @@ final class StyleResolver implements ElementPresentationResolver
      * class tokens it retains, an authored id, or a marker assigned so id
      * selectors can be rewritten onto the carrier.
      *
+     * When the source tag and descendant topology are retained too, matching
+     * conditional selectors need no local class/id hook (for example `.brand b`).
+     *
      * @param array<string, string> $declarations
      * @return array<string, string>
      */
-    public function stripResponsiveClassOwnedDeclarations(DOMElement $element, array $declarations): array
+    public function stripResponsiveClassOwnedDeclarations(DOMElement $element, array $declarations, bool $retainsSourceSelector = false): array
     {
         if (array() === $declarations || array() === $this->context->sourceStyles()->conditionalRules()) {
             return $declarations;
@@ -577,12 +583,12 @@ final class StyleResolver implements ElementPresentationResolver
         $classes = SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'));
         $id = SourceDom::safeAnchor(SourceDom::attr($element, 'id'));
         $marker = trim(SourceDom::attr($element, 'data-blocks-engine-richtext-marker'));
-        if (array() === $classes && '' === $id && '' === $marker) {
+        if (! $retainsSourceSelector && array() === $classes && '' === $id && '' === $marker) {
             return $declarations;
         }
 
         $responsiveFamilies = array() === $classes ? array() : $this->responsiveClassFamiliesInPlay($element, $classes);
-        if ('' !== $id || '' !== $marker) {
+        if ($retainsSourceSelector || '' !== $id || '' !== $marker) {
             $responsiveFamilies += $this->conditionalFamiliesInPlay($element);
         }
         if (array() === $responsiveFamilies) {
@@ -773,12 +779,15 @@ final class StyleResolver implements ElementPresentationResolver
      * element lays out where the allow-list is silent. A value is the declared
      * one, not an inherited one: a caller walks the ancestors itself.
      *
+     * Capture disclosure CSS remains available for presentation, but callers
+     * judging source visibility can exclude the producer's runtime rules.
+     *
      * @param list<string> $properties
      * @return array<string, string>
      */
-    public function referenceViewportAuthorDeclarations(DOMElement $element, array $properties): array
+    public function referenceViewportAuthorDeclarations(DOMElement $element, array $properties, bool $excludeCaptureDisclosure = false): array
     {
-        return $this->authorDeclarationsAtViewport($element, $properties, self::DESKTOP_REFERENCE_WIDTH);
+        return $this->authorDeclarationsAtViewport($element, $properties, self::DESKTOP_REFERENCE_WIDTH, $excludeCaptureDisclosure);
     }
 
     /**
@@ -855,10 +864,14 @@ final class StyleResolver implements ElementPresentationResolver
      * @param list<string> $properties
      * @return array<string, string>
      */
-    private function authorDeclarationsAtViewport(DOMElement $element, array $properties, float $viewportWidth): array
+    private function authorDeclarationsAtViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false): array
     {
         $authorStyles = $this->context->authorStyles();
-        ['parsed' => $parsedBySelector] = $this->viewportAuthorRules($authorStyles->styleRules(), $viewportWidth);
+        $styleRules = $authorStyles->styleRules();
+        if ( $excludeCaptureDisclosure ) {
+            $styleRules = array_values(array_filter($styleRules, static fn (array $rule): bool => empty($rule['capture_only'])));
+        }
+        ['parsed' => $parsedBySelector] = $this->viewportAuthorRules($styleRules, $viewportWidth);
         $rules = $this->viewportAuthorRulesDeclaring($viewportWidth, $properties);
         $selectorCache = $authorStyles->selectorMatchCache();
         $matches = static function (string $selector) use ($element, $selectorCache, $parsedBySelector): bool {
@@ -1147,13 +1160,20 @@ final class StyleResolver implements ElementPresentationResolver
     public function declaredPresentation(DOMElement $element, string $property): DeclaredPresentation
     {
         $entries = array();
-        foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $rule ) {
+        foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $index => $rule ) {
             $declared = trim((string) ( $rule['declarations'][ $property ] ?? '' ));
             if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
                 continue;
             }
 
             $conditions = array_map('trim', $rule['conditions'] ?? array());
+            // A print or speech rule (Bootstrap's `@media print{.navbar{display:none}}`)
+            // never draws a screen box, so it is not a viewport variant.
+            foreach ( $conditions as $condition ) {
+                if ( preg_match('/^@media\s*(.*)$/is', $condition, $media ) && ! CssCascade::mediaConditionTargetsScreen($media[1]) ) {
+                    continue 2;
+                }
+            }
             // `@layer` scopes a declaration without conditioning it on the
             // viewport, so it is carried as the entry's layer rather than as a
             // condition the author could restate.
@@ -1168,8 +1188,18 @@ final class StyleResolver implements ElementPresentationResolver
                 'queries' => $queries,
                 'layer' => $rule['layer'] ?? null,
                 'applies' => array() === $conditions || $this->conditionsApplyAtReferenceViewport($conditions),
+                'important' => CssValueInspector::isImportant($declared),
+                'layerRank' => $rule['layerRank'] ?? null,
+                'specificity' => $this->mediaTextSelectorSpecificity((string) $rule['selector']),
+                'order' => (int) ($rule['cascadeOrder'] ?? $index),
             );
         }
+
+        // Candidate selectors are individual selector-list arms. Rank only the
+        // matching arm, using the same author cascade as the static resolver.
+        $fact = static fn (array $entry): array => array_replace($entry, array('layer' => $entry['layerRank']));
+        usort($entries, static fn (array $left, array $right): int => CssCascade::wins($fact($left), $fact($right))
+            ? (CssCascade::wins($fact($right), $fact($left)) ? 0 : 1) : -1);
 
         return DeclaredPresentation::fromEntries($entries);
     }
@@ -1822,9 +1852,44 @@ final class StyleResolver implements ElementPresentationResolver
      * paint, for empty source containers kept as visual boundaries. '' when the
      * inline style paints no image.
      */
-    public function emptyElementBackgroundCarrierClassName(DOMElement $element): string
+    public function emptyElementBackgroundCarrierClassName(DOMElement $element, bool $nativeBackgroundColor = false): string
     {
-        return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element);
+        return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element, $nativeBackgroundColor);
+    }
+
+    /** Restate source caption margins that differ from core/image's defaults. */
+    public function imageCaptionMarginClassName(DOMElement $caption): string
+    {
+        $declarations = $this->authorStructuralDeclarations($caption);
+        $margins = array('top' => '0', 'bottom' => '0');
+        foreach ($declarations as $property => $value) {
+            $value = trim(CssValueInspector::withoutImportant($value));
+            if ('margin' === $property) {
+                $sides = CssValueInspector::expandBoxShorthand($value);
+                $margins = array('top' => $sides[0], 'bottom' => $sides[2]);
+            } elseif (in_array($property, array('margin-top', 'margin-bottom'), true)) {
+                $margins[substr($property, 7)] = $value;
+            }
+        }
+        $restatements = array();
+        foreach (array('top' => '.5em', 'bottom' => '1em') as $side => $default) {
+            $value = $margins[$side];
+            if (in_array($value, array('initial', 'unset', 'revert', 'revert-layer'), true)) {
+                $value = '0';
+            }
+            $comparable = preg_replace('/^0\./', '.', CssValueInspector::comparable($value));
+            if ($comparable !== $default) {
+                $restatements[] = 'margin-' . $side . ':' . $value;
+            }
+        }
+        if (array() === $restatements) {
+            return '';
+        }
+        $className = $this->context->layoutGeometry()->allocateCarrier($this->geometryStructuralPath($caption) . "\nimage-caption-margin\n" . implode(';', $restatements));
+        // The figure's carrier plus the caption type outranks core's single
+        // class + :where(figcaption), without !important or load-order reliance.
+        $this->context->layoutGeometry()->registerRule($className, '.' . $className . ' figcaption{' . implode(';', $restatements) . '}');
+        return $className;
     }
 
     /** Carry box spacing lost on a display:contents synthetic image figure. */
@@ -1911,13 +1976,20 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * Whether a media-conditioned author rule resizes this image axis between
-     * the desktop and mobile reference viewports. The `!important` box carrier
-     * would pin the desktop value over that rule, so such an axis is left to
-     * the projected stylesheet.
+     * Whether source conditions own this image axis. Conditional declarations
+     * stay in CSS even when desktop and mobile reference samples agree.
      */
     public function imageAxisVariesByViewport(DOMElement $image, string $property): bool
     {
+        // Sampling two viewports misses intermediate breakpoints and cannot
+        // evaluate container/supports queries. Any conditional declaration owns
+        // this axis in CSS; it must never become a native inline dimension.
+        foreach ($this->styleRuleCandidates($image, 'image-shape') as $rule) {
+            if ($property !== ($rule['property'] ?? '') || ! $this->matchesCssSelector($image, $rule['selector'])) continue;
+            foreach ($rule['conditions'] ?? array() as $condition) {
+                if (! preg_match('/^@layer\b/i', trim($condition))) return true;
+            }
+        }
         $desktop = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->referenceViewportAuthorDeclarations($image, array( $property ))[$property] ?? ''));
         $mobile = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->collapsedViewportAuthorDeclarations($image, array( $property ))[$property] ?? ''));
 
@@ -1982,7 +2054,8 @@ final class StyleResolver implements ElementPresentationResolver
         string $nativeHeight,
         bool $hasNativeAspectRatio,
         bool $widthResolvesToAuto = false,
-        bool $heightResolvesToAuto = false
+        bool $heightResolvesToAuto = false,
+        ?DOMElement $figure = null
     ): string {
         $declarations = $this->imageShapeDeclarations($image);
         $box = array();
@@ -2016,6 +2089,15 @@ final class StyleResolver implements ElementPresentationResolver
                 $box[$property] = $value;
             }
         }
+        // The source image's preferred ratio belongs to the painting <img>,
+        // never core/image's container-wide <figure>. Native crop promotion
+        // already carries it; otherwise preserve it here, including free axes.
+        if (! $hasNativeAspectRatio && ($declarations['aspect-ratio']['inline'] ?? false)) {
+            $aspectRatio = $this->comparableImageShapeConstraintValue($declarations, 'aspect-ratio');
+            if ('' !== $aspectRatio) {
+                $box['aspect-ratio'] = $aspectRatio;
+            }
+        }
         // Core block-library CSS clamps every image with
         // `.wp-block-image img{max-width:100%}`. That clamp assumes the source
         // clamps too. When the source's computed max-width is the initial
@@ -2040,14 +2122,27 @@ final class StyleResolver implements ElementPresentationResolver
         ) {
             $box['max-width'] = 'none';
         }
+        $box = array_merge($box, $this->flattenedImageFrameBox($image, $figure));
         if (array() === $box) {
             return '';
         }
 
+        // Stylesheet declarations already reach the image through projection.
+        // Replaying a reference-viewport winner here would escape its layer,
+        // conditions and source order. Only inline values and structural
+        // defaults (properties absent from the source cascade) need a carrier.
+        foreach ($box as $property => $value) {
+            if (isset($declarations[$property]) && ! ($declarations[$property]['inline'] ?? false)
+                && CssValueInspector::comparable((string) $declarations[$property]['value']) === CssValueInspector::comparable($value)) {
+                unset($box[$property]);
+            }
+        }
+        if (array() === $box) return '';
         ksort($box);
         $declarationList = array();
         foreach ($box as $property => $value) {
-            $declarationList[] = $property . ':' . $value . '!important';
+            $important = ($declarations[$property]['important'] ?? false) ? '!important' : '';
+            $declarationList[] = $property . ':' . $value . $important;
         }
         $signature = $this->geometryStructuralPath($image) . "\nimage-box-constraint\n" . implode(';', $declarationList);
         $className = $this->context->layoutGeometry()->allocateCarrier($signature);
@@ -2057,6 +2152,50 @@ final class StyleResolver implements ElementPresentationResolver
         );
 
         return $className;
+    }
+
+    /**
+     * A collapsed media frame is the image's reference box, not the figure's:
+     * putting its ratio on the figure would include the caption in the crop.
+     * For a filling image the same box can live on the replaced element. Its
+     * padding/background form the frame and object-fit paints in the content
+     * box (including the centering of a flex frame), without changing save HTML.
+     *
+     * @return array<string, string>
+     */
+    private function flattenedImageFrameBox(DOMElement $image, ?DOMElement $figure): array
+    {
+        $frame = $image->parentNode;
+        if (! $figure instanceof DOMElement || ! $frame instanceof DOMElement || $frame === $figure
+            || $frame->parentNode !== $figure || 'div' !== strtolower($frame->tagName)) {
+            return array();
+        }
+        $fill = $this->referenceViewportAuthorDeclarations($image, array('width', 'height'));
+        if ('100%' !== ($fill['width'] ?? '') || '100%' !== ($fill['height'] ?? '')) {
+            return array();
+        }
+        $properties = array('aspect-ratio', 'overflow', 'overflow-x', 'overflow-y', 'box-sizing', 'background', 'background-color',
+            'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left');
+        $box = $this->referenceViewportAuthorDeclarations($frame, $properties);
+        if (isset($box['padding'])) {
+            foreach (CssValueInspector::expandBoxShorthand($box['padding']) as $side => $value) {
+                $box['padding-' . array('top', 'right', 'bottom', 'left')[$side]] ??= $value;
+            }
+            unset($box['padding']);
+        }
+        if (! isset($box['aspect-ratio']) || ! preg_match('#^[0-9.]+\s*(?:/\s*[0-9.]+)?$#', $box['aspect-ratio'])) {
+            return array();
+        }
+        // A content-box frame's auto width excludes its padding. Reproduce
+        // that used width rather than adding padding outside a 100% image.
+        $box['width'] = '100%';
+        if ('border-box' !== ($box['box-sizing'] ?? 'content-box')) {
+            $box['box-sizing'] = 'content-box';
+            $box['width'] = 'calc(100% - ' . ($box['padding-left'] ?? '0px') . ' - ' . ($box['padding-right'] ?? '0px') . ')';
+        }
+        $box['height'] = 'auto';
+        $box['display'] = 'block';
+        return $box;
     }
 
     /**
@@ -2207,9 +2346,9 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
-            if ( '' !== $this->authorDisplayValue($rule) ) {
-                // An author rule supplies `display` and agrees with the inline
-                // value, so the materialized stylesheet already carries it.
+            if ( empty($rule['conditions']) && '' !== $this->authorDisplayValue($rule) ) {
+                // An unconditional author rule supplies `display` and agrees with
+                // the inline value, so the stylesheet carries it at every viewport.
                 return false;
             }
         }
@@ -3465,6 +3604,19 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether the author clips the element's box out of sight, as a
+     * screen-reader-only label is, judged by the last value the author states
+     * for each clipping property.
+     */
+    public function isVisuallyClippedBox(DOMElement $element): bool
+    {
+        return CssValueInspector::isVisuallyClippedBox(array_map(
+            static fn (array $values): string => (string) end($values),
+            $this->authorDeclaredValuesAtAnyViewport($element, array( 'position', 'overflow', 'width', 'height', 'clip', 'clip-path' ))
+        ));
+    }
+
+    /**
      * Every value the author stylesheet states for these properties on this
      * element in its resting state, at any viewport, in source order with the
      * inline style last.
@@ -3507,8 +3659,8 @@ final class StyleResolver implements ElementPresentationResolver
 
     /**
      * Resolve media-text gate declarations without flattening CSS importance or
-     * shorthand/longhand order. Inline declarations outrank matched stylesheet
-     * declarations at equal importance.
+     * shorthand/longhand order or layer priority. Inline declarations outrank
+     * matched stylesheet declarations at equal importance.
      *
      * @return array<string, string>
      */
@@ -3524,7 +3676,8 @@ final class StyleResolver implements ElementPresentationResolver
                     $entry['value'] . ($entry['important'] ? ' !important' : ''),
                     false,
                     $rule['mediaTextSpecificity'] ?? array( 0, 0, 0 ),
-                    ++$sequence
+                    ++$sequence,
+                    $rule['layerRank'] ?? null
                 );
             }
         }
@@ -3551,7 +3704,7 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * @param array<string, array{value: string, important: bool, inline: bool, specificity: array{int, int, int}, sequence: int}> $cascade
+     * @param array<string, array{value: string, important: bool, inline: bool, specificity: array{int, int, int}, sequence: int, layer: int|null}> $cascade
      * @param array{int, int, int} $specificity
      */
     private function applyMediaTextCascadeDeclaration(
@@ -3560,7 +3713,8 @@ final class StyleResolver implements ElementPresentationResolver
         string $rawValue,
         bool $inline,
         array $specificity,
-        int $sequence
+        int $sequence,
+        ?int $layer = null
     ): void {
         $property = str_starts_with($property, '--') ? $property : strtolower($property);
         $important = 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue);
@@ -3592,7 +3746,7 @@ final class StyleResolver implements ElementPresentationResolver
             $value = $this->flexShorthandGrowFactor($value);
         }
 
-        $incoming = array( 'important' => $important, 'inline' => $inline, 'specificity' => $specificity, 'sequence' => $sequence );
+        $incoming = array( 'important' => $important, 'inline' => $inline, 'specificity' => $specificity, 'sequence' => $sequence, 'layer' => $layer );
         $resetsAll = 'all' === $property && $this->isCssAllResetValue($value);
         // `all:unset|initial|revert` resets every longhand except custom
         // properties, direction and unicode-bidi. A winning reset removes the
@@ -3616,35 +3770,77 @@ final class StyleResolver implements ElementPresentationResolver
             return;
         }
 
+        // Box shorthands reset their entire family, just as `all` does above.
+        // Keep stronger descendants, but serialize them after the shorthand.
+        $longhands = self::BOX_SHORTHAND_LONGHANDS[$property] ?? array();
+        $strongerLonghands = array();
+        foreach ($cascade as $existing => $entry) {
+            if (in_array($property, self::BOX_SHORTHAND_LONGHANDS[$existing] ?? array(), true)
+                && $this->mediaTextCascadeEntryOutranks($entry, $incoming)) {
+                return;
+            }
+        }
+        foreach ($cascade as $existing => $entry) {
+            if (in_array($existing, $longhands, true)) {
+                if ($this->mediaTextCascadeEntryOutranks($entry, $incoming)) {
+                    $strongerLonghands[$existing] = $entry;
+                }
+                unset($cascade[$existing]);
+            }
+        }
+        // Replacing a key must also replace its serialization position.
+        unset($cascade[$property]);
         $cascade[$property] = array(
             'value' => $value,
             'important' => $important,
             'inline' => $inline,
             'specificity' => $specificity,
             'sequence' => $sequence,
+            'layer' => $layer,
         );
+        // Preserve relative order among surviving descendants (including nested
+        // border shorthands), rather than the order of the family map.
+        $cascade += $strongerLonghands;
     }
 
     /**
+     * Physical box shorthand reset families projected by this resolver.
+     * Include intermediate shorthands as well as terminal longhands so border
+     * resets compete at every level without parsing or expanding CSS values.
+     */
+    private const BOX_SHORTHAND_LONGHANDS = array(
+        'padding' => array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'),
+        'margin' => array('margin-top', 'margin-right', 'margin-bottom', 'margin-left'),
+        'inset' => array('top', 'right', 'bottom', 'left'),
+        'border' => array('border-top', 'border-right', 'border-bottom', 'border-left', 'border-width', 'border-style', 'border-color',
+            'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+            'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
+            'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color'),
+        'border-top' => array('border-top-width', 'border-top-style', 'border-top-color'),
+        'border-right' => array('border-right-width', 'border-right-style', 'border-right-color'),
+        'border-bottom' => array('border-bottom-width', 'border-bottom-style', 'border-bottom-color'),
+        'border-left' => array('border-left-width', 'border-left-style', 'border-left-color'),
+        'border-width' => array('border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width'),
+        'border-style' => array('border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style'),
+        'border-color' => array('border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color'),
+        'border-radius' => array('border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius'),
+    );
+
+    /**
      * Whether an existing cascade entry beats an incoming declaration:
-     * importance, then specificity, then order (inline wins a tie).
+     * using the shared importance, inline, layer, specificity and order ranking.
      *
-     * @param array{important: bool, inline: bool, specificity: array<int, int>, sequence: int} $current
-     * @param array{important: bool, inline: bool, specificity: array<int, int>, sequence: int} $incoming
+     * @param array{important: bool, inline: bool, specificity: array<int, int>, sequence: int, layer: int|null} $current
+     * @param array{important: bool, inline: bool, specificity: array<int, int>, sequence: int, layer: int|null} $incoming
      */
     private function mediaTextCascadeEntryOutranks(array $current, array $incoming): bool
     {
-        if ( $current['important'] !== $incoming['important'] ) {
-            return $current['important'];
-        }
-        $specificityComparison = $this->compareMediaTextSpecificity($current['specificity'], $incoming['specificity']);
-        if ( 0 !== $specificityComparison ) {
-            return 0 < $specificityComparison;
-        }
-        if ( $current['sequence'] !== $incoming['sequence'] ) {
-            return $current['sequence'] > $incoming['sequence'];
-        }
-        return $current['inline'] && ! $incoming['inline'];
+        // The incoming declaration wins exact ties. Keep the box-family reset
+        // handling above, but do not give it a separate, layer-blind cascade.
+        return ! CssCascade::wins(
+            $incoming + array('order' => $incoming['sequence']),
+            $current + array('order' => $current['sequence'])
+        );
     }
 
     /**
@@ -3902,6 +4098,7 @@ final class StyleResolver implements ElementPresentationResolver
             || $this->isHiddenPositionedLayer($element, $declarations)
             || $this->hasKeyboardFocusReveal($element, $declarations)
             || $this->context->hasRetainedPresentationRuntime($element)
+            || $this->hasRetainedCaptureDialogTrigger($element)
             || $this->isNativeNavigationDropdownPanel($element)
         ) {
             return $declarations;
@@ -3930,6 +4127,27 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $normalized['declarations'];
+    }
+
+    /** Source-wired capture panels remain reachable without dialog projection. */
+    private function hasRetainedCaptureDialogTrigger(DOMElement $element): bool
+    {
+        $key = trim(SourceDom::attr($element, CaptureEvidence::DIALOG_PANEL));
+        if ('' === $key || $key !== SourceDom::attr($element, 'id')) {
+            return false;
+        }
+
+        foreach ($element->ownerDocument?->getElementsByTagName('*') ?? array() as $trigger) {
+            if (
+                $trigger instanceof DOMElement
+                && $key === trim(SourceDom::attr($trigger, CaptureEvidence::DIALOG_TRIGGER))
+                && $key === trim(SourceDom::attr($trigger, 'aria-controls'))
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isNativeNavigationDropdownPanel(DOMElement $element): bool
@@ -4329,7 +4547,7 @@ final class StyleResolver implements ElementPresentationResolver
 
             $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
             foreach ( $rule['declarations'] as $property => $value ) {
-                $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, false, $specificity, ++$sequence);
+                $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, false, $specificity, ++$sequence, $rule['layerRank'] ?? null);
             }
         }
 
@@ -4639,6 +4857,17 @@ final class StyleResolver implements ElementPresentationResolver
                     'flex-grow',
                     'float',
                     'grid-template-columns',
+                    'gap',
+                    'column-gap',
+                    'min-width',
+                    'max-width',
+                    'perspective',
+                    'transform',
+                    'filter',
+                    'box-shadow',
+                    'background',
+                    'background-color',
+                    'background-image',
                     'order',
                     'width',
                 ), true)
@@ -4948,6 +5177,12 @@ final class StyleResolver implements ElementPresentationResolver
         if (1 === preg_match('/^@layer\b/i', $condition)) {
             return true;
         }
+        // A media query made only of media types (`screen`, `all`,
+        // `only screen`; also what `<link media="screen">` wraps a sheet in)
+        // tests no viewport feature, so it holds at every screen width.
+        if (1 === preg_match('/^@media\s+([^(]*)$/i', $condition, $media)) {
+            return CssCascade::mediaConditionApplies($media[1], self::DESKTOP_REFERENCE_WIDTH);
+        }
 
         return 1 === preg_match('/^@supports\b/i', $condition)
             && CssCascade::supportsConditionApplies((string) preg_replace('/^@supports\s*/i', '', $condition));
@@ -5053,6 +5288,7 @@ final class StyleResolver implements ElementPresentationResolver
             'font-family',
             'font-size',
             'font-style',
+            'font-variant',
             'font-weight',
             'letter-spacing',
             'gap',
@@ -5167,7 +5403,7 @@ final class StyleResolver implements ElementPresentationResolver
     public function cssDeclarations(string $style): array
     {
         $declarations = array();
-        foreach ( $this->verbatimCssDeclarations($style) as $name => $value ) {
+        foreach ( $this->verbatimCssDeclarations($style, true) as $name => $value ) {
             foreach ( $this->physicalBoxDeclarations($name, $value) as $boxName => $boxValue ) {
                 // Importance precedes source order even within one declaration
                 // list. Reducing to a property map must retain that winner.
@@ -5191,12 +5427,23 @@ final class StyleResolver implements ElementPresentationResolver
      * Author-stylesheet projection re-emits authored declaration text, so it
      * must keep the authored property names (`margin-inline`, …) byte-for-byte;
      * only cascade resolution and classification read the expanded physical
-     * sides.
+     * sides. The font expansion option is likewise reserved for cascade readers;
+     * it runs before map reduction to preserve shorthand/longhand source order.
      *
      * @return array<string, string>
      */
-    public function verbatimCssDeclarations(string $style): array
+    public function verbatimCssDeclarations(string $style, bool $expandFont = false): array
     {
+        // Parsing and font expansion depend only on these inputs, not context.
+        $cacheKey = ($expandFont ? '1:' : '0:') . $style;
+        if ( isset($this->verbatimCssDeclarationsCache[$cacheKey]) ) {
+            return $this->verbatimCssDeclarationsCache[$cacheKey];
+        }
+        // Bound retention for long-lived resolvers without an eviction index.
+        if ( count($this->verbatimCssDeclarationsCache) > 4096 ) {
+            $this->verbatimCssDeclarationsCache = array();
+        }
+
         $declarations = array();
         foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
             if ( ! str_contains($declaration, ':') ) {
@@ -5216,20 +5463,21 @@ final class StyleResolver implements ElementPresentationResolver
             // background rule. Keep it for the same sanitized carrier path.
             $allowsImageUrl = (str_starts_with($name, '--') || in_array($name, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true)) && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
             if ( '' !== $name && '' !== $value && ( $allowsImageUrl || ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) ) {
-                // Importance precedes source order even within one declaration
-                // list. Reducing to a property map must retain that winner.
-                if (isset($declarations[$name]) && CssValueInspector::isImportant($declarations[$name]) && ! CssValueInspector::isImportant($value)) {
-                    continue;
+                // Expand before reducing to a map: even repeated shorthands must
+                // compete with intervening longhands in authored source order.
+                $entries = $expandFont && 'font' === $name ? CssFontShorthand::expand($value) : array();
+                if (array() === $entries) $entries = array($name => $value);
+                foreach ($entries as $property => $entryValue) {
+                    if (isset($declarations[$property]) && CssValueInspector::isImportant($declarations[$property]) && ! CssValueInspector::isImportant($entryValue)) {
+                        continue;
+                    }
+                    unset($declarations[$property]);
+                    $declarations[$property] = $entryValue;
                 }
-                // Keep the surviving declaration at its final authored position.
-                // Border shorthands and longhands reset one another in source
-                // order, so overwriting a prior key in place is not sufficient.
-                unset($declarations[$name]);
-                $declarations[$name] = $value;
             }
         }
 
-        return $declarations;
+        return $this->verbatimCssDeclarationsCache[$cacheKey] = $declarations;
     }
 
     /**
@@ -5766,6 +6014,34 @@ final class StyleResolver implements ElementPresentationResolver
         $customProperties = $element instanceof DOMElement
             ? $this->cascadedCustomProperties($element)
             : $this->context->sourceStyles()->customProperties();
+
+        return $this->expandCssVariableReferences($value, $customProperties);
+    }
+
+    /**
+     * Empty-box evidence asks whether paint is possible at any viewport, not
+     * what its computed value is at the reference viewport. A conditional
+     * definition on this element or an ancestor must not become a missing
+     * variable's fallback. Use an opaque paint token rather than choosing an
+     * arbitrary winner across mutually exclusive conditions. Static references
+     * (including their dependencies and fallbacks) still expand normally.
+     */
+    public function resolveEmptyVisualPaintVariables(string $value, DOMElement $element): string
+    {
+        if ( ! str_contains($value, 'var(') ) {
+            return $value;
+        }
+
+        $customProperties = $this->cascadedCustomProperties($element);
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            foreach ( $this->matchingStyleRules($node, 'conditional') as $rule ) {
+                foreach ( $rule['cascadedDeclarations'] ?? array() as $name => $declared ) {
+                    if ( str_starts_with((string) $name, '--') ) {
+                        $customProperties[(string) $name] = 'blocks-engine-possible-paint';
+                    }
+                }
+            }
+        }
 
         return $this->expandCssVariableReferences($value, $customProperties);
     }

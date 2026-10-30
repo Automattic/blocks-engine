@@ -50,7 +50,7 @@ $assert(1 === count($live), 'The shared header carries the one live rich-text ma
 
 $stylesheets = array_values(array_filter($plan['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null)));
 $pageSheets = array_values(array_filter($stylesheets, static fn (array $asset): bool => !str_contains((string) $asset['target_path'], 'shared-chrome-') && str_starts_with(basename((string) $asset['target_path']), 'site.')));
-$assert(2 === count($pageSheets), 'Every route shares one projection of the site stylesheet, for visitors and the editor.');
+$assert(1 === count($pageSheets), 'Every route shares one projection of the site stylesheet, for visitors and the editor.');
 foreach ($stylesheets as $asset) {
     $dead = array_diff($markers((string) $asset['content']), $live);
     $assert(array() === $dead, $asset['target_path'] . ' names no rich-text marker absent from the emitted plan: ' . implode(', ', $dead));
@@ -60,7 +60,7 @@ foreach ($stylesheets as $asset) {
 
 // The reset still reaches every element, and the authored rules are unchanged.
 $all = implode("\n", array_map(static fn (array $asset): string => (string) $asset['content'], $stylesheets));
-$assert(str_contains($all, '*:not(:where(.blocks-engine-role-richtext)):not(.be-c-0),:where(.blocks-engine-role-richtext.blocks-engine-subject):not(.be-c-0){margin:0}'), 'The reset excludes the hidden label through the richtext role class and reaches it through the subject arm.');
+$assert(str_contains($all, '*:not(:where(.blocks-engine-role-richtext)):not(.be-c-0)') && str_contains($all, ':where(.blocks-engine-role-richtext.blocks-engine-subject):not(.be-c-0){margin:0}'), 'The route-scoped reset excludes the hidden label through the richtext role class and reaches it through the subject arm.');
 $assert(str_contains($all, '.cta{border:1px solid}'), 'Authored chrome rules are unchanged.');
 foreach (array('padding:2em', 'padding:1em') as $body) {
     $assert(str_contains($all, $body), 'The route rule `' . $body . '` is kept.');

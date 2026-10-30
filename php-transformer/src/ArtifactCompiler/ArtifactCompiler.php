@@ -22,6 +22,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\Css\TemplatePartStickyContainment;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunker;
@@ -50,6 +51,21 @@ final class ArtifactCompiler
 
     public const MAX_PLAN_DIGEST_DEPTH = 512;
 
+    /**
+     * The shared sheet is downloaded once and cached across routes; page
+     * copies cost a separate download per page. Allow the greater of this
+     * factor times the largest copy, one tenth of total copy bytes, and the
+     * floor below. Measure scoped variants and split-rule overhead before
+     * compaction; exceeding the bound falls back to page copies.
+     */
+    public const ROUTE_SCOPE_BYTES_FACTOR = 3;
+
+    /** Cached shared overhead may replace up to 10% of total per-page copy download bytes. */
+    public const ROUTE_SCOPE_COPY_TOTAL_DIVISOR = 10;
+
+    /** Route-scoping overhead always allowed, e.g. for routes that only drop rules (their copy is empty). */
+    public const ROUTE_SCOPE_BYTES_FLOOR = 8192;
+
     public const INPUT_SCHEMA = 'blocks-engine/php-transformer/site-artifact/v1';
     // Plans are a published v1 transport contract. Receipts are additive: v2
     // carries terminal reductions while v1 receipts remain composable.
@@ -71,6 +87,9 @@ final class ArtifactCompiler
 
     /** @var array<string, list<array<string, mixed>>> */
     private array $stylesheetOccurrenceCache = array();
+
+    /** @var array<string,string> Collision-free root classes keyed by site route identity. */
+    private array $routeClasses = array();
 
     /** @var array<string, true> Source resources imported into an authored layer. */
     private array $layeredNavigationImports = array();
@@ -176,7 +195,11 @@ final class ArtifactCompiler
     /** @var array<int, array<string, mixed>> */
     private array $imageFiles = array();
 
-    /** @var array<string, array{color:string, undecodable:bool}> */
+    /**
+     * Raw-byte SHA-256 results retained across page indexing for this instance.
+     *
+     * @var array<string, array{color:string, undecodable:bool}>
+     */
     private array $glyphColorByHash = array();
 
     private ?PayloadReader $glyphPayloadReader = null;
@@ -256,6 +279,7 @@ final class ArtifactCompiler
                 'projected_choice_group_count' => $choiceGroups['projected_count'],
                 'native_runtime_replacements' => array_merge(
                     $capturedDialogs['native_runtime_replacements'] ?? array(),
+                    $selectableSets['native_runtime_replacements'] ?? array(),
                     $collections['superseded_runtime_scripts'] ?? array()
                 ),
             ),
@@ -274,6 +298,13 @@ final class ArtifactCompiler
     {
         $startedAt = hrtime(true);
         $normalized = $reduction['normalized'];
+        $routeIdentities = array();
+        foreach ($normalized['files'] as $file) {
+            if ('html' !== ($file['kind'] ?? '')) continue;
+            $source = (string) $file['path'];
+            $routeIdentities[] = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
+        }
+        $this->routeClasses = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClasses($routeIdentities);
         $capturedDialogs = is_array($reduction['captured_dialogs'] ?? null) ? $reduction['captured_dialogs'] : array('diagnostics' => array(), 'projected_count' => 0);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = is_array($reduction['source_documents'] ?? null) ? $reduction['source_documents'] : $this->compileSourceDocuments($normalized);
@@ -350,8 +381,24 @@ final class ArtifactCompiler
             if (is_array($fallback)) unset($fallback['_collection_binding_declined']);
             return $fallback;
         }, $allFallbacks);
+        $pageMarkup = array();
+        $pageMarkup[(string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? '')] = $entryBlocks['serialized_blocks'];
+        foreach ($compiledHtmlDocuments as $sourcePath => $document) {
+            $pageMarkup[(string) ($ownedBy(array(array()), (string) $sourcePath)[0]['owner'] ?? '')] = $document['serialized_blocks'];
+        }
+        // These are the template-part candidates consumed by compiledSiteReport
+        // and WordPressSitePlan's shell extraction. serialized_blocks alone omits
+        // extracted chrome. Use a conservative union of all candidate parts.
+        $sharedMarkup = '';
+        $parts = array_merge($this->compiledSiteTemplateParts($normalized['files']), $entryBlocks['shell_artifacts'], $inlineShellCompilation['artifacts']);
+        foreach ($compiledHtmlDocuments as $document) $parts = array_merge($parts, $document['shell_artifacts'] ?? array());
+        // Pages sharing chrome each carry an identical copy of the same part;
+        // one copy is the same selector evidence, and every route appends this.
+        foreach (array_unique(array_map(static fn (array $part): string => (string) ($part['block_markup'] ?? ''), $parts)) as $partMarkup) $sharedMarkup .= "\n" . $partMarkup;
+        foreach ($pageMarkup as &$markup) $markup .= "\n" . $sharedMarkup;
+        unset($markup);
         $authoredFiles = $normalized['files'];
-        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''));
+        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics, $sharedMarkup);
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
             $documentFiles = $normalized['files'];
@@ -392,6 +439,8 @@ final class ArtifactCompiler
             if (isset($generatedAssetIdentities[$identity])) continue;
             $generatedAssetIdentities[$identity] = true; $generatedAssets[] = $asset;
         }
+        $rootInlineAsset = $this->documentInlineStyleAsset($normalized['files']);
+        if (null !== $rootInlineAsset) $generatedAssets[] = $rootInlineAsset;
         $projectedAdminBarAsset = $this->projectedViewportChromeAsset($normalized['files']);
         if (null !== $projectedAdminBarAsset) {
             $generatedAssets[] = $projectedAdminBarAsset;
@@ -1020,24 +1069,24 @@ final class ArtifactCompiler
             if ( is_string($declaration['kind'] ?? null) && is_string($name) ) $keys[$declaration['kind'] . ':' . $name] = true;
         }
 
-        $slug = static function (string $value): string {
-            return \Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug::segment(trim($value));
-        };
-        $price = static function (mixed $value): string {
-            if ( ! is_scalar($value) ) return '';
-            $clean = preg_replace('/[^0-9.,]/', '', trim((string) $value)) ?? '';
-            if ( '' === $clean ) return '';
-            $commaCount = substr_count($clean, ',');
-            $dotCount = substr_count($clean, '.');
-            $decimal = '';
-            if ( 0 < $commaCount && 0 < $dotCount ) $decimal = strrpos($clean, ',') > strrpos($clean, '.') ? ',' : '.';
-            elseif ( 1 === $commaCount ) { $tail = strlen(substr($clean, (int) strrpos($clean, ',') + 1)); if ( 1 <= $tail && 2 >= $tail ) $decimal = ','; }
-            elseif ( 1 === $dotCount ) { $tail = strlen(substr($clean, (int) strrpos($clean, '.') + 1)); if ( 1 <= $tail && 2 >= $tail ) $decimal = '.'; }
-            if ( '' === $decimal ) return ltrim(preg_replace('/[^0-9]/', '', $clean) ?? '', '0') ?: '0';
-            $parts = explode($decimal, $clean); $fraction = preg_replace('/[^0-9]/', '', (string) array_pop($parts)) ?? ''; $integer = ltrim(preg_replace('/[^0-9]/', '', implode('', $parts)) ?? '', '0') ?: '0';
-            return strlen($fraction) > 2 ? number_format((float) ($integer . '.' . $fraction), 2, '.', '') : $integer . '.' . str_pad($fraction, 2, '0');
-        };
+        $slug = SchemaProductEvidence::productSlug(...);
+        $price = SchemaProductEvidence::productPrice(...);
 
+        $productRoutes = array();
+        $pageProducts = array();
+        $detailPages = array();
+        $entryRoot = dirname($entryPath);
+        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot);
+        // Match the plan's page route, including explicit routes and entry roots.
+        $pageRoutes = array();
+        foreach ($files as $file) {
+            $path = $file['path'] ?? '';
+            $relative = '.' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
+            $route = SchemaProductEvidence::urlRoute('/' . $relative, $path);
+            $segments = array_map($slug, explode('/', $route));
+            $pageRoutes[$path] = $file['metadata']['route_path'] ?? '/' . implode('/', $segments);
+            if ('page' !== ($file['metadata']['post_type'] ?? 'page')) unset($detailPages[$path]);
+        }
         $products = array();
         $forms = array();
         $orderLookups = array();
@@ -1055,6 +1104,10 @@ final class ArtifactCompiler
                 $gridItems = array();
                 foreach ( is_array($fallback['products'] ?? null) ? $fallback['products'] : array() as $product ) {
                     if ( ! is_array($product) ) continue;
+                    if (is_string($product['url'] ?? null)) {
+                        $route = SchemaProductEvidence::urlRoute($product['url'], $sourcePath);
+                        if (isset($productRoutes[$route])) $product['slug'] = $productRoutes[$route];
+                    }
                     if ( is_array($product['template_slots'] ?? null) && is_scalar($product['name'] ?? null) && '' !== trim((string) $product['name']) ) {
                         $gridItems[] = array('product' => $slug(is_scalar($product['slug'] ?? null) ? (string) $product['slug'] : trim((string) $product['name'])), 'slots' => $product['template_slots']);
                     }
@@ -1063,6 +1116,7 @@ final class ArtifactCompiler
                     $regularPrice = $price($product['price'] ?? null);
                     if ( '' === $name || '' === $productSlug || '' === $regularPrice ) continue;
                     $row = array('name' => $name, 'slug' => $productSlug, 'regular_price' => $regularPrice);
+                    if (is_string($product['url'] ?? null)) $row['url'] = $product['url'];
                     $salePrice = $price($product['sale_price'] ?? null); if ( '' !== $salePrice ) $row['sale_price'] = $salePrice;
                     if ( is_scalar($product['description'] ?? null) && '' !== trim((string) $product['description']) ) $row['description'] = (string) $product['description'];
                     $image = is_string($product['image'] ?? null) ? $product['image'] : (is_array($product['image'] ?? null) && is_string($product['image']['src'] ?? null) ? $product['image']['src'] : '');
@@ -1259,12 +1313,11 @@ final class ArtifactCompiler
                 $forms[$sourcePath . "\n" . $selector] = $form;
             }
         }
-        $schemaProducts = SchemaProductEvidence::rows($files, $slug, $price, $diagnostics);
         // Only a page with one schema product can own an otherwise unclaimed
         // purchase form. Card descendants retain their existing card bindings.
-        $pageProducts = array();
+        // Ownership includes every contributing schema page, not only the
+        // chosen canonical row's source path after identity/language merging.
         $cardSelectors = array();
-        foreach ( $schemaProducts as $productSlug => $row ) $pageProducts[$row['source_path']][] = $productSlug;
         foreach ( $fallbacks as $fallback ) {
             if ( 'html_product_grid_fallback' !== ($fallback['diagnostic_code'] ?? '') ) continue;
             foreach ( $fallback['products'] ?? array() as $card ) {
@@ -1272,7 +1325,9 @@ final class ArtifactCompiler
             }
         }
         foreach ( $fallbacks as $fallback ) {
-            if ( 'commerce_add_to_cart' !== ($fallback['form_intent'] ?? '') ) continue;
+            $formlessPurchase = 'html_commerce_controls_fallback' === ($fallback['diagnostic_code'] ?? '')
+                && 'commerce_add_to_cart_form' === ($fallback['binding']['role'] ?? '');
+            if ( 'commerce_add_to_cart' !== ($fallback['form_intent'] ?? '') && ! $formlessPurchase ) continue;
             $sourcePath = $fallback['source'] ?? $entryPath;
             if ( 1 !== count($pageProducts[$sourcePath] ?? array()) ) continue;
             $selector = $fallback['selector'] ?? '';
@@ -1287,9 +1342,29 @@ final class ArtifactCompiler
             unset($forms[$sourcePath . "\n" . $selector]);
         }
         foreach ( $schemaProducts as $productSlug => $row ) {
+            if ( isset($row['bindings']) ) usort($row['bindings'], static fn (array $a, array $b): int => strcmp($a['source_path'], $b['source_path']) ?: strcmp($a['search_block_markup'], $b['search_block_markup']));
+            if (!isset($row['url'])) $row['url'] = '/' . $row['source_path'];
+            $source = $row['source_path'];
+            if (isset($detailPages[$source]) && $detailPages[$source] === ($pageRoutes[$source] ?? null)) {
+                foreach ($row['bindings'] ?? array() as $binding) {
+                    if ('commerce_add_to_cart_form' === ($binding['role'] ?? null) && $source === ($binding['source_path'] ?? null)) {
+                        $row['whole_page_candidate'] = 'blocks-engine/whole-page-candidate/v1';
+                        break;
+                    }
+                }
+            }
             if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
             foreach ( $row['bindings'] ?? array() as $binding ) $products[$productSlug]['bindings'][] = $binding;
-            foreach ( array('description', 'image', 'category', 'sku', 'images', 'tags', 'variants', 'sale_price', 'stock_status') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+            // Detail evidence owns identity and source URL; card bindings stay intact.
+            foreach (array('name', 'slug', 'url') as $field) $products[$productSlug][$field] = $row[$field];
+            if (isset($row['whole_page_candidate'])) {
+                // The detail page, not an earlier listing card, owns the claim.
+                $products[$productSlug]['source_path'] = $source;
+                $products[$productSlug]['whole_page_candidate'] = $row['whole_page_candidate'];
+            }
+            // Detail-page descriptive evidence wins; cards fill only absent fields.
+            foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'stock_status') as $field ) if ( isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+            foreach ( array('tags', 'sale_price') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
         // Listing-owned forms are shop controls, not a second form-provider
         // surface. In particular a sort-only form and its select may serialize
@@ -1307,6 +1382,12 @@ final class ArtifactCompiler
             });
             if ( array() !== $owned && array() === $unclaimed ) unset($forms[$key]);
         }
+        foreach ($products as $productSlug => &$product) {
+            $product['id'] = 'product:' . hash('sha256', $productSlug);
+            // Only a claimed detail page names the product's route; others keep their URL.
+            if (isset($product['whole_page_candidate'])) $product['source_route'] = $pageRoutes[$product['source_path']];
+        }
+        unset($product);
         ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($orderLookups, SORT_STRING); ksort($carts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
         $collections = array(
             array('capability' => 'shop', 'type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
@@ -1649,6 +1730,9 @@ final class ArtifactCompiler
             'generated_block_namespace' => $generatedBlockNamespace,
             'generated_asset_root'       => $this->generatedAssetRoot,
             'extract_global_shell'       => $extractGlobalShell,
+            // A shared shell's projection joins every page's stylesheet, where
+            // a rule it left unprojected would bypass the page's projection.
+            'project_only_matched_author_rules' => 'artifact-shared-shell' === $sourceScope,
             'layout_geometry_proof'      => $this->layoutGeometryProofForSource($files, $sourcePath),
         ));
         $blockCompilationOutput = $result->blockCompilationOutput;
@@ -2145,6 +2229,7 @@ final class ArtifactCompiler
                     // so retain the authored stylesheet for source analysis.
                     $assets[] = array( 'path' => 'inline-style-' . $inlineIndex . '.css', 'source_path' => 'inline-style', 'content' => $content, 'source_hash' => hash('sha256', $content), 'media' => StyleTagScanner::authorMedia($attributes), 'type' => $this->htmlAttribute($attributes, 'type') );
                 }
+                $assets[array_key_last($assets)]['capture_only'] = StyleTagScanner::isCaptureOnly($attributes);
                 continue;
             }
             $tag = $tagRecord['tag'];
@@ -2488,7 +2573,7 @@ final class ArtifactCompiler
      * @param string $primaryOwner The page that produced the primary projections, '' when they are site-wide.
      * @return array<int, array<string, mixed>>
      */
-    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = ''): array
+    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = '', array $pageMarkup = array(), array &$projectionDiagnostics = array(), string $sharedMarkup = ''): array
     {
         $attributeStateMarkers = array();
         foreach ($projections as $projection) {
@@ -2543,6 +2628,31 @@ final class ArtifactCompiler
             }
         }
         $transformer = new CssStylesheetTransformer();
+        $routeIdentities = array();
+        $routeDocuments = array();
+        foreach ($files as $document) {
+            if ('html' !== ($document['kind'] ?? '')) continue;
+            $source = (string) $document['path'];
+            $owner = $this->fileOwnership($document)['id'];
+            $routeIdentities[$owner] = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
+            if (!isset($pageMarkup[$owner])) continue;
+            // Parse the lowered markup once per route, never once per arm or
+            // stylesheet. Retain source root/body context just as projection
+            // does; block comments are inert to the HTML parser.
+            $dom = new DOMDocument();
+            $previousErrors = libxml_use_internal_errors(true);
+            $loaded = $dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $pageMarkup[$owner] . '</body></html>');
+            libxml_clear_errors();
+            libxml_use_internal_errors($previousErrors);
+            if (!$loaded) continue;
+            $attributes = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml((string) ($document['content'] ?? ''));
+            foreach (array('html' => 'root_attributes', 'body' => 'body_attributes') as $tag => $key) {
+                $element = $dom->getElementsByTagName($tag)->item(0);
+                foreach ($attributes[$key] ?? array() as $name => $value) $element?->setAttribute($name, $value);
+            }
+            $routeDocuments[$owner] = $dom;
+        }
+        $routeMatchIndex = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex($routeDocuments);
         $reserved = array_fill_keys(array_column($files, 'path'), true);
         $output = array();
         foreach ( $files as $file ) {
@@ -2600,29 +2710,63 @@ final class ArtifactCompiler
             $stylesheets = array();
             foreach ( $authoritativeContent as $stylesheet ) {
                 $split = $transformer->splitLeadingAtRulePreamble($stylesheet);
-                if ( '' !== trim($split['preamble']) ) {
-                    $preambles[] = $split['preamble'];
+                $imports = '';
+                foreach ($split['statements'] as $statement) {
+                    if (preg_match('/^\s*(?:\/\*.*?\*\/\s*)*@import\b/is', $statement)) $imports .= $statement;
+                    else $preambles[] = $statement;
                 }
-                if ( '' !== trim($split['stylesheet']) ) {
-                    $stylesheets[] = $split['stylesheet'];
+                if ( '' !== trim($imports . $split['stylesheet']) ) {
+                    $stylesheets[] = $imports . $split['stylesheet'];
                 }
             }
             $sharedStylesheets = array_merge(array_map('strval', array_keys($sharedByPath[$path] ?? array())), $stylesheets);
-            // A page's projection repeats every rule it did not rewrite. Only the
-            // rules missing from the site-wide copy go to a stylesheet the page
-            // alone loads. Place it after the site-wide copy: the latter may
-            // contain a generic selector that still matches the lowered block
-            // (e.g. a grid's default two-column rule), while the page projection
-            // carries the source's later attribute-specific responsive winner.
+            // Shared-shell projections are part of every route's stylesheet.
+            // Align the full route projection, never a trailing cascade delta.
             $native = array();
             foreach (array_merge(array_keys($sharedByPath[$path] ?? array()), $authoritativeContent) as $content) {
                 $native += $nativeByContent[$path][$content] ?? array();
             }
-            $projectedFile = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $transformer->concatenateWithoutRedundantRules($sharedStylesheets) ))));
+            $originalPages = $pages;
+            $pageProjections = array();
+            foreach ($ownersByPath[$path] ?? array() as $content => $owners) {
+                foreach ($owners as $owner => $_) $pageProjections[$owner][] = (string) $content;
+            }
+            foreach ($pageProjections as &$contents) {
+                $contents = array($transformer->concatenateWithoutRedundantRules(array_merge(array_map('strval', array_keys($sharedByPath[$path] ?? array())), $contents)));
+            }
+            unset($contents);
+            $sharedStylesheets = array($transformer->concatenateWithoutRedundantRules($sharedStylesheets));
+            $fallbackSharedStylesheets = $sharedStylesheets;
+            foreach ($pages as $owner => $_) $pages[$owner] = $pageProjections[$owner] ?? $pages[$owner];
+            $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup, $routeMatchIndex, $this->routeClasses, $sharedMarkup);
+            // Recompact only at serialization, merging compatible marker arms.
+            $recompact = static fn (string $css): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
+            // A cached shared download replaces separate page-copy downloads.
+            // Both costs are measured before compaction.
+            $largestCopy = $totalCopyBytes = 0;
+            if (0 < $routed['route_bytes']) {
+                foreach ($routed['scoped'] as $owner) {
+                    $copyBytes = strlen($transformer->rulesAbsentFrom($pageProjections[$owner] ?? array(), $fallbackSharedStylesheets, true));
+                    $largestCopy = max($largestCopy, $copyBytes);
+                    $totalCopyBytes += $copyBytes;
+                }
+            }
+            $routeBudget = max(self::ROUTE_SCOPE_BYTES_FACTOR * $largestCopy, intdiv($totalCopyBytes, self::ROUTE_SCOPE_COPY_TOTAL_DIVISOR), self::ROUTE_SCOPE_BYTES_FLOOR);
+            if (array() !== $routed['scoped'] && $routed['route_bytes'] > $routeBudget) {
+                $projectionDiagnostics[] = $this->diagnostic('author_stylesheet_route_scope_fallback', 'warning', sprintf('%s: route-scoped variants add %d cached-sheet bytes, over budget %d = max(%dx largest copy %d, total copies %d / %d, floor %d); emitting page copies', $path, $routed['route_bytes'], $routeBudget, self::ROUTE_SCOPE_BYTES_FACTOR, $largestCopy, $totalCopyBytes, self::ROUTE_SCOPE_COPY_TOTAL_DIVISOR, self::ROUTE_SCOPE_BYTES_FLOOR));
+                foreach ($routed['scoped'] as $owner) $pages[$owner] ??= $pageProjections[$owner] ?? array();
+                $routed['stylesheet'] = implode("\n", $fallbackSharedStylesheets);
+            } else {
+                foreach ($routed['scoped'] as $owner) unset($pages[$owner]);
+            }
+            foreach ($routed['reasons'] as $owner => $reason) {
+                $projectionDiagnostics[] = $this->diagnostic('author_stylesheet_route_scope_fallback', 'warning', $path . ' (' . $owner . '): ' . $reason);
+            }
+            $projectedFile = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $recompact($transformer->concatenateWithoutRedundantRules(array($routed['stylesheet']))) ))));
             $projectedFile['metadata']['native_selectors'] = array_keys($native);
             $output[] = $projectedFile;
             foreach ( $pages as $owner => $pageStylesheets ) {
-                $delta = $transformer->rulesAbsentFrom($pageStylesheets, $sharedStylesheets, true);
+                $delta = $recompact($transformer->rulesAbsentFrom($pageStylesheets, $fallbackSharedStylesheets, true));
                 if ( '' === trim($delta) ) {
                     continue;
                 }
@@ -2630,7 +2774,7 @@ final class ArtifactCompiler
                 $pageFile['metadata']['compilation'] = array( 'scope' => 'page', 'id' => (string) $owner );
                 $pageFile['metadata']['page_stylesheet_of'] = $path;
                 $pageNative = $native;
-                foreach ($pageStylesheets as $content) {
+                foreach ($originalPages[$owner] ?? array() as $content) {
                     $pageNative += $nativeByContent[$path][$content] ?? array();
                 }
                 $pageFile['metadata']['native_selectors'] = array_keys($pageNative);
@@ -3072,6 +3216,48 @@ final class ArtifactCompiler
             $sources[] = array('path' => (string) ($file['path'] ?? 'css:input'), 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])));
         }
         return self::sortedByPath($sources);
+    }
+
+    /** Front-end-only document mechanics; never part of the editor carrier. */
+    private function documentInlineStyleAsset(array $files): ?array
+    {
+        $documents = array();
+        foreach ($files as $file) {
+            if ('html' !== ($file['kind'] ?? '')) continue;
+            foreach (array('html', 'body') as $tag) {
+                $style = \Automattic\BlocksEngine\PhpTransformer\Support\InlineBodyStyle::declarations((string) ($file['content'] ?? ''), $tag);
+                if ('' !== $style) $documents[(string) $file['path']][$tag] = $style;
+            }
+        }
+        if (array() === $documents) return null;
+        // One ID more than the heaviest author selector outranks every rule,
+        // as inline style does. The matching class arm of :is() supplies the
+        // ID weight without an authored ID, like InlineGeometry's carriers.
+        $ids = 0;
+        $transformer = new CssStylesheetTransformer();
+        foreach ($files as $file) {
+            if ('css' !== ($file['kind'] ?? '')) continue;
+            $transformer->visitStyleRules((string) ($file['content'] ?? ''), static function (string $prelude) use (&$ids): void {
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    $weight = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::specificityCounts(\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::parse($selector));
+                    $ids = max($ids, $weight['ids']);
+                }
+            });
+        }
+        $rules = array();
+        foreach ($documents as $source => $styles) {
+            $identity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
+            $class = $this->routeClasses[$identity] ?? \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($identity);
+            $root = 'html.' . $class . ':is(.' . $class . ',' . str_repeat('#' . $class, $ids + 1) . ')';
+            foreach ($styles as $tag => $style) {
+                $rules[] = $root . ('body' === $tag ? ' body' : '') . '{' . $style . '}';
+            }
+        }
+        if (array() === $rules) return null;
+        $content = implode("\n", $rules) . "\n";
+        $hash = hash('sha256', $content);
+        $path = 'assets/css/document-inline-' . substr($hash, 0, 16) . '.css';
+        return array('source' => 'engine-support', 'path' => $path, 'target_path' => $path, 'kind' => 'css', 'role' => 'stylesheet', 'stylesheet_placement' => 'after-author', 'stylesheet_target' => 'frontend', 'mime_type' => 'text/css', 'media_type' => 'text/css', 'bytes' => strlen($content), 'encoding' => 'utf-8', 'binary' => false, 'content' => $content, 'hash' => $hash, 'source_hash' => $hash);
     }
 
     /**
@@ -3827,12 +4013,20 @@ final class ArtifactCompiler
      */
     private function glyphColorForFile(array $file): array
     {
-        $bytes = $this->embeddedFileBytes($file);
-        if ( '' === $bytes || strlen($bytes) > 65536 ) {
-            return array('color' => '', 'undecodable' => false);
+        // Normalized binary files already carry the raw-byte digest, including
+        // payload references. Look it up before reading or decoding any bytes.
+        $hash = (string) ($file['raw_sha256'] ?? $file['payload_reference']['sha256'] ?? '');
+        if ( '' !== $hash && isset($this->glyphColorByHash[$hash]) ) {
+            return $this->glyphColorByHash[$hash];
         }
 
-        $hash = hash('sha256', $bytes);
+        $bytes = $this->embeddedFileBytes($file);
+        if ( '' === $bytes ) {
+            return array('color' => '', 'undecodable' => false);
+        }
+        if ( '' === $hash ) {
+            $hash = hash('sha256', $bytes);
+        }
         if ( ! isset($this->glyphColorByHash[$hash]) ) {
             $this->glyphColorByHash[$hash] = MonochromeGlyphColor::inspect($bytes);
         }
@@ -4106,7 +4300,7 @@ final class ArtifactCompiler
                 if (!$this->hasHtmlAttribute($tag, $name)) continue;
                 $value = $this->htmlAttribute($tag, $name);
                 // HTML's empty and invalid-value CORS states both select anonymous.
-                $values[str_replace('-', '_', $name)] = 'crossorigin' === $name && '' === $value ? 'anonymous' : $value;
+                $values[in_array($name, array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA), true) ? $name : str_replace('-', '_', $name)] = 'crossorigin' === $name && '' === $value ? 'anonymous' : $value;
             }
             return $values;
         };
@@ -4125,7 +4319,7 @@ final class ArtifactCompiler
         foreach (HtmlTagScanner::scan($html, 'link') as $link) {
             $tag = $link['tag']; $href = $this->htmlAttribute($tag, 'href');
             if ('' === $href) continue;
-            $links[] = array_merge(array('order' => count($links), 'placement' => $link['placement']), $attributes($tag, array('rel', 'type', 'media', 'integrity', 'crossorigin', 'referrerpolicy', 'as', 'fetchpriority', 'sizes')), $reference($href));
+            $links[] = array_merge(array('order' => count($links), 'placement' => $link['placement']), $attributes($tag, array('rel', 'type', 'media', 'integrity', 'crossorigin', 'referrerpolicy', 'as', 'fetchpriority', 'sizes', CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA)), $reference($href));
         }
         $scriptIndex = 0;
         foreach (HtmlTagScanner::scan($html, 'script') as $script) {
@@ -4146,7 +4340,8 @@ final class ArtifactCompiler
         }
         $titles = HtmlTagScanner::scan($html, 'title');
         $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
-        $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
+        $routeIdentity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $sourcePath, $sourcePath);
+        $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html, $routeIdentity, $this->routeClasses[$routeIdentity] ?? null), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
         if ( array() !== $projectedRootMarkers ) {
             $rootClasses = array_values(array_filter(preg_split('/\s+/', trim((string) ($metadata['root_attributes']['class'] ?? ''))) ?: array(), static fn(string $class): bool => '' !== $class));
             $metadata['root_attributes']['class'] = implode(' ', array_unique(array_merge($rootClasses, $projectedRootMarkers)));
@@ -5252,7 +5447,6 @@ final class ArtifactCompiler
     {
         $this->filesByPath = array();
         $this->imageFiles = array();
-        $this->glyphColorByHash = array();
         $this->scriptContents = array();
         $this->runtimeScriptEvidenceAnalyzer->resetCache();
 

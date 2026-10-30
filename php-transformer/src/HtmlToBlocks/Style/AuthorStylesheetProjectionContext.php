@@ -14,6 +14,11 @@ final class AuthorStylesheetProjectionContext
         public readonly AuthorSelectorProjectionState $selectorProjections,
         public readonly TransformationEvidenceState $evidence,
         public readonly bool $keepAuthorClassSelectors = false,
-        public readonly ProjectedSelectorBindings $bindings = new ProjectedSelectorBindings()
+        public readonly ProjectedSelectorBindings $bindings = new ProjectedSelectorBindings(),
+        public readonly string $emittedMarkup = '',
+        public readonly ContentBoxRestatements $contentBoxRestatements = new ContentBoxRestatements(),
+        // A fragment compiled apart from its pages (a shared shell) owns only
+        // the rules reaching its own elements; each page projects the rest.
+        public readonly bool $onlyMatchedRules = false
     ) {}
 }

@@ -31,7 +31,7 @@ $assert(1 === count($light), 'same payload gets an independent active occurrence
 $assert(array('second.html') === array_column($light[0]['scopes'], 'source_path'), 'active occurrence does not leak onto first route');
 $writes = array_column($plan['writes'], null, 'target_path');
 $bootstrap = $writes['functions.php']['payload']['data'];
-$assert(str_contains($bootstrap, 'style_loader_tag') && str_contains($bootstrap, "set_attribute( 'disabled', true )"), 'delivery retains native switchable link semantics');
+$assert(str_contains($bootstrap, 'style_loader_tag') && str_contains($bootstrap, "'disabled' => true") && str_contains($bootstrap, 'set_attribute( $attribute, $value )'), 'delivery retains native switchable link semantics');
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
 $staged = $compiler->compose($shared, $compiler->compilePreparedPages($shared, $compiler->preparePages($artifact, $shared)))->toWordPressSitePlanView()['wordpress_site_plan'];

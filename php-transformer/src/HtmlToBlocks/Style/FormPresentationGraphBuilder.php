@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -38,6 +39,10 @@ final class FormPresentationGraphBuilder
      */
     private const TYPOGRAPHY_PROPERTIES = array(
         'color', 'font', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'text-transform',
+    );
+    /** The paint properties one control renders itself: its text colour and background fill. */
+    private const PAINT_PROPERTIES = array(
+        'color', 'background', 'background-color',
     );
     /** A block-level caption carrier fills its button, so its padding sizes the button box. */
     private const CAPTION_BOX_PROPERTIES = array(
@@ -216,6 +221,34 @@ final class FormPresentationGraphBuilder
         $matched = $this->matched($element, $this->typographyAnalysis['rules']);
         return $this->styles(
             array_intersect_key($matched['base'], array_flip(self::TYPOGRAPHY_PROPERTIES)),
+            $element,
+            null,
+            $this->typographyAnalysis['customProperties']
+        );
+    }
+
+    /**
+     * The paint one element renders — the text colour and background fill its
+     * own matched rules declare (shorthand or longhand), through the same
+     * cascade the presentation graph reports with. A form provider materializes
+     * a control into a block that carries its paint as style attributes, so the
+     * declaration must state it even where block presentation leaves the
+     * class-owned paint to the projected stylesheet (buttons do: their fill is
+     * read from the same rules the graph proves). Buttons do not inherit
+     * colour, so only the element's own declarations count. Memoized analysis;
+     * empty when the bounded cascade was truncated.
+     *
+     * @param list<array<string, mixed>> $stylesheets @return array<string, string>
+     */
+    public function paintStyles(DOMElement $element, array $stylesheets, string $inlineCss = ''): array
+    {
+        $this->typographyAnalysis ??= $this->typographyAnalysis($stylesheets, $inlineCss);
+        if ( $this->typographyAnalysis['truncated'] ) {
+            return array();
+        }
+        $matched = $this->matched($element, $this->typographyAnalysis['rules']);
+        return $this->styles(
+            array_intersect_key($matched['base'], array_flip(self::PAINT_PROPERTIES)),
             $element,
             null,
             $this->typographyAnalysis['customProperties']
@@ -845,12 +878,25 @@ final class FormPresentationGraphBuilder
             return;
         }
         $matched = $this->matched($wrapper, $rules);
+        $layoutFacts = array_intersect_key($matched['base'], array_flip(array( 'display', 'flex-direction' )));
+        $layoutStyles = $this->styles($layoutFacts, $wrapper, null, $customPropertyRules);
+        $display = CssValueInspector::comparable($layoutStyles['display'] ?? '');
+        $direction = CssValueInspector::comparable($layoutStyles['flex_direction'] ?? 'row');
+        // Only a grid row gap or a column flex gap spaces the label above its
+        // control; a row flex gap is inline spacing and block flow has no gap.
+        $stacksBlockAxis = in_array($display, array( 'grid', 'inline-grid' ), true)
+            || ( in_array($display, array( 'flex', 'inline-flex' ), true) && in_array($direction, array( 'column', 'column-reverse' ), true) );
+        if ( ! $stacksBlockAxis ) {
+            return;
+        }
         $gapFacts = array_intersect_key($matched['base'], array_flip(array( 'gap' )));
         $gapStyles = $this->styles($gapFacts, $wrapper, null, $customPropertyRules);
         $gap = $gapStyles['gap'] ?? null;
         if ( ! is_string($gap) || '' === trim($gap) ) {
             return;
         }
+        // The first gap component is the row gap; preserve whitespace in calc().
+        $gap = CssValueSplitter::splitTopLevelWhitespace($gap)[0] ?? '';
         $gap = preg_replace('/(?<![0-9])\.(\d+)/', '0.$1', $gap) ?? $gap;
         $facts = array();
         foreach ( $gapFacts as $fact ) {

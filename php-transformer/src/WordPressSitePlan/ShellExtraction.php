@@ -2020,6 +2020,16 @@ final class ShellExtraction
             foreach (array('page', 'single', 'index', 'archive', 'search', '404') as $slug) $frames[$slug] = $frames['front-page'];
             $genericSource = (string) $pages[array_key_first($authored)]['source_path'];
         }
+        // The selected generic page frame is also the site frame for native
+        // lifecycle fallbacks. Route-specific frames remain on their routes.
+        if (isset($frames['page'])) {
+            $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
+            foreach (array('single', 'index', 'archive', 'search', '404') as $slug) {
+                // Captured posts retain occurrence-owned chrome in their layout.
+                if ('single' === $slug && $hasCapturedPosts) continue;
+                $frames[$slug] = $frames['page'];
+            }
+        }
         // A page that keeps its chrome in its own content must not also get the
         // generic frame, so it renders through a plain route template.
         if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames[WordPressSitePlan::routeTemplateKey($page)] = array('opening' => '', 'closing' => '', 'shells' => array());
@@ -2074,8 +2084,9 @@ final class ShellExtraction
             $level = null === $level ? $chain : array_values(array_intersect($level, $chain));
         }
         $parent = array() === $level ? null : $level[0];
-        // A single reference does not mark where the content is. Climb to the
-        // first level where a sibling holds the main landmark.
+        // A single reference needs a main landmark or a page heading beside it.
+        // Plain main wrappers can be flattened during HTML transformation; a
+        // heading still identifies their content, unlike incidental shell text.
         while (true) {
             $siblings = null === $parent ? self::topLevelNodeIds($nodes) : $nodes[$parent]['children'];
             $positions = array();
@@ -2086,7 +2097,7 @@ final class ShellExtraction
             }
             $from = isset($positions['header']) ? $positions['header'] + 1 : 0;
             $to = isset($positions['footer']) ? $positions['footer'] - 1 : count($siblings) - 1;
-            if ($from <= $to && (count($refs) > 1 || self::nodesHoldMain($markup, $nodes, array_slice($siblings, $from, $to - $from + 1)))) break;
+            if ($from <= $to && (count($refs) > 1 || (null !== $parent && self::nodesHoldPageHeading($markup, $nodes, array_slice($siblings, $from, $to - $from + 1))) || self::nodesHoldMain($markup, $nodes, array_slice($siblings, $from, $to - $from + 1)))) break;
             if (null === $parent || count($refs) > 1) return null;
             $parent = $nodes[$parent]['parent'];
         }
@@ -2140,6 +2151,13 @@ final class ShellExtraction
     private static function nodesHoldMain(string $markup, array $nodes, array $ids): bool
     {
         foreach ($ids as $id) if (preg_match('/"tagName":"main"/', substr($markup, $nodes[$id]['offset'], $nodes[$id]['end'] - $nodes[$id]['offset']))) return true;
+        return false;
+    }
+
+    /** @param array<int,array<string,mixed>> $nodes @param array<int,int> $ids */
+    private static function nodesHoldPageHeading(string $markup, array $nodes, array $ids): bool
+    {
+        foreach ($ids as $id) if (preg_match('/<h1\\b/i', substr($markup, $nodes[$id]['offset'], $nodes[$id]['end'] - $nodes[$id]['offset']))) return true;
         return false;
     }
 
@@ -2809,7 +2827,9 @@ final class ShellExtraction
         $markup = self::withoutScrollStateCarrierIdentity($markup);
         $markup = preg_replace('/\s*' . EngineMarker::patternBody() . '/', '', $markup) ?? $markup;
         $markup = preg_replace('/\s*(?:' . EngineMarker::specificityPatternBody('specificity-class') . '|blocks-engine-disclosure-summary-[a-f0-9]{6,}(?:-\d+)?)/', '', $markup) ?? $markup;
-        // A captured dialog's generated id, and its triggers' ids, carry a per-document hash.
+        // A captured dialog's generated id, and its triggers' ids, carry a per-document hash;
+        // the capture's own panel handle (id, panel attribute, aria-controls) carries a per-document ordinal.
+        $markup = preg_replace('/\b' . preg_quote(CaptureEvidence::DIALOG_CLASS, '/') . '-\d+\b/', CaptureEvidence::DIALOG_CLASS, $markup) ?? $markup;
         $markup = preg_replace('/blocks-engine-dialog-trigger-[a-f0-9]+-(\d+)/', 'blocks-engine-dialog-trigger-$1', $markup) ?? $markup;
         $markup = preg_replace('/blocks-engine-dialog-[a-f0-9]{16}\b/', 'blocks-engine-dialog', $markup) ?? $markup;
         $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;

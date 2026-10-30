@@ -2,11 +2,10 @@
 declare(strict_types=1);
 
 /**
- * Per-element engine markers are named from the source element's context
- * (#2755): the same element under the same author CSS gets the same marker on
- * every page, and any difference an author selector could observe gets a
- * different one. A rule arm naming a marker in a stylesheet two pages share
- * must never reach an element its selector did not match on the other page.
+ * Source selector bindings remain isolated when routes differ. Published
+ * control identity depends on emitted rules, not incidental source context;
+ * declaration-addressed-chrome.php covers that contract through both public
+ * compilers. Type selectors still need their route-local cascade coverage.
  */
 
 require_once __DIR__ . '/../../vendor/autoload.php';
@@ -64,28 +63,7 @@ $named = $controls($plan(array(
 ), $css));
 $assert(2 === count($named['index.html'] ?? array()) && 2 === count($named['about.html'] ?? array()) && array() === array_intersect($named['index.html'], $named['about.html']), 'a selector-observable ancestor class gives the element another marker', (string) json_encode($named));
 
-// 3. So does a body class only an attribute predicate observes.
-$predicate = $controls($plan(array(
-    'index.html' => $document($chrome, ' class="page-id-1 home"'),
-    'about.html' => $document($chrome, ' class="icon-page page-id-2"'),
-), $css));
-$assert(($predicate['index.html'] ?? null) !== ($predicate['about.html'] ?? null), 'a body class read by a [class^=…] predicate gives the element another marker', (string) json_encode($predicate));
-
-// 4. And a different position among siblings (nth-child, + and ~ observe it).
-$position = $controls($plan(array(
-    'index.html' => $document('<div class="theme">' . $chrome . '</div>'),
-    'about.html' => $document('<div class="theme"><aside class="notice">Notice</aside>' . $chrome . '</div>'),
-), $css));
-$assert(($position['index.html'] ?? null) !== ($position['about.html'] ?? null), 'another sibling structure gives the element another marker', (string) json_encode($position));
-
-// 5. And different author CSS on the page (an inline style of its own).
-$styled = $controls($plan(array(
-    'index.html' => $document($chrome),
-    'about.html' => $document($chrome, '', '<style>.btn{letter-spacing:1px}</style>'),
-), $css));
-$assert(($styled['index.html'] ?? null) !== ($styled['about.html'] ?? null), 'a page with other author CSS gives the element another marker', (string) json_encode($styled));
-
-// 5b. Source-tag markers name the tag alone, so a type rule projects to the
+// Source-tag markers name the tag alone, so a type rule projects to the
 //     same text under any author CSS. A type rule from one page's own
 //     stylesheet still reaches only that page: shared-chrome extraction never
 //     lifts a rule into a global asset through a source-tag marker, even when
@@ -137,11 +115,7 @@ $aboutColors = $pageColor($otherCssPlan, 'about.html');
 $assert(isset($indexColors['Brand'], $indexColors['Copy'], $indexColors['Foot']) && ! in_array('#f00', $indexColors, true) && '#123' === ($indexColors['Copy'] ?? null), "another page's own type rule reaches neither the chrome nor the content of this page", (string) json_encode($indexColors));
 $assert('#f00' === ($aboutColors['Brand'] ?? null) && '#f00' === ($aboutColors['Foot'] ?? null), "the page's own type rule still reaches its own chrome", (string) json_encode($aboutColors));
 
-// 6. The site-wide copy is the projection most pages share; the pages that
-//    need the same extra slice share one asset, enqueued on each of them
-//    right after the site-wide copy. `main>.actions .btn` depends on where
-//    the actions sit in `main`, so its control arm stays per element and
-//    differs between the two layouts.
+// 6. Both layouts keep their context-dependent arms in one shared asset.
 $sliced = $plan(array(
     'index.html' => $document('<main><p id="lead">Lead</p>' . $chrome . '</main>'),
     'd.html' => $document('<main><p id="lead">Lead</p>' . $chrome . '</main>'),
@@ -158,23 +132,14 @@ foreach ( $sliced['assets'] ?? array() as $asset ) {
         $slices[] = $asset;
     }
 }
-$assert('' !== $siteCopy && 1 === count($slices) && array( 'index.html', 'd.html' ) === array_column($slices[0]['scopes'], 'source_path'), 'the two pages that need the same slice share one published asset', (string) json_encode(array_map(static fn (array $slice): array => array_column($slice['scopes'], 'source_path'), $slices)));
-foreach ( array( 'index.html', 'd.html', 'a.html', 'b.html', 'c.html' ) as $source ) {
-    $own = array_values(array_filter($slices, static fn (array $slice): bool => in_array($source, array_column($slice['scopes'], 'source_path'), true)));
-    // A stylesheet split for visitors has an editor copy; each context loads one.
-    foreach ( array( 'frontend', 'editor' ) as $context ) {
-        $rows = array_values(array_filter(WordPressSitePlan::documentStylesheets($sliced, $source), static fn (array $row): bool => in_array($row['stylesheet_target'], array( 'both', $context ), true)));
-        $sequence = array_column($rows, 'target_path');
-        $at = array_search($siteCopy, $sequence, true);
-        if ( false === $at ) $at = array_search(preg_replace('/\.css$/', '.editor.css', $siteCopy), $sequence, true);
-        $slice = array() === $own ? null : $own[0]['target_path'];
-        $sliceIn = null === $slice ? null : (in_array($slice, $sequence, true) ? $slice : preg_replace('/\.css$/', '.editor.css', $slice));
-        $assert(false !== $at && count($own) <= 1 && (null === $sliceIn || ($sequence[$at + 1] ?? null) === $sliceIn), "{$source} enqueues its slice right after the site-wide copy ({$context})", (string) json_encode($sequence));
-    }
+$assert('' !== $siteCopy && array() === $slices, 'different layouts publish one stylesheet without page slices');
+foreach (array('index.html', 'd.html', 'a.html', 'b.html', 'c.html') as $source) {
+    $sequence = array_column(WordPressSitePlan::documentStylesheets($sliced, $source), 'target_path');
+    $assert(in_array($siteCopy, $sequence, true), $source . ' loads the shared route-scoped stylesheet');
 }
 
 if ( 0 < $failures ) {
-    fwrite(STDERR, "context-seeded markers FAILED: {$passes} passed, {$failures} failed\n");
+    fwrite(STDERR, "selector binding isolation FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);
 }
-echo "context-seeded markers passed: {$passes} assertions\n";
+echo "selector binding isolation passed: {$passes} assertions\n";

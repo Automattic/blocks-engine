@@ -10,14 +10,13 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispa
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LinkWrapperPropagator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
-use Automattic\BlocksEngine\PhpTransformer\Support\EditorInnerBlocksLayer;
 
 /**
  * Marker-class engine-support CSS gated on serialized block markup.
  *
  * Extracted from {@see HtmlCompilation::materializeAuthorStylesheet()}. No
- * HtmlCompilation `$this` — only public constants and the layout-shell block
- * name passed in as a string. The after-author methods tag their own
+ * HtmlCompilation `$this` — only marker classes in emitted markup. The
+ * after-author methods tag their own
  * {@see CascadeRule} layer, per {@see CascadeLayer}; the compiler only
  * collects and orders what it is handed, it does not decide where a
  * contribution belongs.
@@ -44,19 +43,17 @@ final class EngineSupportCss
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
-    public const LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS = EditorInnerBlocksLayer::LAYOUT_SHELL_CLASS;
-
     /**
      * @return list<string>
      */
-    public function beforeAuthorCss(string $serializedBlocks, string $layoutShellBlockName): array
+    public function beforeAuthorCss(string $serializedBlocks): array
     {
         $parts = array();
-        if ( str_contains($serializedBlocks, 'wp-block-accordion-panel') ) {
+        if ( str_contains($serializedBlocks, 'blocks-engine-accordion-panel') ) {
             // Core owns the panel's hidden state. Projected source display rules
             // describe its open box and must not expose padding or borders while
             // Core has concealed the panel.
-            $parts[] = ':root .wp-block-accordion-panel[hidden]{display:none!important}';
+            $parts[] = ':root .blocks-engine-accordion-panel[hidden]{display:none!important}';
         }
         if (str_contains($serializedBlocks, 'blocks-engine-social-source-row')) {
             $parts[] = ':root .blocks-engine-social-source-row{font-size:inherit;line-height:inherit}';
@@ -152,6 +149,11 @@ final class EngineSupportCss
             $parts[] = $emptyParagraph . '{line-height:0}'
                 . $emptyParagraph . '>[data-rich-text-placeholder]{display:none}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS) ) {
+            // The injected figure must pass the source's percentage height
+            // through to its original containing block, not create an auto box.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . '){width:100%;height:100%;margin:0}';
+        }
         if ( str_contains($serializedBlocks, '<video') ) {
             $parts[] = 'video{max-width:100%}';
         }
@@ -165,7 +167,7 @@ final class EngineSupportCss
             // which carries none of them, so the bridge resolves to the initial
             // value and the source's crop is lost. Relay the figure's values
             // through the anchor so the bridge lands the same either way.
-            $parts[] = ':root :where(.wp-block-image)>a{object-fit:inherit;object-position:inherit;border-radius:inherit}';
+            $parts[] = ':root :where(.blocks-engine-linked-image-figure)>a{object-fit:inherit;object-position:inherit;border-radius:inherit}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS) ) {
             // This figure has no source box. Remove its layout box so image
@@ -210,15 +212,6 @@ final class EngineSupportCss
                 // Empty Group placeholders have an additional unadorned editor wrapper.
                 . ':root .editor-styles-wrapper :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>div:not([class]):not([id]):not([style]):has(>[data-block].wp-block-group__placeholder){display:contents}';
         }
-        if ( str_contains($serializedBlocks, '<!-- wp:' . $layoutShellBlockName) ) {
-            // A layout shell preserves the source wrapper chain. Gutenberg's
-            // InnerBlocks wrappers live below that chain, not directly below the
-            // shell root. Target the explicit owning-layer marker so their boxes
-            // cannot become an absolute-position containing block or change the
-            // authored sibling topology. Do not flatten nested native blocks.
-            $layoutShellClass = 'wp-block-' . str_replace('/', '-', $layoutShellBlockName);
-            $parts[] = ':root :where(.' . $layoutShellClass . ') .' . self::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . '{display:contents}';
-        }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             $parts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p){margin-top:0;margin-bottom:0}';
         }
@@ -253,9 +246,31 @@ final class EngineSupportCss
             // descendant that still generates a box. See
             // LayoutParticipation::transferredItemDeclarations().
             $neutralButton = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS;
-            $parts[] = ':where(.' . $neutralButton . '){display:contents!important}'
-                . ':where(.' . $neutralButton . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}'
-                . ':where(.' . $neutralButton . '.flex,.' . $neutralButton . '.inline-flex)>.wp-block-button__link{' . LayoutParticipation::transferredFlexContainerDeclarations() . '}';
+            $rules = array(
+                '.' . $neutralButton => LayoutParticipation::transferredItemDeclarations(),
+                '.' . $neutralButton . '.flex,.' . $neutralButton . '.inline-flex' => LayoutParticipation::transferredFlexContainerDeclarations(),
+            );
+            $buttonCss = ':where(.' . $neutralButton . '){display:contents!important}';
+            foreach ( $rules as $selector => $declarations ) {
+                $axisRules = '';
+                foreach ( array( 'width' => 'fit-content', 'height' => 'auto' ) as $property => $default ) {
+                    $modifier = $neutralButton . '-author-' . $property;
+                    if ( ! str_contains($serializedBlocks, $modifier) ) {
+                        continue;
+                    }
+                    $declarations = str_replace($property . ':' . $default . '!important;', '', $declarations);
+                    $axisSelectors = implode(',', array_map(static fn (string $item): string => $item . ':not(.' . $modifier . ')', explode(',', $selector)));
+                    $axisRules .= ':where(' . $axisSelectors . ')>.wp-block-button__link{' . $property . ':' . $default . '!important}';
+                }
+                $buttonCss .= ':where(' . $selector . ')>.wp-block-button__link{' . $declarations . '}' . $axisRules;
+            }
+            foreach ( array( 'inline-block', 'block', 'flex', 'inline-flex' ) as $display ) {
+                $modifier = $neutralButton . '-display-' . $display;
+                if ( str_contains($serializedBlocks, $modifier) ) {
+                    $buttonCss .= ':where(.' . $neutralButton . '.' . $modifier . ')>.wp-block-button__link{display:' . $display . '!important}';
+                }
+            }
+            $parts[] = $buttonCss;
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $parts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
@@ -315,8 +330,16 @@ final class EngineSupportCss
             // Core makes the inner code element a full-width break-spaces block.
             // Source pre/code is inline and inherits the preformatted whitespace
             // contract; restore that shape while authored code rules remain free
-            // to choose typography.
-            $parts[] = ':root :where(.wp-block-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}';
+            // to choose typography. The rule keys on the importer class every
+            // emitted code block carries (BlockFactory), not the bare core
+            // class, so it cannot reach blocks a host adds later.
+            $parts[] = ':root :where(.blocks-engine-source-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_GAP_CLASS) ) {
+            // A collapsing space, not an estimated em/ch margin: the browser
+            // measures it in the parent font and can discard it at a line edge.
+            $parts[] = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_GAP_CLASS . '{font:inherit;letter-spacing:inherit;word-spacing:inherit}'
+                . ':root .' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_GAP_CLASS . '::before{content:" ";white-space:normal}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::CSS_OWNED_INLINE_FLOW_CLASS) ) {
             // Block delimiters may acquire whitespace when Gutenberg saves the
@@ -459,20 +482,20 @@ final class EngineSupportCss
             // core/social-links paints its own icon for every service. The source
             // cluster painted icon-font glyphs through pseudo-elements on the very
             // items core now owns, so both icons would render on each link.
-            $parts[] = ':root .wp-block-social-links .wp-social-link::before,'
-                . ':root .wp-block-social-links .wp-social-link:not(:where(.blocks-engine-social-source-item))::after,'
-                . ':root .wp-block-social-links .wp-social-link:not(:where(.blocks-engine-social-source-glyph))>a::before,'
-                . ':root .wp-block-social-links .wp-social-link>a::after{content:none}';
+            $parts[] = ':root .wp-block-social-links:where(.blocks-engine-social-source-cluster) .wp-social-link::before,'
+                . ':root .wp-block-social-links:where(.blocks-engine-social-source-cluster) .wp-social-link:not(:where(.blocks-engine-social-source-item))::after,'
+                . ':root .wp-block-social-links:where(.blocks-engine-social-source-cluster) .wp-social-link:not(:where(.blocks-engine-social-source-glyph))>a::before,'
+                . ':root .wp-block-social-links:where(.blocks-engine-social-source-cluster) .wp-social-link>a::after{content:none}';
             // The source cluster was an inline box, so its container's text
             // alignment placed it. core's list is a full-width flex row, which
             // packs the items at the start instead. An inline flex row resolves
             // through that same alignment, for centered and start-aligned
             // containers alike, while an explicit justification still wins.
-            $parts[] = ':root ul.wp-block-social-links:not([class*="is-content-justification-"]){display:inline-flex}';
-            $parts[] = ':root ul.wp-block-social-links.is-content-justification-left{justify-content:flex-start}'
-                . ':root ul.wp-block-social-links.is-content-justification-center{justify-content:center}'
-                . ':root ul.wp-block-social-links.is-content-justification-right{justify-content:flex-end}'
-                . ':root ul.wp-block-social-links.is-content-justification-space-between{justify-content:space-between}';
+            $parts[] = ':root ul.wp-block-social-links:where(.blocks-engine-social-source-cluster):not([class*="is-content-justification-"]){display:inline-flex}';
+            $parts[] = ':root ul.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-content-justification-left{justify-content:flex-start}'
+                . ':root ul.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-content-justification-center{justify-content:center}'
+                . ':root ul.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-content-justification-right{justify-content:flex-end}'
+                . ':root ul.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-content-justification-space-between{justify-content:space-between}';
         }
         if (str_contains($serializedBlocks, 'blocks-engine-social-source-row')) {
             $parts[] = ':root ul.wp-block-social-links.blocks-engine-social-source-row,'
@@ -620,7 +643,7 @@ final class EngineSupportCss
             $parts[] = '.wp-block-navigation.blocks-engine-native-responsive-navigation.blocks-engine-inline-navigation{display:inline-flex!important}';
         }
         if ( str_contains($serializedBlocks, 'wp:social-links') ) {
-            $parts[] = '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}';
+            $parts[] = '.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-source-social-item-spacing') ) {
             $parts[] = '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}';

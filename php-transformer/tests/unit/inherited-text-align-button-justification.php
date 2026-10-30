@@ -6,7 +6,7 @@ declare(strict_types=1);
  * `text-align` becomes a core/buttons flex wrapper whose default main-axis
  * alignment is left. The inherited alignment must be restated as
  * layout.justifyContent or the source's centering is lost. The restated
- * justification only has room to act when the wrapper fills its parent, so
+ * justification only has room to act when the wrapper spans its line, so
  * the generated wrapper rule must not shrink-wrap a centered wrapper.
  *
  * Regression for Automattic/blocks-engine#2150: the wrapper consulted only the
@@ -93,8 +93,8 @@ $assert(
     $centeredButtons
 );
 
-// The restated justification has no room to act on a shrink-wrapped wrapper:
-// the generated wrapper rule must fill the parent instead, the way the source
+// The restated justification has no room to act on a shrink-wrapped wrapper.
+// In block flow the flex wrapper spans its line on its own, the way the source
 // block the control sat in did, while the button itself still hugs its label.
 $centeredMarker = $controlMarkerOf($centeredButtons);
 $centeredCss = $cssFor($centeredOut);
@@ -102,11 +102,6 @@ $assert(
     '' !== $centeredMarker,
     'the centered control carries a generated control marker',
     $centeredButtons
-);
-$assert(
-    1 === preg_match('/' . preg_quote($centeredMarker, '/') . '\.' . preg_quote($centeredMarker, '/') . '\.wp-block-buttons\{width:100%;max-width:100%\}/', $centeredCss),
-    'a centered inline control fills its parent buttons wrapper instead of shrink-wrapping it',
-    $centeredCss
 );
 $assert(
     ! preg_match('/' . preg_quote($centeredMarker, '/') . '\.' . preg_quote($centeredMarker, '/') . '\.wp-block-buttons\{width:max-content/', $centeredCss),

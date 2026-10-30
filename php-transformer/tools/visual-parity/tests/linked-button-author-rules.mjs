@@ -8,7 +8,7 @@ const { fixture, plan } = JSON.parse(execFileSync('php', ['-r', code, root], { e
 const theme = JSON.parse(plan.writes.find(write => write.target_path === 'theme.json').payload.data);
 const spacing = theme.settings.spacing.spacingSizes.map(({ slug, size }) => `:root{--wp--preset--spacing--${slug}:${size}}`).join('');
 const globals = spacing + theme.settings.color.palette.map(({ slug, color }) => `:root{--wp--preset--color--${slug}:${color}}.has-${slug}-background-color{background-color:var(--wp--preset--color--${slug})!important}`).join('');
-const css = plan.assets.filter(asset => asset.kind === 'css' && !asset.content.includes('editor-styles-wrapper')).map(asset => asset.content).join('\n');
+const css = plan.assets.filter(asset => asset.kind === 'css' && asset.stylesheet_target !== 'editor').map(asset => asset.content).join('\n');
 const markup = [...plan.template_parts, ...plan.pages].map(part => part.canonical_block_markup).join('');
 const browser = await chromium.launch({ headless: true });
 try {

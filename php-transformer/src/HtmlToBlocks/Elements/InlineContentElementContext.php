@@ -65,6 +65,7 @@ final class InlineContentElementContext
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
     public function positionedInlineCarrierBlock(DOMElement $element, array &$fallbacks): ?array { return ($this->positionedInlineCarrierBlock)($element, $fallbacks); }
     public function hasAuthorSemanticMarker(DOMElement $element): bool { return ($this->hasAuthorSemanticMarker)($element); }
+    public function richTextContent(DOMElement $element): string { return $this->richTextMaterializer->content($element); }
     public function richTextContentHasStructuralHtml(string $content): bool { return $this->richTextMaterializer->hasStructuralHtml($content); }
     public function materializeRichTextSvgImages(DOMElement $element, string $content): ?string { return $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content); }
     public function requiresHtmlFallbackWithoutNativeSvgImageObjects(string $content): bool { return $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content); }

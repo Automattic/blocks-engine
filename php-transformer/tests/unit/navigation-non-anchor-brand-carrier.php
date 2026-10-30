@@ -138,7 +138,7 @@ $assert(
     1 === count($findBlocks($anchorBrandBlocks, 'core/navigation'))
         && 2 === count($findBlocks($anchorBrandBlocks, 'core/navigation-link'))
         && str_contains($anchorBrandMarkup, 'Northwind')
-        && str_contains($anchorBrandMarkup, '<a href="/">Northwind</a>'),
+        && str_contains($anchorBrandMarkup, '<a class="brand" href="/">Northwind</a>'),
     'anchor brand beside a cluster keeps the existing linked-wordmark carrier',
     $anchorBrandMarkup
 );

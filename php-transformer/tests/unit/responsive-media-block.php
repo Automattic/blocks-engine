@@ -256,10 +256,43 @@ $assert(str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), '<h1>Dee
 $assert(! str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), '<link'), 'A captured layout removes inert SVG stylesheet carriers after their CSS asset has been projected.');
 $assert('pass' === ($layout['source_reports']['wp_block_validity']['status'] ?? null), 'A captured layout boundary remains valid Gutenberg block markup.');
 $layoutPayload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), $layout['source_reports']['generated_blocks'] ?? array());
-$assert(array( 'content' ) === array_keys($layoutPayload['blocks'][0]['block_json']['attributes'] ?? array()) && ResponsiveLayoutBlockGenerator::RENDERER === ($layoutPayload['blocks'][0]['renderer'] ?? null) && ! isset($layoutPayload['blocks'][0]['render']), 'The companion payload preserves the dedicated typed layout schema and audited renderer only.');
+$layoutDefinitions = $layoutPayload['blocks'];
+$assert(1 === count($layoutDefinitions) && ResponsiveLayoutBlockGenerator::RENDERER === ($layoutDefinitions[0]['renderer'] ?? null) && array( 'content' ) === array_keys($layoutDefinitions[0]['block_json']['attributes'] ?? array()) && ! isset($layoutDefinitions[0]['render']), 'The companion payload preserves the dedicated typed layout schema and audited renderer only.');
+
+// Compare discovery/replay with a compilation that never converts the opaque
+// region at all. Include styles and controls that would otherwise register
+// generated definitions, marker carriers, and fallback findings.
+$opaqueHtml = '<style>section > p{color:#123}img{border-radius:4px}</style><main>'
+    . str_repeat('<div class="layer">', 24)
+    . '<section><h1>Title</h1><p>Copy</p><button>Action</button><img src="p.jpg" alt="P"><svg viewBox="0 0 10 10"><path d="M0 0L10 10"></path></svg></section>'
+    . str_repeat('</div>', 24) . '</main>';
+$planned = new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation();
+$boundaryPaths = new ReflectionProperty($planned, 'deepMediaBoundaryPaths');
+$boundaryPaths->setValue($planned, array('/body/main' => true));
+$expectedOpaque = $planned->transform($opaqueHtml)->toArray();
+$actualOpaque = (new HtmlTransformer())->transform($opaqueHtml)->toArray();
+foreach (array('blocks', 'serialized_blocks', 'fallbacks', 'assets', 'diagnostics') as $key) {
+    $assert(($expectedOpaque[$key] ?? null) === ($actualOpaque[$key] ?? null), 'Boundary discovery discards speculative ' . $key . ' exactly as conversion of an initially opaque region does.');
+}
+$assert($expectedOpaque['source_reports']['generated_blocks'] === $actualOpaque['source_reports']['generated_blocks'] && 1 === count($actualOpaque['source_reports']['generated_blocks']), 'Only the responsive layout definition survives discarded media, SVG, and wrapper conversion.');
+
+// A matching definition outside the captured source region must survive. This
+// is deliberately the same shell shape in the header and the discarded main.
+$sharedShell = '<div class="outer"><section class="middle"><div class="a"><p class="b">Copy</p><p>Second</p></div></section></div>';
+$sharedShellHtml = '<style>.a > .b{color:red}</style><header>' . $sharedShell . '</header><main>'
+    . str_repeat('<div>', 24) . $sharedShell . '<img src="p.jpg" alt="P">' . str_repeat('</div>', 24) . '</main>';
+$sharedShellResult = (new HtmlTransformer())->transform($sharedShellHtml)->toArray();
+$assert(array('responsive-layout', 'layout-shell') === array_column($sharedShellResult['source_reports']['generated_blocks'], 'name'), 'A surviving shell retains its shared generated definition after opaque-region conversion is discarded.');
+$assert(str_contains($sharedShellResult['serialized_blocks'], 'wp:custom/layout-shell ') && 1 === count($sharedShellResult['source_reports']['shell_artifacts']), 'Both the native shell carrier and extracted shell artifact survive boundary replay.');
 
 $shallow = ( new HtmlTransformer() )->transform('<main><div><img src="story.jpg" alt="Story"></div></main>')->toArray();
 $assert('custom/responsive-media' !== ($shallow['blocks'][0]['blockName'] ?? null), 'A shallow media main remains on native conversion paths.');
+$withoutDiscovery = new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation();
+$boundaryPaths->setValue($withoutDiscovery, array());
+$unchangedShallow = $withoutDiscovery->transform('<main><div><img src="story.jpg" alt="Story"></div></main>')->toArray();
+foreach (array('serialized_blocks', 'assets', 'fallbacks', 'diagnostics') as $key) {
+    $assert(($shallow[$key] ?? null) === ($unchangedShallow[$key] ?? null), 'Without a boundary, discovery leaves ' . $key . ' byte-identical.');
+}
 
 $runtimeLayout = ( new HtmlTransformer() )->transform($layoutHtml, array('runtime_dom_selectors' => array('.puffin-story')))->toArray();
 $assert('custom/responsive-layout' !== ($runtimeLayout['blocks'][0]['blockName'] ?? null), 'A declared runtime layout boundary remains addressable instead of being captured.');

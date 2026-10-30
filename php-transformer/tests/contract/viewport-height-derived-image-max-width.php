@@ -59,7 +59,7 @@ $rules = static function (array $result) use ($assert): string {
 };
 $result = $compile();
 $box = $rules($result);
-$assert(str_contains($box, 'max-width:none!important'), 'Responsive height-derived width must escape core max-width.');
+$assert(str_contains($box, 'max-width:none') && !str_contains($box, '!important'), 'Responsive height-derived width must escape core max-width.');
 $assert(! preg_match('/(?:\{|;)height:[^;]*!important/', $box), 'Do not pin the mobile height over desktop CSS.');
 $assert(! preg_match('/(?:\{|;)width:[^;]*!important/', $box), 'Do not pin the mobile width over desktop CSS.');
 
@@ -117,7 +117,7 @@ $responsiveRules = static function (array $result) use ($assert): string {
     return $rules;
 };
 $overflow = $responsiveRules($compileResponsive());
-$assert(str_contains($overflow, 'max-width:none!important'), 'Unwrapped image escapes the wp-image core clamp.');
+$assert(str_contains($overflow, 'max-width:none'), 'Unwrapped image escapes the wp-image core clamp.');
 $assert(! preg_match('/(?:\{|;)(?:width|height):/', $overflow), 'Overflow protection must not pin responsive axes.');
 foreach (array(
     array('.picture{max-width:100%}', 'auto', '100%'),

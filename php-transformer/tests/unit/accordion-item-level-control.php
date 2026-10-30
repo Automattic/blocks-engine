@@ -138,6 +138,38 @@ $check('title button control', '<style>.hidden{display:none}.mt-4{margin-top:1re
     'absent' => array( 'hidden' ),
 ));
 
+// A disclosure must own the whole item's content, not just a read-more label.
+foreach ( array(
+    'review card' => array(
+        'item' => '<article><div class="card-top"><div><span>AL</span><div>Alex Lee</div><div>Customer review</div></div><img src="/brand.svg" alt="Brand"></div>'
+            . '<div role="img" aria-label="Rating"><span><svg viewBox="0 0 10 10"><path d="M0 0L10 10"/></svg></span><span>5 out of 5</span></div>'
+            . '<div class="card-body"><p>Helpful service.</p></div><div><span>7 months ago</span><button aria-expanded="false">Read review</button></div></article>',
+        'accordion' => false,
+        'text' => array( 'Alex Lee', '5 out of 5', '7 months ago', 'Helpful service.' ),
+    ),
+    'unlinked toggle with visible body' => array(
+        'item' => '<div><button aria-expanded="false">Read more</button><div class="body">Visible content.</div></div>',
+        'accordion' => false,
+        'text' => array( 'Read more', 'Visible content.' ),
+    ),
+    'classic FAQ' => array(
+        'item' => '<div class="faq-item"><h3><button aria-expanded="false" aria-controls="a1">Question?</button></h3><div id="a1" hidden>Answer.</div></div>',
+        'accordion' => true,
+        'text' => array( 'Question?', 'Answer.' ),
+    ),
+) as $case => $fixture ) {
+    // Two items exercise collection recognition as well as item conversion.
+    $html = '<section>' . $fixture['item'] . str_replace('a1', 'a2', $fixture['item']) . '</section>';
+    $result = ( new HtmlTransformer() )->transform($html)->toArray();
+    $serialized = (string) ( $result['serialized_blocks'] ?? '' );
+    $items = $collect($result['blocks'] ?? array(), 'core/accordion-item');
+    $assert($fixture['accordion'] ? 2 === count($items) : array() === $items, $case . ': only complete disclosures become accordion items', $serialized);
+    $assert($fixture['accordion'] || array() === $collect($result['blocks'] ?? array(), 'core/accordion'), $case . ': no accordion container for cards', $serialized);
+    foreach ( $fixture['text'] as $text ) {
+        $assert(str_contains($serialized, $text), $case . ': retains ' . $text, $serialized);
+    }
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Accordion item-level control: {$failures} failed, {$passes} passed\n");
     exit(1);

@@ -123,7 +123,7 @@ foreach ($sourcePresetPlan['assets'] as $asset) {
     if ('css' !== ($asset['kind'] ?? null)) continue;
     $css = $asset['content'] ?? '';
     $assert(1 !== preg_match('/--wp--preset--[a-zA-Z0-9_-]+\\s*:/', $css), 'carried CSS never declares a generated preset');
-    if (str_contains($css, '.card{') && !str_contains($css, 'editor-styles-wrapper')) $sharedPresetCss .= $css;
+    if (str_contains($css, '.card{')) $sharedPresetCss .= $css;
 }
 $assert(1 === preg_match('/--be--source--preset--color--accent-2:(?:#F6CFF4|var\(--wp--preset--color--[a-z0-9-]+,#F6CFF4\))/', $sharedPresetCss), 'shared capture CSS keeps the source palette in its own namespace, optionally bound to its own token');
 foreach (array('color', 'background-color', 'border-color', 'gradient-background', 'font-size', 'font-family') as $suffix) {
@@ -218,6 +218,27 @@ $darkTokens = require dirname(__DIR__) . '/fixtures/design-system/tailwind-v4.ph
 $darkTokens['files']['assets/app.css'] .= '@media (prefers-color-scheme:dark){:root{--color-slate-900:#f8fafc}}';
 $darkMarkup = implode('', array_column($compile($darkTokens)[0]['pages'], 'canonical_block_markup'));
 $assert(!preg_match('/<!-- wp:paragraph \{"className":"text-base text-slate-900"[^}]*"textColor"/', $darkMarkup) && !preg_match('/"className":"bg-slate-900 text-slate-50 p-8"[^}]*"backgroundColor"/', $darkMarkup) && str_contains($darkMarkup, '"textColor"'), 'a colour read from a custom property the dark theme redefines is not bound');
+
+// Lightning CSS (Tailwind v4) writes each colour token twice: a hex value,
+// then a CIE `lab()` override inside `@supports (color:lab(0% 0 0))`. The
+// override wins the cascade, so the palette must read `lab()` and match the
+// palette of the same site written in plain hex.
+$labOf = array(
+    '#1d3557' => 'lab(21.5916% -0.1886 -23.7709)', '#2b2b2b' => 'lab(17.5333% -0.0038 -0.0025)', '#555555' => 'lab(36.1459% -0.0059 -0.0038)',
+    '#a8dadc' => 'lab(83.606% -16.4153 -6.5702)', '#e63946' => 'lab(52.8521% 66.4167 35.8209)', '#f1faee' => 'lab(97.3437% -4.6664 4.6824)',
+    '#f4f1ea' => 'lab(95.2345% 0.1259 3.7551)',
+);
+$tokens = array_combine(array_keys($labOf), array_map(static fn(int $i): string => '--c' . $i, array_keys(array_keys($labOf))));
+$lightning = require dirname(__DIR__) . '/fixtures/design-system/plain-css.php';
+$lightning['files']['style.css'] = ':root{' . implode('', array_map(static fn(string $hex, string $token): string => "$token:$hex;", array_keys($tokens), $tokens)) . '}'
+    . '@supports (color:lab(0% 0 0)){:root{' . implode('', array_map(static fn(string $hex, string $token): string => "$token:{$labOf[$hex]};", array_keys($tokens), $tokens)) . '}}'
+    . strtr($lightning['files']['style.css'], array_map(static fn(string $token): string => "var($token)", $tokens));
+$assert('#e63946' === CssColor::hex('lch(52.8521% 75.4618 28.3423)') && '#e63946' === CssColor::hex('lab(52.8521 53.13% 28.66%)') && '#e6394680' === CssColor::hex('lab(52.8521% 66.4167 35.8209 / 0.5)'), 'CIE lch(), percentage lab() channels and lab() alpha parse to sRGB');
+$hexPalette = array_column($plans['plain-css'][1]['settings']['color']['palette'] ?? array(), 'color', 'slug');
+$labPalette = array_column($compile($lightning)[1]['settings']['color']['palette'] ?? array(), 'color', 'slug');
+ksort($hexPalette);
+ksort($labPalette);
+$assert(count($hexPalette) >= 5 && $hexPalette === $labPalette, 'lab() tokens behind a hex fallback give the same palette as plain hex (' . json_encode($labPalette) . ')');
 
 // Clustering and roles from usage alone.
 $usage = static fn(array $text, array $backgrounds = array(), array $root = array()): array => array('schema' => DesignSystem::USAGE_SCHEMA, 'root_font_size_px' => 16, 'root' => $root, 'text' => $text, 'backgrounds' => $backgrounds, 'spacing' => array(), 'widths' => array());
@@ -533,6 +554,30 @@ foreach (array('dark-hero-headings' => false, 'dark-hero-headings control' => tr
     }
     $assert(!isset($heroElements['h1']['color']) && !isset($heroElements['heading']['color']), "$label: white, unreadable on the light root background, is not an h1 or heading element colour (" . json_encode($heroElements) . ')');
     $assert(array('#ffffff', '#ffffff', '#ffffff') === $h1Colors, "$label: each H1 still renders #fff through its block or its section (" . json_encode($h1Colors) . ')');
+}
+
+// A heading whose colour comes from the section it sits in inherits it: no
+// rule styles the heading, usage records the inherited root text colour, and
+// an element colour equal to the root text colour is a no-op that must not be
+// emitted — WordPress's `h1..h6 { color: … }` output would override the
+// section's inheritance and paint the band's headings dark-on-dark. Headings
+// that state the root colour themselves (the control) keep rendering it
+// through their own blocks instead of an element style.
+$inherited = require dirname(__DIR__) . '/fixtures/design-system/inherited-section-heading.php';
+foreach (array('inherited-section-heading' => false, 'inherited-section-heading control' => true) as $label => $styled) {
+    [$bandPlan, $bandTheme] = $compile($inherited($styled));
+    $bandPalette = array_column($bandTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+    $bandElements = $bandTheme['styles']['elements'] ?? array();
+    $assert('var:preset|color|contrast' === ($bandTheme['styles']['color']['text'] ?? null) && '#1e2024' === ($bandPalette['contrast'] ?? null), "$label: the root text colour is the dark contrast role (" . json_encode($bandTheme['styles']['color'] ?? null) . ')');
+    $assert(!isset($bandElements['heading']['color']) && !isset($bandElements['h1']['color']) && !isset($bandElements['h2']['color']), "$label: no heading element colour equal to the root text colour is emitted (" . json_encode($bandElements) . ')');
+    $bandMarkup = implode('', array_column($bandPlan['pages'], 'canonical_block_markup'));
+    $bandCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($bandPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
+    if ($styled) {
+        $assert(2 === preg_match_all('/<!-- wp:heading [^>]*"textColor":"contrast"/', $bandMarkup), "$label: headings that state the root colour themselves keep rendering it through their blocks");
+        continue;
+    }
+    $assert(!preg_match('/<!-- wp:heading [^>]*"textColor"/', $bandMarkup), "$label: inherited headings carry no colour binding");
+    $assert(str_contains($bandCss, 'var(--band-fg)'), "$label: the band's class rule still supplies the colour its heading inherits");
 }
 
 // A size a breakpoint changes stays with the source: an element style

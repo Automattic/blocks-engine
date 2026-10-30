@@ -61,8 +61,7 @@ $assert(str_contains($synthetic[0], ':where(p.' . SourceBlockAttributeProjector:
 $assert(str_contains($synthetic[0], ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'), 'synthetic paragraph that only carries a source anchor stays layout-transparent');
 
 $layoutShell = $css->beforeAuthorCss('<!-- wp:blocks-engine/layout-shell -->', 'blocks-engine/layout-shell');
-$assert(1 === count($layoutShell), 'layout-shell comment emits one before-author rule');
-$assert(':root :where(.wp-block-blocks-engine-layout-shell) .blocks-engine-layout-shell-editor-inner-blocks{display:contents}' === $layoutShell[0], 'layout-shell editor inner-blocks rule uses the passed block name');
+$assert(array() === $layoutShell, 'layout shells require no editor layer repair');
 
 $emptyVisual = $css->beforeAuthorCss(HtmlCompilation::EMPTY_VISUAL_GROUP_CLASS, 'blocks-engine/layout-shell');
 $assert(1 === count($emptyVisual), 'empty visual group emits one before-author rule');

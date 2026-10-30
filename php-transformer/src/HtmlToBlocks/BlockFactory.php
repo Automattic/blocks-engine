@@ -221,29 +221,19 @@ final class BlockFactory
         if ( 'core/cover' === $name && 'px' === ($attrs['minHeightUnit'] ?? null) ) {
             unset($attrs['minHeightUnit']);
         }
+        if ( 'core/image' === $name ) {
+            // Internal-only: consumed by imageHtml() to build the caption
+            // figcaption's class list, but not a real core/image attribute —
+            // core's save() never reads it back, so it never belongs in the
+            // serialized comment.
+            unset($attrs['captionClassName']);
+        }
         if ( 'core/media-text' === $name ) {
             // Internal-only: consumed by mediaTextHtml() to build the media
             // pane's class list, but not a real core/media-text attribute —
             // core's save() never reads it back, so it never belongs in the
             // serialized comment.
             unset($attrs['mediaFigureClassName']);
-            // Internal-only: consumed by mediaTextVideoAttrs() to build the
-            // video pane's <video> tag (dimensions, poster, native playback
-            // state). core/media-text's save() has no attribute for any of
-            // these — it renders a fixed `<video controls src={mediaUrl} />`
-            // — so none of them belong in the serialized comment.
-            foreach ( array(
-                'mediaVideoWidth',
-                'mediaVideoHeight',
-                'mediaVideoPoster',
-                'mediaVideoPreload',
-                'mediaVideoAutoplay',
-                'mediaVideoLoop',
-                'mediaVideoMuted',
-                'mediaVideoPlaysInline',
-            ) as $internalKey ) {
-                unset($attrs[ $internalKey ]);
-            }
             if ( '' === ($attrs['mediaAlt'] ?? null) ) {
                 unset($attrs['mediaAlt']);
             }
@@ -307,7 +297,12 @@ final class BlockFactory
         if ( 'core/code' === $name ) {
             // `content` is the escaped RichText value (see codeContent()); never
             // guess from its bytes, or code text that mentions a tag becomes one.
-            return '<pre' . $this->blockSupportAttrs($attrs, 'wp-block-code') . '><code>' . (string) ($attrs['content'] ?? '') . '</code></pre>';
+            // The engine class keys the code-shape support rule in
+            // EngineSupportCss so the selector does not stand on the bare core
+            // class alone.
+            $codeAttrs = $attrs;
+            $codeAttrs['className'] = SourceDom::mergeClassNames('blocks-engine-source-code', (string) ($attrs['className'] ?? ''));
+            return '<pre' . $this->blockSupportAttrs($codeAttrs, 'wp-block-code') . '><code>' . (string) ($attrs['content'] ?? '') . '</code></pre>';
         }
 
         if ( 'core/math' === $name ) {
@@ -387,6 +382,10 @@ final class BlockFactory
         }
 
         if ( 'core/accordion-panel' === $name ) {
+            // The importer class keys the `[hidden]` support rule in
+            // EngineSupportCss so it does not stand on the bare generated core
+            // class alone.
+            $attrs['className'] = SourceDom::mergeClassNames('blocks-engine-accordion-panel', (string) ($attrs['className'] ?? ''));
             return $this->roleWrapperHtml('region', $attrs, 'wp-block-accordion-panel');
         }
 
@@ -486,7 +485,10 @@ final class BlockFactory
             $justificationClass = in_array($justification, array( 'left', 'center', 'right', 'space-between' ), true) ? 'is-content-justification-' . $justification : '';
             $iconColorClass = '' !== trim((string) ($attrs['iconColorValue'] ?? '')) ? 'has-icon-color' : '';
             $iconBackgroundClass = '' !== trim((string) ($attrs['iconBackgroundColorValue'] ?? '')) ? 'has-icon-background-color' : '';
-            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $labelsClass . ' ' . $sizeClass . ' ' . $justificationClass . ' ' . $iconColorClass . ' ' . $iconBackgroundClass)) . '>', 'closing' => '</ul>' );
+            // The importer class keys the social-links support rules in
+            // EngineSupportCss so they do not stand on the bare core list class
+            // alone; every social-links list the importer emits carries it.
+            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links blocks-engine-social-source-cluster ' . $labelsClass . ' ' . $sizeClass . ' ' . $justificationClass . ' ' . $iconColorClass . ' ' . $iconBackgroundClass)) . '>', 'closing' => '</ul>' );
         }
 
         if ( 'core/social-link' === $name ) {
@@ -666,7 +668,7 @@ final class BlockFactory
     {
         $mediaUrl = (string) ($attrs['mediaUrl'] ?? '');
         if ( 'video' === ($attrs['mediaType'] ?? '') ) {
-            return '<video controls' . $this->htmlAttrs($this->mediaTextVideoAttrs($attrs, $mediaUrl)) . '></video>';
+            return '<video controls' . $this->htmlAttrs(array('src' => $mediaUrl)) . '></video>';
         }
 
         if ( 'image' !== ($attrs['mediaType'] ?? '') ) {
@@ -692,38 +694,6 @@ final class BlockFactory
             'target' => (string) ($attrs['linkTarget'] ?? ''),
             'rel'    => (string) ($attrs['rel'] ?? ''),
         )) . '>' . $image . '</a>';
-    }
-
-    /**
-     * core/media-text's save() has no block attribute for a video pane's
-     * intrinsic dimensions, poster, or native playback state — see the
-     * `mediaVideo*` capture in `MediaTextPattern::match()`. Project those
-     * internal-only facts onto the pane's `<video>` tag here.
-     *
-     * @param array<string, mixed> $attrs
-     * @return array<string, string>
-     */
-    private function mediaTextVideoAttrs(array $attrs, string $mediaUrl): array
-    {
-        $videoAttrs = array(
-            'src'     => $mediaUrl,
-            'poster'  => (string) ($attrs['mediaVideoPoster'] ?? ''),
-            'preload' => (string) ($attrs['mediaVideoPreload'] ?? ''),
-            'width'   => (string) ($attrs['mediaVideoWidth'] ?? ''),
-            'height'  => (string) ($attrs['mediaVideoHeight'] ?? ''),
-        );
-        foreach ( array(
-            'mediaVideoAutoplay'    => 'autoplay',
-            'mediaVideoLoop'        => 'loop',
-            'mediaVideoMuted'       => 'muted',
-            'mediaVideoPlaysInline' => 'playsinline',
-        ) as $attributeName => $htmlName ) {
-            if ( ! empty($attrs[ $attributeName ]) ) {
-                $videoAttrs[ $htmlName ] = $htmlName;
-            }
-        }
-
-        return $videoAttrs;
     }
 
     /**
@@ -821,6 +791,9 @@ final class BlockFactory
     private function imageHtml(array $attrs): string
     {
         $figureAttrs = $attrs;
+        // A scope key only: unlike semantic markers, this must not change
+        // which source box owns an author's image declarations.
+        $figureAttrs['className'] = SourceDom::mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'blocks-engine-image');
         $baseClass = 'wp-block-image';
         $border = is_array($attrs['style']['border'] ?? null) ? $attrs['style']['border'] : array();
         $borderSupport = $this->styleSupport(array( 'border' => $border ));
@@ -848,6 +821,12 @@ final class BlockFactory
 
         $img = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
         if ( ! empty($attrs['href']) ) {
+            // The linked-image relay in EngineSupportCss replicates core's
+            // `:where(.wp-block-image)>a` geometry inheritance for this
+            // importer's markup. Keying it on this importer-emitted class
+            // instead of the bare core class keeps the rule off blocks a
+            // host adds to the served page later.
+            $figureAttrs['className'] = SourceDom::mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'blocks-engine-linked-image-figure');
             $linkAttrs = array(
                 'href'        => (string) $attrs['href'],
                 'target'      => (string) ($attrs['linkTarget'] ?? ''),
@@ -856,7 +835,13 @@ final class BlockFactory
             );
             $img = '<a' . $this->htmlAttrs($linkAttrs) . '>' . $img . '</a>';
         }
-        $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $this->preserveRichTextPunctuation((string) $attrs['caption']) . '</figcaption>' : '';
+        // `captionClassName` is an internal-only key (stripped from the
+        // serialized comment attrs in commentAttrs()): core/image's save()
+        // writes the caption <figcaption> itself and has no attribute that
+        // reaches it, so a source <figcaption>'s classes are carried here
+        // directly rather than dropped. See HtmlCompilation::convertImageElement().
+        $captionClass = SourceDom::mergeClassNames('wp-element-caption', (string) ($attrs['captionClassName'] ?? ''));
+        $caption = ! empty($attrs['caption']) ? '<figcaption class="' . htmlspecialchars($captionClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $this->preserveRichTextPunctuation((string) $attrs['caption']) . '</figcaption>' : '';
         return '<figure' . $this->blockSupportAttrs($figureAttrs, $baseClass) . '>' . $img . $caption . '</figure>';
     }
 
@@ -990,7 +975,8 @@ final class BlockFactory
         $mediaAttrs = array(
             'src'      => (string) ($attrs['src'] ?? ''),
             'poster'   => (string) ($attrs['poster'] ?? ''),
-            'preload'  => (string) ($attrs['preload'] ?? ''),
+            // Core video omits its default preload value from save markup.
+            'preload'  => 'video' === $tagName && 'metadata' === ($attrs['preload'] ?? '') ? '' : (string) ($attrs['preload'] ?? ''),
             'width'    => (string) ($attrs['width'] ?? ''),
             'height'   => (string) ($attrs['height'] ?? ''),
             'controls' => ! empty($attrs['controls']) ? 'controls' : '',

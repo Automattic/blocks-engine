@@ -109,13 +109,13 @@
     "id": "compose.generic-details",
     "op": "compose",
     "input": "<details><summary>Q</summary><p>A</p></details>",
-    "expected": "<!-- wp:details -->\n<details class=\"wp-block-details\"><summary>Q</summary><p>A</p></details>\n<!-- /wp:details -->"
+    "expected": "<!-- wp:details -->\n<details class=\"wp-block-details\"><summary>Q</summary>\n<!-- wp:html {\"metadata\":{\"name\":\"lib-coverage-island\"}} -->\n<p>A</p>\n<!-- /wp:html -->\n</details>\n<!-- /wp:details -->"
   },
   {
     "id": "compose.generic-callout",
     "op": "compose",
     "input": "<div class=\"callout\"><h3>Note</h3><p>body</p></div>",
-    "expected": "<!-- wp:group {\"className\":\"wp-block-group is-style-callout\",\"layout\":{\"type\":\"constrained\"}} -->\n<div class=\"wp-block-group is-style-callout\"><h3>Note</h3><p>body</p></div>\n<!-- /wp:group -->"
+    "expected": "<!-- wp:group {\"className\":\"callout\",\"layout\":{\"type\":\"constrained\"}} -->\n<div class=\"wp-block-group callout\">\n<!-- wp:html {\"metadata\":{\"name\":\"lib-coverage-island\"}} -->\n<h3>Note</h3><p>body</p>\n<!-- /wp:html -->\n</div>\n<!-- /wp:group -->"
   },
   {
     "id": "compose.generic-pullquote",
@@ -133,7 +133,7 @@
     "id": "compose.generic-media-text",
     "op": "compose",
     "input": "<div class=\"media-text\"><figure><img src=\"https://cdn.test/a.jpg\" alt=\"A\"/></figure><div><h3>Title</h3><p>copy</p></div></div>",
-    "expected": "<!-- wp:media-text {\"mediaType\":\"image\"} -->\n<div class=\"wp-block-media-text is-stacked-on-mobile\"><figure class=\"wp-block-media-text__media\"><img src=\"https://cdn.test/a.jpg\" alt=\"A\"/></figure><div class=\"wp-block-media-text__content\"><h3>Title</h3><p>copy</p></div></div>\n<!-- /wp:media-text -->"
+    "expected": "<!-- wp:media-text {\"mediaType\":\"image\"} -->\n<div class=\"wp-block-media-text is-stacked-on-mobile\"><figure class=\"wp-block-media-text__media\"><img src=\"https://cdn.test/a.jpg\" alt=\"A\"/></figure><div class=\"wp-block-media-text__content\"><!-- wp:html {\"metadata\":{\"name\":\"lib-coverage-island\"}} -->\n<h3>Title</h3><p>copy</p>\n<!-- /wp:html --></div></div>\n<!-- /wp:media-text -->"
   },
   {
     "id": "compose.sample-youtube-iframe",
@@ -145,7 +145,7 @@
     "id": "compose.sample-callout-div",
     "op": "compose",
     "input": "<div class=\"notice callout\"><h3>Shipping pause</h3><p>Orders resume Monday.</p></div>",
-    "expected": "<!-- wp:group {\"className\":\"wp-block-group is-style-notice\",\"layout\":{\"type\":\"constrained\"}} -->\n<div class=\"wp-block-group is-style-notice\"><h3>Shipping pause</h3><p>Orders resume Monday.</p></div>\n<!-- /wp:group -->"
+    "expected": "<!-- wp:group {\"className\":\"notice callout\",\"layout\":{\"type\":\"constrained\"}} -->\n<div class=\"wp-block-group notice callout\">\n<!-- wp:html {\"metadata\":{\"name\":\"lib-coverage-island\"}} -->\n<h3>Shipping pause</h3><p>Orders resume Monday.</p>\n<!-- /wp:html -->\n</div>\n<!-- /wp:group -->"
   },
   {
     "id": "compose.sample-semantic-section-fallback",

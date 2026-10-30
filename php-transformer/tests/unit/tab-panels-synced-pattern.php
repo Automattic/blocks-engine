@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 /**
  * Content every tab panel repeats is emitted once, as a synced pattern
  * (Automattic/blocks-engine#3132).
@@ -52,7 +54,7 @@ $plan = static function (callable $shared, string $css = '') use ($labels, $regi
         'files' => array(
             array('path' => 'website/index.html', 'content' => $source),
             array('path' => 'capture-receipt.json', 'content' => (string) json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-            array('path' => 'interaction-states.json', 'content' => (string) json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => $states))), JSON_UNESCAPED_SLASHES)),
+            array('path' => 'interaction-states.json', 'content' => (string) json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'components' => captured_components($states)))), JSON_UNESCAPED_SLASHES)),
         ),
         'reports' => array('capture-receipt.json', 'interaction-states.json'),
     ))->toWordPressSitePlanView()['wordpress_site_plan'] ?? array();
@@ -86,7 +88,7 @@ foreach ($panelMarkup as $index => $panel) {
 }
 $css = implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($shared['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
 $assert(str_contains($css, '.card>.shared-aside{'), 'the authored panel-ancestor rule still reaches the in-place pattern content on the front end');
-$assert(str_contains($css, ',.' . SyncedPatternProjection::EDITOR_CONTAINER_CLASS . ')>.shared-aside'), 'the editor restatement tolerates the core/block wrapper', $css);
+$assert(!str_contains($css, '&>:where('), 'shell selectors need no editor layer restatement', $css);
 $bootstrap = implode('', array_map(static fn(array $write): string => (string) ($write['payload']['data'] ?? ''), array_filter($shared['writes'] ?? array(), static fn(array $write): bool => 'functions.php' === ($write['target_path'] ?? null))));
 $assert(str_contains($bootstrap, SyncedPatternProjection::EDITOR_CONTAINER_CSS), 'the editor canvas lets the core/block wrapper take no box');
 

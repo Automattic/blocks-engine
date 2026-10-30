@@ -104,10 +104,6 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        $block = $this->context->capturedMediaLayoutBlock($element);
-        if ( null !== $block ) {
-            return ConversionOutcome::handled($block);
-        }
         if ( $this->context->hasExternalSvgFragmentDependencyBoundary($element) ) {
             return ConversionOutcome::handled($this->context->responsiveMediaBlock($element));
         }
@@ -309,6 +305,10 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( array() === $children && ! $this->context->hasDirectMediaChild($element) ) {
             $backgroundImage = $this->context->backgroundImageBlock($element);
             if ( null !== $backgroundImage ) {
+                // A background group already owns the source element's box.
+                if ( 'core/group' === ($backgroundImage['blockName'] ?? '') ) {
+                    return ConversionOutcome::handled($backgroundImage);
+                }
                 $children[] = $backgroundImage;
             }
         }

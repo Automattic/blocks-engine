@@ -360,7 +360,7 @@ final class NavigationToggleSuppressor
         // viewports. Only the former is a control's hidden counterpart; the
         // latter must keep its own document position and let the toggle
         // become core/navigation's native responsive affordance instead.
-        if ( ! $this->targetHiddenAtReferenceViewport($target) ) {
+        if ( ! $this->targetHiddenAtReferenceViewport($target) || $this->isCapturedInlineNavigationPanel($target) ) {
             return null;
         }
 
@@ -406,6 +406,20 @@ final class NavigationToggleSuppressor
         return null;
     }
 
+    /** Capture's mobile hidden state must not move an observed inline desktop menu. */
+    private function isCapturedInlineNavigationPanel(DOMElement $target): bool
+    {
+        if ( ! $target->hasAttribute(CaptureEvidence::DIALOG_PANEL)
+            || $this->isSemanticDialog($target)
+            || $this->isHiddenAtDefaultViewport($target) ) {
+            return false;
+        }
+        $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($target, array('position'), true);
+        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+
+        return ! in_array($position, array('absolute', 'fixed'), true);
+    }
+
     private function isSemanticDialog(DOMElement $element): bool
     {
         return 'dialog' === strtolower($element->tagName)
@@ -418,13 +432,13 @@ final class NavigationToggleSuppressor
     }
 
     /**
-     * Hiding that does not depend on the viewport: a `hidden` or
-     * `aria-hidden` state, a `data-visible="false"` flag, or a static
-     * `max-height:0` clip.
+     * Markup hiding or a static max-height clip. When supplied, the author
+     * display resolved at the reference viewport overrides the UA hidden rule.
+     * A capture-stamped panel's hidden state can be discounted independently.
      */
-    private function sourceElementIsHiddenByMarkup(DOMElement $element): bool
+    private function sourceElementIsHiddenByMarkup(DOMElement $element, string $referenceDisplay = '', bool $excludeCaptureHidden = false): bool
     {
-        if ( $element->hasAttribute('hidden')
+        if ( ($element->hasAttribute('hidden') && ! ($excludeCaptureHidden && $element->hasAttribute(CaptureEvidence::DIALOG_PANEL)) && in_array($referenceDisplay, array( '', 'none' ), true))
             || 'true' === strtolower(SourceDom::attr($element, 'aria-hidden'))
             || 'false' === strtolower(SourceDom::attr($element, 'data-visible')) ) {
             return true;
@@ -464,6 +478,81 @@ final class NavigationToggleSuppressor
     public function isProjectedNavigationSuppressed(DOMElement $element): bool
     {
         return $this->context->navigationProjection()->isSuppressed($element);
+    }
+
+    /**
+     * Whether a converted core/navigation has replaced this control as the
+     * header's menu opener: the emitted navigation renders its own responsive
+     * open button in the control's place and supersedes the hidden panel the
+     * control used to open. A preserved runtime binding (a capture dialog
+     * trigger the source script still drives) must not also keep the source
+     * control: its panel is gone, so it would render as a second, inert menu
+     * toggle beside the navigation.
+     *
+     * A navigation strictly inside a controlled panel is excluded: the panel
+     * survives as the surface the control opens (a preserved dialog with its
+     * navigation). When the panel IS the converted navigation landmark, its
+     * native opener replaces the control instead; a dialog container that
+     * merely matches a navigation pattern still needs its runtime control.
+     */
+    public function isMenuToggleSupersededByNativeNavigationOpener(DOMElement $control): bool
+    {
+        if ( ! $this->isHamburgerMenuToggleControl($control) && ! $this->isProjectableHashAnchorMenuToggle($control) ) {
+            return false;
+        }
+
+        $controlledPanels = array();
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array() as $controlledId ) {
+            $target = '' === trim($controlledId) ? null : $this->elementWithId($control, trim($controlledId));
+            if ( $target instanceof DOMElement && ! $target->isSameNode($control) ) {
+                $controlledPanels[] = $target;
+            }
+        }
+        // A control that opens something other than a menu (a notes or
+        // search dialog) is not a menu toggle, however it is drawn.
+        foreach ( $controlledPanels as $panel ) {
+            if ( ! $this->panelHoldsNavigation($panel) ) {
+                return false;
+            }
+        }
+
+        $scope = $this->menuToggleScope($control);
+        foreach ( $scope->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || $candidate->isSameNode($control)
+                || ! $this->isAssociatedNavigationTarget($candidate)
+                || ! $this->convertsToCoreNavigation($candidate) ) {
+                continue;
+            }
+            $toggle = $this->navigationToggleControl($candidate);
+            if ( ! $toggle instanceof DOMElement || ! $toggle->isSameNode($control) ) {
+                continue;
+            }
+            foreach ( $controlledPanels as $panel ) {
+                if ( SourceDom::elementContains($panel, $candidate)
+                    && ! ( $panel->isSameNode($candidate) && $this->isNavigationLandmark($panel) ) ) {
+                    continue 2;
+                }
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private function panelHoldsNavigation(DOMElement $panel): bool
+    {
+        if ( $this->isAssociatedNavigationTarget($panel) ) {
+            return true;
+        }
+        foreach ( $panel->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->isAssociatedNavigationTarget($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1295,6 +1384,80 @@ final class NavigationToggleSuppressor
         return $this->navigationToggleControl($navigation) instanceof DOMElement ? 'mobile' : 'never';
     }
 
+    /**
+     * A jump menu is another presentation of these destinations, not a form.
+     * Require both an exact destination inventory and an authored visibility
+     * swap; similar labels or a nearby select alone are not evidence.
+     */
+    private function alternateNavigationSelect(DOMElement $navigation): ?DOMElement
+    {
+        $scope = $navigation->getElementsByTagName('select')->length > 0 ? $navigation : $navigation->parentNode;
+        if ( ! $scope instanceof DOMElement || in_array(strtolower($scope->tagName), array('body', 'html'), true) ) {
+            return null;
+        }
+        $targets = array();
+        foreach ( $navigation->getElementsByTagName('a') as $anchor ) {
+            if ( $this->isNavigationDestinationAnchor($anchor) ) {
+                $targets[] = trim(SourceDom::attr($anchor, 'href'));
+            }
+        }
+        $targets = array_values(array_unique($targets));
+        sort($targets);
+        if ( count($targets) < 2 ) {
+            return null;
+        }
+        foreach ( $scope->getElementsByTagName('select') as $select ) {
+            if ( $select->hasAttribute('multiple') || $select->hasAttribute('disabled') || $select->hasAttribute('form') ) {
+                continue;
+            }
+            $inForm = false;
+            for ( $parent = $select->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+                $inForm = $inForm || 'form' === strtolower($parent->tagName);
+            }
+            if ( $inForm ) {
+                continue;
+            }
+            $values = array();
+            foreach ( $select->getElementsByTagName('option') as $option ) {
+                $value = trim(SourceDom::attr($option, 'value'));
+                if ( '' !== $value && '#' !== $value ) {
+                    $values[] = $value;
+                }
+            }
+            $values = array_values(array_unique($values));
+            sort($values);
+            if ( $values !== $targets ) {
+                continue;
+            }
+            $boundary = $this->sourceCollapseBreakpoint($navigation, $select);
+            if ( null === $boundary ) {
+                continue;
+            }
+            $display = $this->styleResolver->declaredPresentation($select, 'display');
+            $at = fn (float $width): string => strtolower(CssValueInspector::withoutImportant(trim($display->resolvedValueWhere(
+                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+            ))));
+            $menu = $navigation;
+            if ( SourceDom::elementContains($navigation, $select) ) {
+                foreach ( $navigation->getElementsByTagName('ul') as $list ) {
+                    if ( $list->getElementsByTagName('a')->length === $navigation->getElementsByTagName('a')->length ) {
+                        $menu = $list;
+                        break;
+                    }
+                }
+            }
+            $navDisplay = $this->styleResolver->declaredPresentation($menu, 'display');
+            $navAt = fn (float $width): string => strtolower(CssValueInspector::withoutImportant(trim($navDisplay->resolvedValueWhere(
+                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+            ))));
+            if ( 'none' === $at($boundary + 1) && '' !== $at($boundary) && 'none' !== $at($boundary)
+                && 'none' === $navAt($boundary) && 'none' !== $navAt($boundary + 1) ) {
+                return $select;
+            }
+        }
+        return null;
+    }
+
     /** The captured menu dialog a dropdown row has absorbed, if any. */
     public function capturedMenuFoldForRow(DOMElement $row): ?CapturedMenuDialogFold
     {
@@ -1311,6 +1474,11 @@ final class NavigationToggleSuppressor
         $fold = $this->context->navigationProjection()->foldForRow($navigation);
         if ( $fold instanceof CapturedMenuDialogFold ) {
             return $fold->triggers[0];
+        }
+
+        $alternate = $this->alternateNavigationSelect($navigation);
+        if ( $alternate instanceof DOMElement ) {
+            return $alternate;
         }
 
         $document = $navigation->ownerDocument;
@@ -1792,7 +1960,8 @@ final class NavigationToggleSuppressor
      * Display, visibility and opacity are read through the resolved cascade,
      * media-conditional rules included, so a mobile-first `md:hidden` toggle
      * reads hidden and a `hidden md:flex` menu reads visible. Reading only
-     * unconditional declarations inverted both.
+     * unconditional declarations inverted both. Capture disclosure styles and
+     * capture-stamped hidden describe runtime state, not author visibility.
      */
     public function isHiddenAtDefaultViewport(DOMElement $element): bool
     {
@@ -1800,12 +1969,19 @@ final class NavigationToggleSuppressor
             if ( SourceDom::isDocumentVariantRoot($node) || in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
                 break;
             }
-            if ( $this->sourceElementIsHiddenByMarkup($node) ) {
+            $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($node, array('display', 'visibility', 'opacity'), true);
+            $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+            $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
+            $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+            if ( $this->sourceElementIsHiddenByMarkup($node, $display, true)
+                || 'none' === $display
+                || in_array($visibility, array('hidden', 'collapse'), true)
+                || (is_numeric($opacity) && 0.0 === (float) $opacity) ) {
                 return true;
             }
         }
 
-        return $this->context->sourceElementOrAncestorStartsHidden($element);
+        return false;
     }
 
     private function isProjectableHashAnchorMenuToggle(DOMElement $element): bool

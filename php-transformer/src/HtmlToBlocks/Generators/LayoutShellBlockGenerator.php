@@ -87,10 +87,9 @@ final class LayoutShellBlockGenerator
         } );
         return props;
     }
-    function wrappedContent( wrappers, content, outerProps ) {
+    function wrappedContent( wrappers, content ) {
         for ( var index = ( wrappers || [] ).length - 1; index >= 0; index-- ) {
             var props = wrapperProps( wrappers[ index ].attributes );
-            if ( index === 0 && outerProps ) { props = outerProps( props ); }
             content = createElement( wrappers[ index ].tagName || 'div', props, content );
         }
         return content;
@@ -117,12 +116,10 @@ final class LayoutShellBlockGenerator
     // wins over Gutenberg's for any property both sides set, since the
     // authored declarations encode captured visual fidelity; Gutenberg's
     // additions still apply for any property the wrapper does not set itself.
-    function sourceBlockProps( props ) {
-        var blockProps = useBlockProps();
-        var mergedClassName = String( blockProps.className || '' )
-            .split( /\s+/ )
-            .filter( function( className ) { return className && className !== 'block-editor-block-list__block'; } )
-            .concat( String( props.className || '' ).split( /\s+/ ).filter( Boolean ) )
+    function sourceBlockProps( props, blockProps ) {
+        var mergedClassName = String( props.className || '' ).split( /\s+/ ).filter( Boolean )
+            .concat( String( blockProps.className || '' ).split( /\s+/ )
+            .filter( function( className ) { return className && className !== 'block-editor-block-list__block'; } ) )
             .join( ' ' );
         var merged = Object.assign( {}, blockProps, props );
         merged.className = mergedClassName;
@@ -193,11 +190,16 @@ final class LayoutShellBlockGenerator
     }
     function edit( props ) {
         var wrappers = revealedWrappers( props.attributes.wrappers || [] );
-        // This marker identifies the one Gutenberg-owned layer inside the
-        // authored wrapper chain; nested native blocks must retain their own
-        // editor topology.
-        var content = createElement( 'div', useInnerBlocksProps( { className: 'blocks-engine-layout-shell-editor-inner-blocks' } ) );
-        return wrappers.length ? wrappedContent( wrappers, content, sourceBlockProps ) : createElement( 'div', useBlockProps(), content );
+        // Both hooks run exactly once, in this order, regardless of chain length.
+        var blockProps = useBlockProps();
+        var outerProps = wrappers.length ? sourceBlockProps( wrapperProps( wrappers[ 0 ].attributes ), blockProps ) : blockProps;
+        var last = wrappers.length - 1;
+        var innerProps = useInnerBlocksProps( last > 0 ? wrapperProps( wrappers[ last ].attributes ) : outerProps );
+        var content = createElement( last >= 0 ? wrappers[ last ].tagName || 'div' : 'div', innerProps );
+        for ( var index = last - 1; index >= 0; index-- ) {
+            content = createElement( wrappers[ index ].tagName || 'div', index === 0 ? outerProps : wrapperProps( wrappers[ index ].attributes ), content );
+        }
+        return content;
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: { wrappers: { type: 'array', default: [] } },

@@ -26,6 +26,9 @@ final class TransformationProvenanceState
     /** @var array<string, string> */
     private array $formControlSlotTokens = array();
 
+    /** @var array<int, \DOMElement> Source element each registered block was materialized from. */
+    private array $sourceElements = array();
+
     private int $nextSourceId = 1;
 
     /** @param array<string, mixed> $fallback */
@@ -73,6 +76,18 @@ final class TransformationProvenanceState
         $this->sourceCollapsedWrapperHiddenStates[$id] = $wrapperHiddenAtCollapsedViewport;
 
         return $id;
+    }
+
+    public function recordSourceElement(int $id, \DOMElement $element): void
+    {
+        if ( isset($this->sources[$id]) ) {
+            $this->sourceElements[$id] = $element;
+        }
+    }
+
+    public function sourceElement(int $id): ?\DOMElement
+    {
+        return $this->sourceElements[$id] ?? null;
     }
 
     /** @param array<string, mixed> $evidence */
@@ -178,6 +193,9 @@ final class TransformationProvenanceState
             unset($block['_binding_token']);
             unset($block['form_control_index']);
             unset($block['form_choice_group_index']);
+            unset($block['form_field']);
+            unset($block['_form_legend']);
+            unset($block['_form_field_box']);
             unset($block['_source_anchor_selector']);
             unset($block['_editability_runtime_owned']);
             unset($block['_editability_visual_owned']);

@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
 
 /**
@@ -23,7 +24,7 @@ final class CommerceStructureRecognizer
 
     public function looksLikePriceText(string $text): bool
     {
-        return (bool) preg_match('/(?:\p{Sc}\s?\d|\d+(?:[.,]\d{2})?\s?(?:usd|eur|gbp|cad|aud)\b)/iu', trim($text));
+        return (bool) preg_match('/(?:\p{Sc}[\s\x{a0}]?\d|\d[\d\s\x{a0}.,]*[\s\x{a0}]?\p{Sc}|\d+(?:[.,]\d{2})?[\s\x{a0}]?(?:usd|eur|gbp|cad|aud)\b)/iu', trim($text));
     }
 
     /**
@@ -186,6 +187,7 @@ final class CommerceStructureRecognizer
         return array_filter(array(
             'name'             => $name,
             'slug'             => $this->productLinkSlug($card, $name),
+            'url'              => $this->productLinkUrl($card, $name),
             'price'            => $prices['price'],
             'sale_price'       => $prices['sale_price'] ?? null,
             'description'      => $this->productDescriptionText($card, $name),
@@ -340,8 +342,18 @@ final class CommerceStructureRecognizer
      */
     private function productLinkSlug(DOMElement $card, string $name): ?string
     {
-        foreach ( $card->getElementsByTagName('a') as $link ) {
-            if ( $this->collapsedText($link) !== $name && SourceDom::attr($link, 'title') !== $name ) {
+        $url = $this->productLinkUrl($card, $name);
+        if (null === $url) return null;
+        $path = parse_url($url, PHP_URL_PATH);
+        $directory = rtrim((string) preg_replace('/(?:^|\/)index\.(?:html?|php)$/i', '', rtrim((string) $path, '/')), '/');
+        return rawurldecode((string) preg_replace('/\.(?:html?|php)$/i', '', basename($directory)));
+    }
+
+    private function productLinkUrl(DOMElement $card, string $name): ?string
+    {
+        $links = $card->getElementsByTagName('a');
+        foreach ( $links as $link ) {
+            if ( 1 !== $links->length && $this->collapsedText($link) !== $name && SourceDom::attr($link, 'title') !== $name ) {
                 continue;
             }
             $href = trim(SourceDom::attr($link, 'href'));
@@ -362,7 +374,7 @@ final class CommerceStructureRecognizer
                 continue;
             }
 
-            return rawurldecode($base);
+            return $href;
         }
 
         return null;
@@ -559,7 +571,7 @@ final class CommerceStructureRecognizer
             return '';
         }
 
-        if ( preg_match('/\p{Sc}\s?\d[\d.,]*|\d[\d.,]*\s?(?:usd|eur|gbp|cad|aud)\b/iu', $text, $matches) ) {
+        if ( preg_match('/\p{Sc}[\s\x{a0}]?\d[\d.,]*|\d[\d\s\x{a0}.,]*[\s\x{a0}]?\p{Sc}|\d[\d.,]*[\s\x{a0}]?(?:usd|eur|gbp|cad|aud)\b/iu', $text, $matches) ) {
             return trim($matches[0]);
         }
 
@@ -582,13 +594,16 @@ final class CommerceStructureRecognizer
      *
      * A cart view's order summary is the innermost element that holds a
      * checkout control together with at least two amount rows (subtotal,
-     * shipping, total) and a total label. It is detected from structure and
-     * generic commerce vocabulary on the control and row text, class, id and
+     * shipping, total) and a total label. At a form, runtime target or landmark
+     * boundary, a single subtotal also qualifies an empty cart; prices outside
+     * that boundary must never contribute to its totals. Detection uses structure
+     * and generic commerce vocabulary on the control and row text, class, id and
      * `data-*` attribute names — never a shop-provider name or fixture class.
      *
+     * @param null|callable(DOMElement): bool $isRuntimeScope Source runtime-target evidence.
      * @return array<int, DOMElement>
      */
-    public function cartSummaries(DOMElement $root): array
+    public function cartSummaries(DOMElement $root, ?callable $isRuntimeScope = null): array
     {
         $summaries = array();
         foreach ( $root->getElementsByTagName('*') as $element ) {
@@ -596,8 +611,20 @@ final class CommerceStructureRecognizer
                 continue;
             }
             for ( $node = $element->parentNode; $node instanceof DOMElement && $node !== $root->parentNode; $node = $node->parentNode ) {
-                if ( $this->hasCartTotals($node) ) {
+                $tag = strtolower($node->tagName);
+                if ( in_array($tag, array( 'html', 'body' ), true) ) {
+                    break;
+                }
+                $boundary = 'form' === $tag
+                    || '' !== ShellLandmarkPolicy::landmarkKind($tag, SourceDom::attr($node, 'role'))
+                    || in_array($tag, array( 'aside', 'dialog' ), true)
+                    || in_array(strtolower(SourceDom::attr($node, 'role')), array( 'region', 'complementary', 'dialog' ), true)
+                    || (null !== $isRuntimeScope && $isRuntimeScope($node));
+                if ( $this->hasCartTotals($node, $boundary ? 1 : 2) ) {
                     $summaries[spl_object_id($node)] = $node;
+                    break;
+                }
+                if ( $boundary ) {
                     break;
                 }
             }
@@ -632,8 +659,8 @@ final class CommerceStructureRecognizer
         return $this->classifier->hasTokenBoundary($this->vocabulary($element), 'checkout');
     }
 
-    /** At least two amount leaves and one total label: subtotal/shipping/total rows. */
-    private function hasCartTotals(DOMElement $element): bool
+    /** Amount leaves and a total label: subtotal/shipping/total rows. */
+    private function hasCartTotals(DOMElement $element, int $minimumAmounts = 2): bool
     {
         $amounts = 0;
         $hasTotal = false;
@@ -650,7 +677,7 @@ final class CommerceStructureRecognizer
             }
         }
 
-        return $hasTotal && $amounts >= 2;
+        return $hasTotal && $amounts >= $minimumAmounts;
     }
 
     /** Text, class, id, aria-label and `data-*` attribute names, tokenized on non-alphanumerics. */
@@ -722,6 +749,14 @@ final class CommerceStructureRecognizer
             $text = $this->collapsedText($paragraph);
             if ( '' === $text || $text === $name || $this->looksLikePriceText($text) ) {
                 continue;
+            }
+
+            // A paragraph may be inside a stock/availability badge. Judge its
+            // source, not words that could also occur in genuine product copy.
+            for ( $source = $paragraph; $source instanceof DOMElement && $source !== $card; $source = $source->parentNode ) {
+                if ( $this->classifier->hasCommerceToken($source, array( 'badge', 'badges', 'stock', 'availability', 'soldout' )) || 'availability' === strtolower(SourceDom::attr($source, 'itemprop')) ) {
+                    continue 2;
+                }
             }
 
             return mb_strlen($text) > 280 ? mb_substr($text, 0, 277) . '...' : $text;

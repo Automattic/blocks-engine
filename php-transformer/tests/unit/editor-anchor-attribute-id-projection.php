@@ -56,8 +56,8 @@ $attribute = $editorCss(
     . '[data-mesh-id=secinlineContent-gridContainer] > [id="comp-aaa"]{grid-area:1 / 1 / 2 / 2;left:20px;position:relative}'
     . '[data-mesh-id=secinlineContent-gridContainer] > [id="comp-bbb"]{grid-area:2 / 1 / 3 / 2;position:relative}'
 );
-// Both the source and the projected stylesheet are read, so a rule can land
-// twice. The same declaration repeated is inert; reaching zero is the defect.
+// These ids are not covered by scoped anchor projection, so their placement
+// rules still need an editor anchor restatement.
 foreach (array('comp-aaa', 'comp-bbb') as $id) {
     $assert(
         0 < preg_match_all('/blocks-engine-editor-anchor-' . $id . '[^{}]*\{[^}]*grid-area/', $attribute),

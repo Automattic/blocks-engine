@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
@@ -46,6 +47,9 @@ final class SourceDom
      * the data URL budget the document head applies to embedded links.
      */
     public const MAX_SVG_DATA_IMAGE_URL_BYTES = 1048576;
+
+    /** HTML void elements: never an empty inline box with CSS geometry. */
+    private const VOID_TAGS = array( 'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr' );
 
     public static function innerHtml(DOMElement $element): string
     {
@@ -130,6 +134,11 @@ final class SourceDom
      * Applies to the element itself and to each descendant container;
      * inline-layout content keeps its whitespace.
      *
+     * Text that sits next to an empty inline box (a CSS-painted dot or rule
+     * between two words) keeps one space on that side: the box is lowered to
+     * an inline RichText carrier inside one paragraph, so dropping the space
+     * would glue the words to it ("Paws<mark></mark>Whiskers").
+     *
      * @param callable(DOMElement): bool $blockifiesChildren
      */
     public static function withoutBlockifiedBoundaryWhitespace(DOMElement $element, callable $blockifiesChildren): DOMElement
@@ -146,11 +155,14 @@ final class SourceDom
                     continue;
                 }
                 $text = $child->data;
+                $keepsCarrierSpace = '' !== trim($text, " \t\n\r\f");
                 if ( ! self::adjacentTextRun($child, 'previousSibling') ) {
-                    $text = ltrim($text, " \t\n\r\f");
+                    $trimmed = ltrim($text, " \t\n\r\f");
+                    $text = $keepsCarrierSpace && $trimmed !== $text && self::adjacentEmptyInlineBox($child, 'previousSibling') ? ' ' . $trimmed : $trimmed;
                 }
                 if ( ! self::adjacentTextRun($child, 'nextSibling') ) {
-                    $text = rtrim($text, " \t\n\r\f");
+                    $trimmed = rtrim($text, " \t\n\r\f");
+                    $text = $keepsCarrierSpace && $trimmed !== $text && self::adjacentEmptyInlineBox($child, 'nextSibling') ? $trimmed . ' ' : $trimmed;
                 }
                 if ( $text !== $child->data ) {
                     $trims[$position] = $text;
@@ -182,6 +194,37 @@ final class SourceDom
         }
 
         return false;
+    }
+
+    /** Whether the nearest non-comment sibling is an empty inline box. */
+    private static function adjacentEmptyInlineBox(DOMText $text, string $direction): bool
+    {
+        for ( $node = $text->{$direction}; $node instanceof DOMNode; $node = $node->{$direction} ) {
+            if ( XML_COMMENT_NODE !== $node->nodeType ) {
+                return $node instanceof DOMElement && self::isEmptyInlineBox($node);
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether an element is an empty inline box: a non-void element holding
+     * no text or elements (only whitespace and comments), which only CSS
+     * sizes and paints, such as a dot between two words.
+     */
+    public static function isEmptyInlineBox(DOMElement $element): bool
+    {
+        if ( in_array(strtolower($element->tagName), self::VOID_TAGS, true) ) {
+            return false;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE !== $child->nodeType && ! ( $child instanceof DOMText && '' === trim($child->data, " \t\n\r\f") ) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public static function outerHtml(DOMElement $element): string
@@ -587,19 +630,24 @@ final class SourceDom
     }
 
     /**
-     * Removes attributes named like an int array key (`0`, `512`) from the
-     * subtree ({@see HtmlAttributeName}).
+     * Removes invalid XML attribute names (including int array keys) and
+     * invalid xml:space values from the parsed subtree.
      *
-     * libxml 2.14+ keeps such names and older libxml drops them, so removing
-     * them right after parsing gives the same source tree on every libxml
-     * version. No later reader, serializer or SVG asset can then see them.
+     * Parser recovery varies across libxml versions. Discard these inert
+     * attributes before any reader, serializer or SVG classifier sees them;
+     * they cannot be carried into a standalone SVG document.
      */
     public static function removeIntegerKeyAttributes(DOMElement $root): void
     {
+        // XML 1.0 NameStartChar and NameChar. Keep Unicode names and namespace
+        // colons; an ASCII-only identifier rule would discard valid attributes.
+        $nameStart = ':A-Z_a-z\x{C0}-\x{D6}\x{D8}-\x{F6}\x{F8}-\x{2FF}\x{370}-\x{37D}\x{37F}-\x{1FFF}\x{200C}-\x{200D}\x{2070}-\x{218F}\x{2C00}-\x{2FEF}\x{3001}-\x{D7FF}\x{F900}-\x{FDCF}\x{FDF0}-\x{FFFD}\x{10000}-\x{EFFFF}';
+        $xmlName = '/\A[' . $nameStart . '][' . $nameStart . '\-.0-9\x{B7}\x{0300}-\x{036F}\x{203F}-\x{2040}]*\z/u';
         $removals = array();
         foreach ( array_merge(array( $root ), iterator_to_array($root->getElementsByTagName('*'), false)) as $element ) {
             foreach ( $element->attributes ?? array() as $attribute ) {
-                if ( HtmlAttributeName::isIntegerKey($attribute->nodeName) ) {
+                if ( 1 !== preg_match($xmlName, $attribute->nodeName)
+                    || ('xml:space' === $attribute->nodeName && ! in_array($attribute->nodeValue, array('default', 'preserve'), true)) ) {
                     $removals[] = $attribute;
                 }
             }
@@ -718,53 +766,20 @@ final class SourceDom
         return null;
     }
 
-    /**
-     * A heading whose only content is one or more images, each bare or the
-     * only content of one link: a logo title such as
-     * `<h3><a href="…"><img alt="Brand" src="…"></a></h3>`.
-     *
-     * Gutenberg's heading RichText holds such an `<img>` as its `core/image`
-     * object format and the `<a>` as its `core/link` format, keeping every
-     * image attribute, so the heading can stay a native, editable block.
-     * Text beside an image, `<picture>`, and lazy placeholder images do not
-     * qualify; they keep the conservative RichText fallback.
-     */
-    public static function isImageOnlyHeading(DOMElement $heading): bool
+    /** A passive inline mark through which an image can use its native route. */
+    public static function isInlineImageMark(DOMElement $element): bool
     {
-        if ( 1 !== preg_match('/^h[1-6]$/', strtolower($heading->tagName)) ) {
-            return false;
-        }
-
-        $images = 0;
-        foreach ( $heading->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                return false;
-            }
-
-            $image = 'a' === strtolower($child->tagName) ? self::onlyChildElement($child, 'img') : $child;
-            if ( ! $image instanceof DOMElement
-                || ! self::isRichTextImageObject($image)
-                || ! self::hasOnlySafeFallbackAttributes($child)
-                || ! self::hasOnlySafeFallbackAttributes($image) ) {
-                return false;
-            }
-
-            ++$images;
-        }
-
-        return 0 < $images;
+        return in_array(strtolower($element->tagName), array( 'span', 'strong', 'em', 'b', 'i', 'small', 'mark', 'sub', 'sup', 'u', 's', 'del', 'ins', 'abbr', 'cite', 'code', 'kbd', 'samp', 'time', 'var' ), true)
+            && ! $element->hasAttribute('role')
+            && self::hasOnlySafeFallbackAttributes($element);
     }
 
     /**
-     * Whether a text element's every `<img>` is an inline image beside its text
-     * that RichText carries as its `core/image` object format: a real, safe
-     * source sitting directly in the element or inside links and inline
-     * formatting. Image-only content and interactive elements keep their own
-     * routes.
+     * Whether a text element's every `<img>` is an inline image that RichText
+     * carries as its `core/image` object format: a real, safe source sitting
+     * directly in the element or inside links and inline formatting. This also
+     * covers image-only runs; single images get the native media route first.
+     * Interactive elements keep their own routes.
      * An image inside any other host (a custom element, a `<picture>`) keeps
      * the host's own semantics, so the element does not qualify.
      */
@@ -774,7 +789,6 @@ final class SourceDom
         // Interactive elements (links, buttons, role-bearing controls) keep
         // their own routes; this is about plain text carriers only.
         if ( 0 === $images->length
-            || '' === trim(str_replace("\u{00A0}", ' ', $element->textContent))
             || $element->hasAttribute('role')
             || in_array(strtolower($element->tagName), array( 'a', 'button', 'label', 'summary' ), true) ) {
             return false;
@@ -786,8 +800,8 @@ final class SourceDom
             }
             for ( $parent = $image->parentNode; $parent !== $element; $parent = $parent->parentNode ) {
                 if ( ! $parent instanceof DOMElement
-                    || ! in_array(strtolower($parent->tagName), array( 'a', 'span', 'strong', 'em', 'b', 'i', 'small', 'mark', 'sub', 'sup' ), true)
-                    || ! self::hasOnlySafeFallbackAttributes($parent) ) {
+                    || ( ! self::isInlineImageMark($parent)
+                        && ( 'a' !== strtolower($parent->tagName) || ! self::hasOnlySafeFallbackAttributes($parent) ) ) ) {
                     return false;
                 }
             }
@@ -797,9 +811,9 @@ final class SourceDom
     }
 
     /**
-     * An `<img>` that RichText can carry as-is: a real `src` (not a `data:`
-     * placeholder) and no lazy-load source attribute that still has to be
-     * resolved into it.
+     * An `<img>` that RichText can carry as-is: a real, safe `src` (including
+     * raster data images) and no lazy-load source attribute that still has
+     * to be resolved into it.
      */
     private static function isRichTextImageObject(DOMElement $image): bool
     {
@@ -808,7 +822,7 @@ final class SourceDom
         }
 
         $src = trim(self::attr($image, 'src'));
-        if ( '' === $src || str_starts_with(strtolower($src), 'data:') ) {
+        if ( '' === $src || ! self::safeFallbackUrl($src, 'src') ) {
             return false;
         }
 
@@ -1531,6 +1545,39 @@ final class SourceDom
                         }
                     }
                 }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether an autonomous custom element is empty light DOM whose only
+     * rendered output is its own inline background image or colour, so it
+     * already paints exactly what the equivalent `div` would.
+     */
+    public static function backgroundPaintOnlyCustomElement(DOMElement $element): bool
+    {
+        if ( ! str_contains($element->tagName, '-') ) {
+            return false;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE !== $child->nodeType && ( XML_TEXT_NODE !== $child->nodeType || '' !== trim($child->textContent ?? '') ) ) {
+                return false;
+            }
+        }
+
+        $style = self::attr($element, 'style');
+        if ( '' !== ( new BackgroundImageExtractor() )->urlFromStyle($style) ) {
+            return true;
+        }
+        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
+            [$name, $value] = array_map('trim', explode(':', $declaration, 2) + array( '', '' ));
+            if ( in_array(strtolower($name), array( 'background', 'background-color' ), true)
+                && ! str_contains(strtolower($value), 'url(')
+                && 1 !== preg_match('/^(?:|none|transparent|initial|inherit|unset|revert(?:-layer)?)$/i', preg_replace('/\s*!important$/i', '', $value) ?? '')
+            ) {
+                return true;
             }
         }
 

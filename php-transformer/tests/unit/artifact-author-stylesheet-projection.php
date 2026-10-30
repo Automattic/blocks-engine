@@ -99,11 +99,19 @@ $assert(str_contains($restaurantRuntimeJs, "document.getElementById('nav-toggle'
 $assert(is_string($restaurantIslandPackage) && ! str_contains($restaurantIslandPackage, '[data-reveal]') && str_contains($restaurantIslandPackage, 'blocks-engine-attribute-') && str_contains($restaurantIslandPackage, "document.createElement('div')"), 'companion runtime packages carry the same projected script as the theme asset');
 $assert('pass' === ($runtimeReveal['source_reports']['runtime_dependency_parity']['status'] ?? ''), 'runtime dependency parity validates the projected inline script against materialized block markup');
 
+// Content-box restatements are support CSS: they are emitted in the
+// after-author engine-support stylesheet, with the projected selector and
+// conditions, and the projected author rule no longer carries them.
+$afterAuthorSupportCss = static fn (array $result): string => implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    array_filter($result['assets'] ?? array(), static fn (array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && 'after-author' === ($asset['stylesheet_placement'] ?? ''))
+));
 $contentBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.cascade-stack{display:block;width:640px;padding:48px;background:#fff;border:2px solid #18231d}</style><div class="cascade-stack"><p>Copy</p></div>' ),
 ) ) )->toArray();
 $contentBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $contentBox['assets'] ?? array()));
-$assert(str_contains($contentBoxCss, '.cascade-stack{display:block;width:640px;padding:48px;background:#fff;border:2px solid #18231d;box-sizing:content-box}'), 'definite source width plus box chrome retains the initial content-box model against the WordPress block reset');
+$assert(str_contains($contentBoxCss, '.cascade-stack{display:block;width:640px;padding:48px;background:#fff;border:2px solid #18231d}'), 'the projected author rule keeps its authored declarations');
+$assert(str_contains($afterAuthorSupportCss($contentBox), '.cascade-stack{box-sizing:content-box}'), 'definite source width plus box chrome retains the initial content-box model against the WordPress block reset');
 
 $borderBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>*,*::before,*::after{box-sizing:border-box}.cascade-stack{display:block;width:640px;padding:48px;border:2px solid #18231d}</style><div class="cascade-stack"><p>Copy</p></div>' ),
@@ -130,7 +138,8 @@ $contentBoxHeight = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.band{display:block;height:245px;padding-right:35px;padding-bottom:35px;overflow:hidden;background:#9b9}</style><div class="band"><p>Copy</p></div>' ),
 ) ) )->toArray();
 $contentBoxHeightCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $contentBoxHeight['assets'] ?? array()));
-$assert(str_contains($contentBoxHeightCss, '.band{display:block;height:245px;padding-right:35px;padding-bottom:35px;overflow:hidden;background:#9b9;box-sizing:content-box}'), 'definite source height plus box chrome retains the initial content-box model against the WordPress block reset');
+$assert(str_contains($contentBoxHeightCss, '.band{display:block;height:245px;padding-right:35px;padding-bottom:35px;overflow:hidden;background:#9b9}'), 'the projected height rule keeps its authored declarations');
+$assert(str_contains($afterAuthorSupportCss($contentBoxHeight), '.band{box-sizing:content-box}'), 'definite source height plus box chrome retains the initial content-box model against the WordPress block reset');
 
 // One rule sizes a component and another pads it. The source box is the
 // content height plus both paddings; the paddings' negative margins cancel in
@@ -139,9 +148,10 @@ $splitRuleBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.frame{padding:40px 0;margin:-40px 0;overflow:hidden}#strip{height:300px}.lead{padding:12px}</style><section><div id="strip" class="frame"><p>Copy</p></div><div class="frame lead"><p>Auto</p></div></section>' ),
 ) ) )->toArray();
 $splitRuleBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $splitRuleBox['assets'] ?? array()));
-$assert(1 === preg_match('/\{padding:40px 0;overflow:hidden;box-sizing:content-box\}/', $splitRuleBoxCss), 'a shared padding rule restates content-box when the cascade also sizes a matched element');
-$assert(1 === preg_match('/\{height:300px;box-sizing:content-box\}/', $splitRuleBoxCss), 'an id sizing rule restates content-box when the cascade also pads the element');
-$assert(1 !== preg_match('/\{padding:12px;box-sizing:content-box\}/', $splitRuleBoxCss), 'padding on an auto-sized element keeps the WordPress box model');
+$splitRuleBoxSupport = $afterAuthorSupportCss($splitRuleBox);
+$assert(str_contains($splitRuleBoxSupport, '.frame{box-sizing:content-box}'), 'a shared padding rule restates content-box when the cascade also sizes a matched element');
+$assert(str_contains($splitRuleBoxSupport, '#strip{box-sizing:content-box}'), 'an id sizing rule restates content-box when the cascade also pads the element');
+$assert(! str_contains($splitRuleBoxSupport, '.lead{box-sizing:content-box}'), 'padding on an auto-sized element keeps the WordPress box model');
 
 // The same split cascade inside runtime-gated stylesheets: neither half reaches
 // the unconditional cascade, so each rule resolves the other within its own
@@ -150,9 +160,10 @@ $gatedSplitRuleBox = ( new ArtifactCompiler() )->compile(array( 'files' => array
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><style media="not all">.frame{padding:40px 0;margin:-40px 0;overflow:hidden}</style><style media="not all">#strip{height:300px;display:block}</style><style>.lead{height:120px}</style></head><body><section><div id="strip" class="frame"><p>Copy</p></div><div class="lead"><p>Auto</p></div></section></body></html>' ),
 ) ) )->toArray();
 $gatedSplitRuleBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $gatedSplitRuleBox['assets'] ?? array()));
-$assert(1 === preg_match('/\{padding:40px 0;overflow:hidden;box-sizing:content-box\}/', $gatedSplitRuleBoxCss), 'a gated padding rule restates content-box when a rule in the same condition domain sizes the element');
-$assert(1 === preg_match('/\{height:300px;display:block;box-sizing:content-box\}/', $gatedSplitRuleBoxCss), 'a gated sizing rule restates content-box when a rule in the same condition domain pads the element');
-$assert(1 !== preg_match('/\{height:120px;box-sizing:content-box\}/', $gatedSplitRuleBoxCss), 'an unconditional sizing rule ignores chrome that only a gated stylesheet declares on other elements');
+$gatedSplitRuleBoxSupport = $afterAuthorSupportCss($gatedSplitRuleBox);
+$assert(str_contains($gatedSplitRuleBoxSupport, '@media not all{.frame{box-sizing:content-box}}'), 'a gated padding rule restates content-box, under its stylesheet media, when a rule in the same condition domain sizes the element');
+$assert(str_contains($gatedSplitRuleBoxSupport, '@media not all{#strip{box-sizing:content-box}}'), 'a gated sizing rule restates content-box, under its stylesheet media, when a rule in the same condition domain pads the element');
+$assert(! str_contains($gatedSplitRuleBoxSupport, '.lead{box-sizing:content-box}'), 'an unconditional sizing rule ignores chrome that only a gated stylesheet declares on other elements');
 
 // A component class that opts its own element into border-box keeps that box
 // model when an id rule sizes it, gated or not.
@@ -191,7 +202,7 @@ foreach ($projectedPinnedAssets as $index => $asset) {
         break;
     }
 }
-$projectedPinnedSupport = is_int($projectedPinnedSupportIndex) ? (string) ($projectedPinnedAssets[$projectedPinnedSupportIndex]['content'] ?? '') : '';
+$projectedPinnedSupport = implode("\n", array_column(array_filter($projectedPinnedAssets, static fn(array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && 'after-author' === ($asset['stylesheet_placement'] ?? '')), 'content'));
 $assert(is_int($projectedPinnedAuthorIndex) && is_int($projectedPinnedSupportIndex) && $projectedPinnedAuthorIndex < $projectedPinnedSupportIndex, 'projected linked stylesheet loads before its post-author admin-bar support asset');
 $assert(str_contains($projectedPinnedSupport, 'body.admin-bar #projected-pinned-layer{top:calc((0px) + var(--wp-admin--admin-bar--height, 32px))!important}') && str_contains($projectedPinnedSupport, '@media (max-width:700px){body.admin-bar :where(.data-blocks-engine-capture-mobile-document) #projected-mobile-pinned-layer{top:calc((0px) + var(--wp-admin--admin-bar--height, 32px))!important}}'), 'projected inline fixed runtime selector and nested linked mobile selector receive admin-bar offsets');
 $projectedPinnedCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $projectedPinnedAssets));
@@ -604,27 +615,15 @@ $gridPageAssets = array_values(array_filter($gridAssets, static fn (array $asset
 $gridPageCss = implode('', array_column($gridPageAssets, 'content'));
 $gridBaseCss = false !== $gridBaseIndex ? (string) ($gridAssets[$gridBaseIndex]['content'] ?? '') : '';
 $gridMarker = '';
-preg_match('/blocks-engine-attribute-[a-f0-9]+-\d+/', $gridPageCss, $gridMarkerMatch);
+preg_match('/blocks-engine-attribute-[a-f0-9]+-\d+/', $gridBaseCss, $gridMarkerMatch);
 $gridMarker = $gridMarkerMatch[0] ?? '';
 $gridPages = array_column($responsiveGrid['source_reports']['compiled_site']['pages'] ?? array(), null, 'source_path');
 $gridMarkup = (string) ($gridPages['people.html']['block_markup'] ?? '');
-$assert(false !== $gridBaseIndex && count($gridPageAssets) === 1 && array_search($gridPageAssets[0]['path'], array_column($gridAssets, 'path'), true) > $gridBaseIndex, 'the page-specific grid projection follows its shared stylesheet');
-$gridPlanPaths = array_column($responsiveGrid['source_reports']['wordpress_site_plan']['assets'] ?? array(), 'source_path');
-$gridPlanBase = array_search('cards.css', $gridPlanPaths, true);
-$gridPlanPage = array_search($gridPageAssets[0]['path'] ?? '', $gridPlanPaths, true);
-$assert(false !== $gridPlanBase && false !== $gridPlanPage && $gridPlanBase < $gridPlanPage, 'the WordPress site plan preserves the shared-then-page stylesheet cascade through theme enqueue');
-$gridSource = 'cards.css';
-$gridPage = 'cards.page-123456789abc.css';
-$orderedGridStyles = ( new ReflectionMethod(\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::class, 'orderPageStylesheetProjections') )->invoke(null, array(
-    array('kind' => 'css', 'source_path' => $gridPage, 'content' => '.cards:not([data-count="1"]){grid-template-columns:repeat(4,1fr)}'),
-    array('kind' => 'css', 'source_path' => $gridPage . '.shared-chrome', 'content' => '.shared{color:#456}'),
-    array('kind' => 'css', 'source_path' => 'unrelated.css', 'content' => '.other{color:#789}'),
-    array('kind' => 'css', 'source_path' => $gridSource, 'content' => '.cards:not([data-count="1"]){grid-template-columns:repeat(2,1fr)}'),
-    array('kind' => 'css', 'source_path' => $gridSource . '.shared-chrome', 'content' => '.shared{color:#123}'),
-));
-$orderedGridSources = array_column($orderedGridStyles, 'source_path');
-$assert(array('unrelated.css', $gridSource, $gridSource . '.shared-chrome', $gridPage, $gridPage . '.shared-chrome') === $orderedGridSources, 'a linked shared stylesheet stays before its page-scoped winner after chrome factoring without moving unrelated CSS');
-$assert('' !== $gridMarker && str_contains($gridPageCss, 'grid-template-columns:repeat(4,1fr)') && str_contains($gridPageCss, '@media(max-width:600px)') && str_contains($gridBaseCss, 'grid-template-columns:repeat(2,1fr)') && ! str_contains($gridPageCss, 'grid-template-columns:repeat(2,1fr)'), 'page projection retains its own responsive grid winners without replaying an unrelated shared two-column fallback after them');
+$assert(false !== $gridBaseIndex && array() === $gridPageAssets, 'the responsive grid projection stays in its shared stylesheet');
+$gridPlan = $responsiveGrid['source_reports']['wordpress_site_plan'];
+$gridPlanPages = array_column($gridPlan['pages'], null, 'source_path');
+$assert(!str_contains(implode('', array_column($gridPlan['assets'], 'source_path')), 'cards.page-'), 'the generated theme needs no page-specific grid copy');
+$assert('' !== $gridMarker && str_contains($gridBaseCss, 'grid-template-columns:repeat(4,1fr)') && str_contains($gridBaseCss, '@media(max-width:600px)') && str_contains($gridBaseCss, 'grid-template-columns:repeat(2,1fr)'), 'shared grid projection retains both layouts and their responsive winners');
 $assert(str_contains(implode("\n", array_column($gridAssets, 'content')), 'grid-gap:100px 100px') && str_contains($gridMarkup, 'be-inline-geometry-'), 'the editable grid keeps its inline-authored legacy gap through the existing layout carrier');
 $assert(str_contains($gridMarkup, 'blocks-engine-css-owned-grid') && str_contains($gridMarkup, $gridMarker) && 'pass' === ( new Runtime() )->validateBlockSerialization($gridMarkup)['status'], 'the attribute-selected four-card grid remains a valid editable Group document');
 $gridDocument = new DOMDocument();
@@ -636,9 +635,11 @@ foreach ( $gridDocument->getElementsByTagName('ul') as $candidate ) {
         break;
     }
 }
-$gridCascade = new StaticCssCascade($gridDocument, $gridBaseCss . $gridPageCss);
+foreach ($gridPages['people.html']['document_metadata']['root_attributes'] ?? array() as $name => $value) $gridDocument->documentElement->setAttribute($name, $value);
+$gridCascade = new StaticCssCascade($gridDocument, $gridBaseCss);
 $assert($gridElement instanceof DOMElement && 'repeat(4,1fr)' === ($gridCascade->resolve($gridElement, array( 'grid-template-columns' ), array())['grid-template-columns'] ?? ''), 'the projected four-column rule wins the shared two-column fallback in source order at the desktop reference');
-$gridCascade = new StaticCssCascade($gridDocument, implode("\n", array_column($orderedGridStyles, 'content')));
+foreach ($gridPlanPages['people.html']['document_metadata']['root_attributes'] ?? array() as $name => $value) $gridDocument->documentElement->setAttribute($name, $value);
+$gridCascade = new StaticCssCascade($gridDocument, implode("\n", array_column($gridPlan['assets'], 'content')));
 $assert('repeat(4,1fr)' === ($gridCascade->resolve($gridElement, array('grid-template-columns'), array())['grid-template-columns'] ?? ''), 'the final site-plan stylesheet order preserves the four-column browser winner');
 
 $pageSubsetArtifact = array(

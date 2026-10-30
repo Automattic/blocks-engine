@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
+use Automattic\BlocksEngine\PhpTransformer\Support\InlineBodyStyle;
 
 /** Composes source stylesheet payloads into presentation and selector analyses. */
 final class StylesheetAnalysisComposer
@@ -35,46 +36,14 @@ final class StylesheetAnalysisComposer
             $cssParts[] = $staticCss;
         }
         // An inline style on <body> never reaches the stylesheet pipeline, so
-        // the spacing it declares is lost. Authors reserve room for a fixed
-        // footer this way. Append it last so it keeps the precedence inline
+        // its spacing and custom properties would be lost. Append the carried
+        // declarations last so they keep the precedence inline
         // style had over the document's own body rules.
-        $inlineBody = $this->inlineBodySpacingRule($html);
+        $inlineBody = InlineBodyStyle::rule($html);
         if ( '' !== $inlineBody ) {
             $cssParts[] = $inlineBody;
         }
         return trim(implode("\n\n", $cssParts));
-    }
-
-    /**
-     * The body's authored spacing is page content the reader sees. Its
-     * positioning, sizing and overflow are document mechanics WordPress owns,
-     * and overriding those breaks scrolling in the editor canvas, so only
-     * spacing is carried across.
-     */
-    private function inlineBodySpacingRule(string $html): string
-    {
-        if ( 1 !== preg_match('/<body\b[^>]*\sstyle\s*=\s*(?:"([^"]*)"|\'([^\']*)\')/i', $html, $matches) ) {
-            return '';
-        }
-
-        $raw = '' !== ($matches[1] ?? '') ? $matches[1] : ($matches[2] ?? '');
-        $style = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        if ( '' === trim($style) || preg_match('/[{}<>]/', $style) ) {
-            return '';
-        }
-
-        $spacing = array();
-        foreach ( $this->styleResolver->cssDeclarations($style) as $property => $value ) {
-            $value = trim($value);
-            if ( '' === $value ) {
-                continue;
-            }
-            if ( 1 === preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left))?$/', $property) ) {
-                $spacing[] = $property . ':' . $value;
-            }
-        }
-
-        return array() === $spacing ? '' : 'body{' . implode(';', $spacing) . '}';
     }
 
     /** @param array<string, mixed> $options @return list<string> */
@@ -110,7 +79,7 @@ final class StylesheetAnalysisComposer
         if ( array() !== $authorStyles->stylesheetAssets() ) {
             $payloads = array_values(array_filter($authorStyles->stylesheetAssets(), static fn (array $asset): bool => '' !== trim($asset['content'])));
             if ( $this->hasSafeStylesheetBoundaries(array_column($payloads, 'content')) ) {
-                return array_map(static fn (array $asset): array => array('content' => $asset['content'], 'source_path' => $asset['source_path'], 'source_hash' => $asset['source_hash']), $payloads);
+                return array_map(static fn (array $asset): array => array('content' => $asset['content'], 'source_path' => $asset['source_path'], 'source_hash' => $asset['source_hash'], 'capture_only' => ! empty($asset['capture_only'])), $payloads);
             }
             $content = implode("\n\n", array_column($payloads, 'content'));
             return array(array('content' => $content, 'source_path' => 'combined-stylesheets', 'source_hash' => hash('sha256', $content)));
@@ -217,6 +186,7 @@ final class StylesheetAnalysisComposer
                 $rule['order'] = count($composed['rules']);
                 $rule['source_path'] = $payload['source_path'];
                 $rule['source_hash'] = $payload['source_hash'];
+                $rule['capture_only'] = ! empty($payload['capture_only']);
                 $composed['rules'][] = $rule;
             }
         }
@@ -237,6 +207,7 @@ final class StylesheetAnalysisComposer
             }
             $assets[] = array( 'path' => $asset['path'], 'source_path' => is_string($asset['source_path'] ?? null) ? $asset['source_path'] : $asset['path'], 'content' => $asset['content'], 'source_hash' => is_string($asset['source_hash'] ?? null) ? $asset['source_hash'] : hash('sha256', $asset['content']), 'media' => is_string($asset['media'] ?? null) ? $asset['media'] : '' );
             if (isset($asset['stylesheet_activation'])) $assets[array_key_last($assets)]['stylesheet_activation'] = $asset['stylesheet_activation'];
+            if ( ! empty($asset['capture_only']) ) $assets[array_key_last($assets)]['capture_only'] = true;
         }
         return $assets;
     }
@@ -258,6 +229,7 @@ final class StylesheetAnalysisComposer
                 'source_hash' => hash('sha256', $content),
                 'media' => StyleTagScanner::authorMedia($style['attributes']),
                 'type' => $type,
+                'capture_only' => StyleTagScanner::isCaptureOnly($style['attributes']),
             );
         }
 
@@ -402,7 +374,7 @@ final class StylesheetAnalysisComposer
                 }
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
                     $tagName = strtolower($typeSpan['name']);
-                    if ( in_array($tagName, array('div', 'figure', 'li', 'mark', 'nav', 'p'), true) ) {
+                    if ( in_array($tagName, array('div', 'figure', 'form', 'label', 'li', 'mark', 'nav', 'p'), true) || str_contains($tagName, '-') ) {
                         $sourceTags[$tagName] = true;
                     }
                 }

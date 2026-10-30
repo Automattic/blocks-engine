@@ -1,0 +1,20 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Contact</title>
+<style>
+body{margin:0;font-family:Arial,sans-serif;font-size:15px}
+form{width:350px;padding:3px 0 10px}
+.field label{display:block;line-height:18px}
+.input{display:block;width:100%;height:30px;border:1px solid #bbb;padding:0;margin:0;box-sizing:border-box}
+textarea.input{height:130px;padding:0}
+.error{display:block;line-height:14px;margin:0 0 2px 7px;font-size:12px;color:red}
+.consent{display:flex;gap:8px;margin:10px 8px 16px}
+.consent input{margin:0;width:13px;height:13px}
+.consent label{margin-top:-3px;line-height:18px}
+.btn{display:block;width:100%;height:50px;border:0}
+</style></head><body><main><h1>Contact</h1>
+<form>
+<div class="field"><label for="Name">Name *</label><input type="text" class="input" name="name" id="name"></div><span class="error">&nbsp;</span>
+<div class="field"><label for="Email">Email *</label><input type="email" class="input" name="email" id="email"></div><span class="error">&nbsp;</span>
+<div class="field"><label for="Message">Message *</label><textarea class="input" name="message" id="message"></textarea></div><span class="error">&nbsp;</span>
+<div class="consent"><input type="checkbox" name="consent" id="consent"><label for="consent">Yes, I want to receive news</label></div>
+<div><input type="submit" class="btn" value="Send"></div>
+</form></main></body></html>

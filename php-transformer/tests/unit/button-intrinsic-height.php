@@ -17,11 +17,11 @@ foreach (array('Decrease', 'Increase', 'Stretched', 'type="number"') as $content
     }
 }
 $neutral = preg_quote(SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS, '/');
-if (!preg_match('/:where\(\.' . $neutral . '\)>\.wp-block-button__link\{[^}]*height:auto!important/', $css)) {
+if (!preg_match('/:where\(\.' . $neutral . ':not\(\.' . $neutral . '-author-height\)\)>\.wp-block-button__link\{[^}]*height:auto!important/', $css)) {
     fwrite(STDERR, "FAIL: flattened controls must reset core's percentage height\n{$css}\n");
     exit(1);
 }
-if (!preg_match('/wp-block-button__link[^{}]*\{height:100%!important[;}]/', $css)) {
+if (!preg_match('/wp-block-button__link[^{}]*\{height:100%[;}]/', $css)) {
     fwrite(STDERR, "FAIL: authored stretch must override the intrinsic-height reset\n{$css}\n");
     exit(1);
 }

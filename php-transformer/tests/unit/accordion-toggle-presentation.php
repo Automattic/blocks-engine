@@ -122,11 +122,11 @@ $bare = $transform(
 );
 // A trigger with no box of its own still states its padding: core pads the
 // toggle through the destination theme's spacing preset, which the source
-// never had. Nothing else is carried for it.
+// never had. Its native button line box is normal, not theme heading type.
 preg_match('/"className":"(blocks-engine-accordion-toggle-[0-9a-f]{12})"/', (string) ( $bare['serialized_blocks'] ?? '' ), $bareMarker);
 $assert(
-    isset($bareMarker[1]) && 1 === preg_match('/\.' . preg_quote($bareMarker[1], '/') . '>\.wp-block-accordion-heading__toggle\{padding:0\}/', $supportCss($bare)),
-    'a trigger with no resolved box of its own carries only a zero toggle padding',
+    isset($bareMarker[1]) && 1 === preg_match('/\.' . preg_quote($bareMarker[1], '/') . '>\.wp-block-accordion-heading__toggle\{padding:0;line-height:normal\}/', $supportCss($bare)),
+    'a bare button carries zero toggle padding and its native normal line box',
     $supportCss($bare)
 );
 

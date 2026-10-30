@@ -16,7 +16,7 @@ use DOMElement;
  *
  * exactly two element children? -------- no --> null
  * |
- * +-- exactly one pure img/video side? -- no --> null
+ * +-- exactly one pure image side? ------ no --> null
  * |
  * +-- text side out of flow (overlay)? -- yes -> null
  * |
@@ -124,7 +124,10 @@ final class MediaTextPattern implements PatternRecognizerInterface
         if ( 'img' === $mediaType && (new SourceElementClassifier())->hasResponsiveImageSources($resolution['media']) ) {
             return null;
         }
-        if ( 'video' === $mediaType && $resolution['anchor'] instanceof DOMElement ) {
+        // core/media-text cannot retain native video playback attributes or
+        // the source pane layout. Keep videos editable through core/video
+        // inside the ordinary source group layout instead.
+        if ( 'video' === $mediaType ) {
             return null;
         }
 
@@ -244,6 +247,51 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // Media & Text replaces flex items with percentage grid tracks and
+        // adds its own content padding. A gap, bounded column, or unequal
+        // growing columns therefore cannot keep its authored geometry. Nor
+        // can its generated figure retain a decorated visual wrapper.
+        if ( 'flex' === $displayType ) {
+            $textGrow = $this->flexGrow($childStyles[$textIndex]);
+            $mediaGrow = $this->flexGrow($childStyles[$mediaIndex]);
+            $containerDeclarations = $this->styleDeclarations($containerStyle);
+            foreach ( 0.0 < $textGrow || 0.0 < $mediaGrow ? array( 'gap', 'column-gap' ) : array() as $property ) {
+                $value = $this->normalizedCssValue((string) ($containerDeclarations[$property] ?? ''));
+                if ( '' !== $value && ! in_array($value, array( '0', '0px', 'normal' ), true) ) {
+                    return null;
+                }
+            }
+            foreach ( $childStyles as $childStyle ) {
+                $declarations = $this->styleDeclarations($childStyle);
+                foreach ( array( 'min-width', 'max-width' ) as $property ) {
+                    $value = $this->normalizedCssValue((string) ($declarations[$property] ?? ''));
+                    if ( '' !== $value && ! in_array($value, array( 'none', 'auto', '0', '0px' ), true) ) {
+                        return null;
+                    }
+                }
+            }
+            if ( 0.0 < $textGrow && 0.0 < $mediaGrow && $textGrow !== $mediaGrow ) {
+                return null;
+            }
+        }
+
+        // The generated media figure discards the source wrapper chain. Keep
+        // authored boxes in ordinary group/image lowering for grids as well as
+        // flex rows, using the full style resolver (not the layout gate subset).
+        for ( $wrapper = $resolution['media']->parentNode; $wrapper instanceof DOMElement && $wrapper !== $element; $wrapper = $wrapper->parentNode ) {
+            try {
+                $wrapperDeclarations = $this->styleDeclarations($mergedPresentationStyle($wrapper) . ';' . $fullPresentationStyle($wrapper));
+            } catch ( \Throwable ) {
+                return null;
+            }
+            foreach ( array_keys($wrapperDeclarations) as $property ) {
+                if ( in_array($property, array( 'perspective', 'transform', 'filter', 'box-shadow', 'aspect-ratio', 'overflow', 'overflow-x', 'overflow-y' ), true)
+                    || preg_match('/^(?:background|border|padding)(?:-|$)/', $property) ) {
+                    return null;
+                }
+            }
+        }
+
         // A small, explicitly sized image beside short text is an icon lockup,
         // not a two-pane media/text section. Let normal group lowering retain
         // the authored row so both the image and text stay editable.
@@ -316,51 +364,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
         }
         unset($attrs['layout']);
 
-        $attrs['mediaType'] = 'img' === $mediaType ? 'image' : 'video';
+        $attrs['mediaType'] = 'image';
         $attrs['mediaUrl']  = $mediaUrl;
-
-        // core/media-text's save() renders a video pane as a fixed
-        // `<video controls src={mediaUrl} />` — no attribute exists for
-        // intrinsic dimensions, poster, or native playback state. Without
-        // width/height the video collapses to the browser's 300x150 default
-        // intrinsic size before it can load, shifting every section below
-        // it. These facts still have to reach the saved `<video>` markup
-        // without becoming part of the serialized comment (core's save()
-        // never reads them back), so they use the same internal-only carrier
-        // shape as `mediaFigureClassName`: BlockFactory consumes the
-        // `mediaVideo*` keys to build the pane's `<video>` tag and strips
-        // them from the comment attrs before serialization.
-        if ( 'video' === $mediaType ) {
-            $videoAttrs = array_filter(array(
-                'mediaVideoWidth'   => trim($this->attr($resolution['media'], 'width')),
-                'mediaVideoHeight'  => trim($this->attr($resolution['media'], 'height')),
-                'mediaVideoPreload' => trim($this->attr($resolution['media'], 'preload')),
-            ), static fn (string $value): bool => '' !== $value);
-            $attrs = array_merge($attrs, $videoAttrs);
-
-            $poster = trim($this->attr($resolution['media'], 'poster'));
-            if ( '' !== $poster ) {
-                try {
-                    $posterUrl = $this->safeMediaUrl(trim($resolveAssetUrl($poster)));
-                } catch ( \Throwable ) {
-                    $posterUrl = '';
-                }
-                if ( '' !== $posterUrl ) {
-                    $attrs['mediaVideoPoster'] = $posterUrl;
-                }
-            }
-
-            foreach ( array(
-                'autoplay'    => 'mediaVideoAutoplay',
-                'loop'        => 'mediaVideoLoop',
-                'muted'       => 'mediaVideoMuted',
-                'playsinline' => 'mediaVideoPlaysInline',
-            ) as $sourceAttribute => $attributeName ) {
-                if ( $resolution['media']->hasAttribute($sourceAttribute) ) {
-                    $attrs[ $attributeName ] = true;
-                }
-            }
-        }
 
         // core/media-text's save() puts `className` on the outer wrapper
         // `<div>` only — never on the generated `<figure

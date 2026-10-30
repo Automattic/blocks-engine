@@ -43,4 +43,44 @@ $assert(array() === $unmarked['entities'], 'An unmarked prefix is not guessed aw
 $several = $project('<span>Category:</span> <span>Programming</span>');
 $assert(array() === $several['entities'], 'A heading with several named elements does not pick one.');
 
+// Exercise archive proof and routing through the public compiler, including
+// descriptive headings, absent captures and inconsistent return-link labels.
+foreach (array(
+    array('tag', 'post_tag', 2, 'Topics', 'All about topics', 'Topics', true),
+    array('category', 'category', 2, 'Topics', 'All about topics', 'Topics', true),
+    array('category', 'category', 1, 'Topics', 'Topics', '', true),
+    array('tag', 'post_tag', 0, 'Topics', 'All about topics', 'Topics', false),
+    array('category', 'category', 0, 'Topics', 'All about topics', 'Topics', false),
+    array('author', null, 0, 'Topics', 'All about topics', 'Topics', false),
+    array('tag', 'post_tag', 2, 'Different', 'All about topics', 'Topics', false),
+    array('tag', 'post_tag', 2, 'Topics', 'All about topics', '', false),
+) as [$base, $taxonomy, $memberCount, $secondLabel, $heading, $schemaName, $proven]) {
+    $source = $base . '/topics/index.html';
+    $route = '/' . $base . '/topics';
+    $files = array('index.html' => '<h1>Home</h1>', $source => '<script type="application/ld+json">' . json_encode(array('@graph' => array(array('@type' => 'CollectionPage', 'name' => $schemaName)))) . '</script><main><h1>' . $heading . '</h1><article><h2><a href="/first/">First</a></h2><p>First summary.</p></article><article><h2><a href="/second/">Second</a></h2><p>Second summary.</p></article></main>');
+    $expectedMembers = array();
+    foreach (array_slice(array('first' => 'Topics', 'second' => $secondLabel), 0, $memberCount, true) as $slug => $label) {
+        $expectedMembers[] = $slug . '/index.html';
+        $files[$slug . '/index.html'] = '<script type="application/ld+json">{"@type":"BlogPosting"}</script><main><h1>' . ucfirst($slug) . '</h1><p>Story body.</p><a href="' . $route . '/" rel="tag">' . $label . '</a></main>';
+    }
+    $compiled = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray();
+    $plan = $compiled['source_reports']['wordpress_site_plan'];
+    $entities = array_merge($plan['taxonomy_entities'], $plan['author_entities']);
+    $templates = array_filter($plan['templates'], static fn(array $template): bool => $source === ($template['source_path'] ?? null));
+    $pages = array_column($plan['pages'], null, 'source_path');
+    $case = $base . ': ' . $memberCount . ' members, ' . $secondLabel . ', schema name ' . $schemaName;
+    if ($proven) {
+        $assert(1 === count($entities), 'Reciprocal collection proves one term: ' . $case);
+        $term = $entities[0];
+        $assert($taxonomy === $term['taxonomy'] && 'Topics' === $term['name'] && 'topics' === $term['slug'], 'Return label names the correct taxonomy term: ' . $case);
+        $assert($expectedMembers === $term['membership_source_paths'], 'Captured reciprocal members are retained: ' . $case);
+        $assert(array('post_type' => 'post', 'taxonomy' => $taxonomy, 'term' => 'topics') === $term['archive']['query'], 'Archive query targets the term: ' . $case);
+        $assert(!isset($pages[$source]) && 1 === count($templates) && $base . '-topics' === array_values($templates)[0]['slug'], 'Proven term owns its archive template instead of a page: ' . $case);
+    } else {
+        $assert(array() === $entities && array() === $templates, 'Unproven collection has neither entity nor archive template: ' . $case);
+        $assert('page' === ($pages[$source]['post_type'] ?? null) && $route === $pages[$source]['route']['path'], 'Unproven collection retains its routed page: ' . $case);
+        $assert(array() !== array_filter($plan['diagnostics'], static fn(array $diagnostic): bool => $source === ($diagnostic['source_path'] ?? null)), 'Unproven collection has a source-local diagnostic: ' . $case);
+    }
+}
+
 echo "taxonomy-archive-heading-names-term-element: passed\n";

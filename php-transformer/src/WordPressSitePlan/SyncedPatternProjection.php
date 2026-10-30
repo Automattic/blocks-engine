@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
-use Automattic\BlocksEngine\PhpTransformer\Support\EditorInnerBlocksLayer;
 use InvalidArgumentException;
 
 /**
@@ -175,30 +174,6 @@ final class SyncedPatternProjection
         }
         unset($declaration);
         return $declarations;
-    }
-
-    /**
-     * Editor rules that tolerate the editor-only inner-blocks layer
-     * (EditorInnerBlocksLayer, emitted by the translation layer's
-     * EditorShellBoundary) at each authored child combinator also tolerate
-     * the core/block wrapper,
-     * so panel-ancestor child combinators still reach the pattern content in
-     * the editor. These rules never match the front end.
-     *
-     * @param array<int,array<string,mixed>> $assets
-     * @return array<int,array<string,mixed>>
-     */
-    public static function editorStylesheets(array $assets): array
-    {
-        // The editor-only layer every restated `parent>child` step already tolerates, widened by the core/block wrapper.
-        $layer = EditorInnerBlocksLayer::compound() . '>';
-        $widened = EditorInnerBlocksLayer::compound('.' . self::EDITOR_CONTAINER_CLASS) . '>';
-        foreach ($assets as &$asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference']) || !str_contains($asset['content'], $layer)) continue;
-            $asset = WordPressSitePlan::withRewrittenTextContent($asset, str_replace($layer, $widened, $asset['content']));
-        }
-        unset($asset);
-        return $assets;
     }
 
     public static function token(string $identity): string

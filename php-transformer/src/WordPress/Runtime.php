@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use RuntimeException;
 
 final class Runtime
@@ -737,17 +738,7 @@ final class Runtime
      */
     private function serializeBlockAttributes(array $attrs): string
     {
-        return strtr(
-            $this->encodeJson($attrs),
-            array(
-                '\\\\' => '\\u005c',
-                '--'   => '\\u002d\\u002d',
-                '<'    => '\\u003c',
-                '>'    => '\\u003e',
-                '&'    => '\\u0026',
-                '\\"'  => '\\u0022',
-            )
-        );
+        return BlockAttributes::escapeJson($this->encodeJson($attrs));
     }
 
     /**

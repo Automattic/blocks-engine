@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -176,6 +177,9 @@ final class FormControlClassifier
      */
     public static function isNonAuthoredControl(DOMElement $control): bool
     {
+        if ( false === ( NativeControlState::payload($control)['rendered'] ?? null ) ) {
+            return true;
+        }
         if ( 'hidden' === self::controlType($control) ) {
             return true;
         }
@@ -208,8 +212,9 @@ final class FormControlClassifier
     }
 
     /**
-     * An untabbable free-text field is a trap when aria-hidden on itself, or
-     * invisible and non-interactive on itself or its immediate field container.
+     * An untabbable free-text field is a trap when aria-hidden on itself or on
+     * an ancestor inside its form, or invisible and non-interactive on itself
+     * or its immediate field container.
      * Choice and select value carriers share those attributes beside their
      * visible widget, so only free-text entry qualifies.
      */
@@ -225,7 +230,8 @@ final class FormControlClassifier
             || ! in_array(self::controlType($control), array( 'text', 'email', 'url', 'tel', 'search', 'number' ), true) ) ) {
             return false;
         }
-        if ( 'true' === strtolower(trim($control->getAttribute('aria-hidden'))) ) {
+        if ( 'true' === strtolower(trim($control->getAttribute('aria-hidden')))
+            || null !== self::ariaHiddenFormAncestor($control) ) {
             return true;
         }
         foreach ( array( $control, $control->parentNode ) as $element ) {
@@ -248,6 +254,26 @@ final class FormControlClassifier
     }
 
     /**
+     * The outermost `aria-hidden="true"` ancestor between a control and its
+     * native form, or null when the control sits outside a form or no
+     * ancestor below the form is hidden from assistive technology.
+     */
+    private static function ariaHiddenFormAncestor(DOMElement $control): ?DOMElement
+    {
+        $hidden = null;
+        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'form' === strtolower($parent->tagName) ) {
+                return $hidden;
+            }
+            if ( 'true' === strtolower(trim($parent->getAttribute('aria-hidden'))) ) {
+                $hidden = $parent;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * A decoy field bots fill and no reader sees: `aria-hidden="true"`, out of
      * the tab order, and hidden or moved off-screen by inline style — all
      * three together on the control itself, or all three together on the label
@@ -264,9 +290,11 @@ final class FormControlClassifier
 
     /**
      * A trap owns its associated/wrapping label and its immediate field
-     * container's copy. Never claim a form/group or a container shared with
-     * a real control, and count raw controls here (authored enumeration has
-     * already dropped the traps).
+     * container's copy. A trap hidden by an aria-hidden ancestor inside its
+     * form also owns every container up to and including that ancestor.
+     * Never claim a form/group or a container shared with a real control,
+     * and count raw controls here (authored enumeration has already dropped
+     * the traps).
      *
      * @return array<int, DOMElement>
      */
@@ -281,20 +309,34 @@ final class FormControlClassifier
             if ( null !== $label ) {
                 $elements[] = $label;
             }
-            $container = $control->parentNode;
-            if ( ! $container instanceof DOMElement
-                || in_array(strtolower($container->tagName), array( 'form', 'fieldset', 'body', 'html' ), true) ) {
-                continue;
-            }
-            foreach ( $container->getElementsByTagName('*') as $sibling ) {
-                if ( $sibling instanceof DOMElement && self::isControlElement($sibling) && ! self::isHoneypotControl($sibling) ) {
-                    continue 2;
+            $hiddenAncestor = self::isUnreachableTextTrap($control) ? self::ariaHiddenFormAncestor($control) : null;
+            for ( $container = $control->parentNode; $container instanceof DOMElement; $container = $container->parentNode ) {
+                if ( in_array(strtolower($container->tagName), array( 'form', 'fieldset', 'body', 'html' ), true)
+                    || self::holdsAuthoredControl($container) ) {
+                    break;
+                }
+                if ( ! in_array($container, $elements, true) ) {
+                    $elements[] = $container;
+                }
+                if ( null === $hiddenAncestor || $container === $hiddenAncestor ) {
+                    break;
                 }
             }
-            $elements[] = $container;
         }
 
         return $elements;
+    }
+
+    /** Whether a container holds a raw control that is not a honeypot. */
+    private static function holdsAuthoredControl(DOMElement $container): bool
+    {
+        foreach ( $container->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && self::isControlElement($element) && ! self::isHoneypotControl($element) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** The control's wrapping label when that label, not the control, carries the honeypot signals. */
@@ -430,6 +472,13 @@ final class FormControlClassifier
             return false;
         }
 
+        // Inside a form every control belongs to the readable tree, so a
+        // provider can account for it by index; page lowering stays gated by
+        // hasProseSummary().
+        if ( self::hasFormAncestor($control) ) {
+            return true;
+        }
+
         $tagName = strtolower($control->tagName);
         if ( in_array($tagName, array( 'select', 'textarea' ), true) ) {
             return true;
@@ -532,6 +581,10 @@ final class FormControlClassifier
         }
 
         foreach ( self::UNSAFE_INLINE_BUTTON_ATTRIBUTES as $attribute ) {
+            if ( 'true' === $button->getAttribute(CaptureEvidence::INERT_CONTROL)
+                && in_array($attribute, array( 'aria-controls', 'aria-expanded', 'data-action', 'jsaction', 'onclick', 'onchange', 'onsubmit' ), true) ) {
+                continue;
+            }
             if ( $button->hasAttribute($attribute) ) {
                 return false;
             }
@@ -584,7 +637,8 @@ final class FormControlClassifier
     private const UNSAFE_INLINE_BUTTON_DESCENDANTS = array(
         'a',
         'button',
-        'svg',
+        // Inline SVG is materialized as a RichText image by the caller;
+        // unsupported SVG still fails that materialization's fallback gate.
         'canvas',
         'img',
         'picture',

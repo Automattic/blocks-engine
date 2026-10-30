@@ -91,6 +91,18 @@ if (! $candidateBody instanceof DOMElement) {
     throw new RuntimeException('Attribute candidate fixture did not produce a body element.');
 }
 $candidateAnalysis = new AuthorStyleAnalysis('', '', array(), $candidateBody);
+set_error_handler(static function (int $severity, string $message): bool {
+    if ( E_DEPRECATED === $severity ) {
+        throw new ErrorException($message, 0, $severity);
+    }
+    return false;
+});
+try {
+    $emptyCompoundCandidates = $candidateAnalysis->selectorCandidates(array('compounds' => array()));
+} finally {
+    restore_error_handler();
+}
+$assert(is_array($emptyCompoundCandidates), 'selectors without compounds return candidates without deprecation');
 $attributeCandidates = $candidateAnalysis->selectorCandidates(CssSelectorMatcher::parse('[data-color="1"]'));
 $typedAttributeCandidates = $candidateAnalysis->selectorCandidates(CssSelectorMatcher::parse('p[data-color="1"]'));
 $assert(
@@ -115,43 +127,43 @@ $assert(isset($navigationShellMarker[0]) && ! str_contains((string) ($navigation
 $responsiveDirectNavigation = $transform('<style>@layer utilities{.hidden{display:none}@media (min-width:1024px){.lg\\:flex{display:flex}}}</style><nav class="hidden lg:flex"><a href="#one">One</a></nav>');
 $responsiveDirectNavigationCss = $css($responsiveDirectNavigation);
 $assert(
-    str_contains($responsiveDirectNavigationCss, ':root .wp-block-navigation.hidden{display:none!important}')
-        && str_contains($responsiveDirectNavigationCss, '@media (min-width:1024px){:root .wp-block-navigation.lg\\:flex{display:flex!important}}'),
+    str_contains($responsiveDirectNavigationCss, ':root .wp-block-navigation.hidden{display:none}')
+        && str_contains($responsiveDirectNavigationCss, '@media (min-width:1024px){.lg\\:flex{display:flex}:root .wp-block-navigation.lg\\:flex{display:flex}}'),
     'direct navigation retains source-owned hidden and responsive display states against core navigation layout CSS'
 );
 
 $controls = $transform('<style>a.cta:hover{padding:1rem}button.cta:focus{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button>');
 $controlCss = $css($controls);
-$assert(3 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus:not([style*="padding"]){padding:2rem!important}'), 'promoted anchors and native buttons project dynamic selectors while native source ownership remains authoritative');
+$assert(3 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus:not([style*="padding"]){padding:2rem}'), 'promoted anchors and native buttons project dynamic selectors while native source ownership remains authoritative');
 
 $layeredNativeButton = $transform('<style>@layer utilities{@media (max-width:600px){button.cta{background:#135e96;padding:8px 16px;font-size:12px;font-weight:700}}}</style><button class="cta">Buy</button>');
 $layeredNativeButtonCss = $css($layeredNativeButton);
 $assert(
     str_contains($layeredNativeButtonCss, '@layer utilities{@media (max-width:600px){')
-        && str_contains($layeredNativeButtonCss, ':not([style*="background"]){background:#135e96!important')
+        && str_contains($layeredNativeButtonCss, ':not([style*="background"]){background:#135e96')
         && preg_match('/blocks-engine-control-[a-f0-9]+-\d+\.blocks-engine-control-[a-f0-9]+-\d+/', $layeredNativeButtonCss)
-        && str_contains($layeredNativeButtonCss, 'background:#135e96!important')
-        && str_contains($layeredNativeButtonCss, 'padding:8px 16px!important')
-        && str_contains($layeredNativeButtonCss, 'font-size:12px!important')
-        && str_contains($layeredNativeButtonCss, 'font-weight:700!important'),
+        && str_contains($layeredNativeButtonCss, 'background:#135e96')
+        && str_contains($layeredNativeButtonCss, 'padding:8px 16px')
+        && str_contains($layeredNativeButtonCss, 'font-size:12px')
+        && str_contains($layeredNativeButtonCss, 'font-weight:700'),
     'layered native button presentation projects onto the core button link with source ownership priority'
 );
 
 $nestedNativeCta = $transform('<style>@layer utilities{.bg-primary{background-color:var(--primary);color:var(--primary-foreground);padding:0 12px;font-size:14px;font-weight:600}}</style><a href="#valuation"><button class="bg-primary">Publicar mi propiedad</button></a>');
 $nestedNativeCtaCss = $css($nestedNativeCta);
 $assert(
-    preg_match('/blocks-engine-control-[a-f0-9]+-\d+\.blocks-engine-control-[a-f0-9]+-\d+.*background-color:var\(--primary\)!important/', $nestedNativeCtaCss)
-        && str_contains($nestedNativeCtaCss, 'padding:0 12px!important')
-        && str_contains($nestedNativeCtaCss, 'font-weight:600!important'),
+    str_contains($nestedNativeCtaCss, 'background-color:var(--primary)')
+        && str_contains($nestedNativeCtaCss, 'padding:0 12px')
+        && str_contains($nestedNativeCtaCss, 'font-weight:600'),
     'nested anchor native CTA retains layered paint through its exact lowered button target'
 );
 
 $mixedNativeButtonTargets = $transform('<style>button.cta,button.icon{background:#135e96;padding:8px 16px;font-size:12px}</style><button class="cta">Buy</button><button class="icon"><svg><path d="M0 0h1v1z"/></svg></button>');
 $mixedNativeButtonTargetsCss = $css($mixedNativeButtonTargets);
-preg_match('/(?:^|})([^{}]+)\{background:#135e96!important}/', $mixedNativeButtonTargetsCss, $mixedNativeButtonPriorityRule);
+preg_match('/(?:^|})([^{}]+)\{background:#135e96}/', $mixedNativeButtonTargetsCss, $mixedNativeButtonPriorityRule);
 $assert(
-    2 === substr_count($mixedNativeButtonTargetsCss, 'background:#135e96!important')
-        && 2 === substr_count($mixedNativeButtonTargetsCss, 'padding:8px 16px!important')
+    2 <= substr_count($mixedNativeButtonTargetsCss, 'background:#135e96')
+        && 2 <= substr_count($mixedNativeButtonTargetsCss, 'padding:8px 16px')
         && isset($mixedNativeButtonPriorityRule[1])
         && ! str_contains($mixedNativeButtonPriorityRule[1], ','),
     'mixed ordinary and icon native button matches scope source ownership to the ordinary control'
@@ -202,7 +214,7 @@ $assert(! str_contains($sharedCss, ':not(.wp-block-button)') && str_contains($sh
 
 $relations = $transform('<style>p{margin:0}p + a.cta{color:red}p ~ button.cta{color:blue}main > p + a.cta{padding:1rem}</style><main><p>Before</p><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button></main>');
 $relationCss = $css($relations);
-$assert(str_contains($relationCss, ':where(.blocks-engine-source-p-') && 4 === substr_count($relationCss, '> :where(.wp-block-button__link)') && str_contains($relationCss, 'color:blue!important') && ! str_contains($relationCss, 'p + a.cta'), 'child and sibling source matches project through exact controls while independent p selectors retain provenance');
+$assert(str_contains($relationCss, ':where(.blocks-engine-source-p-') && 4 === substr_count($relationCss, '> :where(.wp-block-button__link)') && str_contains($relationCss, 'color:blue') && ! str_contains($relationCss, 'p + a.cta'), 'child and sibling source matches project through exact controls while independent p selectors retain provenance');
 
 $base = '<style>.blocks-engine-source-p-deadbeef-0{display:block}p{color:red}</style><p>Collision</p>';
 $baseCss = $css($transform($base));
@@ -420,7 +432,7 @@ $assert(
     'core/paragraph' === ($textLockupLogoBlock['blockName'] ?? '')
     && ! str_contains($textLockupLogoMarkup, '<!-- wp:buttons')
     && ! str_contains($textLockupLogoMarkup, '<!-- wp:button')
-    && str_contains($textLockupLogoMarkup, '<a href="#hero">')
+    && str_contains($textLockupLogoMarkup, '<a class="brand" href="#hero">')
     && str_contains($textLockupLogoMarkup, 'SC')
     && str_contains($textLockupLogoMarkup, 'SUPER')
     && str_contains($textLockupLogoMarkup, 'COACHING')
@@ -431,8 +443,11 @@ $assert(
     && str_contains($textLockupLogoMarkup, 'background:#f15a36')
     && str_contains($textLockupLogoMarkup, 'color:#fff')
     && str_contains($textLockupLogoMarkup, 'color:#f8d849')
-    && '19.2px' === ($textLockupLogoBlock['attrs']['style']['typography']['fontSize'] ?? '')
-    && '400' === ($textLockupLogoBlock['attrs']['style']['typography']['fontWeight'] ?? '')
+    // The link keeps `.brand`, so its own rule sets its type; the host
+    // paragraph does not restate it a second time.
+    && ! isset($textLockupLogoBlock['attrs']['style']['typography']['fontSize'])
+    && ! isset($textLockupLogoBlock['attrs']['style']['typography']['fontWeight'])
+    && ! str_contains((string) ($textLockupLogoBlock['attrs']['className'] ?? ''), 'brand')
     && 'pass' === ($textLockupLogo['source_reports']['wp_block_validity']['status'] ?? ''),
     'classed-span text lockups use paragraphs and preserve the partial RichText-safe styling bound',
     $textLockupLogoMarkup
@@ -451,6 +466,37 @@ $assert(
     'logo anchors with direct decorative marks retain the neutral structured button path',
     $decorativeMarkLogoMarkup
 );
+
+// Structured media/text links retain their descendants, even when discovery
+// predicted independent semantic blocks or inline-layout carriers for them.
+$structuredBrand = $transform(
+    '<style>#scope .brand{display:inline-flex;gap:12px}'
+    . '#scope .logo{width:clamp(88px,23vw,104px);height:104px}'
+    . '#scope .title{display:block;font-size:clamp(24px,3vw,38px)}'
+    . '@media (width>=1024px){#scope .logo{width:72px;height:72px}#scope .title{font-size:38px}}</style>'
+    . '<header id="scope"><a class="brand" href="/"><span class="logo"><img src="mark.png" width="602" height="602"></span>'
+    . '<span class="identity"><span class="wordmark"><span class="title">Studio</span><span class="baseline">Notes</span></span></span></a></header>'
+);
+$structuredBrandDom = new DOMDocument();
+$structuredBrandDom->loadHTML('<!doctype html><body>' . $structuredBrand['serialized_blocks'] . '</body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$structuredBrandRules = array();
+$structuredBrandCss = implode("\n", array_column(array_filter($structuredBrand['assets'] ?? array(), static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '')), 'content'));
+(new CssStylesheetTransformer())->visitStyleRules($structuredBrandCss, static function (string $selector, string $body, array $conditions) use (&$structuredBrandRules, $structuredBrandDom, $assert): void {
+    $target = str_contains($body, 'display:inline-flex') ? 'a' : (str_contains($body, 'font-size:') ? '.title' : '.logo');
+    $matches = false;
+    foreach ( CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm ) {
+        foreach ( $structuredBrandDom->getElementsByTagName('*') as $element ) {
+            if ( (CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($target))['matches'] ?? false)
+                && (CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($arm))['matches'] ?? false) ) {
+                $matches = true;
+            }
+        }
+    }
+    $structuredBrandRules[] = array('body' => $body, 'conditions' => $conditions);
+    $assert($matches, 'structured link author rule reaches its emitted source element: ' . $selector);
+});
+$assert(5 === count($structuredBrandRules) && 2 === count(array_filter($structuredBrandRules, static fn (array $rule): bool => array('@media (width>=1024px)') === $rule['conditions'])), 'structured link retains all base rules and both media overrides');
+$assert(str_contains($structuredBrand['serialized_blocks'], '<img src="mark.png" width="602" height="602">'), 'structured link retains intrinsic image dimensions while author sizing remains addressable');
 
 $nestedDecorativeMarkLogo = $transform('<a class="brand" href="#top"><span class="word">Architecture<span class="spark" aria-hidden="true">*</span></span></a>');
 $assert(
@@ -588,7 +634,7 @@ $assert(! str_contains($inlineMarkup, 'wp-block-blocks-engine-author-layout') &&
 $listInlineLeaves = $transform('<style>.maintenance-loop li{display:grid;grid-template-columns:42px 1fr}.maintenance-loop li > span{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#c9f27b}</style><ol class="maintenance-loop"><li><span>1</span><div><strong>Observe</strong><p>Copy</p></div></li><li><span>2</span><div><strong>Replay</strong></div><ul><li><span>N</span><div>Nested</div></li></ul></li></ol>');
 $listInlineMarkup = (string) ($listInlineLeaves['serialized_blocks'] ?? '');
 $listInlineCss = $css($listInlineLeaves);
-$assert(! str_contains($listInlineMarkup, '<!-- wp:html') && 2 === substr_count($listInlineMarkup, 'tagName":"ol"') + substr_count($listInlineMarkup, 'tagName":"ul"') && 3 === substr_count($listInlineMarkup, 'tagName":"li"') && str_contains($listInlineCss, ':where(.blocks-engine-semantic-') && str_contains($listInlineMarkup, 'blocks-engine-source-li-') && str_contains($listInlineCss, 'display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#c9f27b') && str_contains($listInlineMarkup, '<p>1</p>') && str_contains($listInlineMarkup, '<p>2</p>') && str_contains($listInlineMarkup, '<p>N</p>') && str_contains($listInlineMarkup, '<p class="blocks-engine-lowered-paragraph">Nested</p>') && 'pass' === ($listInlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'structural lists retain semantic list topology, editable native children, and projected source selectors');
+$assert(! str_contains($listInlineMarkup, '<!-- wp:html') && 2 === substr_count($listInlineMarkup, 'tagName":"ol"') + substr_count($listInlineMarkup, 'tagName":"ul"') && 3 === substr_count($listInlineMarkup, 'tagName":"li"') && str_contains($listInlineCss, ':where(.blocks-engine-semantic-') && str_contains($listInlineMarkup, 'blocks-engine-source-li-') && str_contains($listInlineCss, 'display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#c9f27b') && str_contains($listInlineMarkup, '<p class="blocks-engine-synthetic-paragraph">1</p>') && str_contains($listInlineMarkup, '<p class="blocks-engine-synthetic-paragraph">2</p>') && str_contains($listInlineMarkup, '<p class="blocks-engine-synthetic-paragraph">N</p>') && str_contains($listInlineMarkup, '<p class="blocks-engine-lowered-paragraph">Nested</p>') && 'pass' === ($listInlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'structural lists retain semantic list topology, editable native children, and projected source selectors');
 
 $coexistingInlineFlows = $transform('<style>.card-grid{display:grid}.fallback-card > strong{display:block;margin:12px 0 4.8px}.maintenance-loop li{display:grid;grid-template-columns:42px 1fr}.maintenance-loop li > span{display:grid;place-items:center;width:30px;height:30px}</style><div class="card-grid"><div class="fallback-card"><strong>index.html</strong></div></div><ol class="maintenance-loop"><li><span>1</span><div>Observe</div></li></ol>');
 $coexistingInlineFlowsMarkup = (string) ($coexistingInlineFlows['serialized_blocks'] ?? '');

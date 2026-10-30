@@ -19,6 +19,11 @@ final class FormDispatcher
      */
     public function convert(DOMElement $element, array &$fallbacks): ?array
     {
+        $loginBlock = $this->context->loginBlockFromForm($element);
+        if ( null !== $loginBlock ) {
+            return $loginBlock;
+        }
+
         $searchBlock = $this->context->searchBlockFromForm($element);
         if ( null !== $searchBlock ) {
             return $searchBlock;
@@ -34,6 +39,14 @@ final class FormDispatcher
         // control into a dead core/button when native form lowering declines it.
         if ( $this->hasAnchorWrappedButton($element) ) {
             return $this->context->htmlPreservationBlock($element);
+        }
+
+        // Choice-only state needs runtime behavior, not provider substitution.
+        // Reuse the button-only preference path: readable blocks and one island.
+        if ( 'preference' === FormRuntimeRequirementAnalyzer::formIntent($element) ) {
+            $readableFormBlock = $this->context->buildReadableFormBlock($element, true, $fallbacks);
+            $this->context->recordForm($element, $readableFormBlock);
+            return $readableFormBlock;
         }
 
         $hasChoiceGroups = FormControlClassifier::hasCapturedChoiceGroups($element);
@@ -100,7 +113,7 @@ final class FormDispatcher
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function capturePseudoFormFallback(DOMElement $element, array &$fallbacks): void
     {
-        if ( $this->context->isPseudoForm($element) ) {
+        if ( $this->context->isProviderPseudoForm($element) ) {
             $fallbacks[] = $this->context->buildFallbackFinding($element, $this->context->buildReadableFormBlock($element, true));
         }
     }

@@ -64,14 +64,13 @@ final class TemplatePartStickyContainment
     }
 
     /**
-     * The selector as a single compound selector (comments and an optional
-     * leading `:root` scope dropped), or null when it relates elements through a combinator or
+     * The selector as a single compound selector (an optional leading `:root`
+     * scope dropped; the rule walker already removed comments), or null when it relates elements through a combinator or
      * names a pseudo-element: only a compound can stand as the wrapper's direct
      * child.
      */
     private static function compoundSubject(string $selector): ?string
     {
-        $selector = trim((string) preg_replace('/\/\*.*?\*\//s', '', $selector));
         $selector = trim((string) preg_replace('/^:root(?=[\s>])\s*>?\s*/i', '', $selector));
         if ('' === $selector || str_contains($selector, '::') || 1 === preg_match('/^(html|body|:root)\b/i', $selector)) {
             return null;

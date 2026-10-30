@@ -81,7 +81,7 @@ if (array() === $subtitleRules[1]) {
     throw new RuntimeException('Site compile lost the source subtitle rule.');
 }
 foreach ($subtitleRules[1] as $selector) {
-    if (preg_match('/__content[^,]*\bspan(?!:not\(:where\(\.wp-block-navigation-item__label\)\))/', $selector)) {
+    if (preg_match('/__content[^,]*\bspan(?!:not\(:where\(\.wp-block-navigation-item__label[,)])/', $selector)) {
         throw new RuntimeException('Site compile lets an author span rule match the Core label: ' . trim($selector));
     }
 }

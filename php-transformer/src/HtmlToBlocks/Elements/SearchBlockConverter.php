@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -63,7 +64,7 @@ final class SearchBlockConverter
         }
 
         $label = $this->formControlMetadataBuilder->label($textInput);
-        $showLabel = '' !== $label;
+        $showLabel = $this->hasVisibleLabel($textInput);
         if ( '' === $label ) {
             $label = trim(SourceDom::attr($form, 'aria-label'));
         }
@@ -98,7 +99,89 @@ final class SearchBlockConverter
             $attrs['buttonPosition'] = 'no-button';
         }
 
+        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $this->registerSearchControlPresentation($textInput, $submitControl));
+
         return $this->context->createBlock('core/search', $attrs, array(), $form);
+    }
+
+    /** Accessible names and rendered label boxes are independent source facts. */
+    private function hasVisibleLabel(DOMElement $control): bool
+    {
+        $label = $this->formControlMetadataBuilder->labelElement($control);
+        if ( ! $label instanceof DOMElement || '' === trim($this->formControlMetadataBuilder->labelText($label)) ) {
+            return false;
+        }
+
+        for ( $node = $label; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $node->hasAttribute('hidden')
+                || 1 === preg_match('/(?:^|\s)(?:sr-only|screen-reader-text|screen-reader-only|visually-hidden)(?:\s|$)/i', SourceDom::attr($node, 'class')) ) {
+                return false;
+            }
+            $declarations = $this->context->presentationDeclarations($node);
+            $display = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $declarations['display'] ?? '') ?? ''));
+            $visibility = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $declarations['visibility'] ?? '') ?? ''));
+            if ( 'none' === $display || in_array($visibility, array( 'hidden', 'collapse' ), true)
+                || CssValueInspector::isVisuallyClippedBox($declarations) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** Bridge replaced source controls through the existing owned search stylesheet. */
+    private function registerSearchControlPresentation(DOMElement $input, ?DOMElement $button): string
+    {
+        $inputCss = $this->sourceControlPadding($input, '1px 2px');
+        $buttonCss = '';
+        if ( $button instanceof DOMElement ) {
+            $buttonCss = $this->sourceControlPadding($button, '1px 6px');
+            if ( $this->isIconOnlySearchControl($button) ) {
+                // Core replaces the source glyph with an SVG using currentColor.
+                // Resolve on the glyph first, then its ancestors (including the
+                // button), so a removed icon-font selector still paints it.
+                $icon = $button;
+                foreach ( $button->getElementsByTagName('*') as $descendant ) {
+                    if ( in_array(strtolower($descendant->tagName), array( 'svg', 'i', 'span' ), true) ) {
+                        $icon = $descendant;
+                        break;
+                    }
+                }
+                for ( $carrier = $icon; $carrier instanceof DOMElement; $carrier = $carrier->parentNode ) {
+                    $declarations = $this->context->presentationDeclarations($carrier);
+                    $color = trim((string) ($declarations['color'] ?? ''));
+                    if ( '' !== $color && ! in_array(strtolower($color), array( 'inherit', 'unset', 'currentcolor' ), true) ) {
+                        $buttonCss .= 'color:' . preg_replace('/\s*!important\s*$/i', '', $color) . '!important;';
+                        break;
+                    }
+                }
+            }
+        }
+        $className = 'blocks-engine-source-search-control-' . substr(hash('sha256', $inputCss . '|' . $buttonCss), 0, 12);
+        $selector = '.wp-block-search.' . $className;
+        $this->context->generatedSupportStyles()->registerNativeSearchTrigger($className,
+            $selector . ' .wp-block-search__input{' . $inputCss . '}'
+            . ('' !== $buttonCss ? $selector . ' .wp-block-search__button{' . $buttonCss . '}' : '')
+        );
+        return $className;
+    }
+
+    private function sourceControlPadding(DOMElement $control, string $uaPadding): string
+    {
+        $declarations = $this->context->presentationDeclarations($control);
+        // A UA baseline is necessary even when only one author longhand is
+        // present: core/theme defaults must not fill the remaining sides.
+        $padding = array( 'padding' => $uaPadding );
+        foreach ( $declarations as $property => $value ) {
+            if ( 'padding' === $property || str_starts_with($property, 'padding-') ) {
+                $padding[$property] = preg_replace('/\s*!important\s*$/i', '', trim($value));
+            }
+        }
+        $css = '';
+        foreach ( $padding as $property => $value ) {
+            $css .= $property . ':' . $value . '!important;';
+        }
+        return $css;
     }
 
     private function hasAdjacentSearchTrigger(DOMElement $form): bool
@@ -340,13 +423,7 @@ final class SearchBlockConverter
 
     private function isIconOnlySearchControl(DOMElement $control): bool
     {
-        $haystack = strtolower(implode(' ', array(
-            SourceDom::attr($control, 'class'),
-            SourceDom::attr($control, 'id'),
-            SourceDom::attr($control, 'aria-label'),
-            SourceDom::attr($control, 'title'),
-        )));
-        if ( ! str_contains($haystack, 'search') || str_contains($haystack, 'close') ) {
+        if ( ! $this->context->hasSearchIconSignal($control) ) {
             return false;
         }
 

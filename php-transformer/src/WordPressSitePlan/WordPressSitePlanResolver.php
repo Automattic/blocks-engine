@@ -82,12 +82,13 @@ final class WordPressSitePlanResolver
             foreach ($blocks as &$block) {
                 $attrs = &$block['attrs'];
                 $name = $block['blockName'];
-                $field = 'core/media-text' === $name ? 'mediaUrl' : 'url';
+                $field = 'core/media-text' === $name ? 'mediaUrl' : ('core/video' === $name ? 'src' : 'url');
                 $url = $attrs[$field] ?? '';
                 if ('core/image' === $name && preg_match('/<img\b[^>]*\bsrc=["\']([^"\']*)["\']/i', $block['innerHTML'], $match)) $url = html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5);
+                if ('core/video' === $name && preg_match('/<video\b[^>]*\bsrc=["\']([^"\']*)["\']/i', $block['innerHTML'], $match)) $url = html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5);
                 foreach ($attachments as $token => $attachment) {
                     $canonical = WordPressSitePlan::TOKEN_PREFIX . $token . '}}';
-                    if ($url === $canonical && in_array($name, array('core/image', 'core/cover', 'core/media-text'), true)) {
+                    if ($url === $canonical && in_array($name, array('core/image', 'core/cover', 'core/media-text', 'core/video'), true)) {
                         $attrs['core/media-text' === $name ? 'mediaId' : 'id'] = $attachment['id'];
                         $attrs[$field] = $canonical;
                         if ('core/image' === $name) {
@@ -259,8 +260,22 @@ final class WordPressSitePlanResolver
         if (str_starts_with($origin, 'templates/') || str_starts_with($origin, 'parts/')) return array();
         if (!str_ends_with(strtolower($origin), '.css')) return self::references($tokens, $themeUri, $attachments);
         $references = array();
-        foreach ($tokens as $reference) if (is_array($reference) && is_string($reference['token'] ?? null) && is_string($reference['target_path'] ?? null)) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = $attachments[$reference['token']]['url'] ?? self::relativePath($origin, $reference['target_path']);
+        foreach ($tokens as $reference) if (is_array($reference) && is_string($reference['token'] ?? null) && is_string($reference['target_path'] ?? null)) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = isset($attachments[$reference['token']]['url']) ? self::stylesheetAttachmentUrl($attachments[$reference['token']]['url'], $themeUri, $origin) : self::relativePath($origin, $reference['target_path']);
         return $references;
+    }
+    /**
+     * Theme files are not rewritten when a site moves, so an attachment on the
+     * theme's own host is referenced relative to the stylesheet. Uploads and
+     * themes move together; another host (a CDN) keeps its absolute URL.
+     */
+    private static function stylesheetAttachmentUrl(string $url, string $themeUri, string $origin): string
+    {
+        $theme = parse_url($themeUri); $attachment = parse_url($url);
+        if (!is_array($theme) || !is_array($attachment) || !isset($theme['host'], $attachment['host'], $attachment['path'])) return $url;
+        foreach (array('scheme', 'host', 'port') as $part) if (($theme[$part] ?? null) !== ($attachment[$part] ?? null)) return $url;
+        $from = trim(($theme['path'] ?? '') . '/' . $origin, '/');
+        $relative = self::relativePath($from, ltrim($attachment['path'], '/'));
+        return $relative . (isset($attachment['query']) ? '?' . $attachment['query'] : '');
     }
     private static function relativePath(string $origin, string $target): string
     {

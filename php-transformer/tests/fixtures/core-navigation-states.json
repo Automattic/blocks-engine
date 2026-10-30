@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine-capture/interaction-states/v2",
+  "sourceUrl": "http://127.0.0.1:41853/",
+  "viewport": {
+    "width": 390,
+    "height": 900
+  },
+  "capturedAt": "2026-10-27T03:27:25.771Z",
+  "states": [
+    {
+      "status": "captured",
+      "trigger": {
+        "selector": "body > header > nav > button",
+        "tag": "button",
+        "ariaHaspopup": "dialog",
+        "label": "Open menu",
+        "dataBindings": {}
+      },
+      "dialog": {
+        "selector": "#modal-1",
+        "tag": "div",
+        "id": "modal-1",
+        "ariaModal": false,
+        "restingInline": true,
+        "presentation": "modal",
+        "html": "<div class=\"wp-block-navigation__responsive-container has-modal-open is-menu-open\" id=\"modal-1\" data-wp-class--has-modal-open=\"state.isMenuOpen\" data-wp-class--is-menu-open=\"state.isMenuOpen\" data-wp-watch=\"callbacks.initMenu\" data-wp-on--keydown=\"actions.handleMenuKeydown\" data-wp-on-async--focusout=\"actions.handleMenuFocusout\" tabindex=\"-1\" style=\"display: flex !important; visibility: visible !important;\">\n\t\t\t\t\t<div class=\"wp-block-navigation__responsive-close\" tabindex=\"-1\">\n\t\t\t\t\t\t<div class=\"wp-block-navigation__responsive-dialog\" data-wp-bind--aria-modal=\"state.ariaModal\" data-wp-bind--aria-label=\"state.ariaLabel\" data-wp-bind--role=\"state.roleAttribute\" aria-modal=\"true\" aria-label=\"Menu\" role=\"dialog\">\n\t\t\t\t\t\t\t<button aria-label=\"Close menu\" class=\"wp-block-navigation__responsive-container-close\" data-wp-on-async--click=\"actions.closeMenuOnClick\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\" focusable=\"false\"><path d=\"m13.06 12 6.47-6.47-1.06-1.06L12 10.94 5.53 4.47 4.47 5.53 10.94 12l-6.47 6.47 1.06 1.06L12 13.06l6.47 6.47 1.06-1.06L13.06 12Z\"></path></svg></button>\n\t\t\t\t\t\t\t<div class=\"wp-block-navigation__responsive-container-content\" data-wp-watch=\"callbacks.focusFirstElement\" id=\"modal-1-content\">\n\t\t\t\t\t\t\t\t<ul class=\"wp-block-navigation__container is-responsive wp-block-navigation\"><li class=\" wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\" href=\"#about\"><span class=\"wp-block-navigation-item__label\">About</span></a></li><li class=\" wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\" href=\"#menu\"><span class=\"wp-block-navigation-item__label\">Menu</span></a></li><li class=\" wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\" href=\"#contact\"><span class=\"wp-block-navigation-item__label\">Contact</span></a></li><li class=\" wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\" href=\"#journal\"><span class=\"wp-block-navigation-item__label\">Journal</span></a></li></ul>\n\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t</div>\n\t\t\t\t\t</div>\n\t\t\t\t</div>",
+        "htmlBytes": 2184,
+        "htmlTruncated": false
+      }
+    }
+  ]
+}

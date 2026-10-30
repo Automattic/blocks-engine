@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $countBlocks = static function (array $blocks, string $name) use (&$countBlocks): int {
     $count = 0;
@@ -78,12 +79,14 @@ $assertions[] = array(!str_contains($capturedMenuMarkup, '<!-- destination note 
 // beside a `hidden md:flex` desktop menu stays a mobile-only overlay whose
 // host leaves the layout from the source boundary up.
 $capturedTriggerOverlay = static function (string $toggleClass, string $desktopNav): array {
-    $result = ( new HtmlTransformer() )->transform(
-        '<html><head><style>.hidden{display:none}.toggle{display:inline-flex;width:40px;height:40px}@media (min-width:48rem){.md\\:flex{display:flex}.md\\:hidden{display:none}}</style></head><body>'
+    $html = '<html><head><style>.hidden{display:none}.toggle{display:inline-flex;width:40px;height:40px}@media (min-width:48rem){.md\\:flex{display:flex}.md\\:hidden{display:none}}</style><style data-blocks-engine-capture-disclosure="true">[data-blocks-engine-capture-dialog-panel][hidden]:not([data-blocks-engine-capture-resting-panel]){display:none!important}</style></head><body>'
         . '<header><a href="/">Northwind</a>' . $desktopNav
         . '<button type="button" class="' . $toggleClass . '" aria-label="Open menu" aria-controls="drawer" aria-expanded="false" aria-haspopup="menu" data-blocks-engine-capture-dialog-trigger="drawer"><span></span><span></span><span></span></button>'
-        . '<nav id="drawer" aria-label="Mobile" class="md:hidden" hidden data-blocks-engine-capture-dialog-panel="drawer"><a href="/#services">Services</a><a href="/#contact">Contact</a><a href="tel:+15550100">Call</a></nav></header></body></html>'
-    )->toArray();
+        . '<nav id="drawer" aria-label="Mobile" class="md:hidden" hidden data-blocks-engine-capture-dialog-panel="drawer"><a href="/#services">Services</a><a href="/#contact">Contact</a><a href="tel:+15550100">Call</a></nav></header></body></html>';
+    $result = ( new ArtifactCompiler() )->compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array('index.html' => $html),
+    ))->toArray();
     preg_match_all('/"overlayMenu":"(\w+)"/', (string) ($result['serialized_blocks'] ?? ''), $matches);
     $css = implode("\n", array_map(
         static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
@@ -97,6 +100,39 @@ $assertions[] = array('always' === $alwaysOverlay && ! $alwaysHiddenAbove, 'a ca
 [ $mobileOnlyOverlay, $mobileOnlyHiddenAbove ] = $capturedTriggerOverlay('toggle md:hidden', '<nav aria-label="Main" class="hidden md:flex"><a href="/#services">Services</a><a href="/#contact">Contact</a></nav>');
 $assertions[] = array(str_contains($mobileOnlyOverlay, 'mobile') && ! str_contains($mobileOnlyOverlay, 'always'), 'a mobile-only capture-wired trigger beside a visible desktop menu keeps a mobile overlay: ' . $mobileOnlyOverlay);
 $assertions[] = array($mobileOnlyHiddenAbove, 'a mobile-only drawer leaves the layout from the source boundary up instead of laying its links out inline');
+
+// One source nav is inline on desktop even though capture marked its mobile
+// dialog state hidden. Exercise author display overrides in the full import.
+$inlineFixture = (string) file_get_contents(dirname(__DIR__) . '/fixtures/captured-responsive-inline-navigation.html');
+foreach ( array(
+    'static author display' => $inlineFixture,
+    'capture disclosure stylesheet' => str_replace('</head>', '<style data-blocks-engine-capture-disclosure="true">[data-blocks-engine-capture-dialog-panel][hidden]:not([data-blocks-engine-capture-resting-panel]){display:none!important}</style></head>', $inlineFixture),
+    'capture disclosure base stylesheet' => str_replace('</head>', '<style data-blocks-engine-capture-disclosure-base="true">[data-blocks-engine-capture-dialog-panel][hidden]:not([data-blocks-engine-capture-resting-panel]){display:none!important}</style></head>', $inlineFixture),
+    'inline menu before CTA' => (string) file_get_contents(dirname(__DIR__) . '/fixtures/captured-inline-navigation-before-cta.html'),
+    'off-flow drawer before CTA' => str_replace('.nav nav{display:flex;', '.nav nav{position:absolute;display:none;', (string) file_get_contents(dirname(__DIR__) . '/fixtures/captured-inline-navigation-before-cta.html')),
+    'conditional author display' => str_replace('.nav nav{display:flex;', '@media (min-width:981px){.nav nav{display:flex}}.nav nav{', $inlineFixture),
+    'inline author display' => str_replace('id="primaryNav"', 'id="primaryNav" style="display:flex"', $inlineFixture),
+) as $case => $html ) {
+    $inlineResult = ( new ArtifactCompiler() )->compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array('index.html' => $html),
+    ))->toArray();
+    $inlineMarkup = (string) ($inlineResult['serialized_blocks'] ?? '');
+    $inlineCss = implode("\n", array_map(
+        static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+        $inlineResult['assets'] ?? array()
+    ));
+    $isDrawer = 'off-flow drawer before CTA' === $case;
+    if ( 'inline menu before CTA' === $case || $isDrawer ) {
+        $brandPosition = strpos($inlineMarkup, '>Brand</a>');
+        $navigationPosition = strpos($inlineMarkup, '<!-- wp:navigation ');
+        $ctaPosition = strpos($inlineMarkup, '>Free Estimate</a>');
+        $assertions[] = array(false !== $brandPosition && false !== $navigationPosition && false !== $ctaPosition && $brandPosition < min($navigationPosition, $ctaPosition) && ($isDrawer ? $ctaPosition < $navigationPosition : $navigationPosition < $ctaPosition), $case . ': navigation occupies the ' . ($isDrawer ? 'toggle' : 'panel') . ' slot');
+    }
+    $assertions[] = array(1 === $countBlocks($inlineResult['blocks'] ?? array(), 'core/navigation') && str_contains($inlineMarkup, '"label":"Alpha"') && str_contains($inlineMarkup, '"label":"Beta"') && str_contains($inlineMarkup, '"label":"Gamma"'), $case . ': the single source menu retains all three destinations');
+    $assertions[] = array(str_contains($inlineMarkup, '"overlayMenu":"mobile"') && str_contains($inlineCss, '@media(min-width:600px) and (max-width:980px)'), $case . ': the mobile overlay extends to the author breakpoint');
+    $assertions[] = array(($isDrawer ? 1 : 0) === preg_match('/@media\(min-width:981px\)\{\.wp-block-navigation[^{}]*blocks-engine-native-navigation-toggle-[a-f0-9]{12}\{display:none!important\}\}/', $inlineCss), $case . ': only a mobile-only drawer hides above the source boundary');
+}
 
 $capturedFallback = ( new HtmlTransformer() )->transform(
     '<header><button id="menu-trigger" type="button" aria-label="Open menu" aria-controls="overlay" aria-haspopup="dialog"><span></span><span></span><span></span></button><div id="overlay" hidden></div></header>'

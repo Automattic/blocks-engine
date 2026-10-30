@@ -83,7 +83,32 @@ $assert(10 === CssSelectorMatcher::specificity(CssSelectorMatcher::parse(':is(p,
 $assert(10 === CssSelectorMatcher::specificity(CssSelectorMatcher::parse('.a:where(#one, .b)')), 'weighs a where() selector list as zero');
 $assert(array( 'ids' => 1, 'classes' => 0, 'types' => 0 ) === CssSelectorMatcher::selectorListArgumentSpecificity(CssSelectorMatcher::parse(':is(.a, #one)')['compounds'][0]), 'splits an is() selector list weight into simple-selector counts');
 
-foreach ( array( ':disabled', ':is(.x,:has(.y))', ':where(.x,)', ':is(.x,.y:hover)', ':has(.x)', ':nth-child(0)', ':nth-child(2n+1)', ':nth-child()', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
+// Both structural pseudo-classes use An+B; interleaved tags distinguish their indices.
+$nthDom = new DOMDocument();
+$nthDom->loadHTML('<ul><li></li><!-- comment --><span></span><li></li><li></li><li></li><li></li><li></li></ul>');
+$nthCases = array(
+    '3' => array(3), '3n' => array(3, 6), '3n+1' => array(1, 4, 7),
+    '-n+2' => array(1, 2), 'odd' => array(1, 3, 5, 7), 'even' => array(2, 4, 6),
+    'n' => array(1, 2, 3, 4, 5, 6, 7), '+2n-1' => array(1, 3, 5, 7),
+    '0n+5' => array(5), ' -N + 3 ' => array(1, 2, 3), '2N - 1' => array(1, 3, 5, 7),
+    'EvEn' => array(2, 4, 6), '0' => array(), '-2' => array(), '+3' => array(3),
+    'n-2' => array(1, 2, 3, 4, 5, 6, 7), '-2n+5' => array(1, 3, 5),
+    '2n of li' => null, 'n 2' => null, '2 n+1' => null, 'n+-1' => null,
+);
+foreach ( array('nth-child', 'nth-of-type') as $pseudo ) {
+    foreach ( $nthCases as $argument => $indices ) {
+        $parsed = CssSelectorMatcher::parse('li:' . $pseudo . '(' . $argument . ')');
+        $assert((null !== $indices) === $parsed['supported'], "support for {$pseudo}({$argument})");
+        if ( null === $indices ) continue;
+        $assert(11 === CssSelectorMatcher::specificity($parsed), 'An+B retains one pseudo-class specificity');
+        foreach ( $nthDom->getElementsByTagName('li') as $index => $element ) {
+            $position = $index + 1 + ('nth-child' === $pseudo && $index > 0 ? 1 : 0);
+            $assert(in_array($position, $indices, true) === CssSelectorMatcher::matches($element, $parsed)['matches'], "{$pseudo}({$argument}) at {$position}");
+        }
+    }
+}
+
+foreach ( array( ':disabled', ':is(.x,:has(.y))', ':where(.x,)', ':is(.x,.y:hover)', ':has(.x)', ':nth-child()', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
     $assert(! CssSelectorMatcher::parse($selector)['supported'], "rejects unsupported or malformed {$selector}");
 }
 

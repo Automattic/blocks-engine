@@ -52,6 +52,20 @@ final class NavigationPatternContext
         )));
     }
 
+    /** Block children lowered to spans need the same identity as inline carriers. */
+    public function labelPresentationMarkers(DOMElement $element): array
+    {
+        $projections = $this->session?->authorSelectorProjectionState();
+        if (null !== $projections && 1 === preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName)
+            // Icon/label composites already project their box onto the item.
+            && 0 === $element->getElementsByTagName('svg')->length
+            && !$this->ownsLabelTypography($element) && $this->hasNavigationSubjectPresentation($element)) {
+            $path = $element->getNodePath() ?? '';
+            $projections->ensureSemanticMarker($path);
+        }
+        return $this->sourcePresentationMarkers($element);
+    }
+
     /**
      * core/navigation renders some source elements as something else: a direct
      * anchor inside a list item of its own, a source `<li>` as core's item
@@ -126,9 +140,19 @@ final class NavigationPatternContext
                 $compounds = $parsed['compounds'] ?? array();
                 if (!($parsed['supported'] ?? false) || array() === $compounds) continue;
                 $subject = $compounds[array_key_last($compounds)];
-                if (!in_array(strtolower((string) ($subject['type'] ?? '')), array('ul', 'ol'), true)) continue;
-                $match = $styles->selectorMatchCache()->matches($element, $record['selector'], $parsed);
-                if (($match['supported'] ?? false) && ($match['matches'] ?? false)) { $projections = $this->session->authorSelectorProjectionState(); return implode(' ', $projections->semanticCarrierClasses($projections->ensureSemanticMarker($element->getNodePath() ?? ''), $element->getNodePath() ?? '')); }
+                $subjects = array();
+                if (in_array(strtolower((string) ($subject['type'] ?? '')), array('ul', 'ol'), true)) {
+                    $subjects[] = $element;
+                } elseif (count($compounds) > 1 && '>' === ($parsed['combinators'][count($compounds) - 2] ?? null)
+                    && in_array(strtolower((string) ($compounds[count($compounds) - 2]['type'] ?? '')), array('ul', 'ol'), true)) {
+                    // An item rule through this list (`#menu > ul > li`) addresses
+                    // the native root by the list's identity, then core's container.
+                    foreach ($element->childNodes as $child) if ($child instanceof DOMElement) $subjects[] = $child;
+                }
+                foreach ($subjects as $candidate) {
+                    $match = $styles->selectorMatchCache()->matches($candidate, $record['selector'], $parsed);
+                    if (($match['supported'] ?? false) && ($match['matches'] ?? false)) { $projections = $this->session->authorSelectorProjectionState(); return implode(' ', $projections->semanticCarrierClasses($projections->ensureSemanticMarker($element->getNodePath() ?? ''), $element->getNodePath() ?? '')); }
+                }
             }
         }
         return '';
@@ -400,6 +424,65 @@ final class NavigationPatternContext
         return $marker;
     }
 
+    /** @var array<string, true> Source submenu toggles that paint their own indicator. */
+    private array $submenuToggleIndicators = array();
+
+    /**
+     * Record a submenu toggle whose own generated content (`::after`/`::before`)
+     * paints a visible indicator: text, a border (a CSS caret) or a background.
+     * That indicator is reproduced on core's content.
+     */
+    public function recordSubmenuToggleIndicator(DOMElement $toggle): void
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver || null === $this->session ) return;
+        $targets = array( $toggle );
+        foreach ( $toggle->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) $targets[] = $child;
+        }
+        foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
+            if ( ! in_array((string) ($rule['pseudo'] ?? ''), array( 'before', 'after' ), true) || ! $this->paintsGeneratedIndicator($rule['declarations'] ?? array()) ) continue;
+            foreach ( $targets as $target ) {
+                if ( $this->styleResolver->matchesCssSelector($target, (string) ($rule['selector'] ?? '')) ) {
+                    $this->submenuToggleIndicators[$toggle->getNodePath() ?? ''] = true;
+                    return;
+                }
+            }
+        }
+    }
+
+    /** Whether a toggle under this source element paints its own indicator. */
+    public function hasSubmenuToggleIndicatorWithin(DOMElement $source): bool
+    {
+        $root = $source->getNodePath() ?? '';
+        if ( '' === $root ) return false;
+        foreach ( $this->submenuToggleIndicators as $path => $_ ) {
+            if ( $path === $root || str_starts_with((string) $path, $root . '/') ) return true;
+        }
+        return false;
+    }
+
+    /** @param array<string, mixed> $declarations */
+    private function paintsGeneratedIndicator(array $declarations): bool
+    {
+        $content = trim((string) ($declarations['content'] ?? ''));
+        if ( '' === $content || in_array(strtolower($content), array( 'none', 'normal' ), true) ) return false;
+        if ( 'none' === strtolower(trim((string) ($declarations['display'] ?? ''))) ) return false;
+        $text = trim($content, " \t\"'");
+        if ( '' !== $text && 1 !== preg_match('/^(?:no-)?(?:open|close)-quote$/i', $text) ) return true;
+        foreach ( $declarations as $property => $value ) {
+            $property = strtolower((string) $property);
+            $value = strtolower(trim((string) $value));
+            if ( in_array($property, array( 'background', 'background-color', 'background-image' ), true) && ! in_array($value, array( '', 'none', 'transparent' ), true) ) return true;
+            // A border side paints (a CSS caret) when it is wide, styled and not
+            // transparent; longhand widths take their side's or the shared color.
+            if ( 1 !== preg_match('/^border(?:-(top|right|bottom|left))?(-width)?$/', $property, $border) ) continue;
+            if ( 1 !== preg_match('/(?:^|\s)(?:[0-9]*\.?[0-9]*[1-9][0-9]*(?:px|em|rem)|thin|medium|thick)(?:\s|$)/', $value) || 1 === preg_match('/\b(?:none|hidden)\b/', $value) ) continue;
+            $color = isset($border[2]) ? strtolower(trim((string) ($declarations['border-' . ('' !== $border[1] ? $border[1] . '-' : '') . 'color'] ?? $declarations['border-color'] ?? ''))) : $value;
+            if ( ! str_contains($color, 'transparent') ) return true;
+        }
+        return false;
+    }
+
     /** @var array<string, array{marker: string, target: string, source?: string}> */
     private array $pendingNavigationSubjects = array();
 
@@ -647,6 +730,19 @@ final class NavigationPatternContext
         return $this->styleResolver?->authorDeclaredValuesAtAnyViewport($element, $properties) ?? array();
     }
 
+    /** Whether the author cascade hides the element at every viewport its display rules distinguish. */
+    public function isDisplayNoneAtEveryViewport(DOMElement $element): bool
+    {
+        return $this->styleResolver?->isDisplayNoneAtEveryViewport($element) ?? true;
+    }
+
+    /** Whether the element is, or contains, the toggle recognized for this navigation. */
+    public function holdsNavigationToggle(DOMElement $navigation, DOMElement $element): bool
+    {
+        $toggle = $this->navigationToggleSuppressor?->navigationToggleControl($navigation);
+        return $toggle instanceof DOMElement && SourceDom::elementContains($element, $toggle);
+    }
+
     public function resolvedDisplay(DOMElement $element): string
     {
         return $this->styleResolver?->resolvedConditionalDisplay($element) ?? '';
@@ -655,17 +751,24 @@ final class NavigationPatternContext
     /**
      * The display the browser cascade gives the element at the reference
      * viewport: static and applying conditional rules, ranked by specificity
-     * and then source order. A recognition signal only, never projected.
+     * and then source order, optionally falling back to the UA tag default.
+     * A recognition signal only, never projected.
      */
-    public function cascadeDisplay(DOMElement $element): string
+    public function cascadeDisplay(DOMElement $element, bool $includeUaDefault = false): string
     {
         if ( ! $this->styleResolver instanceof StyleResolver
             || 1 !== preg_match('/(?:^|;)\s*display\s*:\s*([^;]+)/i', $this->styleResolver->controlSurfaceResolvedStyle($element), $match)
         ) {
-            return '';
+            return $includeUaDefault ? ($this->styleResolver?->defaultTagDisplay($element) ?? '') : '';
         }
 
         return strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', trim($match[1]))));
+    }
+
+    public function isFloated(DOMElement $element): bool
+    {
+        $float = $this->styleResolver?->referenceViewportAuthorDeclarations($element, array( 'float' ))['float'] ?? 'none';
+        return ! in_array(strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', $float))), array( '', 'none' ), true);
     }
 
     /** Compare the authored display contracts, including breakpoints outside the reference viewport. */

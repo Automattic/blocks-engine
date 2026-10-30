@@ -32,7 +32,9 @@ try {
     // interaction evidence; the incomplete ancestor proof remains unchanged.
     artifact.files['index.html'] = await page.content();
     const report = JSON.parse(artifact.files['interaction-states.json']);
-    report.pages[0].states[0].dialog.html = observed.html;
+    const open = report.pages[0].components[0].states.find(state => state.id === 'open');
+    open.html = observed.html;
+    open.evidence.dialog.html = observed.html;
     artifact.files['interaction-states.json'] = JSON.stringify(report);
     const result = compile(artifact);
     assert.doesNotMatch(result.html, /<!-- wp:html/);

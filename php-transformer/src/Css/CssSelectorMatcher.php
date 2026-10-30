@@ -13,6 +13,36 @@ use DOMNode;
 final class CssSelectorMatcher
 {
     /**
+     * Parse the An+B microsyntax, without the unsupported `of S` extension.
+     *
+     * @return array{a:int,b:int}|null
+     */
+    public static function parseNthExpression(string $argument): ?array
+    {
+        $argument = strtolower(trim($argument, " \t\n\r\f"));
+        if ( 'odd' === $argument || 'even' === $argument ) {
+            return array( 'a' => 2, 'b' => 'odd' === $argument ? 1 : 0 );
+        }
+        if ( preg_match('/^[+-]?[0-9]+$/D', $argument) ) {
+            return array( 'a' => 0, 'b' => (int) $argument );
+        }
+        if ( ! preg_match('/^([+-]?)([0-9]*)n(?:[ \t\n\r\f]*([+-])[ \t\n\r\f]*([0-9]+))?$/D', $argument, $parts) ) {
+            return null;
+        }
+        $a = '' === $parts[2] ? 1 : (int) $parts[2];
+        $b = isset($parts[4]) ? (int) $parts[4] : 0;
+        return array( 'a' => '-' === $parts[1] ? -$a : $a, 'b' => '-' === ($parts[3] ?? '') ? -$b : $b );
+    }
+
+    /** @param array{a:int,b:int} $expression */
+    private static function matchesNthExpression(int $index, array $expression): bool
+    {
+        $a = $expression['a'];
+        $difference = $index - $expression['b'];
+        return 0 === $a ? 0 === $difference : 0 === $difference % $a && $difference / $a >= 0;
+    }
+
+    /**
      * A static pseudo-element paints on a host; its declarations do not style that host.
      *
      * @return array{selector:string,suffix:string,parsed:array<string,mixed>}|null
@@ -519,7 +549,7 @@ final class CssSelectorMatcher
                         // A neutral native target can be a complete descendant
                         // path, or contain nested shims. Flattening it into one
                         // compound changes both its match and its specificity.
-                        if (($argument['supported'] ?? false) && (count($argument['compounds']) > 1 || !empty($leaf['not']) || !empty($leaf['any']) || !empty($leaf['first_child']) || !empty($leaf['last_child']) || null !== ($leaf['nth_child'] ?? null) || null !== ($leaf['nth_type'] ?? null))) {
+                        if (($argument['supported'] ?? false) && (count($argument['compounds']) > 1 || !empty($leaf['root']) || !empty($leaf['not']) || !empty($leaf['any']) || !empty($leaf['first_child']) || !empty($leaf['last_child']) || null !== ($leaf['nth_child'] ?? null) || null !== ($leaf['nth_type'] ?? null))) {
                             $group = self::parseSelectorListArgument($alternatives, 'where' === $lowerName);
                             if (null === $group) return null;
                             $compound['any'][] = $group;
@@ -533,7 +563,7 @@ final class CssSelectorMatcher
                         return null;
                     }
                     $selected = self::parseCompound(trim(substr($source, $offset + 1, $closing - $offset - 1)), 0, false);
-                    if ( null === $selected || null !== $selected['suffix'] || array() !== $selected['compound']['not'] || array() !== $selected['compound']['any'] || null !== $selected['compound']['nth_child'] || $selected['compound']['first_child'] || $selected['compound']['last_child'] ) {
+                    if ( null === $selected || null !== $selected['suffix'] || array() !== $selected['compound']['not'] || array() !== $selected['compound']['any'] || null !== $selected['compound']['nth_child'] || null !== ($selected['compound']['nth_type'] ?? null) || $selected['compound']['first_child'] || $selected['compound']['last_child'] ) {
                         return null;
                     }
                     $selectedCompound = $selected['compound'];
@@ -582,7 +612,9 @@ final class CssSelectorMatcher
                     if ( '' === $argument ) {
                         return null;
                     }
-                    $negated = self::parseUncached($argument);
+                    $alternatives = CssStylesheetTransformer::splitSelectorList($argument);
+                    if (null === $alternatives) return null;
+                    $negated = self::parseUncached(count($alternatives) > 1 ? ':is(' . $argument . ')' : $argument);
                     if ( ! ($negated['supported'] ?? false) || null !== ($negated['pseudo_state_suffix_span'] ?? null) ) {
                         return null;
                     }
@@ -613,10 +645,11 @@ final class CssSelectorMatcher
                         return null;
                     }
                     $argument = trim(substr($source, $offset + 1, $closing - $offset - 1));
-                    if ( ! preg_match('/^[1-9][0-9]*$/', $argument) ) {
+                    $expression = self::parseNthExpression($argument);
+                    if ( null === $expression ) {
                         return null;
                     }
-                    $compound['nth-child' === $lowerName ? 'nth_child' : 'nth_type'] = (int) $argument;
+                    $compound['nth-child' === $lowerName ? 'nth_child' : 'nth_type'] = $expression;
                     $offset = $closing + 1;
                     $hasSimple = true;
                     continue;
@@ -989,7 +1022,7 @@ final class CssSelectorMatcher
                 ++$childIndex;
             }
         }
-        if ( null !== $compound['nth_child'] && $childIndex !== $compound['nth_child'] ) {
+        if ( null !== $compound['nth_child'] && ! self::matchesNthExpression($childIndex, $compound['nth_child']) ) {
             return false;
         }
         if (null !== ($compound['nth_type'] ?? null)) {
@@ -997,7 +1030,7 @@ final class CssSelectorMatcher
             for ($previous = self::previousElementSibling($element); null !== $previous; $previous = self::previousElementSibling($previous)) {
                 if (strtolower($previous->tagName) === strtolower($element->tagName)) ++$typeIndex;
             }
-            if ($typeIndex !== $compound['nth_type']) return false;
+            if (!self::matchesNthExpression($typeIndex, $compound['nth_type'])) return false;
         }
         if ( $compound['first_child'] && 1 !== $childIndex ) {
             return false;

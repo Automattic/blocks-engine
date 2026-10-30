@@ -162,7 +162,17 @@ final class ButtonsPattern
         if ( $wrappedAnchor instanceof DOMElement && $this->wrappedButtonRequiresPreservation($wrappedAnchor) ) {
             return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($wrappedAnchor) ), array(), $wrappedAnchor);
         }
-        if ( null !== $wrappedAnchor && $this->isRichTextAnchorLabel($wrappedAnchor, $buttons) && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element)) ) {
+        // The wrapper is only the control surface when the anchor inside it is
+        // bare. An anchor carrying its own control presentation is the button,
+        // and a styled wrapper around it is a second painted box (a fixed CTA
+        // bar with its own background and responsive visibility, say): folding
+        // the wrapper away repaints the link with the bar's paint and drops the
+        // bar's box, so leave both in place — the wrapper keeps its group and
+        // the anchor becomes the button through the plain anchor pattern.
+        if ( null !== $wrappedAnchor
+            && $this->isRichTextAnchorLabel($wrappedAnchor, $buttons)
+            && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element))
+            && ! $this->hasButtonSignal($wrappedAnchor, $buttons) ) {
             return $context->createBlock('core/buttons', $this->buttonWrapperAttributes($element, $context, $buttons), array( $this->buttonBlockFromAnchor($wrappedAnchor, $context, $buttons, $element) ), $element);
         }
 
@@ -220,7 +230,7 @@ final class ButtonsPattern
         if ( $retainsDescendants ) {
             // The native button is unwrapped into the link surface, not kept
             // as label markup. Its author selectors still need control carriers.
-            $buttons->retainSourceDescendants($anchor, $presentationElement);
+            $buttons->retainSourceDescendants($anchor, $presentationElement, false, $text);
         }
         $resolvedPresentation = trim($buttons->resolvedStyle($presentationElement));
         $hasAuthoredStyleRules = $resolvedPresentation !== trim($presentationElement->getAttribute('style'));

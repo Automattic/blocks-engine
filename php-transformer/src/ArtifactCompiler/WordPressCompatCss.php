@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CoreSelectorScoping;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -12,7 +14,6 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EditorShellBoundary;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 
 /**
  * WordPress runtime compatibility CSS projected from authored stylesheets.
@@ -27,6 +28,7 @@ final class WordPressCompatCss
     private ?array $siteMarkerDocuments = null;
     /** @var array<string, string> */
     private array $documentSiteMarkers = array();
+    private ?ClassAttributeSelectorProjection $classAttributeSelectors = null;
 
     /**
      * @param array<int, array<string, mixed>> $files
@@ -39,9 +41,11 @@ final class WordPressCompatCss
         if ( array_key_exists($cacheKey, $this->cssCache) ) {
             return $this->cssCache[$cacheKey];
         }
-        return $this->cssCache[$cacheKey] = EngineMarker::compactDeviceScope($this->navigationCompatCss($authoredCss)
+        // Replayed selectors land on projected blocks, which carry engine class
+        // tokens; authored class substrings must not start matching those.
+        return $this->cssCache[$cacheKey] = EngineMarker::compactDeviceScope($this->classAttributeSelectors()->stylesheet($this->navigationCompatCss($authoredCss)
             . $this->rootStartupClassCompatCss($authoredCss, $scriptContents)
-            . $this->coreRuntimeCompatCss($authoredCss, $files));
+            . $this->coreRuntimeCompatCss($authoredCss, $files)));
     }
 
     /**
@@ -56,9 +60,9 @@ final class WordPressCompatCss
         $this->prepareSpecificityContext($css, $files);
         return (new CssStylesheetTransformer())->transform($css, function (string $prelude, string $body, array $ancestors) use ($importedLayer): string|array {
             if (!$importedLayer && !array_filter($ancestors, static fn(string $ancestor): bool => 1 === preg_match('/^@layer\b/i', trim($ancestor)))) return $prelude;
-            ['selectors' => $selectors, 'editor' => $editor] = $this->navigationProjectedSelectors($prelude, $body);
+            $selectors = $this->navigationProjectedSelectors($prelude, $body);
             if (array() === $selectors) return $prelude;
-            return array(array('prelude' => rtrim($prelude) . ', ' . implode(', ', $selectors), 'body' => $body), ...$editor);
+            return array(array('prelude' => $this->classAttributeSelectors()->selector(rtrim($prelude) . ', ' . implode(', ', $selectors)), 'body' => $body));
         });
     }
 
@@ -76,12 +80,19 @@ final class WordPressCompatCss
         if ($htmlTexts !== $this->siteMarkerDocuments) {
             $this->siteMarkerDocuments = $htmlTexts;
             $this->documentSiteMarkers = array();
+            $this->classAttributeSelectors = null;
         }
         $this->specificityShims = array(
             $this->siteMarker('specificity', $css, $htmlTexts),
             $this->siteMarker('specificity-class', $css, $htmlTexts),
             $this->siteMarker('specificity-id', $css, $htmlTexts)
         );
+    }
+
+    /** Class attribute predicates bound to the class tokens of every source document. */
+    private function classAttributeSelectors(): ClassAttributeSelectorProjection
+    {
+        return $this->classAttributeSelectors ??= ClassAttributeSelectorProjection::fromHtmlDocuments($this->siteMarkerDocuments ?? array());
     }
 
     /**
@@ -105,9 +116,26 @@ final class WordPressCompatCss
     public function asset(array $files, string $staticCss, array $scriptContents): ?array
     {
         $css = trim($this->css($staticCss, $files, $scriptContents));
+        // ID-only source navigation has no copied author class to scope its
+        // runtime replay. Both native navigation routes already stamp these
+        // importer classes; a weightless gate preserves the source cascade.
+        $css = (new CssStylesheetTransformer())->transform($css, static function (string $prelude): string {
+            $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+            if ( null === $selectors ) {
+                return $prelude;
+            }
+            foreach ( $selectors as &$selector ) {
+                if ( ! (new CoreSelectorScoping())->selectorIsScoped($selector) ) {
+                    $selector = preg_replace('/\.wp-block-navigation(?![\w-])/', '.wp-block-navigation:where(.blocks-engine-list-navigation,.blocks-engine-direct-navigation)', $selector) ?? $selector;
+                }
+            }
+            return implode(',', $selectors);
+        });
         if ( '' === $css ) {
             return null;
         }
+
+        (new CoreSelectorScoping())->assertScoped($css, 'wordpress-compat');
 
         $hash = hash('sha256', $css);
         $path = 'assets/css/wordpress-compat-' . substr($hash, 0, 16) . '.css';
@@ -174,9 +202,9 @@ final class WordPressCompatCss
                 }
                 continue;
             }
-            ['selectors' => $mappedSelectors, 'editor' => $editor] = $this->navigationProjectedSelectors($selectorList, $body);
+            $mappedSelectors = $this->navigationProjectedSelectors($selectorList, $body);
             if ( array() !== $mappedSelectors ) {
-                $rules[] = implode(', ', $mappedSelectors) . ' { ' . $body . ' }' . implode('', array_map(array(EditorShellBoundary::class, 'css'), $editor));
+                $rules[] = implode(', ', $mappedSelectors) . ' { ' . $body . ' }';
             }
         }
 
@@ -184,16 +212,13 @@ final class WordPressCompatCss
     }
 
     /**
-     * Replayed selectors, and for each replay that crosses a layout-shell
-     * boundary its one editor-canvas rule (EditorShellBoundary). An editor
-     * rule the projector already wrote for an authored selector is not
-     * replayed again: its replay comes from the authored selector here.
+     * Replayed navigation selectors. Navigation adds no editor list layer.
      *
-     * @return array{selectors: list<string>, editor: list<array{prelude: string, body: string}>}
+     * @return list<string>
      */
     private function navigationProjectedSelectors(string $selectorList, string $body): array
     {
-        $none = array('selectors' => array(), 'editor' => array());
+        $none = array();
         if (str_contains(strtolower($body), 'url(') || (str_contains($selectorList, EditorShellBoundary::EDITOR_SCOPE) && str_contains($body, '{'))) return $none;
         $mapped = array();
         foreach ($this->splitSelectorList($selectorList) as $selector) {
@@ -210,12 +235,7 @@ final class WordPressCompatCss
                 if (null !== $weighed && !array_key_exists($weighed['selector'], $mapped)) $mapped[$weighed['selector']] = str_contains($selector, '.editor-styles-wrapper') ? null : $weighed;
             }
         }
-        $editor = array();
-        foreach ($mapped as $weighed) {
-            $rule = null === $weighed ? null : EditorShellBoundary::rule($weighed['target'], $body, true, ':root ', $weighed['tail']);
-            if (null !== $rule) $editor[] = $rule;
-        }
-        return array('selectors' => array_keys($mapped), 'editor' => $editor);
+        return array_keys($mapped);
     }
 
     /**
@@ -495,7 +515,8 @@ final class WordPressCompatCss
      * Core wraps each navigation label in its own span. A source `a span`
      * rule targets authored spans inside the link, so once `a` maps to the
      * item content, its type `span` must not also match that engine-owned
-     * wrapper. `:not(:where())` keeps the selector's specificity unchanged.
+     * wrapper, nor a span carrier standing in for another source tag.
+     * `:not(:where())` keeps the selector's specificity unchanged.
      */
     private function withoutNavigationLabelSpan(string $selector): string
     {
@@ -505,7 +526,7 @@ final class WordPressCompatCss
         }
         $head = substr($selector, 0, $anchor);
         $tail = substr($selector, $anchor);
-        return $head . (preg_replace('/(^|[\s>+~])span(?![A-Za-z0-9_-])/', '$1span:not(:where(.wp-block-navigation-item__label))', $tail) ?? $tail);
+        return $head . (preg_replace('/(^|[\s>+~])span(?![A-Za-z0-9_-])/', '$1span:not(:where(.wp-block-navigation-item__label,' . EngineMarker::foreignSubjectCarrier('span') . '))', $tail) ?? $tail);
     }
 
     /**
@@ -677,15 +698,12 @@ final class WordPressCompatCss
 
     /**
      * Whether core/navigation's `<nav>` root could also match the compound.
-     * A compound that names another element (`figure`, even weightless) or
-     * the editor's layout-shell layer never does, so fusing the navigation
+     * A compound that names another element (`figure`, even weightless)
+     * never does, so fusing the navigation
      * class onto it would only emit an arm no element matches.
      */
     private function fusesWithNavigation(string $compound): bool
     {
-        if ( str_contains($compound, EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS) ) {
-            return false;
-        }
         // Negations do not require their arguments, specificity shims included.
         $required = (string) preg_replace('/:not\((?:[^()]|\([^()]*\))*\)/i', '', $compound);
         preg_match_all('/(?:^|:(?:where|is)\(|,)\s*([A-Za-z][A-Za-z0-9-]*)/', $required, $types);

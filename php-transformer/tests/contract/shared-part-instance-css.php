@@ -36,9 +36,8 @@ foreach (array('--nav-color:purple', '--nav-weight:500', '--nav-gap:23px') as $d
 }
 $writes = array_column($plan['writes'], null, 'target_path');
 $target = $asset['target_path'];
-// Engine-only rules need no canvas rewrite and are shared by both targets;
-// author projections may instead have a separate editor sibling.
-$editorTarget = 'both' === ($asset['stylesheet_target'] ?? 'both') ? $target : substr($target, 0, -4) . '.editor.css';
+// One stylesheet serves the frontend and the editor canvas.
+$editorTarget = $target;
 $assert(isset($writes[$editorTarget]) && str_contains($writes[$editorTarget]['payload']['data'], $rule[1]), 'Editor stylesheet carries the part instance declarations.');
 $bootstrap = $writes['functions.php']['payload']['data'];
 $frontend = (string) strstr($bootstrap, "add_action( 'wp_enqueue_scripts'");

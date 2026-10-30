@@ -5,7 +5,8 @@ declare(strict_types=1);
  * Authors declare page spacing inline on <body>, commonly reserving room for a
  * fixed footer bar. Artifact compilation re-wraps each document in a bare
  * <body> before it reaches the transformer, so that spacing is gone by then
- * and every compiled page comes up short by exactly that amount.
+ * and every compiled page comes up short by exactly that amount. Custom
+ * properties used for page palettes and backgrounds must survive the same path.
  *
  * This asserts through ArtifactCompiler rather than HtmlTransformer on
  * purpose: the two take different stylesheet paths, and a fix proven only on
@@ -29,18 +30,21 @@ $assert = static function (bool $ok, string $message, string $detail = '') use (
 
 /** @return array{0: string, 1: int} Emitted stylesheet CSS and asset count. */
 $compile = static function (string $bodyAttributes, string $head = '<style>.x{color:red}</style>'): array {
-    $html = '<html><head>' . $head . '</head><body ' . $bodyAttributes . '><main><p>Copy</p></main></body></html>';
+    $html = '<html><head>' . $head . '</head><body ' . $bodyAttributes . '><main><h1>Example heading</h1><p>Copy</p></main></body></html>';
     $result = ( new ArtifactCompiler() )->compile(array(
         'entrypoint' => 'website/index.html',
         'files' => array( 'website/index.html' => $html ),
     ))->toArray();
     $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
+    // This contract concerns the editor-loaded carrier. Full document
+    // mechanics now travel separately in a front-end-only stylesheet.
+    $editorAssets = array_filter($plan['assets'] ?? array(), static fn(array $asset): bool => 'frontend' !== ($asset['stylesheet_target'] ?? 'both'));
     $css = '';
-    foreach ( $plan['assets'] ?? array() as $asset ) {
+    foreach ( $editorAssets as $asset ) {
         $css .= (string) ( $asset['content'] ?? '' );
     }
 
-    return array( $css, count($plan['assets'] ?? array()) );
+    return array( $css, count($editorAssets) );
 };
 
 $hasBodyRule = static fn (string $css): bool => 1 === preg_match('/(?:^|[^-\w])body\s*\{/', $css);
@@ -90,6 +94,29 @@ $assert(
 // A declaration cannot break out of its block.
 list( $hostile, ) = $compile('style="padding-bottom:1px}body{outline:7px solid lime"');
 $assert( ! str_contains($hostile, 'lime'), 'an inline style cannot inject an extra rule', $hostile );
+
+// Body palette data survives alongside spacing, but never document mechanics.
+foreach ( array(
+    'palette and background' => array('--accent:#e6312e;--bg:url(/m/bg.png);position:fixed;margin:4px', array('--accent:#e6312e', '--bg:url(/m/bg.png)', 'margin:4px')),
+    'top-level separators only' => array('--accent:#e6312e;--bg:url(&quot;/m/bg;v=1.png&quot;);--tokens:rgb(1, 2, 3) &quot;a;b&quot;;position:fixed;margin:4px', array('--accent:#e6312e', '--bg:url("/m/bg;v=1.png")', '--tokens:rgb(1, 2, 3) "a;b"', 'margin:4px')),
+    'unsafe brace' => array('--accent:#e6312e;--bg:url(/m/bg.png);position:fixed;margin:4px;--unsafe:{', array()),
+) as $label => list($style, $declarations) ) {
+    list($css, ) = $compile('style="' . $style . '"', '<style>h1{color:var(--accent)}</style>');
+    preg_match_all('/(?<![-\\w])body(?::not\\([^)]*\\))?\\s*\\{([^}]*)\\}/', $css, $bodyRules);
+    $bodyCss = implode(';', $bodyRules[1]);
+    foreach ( $declarations as $declaration ) {
+        // A used palette color may be projected onto a WordPress preset,
+        // retaining the authored color as its fallback.
+        $carried = '--accent:#e6312e' === $declaration
+            ? 1 === preg_match('/--accent:(?:#e6312e|var\(--wp--preset--color--[^,]+,#e6312e\))/', $bodyCss)
+            : str_contains($bodyCss, $declaration);
+        $assert($carried, $label . ': body carries ' . $declaration, $css);
+    }
+    $assert(! str_contains($css, 'position:fixed'), $label . ': positioning is dropped', $css);
+    if ( array() === $declarations ) {
+        $assert('' === $bodyCss, $label . ': unsafe style carries nothing', $css);
+    }
+}
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "artifact inline body spacing FAILED: {$passes} passed, {$failures} failed\n");

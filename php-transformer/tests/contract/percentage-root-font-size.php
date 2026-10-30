@@ -28,7 +28,7 @@ $compile = static function (string $html): array {
     }
     $css = '';
     foreach ($plan['assets'] ?? array() as $asset) {
-        if ('css' === ($asset['kind'] ?? null) && !str_contains((string) $asset['content'], 'editor-styles-wrapper')) $css .= $asset['content'];
+        if ('css' === ($asset['kind'] ?? null) && 'editor' !== ($asset['stylesheet_target'] ?? 'both')) $css .= $asset['content'];
     }
     $root = $result['source_reports']['compiled_site']['pages'][0]['design_usage']['root_font_size_px'] ?? null;
     return array($root, $theme, $css, $plan);

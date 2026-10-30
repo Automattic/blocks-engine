@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 // #3131: a captured selectable set whose region holds every member's content,
 // with only the selected one visible, keeps in each tab panel only what that
 // member's state renders. Content hidden there at every breakpoint that another
@@ -54,10 +56,10 @@ $result = (new ArtifactCompiler())->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array($member(0, 'One'), $member(1, 'Two'), $member(2, 'Three')),
+                'components' => captured_components(array($member(0, 'One'), $member(1, 'Two'), $member(2, 'Three'))),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
