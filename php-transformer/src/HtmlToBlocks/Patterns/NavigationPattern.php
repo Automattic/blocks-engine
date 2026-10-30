@@ -1538,27 +1538,23 @@ final class NavigationPattern implements PatternRecognizerInterface
             return $attrs;
         }
 
-        foreach ( array( $element, $list ) as $row ) {
-            if ( ! $row instanceof DOMElement ) {
-                continue;
-            }
-            $declared = $navigationContext->declaredValuesAtAnyViewport($row, array( 'display', 'flex-direction', 'flex-wrap', 'flex-flow' ));
-            $values = static fn (string $property): array => array_map(
-                static fn (string $value): string => strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', trim($value)))),
-                $declared[$property] ?? array()
-            );
-            if ( array() === array_intersect($values('display'), array( 'flex', 'inline-flex' )) ) {
-                continue;
-            }
-            foreach ( array( ...$values('flex-direction'), ...$values('flex-wrap'), ...$values('flex-flow') ) as $value ) {
-                if ( 1 === preg_match('/\b(?:column|column-reverse|wrap|wrap-reverse)\b/', $value) ) {
-                    return $attrs;
-                }
-            }
-            $attrs['layout'] = array( 'type' => 'flex', 'flexWrap' => 'nowrap' );
-
+        // The row that holds the items decides: an outer flex wrapper around a
+        // wrapping list must not impose its own (default) nowrap (#3814).
+        $row      = $list ?? $element;
+        $declared = $navigationContext->declaredValuesAtAnyViewport($row, array( 'display', 'flex-direction', 'flex-wrap', 'flex-flow' ));
+        $values   = static fn (string $property): array => array_map(
+            static fn (string $value): string => strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', trim($value)))),
+            $declared[$property] ?? array()
+        );
+        if ( array() === array_intersect($values('display'), array( 'flex', 'inline-flex' )) ) {
             return $attrs;
         }
+        foreach ( array( ...$values('flex-direction'), ...$values('flex-wrap'), ...$values('flex-flow') ) as $value ) {
+            if ( 1 === preg_match('/\b(?:column|column-reverse|wrap|wrap-reverse)\b/', $value) ) {
+                return $attrs;
+            }
+        }
+        $attrs['layout'] = array( 'type' => 'flex', 'flexWrap' => 'nowrap' );
 
         return $attrs;
     }
