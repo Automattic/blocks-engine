@@ -18,7 +18,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\MotionSequenceBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LiveClockBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\Support\RouteState;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\Css\TemplatePartStickyContainment;
@@ -3755,7 +3754,23 @@ final class ArtifactCompiler
         $loaded = self::loadUtf8Html($dom, '<body>' . $markup . '</body>');
         if (!$loaded) return $markup;
         $xpath = new \DOMXPath($dom);
-        RouteState::stripFromDocument($xpath);
+        $currentNodes = array();
+        foreach ($xpath->query('//*[@aria-current] | //*[contains(concat(" ", normalize-space(@data-state), " "), " selected ")]') ?: array() as $node) if ($node instanceof \DOMElement) $currentNodes[] = $node;
+        foreach ($currentNodes as $node) {
+            for ($cursor = $node; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
+                if ($cursor->hasAttribute('data-state')) $cursor->setAttribute('data-state', preg_replace('/\bselected\b/', 'false', $cursor->getAttribute('data-state')) ?? $cursor->getAttribute('data-state'));
+                $classes = preg_split('/\s+/', trim($cursor->getAttribute('class'))) ?: array();
+                if (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
+                    $siblingClasses = array();
+                    foreach ($cursor->parentNode->childNodes as $sibling) {
+                        if (!$sibling instanceof \DOMElement || $sibling === $cursor || $sibling->tagName !== $cursor->tagName) continue;
+                        foreach (preg_split('/\s+/', trim($sibling->getAttribute('class'))) ?: array() as $class) $siblingClasses[$class] = true;
+                    }
+                    if (array() !== $siblingClasses) $cursor->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($siblingClasses[$class])))));
+                }
+                if ('nav' === strtolower($cursor->tagName) || 'navigation' === strtolower($cursor->getAttribute('role'))) break;
+            }
+        }
         foreach ($xpath->query('//*[@aria-current]') ?: array() as $node) if ($node instanceof \DOMElement) $node->removeAttribute('aria-current');
         foreach ($xpath->query('//*[@style]') ?: array() as $node) {
             if (!$node instanceof \DOMElement) continue;

@@ -7,7 +7,6 @@ use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
-use Automattic\BlocksEngine\PhpTransformer\Support\RouteState;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
@@ -1160,13 +1159,7 @@ PHP;
                 if (is_string($document['publication_timestamp'] ?? null)) $row['publication_timestamp'] = $document['publication_timestamp'];
                 if (is_string($document['publication_local_time'] ?? null)) $row['publication_local_time'] = $document['publication_local_time'];
             }
-            if ( ! $part ) {
-                // The page's route state, recognised against its source
-                // document, is read while its chrome is matched across routes,
-                // then dropped with the shell candidates.
-                $row['route_state'] = RouteState::ofHtml(is_string($document['html'] ?? null) ? $document['html'] : '');
-                $row['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $references, $routes, $canonical, $row['route_state']);
-            }
+            if ( ! $part ) $row['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $references, $routes, $canonical);
             $rows[] = $row;
         }
         return $rows;

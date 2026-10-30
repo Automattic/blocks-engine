@@ -18,8 +18,6 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\Support\RouteState;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void { if (! $condition) throw new RuntimeException($message); };
@@ -41,14 +39,6 @@ $modus = static function (string $route, string $title, string $chrome = 'header
         . '<footer><p>Modus Digital, Ltd.</p></footer></div></body></html>';
 };
 
-// The rule itself: tokens on every current link and on no resting link.
-$homeState = RouteState::ofHtml($modus('/', 'Home'));
-$assert(true === $homeState['applies'], 'A document with current and resting links carries route state.');
-$assert(array('active') === array_values(array_unique(array_merge(...array_column($homeState['carriers'], 'tokens')))), 'Only the class every current link and no resting link carries is route state: ' . json_encode($homeState));
-$allCurrent = '<header><a href="/" class="brand active" aria-current="page">Modus</a><nav><a href="/#work" class="text-sm active" aria-current="page">Work</a><a href="/#faq" class="text-sm active" aria-current="page">FAQ</a></nav></header>';
-$assert(empty(RouteState::ofHtml($allCurrent)['applies']), 'Without a resting link nothing proves the classes are route state.');
-$assert(empty(RouteState::ofHtml($modus('/privacy/', 'Privacy'))['applies']), 'A document with nothing marked carries no route state.');
-
 foreach (array('div', 'header') as $chrome) {
     $files = array(
         'website/index.html' => $modus('/', 'Home', $chrome),
@@ -69,21 +59,13 @@ foreach (array('div', 'header') as $chrome) {
     foreach ($plan['pages'] as $row) $assert(!str_contains((string) $row['canonical_block_markup'], 'wp:navigation'), "<{$chrome}> chrome: {$row['source_path']} keeps no header of its own.");
 }
 
-// Exactly one current link: the sibling contrast already identifies the state
-// and the document-level rule changes nothing.
+// Exactly one current link per route: the sibling contrast identifies the
+// state and the header stays one shared part.
 $single = static function (string $current) use ($sections): string {
     $links = '';
     foreach ($sections as $id => $label) $links .= '<a href="/' . $id . '/" class="text-sm' . ($id === $current ? ' active" aria-current="page' : '') . '">' . $label . '</a>';
     return '<!doctype html><html><head><title>' . $current . '</title><style>.text-sm{font-size:14px}.active{color:#e8501c}</style></head><body><header class="site-header"><a class="brand" href="/">Modus</a><nav>' . $links . '</nav></header><main><p>' . $current . '</p></main></body></html>';
 };
-$singleState = RouteState::ofHtml($single('work'));
-$assert(true === $singleState['applies'] && array('active') === array_values(array_unique(array_merge(...array_column($singleState['carriers'], 'tokens')))), 'One current link: its own class is route state: ' . json_encode($singleState));
-$block = '<!-- wp:navigation {"className":"site-nav"} --><!-- wp:navigation-link {"label":"About","url":"/about/","kind":"custom","className":"blocks-engine-navigation-link-color-abc123"} /-->'
-    . '<!-- wp:navigation-link {"label":"Work","url":"/work/","kind":"custom","className":"blocks-engine-current-navigation-item blocks-engine-navigation-current-color-abc123"} /-->'
-    . '<!-- wp:navigation-link {"label":"FAQ","url":"/faq/","kind":"custom","className":"blocks-engine-navigation-link-color-abc123"} /--><!-- /wp:navigation -->';
-foreach (array(false, true) as $semantic) {
-    $assert(ShellExtraction::withoutCurrentNavigationState($block, $semantic) === ShellExtraction::withoutCurrentNavigationState($block, $semantic, $singleState), 'One current link: block identity is unchanged by the document rule (' . ($semantic ? 'semantic' : 'part') . ').');
-}
 $singleFiles = array();
 foreach (array_keys($sections) as $id) $singleFiles[] = array('path' => 'website/' . $id . '/index.html', 'content' => $single($id));
 $singleFiles[] = array('path' => 'website/index.html', 'content' => $single(''));

@@ -132,9 +132,6 @@ final class ShellExtraction
     /** @var array<string,array<int,array<string,mixed>>> Entities of this call's manifest declarations, by payload hash. */
     private array $manifestEntities = array();
 
-    /** @var array{applies?:bool,carriers?:list<array{classes:list<string>,tokens:list<string>}>} Route state (RouteState::ofHtml()) of the document whose chrome is being read. */
-    private array $routeState = array();
-
     public function __construct(private readonly WordPressSitePlan $plan)
     {
     }
@@ -159,23 +156,8 @@ final class ShellExtraction
         return is_array($payload['entities'] ?? null) ? $payload['entities'] : array();
     }
 
-    /**
-     * @param array<string,mixed> $document
-     * @param array{applies?:bool,carriers?:list<array{classes:list<string>,tokens:list<string>}>}|null $routeState the document's RouteState::ofHtml(), when already read
-     * @return array<int,array<string,mixed>>
-     */
-    public function shellCandidates(array $document, AssetReferenceCanonicalizer $references, array $routes, string $canonical, ?array $routeState = null): array
-    {
-        $this->routeState = $routeState ?? RouteState::ofHtml(is_string($document['html'] ?? null) ? $document['html'] : '');
-        try {
-            return $this->documentShellCandidates($document, $references, $routes, $canonical);
-        } finally {
-            $this->routeState = array();
-        }
-    }
-
     /** @param array<string,mixed> $document @return array<int,array<string,mixed>> */
-    private function documentShellCandidates(array $document, AssetReferenceCanonicalizer $references, array $routes, string $canonical): array
+    public function shellCandidates(array $document, AssetReferenceCanonicalizer $references, array $routes, string $canonical): array
     {
         $candidates = array();
         foreach ($document['shell_artifacts'] ?? array() as $candidate) {
@@ -265,7 +247,7 @@ final class ShellExtraction
                 continue;
             }
             $contentOffset = $wrapperRange['offset'] + $contentRange['offset'];
-            $identity = self::normalizeNestedChromeMarkup($chrome, $this->routeState);
+            $identity = self::normalizeNestedChromeMarkup($chrome);
             if ('' === $identity) {
                 continue;
             }
@@ -395,17 +377,16 @@ final class ShellExtraction
     {
         return array(
             'markup' => $candidateMarkup,
-            'identity_markup' => self::nestedChromeIdentity($candidateMarkup, $this->routeState),
+            'identity_markup' => self::nestedChromeIdentity($candidateMarkup),
             'source_hash' => hash('sha256', $candidateMarkup),
             'offset' => $offset,
             'length' => $length,
         );
     }
 
-    /** @param array<string,mixed> $routeState */
-    private static function nestedChromeIdentity(string $markup, array $routeState = array()): string
+    private static function nestedChromeIdentity(string $markup): string
     {
-        return self::normalizeNestedChromeMarkup(self::unwrapChromeContainers($markup), $routeState);
+        return self::normalizeNestedChromeMarkup(self::unwrapChromeContainers($markup));
     }
 
     /**
@@ -587,9 +568,7 @@ final class ShellExtraction
             usort($areaArtifacts, static fn(array $left, array $right): int => ($left['variant'] ?? 0) <=> ($right['variant'] ?? 0));
             $candidates = array(); $variantCount = null; $rejected = false; $variantBindings = array();
             foreach ($applicable as $index => $page) {
-                $this->routeState = $page['route_state'] ?? array();
                 $rows = $this->nestedLandmarkCandidates($page['canonical_block_markup'], $page['source_path'], $area);
-                $this->routeState = array();
                 if (!empty($rows[0]['document_level']) && 1 < count($rows)) { $rejected = true; break; }
                 foreach ($rows as $row) if (null !== self::responsiveVariantClass($row)) continue 3;
                 if (array() === $rows) { $rejected = true; break; }
@@ -1451,7 +1430,7 @@ final class ShellExtraction
                 array_push($diagnostics, ...$variants['diagnostics']);
             }
         }
-        foreach ($pages as &$page) unset($page['shell_candidates'], $page['route_state']); unset($page);
+        foreach ($pages as &$page) unset($page['shell_candidates']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
     }
 
@@ -1752,7 +1731,7 @@ final class ShellExtraction
             if (str_contains($block, 'wp:template-part') || preg_match('/"tagName":"main"|<main\b/', $block)) { $contentFollows = true; break; }
             if (preg_match('/"tagName":"' . $other . '"|<' . $other . '\b/', $block)) break;
             if ($this->runtimeBindingsInRanges($runtimeDeclarations, $page, array(array('offset' => $offset, 'length' => $range['length'])))['blocked']) { $contentFollows = true; break; }
-            $edge[] = array('offset' => $offset, 'length' => $range['length'], 'identity' => self::edgeBlockIdentity($block, $page['route_state'] ?? array()), 'nested' => 0 < $depth);
+            $edge[] = array('offset' => $offset, 'length' => $range['length'], 'identity' => self::edgeBlockIdentity($block), 'nested' => 0 < $depth);
         }
         // Chrome frames content: when only the other area's chrome or the
         // page end follows the edge, its innermost block is the content.
@@ -1779,7 +1758,7 @@ final class ShellExtraction
 
     private static function edgeBlockIdentity(string $block): string
     {
-        $markup = self::identityMarkup(self::withoutCurrentNavigationState($block, true, $routeState));
+        $markup = self::identityMarkup(self::withoutCurrentNavigationState($block, true));
         $markup = preg_replace('/\b(?:id|anchor)="[^"]*"/i', '', $markup) ?? $markup;
         $markup = preg_replace('/"anchor":"[^"]*"/', '', $markup) ?? $markup;
         return hash('sha256', preg_replace('/\s+/', ' ', trim($markup)) ?? trim($markup));
@@ -2399,7 +2378,7 @@ final class ShellExtraction
             $scoped = $byPage[$sourceIndex][$class];
             $candidate = $candidates[$sourceIndex][0] ?? null;
             $owned = is_array($candidate) && $this->candidateOwnsVariant($candidate, $scoped);
-            $inner = self::withoutCurrentNavigationState($owned ? (string) $candidate['markup'] : (string) $scoped[0]['markup'], false, $pages[$sourceIndex]['route_state'] ?? array());
+            $inner = self::withoutCurrentNavigationState($owned ? (string) $candidate['markup'] : (string) $scoped[0]['markup']);
             if ('' === trim($inner)) return false;
             if (null === $primaryContext && 0 === self::responsiveVariantRank($class)) $primaryContext = $scoped[0]['ancestor_context'] ?? null;
             foreach ((array) ($scoped[0]['ancestor_context']['backdrop_ids'] ?? array()) as $id) $backdropIds[(string) $id] = true;
@@ -2741,10 +2720,9 @@ final class ShellExtraction
         return str_contains((string) ($candidate['markup'] ?? ''), '/scroll-state') && !str_contains((string) ($current['markup'] ?? ''), '/scroll-state');
     }
 
-    /** @param array<string,mixed> $routeState */
-    private static function normalizeNestedChromeMarkup(string $markup, array $routeState = array()): string
+    private static function normalizeNestedChromeMarkup(string $markup): string
     {
-        $markup = self::withoutCurrentNavigationState($markup, true, $routeState);
+        $markup = self::withoutCurrentNavigationState($markup, true);
         $markup = self::withoutScrollStateCarrierIdentity($markup);
         $markup = preg_replace('/\s*' . EngineMarker::patternBody() . '/', '', $markup) ?? $markup;
         $markup = preg_replace('/\s*(?:' . EngineMarker::specificityPatternBody('specificity-class') . '|blocks-engine-disclosure-summary-[a-f0-9]{6,}(?:-\d+)?)/', '', $markup) ?? $markup;
@@ -2868,24 +2846,11 @@ final class ShellExtraction
         return self::normalizeNestedChromeMarkup($markup);
     }
 
-    /**
-     * The markup without the served route's navigation state, so every route
-     * of one chrome yields the same identity and part.
-     *
-     * Route state is recognised against the document (see RouteState): the
-     * source document's route-state classes, when $routeState carries them,
-     * leave the blocks compiled from its current links; and current links
-     * stand for the resting links they mark, judged against the markup's
-     * non-current links rather than their siblings alone.
-     *
-     * @param array{applies?:bool,carriers?:list<array{classes:list<string>,tokens:list<string>}>} $routeState RouteState::ofHtml() of the source document
-     */
-    public static function withoutCurrentNavigationState(string $markup, bool $semanticIdentity = false, array $routeState = array()): string
+    public static function withoutCurrentNavigationState(string $markup, bool $semanticIdentity = false): string
     {
-        $markup = RouteState::stripFromBlockMarkup($markup, $routeState);
         $stateCarrierCounts = array();
-        $restingLinkColorCounts = array();
-        $restingLinkCount = 0;
+        $linkColorCounts = array();
+        $linkCount = 0;
         $restingColorCountsBySignature = array();
         preg_match_all('/<!--\s*wp:navigation(?:-link|-submenu)?\s+(\{.*?\})\s*(?:\/)?-->/s', $markup, $navigationMatches);
         foreach ($navigationMatches[0] as $index => $opening) {
@@ -2893,35 +2858,29 @@ final class ShellExtraction
             $attrs = json_decode($attributes, true);
             if (!is_array($attrs)) continue;
             $isLink = !preg_match('/<!--\s*wp:navigation\s/', $opening);
+            if ($isLink) ++$linkCount;
             $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
             $current = in_array('blocks-engine-current-navigation-item', $classes, true);
-            if ($isLink && !$current) ++$restingLinkCount;
             $signature = self::navigationClassSignature($classes);
             foreach ($classes as $class) {
                 if (preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class)) $stateCarrierCounts[$class] = ($stateCarrierCounts[$class] ?? 0) + 1;
-                if ($isLink && !$current && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class)) {
-                    $restingLinkColorCounts[$class] = ($restingLinkColorCounts[$class] ?? 0) + 1;
-                    $restingColorCountsBySignature[$signature][$class] = ($restingColorCountsBySignature[$signature][$class] ?? 0) + 1;
+                if ($isLink && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class)) {
+                    $linkColorCounts[$class] = ($linkColorCounts[$class] ?? 0) + 1;
+                    if (!$current) $restingColorCountsBySignature[$signature][$class] = ($restingColorCountsBySignature[$signature][$class] ?? 0) + 1;
                 }
             }
         }
         $restingPeers = self::restingNavigationPeers($markup);
-        // The resting link colour is the one every non-current link carries.
-        $sharedLinkColors = array_keys(array_filter($restingLinkColorCounts, static fn(int $count): bool => $restingLinkCount === $count));
-        // A menu level whose links are all current has no resting peer to
-        // take presentation from. When the source document marks current
-        // links and still holds a non-current one, that state is the route's
-        // alone: the links are compiled as they rest on every other route.
-        $allCurrentLevels = !empty($routeState['applies']) ? self::allCurrentNavigationLevels($markup) : array();
+        $sharedLinkColors = array_keys(array_filter($linkColorCounts, static fn(int $count): bool => 1 < $linkCount && $linkCount - 1 === $count));
         $restingColorBySignature = array();
         foreach ($restingColorCountsBySignature as $signature => $counts) {
             arsort($counts, SORT_NUMERIC);
             $restingColorBySignature[$signature] = (string) array_key_first($counts);
         }
+        $routeState = self::navigationRouteState($markup);
         $navigationIndex = -1; $submenuDepth = 0;
         $blockIndex = -1;
-        $navigationState = self::navigationRouteState($markup);
-        $markup = preg_replace_callback('/<!--\s*(?:\/wp:navigation-submenu|wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?)\s*-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors, $restingColorBySignature, $restingPeers, $navigationState, $allCurrentLevels, &$navigationIndex, &$blockIndex, &$submenuDepth): string {
+        $markup = preg_replace_callback('/<!--\s*(?:\/wp:navigation-submenu|wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?)\s*-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors, $restingColorBySignature, $restingPeers, $routeState, &$navigationIndex, &$blockIndex, &$submenuDepth): string {
             if (!isset($match[1])) { $submenuDepth = max(0, $submenuDepth - 1); return $match[0]; }
             ++$blockIndex;
             if ('navigation' === $match[1]) { ++$navigationIndex; $submenuDepth = 0; }
@@ -2931,7 +2890,7 @@ final class ShellExtraction
             if (!is_array($attrs)) return $match[0];
             $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
             $selfClosing = '' !== ($match[3] ?? '');
-            if ('navigation' === $match[1] && isset($navigationState['current_navigations'][$navigationIndex])) {
+            if ('navigation' === $match[1] && isset($routeState['current_navigations'][$navigationIndex])) {
                 // A menu that holds the served route is disclosed for that route only.
                 $resting = self::withoutDisclosureClasses($classes);
                 if ($resting !== $classes) {
@@ -2944,7 +2903,7 @@ final class ShellExtraction
                     $match[0] = self::navigationBlockOpening($match[1], $attrs, $selfClosing);
                 }
             }
-            $subject = $navigationState['current_link_subjects'][$blockIndex] ?? null;
+            $subject = $routeState['current_link_subjects'][$blockIndex] ?? null;
             if (is_array($subject) && !isset($attrs['metadata']['blocksEngineNavigationAnchor'])) {
                 $classes = self::adoptedAnchorSubjectClasses($classes, $subject, $semanticIdentity);
                 $attrs['className'] = implode(' ', $classes);
@@ -2952,12 +2911,6 @@ final class ShellExtraction
                 $match[0] = self::navigationBlockOpening($match[1], $attrs, $selfClosing);
             }
             $current = in_array('blocks-engine-current-navigation-item', $classes, true);
-            if ($current && 'navigation-link' === $match[1] && isset($allCurrentLevels[$navigationIndex . ':' . $depth])) {
-                $classes = self::restingNavigationLinkClasses($classes);
-                if (array() === $classes) unset($attrs['className']); else $attrs['className'] = implode(' ', $classes);
-                $match[0] = self::navigationBlockOpening($match[1], $attrs, $selfClosing);
-                $current = false;
-            }
             $peer = $restingPeers[$navigationIndex . ':' . $depth] ?? null;
             if ($current && 'navigation-link' === $match[1] && is_array($peer)) {
                 // A client router can paint the current item through its own
@@ -3019,63 +2972,8 @@ final class ShellExtraction
         // served route with aria-current="page" in saved content. One shared
         // part serves every route, so that page-scoped state is neither part of
         // the chrome's identity nor frozen into the part.
-        // A router's data-status="active" marks the same route state.
-        $markup = preg_replace_callback('/<a\b[^>]*?\saria-current\s*=\s*(["\'])page\1[^>]*>/i', static fn(array $tag): string => preg_replace(array('/\s+aria-current\s*=\s*(["\'])page\1/i', '/\s+data-status\s*=\s*(["\'])active\1/i'), '', $tag[0]) ?? $tag[0], $markup) ?? $markup;
+        $markup = preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $markup) ?? $markup;
         return self::withoutMenuSelectionState($markup, true);
-    }
-
-    /**
-     * @param array<int,array<string,mixed>> $pages
-     * @return array<string,mixed>
-     */
-    private static function pageRouteState(array $pages, string $sourcePath): array
-    {
-        foreach ($pages as $page) if ($sourcePath === ($page['source_path'] ?? null)) return is_array($page['route_state'] ?? null) ? $page['route_state'] : array();
-        return array();
-    }
-
-    /**
-     * Menu levels, keyed `navigation:depth` like restingNavigationPeers(),
-     * whose every link is current.
-     *
-     * @return array<string,true>
-     */
-    private static function allCurrentNavigationLevels(string $markup): array
-    {
-        $index = -1; $depth = 0; $links = array(); $current = array();
-        preg_match_all('/<!--\s*(\/)?wp:(navigation(?:-link|-submenu)?)(?:\s+(\{.*?\}))?\s*(\/)?-->/s', $markup, $matches, PREG_SET_ORDER);
-        foreach ($matches as $match) {
-            if ('navigation-submenu' === $match[2]) {
-                if ('' !== $match[1]) { $depth = max(0, $depth - 1); continue; }
-                if (empty($match[4])) ++$depth;
-                continue;
-            }
-            if ('' !== $match[1]) continue;
-            if ('navigation' === $match[2]) { ++$index; $depth = 0; continue; }
-            if ($index < 0) continue;
-            $level = $index . ':' . $depth;
-            $links[$level] = ($links[$level] ?? 0) + 1;
-            if (str_contains((string) ($match[3] ?? ''), 'blocks-engine-current-navigation-item')) $current[$level] = ($current[$level] ?? 0) + 1;
-        }
-        return array_fill_keys(array_keys(array_filter($links, static fn(int $count, string $level): bool => $count === ($current[$level] ?? 0), ARRAY_FILTER_USE_BOTH)), true);
-    }
-
-    /**
-     * A current link's classes as it rests: without its current-page
-     * classes, and with its current colour as its link colour.
-     *
-     * @param array<int,string> $classes
-     * @return list<string>
-     */
-    private static function restingNavigationLinkClasses(array $classes): array
-    {
-        $resting = array();
-        foreach ($classes as $class) {
-            if ('' === $class || self::isCurrentPageClass($class)) continue;
-            if (preg_match('/^blocks-engine-navigation-current-color-([a-f0-9]{64})$/', $class, $color)) $class = 'blocks-engine-navigation-link-color-' . $color[1];
-            $resting[$class] = true;
-        }
-        return array_keys($resting);
     }
 
     /**
