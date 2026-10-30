@@ -600,11 +600,12 @@ final class GeneratedBlockStyleProjector
         $controlStyle = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($control));
         $alignment = CssValueInspector::comparable((string) ($controlStyle['align-self'] ?? 'auto'));
         if ( 'auto' === $alignment ) $alignment = CssValueInspector::comparable((string) ($parentStyle['align-items'] ?? 'normal'));
-        $stretchesHeight = ($isGrid || ($isFlex && ! $isColumn))
+        $stretchesHeight = $isGrid
             && in_array($alignment, array('normal', 'stretch'), true)
             && in_array(CssValueInspector::comparable((string) ($controlStyle['height'] ?? 'auto')), array('', 'auto'), true);
-        // A flex carrier passes the used stretched size through without a
-        // percentage height resolving against an auto-height block wrapper.
+        // A grid item's stretched track height reaches the link through flex
+        // carriers, since a percentage height cannot resolve against the
+        // auto-height block wrapper. Flex rows keep the height:100% path.
         $stretchRule = $stretchesHeight
             ? $wrapper . '{display:flex!important;align-items:stretch!important}'
                 . $button . '{display:flex!important;align-items:stretch!important;width:100%;flex:1}'
