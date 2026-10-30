@@ -1018,7 +1018,10 @@ PHP;
             if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) if (in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true)) foreach ($plan['templates'] as $template) if ((self::archiveTemplateSlug($entity) === ($template['slug'] ?? null) || ('author' === $entity['kind'] && 'author' === ($template['slug'] ?? null) && $template['source_path'] === $entity['archive']['source_path'])) && str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) $boundTemplates[] = $template['slug'];
             foreach ( $plan['templates'] as $template ) {
                 $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
-                if (in_array($template['slug'], $boundTemplates, true) && 1 !== $references) throw new InvalidArgumentException('WordPress site plan template part binding is invalid.');
+                // An inline shell is bound where it sits, so a template that
+                // keeps every captured document copy binds it once per copy.
+                $allowed = 'inline_shared_shell' === ($part['placement']['kind'] ?? null) ? self::documentCopyCount($template['canonical_block_markup']) : 1;
+                if (in_array($template['slug'], $boundTemplates, true) && ($references < 1 || $references > $allowed)) throw new InvalidArgumentException('WordPress site plan template part binding is invalid.');
                 if (!in_array($template['slug'], $boundTemplates, true) && 0 !== $references) throw new InvalidArgumentException('WordPress site plan has an unproven template part binding.');
             }
         }
@@ -1651,6 +1654,20 @@ PHP;
      *
      * @return list<string>|null
      */
+    /** Rendered elements rooting a captured document copy; at least one. */
+    private static function documentCopyCount(string $markup): int
+    {
+        $html = (string) preg_replace('/<!--.*?-->/s', '', $markup);
+        $copies = 0;
+        if (preg_match_all('/<[a-z][a-z0-9-]*\\s[^>]*?\\bclass="([^"]*)"/i', $html, $matches)) {
+            foreach ($matches[1] as $classes) {
+                if (array_filter(preg_split('/\\s+/', $classes) ?: array(), ShellExtraction::isResponsiveVariantClass(...))) ++$copies;
+            }
+        }
+
+        return max(1, $copies);
+    }
+
     private static function responsiveVariantScopeClasses(string $compound): ?array
     {
         $hooks = str_replace(array(':where(', ':is(', ')'), '', self::positiveSelector($compound));
