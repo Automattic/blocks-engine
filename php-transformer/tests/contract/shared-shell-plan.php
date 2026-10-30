@@ -393,7 +393,7 @@ foreach ($unicodeParts as $slug => $part) {
 }
 
 $styledSvg = '<svg viewBox="0 0 16 16"><path fill="#123456" d="M1 1h14v14H1z"/></svg>';
-$styledSvgDocument = static fn(string $title): string => '<style>.logo svg{width:100%;height:100%}</style><div class="desktop-document"><header class="desktop-header"><div class="logo">' . $styledSvg . '</div></header><main><h1>' . $title . '</h1></main></div><div class="mobile-document"><header class="mobile-header"><div class="logo">' . $styledSvg . '</div></header><main><h1>' . $title . ' mobile</h1></main></div>';
+$styledSvgDocument = static fn(string $title): string => '<style>.logo svg{width:24px;height:24px}</style><div class="desktop-document"><header class="desktop-header"><div class="logo">' . $styledSvg . '</div></header><main><h1>' . $title . '</h1></main></div><div class="mobile-document"><header class="mobile-header"><div class="logo">' . $styledSvg . '</div></header><main><h1>' . $title . ' mobile</h1></main></div>';
 $styledSvgResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $styledSvgDocument('Home'), 'about.html' => $styledSvgDocument('About'))))->toArray();
 $styledSvgCompiled = $styledSvgResult['source_reports']['compiled_site'] ?? array();
 $styledSvgAssetPaths = array_column(array_filter($styledSvgCompiled['assets'] ?? array(), static fn(array $asset): bool => 'inline-svg' === ($asset['source'] ?? null)), 'path');
