@@ -60,6 +60,7 @@ final class CapturedComponentStates
     {
         $result = array();
         foreach ($components as $component) {
+            if ('slideshow' === ($component['function'] ?? null)) continue;
             if (!is_array($component) || !in_array($component['kind'] ?? null, $kinds, true)
                 || !in_array($component['status'] ?? null, array('captured', 'partial'), true)
                 || !is_array($component['states'] ?? null)) {

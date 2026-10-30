@@ -67,6 +67,10 @@ final class AuthoredCarouselBlockGenerator
             'presentation' => array('type' => 'string', 'default' => 'track'),
             'slideCount' => array('type' => 'number', 'default' => 0),
             'initialSlide' => array('type' => 'number', 'default' => 0),
+            'showArrows' => array('type' => 'boolean', 'default' => true),
+            'keyboard' => array('type' => 'boolean', 'default' => true),
+            'swipe' => array('type' => 'boolean', 'default' => false),
+            'capturedViews' => array('type' => 'array', 'default' => array()),
             'viewportHeight' => array('type' => 'number', 'default' => 0),
             'stageMinHeight' => array('type' => 'string', 'default' => ''),
             'sourceControlArtwork' => array('type' => 'boolean', 'default' => false),
@@ -125,6 +129,10 @@ final class AuthoredCarouselBlockGenerator
         var carouselClasses = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle );
         if ( 'src-swap' === presentation ) carouselClasses = 'blocks-engine-authored-carousel--src-swap';
         var props = { className: carouselClasses + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        if ( false === attributes.showArrows ) props[ 'data-carousel-arrows' ] = 'false';
+        if ( false === attributes.keyboard ) props[ 'data-carousel-keyboard' ] = 'false';
+        if ( attributes.swipe ) props[ 'data-carousel-swipe' ] = 'true';
+        if ( attributes.capturedViews && attributes.capturedViews.length ) props[ 'data-carousel-views' ] = JSON.stringify( attributes.capturedViews );
         if ( attributes.statusFormat ) { var context = JSON.parse( props[ 'data-wp-context' ] ); context.statusFormat = attributes.statusFormat; props[ 'data-wp-context' ] = JSON.stringify( context ); }
         Object.keys( attributes.sourceIdentityAttributes || {} ).forEach( function( name ) { props[ name ] = attributes.sourceIdentityAttributes[ name ]; } );
         if ( attributes.sourceControlArtwork ) { props.className += ' blocks-engine-authored-carousel--source-control-artwork'; }
@@ -305,8 +313,16 @@ const syncSlideshow = ( root, context ) => {
     if ( 'slideshow' !== context.presentation ) {
         return;
     }
+    const views = JSON.parse( root.dataset.carouselViews || '[]' );
+    // Captured widths are steps: the widest capture not wider than the
+    // viewport applies, and the narrowest capture covers smaller viewports.
+    const ordered = views.filter( ( item ) => Number( item.width ) > 0 ).sort( ( a, b ) => Number( b.width ) - Number( a.width ) );
+    const view = ordered.find( ( item ) => Number( item.width ) <= window.innerWidth ) ?? ordered[ ordered.length - 1 ];
+    const visible = Math.max( 1, Number( view?.framesPerView ) || 1 );
+    root.classList.toggle( 'blocks-engine-authored-carousel--multiple', visible > 1 );
+    root.style.setProperty( '--blocks-engine-carousel-visible', String( visible ) );
     slidesOf( root ).forEach( ( slide, index ) => {
-        const active = index === context.index;
+        const active = index >= context.index && index < context.index + visible;
         slide.classList.toggle( 'blocks-engine-authored-carousel__slide--active', active );
         slide.setAttribute( 'aria-hidden', active ? 'false' : 'true' );
         slide.toggleAttribute( 'inert', ! active );
@@ -405,13 +421,28 @@ store( 'blocks-engine/carousel', {
             syncSlideshow( ref, context );
             const root = rootOf( ref ) ?? ref;
             if ( 'src-swap' === context.presentation ) syncSrcSwap( root, context );
+            let start = null;
+            const touchStart = ( event ) => { start = event.touches[ 0 ] ? [ event.touches[ 0 ].clientX, event.touches[ 0 ].clientY ] : null; };
+            const touchEnd = withScope( ( event ) => {
+                const end = event.changedTouches[ 0 ];
+                if ( ! start || ! end ) return;
+                const dx = end.clientX - start[ 0 ], dy = end.clientY - start[ 1 ];
+                start = null;
+                if ( Math.abs( dx ) > 40 && Math.abs( dx ) > Math.abs( dy ) ) show( context.index + ( dx < 0 ? 1 : -1 ) );
+            } );
+            if ( root.dataset.carouselSwipe === 'true' ) {
+                root.addEventListener( 'touchstart', touchStart, { passive: true } );
+                root.addEventListener( 'touchend', touchEnd );
+            }
             const select = withScope( ( event ) => {
                 const index = event.detail?.index;
                 if ( Number.isInteger( index ) && index >= 0 && index < context.count ) show( index );
             } );
+            const resize = withScope( () => syncSlideshow( root, context ) );
+            window.addEventListener( 'resize', resize );
             root.addEventListener( 'blocks-engine-carousel-select', select );
             if ( 'slideshow' === context.presentation && context.playing ) startAutoplay( root, context );
-            return () => { root.removeEventListener( 'blocks-engine-carousel-select', select ); stopAutoplay( root ); };
+            return () => { window.removeEventListener( 'resize', resize ); root.removeEventListener( 'touchstart', touchStart ); root.removeEventListener( 'touchend', touchEnd ); root.removeEventListener( 'blocks-engine-carousel-select', select ); stopAutoplay( root ); };
         },
     },
     actions: {
@@ -440,6 +471,7 @@ store( 'blocks-engine/carousel', {
             getContext().paused = false;
         },
         keydown( event ) {
+            if ( rootOf( getElement().ref )?.dataset.carouselKeyboard === 'false' ) return;
             if ( 'ArrowLeft' !== event.key && 'ArrowRight' !== event.key ) {
                 return;
             }
@@ -460,6 +492,8 @@ JS;
 
         $style .= '.blocks-engine-authored-carousel__source-stage{width:100%;min-width:0}.blocks-engine-authored-carousel--slideshow{margin-block-start:0;margin-block-end:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{min-height:var(--blocks-engine-carousel-stage-min-height,0)}.blocks-engine-authored-carousel__track>.wp-block-group{min-height:var(--blocks-engine-carousel-stage-min-height,auto);margin-block-start:0;margin-block-end:0}';
         $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next::before{content:none}';
+        $style .= '.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track{display:flex!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>*{display:none!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{display:block!important;position:relative!important;flex:0 0 calc(100% / var(--blocks-engine-carousel-visible));width:calc(100% / var(--blocks-engine-carousel-visible))}';
+        $style .= '[data-carousel-arrows="false"]>.blocks-engine-authored-carousel__controls{display:none!important}';
         $style .= '.blocks-engine-authored-carousel--show-status>.blocks-engine-authored-carousel__status{position:static;width:auto;height:auto;margin:0;clip:auto;overflow:visible;white-space:normal}';
         $style .= '.blocks-engine-authored-carousel--source-control-topology .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--source-control-topology .blocks-engine-authored-carousel__next{position:static;inset:auto;width:auto;height:auto;padding:0;border:0;border-radius:0;background:transparent;color:inherit;transform:none}';
         $style .= '.blocks-engine-authored-carousel__controls{display:contents}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls{display:block;position:absolute!important;inset:0!important;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;margin:0!important;padding:0!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-previous],.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-next]{pointer-events:auto}.blocks-engine-authored-carousel__control-group{display:flex;align-items:center;justify-content:center;gap:.5rem}';
@@ -654,6 +688,10 @@ JS;
         }
 
         $identityAttributes = '';
+        foreach (array('showArrows' => 'arrows', 'keyboard' => 'keyboard', 'swipe' => 'swipe') as $key => $name) {
+            if ('swipe' === $key ? !empty($attributes[$key]) : false === ($attributes[$key] ?? true)) $identityAttributes .= ' data-carousel-' . $name . '="' . ('swipe' === $key ? 'true' : 'false') . '"';
+        }
+        if (!empty($attributes['capturedViews'])) $identityAttributes .= ' data-carousel-views="' . htmlspecialchars(json_encode($attributes['capturedViews'], JSON_THROW_ON_ERROR), ENT_QUOTES) . '"';
         foreach (is_array($attributes['sourceIdentityAttributes'] ?? null) ? $attributes['sourceIdentityAttributes'] : array() as $name => $value) {
             if (is_string($name) && preg_match('/^(?:(?:data|aria)-[a-zA-Z0-9_-]+|id)$/D', $name) && is_string($value)) {
                 $identityAttributes .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
@@ -770,6 +808,23 @@ JS;
         $convertChildren = $this->convertChildren ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
         $registry = $session->generatedBlockRegistry()
             ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
+
+        if ($element->hasAttribute('data-blocks-engine-slideshow')) {
+            $attributes = json_decode($element->getAttribute('data-blocks-engine-slideshow'), true);
+            if (!is_array($attributes)) return null;
+            $slides = array();
+            foreach ($element->childNodes as $item) {
+                if (!$item instanceof DOMElement) continue;
+                $fallbacks = array();
+                $children = $convertChildren($item, $fallbacks);
+                if (1 === count($children)) $slides[] = $children[0];
+                else $slides[] = $createBlock->createBlock('core/group', array('layout' => array('type' => 'default')), $children, $item);
+            }
+            $registry->register(self::class, $this->definition($registry->namespace()));
+            $shell = $this->shell($attributes);
+            return array('blockName' => $registry->blockName(self::LOCAL_NAME), 'attrs' => $attributes, 'innerBlocks' => $slides,
+                'innerHTML' => $shell['opening'] . $shell['closing'], 'innerContent' => array_merge(array($shell['opening']), array_fill(0, count($slides), null), array($shell['closing'])));
+        }
 
         // Portable src-swap galleries expose a handful of live frame slots,
         // not one DOM node per slide. Their ordered sequence is the authored
