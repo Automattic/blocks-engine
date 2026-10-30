@@ -1695,6 +1695,21 @@ final class SvgMaterializer implements SvgElementMaterializer
             return '';
         }
 
+        // aria-labelledby wins over aria-label, as in the accessible-name
+        // computation. A reference to an id the document does not contain
+        // names nothing, so the next source applies.
+        $labelledBy = array();
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'aria-labelledby'))) ?: array() as $id ) {
+            $label = '' !== $id ? $element->ownerDocument?->getElementById($id) : null;
+            $text = $label instanceof DOMElement ? trim(preg_replace('/\s+/', ' ', (string) $label->textContent) ?? '') : '';
+            if ( '' !== $text ) {
+                $labelledBy[] = $text;
+            }
+        }
+        if ( array() !== $labelledBy ) {
+            return implode(' ', $labelledBy);
+        }
+
         foreach ( array( 'aria-label', 'title' ) as $attribute ) {
             $value = trim(SourceDom::attr($element, $attribute));
             if ( '' !== $value ) {
@@ -1906,7 +1921,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             'rect', 'stop', 'svg', 'symbol', 'text', 'textpath', 'title', 'tspan', 'use',
         ));
         $allowedAttributes = array_flip(array(
-            'alt', 'amplitude', 'aria-hidden', 'aria-label', 'azimuth', 'basefrequency', 'baseprofile', 'bias',
+            'alt', 'amplitude', 'aria-describedby', 'aria-hidden', 'aria-label', 'aria-labelledby', 'azimuth', 'basefrequency', 'baseprofile', 'bias',
             'class', 'clip-path', 'clip-rule', 'clippathunits', 'cliprule', 'color-interpolation', 'color-interpolation-filters',
             'color', 'color-rendering', 'cx', 'cy', 'd',
             'data-bbox', 'data-color', 'data-testid', 'data-type',
