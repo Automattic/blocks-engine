@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormContr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use DOMElement;
@@ -43,6 +43,13 @@ final class FormLayoutGraphBuilder
     private array $nodeIds = array();
     private array $spacers = array();
     private array $labels = array();
+    /** Selector match memo for one build's document; replaced at every build() so it never spans documents. */
+    private CssSelectorMatchCache $selectorCache;
+
+    public function __construct()
+    {
+        $this->selectorCache = new CssSelectorMatchCache();
+    }
 
     /**
      * @param list<array<string, mixed>> $stylesheets
@@ -53,6 +60,10 @@ final class FormLayoutGraphBuilder
     {
         $this->diagnostics = array();
         $this->truncated = false;
+        // One match memo per build: the layout analyses and both presentation
+        // builders below re-ask the same (element, selector) questions of the
+        // same stylesheet set, and each match is computed once for all of them.
+        $selectorCache = $this->selectorCache = new CssSelectorMatchCache();
         $controls = array();
         $relevant = array();
         $this->nodeIds = array();
@@ -114,6 +125,15 @@ final class FormLayoutGraphBuilder
                 if ( $child instanceof DOMElement ) $scope[] = $child;
             }
         }
+        // The custom-property pass walks each scope element's ancestor chain on
+        // every scanned selector; resolve the chains once so every pass reads
+        // stable wrappers through the match memo.
+        $ancestorVisits = array();
+        foreach ( $scope as $element ) {
+            for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
+                $ancestorVisits[] = $ancestor;
+            }
+        }
         $analysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
@@ -122,9 +142,9 @@ final class FormLayoutGraphBuilder
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,
-            static function (array $selector) use ($scope): bool {
+            static function (array $selector, string $selectorText) use ($scope, $selectorCache): bool {
                 foreach ( $scope as $element ) {
-                    $match = CssSelectorMatcher::matches($element, $selector);
+                    $match = $selectorCache->matches($element, $selectorText, $selector);
                     if ( ! $match['supported'] || $match['matches'] ) {
                         return true;
                     }
@@ -143,12 +163,10 @@ final class FormLayoutGraphBuilder
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,
-            static function (array $selector) use ($scope): bool {
-                foreach ( $scope as $element ) {
-                    for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
-                        if ( CssSelectorMatcher::matches($ancestor, $selector)['matches'] ) {
-                            return true;
-                        }
+            static function (array $selector, string $selectorText) use ($ancestorVisits, $selectorCache): bool {
+                foreach ( $ancestorVisits as $ancestor ) {
+                    if ( $selectorCache->matches($ancestor, $selectorText, $selector)['matches'] ) {
+                        return true;
                     }
                 }
                 return false;
@@ -168,7 +186,7 @@ final class FormLayoutGraphBuilder
             $label = FormControlLabel::element($control);
             if ( null !== $label ) $labels[$label->getNodePath()] = true;
         }
-        $spacerPresentation = new FormPresentationGraphBuilder(scopeElements: $scope);
+        $spacerPresentation = new FormPresentationGraphBuilder(scopeElements: $scope, selectorMatchCache: $selectorCache);
         foreach ( $scope as $element ) {
             $path = $element->getNodePath();
             if ( isset($relevant[$path]) || isset($this->spacers[$path]) || isset($controls[$path]) || isset($labels[$path]) || isset($nonRendered[$path]) || $element === $form
@@ -196,7 +214,7 @@ final class FormLayoutGraphBuilder
         $entries = array_values(array_filter($entries, static fn (array $entry): bool => ! isset($entry['for_control']) || isset($entryIds[$entry['for_control']])));
         if ( null !== $structure ) $structure = $entries;
         $nodes = array();
-        $presentationBuilder = new FormPresentationGraphBuilder(scopeElements: array_column($entries, 'element'));
+        $presentationBuilder = new FormPresentationGraphBuilder(scopeElements: array_column($entries, 'element'), selectorMatchCache: $selectorCache);
         $variants = array();
         $resolved = array();
         $hidden = array();
@@ -892,7 +910,7 @@ final class FormLayoutGraphBuilder
                     continue;
                 }
             }
-            $match = ! empty($rule['inline']) ? array( 'supported' => true, 'matches' => true ) : CssSelectorMatcher::matches($element, $rule['parsed_selector']);
+            $match = ! empty($rule['inline']) ? array( 'supported' => true, 'matches' => true ) : $this->selectorCache->matches($element, $rule['selector'], $rule['parsed_selector']);
             if ( ! $match['supported'] ) {
                 $this->diagnostics[] = 'unsupported_selector:' . $rule['selector'];
                 continue;

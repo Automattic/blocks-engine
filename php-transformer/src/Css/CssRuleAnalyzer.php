@@ -12,7 +12,7 @@ final class CssRuleAnalyzer
     /**
      * @param list<array<string, mixed>> $stylesheets
      * @param list<string> $properties
-     * @param callable(array<string, mixed>): bool|null $retainSelector
+     * @param callable(array<string, mixed>, string): bool|null $retainSelector Called with the parsed selector and its source text, so a retention filter can memoize matches per selector without re-deriving a key.
      * @return array{rules: list<array<string, mixed>>, diagnostics: list<string>, truncated: bool}
      */
     public function analyze(array $stylesheets, string $inlineCss, array $properties, int $maxCssBytes, int $maxRules, int $maxSelectors, int $maxConditionDepth, ?callable $retainSelector = null, ?int $maxScannedSelectors = null): array
@@ -121,7 +121,7 @@ final class CssRuleAnalyzer
                 $result['diagnostics'][] = 'css_selector_scan_limit';
                 return false;
             }
-            if ( null !== $retainSelector && ! $retainSelector($entry['parsed_selector']) ) {
+            if ( null !== $retainSelector && ! $retainSelector($entry['parsed_selector'], $entry['selector']) ) {
                 ++$index;
                 continue;
             }
