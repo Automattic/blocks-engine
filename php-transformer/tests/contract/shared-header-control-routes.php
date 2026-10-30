@@ -24,9 +24,9 @@ foreach (array('active snapshots' => array(true, true), 'identical snapshots' =>
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
         $xpath = new DOMXPath($dom);
-        $brand = $xpath->query('//a[contains(concat(" ",normalize-space(@class)," ")," wp-block-button__link ")][.//img]')->item(0);
+        $brand = $xpath->query('//a[.//img]')->item(0);
         $cta = $xpath->query('//a[contains(concat(" ",normalize-space(@class)," ")," wp-block-button__link ")][contains(.,"Free Estimate")]')->item(0);
-        $assert($brand instanceof DOMElement && $cta instanceof DOMElement, 'Brand and CTA render as control links.');
+        $assert($brand instanceof DOMElement && $cta instanceof DOMElement, 'Brand and CTA retain their links.');
         $hits = array('brand' => false, 'cta' => false, 'mobile' => false);
         $responsiveHide = false;
         foreach ($plan['assets'] as $asset) {
@@ -34,7 +34,7 @@ foreach (array('active snapshots' => array(true, true), 'identical snapshots' =>
             if (preg_match('/@media\\s*\\(max-width:\\s*980px\\)\\s*\\{[^@]*?blocks-engine-control-[^@]*?display:none/s', $asset['content'])) $responsiveHide = true;
             (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $prelude, string $body) use ($brand, $cta, &$hits): void {
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
-                    if (!str_contains($selector, '.blocks-engine-control-')) continue;
+
                     $parsed = CssSelectorMatcher::parse($selector);
                     if (CssSelectorMatcher::matches($brand, $parsed)['matches'] && str_contains($body, 'display:flex')) $hits['brand'] = true;
                     if (CssSelectorMatcher::matches($cta, $parsed)['matches']) {

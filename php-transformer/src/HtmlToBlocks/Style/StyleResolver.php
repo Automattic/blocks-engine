@@ -3604,6 +3604,19 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether the author clips the element's box out of sight, as a
+     * screen-reader-only label is, judged by the last value the author states
+     * for each clipping property.
+     */
+    public function isVisuallyClippedBox(DOMElement $element): bool
+    {
+        return CssValueInspector::isVisuallyClippedBox(array_map(
+            static fn (array $values): string => (string) end($values),
+            $this->authorDeclaredValuesAtAnyViewport($element, array( 'position', 'overflow', 'width', 'height', 'clip', 'clip-path' ))
+        ));
+    }
+
+    /**
      * Every value the author stylesheet states for these properties on this
      * element in its resting state, at any viewport, in source order with the
      * inline style last.
@@ -4085,6 +4098,7 @@ final class StyleResolver implements ElementPresentationResolver
             || $this->isHiddenPositionedLayer($element, $declarations)
             || $this->hasKeyboardFocusReveal($element, $declarations)
             || $this->context->hasRetainedPresentationRuntime($element)
+            || $this->hasRetainedCaptureDialogTrigger($element)
             || $this->isNativeNavigationDropdownPanel($element)
         ) {
             return $declarations;
@@ -4113,6 +4127,27 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $normalized['declarations'];
+    }
+
+    /** Source-wired capture panels remain reachable without dialog projection. */
+    private function hasRetainedCaptureDialogTrigger(DOMElement $element): bool
+    {
+        $key = trim(SourceDom::attr($element, CaptureEvidence::DIALOG_PANEL));
+        if ('' === $key || $key !== SourceDom::attr($element, 'id')) {
+            return false;
+        }
+
+        foreach ($element->ownerDocument?->getElementsByTagName('*') ?? array() as $trigger) {
+            if (
+                $trigger instanceof DOMElement
+                && $key === trim(SourceDom::attr($trigger, CaptureEvidence::DIALOG_TRIGGER))
+                && $key === trim(SourceDom::attr($trigger, 'aria-controls'))
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isNativeNavigationDropdownPanel(DOMElement $element): bool
@@ -5980,6 +6015,18 @@ final class StyleResolver implements ElementPresentationResolver
             ? $this->cascadedCustomProperties($element)
             : $this->context->sourceStyles()->customProperties();
 
+        // Conditional palette definitions are runtime values, not capture
+        // constants. Keep their references live in every emitted carrier.
+        if ($element instanceof DOMElement) {
+            for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
+                foreach ($this->matchingStyleRules($node, 'conditional') as $rule) {
+                    if (!str_contains(implode(' ', $rule['conditions'] ?? array()), 'prefers-color-scheme')) continue;
+                    foreach ($rule['cascadedDeclarations'] ?? array() as $name => $_declared) {
+                        if (str_starts_with((string) $name, '--')) $customProperties[$name] = 'var(' . $name . ')';
+                    }
+                }
+            }
+        }
         return $this->expandCssVariableReferences($value, $customProperties);
     }
 

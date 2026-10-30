@@ -37,7 +37,7 @@ $css = '';
 foreach ($site['assets'] as $asset) {
     if ('css' === $asset['kind']) $css .= $asset['content'] . "\n";
 }
-if (5 !== substr_count($markup, '<!-- wp:image ') || 4 !== substr_count($markup, '<figure class="wp-block-image is-resized blocks-engine-synthetic-image-figure blocks-engine-synthetic-image-figure-inline blocks-engine-synthetic-image-gap"')
+if (5 !== substr_count($markup, '<!-- wp:image ') || 4 !== substr_count($markup, '<figure class="wp-block-image is-resized blocks-engine-synthetic-image-figure blocks-engine-synthetic-image-figure-inline blocks-engine-synthetic-image-gap blocks-engine-image blocks-engine-linked-image-figure"')
     || !str_contains($css, '::before{content:" ";white-space:normal}')) {
     throw new RuntimeException('Site compilation must retain exactly four real spaces and five native images.');
 }

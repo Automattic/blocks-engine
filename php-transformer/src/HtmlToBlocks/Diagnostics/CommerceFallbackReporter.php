@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
@@ -754,9 +755,9 @@ final class CommerceFallbackReporter
      *
      * @param array<int, array<string, mixed>> $fallbacks
      */
-    public function appendCommerceControlsFallbacks(DOMElement $body, array &$fallbacks): void
+    public function appendCommerceControlsFallbacks(DOMElement $body, array &$fallbacks, string $sourceHtml = ''): void
     {
-        $this->appendFormlessPurchaseFallbacks($body, $fallbacks);
+        $this->appendFormlessPurchaseFallbacks($body, $fallbacks, $sourceHtml);
         $emitted = 0;
         foreach ( $body->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement ) {
@@ -801,10 +802,11 @@ final class CommerceFallbackReporter
      *
      * @param array<int, array<string, mixed>> $fallbacks
      */
-    private function appendFormlessPurchaseFallbacks(DOMElement $body, array &$fallbacks): void
+    private function appendFormlessPurchaseFallbacks(DOMElement $body, array &$fallbacks, string $sourceHtml): void
     {
         $regions = array();
         $optionRegions = array();
+        $hasSingleProduct = null;
         foreach ( $body->getElementsByTagName('*') as $element ) {
             if ( SourceDom::hasNonAuthoredAncestor($element) || ListingControlsRecognizer::inSearchContext($element) ) {
                 continue;
@@ -842,6 +844,12 @@ final class CommerceFallbackReporter
                     if ( $this->recognizer->isProductGridContainer($node) ) {
                         continue 2;
                     }
+                }
+                // A price and checkout control alone can describe a paywall or
+                // upsell. Outside a grid, require the compiler's product evidence.
+                $hasSingleProduct ??= SchemaProductEvidence::hasSingleProduct($sourceHtml);
+                if ( ! $hasSingleProduct ) {
+                    continue;
                 }
             }
             // Document order visits outer wrappers first. Prefer the smallest

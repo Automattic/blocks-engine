@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -331,10 +332,10 @@ final class AssetReferenceCanonicalizer
                 };
                 $rewritten = $rewriteModel($attributes);
                 if ( $rewritten !== $attributes ) {
-                    $encoded = json_encode($rewritten, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+                    $encoded = BlockAttributes::encode($rewritten, JSON_INVALID_UTF8_SUBSTITUTE);
                     // The block grammar only recognizes a void block whose void
                     // marker is the exact `/-->` closer; `} / -->` stops parsing.
-                    if ( is_string($encoded) ) return '<!-- wp:' . $opener[1] . ' ' . $encoded . ( ! empty($opener[3]) ? ' /-->' : ' -->' );
+                    if ( '' !== $encoded ) return '<!-- wp:' . $opener[1] . ' ' . $encoded . ( ! empty($opener[3]) ? ' /-->' : ' -->' );
                 }
             }
         }

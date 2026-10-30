@@ -457,13 +457,12 @@ $decorativeMarkLogo = $transform('<style>.brand{display:inline-flex;align-items:
 $decorativeMarkLogoMarkup = (string) ($decorativeMarkLogo['serialized_blocks'] ?? '');
 $decorativeMarkLogoCss = $css($decorativeMarkLogo);
 $assert(
-    'core/buttons' === ($decorativeMarkLogo['blocks'][0]['blockName'] ?? '')
-        && 'core/button' === ($decorativeMarkLogo['blocks'][0]['innerBlocks'][0]['blockName'] ?? '')
+    'core/paragraph' === ($decorativeMarkLogo['blocks'][0]['blockName'] ?? '')
         && 1 === preg_match('/<span class="brand-mark[ "][^>]*aria-hidden="true"/', $decorativeMarkLogoMarkup)
-        && str_contains($decorativeMarkLogoMarkup, 'style="border-radius:0;background-color:transparent;padding-top:0;padding-right:0;padding-bottom:0;padding-left:0"')
+        && ! str_contains($decorativeMarkLogoMarkup, 'wp-element-button')
         && ! str_contains($decorativeMarkLogoCss, 'border-radius:0 !important')
         && 'pass' === ($decorativeMarkLogo['source_reports']['wp_block_validity']['status'] ?? ''),
-    'logo anchors with direct decorative marks retain the neutral structured button path',
+    'logo anchors with direct decorative marks retain a non-button link',
     $decorativeMarkLogoMarkup
 );
 
@@ -586,7 +585,7 @@ $assert(
     && 'core/button' === ($mediaLogo['blocks'][0]['innerBlocks'][0]['blockName'] ?? '')
     && str_contains($mediaLogoMarkup, '<picture>')
     && str_contains($mediaLogoMarkup, '<img src="logo.png" alt="">'),
-    'ID-signaled logo anchors with embedded media retain the structured core button path',
+    'ID-signaled picture logos retain their existing fallback reduction',
     $mediaLogoMarkup
 );
 
@@ -599,7 +598,7 @@ $assert(str_contains($buttonRichTextMarkerMarkup, '<!-- wp:button') && '' !== $b
 
 $svgLogo = $transform('<style>.logo{display:inline-flex;align-items:center;gap:.6rem}.logo-mark{width:38px;height:38px;display:grid;place-items:center;flex:none}.logo-mark svg{width:22px;height:22px}</style><header><a class="logo" href="/" aria-label="Home"><span class="logo-mark"><svg viewBox="0 0 38 38" aria-hidden="true"><circle cx="19" cy="19" r="18"/></svg></span><span class="logo-text">Block Party</span></a></header>');
 $svgLogoMarkup = (string) ($svgLogo['serialized_blocks'] ?? '');
-$assert(str_contains($svgLogoMarkup, '<span class="logo-mark" style="width:38px;height:38px;display:grid;place-items:center"') && str_contains($svgLogoMarkup, '<img src="assets/materialized-svg/') && str_contains($svgLogoMarkup, '<span class="logo-text">Block Party</span>') && 1 === count(array_filter($svgLogo['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))) && 'pass' === ($svgLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'structured text logos preserve passive inline SVG artwork and native RichText-safe container geometry');
+$assert(str_contains($svgLogoMarkup, 'class="logo-mark') && str_contains($css($svgLogo), 'width:38px;height:38px;display:grid;place-items:center') && str_contains($svgLogoMarkup, '<img src="assets/materialized-svg/') && str_contains($svgLogoMarkup, '<span class="logo-text">Block Party</span>') && 1 === count(array_filter($svgLogo['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))) && 'pass' === ($svgLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'structured text logos preserve passive inline SVG artwork and native RichText-safe container geometry');
 
 $gridTextControl = $transform('<style>.grid-cta{padding:8px 12px;background:#123456;color:#fff}.grid-cta .grid-label{width:30px;height:30px;display:grid;place-items:center}</style><a class="grid-cta" href="/go"><span class="grid-label">Go</span></a>');
 $gridTextControlCss = $css($gridTextControl);

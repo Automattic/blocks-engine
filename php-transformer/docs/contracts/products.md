@@ -49,6 +49,14 @@ supplies evidence for the same slug; missing commerce fields are filled in.
 
 Schema.org `Product` and `ProductGroup` evidence can additionally supply:
 
+- `translations`: up to eight document-language entries from deduped schema
+  Product/ProductGroup pages. Keys are lowercased `<html lang>` tags, never
+  inferred from routes or `hreflang`. Each entry retains only differing `name`,
+  `description`, `source_path`, and `url`; canonical-language and unlabelled pages
+  add no entry. Schema rows and their translations share UTF-8-safe byte limits:
+  name/source path 256, description 4096, URL 2048. Selection follows the existing
+  deterministic canonical-page ranking. This is evidence only; consumers choose
+  how to render it.
 - `sku`: URL-decoded merchant SKU. An unlabelled `productGroupID` is not a SKU;
   a group can explicitly publish `sku` or a `productGroupID` PropertyValue
   labelled `sku` by `propertyID` or `name`.

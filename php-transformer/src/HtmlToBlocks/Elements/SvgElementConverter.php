@@ -54,6 +54,10 @@ final class SvgElementConverter implements ElementConverter
             }
         }
 
+        if ($this->context->omitEmptyPaint($element)) {
+            return ConversionOutcome::handled(null);
+        }
+
         if ( ! $this->materializer->svgNeedsPhrasingHost($element) ) {
             $textRun = $this->textRun->block($element);
             if ( null !== $textRun ) {

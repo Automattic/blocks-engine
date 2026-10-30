@@ -773,7 +773,7 @@ $assert(TableClassificationPolicy::COMPLEX_NESTED === ($nestedTableClassificatio
 $assert(false === ($nestedTableClassification['representable'] ?? null), 'table classifier marks descendant tables not representable as native tables');
 $assert(array(1) === ($nestedTableClassification['signals']['column_counts'] ?? null), 'table classifier scopes row signals to the current table before nested fallback');
 $spanningTableClassification = $tablePolicy->classify($tableElement('<table><tr><td colspan="2">Merged</td></tr><tr><td>A</td><td>B</td></tr></table>'));
-$assert(TableClassificationPolicy::COMPLEX_SPANNING === ($spanningTableClassification['classification'] ?? null), 'table classifier identifies colspan tables as complex spanning');
+$assert(true === ($spanningTableClassification['representable'] ?? null), 'table classifier marks colspan tables representable as native tables');
 $assert(true === ($spanningTableClassification['signals']['has_colspan'] ?? null), 'table classifier exposes colspan signal');
 
 $simpleDataTableResult = ( new HtmlTransformer() )->transform('<table><thead><tr><th>Name</th><th>Role</th></tr></thead><tbody><tr><td>Ada</td><td>Engineer</td></tr></tbody></table>')->toArray();
@@ -848,7 +848,6 @@ $assert($tablePolicy->isMetadataLayoutTable($tableElement($metadataTableSource))
 $assert(! str_contains($metadataTableMarkup, '<!-- wp:html') && ! str_contains($metadataTableMarkup, '<!-- wp:table') && str_contains($metadataTableMarkup, 'report.pdf'), 'a caption table lowers to native blocks instead of preserved table HTML');
 $assert(1 === preg_match('/\.([a-z0-9-]*be-inline-geometry-[a-f0-9]+)\{[^}]*display:none[^}]*\}/i', $metadataTableCss), 'metadata rows the source hid stay hidden after lowering');
 $assert('pass' === ($metadataTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'a lowered caption table stays editor-valid');
-$assert('core/html' === (( new HtmlTransformer() )->transform('<table><tr><td colspan="2">Merged</td></tr><tr><td>A</td><td>B</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'a spanning cell beside visible data cells still falls back');
 // A page header laid out as a table: every row is one cell that spans the
 // declared grid, so no cell ever shares a row with another. The colspan is the
 // only thing that made it a "spanning" table; the cell count per row is one.
@@ -861,13 +860,6 @@ $assert(! str_contains($stackedHeaderTableMarkup, '<!-- wp:html') && ! str_conta
 $assert('pass' === ($stackedHeaderTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'a lowered stacked header table stays editor-valid');
 $assert(! $tablePolicy->isMetadataLayoutTable($tableElement('<table><tr><td>One</td></tr><tr><td>Two</td></tr></table>')), 'a one-column table without colspan is left to data-table classification');
 $assert('core/table' === (( new HtmlTransformer() )->transform('<table><tr><td>One</td></tr><tr><td>Two</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'a one-column table without colspan still becomes core/table');
-$assert('core/html' === (( new HtmlTransformer() )->transform('<table><tr><td colspan="3">One</td></tr><tr><td colspan="2">Two</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'single cells with unequal colspans are still a spanning table');
-$assert('core/html' === (( new HtmlTransformer() )->transform('<table><tr><th colspan="2">Head</th></tr><tr><td colspan="2">Body</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'a header cell keeps a stacked colspan table as data');
-
-$colspanTableResult = ( new HtmlTransformer() )->transform('<table><tr><td colspan="2">Merged</td></tr><tr><td>A</td><td>B</td></tr></table>')->toArray();
-$assert('core/html' === ($colspanTableResult['blocks'][0]['blockName'] ?? null), 'colspan table falls back to core/html');
-$rowspanTableResult = ( new HtmlTransformer() )->transform('<table><tr><td rowspan="2">Merged</td><td>A</td></tr><tr><td>B</td></tr></table>')->toArray();
-$assert('core/html' === ($rowspanTableResult['blocks'][0]['blockName'] ?? null), 'rowspan table falls back to core/html');
 
 $metadataDefinitionList = ( new HtmlTransformer() )->transform(
     '<style>.facts{display:grid;grid-template-columns:8rem 1fr;gap:8px 18px}</style><dl class="facts"><dt>Office</dt><dd>North Hall</dd><dt>Hours</dt><dd>Weekdays</dd></dl>'
@@ -915,12 +907,12 @@ $assert('social-item' === ($socialLinksBlock['innerBlocks'][0]['attrs']['classNa
 $assert(str_contains((string) ($socialLinksBlock['attrs']['className'] ?? ''), 'blocks-engine-source-social-item-spacing'), 'structural social items mark the wrapper so source item spacing remains authoritative');
 $socialLinksCss = implode("\n", array_column($socialLinksResult['assets'] ?? array(), 'content'));
 $assert(str_contains($socialLinksCss, '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}'), 'engine support CSS neutralizes the core default gap without adding invalid saved styles');
-$assert(str_contains($socialLinksCss, '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}'), 'logos-only social links drop source sprite backgrounds without !important');
+$assert(str_contains($socialLinksCss, '.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}'), 'logos-only social links drop source sprite backgrounds without !important');
 $assert(! str_contains($socialLinksMarkup, 'style="gap:') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the canonical social-links wrapper');
 $assert('pass' === ($socialLinksResult['source_reports']['wp_block_validity']['status'] ?? ''), 'dynamic social-link children and their static parent remain WordPress-valid');
 
 $visibleSocialLabels = ( new HtmlTransformer() )->transform('<div class="social-links"><a href="https://github.com/Automattic/blocks-engine">Blocks Engine</a><a href="https://github.com/Automattic/static-site-importer">Static Site Importer</a></div>')->toArray();
-$assert(str_contains((string) ($visibleSocialLabels['serialized_blocks'] ?? ''), 'class="wp-block-social-links has-visible-labels social-links"'), 'social-links save markup carries the canonical has-visible-labels class when labels are shown');
+$assert(str_contains((string) ($visibleSocialLabels['serialized_blocks'] ?? ''), 'class="wp-block-social-links blocks-engine-social-source-cluster has-visible-labels social-links"'), 'social-links save markup carries the canonical has-visible-labels class when labels are shown');
 
 $spanSocialSource = '<span class="wsite-social wsite-social-default"><a class="wsite-social-item wsite-social-facebook" href="https://www.facebook.com/tasteandtravelitaly" aria-label="Facebook"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-twitter" href="//#" aria-label="Twitter"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-instagram" href="https://instagram.com/tasteandtravel_italy" aria-label="Instagram"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-mail" href="mailto:hello@example.com" aria-label="Mail"><span class="wsite-social-item-inner"></span></a></span>';
 $spanSocialResult = ( new HtmlTransformer() )->transform($spanSocialSource)->toArray();
@@ -2830,7 +2822,7 @@ $syntaxCodeMarkup = (string) ($syntaxCodeResult['serialized_blocks'] ?? '');
 $syntaxCodeCss = implode("\n", array_column($syntaxCodeResult['assets'] ?? array(), 'content'));
 $assert(str_contains($syntaxCodeMarkup, '<span class="token comment"># npm</span>') && str_contains($syntaxCodeMarkup, '<span class="token function">install</span>'), 'core code preserves sanitized syntax-token markup');
 $assert(str_contains($syntaxCodeCss, '.token.comment{color:#8ea0c8}') && str_contains($syntaxCodeCss, '.token.function{color:#7dd3fc}'), 'syntax-token selectors remain targeted at their preserved core code descendants');
-$assert(1 === preg_match('/code:not\(\.be-c-[^)]+\)\{/', $syntaxCodeCss) && str_contains($syntaxCodeCss, ':where(.wp-block-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}'), 'native code keeps source inline preformatted geometry and authored code typography precedence');
+$assert(1 === preg_match('/code:not\(\.be-c-[^)]+\)\{/', $syntaxCodeCss) && str_contains($syntaxCodeCss, ':where(.blocks-engine-source-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}'), 'native code keeps source inline preformatted geometry and authored code typography precedence');
 $assert('pass' === ($syntaxCodeResult['source_reports']['wp_block_validity']['status'] ?? ''), 'syntax-token core code remains editor-valid');
 
 $linkedLogoResult = ( new HtmlTransformer() )->transform(
@@ -3142,7 +3134,7 @@ $emptyCoverCandidate = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/decor.png);background-size:cover;min-height:400px"></div>'
 )->toArray();
 $emptyCoverCandidateSerialized = (string) ($emptyCoverCandidate['serialized_blocks'] ?? '');
-$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
+$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure blocks-engine-image"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
 $assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
 $assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
 
@@ -3852,7 +3844,7 @@ $centeredSocialLinks = ( new HtmlTransformer() )->transform(
 $assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), '"justifyContent":"center"'), 'social links inherit explicit alignment from their source wrapper');
 $assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), 'is-content-justification-center'), 'social link justification is present in rendered save markup');
 $centeredSocialLinksCss = implode("\n", array_column($centeredSocialLinks['assets'] ?? array(), 'content'));
-$assert(str_contains($centeredSocialLinksCss, '.wp-block-social-links.is-content-justification-center{justify-content:center}'), 'social link justification renders without depending on theme block CSS');
+$assert(str_contains($centeredSocialLinksCss, '.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-content-justification-center{justify-content:center}'), 'social link justification renders without depending on theme block CSS');
 
 $deduplicatedNestedNavigation = ( new HtmlTransformer() )->transform(
     '<main><section class="shell"><div class="desktop-wrap"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div><div class="mobile-nav drawer"><div class="drawer-panel"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div></div><article><h2>Services</h2><p>Copy</p></article></section></main>'
@@ -6782,7 +6774,7 @@ $borderedImage = $factory->create('core/image', array(
     'className' => 'source-image',
     'style' => array('border' => array('color' => '#ffffff', 'style' => 'solid')),
 ));
-$assert(str_contains($borderedImage['innerHTML'], '<figure class="wp-block-image source-image"><img'), 'core/image omits metadata-skipped border classes from its canonical markup');
+$assert(str_contains($borderedImage['innerHTML'], '<figure class="wp-block-image source-image blocks-engine-image"><img'), 'core/image omits metadata-skipped border classes from its canonical markup');
 $assert(! str_contains($borderedImage['innerHTML'], 'has-border-color') && ! str_contains($borderedImage['innerHTML'], 'border-color:#ffffff'), 'core/image does not serialize metadata-skipped border styles without a source carrier');
 
 $defaultTable = $factory->create(

@@ -11,6 +11,40 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
  */
 final class SchemaProductEvidence
 {
+    private const TRANSLATION_LIMIT = 8;
+    private const TEXT_LIMITS = array('name' => 256, 'description' => 4096, 'source_path' => 256, 'url' => 2048);
+
+    public static function productSlug(string $value): string
+    {
+        return \Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug::segment(trim($value));
+    }
+
+    public static function productPrice(mixed $value): string
+    {
+        if ( ! is_scalar($value) ) return '';
+        $clean = preg_replace('/[^0-9.,]/', '', trim((string) $value)) ?? '';
+        if ( '' === $clean ) return '';
+        $commaCount = substr_count($clean, ',');
+        $dotCount = substr_count($clean, '.');
+        $decimal = '';
+        if ( 0 < $commaCount && 0 < $dotCount ) $decimal = strrpos($clean, ',') > strrpos($clean, '.') ? ',' : '.';
+        elseif ( 1 === $commaCount ) { $tail = strlen(substr($clean, (int) strrpos($clean, ',') + 1)); if ( 1 <= $tail && 2 >= $tail ) $decimal = ','; }
+        elseif ( 1 === $dotCount ) { $tail = strlen(substr($clean, (int) strrpos($clean, '.') + 1)); if ( 1 <= $tail && 2 >= $tail ) $decimal = '.'; }
+        if ( '' === $decimal ) return ltrim(preg_replace('/[^0-9]/', '', $clean) ?? '', '0') ?: '0';
+        $parts = explode($decimal, $clean); $fraction = preg_replace('/[^0-9]/', '', (string) array_pop($parts)) ?? ''; $integer = ltrim(preg_replace('/[^0-9]/', '', implode('', $parts)) ?? '', '0') ?: '0';
+        return strlen($fraction) > 2 ? number_format((float) ($integer . '.' . $fraction), 2, '.', '') : $integer . '.' . str_pad($fraction, 2, '0');
+    }
+
+    /** Use the same qualified, deduplicated rows as the compiler's purchase join. */
+    public static function hasSingleProduct(string $html): bool
+    {
+        return 1 === count(self::rows(
+            array(array('path' => 'index.html', 'content' => $html)),
+            self::productSlug(...),
+            self::productPrice(...)
+        ));
+    }
+
     /**
      * @param array<int,mixed> $files Compiled files (`path`, `content`).
      * @param callable(string):string $slug
@@ -18,10 +52,13 @@ final class SchemaProductEvidence
      * @param array<int,array<string,mixed>> $diagnostics
      * @param array<string,string> $routes Source routes mapped to canonical product slugs.
      * @param array<string,list<string>> $pageProducts Canonical product slugs observed on each source page.
+     * @param array<string,string> $detailPages Unambiguous detail source paths mapped to their product route (before deduplication).
+     * @param string $entryRoot Directory of the entrypoint; page routes are relative to it.
      * @return array<string,array<string,mixed>> Product rows keyed by slug.
      */
-    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array(), array &$pageProducts = array()): array
+    public static function rows(array $files, callable $slug, callable $price, array &$diagnostics = array(), array &$routes = array(), array &$pageProducts = array(), array &$detailPages = array(), string $entryRoot = ''): array
     {
+        $entryRoot = trim($entryRoot, '/');
         $documents = array();
         foreach ($files as $file) {
             if (is_array($file) && is_string($file['path'] ?? null) && is_string($file['content'] ?? null) && false !== stripos($file['content'], 'ld+json')) $documents[$file['path']] = $file['content'];
@@ -32,7 +69,7 @@ final class SchemaProductEvidence
         $alternates = array();
         $defaults = array();
         foreach ($documents as $path => $content) {
-            $page = self::routePath($path);
+            $page = self::routePath(self::entryRelative($path, $entryRoot));
             foreach (HtmlMarkupParser::htmlMarkupNodes($content) as $node) {
                 if ('link' !== ($node['name'] ?? '')) continue;
                 $attrs = $node['attributes'] ?? array();
@@ -43,9 +80,14 @@ final class SchemaProductEvidence
             }
         }
         foreach ($documents as $path => $content) {
-            $pagePath = self::routePath($path);
+            $pagePath = self::routePath(self::entryRelative($path, $entryRoot));
+            $language = '';
             $schemas = array();
             foreach (HtmlMarkupParser::htmlMarkupNodes($content) as $node) {
+                if ('html' === ($node['name'] ?? null)) {
+                    $lang = strtolower(trim($node['attributes']['lang'] ?? ''));
+                    if (preg_match('/^[a-z]{2,8}(?:-[a-z0-9]{1,8})*$/D', $lang) && strlen($lang) <= 63) $language = $lang;
+                }
                 if ('rawtext' !== ($node['kind'] ?? null) || 'script' !== ($node['name'] ?? null)) continue;
                 $type = strtolower(trim(explode(';', (string) ($node['attributes']['type'] ?? ''), 2)[0]));
                 if ('application/ld+json' !== $type) continue;
@@ -58,6 +100,12 @@ final class SchemaProductEvidence
                     $name = self::name($site['name'] ?? null);
                     if ('' !== $name) $siteNames[] = $name;
                 }
+            }
+            $pageClaims = array();
+            $listing = false;
+            foreach ($schemas as $schema) {
+                $pageClaims = array_merge($pageClaims, self::typedNodes($schema, 'Product'));
+                $listing = $listing || array() !== self::typedNodes($schema, 'ItemList');
             }
             foreach ($schemas as $schema) {
                 foreach (self::typedNodes($schema, 'Product') as $product) {
@@ -78,12 +126,13 @@ final class SchemaProductEvidence
                     }
                     if ('' !== $identity) $tokens = array('id:' . $identity);
                     $route = self::urlRoute($fields['url'] ?? '/' . $path, $path);
+                    if (!$listing && 1 === count($pageClaims) && '' !== $pagePath && $route === $pagePath) $detailPages[$path] = '/' . $route;
                     $hasRoute = isset($product['url']) || isset($product['offers']['url']) || in_array('ProductGroup', (array) ($product['@type'] ?? array()), true);
                     if ($hasRoute) {
                         $tokens[] = 'route:' . $route;
                         foreach ($alternates[$route] ?? array() as $alternate) $tokens[] = 'route:' . $alternate;
                     }
-                    $entries[] = array('fields' => $fields, 'tokens' => $tokens, 'routes' => $hasRoute ? array($route) : array(), 'score' => (isset($defaults[$route]) ? 2 : 0) + ($route === $pagePath ? 1 : 0));
+                    $entries[] = array('language' => $language, 'path' => $path, 'fields' => $fields, 'tokens' => $tokens, 'routes' => $hasRoute ? array($route) : array(), 'score' => (isset($defaults[$route]) ? 2 : 0) + ($route === $pagePath ? 1 : 0));
                 }
             }
         }
@@ -105,12 +154,31 @@ final class SchemaProductEvidence
         }
         $chosen = array();
         foreach ($groups as $group) {
-            usort($group['entries'], static fn (array $a, array $b): int => $b['score'] <=> $a['score'] ?: strcmp($a['fields']['source_path'], $b['fields']['source_path']));
+            usort($group['entries'], static fn (array $a, array $b): int => $b['score'] <=> $a['score'] ?: strcmp($a['path'], $b['path']));
+            foreach ($group['entries'] as &$entry) {
+                foreach (self::TEXT_LIMITS as $field => $limit) {
+                    if (isset($entry['fields'][$field])) $entry['fields'][$field] = mb_strcut($entry['fields'][$field], 0, $limit, 'UTF-8');
+                }
+            }
+            unset($entry);
             $fields = $group['entries'][0]['fields'];
+            $canonicalLanguage = $group['entries'][0]['language'];
+            $translations = array();
+            foreach ($group['entries'] as $entry) {
+                $language = $entry['language'];
+                // Language comes only from the document, never a URL or an alternate link.
+                if ('' === $language || $language === $canonicalLanguage || isset($translations[$language]) || count($translations) >= self::TRANSLATION_LIMIT) continue;
+                $translation = array();
+                foreach (self::TEXT_LIMITS as $field => $_limit) {
+                    if (isset($entry['fields'][$field]) && $entry['fields'][$field] !== ($fields[$field] ?? null)) $translation[$field] = $entry['fields'][$field];
+                }
+                if ($translation) $translations[$language] = $translation;
+            }
+            if ($translations) { ksort($translations, SORT_STRING); $fields['translations'] = $translations; }
             $chosen[$fields['slug']] = $fields;
             foreach ($group['entries'] as $entry) {
                 foreach ($entry['routes'] as $route) $routes[$route] = $fields['slug'];
-                $path = $entry['fields']['source_path'];
+                $path = $entry['path'];
                 if (!in_array($fields['slug'], $pageProducts[$path] ?? array(), true)) $pageProducts[$path][] = $fields['slug'];
             }
         }
@@ -233,7 +301,17 @@ final class SchemaProductEvidence
         }
         if ($tags) $fields['tags'] = $tags;
         if ($isGroup) {
-            if ($variants && $declared) $fields['variants'] = $variants;
+            $attributes = $variants[0]['attributes'] ?? array();
+            // An undeclared default title is a placeholder, not a shopper choice.
+            // Never discard real attributes or an explicitly declared variation axis.
+            $defaultTitle = empty($product['variesBy']) && 1 === count($attributes)
+                && 'title' === $attributes[0]['key'] && 'default-title' === $attributes[0]['value'];
+            if (1 === count($variants) && (!$attributes || $defaultTitle)) {
+                foreach (array('sku', 'regular_price', 'sale_price', 'stock_status') as $field) {
+                    unset($fields[$field]);
+                    if (isset($variants[0][$field])) $fields[$field] = $variants[0][$field];
+                }
+            } elseif ($variants && $declared) $fields['variants'] = $variants;
             else $fields['_variants_undeclared'] = true;
         }
         return array($productSlug, $fields, self::routePath($urlPath));
@@ -319,6 +397,12 @@ final class SchemaProductEvidence
             elseif ('' !== $part && '.' !== $part) $parts[] = $part;
         }
         return self::routePath(implode('/', $parts));
+    }
+
+    /** Source path relative to the entrypoint directory. */
+    private static function entryRelative(string $path, string $entryRoot): string
+    {
+        return '' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
     }
 
     /** Route-like path: no slashes at the ends, no `.html` extension, no trailing `index`. */

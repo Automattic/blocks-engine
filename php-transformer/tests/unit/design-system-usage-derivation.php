@@ -26,6 +26,15 @@ $compile = static function (array $artifact): array {
     foreach ($plan['writes'] ?? array() as $write) if ('theme.json' === $write['target_path']) $theme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
     return array($plan, $theme, $result['source_reports']['editability_report'] ?? array());
 };
+// Public artifact regression: a builder's rem base is not readable body text.
+[, $readableTheme] = $compile(require dirname(__DIR__) . '/fixtures/global-styles-readability.php');
+$readableSizes = array_column($readableTheme['settings']['typography']['fontSizes'], 'size', 'slug');
+$readableSize = $readableTheme['styles']['typography']['fontSize'];
+if (str_starts_with($readableSize, 'var:preset|font-size|')) $readableSize = $readableSizes[substr($readableSize, strlen('var:preset|font-size|'))];
+$assert('16px' === $readableSize, 'builder root: base typography comes from readable body text');
+$assert('1.5' === $readableTheme['styles']['typography']['lineHeight'], 'builder root: readable body leading is preserved');
+$assert('var(--ink)' === $readableTheme['styles']['color']['text'] && 'var(--paper)' === $readableTheme['styles']['color']['background'], 'scheme palette: editor root retains live source variables');
+$assert(!isset($readableTheme['styles']['elements']['heading']['color']['text']), 'section heading colours are not global element defaults');
 // Reduced heading case: class-owned typography becomes editable without
 // changing the source declarations' values, including at a breakpoint.
 foreach (array(false, true) as $responsive) {
@@ -218,6 +227,27 @@ $darkTokens = require dirname(__DIR__) . '/fixtures/design-system/tailwind-v4.ph
 $darkTokens['files']['assets/app.css'] .= '@media (prefers-color-scheme:dark){:root{--color-slate-900:#f8fafc}}';
 $darkMarkup = implode('', array_column($compile($darkTokens)[0]['pages'], 'canonical_block_markup'));
 $assert(!preg_match('/<!-- wp:paragraph \{"className":"text-base text-slate-900"[^}]*"textColor"/', $darkMarkup) && !preg_match('/"className":"bg-slate-900 text-slate-50 p-8"[^}]*"backgroundColor"/', $darkMarkup) && str_contains($darkMarkup, '"textColor"'), 'a colour read from a custom property the dark theme redefines is not bound');
+
+// Lightning CSS (Tailwind v4) writes each colour token twice: a hex value,
+// then a CIE `lab()` override inside `@supports (color:lab(0% 0 0))`. The
+// override wins the cascade, so the palette must read `lab()` and match the
+// palette of the same site written in plain hex.
+$labOf = array(
+    '#1d3557' => 'lab(21.5916% -0.1886 -23.7709)', '#2b2b2b' => 'lab(17.5333% -0.0038 -0.0025)', '#555555' => 'lab(36.1459% -0.0059 -0.0038)',
+    '#a8dadc' => 'lab(83.606% -16.4153 -6.5702)', '#e63946' => 'lab(52.8521% 66.4167 35.8209)', '#f1faee' => 'lab(97.3437% -4.6664 4.6824)',
+    '#f4f1ea' => 'lab(95.2345% 0.1259 3.7551)',
+);
+$tokens = array_combine(array_keys($labOf), array_map(static fn(int $i): string => '--c' . $i, array_keys(array_keys($labOf))));
+$lightning = require dirname(__DIR__) . '/fixtures/design-system/plain-css.php';
+$lightning['files']['style.css'] = ':root{' . implode('', array_map(static fn(string $hex, string $token): string => "$token:$hex;", array_keys($tokens), $tokens)) . '}'
+    . '@supports (color:lab(0% 0 0)){:root{' . implode('', array_map(static fn(string $hex, string $token): string => "$token:{$labOf[$hex]};", array_keys($tokens), $tokens)) . '}}'
+    . strtr($lightning['files']['style.css'], array_map(static fn(string $token): string => "var($token)", $tokens));
+$assert('#e63946' === CssColor::hex('lch(52.8521% 75.4618 28.3423)') && '#e63946' === CssColor::hex('lab(52.8521 53.13% 28.66%)') && '#e6394680' === CssColor::hex('lab(52.8521% 66.4167 35.8209 / 0.5)'), 'CIE lch(), percentage lab() channels and lab() alpha parse to sRGB');
+$hexPalette = array_column($plans['plain-css'][1]['settings']['color']['palette'] ?? array(), 'color', 'slug');
+$labPalette = array_column($compile($lightning)[1]['settings']['color']['palette'] ?? array(), 'color', 'slug');
+ksort($hexPalette);
+ksort($labPalette);
+$assert(count($hexPalette) >= 5 && $hexPalette === $labPalette, 'lab() tokens behind a hex fallback give the same palette as plain hex (' . json_encode($labPalette) . ')');
 
 // Clustering and roles from usage alone.
 $usage = static fn(array $text, array $backgrounds = array(), array $root = array()): array => array('schema' => DesignSystem::USAGE_SCHEMA, 'root_font_size_px' => 16, 'root' => $root, 'text' => $text, 'backgrounds' => $backgrounds, 'spacing' => array(), 'widths' => array());

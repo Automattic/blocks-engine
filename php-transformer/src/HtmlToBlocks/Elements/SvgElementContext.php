@@ -29,8 +29,14 @@ final class SvgElementContext
         private readonly Closure $hasDrawableContent,
         private readonly ElementPresentationResolver $presentationResolver,
         private readonly SourceBlockCreator $createBlock,
-        private readonly Closure $captureFallback
+        private readonly Closure $captureFallback,
+        private readonly ?Closure $omitEmptyPaint = null
     ) {
+    }
+
+    public function omitEmptyPaint(DOMElement $element): bool
+    {
+        return null !== $this->omitEmptyPaint && ($this->omitEmptyPaint)($element);
     }
 
     public function isInertHiddenStorage(DOMElement $element): bool

@@ -82,7 +82,7 @@ final class ThemeJsonProjection
                 }
                 $resolved = array();
                 foreach ($this->declarations($body) as $name => $value) {
-                    if (in_array($name, self::VARIABLE_REFERENCED_PROPERTIES, true)) $value = $this->resolveVariableReferences($value, $variables);
+                    if (in_array($name, self::VARIABLE_REFERENCED_PROPERTIES, true) || in_array($name, array('color', 'background-color'), true)) $value = $this->resolveVariableReferences($value, $variables);
                     $resolved[$name] = $value;
                     if ('font-family' === $name && $this->representable('body', 'font-family', $value) && !in_array(strtolower($value), self::CSS_WIDE_KEYWORDS, true)) $fontFamilyStacks[$value] = true;
                 }
@@ -360,6 +360,10 @@ final class ThemeJsonProjection
 
     private function representable(string $target, string $property, string $value): bool
     {
+        // Palette expressions must remain live in Global Styles, including
+        // the editor canvas. Never resolve a scheme-dependent colour to the
+        // reference viewport's literal.
+        if (in_array($property, array('color', 'background-color'), true) && preg_match('/^var\(\s*--[A-Za-z0-9_-]+\s*(?:,[^;{}]+)?\)$/', $value)) return true;
         if (str_contains($value, 'var(') || str_contains($value, 'calc(')) return false;
         if (in_array($property, array('color', 'background-color'), true)) {
             // The button element style reaches every button block's link, and
@@ -368,7 +372,7 @@ final class ThemeJsonProjection
             // declares `button{background-color:transparent}`) would hide that
             // text instead of the platform default it clears. The reset stays
             // source-owned; the theme states no element button fill.
-            if ('element:button' === $target && 'background-color' === $property && self::isTransparentColor($value)) return false;
+            if (str_starts_with($target, 'element:') && 'background-color' === $property && self::isTransparentColor($value)) return false;
             return (bool) preg_match('/^(?:#[0-9a-f]{3,8}|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\([^;]+\)|[a-z]+)$/i', $value);
         }
         if (in_array($property, array('font-family', 'font-size', 'line-height', 'font-weight', 'letter-spacing', 'text-transform', 'font-style'), true)) return true;
@@ -508,7 +512,9 @@ final class ThemeJsonProjection
         $family = fn(string $value): string => null !== ($slug = $system->fontFamilySlug($value)) ? 'var:preset|font-family|' . $slug : $value;
         if (isset($system->root['background'])) $styles['color']['background'] ??= $color($system->root['background']);
         if (isset($system->root['color'])) $styles['color']['text'] ??= $color($system->root['color']);
-        if (isset($system->root['font_family'])) $styles['typography']['fontFamily'] ??= $family($system->root['font_family']);
+        if (!empty($system->root['font_family'])) $styles['typography']['fontFamily'] = $family($system->root['font_family']);
+        if (isset($system->root['font_size'])) $styles['typography']['fontSize'] = $this->systemValue($system, 'font-size', $system->root['font_size']);
+        if (isset($system->root['line_height'])) $styles['typography']['lineHeight'] = $system->root['line_height'];
         // A heading colour equal to the root text colour is the colour
         // headings inherit, not one the source styles them with: as an
         // element style it is a no-op at the root, while WordPress's

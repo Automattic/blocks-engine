@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 /**
@@ -1577,8 +1578,6 @@ final class PresetBinding
     /** Core's serialize_block_attributes() encoding. */
     private static function encode(\stdClass $attributes): string
     {
-        $json = json_encode($attributes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if (false === $json) return '';
-        return strtr($json, array('\\\\' => '\\u005c', '--' => '\\u002d\\u002d', '<' => '\\u003c', '>' => '\\u003e', '&' => '\\u0026', '\\"' => '\\u0022'));
+        return BlockAttributes::encode($attributes);
     }
 }

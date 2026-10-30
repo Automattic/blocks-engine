@@ -47,6 +47,8 @@ final class StylesheetAssetStage
             return;
         }
 
+        (new CoreSelectorScoping())->assertScoped($css, 'generated:' . $placement);
+
         $content = $css . "\n";
         $hash = hash('sha256', $content);
         $path = 'assets/css/' . $pathPrefix . '-' . substr($hash, 0, 16) . '.css';
@@ -79,6 +81,11 @@ final class StylesheetAssetStage
         if ( '' === $path || '' === $css ) {
             return;
         }
+
+        // Deliberately not invariant-checked: projected author stylesheets keep
+        // authored rules whose selectors matched source markup, and source
+        // pages legitimately style their own `wp-block-*`-shaped classes. The
+        // invariant governs compiler-authored CSS, which `generated()` covers.
 
         $content = $css . "\n";
         $hash = hash('sha256', $content);

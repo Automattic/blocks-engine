@@ -17,22 +17,22 @@ $failures = array();
 $assert = static function (bool $ok, string $message) use (&$failures): void {
     if (!$ok) $failures[] = $message;
 };
-$assert(str_contains($markup, '<!-- wp:button '), 'the link is lowered to a native button');
+$assert(str_contains($markup, '<!-- wp:paragraph ') && !str_contains($markup, '<!-- wp:button '), 'the unpainted link stays in a native non-button host');
 $document = new DOMDocument();
 @$document->loadHTML('<html><body>' . $markup . '</body></html>');
 $name = (new DOMXPath($document))->query('//a//b')->item(0);
 $assert($name instanceof DOMElement, 'the label retains its unclassed bold descendant');
 if ($name instanceof DOMElement) {
     $assert(!str_contains($name->getAttribute('style'), 'font-size:'), 'conditional size is not frozen inline');
-    $assert(str_contains($name->getAttribute('style'), 'font-weight:700'), 'unrelated static typography is still projected');
+    $assert(str_contains($css, 'font-weight:700'), 'unrelated static typography remains authored');
     $responsiveRule = false;
     (new CssStylesheetTransformer())->visitStyleRules($css, static function (string $selector, string $body, array $conditions) use (&$responsiveRule): void {
-        if (str_contains($selector, '.wp-block-button__link') && str_contains($selector, ' b')
+        if (str_contains($selector, '.brand') && str_contains($selector, ' b')
             && str_contains($body, 'font-size:1.3rem') && in_array('@media (max-width:560px)', $conditions, true)) {
             $responsiveRule = true;
         }
     });
-    $assert($responsiveRule, 'the conditional size rule still addresses the lowered button descendant');
+    $assert($responsiveRule, 'the conditional size rule still addresses the linked descendant');
 }
 if ($failures) {
     foreach ($failures as $message) fwrite(STDERR, "FAIL: {$message}\n");

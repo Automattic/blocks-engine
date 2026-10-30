@@ -5,6 +5,19 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
 final class TransformationEvidenceState
 {
+    /** @var list<array<string, mixed>> */
+    private array $emptyDecorationDiagnostics = array();
+
+    public function recordEmptyDecoration(array $finding): void
+    {
+        $this->emptyDecorationDiagnostics[] = $finding;
+    }
+
+    public function emptyDecorationDiagnostics(): array
+    {
+        return $this->emptyDecorationDiagnostics;
+    }
+
     /** @var list<string> */
     private array $formControlEchoTexts = array();
 
@@ -35,6 +48,12 @@ final class TransformationEvidenceState
     /** @var array<string, array{selector: string, reason: string}> */
     private array $gridPlacementCarrierFindings = array();
 
+    /** @var list<array{selector: string, reason: string}> */
+    private array $unscopedCoreSelectorDrops = array();
+
+    /** @var array<string, true> */
+    private array $unscopedCoreSelectorDropKeys = array();
+
     public function recordFormControlEcho(string $text): void
     {
         $text = trim($text);
@@ -53,6 +72,30 @@ final class TransformationEvidenceState
     public function recordFrozenHiddenState(array $finding): void
     {
         $this->frozenHiddenStateFindings[] = $finding;
+    }
+
+    /**
+     * Records an author-selector projection arm dropped because it targeted a
+     * core block class with no importer-emitted class anywhere in its chain
+     * and no owner class was available to scope it with.
+     *
+     * @param string $selector The authored selector whose arm was dropped.
+     * @param string $reason   Stable machine reason for the drop.
+     */
+    public function recordUnscopedCoreSelectorDrop(string $selector, string $reason): void
+    {
+        $key = $reason . "\0" . $selector;
+        if ( isset($this->unscopedCoreSelectorDropKeys[$key]) ) {
+            return;
+        }
+        $this->unscopedCoreSelectorDropKeys[$key] = true;
+        $this->unscopedCoreSelectorDrops[] = array('selector' => $selector, 'reason' => $reason);
+    }
+
+    /** @return list<array{selector: string, reason: string}> */
+    public function unscopedCoreSelectorDrops(): array
+    {
+        return $this->unscopedCoreSelectorDrops;
     }
 
     /** @return list<array<string, mixed>> */

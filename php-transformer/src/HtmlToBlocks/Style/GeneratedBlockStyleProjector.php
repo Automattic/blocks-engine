@@ -60,7 +60,7 @@ final class GeneratedBlockStyleProjector
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $className);
             $generatedStyles->registerNavigationSubmenuBackground($className, $submenuBackground);
         }
-        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: array();
         if ( 'core/navigation' === $name && is_array($fallback['spacing']['padding'] ?? null) ) {
             foreach ( $classes as $class ) {
                 if ( 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
@@ -242,7 +242,7 @@ final class GeneratedBlockStyleProjector
             $inlineDeclarations = $this->styleResolver->cssDeclarations($sourceControl->getAttribute('style'));
             $hasAuthoredWidth = isset($inlineDeclarations['width'])
                 || array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
-            $definiteAncestorWidth = $hasAuthoredWidth ? '' : $this->definiteAncestorWidth($sourceControl);
+            $definiteAncestorWidth = $hasAuthoredWidth ? '' : $this->definiteAncestorWidth($sourceControl, $sourceDeclarations);
             $stretchingFlex = $this->sourceControlStretchesFlex($sourceDeclarations);
             $height = CssValueInspector::comparable((string) ($sourceDeclarations['height'] ?? ''));
             if ( '' !== $definiteAncestorWidth ) {
@@ -284,8 +284,14 @@ final class GeneratedBlockStyleProjector
                 // width; an intrinsic one would shrink it to its label.
             } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex', 'inline-block', 'inline-grid', 'inline-table' ), true) ) {
                 if ( 'center' === $inheritedTextAlignment ) {
-                    $outerWrapperDeclarations[] = 'width:100%';
-                    $outerWrapperDeclarations[] = 'max-width:100%';
+                    // A flex or grid item shrinks to its content unless told to
+                    // fill. In block flow the wrapper already spans its line,
+                    // inside the margins the control's rules may give it; a
+                    // 100% width would push it past them and off center.
+                    if ( ! $this->sourceParentIsBlockContainer($sourceControl) ) {
+                        $outerWrapperDeclarations[] = 'width:100%';
+                        $outerWrapperDeclarations[] = 'max-width:100%';
+                    }
                 } else {
                     $outerWrapperDeclarations[] = 'width:max-content';
                     $outerWrapperDeclarations[] = 'max-width:100%';
@@ -590,13 +596,28 @@ final class GeneratedBlockStyleProjector
             $parentDisplays = array_merge($parentDisplays, array_values($this->styleResolver->conditionalDisplayRules($parent)));
         }
         $isFlex = (bool) array_intersect(array_map(CssValueInspector::comparable(...), $parentDisplays), array('flex', 'inline-flex'));
+        $isGrid = in_array(CssValueInspector::comparable((string) ($parentStyle['display'] ?? '')), array('grid', 'inline-grid'), true);
+        $controlStyle = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($control));
+        $alignment = CssValueInspector::comparable((string) ($controlStyle['align-self'] ?? 'auto'));
+        if ( 'auto' === $alignment ) $alignment = CssValueInspector::comparable((string) ($parentStyle['align-items'] ?? 'normal'));
+        $stretchesHeight = $isGrid
+            && in_array($alignment, array('normal', 'stretch'), true)
+            && in_array(CssValueInspector::comparable((string) ($controlStyle['height'] ?? 'auto')), array('', 'auto'), true);
+        // A grid item's stretched track height reaches the link through flex
+        // carriers, since a percentage height cannot resolve against the
+        // auto-height block wrapper. Flex rows keep the height:100% path.
+        $stretchRule = $stretchesHeight
+            ? $wrapper . '{display:flex!important;align-items:stretch!important}'
+                . $button . '{display:flex!important;align-items:stretch!important;width:100%;flex:1}'
+                . $link . '{height:auto!important}'
+            : '';
         // The wrapper stands in for the source control as its parent's flex or
         // grid item. When the source kept CSS's automatic minimum size, the
         // wrapper must keep it too: zeroing it lets the row shrink below its
         // nowrap labels, which lowers an ancestor grid item's min-content
         // contribution and shifts `fr` tracks away from the source resolution.
         $wrapperFloor = self::sourceControlKeepsAutomaticMinimum(
-            $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($control)),
+            $controlStyle,
             $this->styleResolver->authorStructuralDeclarations($control)
         ) ? '' : ';min-width:0';
         $generatedStyles->registerDirectFlexButton(
@@ -605,7 +626,9 @@ final class GeneratedBlockStyleProjector
                 . $button . '{display:block!important;margin:0!important;min-width:0' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
                 . $link . '{box-sizing:border-box' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
                 . ($hasWidth || ! $isFlex ? '' : $wrapper . '{width:auto!important}')
-                . ($isFlex ? $button . '{width:100%!important;height:100%}' . $link . '{width:100%!important;height:100%}' : '')
+                . ($isGrid ? $button . '{width:100%}' : '')
+                . ($isFlex ? $button . '{width:100%!important;height:100%}' . $link . '{' . ($hasWidth ? '' : 'width:100%!important;') . 'height:100%}' : '')
+                . $stretchRule
         );
     }
 
@@ -817,6 +840,17 @@ final class GeneratedBlockStyleProjector
         return in_array($parentDisplay, array( '', 'block', 'flow-root', 'list-item' ), true);
     }
 
+    private function sourceParentIsBlockContainer(DOMElement $sourceControl): bool
+    {
+        $parent = $sourceControl->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $display = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? ''));
+
+        return in_array($display, array( '', 'block', 'flow-root', 'list-item', 'inline-block', 'table-cell' ), true);
+    }
+
     private function sourceControlFillsGridCell(DOMElement $sourceControl, array $sourceDeclarations): bool
     {
         if ( ! in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'grid', 'table' ), true) ) {
@@ -854,14 +888,30 @@ final class GeneratedBlockStyleProjector
             || 1 === preg_match('/^[1-9]/', $flex);
     }
 
-    private function definiteAncestorWidth(DOMElement $sourceControl): string
+    /**
+     * The px width of the nearest sized ancestor, when the control actually
+     * fills it. Only a block-level control spans its container, and only
+     * through ancestors in block flow: an inline-level control, or any
+     * shrink-to-fit, flex, floated or out-of-flow box on the way up, sizes the
+     * control to its content instead of the sized ancestor.
+     *
+     * @param array<string, string> $sourceDeclarations
+     */
+    private function definiteAncestorWidth(DOMElement $sourceControl, array $sourceDeclarations): string
     {
+        if ( ! $this->sourceControlFillsFlowLine($sourceControl, $sourceDeclarations) ) {
+            return '';
+        }
         for ( $ancestor = $sourceControl->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            $width = CssValueInspector::comparable(
-                (string) ($this->styleResolver->presentationDeclarations($ancestor)['width'] ?? '')
-            );
+            $declarations = $this->styleResolver->presentationDeclarations($ancestor);
+            $width = CssValueInspector::comparable((string) ($declarations['width'] ?? ''));
             if ( preg_match('/^(?:\d+(?:\.\d+)?)px$/', $width) ) {
                 return $width;
+            }
+            if ( ! in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( '', 'block', 'flow-root', 'list-item' ), true)
+                || in_array(CssValueInspector::comparable((string) ($declarations['float'] ?? '')), array( 'left', 'right' ), true)
+                || in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true) ) {
+                return '';
             }
         }
 

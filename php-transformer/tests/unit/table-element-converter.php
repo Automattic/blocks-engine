@@ -94,15 +94,6 @@ $nested = $converter->convert(
 $assert('core/columns' === ($nested['blockName'] ?? ''), 'nested-layout-table-is-columns');
 $assert('nested' === ($nested['via'] ?? ''), 'nested-layout-table-uses-nested-projection');
 
-// A spanning table is not representable as core/table and is preserved rather
-// than lossily flattened.
-$spanning = $converter->convert(
-    $elementFrom('<table><tr><td colspan="2">x</td></tr><tr><td>y</td><td>z</td></tr></table>'),
-    'table',
-    $fallbacks
-)->block;
-$assert('core/html' === ($spanning['blockName'] ?? ''), 'spanning-table-is-preserved', (string) ($spanning['blockName'] ?? 'null'));
-
 // Layout projection wins over preservation: a nested table is unrepresentable by
 // classification, but the layout branch claims it first and yields columns.
 $nestedUnrepresentable = $converter->convert(

@@ -34,6 +34,11 @@ final class SvgMaterializer implements SvgElementMaterializer
         private readonly Runtime $runtime
     ) {
     }
+    public function paintsNothing(DOMElement $element): bool
+    {
+        return (new SvgPaintEmptiness($this->styleResolver))->paintsNothing($element);
+    }
+
     /**
      * @return array<string, mixed>|null
      */
@@ -1901,26 +1906,29 @@ final class SvgMaterializer implements SvgElementMaterializer
             'rect', 'stop', 'svg', 'symbol', 'text', 'textpath', 'title', 'tspan', 'use',
         ));
         $allowedAttributes = array_flip(array(
-            'alt', 'amplitude', 'aria-hidden', 'aria-label', 'azimuth', 'basefrequency', 'bias',
+            'alt', 'amplitude', 'aria-hidden', 'aria-label', 'azimuth', 'basefrequency', 'baseprofile', 'bias',
             'class', 'clip-path', 'clip-rule', 'clippathunits', 'cliprule', 'color-interpolation', 'color-interpolation-filters',
             'color', 'color-rendering', 'cx', 'cy', 'd',
             'data-bbox', 'data-color', 'data-testid', 'data-type',
-            'diffuseconstant', 'divisor', 'dominant-baseline', 'dx', 'dy', 'edgemode',
+            'diffuseconstant', 'divisor', 'alignment-baseline', 'dominant-baseline', 'dx', 'dy', 'edgemode',
             'elevation', 'enable-background', 'exponent', 'fill', 'fill-opacity', 'fill-rule', 'fillrule', 'flood-color',
             'flood-opacity', 'font-family',
             'filter', 'filterunits', 'focusable', 'font-size', 'font-style', 'font-weight', 'gradienttransform', 'gradientunits',
-            'height', 'id', 'image-rendering', 'letter-spacing', 'marker-end', 'marker-mid', 'marker-start',
+            'height', 'id', 'image-rendering', 'lengthadjust', 'letter-spacing', 'marker-end', 'marker-mid', 'marker-start',
             'intercept', 'k1', 'k2', 'k3', 'k4', 'kernelmatrix', 'kernelunitlength',
-            'lighting-color', 'markerheight', 'markerunits', 'markerwidth', 'mask', 'mode',
+            'lighting-color', 'limitingconeangle', 'markerheight', 'markerunits', 'markerwidth', 'mask',
+            'maskcontentunits', 'maskunits', 'mode',
             'numoctaves', 'offset', 'opacity', 'operator', 'order', 'orient', 'overflow', 'paint-order',
-            'href', 'patterncontentunits', 'patterntransform', 'patternunits', 'points',
+            'href', 'patterncontentunits', 'patterntransform', 'patternunits', 'pathlength', 'points',
+            'pointsatx', 'pointsaty', 'pointsatz',
             'preservealpha', 'preserveaspectratio', 'primitiveunits', 'r', 'radius', 'refx', 'refy',
             'result', 'role', 'rotate', 'rx', 'ry', 'scale', 'seed', 'shape-rendering', 'slope',
             'specularconstant', 'specularexponent',
             'spreadmethod', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray',
             'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit',
             'stitchtiles', 'stroke-opacity', 'stroke-width', 'stddeviation', 'style', 'surfacescale',
-            'tablevalues', 'targetx', 'targety', 'text-anchor', 'text-rendering', 'transform', 'type',
+            'tablevalues', 'targetx', 'targety', 'text-anchor', 'text-rendering', 'textlength', 'startoffset',
+            'transform', 'type',
             'values', 'vector-effect', 'version', 'viewbox', 'width', 'x', 'x1', 'x2',
             'xchannelselector', 'xlink:href', 'xml:space', 'y', 'y1', 'y2', 'ychannelselector', 'in', 'in2', 'title',
             'xmlns', 'xmlns:xlink',

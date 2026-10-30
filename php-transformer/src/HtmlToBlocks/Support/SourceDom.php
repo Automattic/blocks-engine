@@ -786,11 +786,12 @@ final class SourceDom
     public static function carriesOnlyRichTextInlineImages(DOMElement $element): bool
     {
         $images = $element->getElementsByTagName('img');
-        // Interactive elements (links, buttons, role-bearing controls) keep
-        // their own routes; this is about plain text carriers only.
+        // Buttons, role-bearing controls, and anchors without a navigation
+        // target keep their own routes. Links can carry inline image objects.
         if ( 0 === $images->length
             || $element->hasAttribute('role')
-            || in_array(strtolower($element->tagName), array( 'a', 'button', 'label', 'summary' ), true) ) {
+            || ('a' === strtolower($element->tagName) && '' === self::safeNavigationUrl(self::attr($element, 'href')))
+            || in_array(strtolower($element->tagName), array( 'button', 'label', 'summary' ), true) ) {
             return false;
         }
 
