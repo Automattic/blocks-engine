@@ -4081,15 +4081,17 @@ PHP;
         $replacements = array();
         foreach ($children as $child) {
             $transformed = $this->transformPostChromeRange($markup, $child, $post, $route, $shared);
-            $foundTitle = $foundTitle || $transformed['title'];
-            $foundDate = $foundDate || $transformed['date'];
             $foundShared = $foundShared || $transformed['shared'];
             $body .= $transformed['body'];
             $retained = array_merge($retained, $transformed['retained']);
             if ($transformed['content'] && $emittedContent) {
+                // The subtree leaves the template, and with it any title or
+                // date it placed: neither is found.
                 $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
                 continue;
             }
+            $foundTitle = $foundTitle || $transformed['title'];
+            $foundDate = $foundDate || $transformed['date'];
             if ($transformed['content']) {
                 $emittedContent = true;
             }

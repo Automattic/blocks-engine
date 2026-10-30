@@ -17,18 +17,19 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     if (!$condition) throw new RuntimeException($message . ('' !== $detail ? ' - ' . $detail : ''));
 };
 
-$post = static fn (string $slug, string $name, bool $shareTitle): string => '<!doctype html><html><head><title>Example</title>'
+$post = static fn (string $slug, string $name, bool $shareTitle, bool $signIn = false): string => '<!doctype html><html><head><title>Example</title>'
     . ($shareTitle ? '<meta property="og:title" content="' . $name . '">' : '') . '</head><body>'
     . '<div class="data-blocks-engine-capture-desktop-document" data-blocks-engine-capture-document-scope=""><div class="app"><p><a href="/">Example</a></p>'
+    . ($signIn ? '<p><a href="/signin?redirect=' . $slug . '">Sign in</a></p>' : '')
     . '<div class="data-blocks-engine-capture-dialog" role="dialog" aria-modal="true" hidden data-blocks-engine-capture-dialog-panel="dialog-0"><div class="panel"><h2>Join us.</h2><p><a href="/signup?from=' . $slug . '">Sign up</a></p><p>Create an account to keep reading ' . $name . '.</p></div></div>'
     . '<div class="byline"><h2>Jane Doe</h2></div>'
     . '<article><h1>' . $name . '</h1><p class="date">Dec 1, 2017</p><p>' . $name . ' body text.</p></article>'
     . '<p>Footer</p></div></div></body></html>';
-$compile = static function (bool $shareTitle) use ($post): array {
+$compile = static function (bool $shareTitle, bool $signIn = false) use ($post): array {
     $files = array(
         array('path' => 'index.html', 'content' => '<!doctype html><html><head><title>Example</title></head><body><main><h1>Jane Doe</h1><h2><a href="first/index.html">First story</a></h2><h2><a href="second/index.html">Second story</a></h2></main></body></html>'),
-        array('path' => 'first/index.html', 'content' => $post('first', 'First story', $shareTitle), 'metadata' => array('post_type' => 'post')),
-        array('path' => 'second/index.html', 'content' => $post('second', 'Second story', $shareTitle), 'metadata' => array('post_type' => 'post')),
+        array('path' => 'first/index.html', 'content' => $post('first', 'First story', $shareTitle, $signIn), 'metadata' => array('post_type' => 'post')),
+        array('path' => 'second/index.html', 'content' => $post('second', 'Second story', $shareTitle, $signIn), 'metadata' => array('post_type' => 'post')),
     );
     return (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
 };
@@ -50,5 +51,15 @@ foreach ($plan['pages'] as $page) {
 // Without a share title, a heading inside the closed dialog still never names the post.
 $titles = array_column($compile(false)['pages'], 'title', 'source_path');
 $assert('Join us.' !== ($titles['first/index.html'] ?? null), 'A closed dialog heading never names the post', (string) json_encode($titles));
+
+// A per-post leaf ahead of the article anchors post-content before the title.
+// The title heading that subtree carried must not vanish from both the
+// template and the post.
+$plan = $compile(true, true);
+$single = (string) (array_column($plan['templates'], null, 'slug')['single']['canonical_block_markup'] ?? '');
+foreach ($plan['pages'] as $page) {
+    if ('post' !== $page['post_type']) continue;
+    $assert(str_contains($single, '<!-- wp:post-title') || str_contains($page['canonical_block_markup'], '<h1 class="wp-block-heading">' . $page['title'] . '</h1>'), 'The post title still renders', $single . "\n" . $page['canonical_block_markup']);
+}
 
 echo "post title closed dialog: passed\n";
