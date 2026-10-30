@@ -172,8 +172,10 @@ $assert(
     'The resolved quoted font stack is HTML-escaped inside the standalone SVG style attribute.'
 );
 $assert(
-    str_contains($quotedFontStyle[1] ?? '', 'display:block') && str_contains($quotedFontStyle[1] ?? '', 'height:auto') && str_contains($quotedFontStyle[1] ?? '', 'width:100%'),
-    'Box geometry composed onto the root SVG shares the escaped style attribute with the resolved font stack.'
+    str_contains($quotedFontStyle[1] ?? '', 'display:block') && str_contains($quotedFontStyle[1] ?? '', 'JetBrains Mono')
+        && 1 === preg_match('/<svg\b[^>]*\swidth="100" height="84"/', $quotedFontContent)
+        && ! str_contains($quotedFontStyle[1] ?? '', 'width:100%') && ! str_contains($quotedFontStyle[1] ?? '', 'height:auto'),
+    'Box geometry composed onto the root SVG shares the escaped style attribute with the resolved font stack, and a percentage width becomes viewBox intrinsic dimensions.'
 );
 $assert(! str_contains($quotedFontContent, 'var(--font-mono)'), 'The standalone SVG asset does not retain the unresolved font-family custom property.');
 
