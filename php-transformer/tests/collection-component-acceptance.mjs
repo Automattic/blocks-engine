@@ -4,25 +4,30 @@ const base = process.env.BE_EDITOR_WP_URL, id = process.env.BE_EDITOR_POST_ID;
 const browser = await chromium.launch();
 const page = await browser.newPage();
 const errors = [];
+await page.addInitScript(() => { window.visibleRecords = () => [...document.querySelectorAll('article')].filter(n => !n.hidden && getComputedStyle(n).display !== 'none').map(n => Number(n.textContent.match(/Record (\d+)/)[1])); });
 page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
 page.on('pageerror', error => errors.push(String(error)));
 try {
  await page.goto(`${base}/?page_id=${id}`, { waitUntil: 'networkidle' });
  assert.deepEqual(errors, [], 'front-end console errors');
- const records = () => page.locator('article').evaluateAll(nodes => nodes.filter(n => !n.hidden && getComputedStyle(n).display !== 'none').map(n => Number(n.textContent.match(/Record (\d+)/)[1])));
+ // Interactivity watches flush asynchronously; wait for the expected set, then assert it exactly.
+ const expectRecords = async expected => {
+  await page.waitForFunction(want => JSON.stringify(window.visibleRecords()) === JSON.stringify(want), expected).catch(() => {});
+  assert.deepEqual(await page.evaluate(() => window.visibleRecords()), expected);
+ };
  const all = Array.from({length:16}, (_, i) => i);
- assert.deepEqual(await records(), all);
+ await expectRecords(all);
  for (const [index, label] of ['Alpha', 'Beta', 'Gamma'].entries()) {
   await page.getByRole('button', {name:label, exact:true}).click();
-  assert.deepEqual(await records(), all.filter(i => i % 3 === index));
+  await expectRecords(all.filter(i => i % 3 === index));
  }
  await page.getByRole('button', {name:'Reset', exact:true}).click();
- assert.deepEqual(await records(), all);
+ await expectRecords(all);
  await page.getByRole('searchbox').fill('no such record');
  await page.getByText('No matching captured records.', {exact:true}).waitFor({state:'visible'});
- assert.deepEqual(await records(), []);
+ await expectRecords([]);
  await page.getByRole('searchbox').fill('');
- assert.deepEqual(await records(), all);
+ await expectRecords(all);
  await page.goto(`${base}/wp-login.php`);
  await page.getByLabel('Username or Email Address').fill(process.env.BE_EDITOR_USER);
  await page.getByRole('textbox', {name:'Password'}).fill(process.env.BE_EDITOR_PASSWORD);
