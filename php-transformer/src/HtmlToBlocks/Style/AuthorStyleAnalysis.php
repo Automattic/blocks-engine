@@ -45,6 +45,8 @@ final class AuthorStyleAnalysis
     private int $markerCounter = 0;
     /** @var array{string, string} */
     private readonly array $markerCollisionTexts;
+    /** @var array<string, true>|null */
+    private ?array $markerCollisionIndex = null;
     /** @var list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> */
     private readonly array $stylesheetAssets;
     private readonly string $specificityShim;
@@ -158,7 +160,7 @@ final class AuthorStyleAnalysis
         }
         do {
             $marker = 'blocks-engine-' . $kind . '-' . $this->markerSeed . '-' . $this->markerCounter++;
-        } while ( str_contains($this->markerCollisionTexts[0], $marker) || str_contains($this->markerCollisionTexts[1], $marker) );
+        } while ( $this->markerCollides($marker) );
         return $marker;
     }
 
@@ -171,8 +173,53 @@ final class AuthorStyleAnalysis
         $counter = 0;
         do {
             $marker = 'blocks-engine-' . $kind . '-' . $seed . '-' . $counter++;
-        } while ( str_contains($this->markerCollisionTexts[0], $marker) || str_contains($this->markerCollisionTexts[1], $marker) );
+        } while ( $this->markerCollides($marker) );
         return $marker;
+    }
+
+    /** Whether the document HTML or the combined author CSS already states `$marker`. */
+    private function markerCollides(string $marker): bool
+    {
+        return isset($this->markerCollisionIndex()[$marker]);
+    }
+
+    /**
+     * One index of the engine-marker text already present in the document HTML
+     * and the combined author CSS, so allocating a marker is a hash lookup
+     * instead of a scan of both texts per candidate.
+     *
+     * Every allocated marker is `blocks-engine-` followed by lowercase marker
+     * characters (the kind, the hex seed and the decimal counter) and ends in
+     * its counter's digits. The texts contain a marker exactly when they
+     * contain the prefix and the marker characters after that occurrence run
+     * on through the whole marker, so indexing every digit-ending prefix of
+     * each such run answers the old str_contains() scan exactly. Sources
+     * without the prefix — nearly all of them — build an empty index, and a
+     * source reusing engine markers indexes each prefix occurrence, including one
+     * nested inside another's run.
+     * `$markerCollisionTexts` is written only by the constructor, so the lazy
+     * index can never go stale.
+     */
+    private function markerCollisionIndex(): array
+    {
+        if ( null !== $this->markerCollisionIndex ) {
+            return $this->markerCollisionIndex;
+        }
+        $index = array();
+        foreach ( $this->markerCollisionTexts as $text ) {
+            $offset = 0;
+            while ( false !== ( $position = strpos($text, 'blocks-engine-', $offset) ) ) {
+                $start = $position + strlen('blocks-engine-');
+                $run = strspn($text, 'abcdefghijklmnopqrstuvwxyz0123456789-', $start);
+                for ( $end = 0; $end < $run; $end++ ) {
+                    if ( $text[$start + $end] >= '0' && $text[$start + $end] <= '9' ) {
+                        $index[substr($text, $position, strlen('blocks-engine-') + $end + 1)] = true;
+                    }
+                }
+                $offset = $position + 1;
+            }
+        }
+        return $this->markerCollisionIndex = $index;
     }
 
     /**
