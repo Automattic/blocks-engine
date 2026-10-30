@@ -105,6 +105,8 @@ final class CssStylesheetChunker
     {
         $state = CssSyntaxScanner::state();
         for ($index = $offset, $length = strlen($css); $index < $length; ) {
+            $index = CssSyntaxScanner::inertEnd($css, $index, $state, '{;');
+            if ($index >= $length) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($css, $index, $state);
             if (null === $next) {
@@ -123,6 +125,8 @@ final class CssStylesheetChunker
         $state = CssSyntaxScanner::state();
         $depth = 0;
         for ($index = $openingBrace, $length = strlen($css); $index < $length; ) {
+            $index = CssSyntaxScanner::inertEnd($css, $index, $state, '{}');
+            if ($index >= $length) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($css, $index, $state);
             if (null === $next) {
@@ -142,6 +146,17 @@ final class CssStylesheetChunker
     {
         $state = CssSyntaxScanner::state();
         for ($offset = 0, $length = strlen($value); $offset < $length; ) {
+            $end = CssSyntaxScanner::inertEnd($value, $offset, $state);
+            if ($end > $offset) {
+                if (CssSyntaxScanner::isTopLevel($state)) {
+                    $significant = $offset + strspn($value, " \t\n\r\f", $offset, $end - $offset);
+                    if ($significant < $end) {
+                        return $value[$significant];
+                    }
+                }
+                $offset = $end;
+                continue;
+            }
             $next = CssSyntaxScanner::consume($value, $offset, $state);
             if (null === $next) {
                 return '';

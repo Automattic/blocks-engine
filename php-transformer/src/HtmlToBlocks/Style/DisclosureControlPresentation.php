@@ -51,11 +51,46 @@ final class DisclosureControlPresentation
      * carries it as block metadata so the theme renders the actual SVG into
      * core's icon slot; its saved markup stays core's exact shape.
      *
+     * `$row` is the source header row that holds the label and, at its inline
+     * end, the source icon when the control itself does not contain one — an
+     * item-level control whose title is a bare heading beside its icon. The
+     * icon is carried from it, and the row's gap travels with the icon so the
+     * label wraps where it did in the source.
+     *
      * @return array{className: string, iconSvg: string}
      */
-    public function accordionToggle(DOMElement $control): array
+    public function accordionToggle(DOMElement $control, ?DOMElement $row = null): array
     {
-        return $this->disclosureControlPresentation($control, 'blocks-engine-accordion-toggle-');
+        return $this->disclosureControlPresentation($control, 'blocks-engine-accordion-toggle-', $row);
+    }
+
+    /**
+     * The source item's own box — padding and border — as core/accordion-item
+     * style attributes.
+     *
+     * The item's source classes still travel, but the rules that box it often
+     * address it through the list structure core/accordion replaces, so the
+     * resolved, unconditional box is stated on the block itself. A family the
+     * source conditions per viewport is left to the source cascade: an inline
+     * reference-viewport value would outrank the author's responsive rule.
+     *
+     * @return array<string, string>
+     */
+    public function accordionItemBox(DOMElement $item): array
+    {
+        $declarations = $this->styles->safeVisualDeclarations($this->styles->resolvedPresentationDeclarations($item));
+        $box = array();
+        foreach ( $declarations as $property => $value ) {
+            if ( ! preg_match('/^(?:padding|border)(?:-(?:top|right|bottom|left))?(?:-(?:width|style|color))?$/', $property) ) {
+                continue;
+            }
+            if ( array() !== $this->styles->declaredPresentation($item, $property)->conditional() ) {
+                continue;
+            }
+            $box[$property] = $this->styles->resolveCssVariablesInValue($value, $item);
+        }
+
+        return $box;
     }
 
     /**
@@ -86,10 +121,11 @@ final class DisclosureControlPresentation
      *
      * @return array{className: string, iconSvg: string}
      */
-    private function disclosureControlPresentation(DOMElement $control, string $prefix): array
+    private function disclosureControlPresentation(DOMElement $control, string $prefix, ?DOMElement $row = null): array
     {
         $conditionalDisplay = $this->styles->conditionalDisplayRules($control);
         $isSummary = str_starts_with($prefix, 'blocks-engine-disclosure-summary-');
+        $isAccordionToggle = str_starts_with($prefix, 'blocks-engine-accordion-toggle-');
         $hasContentCarrier = $isSummary && $this->summaryHasContentCarrier($control);
         $css = $this->disclosureControlCarriedCss(
             $control,
@@ -97,6 +133,23 @@ final class DisclosureControlPresentation
             $isSummary,
             $isSummary && ! $hasContentCarrier
         );
+        // A synthesized summary replaces a button-like control, not a native
+        // disclosure marker. Native summary sources retain their own chrome.
+        $suppressMarker = $isSummary && 'summary' !== strtolower($control->tagName);
+        if ( $suppressMarker ) {
+            $css = '' !== $css ? $css . ';list-style:none' : 'list-style:none';
+        }
+        $icon = array();
+        $iconSource = null;
+        if ( $isAccordionToggle ) {
+            $icon = $this->accordionIcon($control);
+            $iconSource = isset($icon['svg']) ? $control : null;
+            if ( array() === $icon && $row instanceof DOMElement && ! $row->isSameNode($control) ) {
+                $icon = $this->accordionIcon($row);
+                $iconSource = isset($icon['svg']) ? $row : null;
+            }
+            $css = $this->accordionToggleBoxCss($control, $row, $iconSource, $css);
+        }
         $carrierCss = $hasContentCarrier
             ? $this->disclosureControlCarriedCss($control, array() !== $conditionalDisplay, true, true)
             : '';
@@ -108,7 +161,6 @@ final class DisclosureControlPresentation
             // span must not turn it into inline text and change its wrapping.
             $titleCss .= ';display:contents';
         }
-        $icon = str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ? $this->accordionIcon($control) : array();
         if ( '' === $css && '' === $carrierCss && array() === $conditionalDisplay && array() === $conditionalPresentation && array() === $icon ) {
             return array('className' => '', 'iconSvg' => '');
         }
@@ -118,7 +170,7 @@ final class DisclosureControlPresentation
             if ( str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ) {
                 $this->support->registerAccordionTogglePresentation($marker, $css);
             } else {
-                $this->support->registerDisclosureSummaryPresentation($marker, $css);
+                $this->support->registerDisclosureSummaryPresentation($marker, $css, $suppressMarker);
             }
         }
         if ( '' !== $carrierCss ) {
@@ -143,7 +195,80 @@ final class DisclosureControlPresentation
         return array('className' => $marker, 'iconSvg' => $icon['svg'] ?? '');
     }
 
-    /** Core owns the icon span; carry observed passive SVG artwork through CSS.
+    /**
+     * The toggle box core/accordion-heading's button must hold.
+     *
+     * Core lays the toggle out as a flex row (title, then icon) and pads it
+     * through the destination theme's `spacing-20` preset. The source header's
+     * own padding is therefore always stated — `0` when the source has none —
+     * so row height never depends on the destination spacing scale. Core's flex
+     * display stays: a source `display:block` would push the icon under the
+     * title. With a carried source icon, the source row's gap and cross-axis
+     * alignment ride on the toggle so the icon sits at the row's inline end
+     * after the same gap, and the label wraps where it did in the source.
+     */
+    private function accordionToggleBoxCss(DOMElement $control, ?DOMElement $row, ?DOMElement $iconSource, string $css): string
+    {
+        $carried = $this->styles->cssDeclarations($css);
+        unset($carried['display']);
+        $isPadding = static fn (string $property): bool => 1 === preg_match('/^padding(?:-[a-z-]+)?$/', $property);
+        $hasPadding = array() !== array_filter(array_keys($carried), $isPadding);
+        if ( ! $hasPadding && $row instanceof DOMElement && ! $row->isSameNode($control) ) {
+            foreach ( $this->styles->safeVisualDeclarations($this->styles->resolvedPresentationDeclarations($row)) as $property => $value ) {
+                if ( $isPadding($property) ) {
+                    $carried[$property] = $value;
+                    $hasPadding = true;
+                }
+            }
+        }
+        // Core's own saved toggle (re-reading engine or editor output) already
+        // has core's padding as its source padding; zeroing it would change it.
+        $isCoreToggle = in_array('wp-block-accordion-heading__toggle', preg_split('/\s+/', $control->getAttribute('class')) ?: array(), true);
+        $box = $hasPadding || $isCoreToggle ? array() : array('padding' => '0');
+        if ( $iconSource instanceof DOMElement ) {
+            $box = array_merge($box, $this->accordionIconRowLayout($iconSource));
+        }
+
+        return $this->styles->cssDeclarationString(array_merge($box, $carried));
+    }
+
+    /**
+     * The flex row that holds the source label and its end icon.
+     *
+     * @return array<string, string>
+     */
+    private function accordionIconRowLayout(DOMElement $iconSource): array
+    {
+        $svg = $iconSource->getElementsByTagName('svg')->item(0);
+        $layout = array('column-gap' => '0');
+        for ( $node = $svg?->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $declarations = $this->styles->resolvedPresentationDeclarations($node);
+            $display = strtolower(trim((string) ($declarations['display'] ?? '')));
+            $direction = strtolower(trim((string) ($declarations['flex-direction'] ?? 'row')));
+            if ( in_array($display, array('flex', 'inline-flex'), true) && in_array($direction, array('row', ''), true) ) {
+                $gap = trim((string) ($declarations['column-gap'] ?? ''));
+                if ( '' === $gap ) {
+                    $parts = preg_split('/\s+/', trim((string) ($declarations['gap'] ?? ''))) ?: array();
+                    $gap = (string) end($parts);
+                }
+                if ( '' !== $gap && 'normal' !== strtolower($gap) ) {
+                    $layout['column-gap'] = $this->styles->resolveCssVariablesInValue($gap, $node);
+                }
+                $alignItems = trim((string) ($declarations['align-items'] ?? ''));
+                if ( '' !== $alignItems ) {
+                    $layout['align-items'] = $alignItems;
+                }
+                break;
+            }
+            if ( $node->isSameNode($iconSource) ) {
+                break;
+            }
+        }
+
+        return $this->styles->safeVisualDeclarations($layout);
+    }
+
+    /** Core owns the icon span; carry matching text-icon geometry or passive SVG artwork.
      * Expanded class/style attributes come from a verified producer drive.
      * No icon shape or vendor class name defines an expanded-state rotation.
      * @return array<string, string>
@@ -151,6 +276,17 @@ final class DisclosureControlPresentation
     private function accordionIcon(DOMElement $control): array
     {
         $icons = $control->getElementsByTagName('svg');
+        if ( 0 === $icons->length && ! in_array('wp-block-accordion-heading__toggle', preg_split('/\s+/', $control->getAttribute('class')) ?: array(), true) ) {
+            // Core's text icon has a fixed 1.2em box. A source using the same
+            // glyph with an intrinsic box must not acquire that minimum height.
+            foreach ( $control->getElementsByTagName('span') as $span ) {
+                if ( 'true' !== $span->getAttribute('aria-hidden') || '+' !== trim($span->textContent) ) continue;
+                $declarations = $this->styles->safeVisualDeclarations($this->styles->resolvedPresentationDeclarations($span));
+                $box = array_intersect_key($declarations, array_flip(array('width', 'height', 'min-width', 'min-height', 'font-size', 'line-height')));
+                $css = $this->styles->cssDeclarationString(array_merge(array('width' => 'auto', 'height' => 'auto'), $box));
+                return array('closed' => $css, 'open' => $css);
+            }
+        }
         if ( null === $this->svgMarkup || 1 !== $icons->length ) return array();
         $svg = $icons->item(0);
         if ( ! $svg instanceof DOMElement || ! SourceDom::svgHasDrawableContent($svg) ) return array();
@@ -253,9 +389,15 @@ final class DisclosureControlPresentation
         // restating it on the summary reaches the label again, and any rule the
         // label still owns keeps winning over it.
         $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
-        // A source button inherits body type; the generated h3 introduces a
-        // theme heading font between it and that ancestor. Carry the authored
-        // inherited winner across that new semantic wrapper.
+        // Buttons do not inherit line-height by default. Preserve their UA
+        // normal line box rather than walking past the control to body type.
+        // Explicit values (including inherit) still use the authored cascade.
+        if ( ! $carrySummaryLayout && 'button' === strtolower($control->tagName) && ! isset($declarations['line-height'])
+            && ! in_array('wp-block-accordion-heading__toggle', preg_split('/\s+/', $control->getAttribute('class')) ?: array(), true) ) {
+            $carried['line-height'] = 'normal';
+        }
+        // The generated h3 introduces theme heading type between the control
+        // and its source ancestors. Carry explicitly inherited winners across it.
         foreach ( array('font-family', 'line-height') as $property ) {
             if ( ! isset($carried[$property]) || in_array(strtolower(trim($carried[$property])), array('inherit', 'unset'), true) ) {
                 $value = $this->styles->authoredInheritedPropertyWinner($control, $property);

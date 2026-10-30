@@ -27,4 +27,15 @@ $assert(1 === preg_match('/@layer blocks-engine-reset\{[^@]*blocks-engine-css-ow
 $plain = $css($base);
 $assert(! str_contains($plain, 'blocks-engine-reset') && ! str_contains($plain, '@layer'), 'unlayered author CSS output is unchanged');
 $assert(str_contains($plain, 'blocks-engine-css-owned-flow'), 'unlayered output keeps the plain reset');
+// A capture tool's own layer (for example the disclosure base) is capture
+// vocabulary, not author layering: unlayered author CSS keeps losing to the
+// engine resets by specificity, so the resets stay unlayered.
+$captureLayer = '@layer data-blocks-engine-capture-disclosure-base{:where(details.data-blocks-engine-capture-disclosure>summary){list-style:none}}';
+$captured = $css($captureLayer . $base);
+$assert(! str_contains($captured, 'blocks-engine-reset'), 'a capture-vocabulary layer alone leaves the engine resets unlayered');
+$assert(str_contains($captured, 'blocks-engine-css-owned-flow'), 'capture-layered output keeps the plain reset');
+$assert(1 === preg_match('/@layer\s+data-blocks-engine-capture-disclosure-base\s*;/', $captured), 'the capture layer order is still pinned ahead of engine CSS');
+
+$mixed = $css($captureLayer . '@layer utilities{' . $base . '}');
+$assert(1 === preg_match('/@layer\s+blocks-engine-reset\s*,\s*data-blocks-engine-capture-disclosure-base\s*,\s*utilities\s*;/', $mixed), 'an authored layer next to the capture layer still moves the resets into the engine layer');
 echo "ok\n";

@@ -13,6 +13,36 @@ use DOMNode;
 final class CssSelectorMatcher
 {
     /**
+     * Parse the An+B microsyntax, without the unsupported `of S` extension.
+     *
+     * @return array{a:int,b:int}|null
+     */
+    public static function parseNthExpression(string $argument): ?array
+    {
+        $argument = strtolower(trim($argument, " \t\n\r\f"));
+        if ( 'odd' === $argument || 'even' === $argument ) {
+            return array( 'a' => 2, 'b' => 'odd' === $argument ? 1 : 0 );
+        }
+        if ( preg_match('/^[+-]?[0-9]+$/D', $argument) ) {
+            return array( 'a' => 0, 'b' => (int) $argument );
+        }
+        if ( ! preg_match('/^([+-]?)([0-9]*)n(?:[ \t\n\r\f]*([+-])[ \t\n\r\f]*([0-9]+))?$/D', $argument, $parts) ) {
+            return null;
+        }
+        $a = '' === $parts[2] ? 1 : (int) $parts[2];
+        $b = isset($parts[4]) ? (int) $parts[4] : 0;
+        return array( 'a' => '-' === $parts[1] ? -$a : $a, 'b' => '-' === ($parts[3] ?? '') ? -$b : $b );
+    }
+
+    /** @param array{a:int,b:int} $expression */
+    private static function matchesNthExpression(int $index, array $expression): bool
+    {
+        $a = $expression['a'];
+        $difference = $index - $expression['b'];
+        return 0 === $a ? 0 === $difference : 0 === $difference % $a && $difference / $a >= 0;
+    }
+
+    /**
      * A static pseudo-element paints on a host; its declarations do not style that host.
      *
      * @return array{selector:string,suffix:string,parsed:array<string,mixed>}|null
@@ -28,28 +58,24 @@ final class CssSelectorMatcher
     }
 
     /**
-     * HTML defines these enumerated attribute values as ASCII-case-insensitive
-     * by default, which this matcher does not model.
+     * HTML matches these attributes' values ASCII-case-insensitively in
+     * selectors unless the selector carries an explicit `s` flag (HTML,
+     * "Selectors": case-sensitivity of selectors). Every other attribute is
+     * matched case-sensitively.
      *
-     * Keyed for O(1) membership because every selector match that misses the
-     * cache tests it, and a page can miss hundreds of thousands of times. As a
-     * class constant it is built once at compile time rather than rebuilt on
-     * each of those calls.
+     * Keyed for O(1) membership because every attribute match tests it.
      */
-    private const ENUMERATED_ATTRIBUTES = array(
-        'autocomplete' => true,
-        'contenteditable' => true,
-        'dir' => true,
-        'draggable' => true,
-        'enterkeyhint' => true,
-        'hidden' => true,
-        'inputmode' => true,
-        'kind' => true,
-        'method' => true,
-        'rel' => true,
-        'spellcheck' => true,
-        'translate' => true,
-        'type' => true,
+    private const CASE_INSENSITIVE_ATTRIBUTES = array(
+        'accept' => true, 'accept-charset' => true, 'align' => true, 'alink' => true, 'axis' => true,
+        'bgcolor' => true, 'charset' => true, 'checked' => true, 'clear' => true, 'codetype' => true,
+        'color' => true, 'compact' => true, 'declare' => true, 'defer' => true, 'dir' => true,
+        'direction' => true, 'disabled' => true, 'enctype' => true, 'face' => true, 'frame' => true,
+        'hreflang' => true, 'http-equiv' => true, 'lang' => true, 'language' => true, 'link' => true,
+        'media' => true, 'method' => true, 'multiple' => true, 'nohref' => true, 'noresize' => true,
+        'noshade' => true, 'nowrap' => true, 'readonly' => true, 'rel' => true, 'rev' => true,
+        'rules' => true, 'scope' => true, 'scrolling' => true, 'selected' => true, 'shape' => true,
+        'target' => true, 'text' => true, 'type' => true, 'valign' => true, 'valuetype' => true,
+        'vlink' => true,
     );
 
     /**
@@ -117,6 +143,67 @@ final class CssSelectorMatcher
             'pseudo_state_suffix_span' => $suffix,
             'rightmost_rewrite_end' => $suffix['start'] ?? $rightmost['end'],
         );
+    }
+
+    /**
+     * Type tokens inside selector-taking functions, measured against the source.
+     * Keep these separate from type_spans: its consumers use outer compound
+     * indexes to identify the selector's subject. This lexical walk also works
+     * for :has() and relative selectors outside the static matcher's subset.
+     *
+     * @return list<array{start:int,end:int,name:string,negated:bool}>
+     */
+    public static function functionalTypeSpans(string $selector): array
+    {
+        $spans = array();
+        $state = CssSyntaxScanner::state();
+        $length = strlen($selector);
+        for ( $offset = 0; $offset < $length; ) {
+            if ( ':' === $selector[$offset] && CssSyntaxScanner::isTopLevel($state) ) {
+                $nameEnd = $offset + 1;
+                $name = self::identifier($selector, $nameEnd);
+                if ( null !== $name && '(' === ($selector[$nameEnd] ?? '') ) {
+                    $closing = self::matchingParenthesis($selector, $nameEnd);
+                    if ( null === $closing ) {
+                        break;
+                    }
+                    if ( in_array(strtolower($name), array( 'not', 'is', 'where', 'has' ), true) ) {
+                        $argument = substr($selector, $nameEnd + 1, $closing - $nameEnd - 1);
+                        $alternatives = CssStylesheetTransformer::splitSelectorList($argument) ?? array();
+                        $cursor = 0;
+                        foreach ( $alternatives as $alternative ) {
+                            $start = strpos($argument, $alternative, $cursor);
+                            if ( false === $start ) {
+                                continue;
+                            }
+                            $cursor = $start + strlen($alternative);
+                            $base = $nameEnd + 1 + $start;
+                            // Blank a relative combinator without changing byte offsets.
+                            $relative = preg_replace('/^(\s*)[>+~]/', '$1 ', $alternative);
+                            $tokens = CssSelectorTokenizer::tokenize($relative);
+                            foreach ( $tokens['compound_spans'] as $compoundSpan ) {
+                                $typeStart = $compoundSpan['start'];
+                                self::skipIgnorable($relative, $typeStart);
+                                $typeEnd = $typeStart;
+                                $type = self::identifier($relative, $typeEnd);
+                                if ( null !== $type ) {
+                                    $spans[] = array( 'start' => $base + $typeStart, 'end' => $base + $typeEnd, 'name' => $type, 'negated' => 'not' === strtolower($name) );
+                                }
+                            }
+                            foreach ( self::functionalTypeSpans($alternative) as $span ) {
+                                $span['start'] += $base;
+                                $span['end'] += $base;
+                                $spans[] = $span;
+                            }
+                        }
+                    }
+                    $offset = $closing + 1;
+                    continue;
+                }
+            }
+            $offset = CssSyntaxScanner::consume($selector, $offset, $state) ?? ($offset + 1);
+        }
+        return $spans;
     }
 
     /** @param array<string, mixed> $selector */
@@ -260,14 +347,74 @@ final class CssSelectorMatcher
         if ( null !== ($selector['pseudo_state_suffix_span'] ?? null) && ! $accountForPseudoStateSuffix ) {
             return array( 'supported' => false, 'matches' => false );
         }
-        if ( self::hasUnmodeledHtmlAttributeValueSemantics($selector['compounds']) ) {
-            return array( 'supported' => false, 'matches' => false );
-        }
-
         return array(
             'supported' => true,
             'matches' => self::matchesAt($element, $selector['compounds'], $selector['combinators'], count($selector['compounds']) - 1, $cache),
         );
+    }
+
+    /**
+     * Whether a parsed selector's result depends only on the subject element's
+     * own tag name and attributes.
+     *
+     * That holds for one compound without combinators whose negations and
+     * selector-list arguments are themselves such compounds. Structural
+     * pseudo-classes (`:nth-*`, `:first-child`, `:last-child`, `:root`) read the
+     * element's position, and a combinator reads its neighbours, so either
+     * keeps the result tied to the element. A compound carrying any part this
+     * method does not recognise is treated as positional: a selector match
+     * cache may share a subject-only result between elements with equal
+     * attributes, and only a proven-local selector is safe to share.
+     *
+     * @param array<string, mixed> $selector Result of parse().
+     */
+    public static function dependsOnlyOnSubject(array $selector): bool
+    {
+        if ( ! ($selector['supported'] ?? false) ) {
+            return false;
+        }
+        return self::isSubjectOnlyComplex($selector['compounds'] ?? array(), $selector['combinators'] ?? array());
+    }
+
+    /** @param mixed $compounds @param mixed $combinators */
+    private static function isSubjectOnlyComplex($compounds, $combinators): bool
+    {
+        return is_array($compounds) && 1 === count($compounds) && array() === $combinators
+            && is_array($compounds[0] ?? null) && self::isSubjectOnlyCompound($compounds[0]);
+    }
+
+    /** @param array<string, mixed> $compound */
+    private static function isSubjectOnlyCompound(array $compound): bool
+    {
+        static $known = array(
+            'type' => true, 'universal' => true, 'classes' => true, 'ids' => true, 'attributes' => true,
+            'not' => true, 'any' => true, 'nth_child' => true, 'nth_type' => true, 'first_child' => true,
+            'last_child' => true, 'root' => true, 'resting_state_negations' => true,
+            'zero_specificity' => true, 'forced_zero_specificity' => true,
+        );
+        foreach ( $compound as $key => $value ) {
+            if ( ! isset($known[ $key ]) ) {
+                return false;
+            }
+        }
+        if ( null !== ($compound['nth_child'] ?? null) || null !== ($compound['nth_type'] ?? null)
+            || ! empty($compound['first_child']) || ! empty($compound['last_child']) || ! empty($compound['root'])
+        ) {
+            return false;
+        }
+        foreach ( $compound['not'] ?? array() as $negated ) {
+            if ( ! is_array($negated) || ! self::isSubjectOnlyComplex($negated['compounds'] ?? null, $negated['combinators'] ?? null) ) {
+                return false;
+            }
+        }
+        foreach ( $compound['any'] ?? array() as $group ) {
+            foreach ( (is_array($group) ? ($group['alternatives'] ?? null) : null) ?? array(null) as $alternative ) {
+                if ( ! is_array($alternative) || ! self::isSubjectOnlyComplex($alternative['compounds'] ?? null, $alternative['combinators'] ?? null) ) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /**
@@ -402,7 +549,7 @@ final class CssSelectorMatcher
                         // A neutral native target can be a complete descendant
                         // path, or contain nested shims. Flattening it into one
                         // compound changes both its match and its specificity.
-                        if (($argument['supported'] ?? false) && (count($argument['compounds']) > 1 || !empty($leaf['not']) || !empty($leaf['any']) || !empty($leaf['first_child']) || !empty($leaf['last_child']) || null !== ($leaf['nth_child'] ?? null) || null !== ($leaf['nth_type'] ?? null))) {
+                        if (($argument['supported'] ?? false) && (count($argument['compounds']) > 1 || !empty($leaf['root']) || !empty($leaf['not']) || !empty($leaf['any']) || !empty($leaf['first_child']) || !empty($leaf['last_child']) || null !== ($leaf['nth_child'] ?? null) || null !== ($leaf['nth_type'] ?? null))) {
                             $group = self::parseSelectorListArgument($alternatives, 'where' === $lowerName);
                             if (null === $group) return null;
                             $compound['any'][] = $group;
@@ -416,7 +563,7 @@ final class CssSelectorMatcher
                         return null;
                     }
                     $selected = self::parseCompound(trim(substr($source, $offset + 1, $closing - $offset - 1)), 0, false);
-                    if ( null === $selected || null !== $selected['suffix'] || array() !== $selected['compound']['not'] || array() !== $selected['compound']['any'] || null !== $selected['compound']['nth_child'] || $selected['compound']['first_child'] || $selected['compound']['last_child'] ) {
+                    if ( null === $selected || null !== $selected['suffix'] || array() !== $selected['compound']['not'] || array() !== $selected['compound']['any'] || null !== $selected['compound']['nth_child'] || null !== ($selected['compound']['nth_type'] ?? null) || $selected['compound']['first_child'] || $selected['compound']['last_child'] ) {
                         return null;
                     }
                     $selectedCompound = $selected['compound'];
@@ -465,7 +612,9 @@ final class CssSelectorMatcher
                     if ( '' === $argument ) {
                         return null;
                     }
-                    $negated = self::parseUncached($argument);
+                    $alternatives = CssStylesheetTransformer::splitSelectorList($argument);
+                    if (null === $alternatives) return null;
+                    $negated = self::parseUncached(count($alternatives) > 1 ? ':is(' . $argument . ')' : $argument);
                     if ( ! ($negated['supported'] ?? false) || null !== ($negated['pseudo_state_suffix_span'] ?? null) ) {
                         return null;
                     }
@@ -496,10 +645,11 @@ final class CssSelectorMatcher
                         return null;
                     }
                     $argument = trim(substr($source, $offset + 1, $closing - $offset - 1));
-                    if ( ! preg_match('/^[1-9][0-9]*$/', $argument) ) {
+                    $expression = self::parseNthExpression($argument);
+                    if ( null === $expression ) {
                         return null;
                     }
-                    $compound['nth-child' === $lowerName ? 'nth_child' : 'nth_type'] = (int) $argument;
+                    $compound['nth-child' === $lowerName ? 'nth_child' : 'nth_type'] = $expression;
                     $offset = $closing + 1;
                     $hasSimple = true;
                     continue;
@@ -872,7 +1022,7 @@ final class CssSelectorMatcher
                 ++$childIndex;
             }
         }
-        if ( null !== $compound['nth_child'] && $childIndex !== $compound['nth_child'] ) {
+        if ( null !== $compound['nth_child'] && ! self::matchesNthExpression($childIndex, $compound['nth_child']) ) {
             return false;
         }
         if (null !== ($compound['nth_type'] ?? null)) {
@@ -880,7 +1030,7 @@ final class CssSelectorMatcher
             for ($previous = self::previousElementSibling($element); null !== $previous; $previous = self::previousElementSibling($previous)) {
                 if (strtolower($previous->tagName) === strtolower($element->tagName)) ++$typeIndex;
             }
-            if ($typeIndex !== $compound['nth_type']) return false;
+            if (!self::matchesNthExpression($typeIndex, $compound['nth_type'])) return false;
         }
         if ( $compound['first_child'] && 1 !== $childIndex ) {
             return false;
@@ -922,7 +1072,8 @@ final class CssSelectorMatcher
         }
 
         $expected = (string) $attribute['value'];
-        if ( 'i' === $attribute['flag'] ) {
+        $flag = $attribute['flag'] ?? ( isset(self::CASE_INSENSITIVE_ATTRIBUTES[ strtolower($attribute['name']) ]) ? 'i' : null );
+        if ( 'i' === $flag ) {
             $actual = strtolower($actual);
             $expected = strtolower($expected);
         }
@@ -936,18 +1087,6 @@ final class CssSelectorMatcher
         };
     }
 
-    /** @param list<array<string, mixed>> $compounds */
-    private static function hasUnmodeledHtmlAttributeValueSemantics(array $compounds): bool
-    {
-        foreach ( $compounds as $compound ) {
-            foreach ( $compound['attributes'] as $attribute ) {
-                if ( null !== $attribute['operator'] && null === $attribute['flag'] && isset(self::ENUMERATED_ATTRIBUTES[ $attribute['name'] ]) ) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
 
     private static function previousElementSibling(DOMElement $element): ?DOMElement
     {

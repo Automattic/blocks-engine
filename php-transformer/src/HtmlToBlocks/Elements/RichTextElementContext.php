@@ -112,6 +112,11 @@ final class RichTextElementContext
         return $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content);
     }
 
+    public function requiresHtmlFallbackForElement(DOMElement $element, string $content): bool
+    {
+        return $this->richTextMaterializer->requiresHtmlFallbackForElement($element, $content);
+    }
+
     public function containsNativeSvgImageObject(string $content): bool
     {
         return $this->richTextMaterializer->containsNativeSvgImageObject($content);

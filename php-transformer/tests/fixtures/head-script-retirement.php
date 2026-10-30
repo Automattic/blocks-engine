@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 $cycle = static fn(array $keys): array => array('coverage' => 'complete', 'restoration' => 'verified', 'initial' => 0, 'frames' => array_map(static fn(string $key): array => array('key' => $key, 'fullImage' => $key), $keys));
 $inline = $cycle(array('/full/a.png', '/full/b.png'));
 $inline['selector'] = '#pictures';
@@ -19,7 +21,7 @@ $files = array(
     'website/other.html' => '<html><head><meta data-mode content="waiting"><script id="other-helper">' . $helper . '</script></head><body><h1>Other route</h1></body></html>',
     'website/third.html' => '<html><head><meta data-mode content="waiting"><script type="application/json" id="third-data">{"mode":"third"}</script><script id="third-helper">' . $helper . '</script></head><body><h1>Third route</h1></body></html>',
     'website/script.js' => 'window.realExternalAsset=true;',
-    'interaction-states.json' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://neutral.test/', 'states' => array($state))))),
+    'interaction-states.json' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://neutral.test/', 'components' => captured_components(array($state)))))),
     'capture-receipt.json' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://neutral.test/', 'path' => 'website/index.html')))),
 );
 foreach (array('inline', 'full') as $directory) foreach (array('a', 'b') as $name) {

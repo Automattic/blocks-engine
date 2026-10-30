@@ -165,6 +165,18 @@ final class CopyToClipboardConverter implements ElementConverter
             }
         }
 
+        foreach ( $element->getElementsByTagName('*') as $payload ) {
+            $tag = strtolower($payload->tagName);
+            if ( ! in_array($tag, array( 'textarea', 'input' ), true) ) {
+                continue;
+            }
+            // A form-control payload is copied verbatim: code keeps its line breaks and indentation.
+            $text = 'input' === $tag ? SourceDom::attr($payload, 'value') : ($payload->textContent ?? '');
+            if ( '' !== trim($text) ) {
+                return $text;
+            }
+        }
+
         $handlerText = $this->handlerCopyText($element);
         if ( '' !== $handlerText ) {
             return $handlerText;
@@ -252,11 +264,14 @@ final class CopyToClipboardConverter implements ElementConverter
         return false;
     }
 
-    private function visibleTextExcluding(DOMElement $root, DOMElement $excluded): string
+    private function visibleTextExcluding(DOMElement $root, ?DOMElement $excluded = null): string
     {
         $text = '';
         $walk = function (mixed $node) use (&$walk, &$text, $excluded): void {
-            if ( $node instanceof DOMElement && $node->isSameNode($excluded) ) {
+            if ( $node instanceof DOMElement
+                && ( ( null !== $excluded && $node->isSameNode($excluded) )
+                    || 'true' === strtolower(SourceDom::attr($node, 'aria-hidden'))
+                    || in_array(strtolower($node->tagName), array( 'textarea', 'input' ), true) ) ) {
                 return;
             }
             if ( $node instanceof DOMText ) {
@@ -321,7 +336,7 @@ final class CopyToClipboardConverter implements ElementConverter
 
     private function visibleLabel(DOMElement $element): string
     {
-        return $this->normalizeText($element->textContent ?? '');
+        return $this->visibleTextExcluding($element);
     }
 
     private function iconHtml(DOMElement $element): string

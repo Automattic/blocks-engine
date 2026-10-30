@@ -31,7 +31,7 @@ final class InlineContentElementConverter implements ElementConverter
 
     public static function handlesTag(string $tagName): bool
     {
-        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'kbd', 'mark', 'rp', 'rt', 'ruby', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'var' ), true);
+        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'del', 'em', 'font', 'i', 'ins', 'kbd', 'mark', 'rp', 'rt', 'ruby', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var' ), true);
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
@@ -70,6 +70,11 @@ final class InlineContentElementConverter implements ElementConverter
             // belongs to the button converter's editable runtime control.
             if ( AuthoredButtonBlockGenerator::canRetainRoleButton($element) ) {
                 return ConversionOutcome::unhandled();
+            }
+            // Inline text a script finds by its hooks is saved verbatim in
+            // paragraph rich text (RuntimeIslandAnalyzer::retainsRuntimeTextLeafInRichText()).
+            if ( $this->context->retainsRuntimeTextLeafInRichText($element) ) {
+                return ConversionOutcome::handled($this->sourceElementParagraph($element, SourceDom::outerHtml($element)));
             }
             return ConversionOutcome::handled($this->context->htmlPreservationBlock($element));
         }
@@ -118,9 +123,13 @@ final class InlineContentElementConverter implements ElementConverter
                     return ConversionOutcome::handled($this->group($element, $children));
                 }
             }
-            $content = SourceDom::innerHtml($element);
+            // Resolve descendants while their source ancestry still exists;
+            // detached RichText normalization cannot match scoped author rules.
+            $content = $this->context->richTextContent($element);
             if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
-                $declarations = $this->context->richTextInlineVisualDeclarations($element);
+                // The carrier keeps the author's hooks, so a media rule keeps
+                // addressing it; an inline resting value would outrank that rule.
+                $declarations = $this->styleResolver->stripResponsiveClassOwnedDeclarations($element, $this->context->richTextInlineVisualDeclarations($element));
                 if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
                     $declarations['color'] = 'transparent';
                 }
@@ -163,6 +172,16 @@ final class InlineContentElementConverter implements ElementConverter
             return ConversionOutcome::handled(null);
         }
 
+        return ConversionOutcome::handled($this->sourceElementParagraph($element, $content));
+    }
+
+    /**
+     * A paragraph whose rich text is the element's own markup.
+     *
+     * @return array<string, mixed>
+     */
+    private function sourceElementParagraph(DOMElement $element, string $content): array
+    {
         $listItem = $this->context->ancestorElement($element, 'li');
         $sourceElement = $this->context->richTextContentHasStructuralHtml($content)
             || 0 < $element->getElementsByTagName('svg')->length
@@ -171,7 +190,11 @@ final class InlineContentElementConverter implements ElementConverter
             : null;
         $attrs = array('content' => $content);
         if (null === $sourceElement) $attrs = array_merge($this->sourceAttributes->syntheticInlineParagraphAttributes($element), $attrs);
-        return ConversionOutcome::handled($this->context->createBlock('core/paragraph', $attrs, array(), $sourceElement));
+        $paragraph = $this->context->createBlock('core/paragraph', $attrs, array(), $sourceElement);
+        // A synthetic paragraph registers no source, but still stands for this
+        // one element: a finding may bind it by the element's selector.
+        if (null === $sourceElement && is_array($paragraph)) $paragraph['_source_anchor_selector'] = SourceDom::elementSelector($element);
+        return $paragraph;
     }
 
     /** @param array<int, array<string, mixed>> $children @return array<string, mixed> */

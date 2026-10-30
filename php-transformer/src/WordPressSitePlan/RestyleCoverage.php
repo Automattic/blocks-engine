@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -38,7 +40,7 @@ final class RestyleCoverage
     private const TEXT_BLOCKS = array('paragraph', 'heading', 'list-item', 'button', 'navigation-link', 'navigation-submenu', 'site-title', 'site-tagline', 'preformatted', 'code', 'verse', 'pullquote', 'post-title', 'post-excerpt', 'query-title', 'table', 'details');
 
     /** Classes that do not identify an author rule (see the class comment). */
-    private const SHARED_CLASS = '/^(?:wp-|has-|is-|align(?:wide|full|left|right|center)$|blocks-engine-(?:role-|subject$|subject-tag-|synthetic-|specificity-|list-navigation|brand-navigation))/';
+    private const SHARED_CLASS = '/^(?:wp-|has-|is-|align(?:wide|full|left|right|center)$|blocks-engine-(?:role-|subject$|subject-tag-|synthetic-|list-navigation|brand-navigation))/';
 
     private const INLINE_ELEMENT = '/<(a|span|strong|em|b|i|mark|small|code)\b([^>]*)>/i';
 
@@ -190,7 +192,7 @@ final class RestyleCoverage
     {
         $source = null;
         foreach ($classes as $class) {
-            if ('' === $class || 1 === preg_match(self::SHARED_CLASS, $class) || !isset($this->classColors[$class][$property])) continue;
+            if ('' === $class || (1 === preg_match(self::SHARED_CLASS, $class) || EngineMarker::isSpecificityShim($class)) || !isset($this->classColors[$class][$property])) continue;
             $source = ($source ?? true) && $this->classColors[$class][$property];
         }
         return $source;

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -913,12 +915,12 @@ $assert('social-item' === ($socialLinksBlock['innerBlocks'][0]['attrs']['classNa
 $assert(str_contains((string) ($socialLinksBlock['attrs']['className'] ?? ''), 'blocks-engine-source-social-item-spacing'), 'structural social items mark the wrapper so source item spacing remains authoritative');
 $socialLinksCss = implode("\n", array_column($socialLinksResult['assets'] ?? array(), 'content'));
 $assert(str_contains($socialLinksCss, '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}'), 'engine support CSS neutralizes the core default gap without adding invalid saved styles');
-$assert(str_contains($socialLinksCss, '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}'), 'logos-only social links drop source sprite backgrounds without !important');
+$assert(str_contains($socialLinksCss, '.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}'), 'logos-only social links drop source sprite backgrounds without !important');
 $assert(! str_contains($socialLinksMarkup, 'style="gap:') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the canonical social-links wrapper');
 $assert('pass' === ($socialLinksResult['source_reports']['wp_block_validity']['status'] ?? ''), 'dynamic social-link children and their static parent remain WordPress-valid');
 
 $visibleSocialLabels = ( new HtmlTransformer() )->transform('<div class="social-links"><a href="https://github.com/Automattic/blocks-engine">Blocks Engine</a><a href="https://github.com/Automattic/static-site-importer">Static Site Importer</a></div>')->toArray();
-$assert(str_contains((string) ($visibleSocialLabels['serialized_blocks'] ?? ''), 'class="wp-block-social-links has-visible-labels social-links"'), 'social-links save markup carries the canonical has-visible-labels class when labels are shown');
+$assert(str_contains((string) ($visibleSocialLabels['serialized_blocks'] ?? ''), 'class="wp-block-social-links blocks-engine-social-source-cluster has-visible-labels social-links"'), 'social-links save markup carries the canonical has-visible-labels class when labels are shown');
 
 $spanSocialSource = '<span class="wsite-social wsite-social-default"><a class="wsite-social-item wsite-social-facebook" href="https://www.facebook.com/tasteandtravelitaly" aria-label="Facebook"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-twitter" href="//#" aria-label="Twitter"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-instagram" href="https://instagram.com/tasteandtravel_italy" aria-label="Instagram"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-mail" href="mailto:hello@example.com" aria-label="Mail"><span class="wsite-social-item-inner"></span></a></span>';
 $spanSocialResult = ( new HtmlTransformer() )->transform($spanSocialSource)->toArray();
@@ -1159,7 +1161,17 @@ $assert('Full refund within 30 days.' === ($disclosureBlock['innerBlocks'][0]['a
 $assert(str_contains((string) ($disclosureResult['serialized_blocks'] ?? ''), '<!-- wp:details'), 'disclosure conversion serializes a native details block comment');
 
 $decorativeDisclosureResult = ( new HtmlTransformer() )->transform('<div><button aria-expanded="false" aria-controls="answer-2"><svg aria-hidden="true"></svg><span aria-hidden="true">Question:</span> What is your refund policy?</button><div id="answer-2"><p>Full refund within 30 days.</p></div></div>')->toArray();
-$assert('What is your refund policy?' === ($decorativeDisclosureResult['blocks'][0]['attrs']['summary'] ?? null), 'disclosure labels omit decorative SVG and hidden text');
+// aria-hidden excludes decoration from the accessible name, not the visible
+// presentation. Keep that artwork and its ARIA semantics in the saved summary.
+$decorativeDisclosureSummary = (string) ($decorativeDisclosureResult['blocks'][0]['attrs']['summary'] ?? '');
+$assert('<svg aria-hidden="true"></svg><span aria-hidden="true">Question:</span> What is your refund policy?' === $decorativeDisclosureSummary, 'disclosure summaries preserve visible decoration with its aria-hidden semantics', $decorativeDisclosureSummary);
+$decorativeDisclosureDocument = new DOMDocument();
+$decorativeDisclosureDocument->loadHTML('<!doctype html><html><body><details><summary>' . $decorativeDisclosureSummary . '</summary></details></body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$decorativeDisclosureXPath = new DOMXPath($decorativeDisclosureDocument);
+foreach ( $decorativeDisclosureXPath->query('//summary//*[@aria-hidden="true"]') as $hiddenDecoration ) {
+    $hiddenDecoration->parentNode->removeChild($hiddenDecoration);
+}
+$assert('What is your refund policy?' === trim($decorativeDisclosureDocument->getElementsByTagName('summary')->item(0)->textContent), 'disclosure accessible label text excludes aria-hidden decoration');
 
 // A heading-wrapped toggle (button nested inside the header) is recognized by
 // the same structural signal.
@@ -1252,6 +1264,26 @@ $assert('runtime_app_shell' === ($runtimeAppShellIsland['preservation_reason'] ?
 $assert(3 === ($runtimeAppShellIsland['target_count'] ?? null), 'runtime app shell reports bounded descendant runtime target count');
 $assert(in_array('app_root_token', $runtimeAppShellIsland['app_shell_signals'] ?? array(), true), 'runtime app shell reports app-root token evidence');
 $assert(str_contains((string) ($runtimeAppShell['serialized_blocks'] ?? ''), '<main class="app-shell">'), 'runtime app shell preserves the source root markup');
+
+// Engine capture classes are metadata, not author naming: an app-like token
+// inside the data-blocks-engine-capture- namespace never marks a subtree as an
+// application shell, while the same token as an author class still does.
+$appShellRuntimeSelectors = array(
+    'runtime_dom_selectors'   => array('#run', '#log', '#status'),
+    'runtime_script_metadata' => array(array('path' => 'app.js')),
+);
+$captureTokenShell = ( new HtmlTransformer() )->transform(
+    '<main class="data-blocks-engine-capture-desktop-only"><section><button id="run">Run</button><div id="log"></div><span id="status"></span></section></main>',
+    $appShellRuntimeSelectors
+)->toArray();
+$captureTokenAppShells = array_values(array_filter($captureTokenShell['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'runtime_app_shell' === ($island['preservation_reason'] ?? '')));
+$assert(array() === $captureTokenAppShells, 'an engine capture class alone does not mark an application shell root');
+$authorTokenShell = ( new HtmlTransformer() )->transform(
+    '<main class="desktop"><section><button id="run">Run</button><div id="log"></div><span id="status"></span></section></main>',
+    $appShellRuntimeSelectors
+)->toArray();
+$authorTokenAppShells = array_values(array_filter($authorTokenShell['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'runtime_app_shell' === ($island['preservation_reason'] ?? '')));
+$assert(1 === count($authorTokenAppShells) && in_array('app_root_token', $authorTokenAppShells[0]['app_shell_signals'] ?? array(), true), 'an author desktop class still marks an application shell root');
 
 $inlineSemanticRuntime = ( new HtmlTransformer() )->transform(
     '<span class="qty-display" aria-live="polite">1</span>',
@@ -1421,7 +1453,7 @@ $assert(in_array('malformed_stylesheet:inline-style', $malformedLayoutGraph['dia
 $cascadeGraph = (new HtmlTransformer())->transform($layoutGraphHtml, array('static_css' => '.form{display:flex;display:grid!important;display:block}.field{display:flex}@media (max-width:50rem){@supports (display:grid){.field{gap:1rem}}}.form button[type="submit"]{order:2}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
 $cascadeNodes = array_column($cascadeGraph['nodes'] ?? array(), null, 'id');
 $cascadeVariant = $cascadeGraph['variants'][0] ?? array();
-$assert('grid' === ($cascadeNodes['form']['layout']['display'] ?? null) && !isset($cascadeNodes['control-2']['layout']['order']) && in_array('unsupported_selector:.form button[type="submit"]', $cascadeGraph['diagnostics'] ?? array(), true), 'layout graph resolves duplicate same-rule declarations by declaration order and !important, and reports unsupported attribute selector semantics explicitly');
+$assert('grid' === ($cascadeNodes['form']['layout']['display'] ?? null) && '2' === ($cascadeNodes['control-2']['layout']['order'] ?? null) && !in_array('unsupported_selector:.form button[type="submit"]', $cascadeGraph['diagnostics'] ?? array(), true), 'layout graph resolves duplicate same-rule declarations by declaration order and !important, and matches HTML case-insensitive attribute selectors');
 $assert('all' === ($cascadeVariant['condition']['kind'] ?? null) && $cascadeVariant['condition'] === ($cascadeVariant['provenance'][0]['condition'] ?? null), 'layout graph retains nested condition chains and conditional provenance exactly.');
 $conditionalOnlyGraph = (new HtmlTransformer())->transform('<form method="post" action="#"><div class="field"><input name="x"></div><button type="submit">Send</button></form>', array('static_css' => '@media (max-width:50rem){.field{display:flex;flex-direction:column;align-items:flex-start}}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
 $conditionalOnlyNode = array_column($conditionalOnlyGraph['nodes'] ?? array(), null, 'id')['wrapper-0'] ?? array(); $conditionalOnlyVariant = $conditionalOnlyGraph['variants'][0] ?? array();
@@ -1580,7 +1612,7 @@ try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopo
 $v1LayoutGraph = $layoutGraph; $v1LayoutGraph['schema'] = 'generic/computed-layout-graph/v1'; $v1LayoutGraph['limits']['depth'] = 8;
 $v1LayoutKeys = array('display' => true, 'columns' => true, 'rows' => true, 'gap' => true, 'row_gap' => true, 'column_gap' => true, 'column' => true, 'row' => true, 'area' => true, 'direction' => true, 'wrap' => true, 'align_items' => true, 'align_content' => true, 'justify_content' => true, 'align_self' => true, 'justify_self' => true, 'order' => true, 'flex' => true, 'flex_grow' => true, 'flex_shrink' => true, 'flex_basis' => true);
 $v1LayoutProperties = array('display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis');
-foreach ($v1LayoutGraph['nodes'] as &$v1Node) { unset($v1Node['sizing'], $v1Node['presentation'], $v1Node['source']['selector']); $v1Node['source']['classes'] = array_slice($v1Node['source']['classes'], 0, 8); $v1Node['layout'] = array_intersect_key($v1Node['layout'] ?? array(), $v1LayoutKeys); foreach ($v1Node['provenance'] as &$v1Fact) $v1Fact['properties'] = array_values(array_intersect($v1Fact['properties'] ?? array(), $v1LayoutProperties)); unset($v1Fact); $v1Node['provenance'] = array_values(array_filter($v1Node['provenance'], static fn(array $fact): bool => array() !== ($fact['properties'] ?? array()))); } unset($v1Node);
+foreach ($v1LayoutGraph['nodes'] as &$v1Node) { unset($v1Node['sizing'], $v1Node['presentation'], $v1Node['in_flow_children'], $v1Node['source']['selector']); $v1Node['source']['classes'] = array_slice($v1Node['source']['classes'], 0, 8); $v1Node['layout'] = array_intersect_key($v1Node['layout'] ?? array(), $v1LayoutKeys); foreach ($v1Node['provenance'] as &$v1Fact) $v1Fact['properties'] = array_values(array_intersect($v1Fact['properties'] ?? array(), $v1LayoutProperties)); unset($v1Fact); $v1Node['provenance'] = array_values(array_filter($v1Node['provenance'], static fn(array $fact): bool => array() !== ($fact['properties'] ?? array()))); } unset($v1Node);
 try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($v1LayoutGraph); $assert(true, 'layout graph validation accepts persisted v1 depth-8 graphs using the old property vocabulary'); } catch (\InvalidArgumentException) { $assert(false, 'layout graph validation accepts persisted v1 depth-8 graphs using the old property vocabulary'); }
 $v1WidthGraph = $v1LayoutGraph; $v1WidthGraph['nodes'][0]['layout']['width'] = '100%'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($v1WidthGraph); $assert(false, 'v1 layout graph validation rejects v2 width facts'); } catch (\InvalidArgumentException) { $assert(true, 'v1 layout graph validation rejects v2 width facts'); }
 $v1Depth16Graph = $v1LayoutGraph; $v1Depth16Graph['limits']['depth'] = 16; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($v1Depth16Graph); $assert(false, 'v1 layout graph validation rejects v2 depth limits'); } catch (\InvalidArgumentException) { $assert(true, 'v1 layout graph validation rejects v2 depth limits'); }
@@ -1786,7 +1818,7 @@ $quotedMailboxHref = '';
 if ( 1 === preg_match('/href="([^"]+)">Quoted mailbox</', $canonicalLinkMarkup, $matches) ) {
     $quotedMailboxHref = rawurldecode(html_entity_decode($matches[1], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
 }
-$assert(2 === substr_count($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com"') && str_contains($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com?subject=Hello"') && str_contains($canonicalLinkMarkup, 'href="https://martinguitar.com"') && str_contains($canonicalLinkMarkup, 'href="https://example.test/?x=&amp;copy;"') && 'mailto:"quoted.local"@example.test' === $quotedMailboxHref && str_contains($canonicalLinkMarkup, 'href="mailto:%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE@%CF%80%CE%B1%CF%81%CE%AC%CE%B4%CE%B5%CE%B9%CE%B3%CE%BC%CE%B1.%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE"') && str_contains($canonicalLinkMarkup, 'href="members/hello@richlynngroup.com/profile"') && ! str_contains($canonicalLinkMarkup, 'script:') && ! str_contains($canonicalLinkMarkup, 'data:') && ! str_contains($canonicalLinkMarkup, 'vbscript:'), 'link sanitization canonicalizes DOM-decoded NBSP-trimmed bare emails and web hosts, preserves literal entity query text and relative @ paths, preserves quoted-mailbox URL semantics across HTML serializers, supports Unicode mailboxes, and rejects unsafe schemes');
+$assert(2 === substr_count($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com"') && str_contains($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com?subject=Hello"') && str_contains($canonicalLinkMarkup, 'href="https://martinguitar.com"') && str_contains($canonicalLinkMarkup, 'href="https://example.test/?x=%C2%A9"') && 'mailto:"quoted.local"@example.test' === $quotedMailboxHref && str_contains($canonicalLinkMarkup, 'href="mailto:%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE@%CF%80%CE%B1%CF%81%CE%AC%CE%B4%CE%B5%CE%B9%CE%B3%CE%BC%CE%B1.%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE"') && str_contains($canonicalLinkMarkup, 'href="members/hello@richlynngroup.com/profile"') && ! str_contains($canonicalLinkMarkup, 'script:') && ! str_contains($canonicalLinkMarkup, 'data:') && ! str_contains($canonicalLinkMarkup, 'vbscript:'), 'link sanitization canonicalizes DOM-decoded NBSP-trimmed bare emails and web hosts, normalizes entity query text for Gutenberg and preserves relative @ paths, preserves quoted-mailbox URL semantics across HTML serializers, supports Unicode mailboxes, and rejects unsafe schemes');
 $assert('mailto:hello@richlynngroup.com' === $canonicalNavigation, 'native navigation conversion shares bare-email link canonicalization');
 $assert('https://example.test/?x=&copy;' === LinkUrlSanitizer::sanitize('https://example.test/?x=&copy;') && 'https://martinguitar.com' === LinkUrlSanitizer::sanitize('martinguitar.com') && 'guide.html' === LinkUrlSanitizer::sanitize('guide.html') && 'mailto:"quoted.local"@example.test' === LinkUrlSanitizer::sanitize('"quoted.local"@example.test') && 'mailto:δοκιμή@παράδειγμα.δοκιμή' === LinkUrlSanitizer::sanitize('δοκιμή@παράδειγμα.δοκιμή'), 'link sanitization recognizes bare web hosts without converting common relative file links and recognizes quoted and Unicode mailboxes without IDN conversion');
 $safeLinkProtocols = array( 'http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'ircs', 'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'svn', 'tel', 'fax', 'xmpp', 'webcal', 'urn' );
@@ -1865,7 +1897,7 @@ $cssOwnedSvgFill = ( new HtmlTransformer() )->transform(
     '<style>.grid-scene,.flex-scene{width:640px;height:1496px}.grid-scene{display:grid}.flex-scene{display:flex}.grid-scene svg,.flex-scene svg{width:100%;height:100%}</style><main><div class="grid-scene"><svg class="grid-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="#111"/></svg></div><div class="flex-scene"><svg class="flex-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="#111"/></svg></div></main>'
 )->toArray();
 $cssOwnedSvgFillCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssOwnedSvgFill['assets'] ?? array()));
-$assert(str_contains($cssOwnedSvgFillCss, '.grid-scene :where(figure)') && str_contains($cssOwnedSvgFillCss, '.flex-scene :where(figure)') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > img,') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > a > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit'), 'CSS-owned slice SVG selectors project their media box onto native images in sized grid and flex parents');
+$assert(str_contains($cssOwnedSvgFillCss, ':is(.grid-scene,.flex-scene) :where(figure)') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > img,') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > a > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit'), 'CSS-owned slice SVG selectors project their media box onto native images in sized grid and flex parents');
 $assert(str_contains($cssOwnedSvgFillCss, '.wp-block-image > img,') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > a > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit'), 'CSS-owned slice SVG projection does not add object-fit over the source preserveAspectRatio behavior');
 
 $viewportBoundSvg = ( new HtmlTransformer() )->transform(
@@ -1978,7 +2010,7 @@ $fixedBackgroundLayerMarkup = (string) ($fixedBackgroundLayer['serialized_blocks
 $assert(str_contains($fixedBackgroundLayerMarkup, 'page-bg'), 'fixed background visual layer keeps its CSS-addressable class');
 $assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*page-bg[^"]*"/', $fixedBackgroundLayerMarkup), 'fixed background visual layer materializes as an empty group wrapper for source CSS');
 $fixedBackgroundEditorCss = implode("\n", array_map(static fn (array $asset): string => 'editor-static-state' === ($asset['source'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fixedBackgroundLayer['assets'] ?? array()));
-$assert(str_contains($fixedBackgroundLayerMarkup, 'blocks-engine-empty-visual-group') && str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder{min-height:0!important;overflow:hidden!important}') && str_contains($fixedBackgroundEditorCss, ':where(.block-editor-block-list__block,.blocks-engine-layout-shell-editor-inner-blocks)>div:not([class]):not([id]):not([style]):has(>.blocks-engine-empty-visual-group.wp-block-group__placeholder){display:contents}'), 'empty painted groups retain source positioning while their WordPress transport wrapper cannot reserve flow geometry');
+$assert(str_contains($fixedBackgroundLayerMarkup, 'blocks-engine-empty-visual-group') && str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder{min-height:0!important;overflow:hidden!important}') && str_contains($fixedBackgroundEditorCss, '.block-editor-block-list__block>div:not([class]):not([id]):not([style]):has(>.blocks-engine-empty-visual-group.wp-block-group__placeholder){display:contents}'), 'empty painted groups retain source positioning while their WordPress transport wrapper cannot reserve flow geometry');
 $assert(str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder>*{display:none!important}'), 'painted source layers withhold core empty-group variation pickers so they do not stack layout controls in the editor');
 $assert(str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder>.components-placeholder.is-large{display:none!important}'), 'painted source layers override Core’s large empty-group placeholder display rule in the editor');
 // Reserving height for a withheld picker displaces every following block, which
@@ -2093,7 +2125,7 @@ $outlineButton = ( new HtmlTransformer() )->transform(
 $outlineButtonMarkup = (string) ($outlineButton['serialized_blocks'] ?? '');
 $outlineButtonCss = implode("\n", array_column($outlineButton['assets'] ?? array(), 'content'));
 $assert(str_contains($outlineButtonMarkup, '<!-- wp:button'), 'styled anchor with presentational span materializes as core/button');
-$assert(str_contains($outlineButtonCss, 'background-color:transparent'), 'outline button carries transparent background to suppress default theme fill');
+$assert(str_contains($outlineButtonMarkup, 'background-color:transparent'), 'outline button carries transparent background to suppress default theme fill');
 $assert(! str_contains($outlineButtonCss, 'border-radius:0'), 'outline button does not infer a square radius from its border declarations');
 $assert(! str_contains($outlineButtonMarkup, '<div class="wp-block-button btn btn-secondary'), 'outline button with native styles avoids duplicating source button chrome on the outer wrapper');
 $assert(! str_contains($outlineButtonMarkup, '<span>Tickets</span>'), 'button label unwraps presentational span to avoid nested default styling');
@@ -2121,8 +2153,8 @@ $flexAnchorButtonMarkup = (string) ($flexAnchorButton['serialized_blocks'] ?? ''
 $flexAnchorButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorButton['assets'] ?? array()));
 $assert(str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'product-row'), 'styled anchor button uses a generated control marker instead of its source anchor class');
 $assert(! str_contains($flexAnchorButtonMarkup, 'wp-block-button product-row') && ! str_contains($flexAnchorButtonMarkup, 'wp-element-button product-row'), 'styled anchor button keeps source anchor classes out of canonical core/button markup');
-$assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link){display:flex!important;align-items:center!important;gap:1rem!important') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor root and descendant selectors project through the generated marker with priority over core button defaults');
-$assert(str_contains($flexAnchorButtonMarkup, 'class="product-row__name"'), 'styled anchor button preserves descendant classes in its RichText content');
+$assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link):not(be-t-0){display:flex;align-items:center;gap:1rem') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor root and descendant selectors project through the generated marker with priority over core button defaults');
+$assert(1 === preg_match('/class="product-row__name[ "]/', $flexAnchorButtonMarkup), 'styled anchor button preserves descendant classes in its RichText content');
 $assert('pass' === ($flexAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled anchor button remains editor-valid with marker-projected source selectors');
 
 $flexChainButton = ( new HtmlTransformer() )->transform(
@@ -2150,7 +2182,7 @@ $assert(
     $flexChainButtonCenteredMarkup
 );
 $assert(
-    str_contains($flexChainButtonCenteredCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0}')
+    str_contains($flexChainButtonCenteredCss, '.wp-block-buttons){display:block!important;gap:0!important}')
         && str_contains($flexChainButtonCenteredCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}')
         && str_contains($flexChainButtonCenteredCss, '.wp-block-button__link){box-sizing:border-box}')
         && ! preg_match('/\.wp-block-buttons\)\{[^}]*width:100%!important/', $flexChainButtonCenteredCss)
@@ -2166,7 +2198,7 @@ $flexAnchorAutoMargin = ( new HtmlTransformer() )->transform(
 $flexAnchorAutoMarginMarkup = (string) ($flexAnchorAutoMargin['serialized_blocks'] ?? '');
 $flexAnchorAutoMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorAutoMargin['assets'] ?? array()));
 $assert(preg_match('/\.wp-block-buttons\.blocks-engine-control-[^{]+\{margin-right:auto\}/', $flexAnchorAutoMarginCss) && 2 === substr_count($flexAnchorAutoMarginMarkup, 'wp-block-buttons'), 'direct flex anchor preserves its authored auto margin on the lowered source flex-item wrapper beside navigation and button siblings');
-$assert(str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0}') && ! str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important;min-width:0}') && str_contains($flexAnchorAutoMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}'), 'direct flex bridge leaves source wrapper margins intact while neutralizing only the synthetic inner wrapper');
+$assert(str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important}') && ! str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important}') && str_contains($flexAnchorAutoMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}'), 'direct flex bridge leaves source wrapper margins intact while neutralizing only the synthetic inner wrapper');
 $assert('pass' === ($flexAnchorAutoMargin['source_reports']['wp_block_validity']['status'] ?? ''), 'direct flex anchor with auto margin remains editor-valid beside navigation and button siblings');
 
 $anchorButtonMarginCases = array(
@@ -2219,7 +2251,7 @@ $fullWidthNativeButtonAttrs = $fullWidthNativeButton['blocks'][0]['innerBlocks']
 $fullWidthNativeButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthNativeButton['assets'] ?? array()));
 $assert(! isset($fullWidthNativeButtonAttrs['width']) && str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'selector-submit'), 'styled full-width native button omits the legacy width attribute and uses a generated marker instead of source root classes');
 $assert(! str_contains($fullWidthNativeButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthNativeButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width native button keeps source root classes out of canonical markup');
-$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && '#123456' === ($fullWidthNativeButtonAttrs['style']['color']['background'] ?? null) && str_contains($fullWidthNativeButtonMarkup, 'style="background-color:#123456;') && str_contains($fullWidthNativeButtonCss, ':not([style*="background"]){background:none!important}'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
+$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && '#123456' === ($fullWidthNativeButtonAttrs['style']['color']['background'] ?? null) && str_contains($fullWidthNativeButtonMarkup, 'style="background-color:#123456;') && str_contains($fullWidthNativeButtonCss, ':not([style*="background"]){background:none}'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
 $assert(str_contains($fullWidthNativeButtonMarkup, 'class="wp-block-button__link has-background wp-element-button"') && str_contains($fullWidthNativeButtonMarkup, 'background-color:#123456'), 'a filled button variant serializes its fill on the link, as core/button save() does');
 $assert(str_contains($fullWidthNativeButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthNativeButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width native button projects root geometry through the wrapper chain without overriding source wrapper margins');
 $assert('pass' === ($fullWidthNativeButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width native button wrapper chain remains editor-valid');
@@ -2232,7 +2264,7 @@ $responsiveFullWidthButtonCss = implode("\n", array_map(static fn (array $asset)
 $responsiveFullWidthButtonMarker = preg_match('/\bblocks-engine-control-[^\s"]+/', $responsiveFullWidthButtonMarkup, $matches) ? $matches[0] : '';
 $assert(str_contains($responsiveFullWidthButtonCss, '@media(min-width:992px)') && str_contains($responsiveFullWidthButtonCss, 'width:auto'), 'responsive full-width button retains its desktop intrinsic-width author rule');
 $assert(str_contains($responsiveFullWidthButtonMarkup, '<img src="assets/materialized-svg/') && str_contains($responsiveFullWidthButtonMarkup, '<span>Sign Up</span>'), 'responsive full-width button retains nested icon and label content');
-$assert(str_contains($responsiveFullWidthButtonCss, 'display:flex!important;align-items:center!important;justify-content:center!important;gap:8px!important') && str_contains($responsiveFullWidthButtonCss, '@media(min-width:992px)') && str_contains($responsiveFullWidthButtonCss, 'padding:8px 16px') && ! str_contains($responsiveFullWidthButtonCss, 'padding:8px 16px!important') && ! str_contains($responsiveFullWidthButtonCss, 'padding-top:12px!important'), 'responsive icon button keeps its authored flex row and stylesheet-owned desktop padding without overriding editor padding');
+$assert(str_contains($responsiveFullWidthButtonCss, 'display:flex;align-items:center;justify-content:center;gap:8px') && str_contains($responsiveFullWidthButtonCss, '@media(min-width:992px)') && str_contains($responsiveFullWidthButtonCss, 'padding:8px 16px') && ! str_contains($responsiveFullWidthButtonCss, 'padding:8px 16px!important') && ! str_contains($responsiveFullWidthButtonCss, 'padding-top:12px!important'), 'responsive icon button keeps its authored flex row and stylesheet-owned desktop padding without overriding editor padding');
 $assert('' !== $responsiveFullWidthButtonMarker && ! str_contains($responsiveFullWidthButtonCss, ':where(.' . $responsiveFullWidthButtonMarker . '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}'), 'responsive full-width button does not emit an unconditional generated full-width wrapper bridge');
 $assert(str_contains($responsiveFullWidthButtonMarkup, 'wp-block-buttons blocks-engine-control-') && str_contains($responsiveFullWidthButtonMarkup, 'wp-block-button blocks-engine-control-') && 'pass' === ($responsiveFullWidthButton['source_reports']['wp_block_validity']['status'] ?? ''), 'responsive full-width button keeps the canonical wrapper save shape and validity');
 
@@ -2315,7 +2347,7 @@ $roundedOutlineButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $roundedOutlineButtonMarkup = (string) ($roundedOutlineButton['serialized_blocks'] ?? '');
 $roundedOutlineButtonCss = implode("\n", array_column($roundedOutlineButton['assets'] ?? array(), 'content'));
-$assert(str_contains($roundedOutlineButtonCss, 'border-radius:12px !important'), 'outline button carries an explicit source border radius');
+$assert(str_contains($roundedOutlineButtonMarkup, 'border-radius:12px'), 'outline button carries an explicit source border radius');
 $assert(! str_contains($roundedOutlineButtonCss, 'border-radius:0!important'), 'outline button does not override an explicit source border radius');
 
 $wrapperOwnedButton = ( new HtmlTransformer() )->transform(
@@ -2326,10 +2358,10 @@ $wrapperOwnedButtonCss = implode("\n", array_column($wrapperOwnedButton['assets'
 $assert(str_contains($wrapperOwnedButtonMarkup, '<!-- wp:button'), 'button-like wrapper with a single simple anchor materializes as core/button');
 $assert(str_contains($wrapperOwnedButtonMarkup, 'href="/start"'), 'button-like wrapper preserves the nested anchor URL on the native button');
 $assert(str_contains($wrapperOwnedButtonMarkup, 'Start free'), 'button-like wrapper preserves the nested anchor label');
-$assert(str_contains($wrapperOwnedButtonCss, 'background-color:#2563eb !important'), 'button-like wrapper carries wrapper-owned fill color to the native button chrome');
-$assert(str_contains($wrapperOwnedButtonCss, 'color:#ffffff !important'), 'button-like wrapper carries wrapper-owned text color to the native button chrome');
-$assert(str_contains($wrapperOwnedButtonCss, 'border-radius:999px !important'), 'button-like wrapper carries wrapper-owned radius to the native button chrome');
-$assert(str_contains($wrapperOwnedButtonCss, 'padding-top:14px !important'), 'button-like wrapper carries wrapper-owned padding to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'background-color:#2563eb'), 'button-like wrapper carries wrapper-owned fill color to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'color:#ffffff'), 'button-like wrapper carries wrapper-owned text color to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'border-radius:999px'), 'button-like wrapper carries wrapper-owned radius to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'padding-top:14px'), 'button-like wrapper carries wrapper-owned padding to the native button chrome');
 $assert('pass' === ($wrapperOwnedButton['source_reports']['wp_block_validity']['status'] ?? ''), 'button-like wrapper conversion emits valid native button markup');
 
 $fullWidthButton = ( new HtmlTransformer() )->transform(
@@ -2443,17 +2475,16 @@ $standaloneControlBlocks = $standaloneControls['blocks'][0]['innerBlocks'] ?? ar
 $assert(array() === ($standaloneControls['fallbacks'] ?? array()), 'standalone readable controls convert without unsupported-element fallback');
 $assert('core/paragraph' === ($standaloneControlBlocks[0]['blockName'] ?? ''), 'standalone non-runtime input converts to readable paragraph');
 $assert('custom/authored-label' === ($standaloneControlBlocks[1]['blockName'] ?? '') && 'product-sort' === ($standaloneControlBlocks[1]['attrs']['htmlFor'] ?? ''), 'source select label remains a sibling editable associated label');
-$assert('core/group' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'standalone static select retains the legacy structural group boundary');
-$assert('custom/authored-select' === ($standaloneControlBlocks[2]['innerBlocks'][0]['blockName'] ?? ''), 'standalone non-runtime select uses an authored-select editable native-control block inside its compatibility wrapper');
+$assert('custom/authored-select' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'standalone static select is a native-control block without a synthetic wrapper');
 $authoredSelectBlocks = array_values(array_filter($standaloneControls['source_reports']['generated_blocks'] ?? array(), static fn (array $block): bool => 'authored-select' === ($block['name'] ?? '')));
 $authoredSelectCss = (string) ($authoredSelectBlocks[0]['assets']['style.css'] ?? '');
 $assert(str_contains($authoredSelectCss, '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}') && ! str_contains($authoredSelectCss, '!important'), 'authored-select companion wrapper CSS preserves display contents without important declarations');
-$assert('core/html' === ($standaloneControlBlocks[3]['blockName'] ?? ''), 'runtime-targeted select preserves native DOM output');
+$assert('custom/authored-select' === ($standaloneControlBlocks[3]['blockName'] ?? ''), 'runtime-targeted select stays a native authored select without a synthetic wrapper');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<option value="" selected disabled>Choose an order</option>'), 'compact select preserves selected placeholder option state');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select id="product-sort" name="products" placeholder="Sort products" class="catalog-sort">'), 'compact select preserves native id, name, placeholder, and CSS selector identity');
 $assert(1 === substr_count((string) ($standaloneControls['serialized_blocks'] ?? ''), '>Sort products</label>') && str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<label for="product-sort"'), 'styled select emits its source associated label exactly once without a duplicate wrapping label');
 $assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<!-- wp:html') || str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'only the runtime-targeted select uses core/html');
-$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted select preserves native markup in serialized blocks');
+$assert(1 === preg_match('/<select[^>]*\\sclass="js-sort-select"/', (string) ($standaloneControls['serialized_blocks'] ?? '')), 'runtime-targeted select preserves native markup in serialized blocks');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'id="donation"'), 'readable input output preserves source id as a block anchor');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'js-sort-select'), 'runtime-targeted select keeps behavior-hook class on native markup');
 $assert(1 === count($standaloneControls['source_reports']['runtime_islands'] ?? array()), 'runtime islands report only the explicitly runtime-targeted standalone control');
@@ -2494,9 +2525,7 @@ $gridSelect = ( new HtmlTransformer() )->transform(
     array('static_css' => '.control-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.catalog-sort{width:100%;padding:8px}')
 )->toArray();
 $gridSelectBlock = $gridSelect['blocks'][0]['innerBlocks'][0] ?? array();
-$gridSelectDefinition = $gridSelect['source_reports']['generated_blocks'][0] ?? array();
-$assert('custom/layout-shell' === ($gridSelect['blocks'][0]['blockName'] ?? '') && 2 === count($gridSelect['blocks'][0]['attrs']['wrappers'] ?? array()) && 'custom/authored-select' === ($gridSelectBlock['blockName'] ?? ''), 'styled select retains its direct native control through structural wrapper normalization');
-$assert(str_contains((string) ($gridSelectDefinition['assets']['style.css'] ?? ''), 'display:contents'), 'compact select wrapper stylesheet flattens the compatibility group for authored grid and flex item sizing');
+$assert('core/group' === ($gridSelect['blocks'][0]['blockName'] ?? '') && 'grid' === ($gridSelect['blocks'][0]['attrs']['layout']['type'] ?? '') && 'custom/authored-select' === ($gridSelectBlock['blockName'] ?? ''), 'source grid directly contains its native select without a compatibility wrapper');
 
 $standaloneSearch = ( new HtmlTransformer() )->transform(
     '<div class="site-search"><input type="search" name="s" placeholder="Search articles" aria-label="Search articles"></div>'
@@ -2732,12 +2761,12 @@ $buttonResult = ( new HtmlTransformer() )->transform(
     '<main><a class="primary-button" href="#" style="padding:10px 16px;background:#135e96"><h3>Reserve now</h3><span aria-hidden="true"></span></a><button><strong>Call us</strong></button></main>'
 )->toArray();
 $buttonBlocks = $buttonResult['blocks'][0]['innerBlocks'] ?? array();
-$assert('core/buttons' === ($buttonBlocks[0]['blockName'] ?? ''), 'anchor converts to buttons block');
-$assert(str_contains((string) ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Reserve now'), 'anchor button text preserves visible label');
-$assert('Reserve now' === ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?? ''), 'anchor button text unwraps block-level label markup for valid inline RichText');
+$assert('core/buttons' === ($buttonBlocks[0]['blockName'] ?? ''), 'anchor-owned painted single-label control remains native buttons');
+$assert('core/button' === ($buttonBlocks[0]['innerBlocks'][0]['blockName'] ?? ''), 'heading used solely as a control label lowers to a button');
+$assert(str_contains($buttonBlocks[0]['innerBlocks'][0]['attrs']['className'] ?? '', 'primary-button'), 'painted label retains its source button class');
 $assert(str_contains((string) ($buttonBlocks[1]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Call us'), 'button text preserves visible label');
 $assert(! str_contains((string) $buttonResult['serialized_blocks'], '\\u003c'), 'button serialization avoids escaped nested HTML attrs');
-$assert(! str_contains((string) $buttonResult['serialized_blocks'], '<h3>Reserve now</h3>'), 'button serialization avoids block-level markup inside link text');
+$assert(! str_contains((string) $buttonResult['serialized_blocks'], '<h3') && str_contains((string) $buttonResult['serialized_blocks'], 'Reserve now'), 'native button flattens its single heading label');
 $assert('pass' === ($buttonResult['source_reports']['wp_block_validity']['status'] ?? ''), 'HTML transform exposes passing WordPress block validity report for generated buttons');
 
 $buttonCustomFontSizeResult = ( new HtmlTransformer() )->transform(
@@ -2747,7 +2776,7 @@ $buttonCustomFontSizeMarkup = (string) ($buttonCustomFontSizeResult['serialized_
 $buttonCustomFontSizeCss = implode("\n", array_column($buttonCustomFontSizeResult['assets'] ?? array(), 'content'));
 $assert(str_contains($buttonCustomFontSizeMarkup, 'has-custom-font-size'), 'button custom font-size emits the WordPress support class core/button save() puts on its link');
 $assert(str_contains($buttonCustomFontSizeMarkup, 'font-size:1rem'), 'button custom font-size serializes inline on the link, where unlayered Global Styles cannot outrank it');
-$assert(str_contains($buttonCustomFontSizeCss, 'font-size:1rem !important'), 'button custom font-size preserves the declaration through the carrier');
+$assert(! str_contains($buttonCustomFontSizeCss, 'font-size:1rem !important'), 'button custom font-size is not duplicated on the wrapper carrier');
 $assert('pass' === ($buttonCustomFontSizeResult['source_reports']['wp_block_validity']['status'] ?? ''), 'button custom font-size serialization passes generated WordPress block validity checks');
 
 $rubyResult = ( new HtmlTransformer() )->transform(
@@ -2801,7 +2830,7 @@ $syntaxCodeMarkup = (string) ($syntaxCodeResult['serialized_blocks'] ?? '');
 $syntaxCodeCss = implode("\n", array_column($syntaxCodeResult['assets'] ?? array(), 'content'));
 $assert(str_contains($syntaxCodeMarkup, '<span class="token comment"># npm</span>') && str_contains($syntaxCodeMarkup, '<span class="token function">install</span>'), 'core code preserves sanitized syntax-token markup');
 $assert(str_contains($syntaxCodeCss, '.token.comment{color:#8ea0c8}') && str_contains($syntaxCodeCss, '.token.function{color:#7dd3fc}'), 'syntax-token selectors remain targeted at their preserved core code descendants');
-$assert(1 === preg_match('/code:not\(\.blocks-engine-specificity-class-[^)]+\)\{/', $syntaxCodeCss) && str_contains($syntaxCodeCss, ':where(.wp-block-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}'), 'native code keeps source inline preformatted geometry and authored code typography precedence');
+$assert(1 === preg_match('/code:not\(\.be-c-[^)]+\)\{/', $syntaxCodeCss) && str_contains($syntaxCodeCss, ':where(.blocks-engine-source-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}'), 'native code keeps source inline preformatted geometry and authored code typography precedence');
 $assert('pass' === ($syntaxCodeResult['source_reports']['wp_block_validity']['status'] ?? ''), 'syntax-token core code remains editor-valid');
 
 $linkedLogoResult = ( new HtmlTransformer() )->transform(
@@ -2811,7 +2840,7 @@ $linkedLogoBlock = $linkedLogoResult['blocks'][0] ?? array();
 $linkedLogoSerialized = (string) ($linkedLogoResult['serialized_blocks'] ?? '');
 $assert('core/paragraph' === ($linkedLogoBlock['blockName'] ?? ''), 'linked logo text converts to a paragraph block');
 $assert(! array_key_exists('content', is_array($linkedLogoBlock['attrs'] ?? null) ? $linkedLogoBlock['attrs'] : array()), 'paragraph source content is not serialized as a block comment attribute');
-$assert(str_contains($linkedLogoSerialized, '<p class="site-logo blocks-engine-synthetic-paragraph"><a href="/">Mara Vale</a></p>'), 'linked logo paragraph hoists link styling hooks to its marginless synthetic wrapper and keeps valid anchor markup');
+$assert(str_contains($linkedLogoSerialized, '<p class="blocks-engine-synthetic-paragraph"><a class="site-logo" href="/">Mara Vale</a></p>'), 'linked logo paragraph keeps the link styling hooks on the saved link inside its marginless synthetic wrapper');
 $assert(! str_contains($linkedLogoSerialized, '\\u003ca'), 'linked logo paragraph avoids raw anchor HTML in delimiter JSON');
 $assert('pass' === ($linkedLogoResult['source_reports']['wp_block_validity']['status'] ?? ''), 'linked logo paragraph passes generated block validity checks');
 
@@ -2944,7 +2973,8 @@ $inlineFlexSvgResult = ( new HtmlTransformer() )->transform(
 $inlineFlexSvgMarkup = (string) ($inlineFlexSvgResult['serialized_blocks'] ?? '');
 $assert(! str_contains($inlineFlexSvgMarkup, 'wp-block-blocks-engine-author-layout') && str_contains($inlineFlexSvgMarkup, '<!-- wp:paragraph'), 'inline flex text and SVG retain valid native paragraph blocks');
 $assert(str_contains($inlineFlexSvgMarkup, 'token') && str_contains($inlineFlexSvgMarkup, '<img src="assets/materialized-svg/'), 'inline flex text and its native SVG image retain source styling and materialized media');
-$assert(str_contains($inlineFlexSvgMarkup, 'style="width:18px;height:18px"'), 'CSS-owned inline SVG geometry is carried onto the materialized RichText image');
+$inlineFlexSvgCss = implode("\n", array_column($inlineFlexSvgResult['assets'] ?? array(), 'content'));
+$assert(! str_contains($inlineFlexSvgMarkup, 'style="width:18px;height:18px"') && str_contains($inlineFlexSvgCss, 'width:18px;height:18px'), 'CSS-owned inline SVG geometry is carried by stylesheet rather than frozen inline');
 
 $nestedControlSvg = ( new HtmlTransformer() )->transform('<style>.nested-control{display:flex;align-items:center;gap:14px;height:72px;border:6px solid #65625d;border-top-left-radius:36px;border-top-right-radius:36px;border-bottom-right-radius:36px;border-bottom-left-radius:36px}.nested-control>.nested-icon{width:36px;height:36px}.nested-control>.nested-icon>*{width:100%;height:100%}.nested-icon-source{width:77px;height:77px}</style><button class="nested-control"><span>WhatsApp</span><div class="nested-icon" data-source-visual-width="77" data-source-visual-height="77"><div class="nested-icon-source" data-source-visual-width="77" data-source-visual-height="77"><svg width="100%" height="100%" viewBox="0 0 77 77" aria-hidden="true"><path d="M0 0h77v77H0z"/></svg></div></div></button>')->toArray();
 $nestedControlSvgMarkup = (string) ($nestedControlSvg['serialized_blocks'] ?? '');
@@ -3112,7 +3142,7 @@ $emptyCoverCandidate = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/decor.png);background-size:cover;min-height:400px"></div>'
 )->toArray();
 $emptyCoverCandidateSerialized = (string) ($emptyCoverCandidate['serialized_blocks'] ?? '');
-$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
+$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure blocks-engine-image"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
 $assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
 $assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
 
@@ -3313,7 +3343,7 @@ $assert('pass' === ($wrappedListGapNavigation['source_reports']['semantic_parity
 $assert('pass' === ($wrappedListGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), '#748 wrapper-originated navigation stays editor-valid');
 $wrappedListGapNavigationCss = implode("\n", array_column($wrappedListGapNavigation['assets'] ?? array(), 'content'));
 $assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}'), 'list-navigation restores the source flex alignment default');
-$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation)>.wp-block-navigation__container{display:contents!important}') && str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}'), 'the non-overlay list transport is transparent while responsive navigation keeps its native layout');
+$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation)>.wp-block-navigation__container{display:contents!important}') && str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:var(--navigation-layout-wrap,wrap);list-style:none}'), 'the non-overlay list transport is transparent while responsive navigation keeps its native layout');
 
 $outerGapNavigation = ( new HtmlTransformer() )->transform(
     '<nav style="gap:1rem"><ul style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
@@ -3445,14 +3475,14 @@ $styledLogo = ( new HtmlTransformer() )->transform(
     '<style>#wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><a class="logo" href="/"><span id="wordmark">Brand Name</span></a>'
 )->toArray();
 $styledLogoSerialized = (string) ($styledLogo['serialized_blocks'] ?? '');
-$assert(str_contains($styledLogoSerialized, '<mark style="') && str_contains($styledLogoSerialized, 'Brand Name</mark>'), 'selector-addressed logo labels retain a valid RichText semantic marker instead of flattening to plain text');
+$assert(1 === preg_match('/<mark (?:class="[^"]*" )?style="/', $styledLogoSerialized) && str_contains($styledLogoSerialized, 'Brand Name</mark>'), 'selector-addressed logo labels retain a valid RichText semantic marker instead of flattening to plain text');
 $assert('pass' === ($styledLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'selector-addressed logo label markers remain editor-valid');
 
 $nestedStyledLogo = ( new HtmlTransformer() )->transform(
     '<style>.header #wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><div class="header"><div class="logo"><span><a href="/"><span id="wordmark">Nested Brand</span></a></span></div></div>'
 )->toArray();
 $nestedStyledLogoSerialized = (string) ($nestedStyledLogo['serialized_blocks'] ?? '');
-$assert(str_contains($nestedStyledLogoSerialized, '<a href="/"><mark style="') && str_contains($nestedStyledLogoSerialized, 'Nested Brand</mark></a>'), 'nested logo chrome unwraps presentational containers while preserving the styled semantic label and link');
+$assert(1 === preg_match('/<a href="\/"><mark (?:class="[^"]*" )?style="/', $nestedStyledLogoSerialized) && str_contains($nestedStyledLogoSerialized, 'Nested Brand</mark></a>'), 'nested logo chrome unwraps presentational containers while preserving the styled semantic label and link');
 $assert(str_contains($nestedStyledLogoSerialized, '"margin":{"top":"0","right":"0","bottom":"0","left":"0"}'), 'div-based logos neutralize core paragraph margins that the source element did not have');
 $explicitLogoMargin = ( new HtmlTransformer() )->transform('<div class="logo" style="margin-bottom:4px"><a href="/">Brand</a></div>')->toArray();
 $explicitLogoMarginSerialized = (string) ($explicitLogoMargin['serialized_blocks'] ?? '');
@@ -3691,7 +3721,7 @@ $assert('pass' === ($headerClusterParity['status'] ?? ''), 'header logo/nav/sear
 $assert(str_contains($headerClusterSerialized, 'site-logo'), 'header cluster preserves logo link wrapper');
 $assert(str_contains($headerClusterSerialized, 'nav-link'), 'header cluster preserves nav link class target');
 $assert(str_contains($headerClusterSerialized, '<!-- wp:search'), 'header cluster converts a constrained GET search form to native core/search');
-$assert(str_contains($headerClusterSerialized, '"className":"site-search"'), 'header search conversion preserves the source form class');
+$assert(1 === preg_match('/"className":"site-search[ "]/', $headerClusterSerialized), 'header search conversion preserves the source form class');
 $assert(str_contains($headerClusterSerialized, '"label":"Search"') && str_contains($headerClusterSerialized, '"showLabel":true'), 'header search conversion preserves its visible label');
 $assert(str_contains($headerClusterSerialized, '"placeholder":"Search docs"') && str_contains($headerClusterSerialized, '"buttonText":"Search"'), 'header search conversion preserves placeholder and submit text');
 $assert(! str_contains($headerClusterSerialized, '<form class="site-search"'), 'native search conversion emits no invalid static form payload');
@@ -3822,7 +3852,7 @@ $centeredSocialLinks = ( new HtmlTransformer() )->transform(
 $assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), '"justifyContent":"center"'), 'social links inherit explicit alignment from their source wrapper');
 $assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), 'is-content-justification-center'), 'social link justification is present in rendered save markup');
 $centeredSocialLinksCss = implode("\n", array_column($centeredSocialLinks['assets'] ?? array(), 'content'));
-$assert(str_contains($centeredSocialLinksCss, '.wp-block-social-links.is-content-justification-center{justify-content:center}'), 'social link justification renders without depending on theme block CSS');
+$assert(str_contains($centeredSocialLinksCss, '.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-content-justification-center{justify-content:center}'), 'social link justification renders without depending on theme block CSS');
 
 $deduplicatedNestedNavigation = ( new HtmlTransformer() )->transform(
     '<main><section class="shell"><div class="desktop-wrap"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div><div class="mobile-nav drawer"><div class="drawer-panel"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div></div><article><h2>Services</h2><p>Copy</p></article></section></main>'
@@ -4431,7 +4461,7 @@ preg_match('/blocks-engine-navigation-anchor-[a-f0-9]{12}-\d+/', $artifactNavStr
 $artifactNavStructureAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactNavStructureCss['assets'] ?? array()));
 $artifactNavStructureCompatOffset = strpos($artifactNavStructureStaticCss, 'wp-compat: replay source nav anchor selectors');
 $artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '' : substr($artifactNavStructureStaticCss, $artifactNavStructureCompatOffset);
-$assert(str_contains($artifactNavStructureAssetCss, 'ul.site-menu>.wp-block-navigation-item:not(blocks-engine-specificity-site-0)') && str_contains($artifactNavStructureAssetCss, 'display:flex;align-items:center') && str_contains($artifactNavStructureAssetCss, 'margin-right:30px') && ! str_contains($artifactNavStructureCompatCss, 'margin-right:30px'), 'artifact CSS projects source navigation item geometry without a second compatibility replay', $artifactNavStructureAssetCss);
+$assert(str_contains($artifactNavStructureAssetCss, '.site-menu > :where(.wp-block-navigation__container)>.wp-block-navigation-item:not(be-t-0)') && str_contains($artifactNavStructureAssetCss, 'display:flex;align-items:center') && str_contains($artifactNavStructureAssetCss, 'margin-right:30px') && ! str_contains($artifactNavStructureCompatCss, 'margin-right:30px'), 'artifact CSS projects source navigation item geometry without a second compatibility replay', $artifactNavStructureAssetCss);
 $assert(isset($artifactNavAnchorSubject[0]) && str_contains($artifactNavStructureAssetCss, '.wp-block-navigation-item.' . $artifactNavAnchorSubject[0] . ' :where(.wp-block-navigation-item__content)') && str_contains($artifactNavStructureAssetCss, '{font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px}'), 'artifact CSS projects source list anchor typography onto its distinct native anchor subject');
 $assert(str_contains($artifactNavStructureStaticCss, '.nav\\,alternate.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'gap:4px'), 'artifact navigation projection preserves escaped selector punctuation');
 $quotedNavigationCss = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\WordPressCompatCss())->css('.desktop-nav[data-kind="/* promoted */"] a{order:2}', array(), array());
@@ -4442,7 +4472,7 @@ $assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__cont
 // A rule whose subject is the source list item itself is projected by the author
 // stylesheet projector onto core's rendered item (the source-type marker never
 // reaches it), so the compat layer no longer has a marker to map for it.
-$assert(1 === preg_match('/\.desktop-nav \.wp-block-navigation-item:not\(blocks-engine-specificity-site-0\)[^{]*\{float:left\}/', $artifactNavStructureAssetCss), 'artifact navigation projection moves a list-item subject onto the rendered core navigation item', $artifactNavStructureAssetCss);
+$assert(1 === preg_match('/\.desktop-nav \.wp-block-navigation-item:not\(be-t-0\)[^{]*\{float:left\}/', $artifactNavStructureAssetCss), 'artifact navigation projection moves a list-item subject onto the rendered core navigation item', $artifactNavStructureAssetCss);
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation-item { float:left }'), 'the compat layer does not restate the list-item rule the author projection already addresses', $artifactNavStructureCompatCss);
 $assert(str_contains($artifactNavStructureMarkup, '"overlayMenu":"never"') && ! str_contains($artifactNavStructureAssetCss, 'blocks-engine-native-responsive-navigation{display:flex!important}'), 'list navigation without an authored responsive control preserves its mobile visibility contract', $artifactNavStructureAssetCss);
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation__container { visibility:hidden }'), 'artifact navigation projection leaves script-driven list container visibility to core navigation');
@@ -4772,7 +4802,7 @@ $canonicalEntryPage = array_values(array_filter($canonicalShellPlan['pages'] ?? 
 $assert(! str_contains((string) ($canonicalEntryPage['canonical_block_markup'] ?? ''), 'Get started') && str_contains((string) ($canonicalHeaderPart['canonical_block_markup'] ?? ''), 'Get started'), 'canonical entry header is projected only to its shell part, without duplicate post-content chrome');
 $assert(str_contains((string) ($canonicalHeaderPart['canonical_block_markup'] ?? ''), '<!-- wp:') && ! str_contains((string) ($canonicalEntryPage['canonical_block_markup'] ?? ''), '<!-- wp:custom/layout-shell'), 'canonical shell extraction recognizes a semantic outer wrapper projected through a layout shell');
 $assert(str_contains((string) ($canonicalFooterPart['canonical_block_markup'] ?? ''), 'Global footer'), 'canonical entry footer part preserves global footer content');
-$assert(! str_contains((string) ($canonicalHeaderPart['canonical_block_markup'] ?? ''), '<header') && ! str_contains((string) ($canonicalFooterPart['canonical_block_markup'] ?? ''), '<footer'), 'canonical shell parts rely on their semantic template-part references instead of nesting duplicate landmarks');
+$assert(1 === substr_count((string) ($canonicalHeaderPart['canonical_block_markup'] ?? ''), '<header') && 1 === substr_count((string) ($canonicalFooterPart['canonical_block_markup'] ?? ''), '<footer') && 'div' === ($canonicalHeaderPart['tag_name'] ?? null) && 'div' === ($canonicalFooterPart['tag_name'] ?? null), 'canonical shell parts render exactly one landmark of their own behind div transport references');
 $assert(2 === count(array_filter($canonicalShellPlan['writes'] ?? array(), static fn (array $write): bool => 'theme_template_part' === ($write['kind'] ?? ''))), 'WordPress site plan exposes canonical entry header and footer writes');
 
 $runtimeDependencySite = $compiler->compile(
@@ -5879,10 +5909,10 @@ $capturedDialog = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(array(
+                'components' => captured_components(array(array(
                     'status' => 'captured',
                     'trigger' => array('selector' => 'body > header > nav > a:nth-of-type(2)', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
                     'dialog' => array(
@@ -5890,7 +5920,7 @@ $capturedDialog = $compiler->compile(array(
                         'htmlBytes' => strlen('<div role="dialog" aria-label="Contact"><form action="https://provider.example/forms"><label>Name<input name="name"></label><script>window.provider=true</script></form></div>'),
                         'htmlTruncated' => false,
                     ),
-                )),
+                ))),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -5928,10 +5958,10 @@ $capturedSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -5947,7 +5977,7 @@ $capturedSelectableSet = $compiler->compile(array(
                         'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 3, 'index' => 1),
                     ),
                     $selectableFailed,
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -5974,10 +6004,10 @@ $triggerRowSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -5992,7 +6022,7 @@ $triggerRowSelectableSet = $compiler->compile(array(
                         'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false),
                         'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1),
                     ),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6016,10 +6046,10 @@ $ariaTriggerRowSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -6034,7 +6064,7 @@ $ariaTriggerRowSelectableSet = $compiler->compile(array(
                         'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false),
                         'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1),
                     ),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6053,13 +6083,13 @@ $pillSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 0)),
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1)),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6068,6 +6098,47 @@ $pillCss = implode("\n", array_map(static fn (array $asset): string => (string) 
 $assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\{[^}]*border-radius:8px[^}]*\}/', $pillCss), 'plain-text source triggers still carry their box styling onto the tab buttons');
 $assert(1 === preg_match('/button\[aria-selected="true"\]\{[^}]*background-color:#497969[^}]*\}/', $pillCss), 'the selected source trigger look is carried onto the selected tab');
 $assert(1 !== preg_match('/button\{[^}]*background-color:#497969/', $pillCss), 'the selected look is not applied to every tab');
+
+// #3055: the source marks the selected trigger only by a class toggled by JS,
+// and its row scrolls sideways instead of wrapping.
+$classMarkedMember = static function (int $index, string $label, string $text): array {
+    $html = '<p>' . $text . '</p>';
+    return array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(' . ($index + 1) . ')', 'tag' => 'button', 'label' => $label, 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $html, 'htmlBytes' => strlen($html), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 3, 'index' => $index));
+};
+$classMarkedSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Class Marked Tabs Site', 'slug' => 'captured-class-marked-tabs-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<html><head><style>.row{display:flex;gap:8px;overflow-x:auto}.btn{padding:8px 16px;border:1px solid #ddd;background:#fff;color:#111;white-space:nowrap;flex-shrink:0}.btn.on{background:#123;color:#fff;border-color:#123}</style></head><body><main><div class="row" role="tablist"><button class="btn on" data-tab="a">01. First option</button><button class="btn" data-tab="b">02. Second option</button><button class="btn" data-tab="c">03. Third option</button></div><div id="a">Panel A</div><div id="b" hidden>Panel B</div><div id="c" hidden>Panel C</div></main></body></html>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'components' => captured_components(array(
+                    $classMarkedMember(0, '01. First option', 'Panel A'),
+                    $classMarkedMember(1, '02. Second option', 'Panel B'),
+                    $classMarkedMember(2, '03. Third option', 'Panel C'),
+                )),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$classMarkedMarkup = (string) ($classMarkedSelectableSet['serialized_blocks'] ?? '');
+$classMarkedCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $classMarkedSelectableSet['assets'] ?? array()));
+$assert(1 === substr_count($classMarkedMarkup, '<!-- wp:tab-list') && 3 === substr_count($classMarkedMarkup, '<!-- wp:tab-panel '), 'a class-marked tab row still becomes native core/tabs');
+$classMarkedButtons = preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\{([^}]*)\}/', $classMarkedCss, $classMarkedButtonMatch) ? $classMarkedButtonMatch[1] : '';
+$assert(1 === preg_match('/(?:^|;)background(?:-color)?:#fff(?:;|$)/', $classMarkedButtons) && 1 === preg_match('/(?:^|;)color:#111(?:;|$)/', $classMarkedButtons) && str_contains($classMarkedButtons, '#ddd') && ! str_contains($classMarkedButtons, '#123'), 'class-marked inactive tabs paint the unselected source look (#fff, #111, #ddd)', $classMarkedCss);
+// #3066: the source triggers keep their labels on one line and refuse to
+// shrink inside the scrolling row; the tab buttons must too.
+$assert(1 === preg_match('/(?:^|;)white-space:nowrap(?:;|$)/', $classMarkedButtons) && 1 === preg_match('/(?:^|;)flex-shrink:0(?:;|$)/', $classMarkedButtons), 'tab buttons carry the source trigger white-space:nowrap and flex-shrink:0', $classMarkedCss);
+$classMarkedActive = preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\[aria-selected="true"\]\{([^}]*)\}/', $classMarkedCss, $classMarkedActiveMatch) ? $classMarkedActiveMatch[1] : '';
+$assert(1 === preg_match('/(?:^|;)background(?:-color)?:#123(?:;|$)/', $classMarkedActive) && 1 === preg_match('/(?:^|;)color:#fff(?:;|$)/', $classMarkedActive) && 1 === preg_match('/(?:^|;)border-color:#123(?:;|$)/', $classMarkedActive), 'the trigger visible at rest paints the selected source look (#123)', $classMarkedCss);
+$assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\[aria-selected="true"\]::before\{display:none\}/', $classMarkedCss), 'core\'s selected-tab underline is hidden when the source selected trigger draws none', $classMarkedCss);
+$assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+\{[^}]*flex-wrap:nowrap[^}]*\}/', $classMarkedCss), 'a horizontal source row that scrolled instead of wrapping keeps flex-wrap:nowrap', $classMarkedCss);
 
 $keyedSelectableSet = $compiler->compile(array(
     'site' => array('name' => 'Captured Keyed Tabs Site', 'slug' => 'captured-keyed-tabs-site'),
@@ -6079,13 +6150,13 @@ $keyedSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'tabKey' => 'alpha-key', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 0)),
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'tabKey' => 'beta-key', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1)),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6105,13 +6176,13 @@ $stretchSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 0)),
                     array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1)),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6140,13 +6211,13 @@ $sideBySideSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     $sideBySideTrigger(0, '01Alpha', $selectableAlpha, 3),
                     $sideBySideTrigger(1, '02Beta', $selectableBeta, 3),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6175,10 +6246,10 @@ $regionLayoutSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -6193,7 +6264,7 @@ $regionLayoutSelectableSet = $compiler->compile(array(
                         'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false),
                         'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1),
                     ),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6209,6 +6280,61 @@ $assert(str_contains($regionLayoutMarkup, 'role="tab"') && str_contains($regionL
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($regionLayoutSelectableSet['blocks'] ?? array()), 'region-layout selectable-set tabs retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($regionLayoutSelectableSet['blocks'] ?? array())['status'] ?? ''), 'region-layout selectable-set tabs remain Gutenberg-valid');
 
+// #3076: a form inside a captured tab panel keeps its box so rules that target
+// the form's children (Tailwind space-y-*) keep spacing the fields.
+$formPanel = static fn (string $title): string => '<div class="p-5"><h4 class="mb-4">' . $title . '</h4><form class="space-y-3" action="https://collect.example/subscribe" method="post" enctype="multipart/form-data" target="_blank" novalidate accept-charset="utf-8"><div class="form-field-a"><label>Name</label><input name="name"></div><div class="form-field-b"><label>Email</label><input name="email"></div><button type="submit" formaction="https://collect.example/alt">Send</button></form></div>';
+$formSelectableState = static fn (int $index, string $label): array => array(
+    'status' => 'captured',
+    'kind' => 'selectable-set',
+    'trigger' => array('selector' => 'body > main > div > button:nth-of-type(' . ($index + 1) . ')', 'tag' => 'button', 'label' => $label, 'ariaHaspopup' => '', 'dataBindings' => array()),
+    'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $formPanel($label), 'htmlBytes' => strlen($formPanel($label)), 'htmlTruncated' => false),
+    'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => $index),
+);
+$formSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Form Panel Selectable Set Site', 'slug' => 'captured-form-panel-selectable-set-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<html><head><style>.p-5{padding:1.25rem}.mb-4{margin-bottom:1rem}.space-y-3>:not([hidden])~:not([hidden]){margin-top:.75rem}</style></head><body><main><div><button type="button">Alpha</button><button type="button">Beta</button></div><div><p>Select an item to view details</p></div></main></body></html>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
+            'pages' => array(array('sourceUrl' => 'https://example.com/', 'components' => captured_components(array($formSelectableState(0, 'Alpha'), $formSelectableState(1, 'Beta'))))),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$formSelectableMarkup = (string) ($formSelectableSet['serialized_blocks'] ?? '');
+$formSelectableCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $formSelectableSet['assets'] ?? array()));
+$assert(str_contains($formSelectableMarkup, '<!-- wp:tabs') && 2 === substr_count($formSelectableMarkup, 'role="tabpanel"'), 'tab panels holding a form still serialize as native core/tabs');
+$assert(2 === preg_match_all('/<form\b[^>]*class="[^"]*\bspace-y-3\b/', $formSelectableMarkup), 'each panel keeps the form box with its source class', $formSelectableMarkup);
+$assert(1 !== preg_match('/<form\b[^>]*\b(?:action|method|enctype|target|novalidate|accept-charset)=?/i', $formSelectableMarkup) && ! str_contains($formSelectableMarkup, 'collect.example'), 'the kept form box drops its submission semantics');
+$formPanelDocument = new DOMDocument();
+$formPanelPrevious = libxml_use_internal_errors(true);
+$formPanelDocument->loadHTML('<?xml encoding="UTF-8"><body>' . $formSelectableMarkup . '</body>');
+libxml_clear_errors();
+libxml_use_internal_errors($formPanelPrevious);
+$formSecondFields = iterator_to_array((new DOMXPath($formPanelDocument))->query('//*[contains(concat(" ", normalize-space(@class), " "), " form-field-b ")]') ?: array());
+$formSpacingSelectors = array();
+if (preg_match_all('/(?:^|})([^{}]*\.space-y-3>[^{}]*)\{margin-top:\.75rem\}/', $formSelectableCss, $formSpacingRules)) {
+    foreach ($formSpacingRules[1] as $formSpacingList) {
+        foreach (explode(',', $formSpacingList) as $formSpacingSelector) {
+            $formSpacingSelectors[] = trim($formSpacingSelector);
+        }
+    }
+}
+$formSecondFieldSpaced = 2 === count($formSecondFields) && array() !== $formSpacingSelectors;
+foreach ($formSecondFields as $formSecondField) {
+    $formSecondFieldSpaced = $formSecondFieldSpaced && array() !== array_filter(
+        $formSpacingSelectors,
+        static fn (string $selector): bool => $formSecondField instanceof DOMElement && (\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($formSecondField, \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::parse($selector))['matches'] ?? false),
+    );
+}
+$assert($formSecondFieldSpaced, 'the source space-y-3 field-spacing rule still resolves for the second field in every panel', implode("\n", $formSpacingSelectors));
+$assert(array() === (new CanonicalSaveShapeValidator())->findings($formSelectableSet['blocks'] ?? array()), 'form-panel selectable-set tabs retain a canonical save shape');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($formSelectableSet['blocks'] ?? array())['status'] ?? ''), 'form-panel selectable-set tabs remain Gutenberg-valid');
+
 $graphicAlpha = '<div><h2>FR1</h2><p>Flower Room 1 specification</p></div>';
 $graphicBeta = '<div><h2>FR2</h2><p>Flower Room 2 specification</p></div>';
 $graphicSelectableSet = $compiler->compile(array(
@@ -6221,10 +6347,10 @@ $graphicSelectableSet = $compiler->compile(array(
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'blocks-engine-capture/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v2',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
-                'states' => array(
+                'components' => captured_components(array(
                     array(
                         'status' => 'captured',
                         'kind' => 'selectable-set',
@@ -6239,7 +6365,7 @@ $graphicSelectableSet = $compiler->compile(array(
                         'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $graphicBeta, 'htmlBytes' => strlen($graphicBeta), 'htmlTruncated' => false),
                         'set' => array('selector' => 'body > main > div:nth-of-type(1) > svg', 'size' => 2, 'index' => 1),
                     ),
-                ),
+                )),
             )),
         ), JSON_UNESCAPED_SLASHES)),
     ),
@@ -6278,10 +6404,10 @@ $choiceGroupInput = array(
     'files' => array(
         array('path' => 'website/index.html', 'content' => '<main><form action="/collect" method="post"><label>Choose one</label><div><button type="button">One</button><button type="button">Two</button></div><textarea name="comment"></textarea><button type="submit">Send</button></form></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.com/', 'states' => array(
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array('sourceUrl' => 'https://example.com/', 'components' => captured_components(array(
             $choiceState(0, '<div class="choices"><button type="button"><span>One</span></button><button type="button"><span>Two</span></button></div>'),
             $choiceState(1, '<div class="choices"><button type="button"><span>One</span></button><button type="button"><span>Two</span></button></div>'),
-        )))), JSON_UNESCAPED_SLASHES)),
+        ))))), JSON_UNESCAPED_SLASHES)),
     ),
 );
 $choiceGroupArtifact = $compiler->compile($choiceGroupInput)->toArray();
@@ -6656,7 +6782,7 @@ $borderedImage = $factory->create('core/image', array(
     'className' => 'source-image',
     'style' => array('border' => array('color' => '#ffffff', 'style' => 'solid')),
 ));
-$assert(str_contains($borderedImage['innerHTML'], '<figure class="wp-block-image source-image"><img'), 'core/image omits metadata-skipped border classes from its canonical markup');
+$assert(str_contains($borderedImage['innerHTML'], '<figure class="wp-block-image source-image blocks-engine-image"><img'), 'core/image omits metadata-skipped border classes from its canonical markup');
 $assert(! str_contains($borderedImage['innerHTML'], 'has-border-color') && ! str_contains($borderedImage['innerHTML'], 'border-color:#ffffff'), 'core/image does not serialize metadata-skipped border styles without a source carrier');
 
 $defaultTable = $factory->create(
@@ -6788,7 +6914,7 @@ $editorStaticStateAsset = current(array_filter(
 $assert(is_array($editorStaticStateAsset) && 'editor' === ($editorStaticStateAsset['stylesheet_target'] ?? null), 'editor static-state repair is an explicit editor-only stylesheet asset');
 $editorStaticStateCss = (string) ($editorStaticStateAsset['content'] ?? '');
 $assert(str_contains($editorStaticStateCss, 'animation-delay:-999999s!important') && str_contains($editorStaticStateCss, ':root .reveal.feature-copy{opacity:1!important;transform:none!important}'), 'editor static-state CSS settles authored animation and restores conversion-proven hidden content', $editorStaticStateCss);
-$editorAnchorProcess = ':where\\(\\.blocks-engine-editor-anchor-process\\):not\\(#blocks-engine-specificity-id-site-\\d+\\)';
+$editorAnchorProcess = ':where\\(\\.blocks-engine-editor-anchor-process\\):not\\(#be-i-\\d+\\)';
 $assert(str_contains((string) ($editorStaticStateResult['serialized_blocks'] ?? ''), 'blocks-engine-editor-anchor-process') && 1 === preg_match('/' . $editorAnchorProcess . '\\{background:#111;padding:4rem\\}/', $editorStaticStateCss) && 1 === preg_match('/@media\\(max-width:600px\\)\\{' . $editorAnchorProcess . '\\{padding:2rem\\}\\}/', $editorStaticStateCss), 'editor static-state CSS projects authored anchor selectors onto deterministic Gutenberg wrapper classes at authored id specificity', $editorStaticStateCss);
 
 $hiddenRichTextMarker = (new HtmlTransformer())->transform('<style>.scroll-target span{display:none}</style><div class="scroll-target"><span>Bottom of page</span></div>')->toArray();

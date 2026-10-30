@@ -76,8 +76,17 @@ final class CssValueSplitter
         $buffer = '';
         $state  = CssSyntaxScanner::state();
         $length = strlen($input);
+        $stops  = $splitWhitespace ? " \t\n\r\0\x0B" : implode('', $delimiters);
 
         for ( $offset = 0; $offset < $length; ) {
+            $end = CssSyntaxScanner::inertEnd($input, $offset, $state, $stops);
+            if ( $end > $offset ) {
+                if ( ! $state['comment'] ) {
+                    $buffer .= substr($input, $offset, $end - $offset);
+                }
+                $offset = $end;
+                continue;
+            }
             $wasComment = $state['comment'];
             $topLevel   = self::outsideGroups($state);
             $next       = CssSyntaxScanner::consume($input, $offset, $state) ?? $offset + 1;
@@ -118,6 +127,8 @@ final class CssValueSplitter
         $length = strlen($value);
 
         for ( $offset = 0; $offset < $length; ) {
+            $offset = CssSyntaxScanner::inertEnd($value, $offset, $state);
+            if ( $offset >= $length ) break;
             $next = CssSyntaxScanner::consume($value, $offset, $state);
             if ( null === $next ) {
                 if ( ')' === $value[ $offset ] ) {

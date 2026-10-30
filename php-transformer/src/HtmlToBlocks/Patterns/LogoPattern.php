@@ -5,12 +5,16 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InlineStackingClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LoweredLinkHost;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
 
 final class LogoPattern implements PatternRecognizerInterface
 {
+    /** Inline formatting a logo label keeps; every other element is unwrapped. */
+    private const LABEL_TAGS = array( 'a', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup', 'br' );
+
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $logo = $context->logoContext();
@@ -26,6 +30,7 @@ final class LogoPattern implements PatternRecognizerInterface
         if (
             'a' === strtolower($element->tagName)
             && '' !== LinkUrlSanitizer::sanitize($element->hasAttribute('href') ? $element->getAttribute('href') : '')
+            && ! $this->hasStructuredAnchorChrome($element)
             && InlineStackingClassifier::stacksInlineChildren($element, $logo->structuralPresentationDeclarations(...))
         ) {
             return null;
@@ -39,6 +44,10 @@ final class LogoPattern implements PatternRecognizerInterface
             fn (DOMElement $source, string $content): ?string => $logo->materializeSvgImages($source, $content),
             $context->createBlock(...)
         );
+
+        if ( null !== $block && 'a' === strtolower($element->tagName) && $this->hasStructuredAnchorChrome($element) ) {
+            $context->buttonContext()?->retainSourceDescendants($element, onlyProjectedTopology: true);
+        }
 
         return null === $block ? null : new PatternRecognitionResult($block);
     }
@@ -64,28 +73,14 @@ final class LogoPattern implements PatternRecognizerInterface
         }
 
         if ( 'a' === $tagName && $this->hasStructuredAnchorChrome($element) ) {
-            $content = $materializeSvgImages($element, $innerHtml($element)) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $innerHtml($element)) ?? $innerHtml($element));
-            $attrs = array_filter(array(
-                'text'  => trim($content),
-                'url'   => SourceDom::safeNavigationUrl($element->hasAttribute('href') ? $element->getAttribute('href') : ''),
-                'title' => trim($element->hasAttribute('aria-label') ? $element->getAttribute('aria-label') : ''),
-				'style' => array(
-                    'color' => array( 'background' => 'transparent' ),
-                    'border' => array( 'radius' => '0' ),
-                    'spacing' => array(
-                        'padding' => array( 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0' ),
-                    ),
-                ),
-            ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
-
-            $margin = $presentationAttributes($element)['style']['spacing']['margin'] ?? null;
-            $wrapperAttrs = is_array($margin) && array() !== $margin
-                ? array( 'style' => array( 'spacing' => array( 'margin' => $margin ) ) )
-                : array();
-
-            return $createBlock('core/buttons', $wrapperAttrs, array(
-                $createBlock('core/button', $attrs, array(), $element, $element),
-            ), $element);
+            // Media is not button chrome. Keep the source anchor and its
+            // layout in a native RichText host, without button theme defaults.
+            $html = $outerHtml($element);
+            $label = $materializeSvgImages($element, $innerHtml($element)) ?? $innerHtml($element);
+            $content = substr($html, 0, (int) strpos($html, '>') + 1) . $label . '</a>';
+            $attrs = LoweredLinkHost::attributes($presentationAttributes($element), $element);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-inline-layout-carrier');
+            return $createBlock('core/paragraph', array_merge($attrs, array('content' => $content, 'preserveInlineLayoutLeaf' => true)), array(), $element);
         }
 
         // The logo cue proves branding, not inline semantics. A whole heading
@@ -101,6 +96,10 @@ final class LogoPattern implements PatternRecognizerInterface
         }
 
         $attrs = $presentationAttributes($element);
+        if ( 'a' === $tagName && str_starts_with($content, '<a') ) {
+            // The paragraph only hosts the saved link; the link keeps its classes.
+            $attrs = LoweredLinkHost::attributes($attrs, $element);
+        }
         if ( 'div' === $tagName ) {
             $attrs = array_replace_recursive(array(
                 'style' => array(
@@ -132,6 +131,10 @@ final class LogoPattern implements PatternRecognizerInterface
         }
 
         $attrs = array( 'href' => $href );
+        $class = LoweredLinkHost::classAttribute($anchor);
+        if ( '' !== $class ) {
+            $attrs = array( 'class' => $class ) + $attrs;
+        }
         foreach ( array( 'target', 'rel', 'title' ) as $name ) {
             if ( $anchor->hasAttribute($name) && '' !== trim($anchor->getAttribute($name)) ) {
                 $attrs[$name] = $anchor->getAttribute($name);
@@ -155,18 +158,65 @@ final class LogoPattern implements PatternRecognizerInterface
             return '';
         }
 
-        $unsupported = '/<\/?(?!a\b|em\b|i\b|strong\b|b\b|mark\b|small\b|sub\b|sup\b|br\b)[a-z][a-z0-9]*\b[^>]*>/i';
-        if ( preg_match($unsupported, $html) ) {
-            $unwrapped = trim(preg_replace_callback($unsupported, static fn (array $match): string => str_starts_with($match[0], '</') ? '' : ' ', $html) ?? $html);
-            if ( '' !== $unwrapped && ! preg_match($unsupported, $unwrapped) ) {
-                return $unwrapped;
+        // An empty inline box that survived RichText materialization is a
+        // CSS-painted decoration (a dot between two words). It stays in place
+        // so block creation lowers it onto the same RichText carrier the
+        // paragraph path uses, instead of being unwrapped into nothing.
+        $body = $this->labelFragment($html);
+        if ( null === $body ) {
+            return $html;
+        }
+        $unsupported = array();
+        foreach ( $body->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement
+                && ! in_array(strtolower($descendant->tagName), self::LABEL_TAGS, true)
+                && ! ( 'span' === strtolower($descendant->tagName) && SourceDom::isEmptyInlineBox($descendant) ) ) {
+                $unsupported[] = $descendant;
             }
-
-            $flattened = $this->plainText(preg_replace('/<\/?[a-z][a-z0-9]*\b[^>]*>/i', ' ', $html) ?? $html);
-            return htmlspecialchars('' !== $flattened ? $flattened : $text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+        if ( array() === $unsupported ) {
+            return $html;
         }
 
-        return $html;
+        // Unwrap each unsupported element into its children, keeping a space
+        // where it opened so adjacent words stay apart.
+        foreach ( $unsupported as $descendant ) {
+            $parent = $descendant->parentNode;
+            if ( null === $parent ) {
+                continue;
+            }
+            $parent->insertBefore($body->ownerDocument->createTextNode(' '), $descendant);
+            while ( null !== $descendant->firstChild ) {
+                $parent->insertBefore($descendant->firstChild, $descendant);
+            }
+            $parent->removeChild($descendant);
+        }
+
+        $unwrapped = trim($this->fragmentHtml($body));
+        return '' !== $unwrapped ? $unwrapped : htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    /** Parses label markup into a detached `<body>` holding it, or null when it does not parse. */
+    private function labelFragment(string $html): ?DOMElement
+    {
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+
+        return $body instanceof DOMElement ? $body : null;
+    }
+
+    private function fragmentHtml(DOMElement $body): string
+    {
+        $content = '';
+        foreach ( $body->childNodes as $child ) {
+            $content .= $body->ownerDocument->saveHTML($child);
+        }
+
+        return $content;
     }
 
     private function semanticMarkerSpansAsMarks(string $html): string
@@ -175,13 +225,8 @@ final class LogoPattern implements PatternRecognizerInterface
             return $html;
         }
 
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
-        if ( ! $body instanceof DOMElement ) {
+        $body = $this->labelFragment($html);
+        if ( null === $body ) {
             return $html;
         }
 
@@ -192,7 +237,7 @@ final class LogoPattern implements PatternRecognizerInterface
             }
         }
         foreach ( $spans as $span ) {
-            $mark = $document->createElement('mark');
+            $mark = $body->ownerDocument->createElement('mark');
             $mark->setAttribute('style', $span->getAttribute('style'));
             while ( null !== $span->firstChild ) {
                 $mark->appendChild($span->firstChild);
@@ -200,11 +245,7 @@ final class LogoPattern implements PatternRecognizerInterface
             $span->parentNode?->replaceChild($mark, $span);
         }
 
-        $content = '';
-        foreach ( $body->childNodes as $child ) {
-            $content .= $document->saveHTML($child);
-        }
-        return $content;
+        return $this->fragmentHtml($body);
     }
 
     private function unwrapPresentationalSpan(string $html): string

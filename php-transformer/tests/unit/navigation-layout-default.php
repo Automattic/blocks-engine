@@ -55,7 +55,21 @@ $assert(
 );
 
 $unstyled = ( new HtmlTransformer() )->transform('<nav><ul><li><a href="/">Home</a></li></ul></nav>')->toArray();
-$assert(! isset($unstyled['blocks'][0]['attrs']['layout']), 'a navigation without resolved display evidence keeps the core default untouched');
+$assert(array( 'type' => 'default' ) === ($unstyled['blocks'][0]['attrs']['layout'] ?? null), 'an unstyled navigation list records the UA flow (stacked) layout');
+
+$legalList = '<footer><nav id="legal"><ul><li><a href="/a">Legal notice</a></li><li><a href="/b">Report content</a></li></ul></nav></footer>';
+foreach ( array(
+    'no author CSS' => array( '', array( 'type' => 'default' ) ),
+    'list reset and item margins' => array( 'nav#legal ul{list-style:none;margin:0;padding:0} nav#legal li{margin-bottom:1rem}', array( 'type' => 'default' ) ),
+    'inline-block items' => array( 'li{display:inline-block}', null ),
+    'flex list' => array( 'ul{display:flex}', array( 'type' => 'flex', 'flexWrap' => 'nowrap' ) ),
+    'floated items' => array( 'li{float:left}', null ),
+) as $name => [$css, $expectedLayout] ) {
+    $result = ( new HtmlTransformer() )->transform('<style>' . $css . '</style>' . $legalList)->toArray();
+    $legal = $result['blocks'][0] ?? array();
+    $assert('core/navigation' === ($legal['blockName'] ?? null), $name . ': legal links remain native navigation');
+    $assert($expectedLayout === ($legal['attrs']['layout'] ?? null), $name . ': legal list keeps its source layout', json_encode($legal['attrs']['layout'] ?? null));
+}
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "Navigation default layout contract: {$failures} failed, {$passes} passed\n");

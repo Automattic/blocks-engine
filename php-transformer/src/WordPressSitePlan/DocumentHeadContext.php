@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use InvalidArgumentException;
 
-/** Ordered, source-owned head DOM. Asset bodies come from canonical writes. */
+/** Ordered head DOM allowlisted to facts with no WordPress/platform owner. */
 final class DocumentHeadContext
 {
     public const SCHEMA = 'blocks-engine/document-head/v1';
@@ -81,9 +81,9 @@ final class DocumentHeadContext
     }
 
     /**
-     * Drops what a head cannot carry, smallest unit first: an event handler,
-     * an invalid or oversized attribute, then an element that is still over a
-     * budget. Malformed structure is left in place for assertValid() to reject.
+     * Drops elements outside the ownership allowlist, then what an allowed
+     * element cannot carry: invalid attributes followed by over-budget elements.
+     * Malformed structure is left in place for assertValid() to reject.
      *
      * @param array<string,mixed> $head
      * @return array{0:array<string,mixed>,1:list<array{code:string,reason_code:string,tag:string,name:string}>} The head and one row per dropped attribute or element.
@@ -95,6 +95,11 @@ final class DocumentHeadContext
         $elements = array();
         foreach ($head['elements'] as $row) {
             if (!is_array($row) || !is_string($row['tag'] ?? null) || !is_array($row['attributes'] ?? null)) { $elements[] = $row; continue; }
+            $reason = self::ownershipDropReason($row);
+            if (null !== $reason) {
+                $dropped[] = array('code' => 'document_head_element_dropped', 'reason_code' => $reason, 'tag' => $row['tag'], 'name' => '');
+                continue;
+            }
             foreach ($row['attributes'] as $name => $value) {
                 $reason = self::unrepresentableAttribute($name, $value);
                 if (null === $reason) continue;
@@ -109,6 +114,34 @@ final class DocumentHeadContext
         foreach (array_slice($elements, self::MAX_ELEMENTS) as $row) $dropped[] = array('code' => 'document_head_element_dropped', 'reason_code' => 'element_budget', 'tag' => is_array($row) ? (string) ($row['tag'] ?? '') : '', 'name' => '');
         $head['elements'] = array_slice($elements, 0, self::MAX_ELEMENTS);
         return array($head, $dropped);
+    }
+
+    /**
+     * Positive ownership allowlist, not a blacklist of known source vendors.
+     * Route SEO belongs to WordPress/platform fields, never this DOM replay.
+     * Resource loading and inert data retain their existing binding contracts.
+     * Unknown metadata is deliberately not assumed to be source-owned.
+     */
+    private static function ownershipDropReason(array $row): ?string
+    {
+        $attributes = $row['attributes'];
+        if ('meta' === $row['tag']) {
+            $name = strtolower(trim((string) ($attributes['name'] ?? $attributes['property'] ?? '')));
+            if (isset($attributes['charset']) || 'content-type' === strtolower(trim((string) ($attributes['http-equiv'] ?? '')))) return 'wordpress_owned_charset';
+            if (in_array($name, array('robots', 'googlebot', 'bingbot'), true)) return 'platform_owned_robots';
+            if ('generator' === $name) return 'platform_owned_generator';
+            if (in_array($name, array('sentry-trace', 'baggage'), true)) return 'third_party_telemetry';
+            if (in_array($name, array('description', 'og:title', 'og:description', 'og:image', 'og:url', 'og:locale', 'og:site_name'), true) || str_starts_with($name, 'twitter:')) return 'platform_owned_seo';
+            return in_array($name, array('viewport', 'theme-color', 'color-scheme', 'keywords', 'application-name'), true) && !isset($attributes['http-equiv']) ? null : 'not_allowlisted';
+        }
+        if ('link' === $row['tag']) {
+            $relations = preg_split('/\s+/', strtolower(trim((string) ($attributes['rel'] ?? '')))) ?: array();
+            if (in_array('canonical', $relations, true)) return 'platform_owned_canonical';
+            if (in_array('sitemap', $relations, true)) return 'platform_owned_sitemap';
+            if (in_array('manifest', $relations, true)) return 'platform_owned_manifest';
+            return array() !== $relations && array() === array_diff($relations, array('stylesheet', 'preload', 'modulepreload', 'preconnect', 'dns-prefetch', 'icon', 'shortcut', 'apple-touch-icon', 'mask-icon')) ? null : 'not_allowlisted';
+        }
+        return in_array($row['tag'], array('style', 'script'), true) ? null : 'not_allowlisted';
     }
 
     private static function unrepresentableAttribute(mixed $name, mixed $value): ?string
@@ -170,7 +203,7 @@ final class DocumentHeadContext
             }
             if ('meta' !== $row['tag']) {
                 $reference = $row['asset_reference'] ?? $row['url'] ?? null;
-                $route = 'link' === $row['tag'] && self::isRouteLink($row['attributes']) && is_string($reference) && preg_match('~^/(?:[a-z0-9-]+(?:/[a-z0-9-]+)*)?(?:[?#].*)?$~', $reference);
+                $route = 'link' === $row['tag'] && self::isRouteLink($row['attributes']) && is_string($reference) && preg_match('~^/(?:[a-z0-9_-]+(?:/[a-z0-9_-]+)*)?(?:[?#].*)?$~', $reference);
                 // A data: URL carries its own bytes, so a link has no write to bind.
                 // Scripts keep the script-loading contract, which requires a write or HTTP(S) URL.
                 $embedded = 'link' === $row['tag'] && is_string($reference) && 1 === preg_match('~^data:~i', $reference);
@@ -189,15 +222,40 @@ final class DocumentHeadContext
         return array() !== $relations && array() === array_diff($relations, array('canonical', 'alternate', 'next', 'prev', 'author', 'license', 'help')) && !isset($attributes['as']) && !in_array(strtolower($attributes['type'] ?? ''), array('text/css', 'text/javascript'), true);
     }
 
-    /** Same DOM bytes used by the proof and by the generated theme. */
+    private function __construct(private array $byToken, private AssetReferenceCanonicalizer $references)
+    {
+    }
+
+    /** Reuse the same asset lookup and canonicalizer for proof and bootstrap renders. */
+    private static function context(array $assets, array $tokens, string $entryRoot): self
+    {
+        static $contexts = array();
+        $key = WordPressSitePlan::contentHash(serialize(array($assets, $tokens, $entryRoot)));
+        if (!isset($contexts[$key])) {
+            // A site plan has a handful of head contexts; bound retention for long-lived processes.
+            if (count($contexts) >= 16) $contexts = array();
+            $byToken = array();
+            foreach ($assets as $asset) $byToken[WordPressSitePlan::TOKEN_PREFIX . $asset['token'] . '}}'] = $asset;
+            $contexts[$key] = new self($byToken, new AssetReferenceCanonicalizer($tokens, $entryRoot));
+        }
+        return $contexts[$key];
+    }
+
+    /** Same DOM bytes used by the proof and by the generated theme. Style rows render as stylesheet links. */
     public static function render(array $head, array $assets, array $tokens, string $entryRoot = ''): string
     {
         self::assertValid($head);
-        $byToken = array();
-        foreach ($assets as $asset) $byToken[WordPressSitePlan::TOKEN_PREFIX . $asset['token'] . '}}'] = $asset;
-        $references = new AssetReferenceCanonicalizer($tokens, $entryRoot);
+        return self::context($assets, $tokens, $entryRoot)->renderHead($head);
+    }
+
+    private function renderHead(array $head): string
+    {
+        $byToken = $this->byToken;
         $html = '';
         foreach ($head['elements'] as $row) {
+            // Defense at the output boundary as well as during materialization:
+            // callers rendering a raw head cannot bypass the ownership contract.
+            if (null !== self::ownershipDropReason($row)) continue;
             $tag = $row['tag']; $attributes = $row['attributes']; $body = '';
             $reference = $row['asset_reference'] ?? $row['url'] ?? '';
             if ('link' === $tag || ('script' === $tag && !$row['inline'])) $attributes['link' === $tag ? 'href' : 'src'] = $reference;
@@ -205,18 +263,18 @@ final class DocumentHeadContext
                 $asset = $byToken[$reference] ?? null;
                 $body = $row['content'] ?? $asset['content'] ?? null;
                 if (!is_string($body) || (!isset($row['content']) && 'js' !== ($asset['kind'] ?? null))) throw new InvalidArgumentException('Document head inline script lacks a canonical script payload.');
-                if (!isset($row['content'])) $body = $references->content($body, $asset['source_path']);
+                if (!isset($row['content'])) $body = $this->references->content($body, $asset['source_path']);
                 if (preg_match('~</script\b~i', $body)) throw new InvalidArgumentException('Document head script cannot close its raw-text element.');
             }
+            // A style row links its canonical CSS write in place; the theme file owns the bytes.
             if ('style' === $tag) {
-                $asset = $byToken[$reference] ?? null;
-                if (!is_array($asset) || 'css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) throw new InvalidArgumentException('Document head style lacks a canonical CSS payload.');
-                $body = $references->content($asset['content'], $asset['source_path']);
-                if (preg_match('~</style\b~i', $body)) throw new InvalidArgumentException('Document head stylesheet cannot close its raw-text element.');
+                if ('css' !== ($byToken[$reference]['kind'] ?? null)) throw new InvalidArgumentException('Document head style lacks a canonical CSS write.');
+                $tag = 'link';
+                $attributes = array('rel' => 'stylesheet', 'href' => $reference) + array_filter($attributes, static fn(string $name): bool => in_array($name, array('media', 'id', 'class', 'nonce', 'title'), true) || str_starts_with($name, 'data-'), ARRAY_FILTER_USE_KEY);
             }
             $html .= '<' . $tag;
             foreach ($attributes as $name => $value) $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '"';
-            $html .= '>' . (in_array($tag, array('script', 'style'), true) ? $body . '</' . $tag . '>' : '') . "\n";
+            $html .= '>' . ('script' === $tag ? $body . '</' . $tag . '>' : '') . "\n";
         }
         return $html;
     }
@@ -240,20 +298,29 @@ final class DocumentHeadContext
             $sourcePath = is_array($entity) ? ($entity['archive']['source_path'] ?? null) : null;
             $taxonomy = is_array($entity) ? ($entity['taxonomy'] ?? null) : null;
             $slug = is_array($entity) ? ($entity['slug'] ?? null) : null;
-            if (is_string($sourcePath) && is_string($taxonomy) && is_string($slug)) $taxonomyArchives[$sourcePath] = array('taxonomy' => $taxonomy, 'term_slug' => $slug);
+            if ('author' === ($entity['kind'] ?? null) && is_string($sourcePath) && is_string($slug)) $taxonomyArchives[$sourcePath] = array('author_slug' => $slug);
+            elseif (is_string($sourcePath) && is_string($taxonomy) && is_string($slug)) $taxonomyArchives[$sourcePath] = array('taxonomy' => $taxonomy, 'term_slug' => $slug);
         }
+        // Native archives have source-owned heads but are not materialized pages.
+        foreach ($taxonomyEntities as $entity) {
+            if (!isset($entity['archive']['document_head'])) continue;
+            $archive = $entity['archive'];
+            $pages[] = array('source_path' => $archive['source_path'], 'post_type' => 'page', 'route' => array('path' => $archive['source_route']), 'reconciliation_identity' => WordPressSitePlan::identity('page', $archive['source_path'], $archive['source_route']), 'document_metadata' => array('head' => $archive['document_head']));
+        }
+        $context = null;
         foreach ($pages as $page) {
             if (!isset($page['document_metadata']['head']) || !empty($page['synthetic'])) continue;
             $head = $page['document_metadata']['head'];
+            self::assertValid($head);
             $ownedPaths = array();
-            foreach ($head['elements'] as $element) {
+            foreach ($head['elements'] as $index => $element) {
                 if ('style' !== $element['tag'] && !('link' === $element['tag'] && in_array('stylesheet', preg_split('/\s+/', strtolower($element['attributes']['rel'] ?? '')) ?: array(), true))) continue;
                 foreach ($assets as $asset) {
                     $owned = ($element['asset_reference'] ?? null) === WordPressSitePlan::TOKEN_PREFIX . $asset['token'] . '}}';
                     if ('stylesheet-occurrence' === ($asset['source'] ?? null)) foreach ($asset['references'] ?? array() as $reference) {
                         if ($page['source_path'] === ($reference['source_path'] ?? null) && ($element['selector'] ?? '') === ($reference['selector'] ?? null)) $owned = true;
                     }
-                    if ($owned) $ownedPaths[$asset['target_path']] = true;
+                    if ($owned) $ownedPaths[$asset['target_path']][] = $index;
                 }
             }
             // The head replays its stylesheets at their parser positions, so it
@@ -261,12 +328,27 @@ final class DocumentHeadContext
             // the rest of the queue first (Core block styles, then before-author
             // engine support); the replay follows it and prints the stylesheets
             // the enqueue order places after the head's own (after-author) last.
-            $styles = $after = array();
+            // Preserve handles between owned styles at the preceding head element;
+            // only the final run of non-owned handles belongs after the whole head.
+            $styles = $after = $following = array();
+            $previous = null;
             foreach (WordPressSitePlan::documentStylesheets(array('assets' => $assets, 'pages' => $pages), $page['source_path']) as $stylesheet) {
-                if (isset($ownedPaths[$stylesheet['target_path']])) { $styles[] = $stylesheet['handle']; $after = array(); }
-                elseif (array() !== $styles) $after[] = $stylesheet['handle'];
+                if (!empty($ownedPaths[$stylesheet['target_path']])) {
+                    if (null !== $previous && array() !== $after) {
+                        $following[$previous] = $after;
+                        $styles = array_merge($styles, $after);
+                    }
+                    $previous = array_shift($ownedPaths[$stylesheet['target_path']]);
+                    $styles[] = $stylesheet['handle'];
+                    $after = array();
+                } elseif (array() !== $styles) $after[] = $stylesheet['handle'];
             }
-            $row = array('identity' => $page['reconciliation_identity'], 'path' => trim($page['route']['path'], '/'), 'front_page' => !empty($page['entrypoint']), 'html' => self::render($head, $assets, $tokens, WordPressSitePlan::entryRootFromDocuments($pages)), 'styles' => $styles, 'after' => $after, 'viewport' => (bool) array_filter($head['elements'], static fn(array $row): bool => 'meta' === $row['tag'] && 'viewport' === strtolower($row['attributes']['name'] ?? '')));
+            $html = array();
+            foreach ($head['elements'] as $element) {
+                $context ??= self::context($assets, $tokens, WordPressSitePlan::entryRootFromDocuments($pages));
+                $html[] = $context->renderHead(array('schema' => self::SCHEMA, 'elements' => array($element)));
+            }
+            $row = array('identity' => $page['reconciliation_identity'], 'path' => trim($page['route']['path'], '/'), 'front_page' => !empty($page['entrypoint']), 'html' => $html, 'styles' => $styles, 'following' => $following, 'after' => $after, 'viewport' => (bool) array_filter($head['elements'], static fn(array $row): bool => 'meta' === $row['tag'] && 'viewport' === strtolower($row['attributes']['name'] ?? '')));
             if (isset($taxonomyArchives[$page['source_path']])) $row += $taxonomyArchives[$page['source_path']];
             $rows[] = $row;
         }
@@ -274,13 +356,15 @@ final class DocumentHeadContext
         foreach ($tokens as $token) $paths[WordPressSitePlan::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
         $code = <<<'PHP'
 add_filter( 'template_include', static function ( $template ) use ( $blocks_engine_document_heads, $blocks_engine_head_assets ) {
-    $id = is_singular() ? get_queried_object_id() : 0;
+    $id = (int) apply_filters( 'blocks_engine_document_id', is_singular() ? get_queried_object_id() : 0 );
     $identity = $id ? get_post_meta( $id, '_blocks_engine_reconciliation_identity', true ) : '';
     $queried_term = function_exists( 'get_queried_object' ) ? get_queried_object() : null;
     foreach ( $blocks_engine_document_heads as $row ) {
         if ( isset( $row['taxonomy'], $row['term_slug'] ) ) {
             if ( ! is_object( $queried_term ) || ( $queried_term->taxonomy ?? '' ) !== $row['taxonomy'] || ( $queried_term->slug ?? '' ) !== $row['term_slug'] ) continue;
-        } elseif ( '' !== $identity ? $identity !== $row['identity'] : !( ( $row['front_page'] && is_front_page() ) || ( is_page() && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) continue;
+        } elseif ( isset( $row['author_slug'] ) ) {
+            if ( ! is_author() || ! is_object( $queried_term ) || ( $queried_term->user_nicename ?? '' ) !== $row['author_slug'] ) continue;
+        } elseif ( '' !== $identity ? $identity !== $row['identity'] : !( ( $row['front_page'] && is_front_page() ) || ( 0 !== $id && 'page' === get_post_type( $id ) && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) continue;
         if ( $row['viewport'] ) remove_action( 'wp_head', '_block_template_viewport_meta_tag', 0 );
         add_action( 'wp_enqueue_scripts', static function () use ( $row ): void {
             foreach ( array_merge( $row['styles'], $row['after'] ) as $handle ) wp_dequeue_style( $handle );
@@ -288,7 +372,10 @@ add_filter( 'template_include', static function ( $template ) use ( $blocks_engi
         add_action( 'wp_head', static function () use ( $row, $blocks_engine_head_assets ): void {
             $references = array();
             foreach ( $blocks_engine_head_assets as $token => $path ) $references[$token] = get_theme_file_uri( implode( '/', array_map( 'rawurlencode', explode( '/', $path ) ) ) );
-            echo strtr( $row['html'], $references );
+            foreach ( $row['html'] as $index => $html ) {
+                echo strtr( $html, $references );
+                if ( ! empty( $row['following'][$index] ) ) wp_print_styles( $row['following'][$index] );
+            }
             if ( array() !== $row['after'] ) wp_print_styles( $row['after'] );
         }, 8 );
         break;

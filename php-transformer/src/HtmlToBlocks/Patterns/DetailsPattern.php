@@ -40,7 +40,8 @@ final class DetailsPattern implements PatternRecognizerInterface
                 },
                 $context->presentationAttributes(...),
                 SourceDom::innerHtml(...),
-                $context->createBlock(...)
+                $context->createBlock(...),
+                $context->disclosureSummaryMarker(...)
             );
         }
 
@@ -150,7 +151,7 @@ final class DetailsPattern implements PatternRecognizerInterface
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
-    public function matchDisclosure(DOMElement $element, callable $convertChildren, callable $presentationAttributes, callable $innerHtml, callable $createBlock): ?array
+    public function matchDisclosure(DOMElement $element, callable $convertChildren, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $summaryMarker = null): ?array
     {
         if ( $this->hasRuntimeHeavyDescendant($element) ) {
             return null;
@@ -163,7 +164,7 @@ final class DetailsPattern implements PatternRecognizerInterface
 
         $toggle = $toggles[0];
 
-        $summaryHtml = $this->disclosureLabelHtml($toggle, $innerHtml);
+        $summaryHtml = $innerHtml($toggle);
         if ( '' === trim(strip_tags($summaryHtml)) ) {
             return null;
         }
@@ -196,9 +197,16 @@ final class DetailsPattern implements PatternRecognizerInterface
             return null;
         }
 
-        return $createBlock('core/details', array_filter(array_merge($presentationAttributes($element), array(
-            'summary' => $summaryHtml,
-        )), static fn ($value): bool => '' !== $value), $panelBlocks, $element);
+        // Unlike an accordion heading, details has no separate icon slot. Keep
+        // the whole trigger, with safe styling hooks on core's content carrier.
+        $marker = null !== $summaryMarker ? $summaryMarker($toggle) : '';
+        $attrs = $presentationAttributes($element);
+        $attrs['summary'] = $this->summaryContentCarrier($toggle, $summaryHtml, '' !== $marker);
+        if ( '' !== $marker ) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $marker);
+        }
+
+        return $createBlock('core/details', array_filter($attrs, static fn ($value): bool => '' !== $value), $panelBlocks, $element);
     }
 
     /**

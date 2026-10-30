@@ -50,6 +50,33 @@ final class CssValueInspector
         return 1 === preg_match('/^(?:\d+|\d*\.\d+)(?:px|em|rem|ch|ex|cm|mm|in|pt|pc)?$/', self::comparable($value));
     }
 
+    /**
+     * An authored declaration value safe to restate verbatim inside a
+     * generated rule: `!important` stripped, '' when the value is malformed
+     * (unbalanced parens or quotes, a trailing escape, or a token that would
+     * break out of the declaration block).
+     */
+    public static function carriableDeclarationValue(string $rawValue): string
+    {
+        $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', trim($rawValue)) ?? $rawValue);
+        if ( '' === $value || preg_match('~[{}<>;]|/\*~', $value) ) {
+            return '';
+        }
+        if ( substr_count($value, '(') !== substr_count($value, ')') ) {
+            return '';
+        }
+        if ( 0 !== substr_count($value, '"') % 2 || 0 !== substr_count($value, "'") % 2 ) {
+            return '';
+        }
+        // An odd trailing run of backslashes escapes whatever follows the value,
+        // which in the emitted rule is the closing brace.
+        if ( 1 === preg_match('/(\\\\+)$/', $value, $trailing) && 0 !== strlen($trailing[1]) % 2 ) {
+            return '';
+        }
+
+        return $value;
+    }
+
     public static function withoutImportant(string $value): string
     {
         return trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);

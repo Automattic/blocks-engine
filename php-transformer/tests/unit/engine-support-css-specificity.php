@@ -116,7 +116,7 @@ foreach ( $orderedAssets as $index => $asset ) {
     }
 }
 $authorCss = $cssFor($authorMargin, 'author-css');
-$authorSelector = preg_match('/(\.authored-margin:not\(\.blocks-engine-specificity-class-[^)]+\))\{/', $authorCss, $authorSelectorMatch) === 1
+$authorSelector = preg_match('/(\.authored-margin:not\(\.be-c-[^)]+\))\{/', $authorCss, $authorSelectorMatch) === 1
     ? $authorSelectorMatch[1]
     : '';
 $assert(

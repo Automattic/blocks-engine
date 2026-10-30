@@ -9,8 +9,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationOpenerPresentation;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -27,7 +25,6 @@ final class ProjectedNavigationConverter implements ElementConverter
     public function __construct(
         private readonly NavigationToggleSuppressor $navigationToggleSuppressor,
         private readonly StyleResolver $styleResolver,
-        private readonly SourceBlockAttributeProjector $sourceBlockAttributeProjector,
         private readonly HtmlTransformerSession $session,
         private readonly Closure $recognizePatterns,
         private readonly SourceBlockCreator $createBlock,
@@ -45,7 +42,17 @@ final class ProjectedNavigationConverter implements ElementConverter
             && $this->retainsRuntimeButtonBinding($element);
         $projectedNavigation = $runtimeButton ? $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element) : null;
         if ( $runtimeButton && ! $projectedNavigation instanceof DOMElement ) {
-            return ConversionOutcome::unhandled();
+            // The runtime binding keeps ordinary wired controls interactive.
+            // A hamburger whose menu the emitted core/navigation already owns
+            // is not one: Core renders its own open button in the control's
+            // slot and the hidden panel the control opened is superseded, so
+            // the kept button would be a second, inert menu toggle beside
+            // the navigation.
+            if ( ! $this->navigationToggleSuppressor->isMenuToggleSupersededByNativeNavigationOpener($element) ) {
+                return ConversionOutcome::unhandled();
+            }
+            $this->supersedeRuntimeSelectorsForControl($element);
+            return ConversionOutcome::handled(null);
         }
 
         if ($runtimeButton && $projectedNavigation instanceof DOMElement) {
@@ -76,10 +83,10 @@ final class ProjectedNavigationConverter implements ElementConverter
                     $nativeClassNames,
                     (string) ($block['attrs']['className'] ?? ''),
                     $this->responsiveNavigationToggleMarker($projectedNavigation),
-                    $this->responsiveNavigationOverlayMarker($projectedNavigation),
-                    $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext())
+                    $this->responsiveNavigationOverlayMarker($projectedNavigation)
                 );
                 $block['attrs']['overlayMenu'] = $this->navigationToggleSuppressor->projectedOverlayMenu($element);
+                $block['attrs'] = array_replace_recursive($block['attrs'], $this->responsiveNavigationOverlayAttributes($projectedNavigation));
                 $block['attrs'] = $this->withSourceOpener($block['attrs'], $projectedNavigation);
                 $this->session->authorSelectorProjectionState()->projectNavigationListIntoOverlay($projectedNavigation);
                 // The emitted navigation occupies the opener's layout slot.
@@ -90,13 +97,18 @@ final class ProjectedNavigationConverter implements ElementConverter
                 if ( ! $element->hasAttribute('aria-controls') ) {
                     return ConversionOutcome::handled($block);
                 }
-                return ConversionOutcome::handled($this->createBlock->createBlock(
+                $replacement = $this->createBlock->createBlock(
                     'core/navigation',
                     $block['attrs'],
                     $block['innerBlocks'] ?? array(),
                     $element,
                     $projectedNavigation
-                ));
+                );
+                // Keep the control's hidden-state provenance, but not its CSS
+                // identity. Attribute selectors and transforms describe the
+                // superseded button, never an ancestor of Core's fixed sheet.
+                $replacement['attrs']['className'] = $block['attrs']['className'];
+                return ConversionOutcome::handled($replacement);
             }
         }
 
@@ -147,13 +159,15 @@ final class ProjectedNavigationConverter implements ElementConverter
             return '';
         }
 
+        // A select supplies the opener's box, but not its form-field paint.
+        $isJumpMenu = 'select' === strtolower($toggle->tagName);
         $sourceDeclarations = $this->styleResolver->resolvedPresentationDeclarations($toggle);
         $presentation = new NavigationOpenerPresentation($this->styleResolver, $this->svgMarkup);
-        $source = $presentation->source($toggle);
+        $source = $isJumpMenu ? null : $presentation->source($toggle);
         $declarations = array();
         $hasUsableWidth = false;
         $hasUsableHeight = false;
-        foreach ( array(
+        $geometryProperties = array(
             'box-sizing',
             'width',
             'height',
@@ -164,20 +178,27 @@ final class ProjectedNavigationConverter implements ElementConverter
             'padding-right',
             'padding-bottom',
             'padding-left',
+        );
+        // Button presentation already owns its margins; a select only supplies geometry.
+        if ( $isJumpMenu ) {
+            $geometryProperties = array_merge($geometryProperties, array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left'));
+            $sourceDeclarations = array_intersect_key(
+                array_replace($sourceDeclarations, $this->styleResolver->collapsedViewportAuthorDeclarations($toggle, $geometryProperties)),
+                array_flip($geometryProperties)
+            );
+        }
+        foreach ( array_merge($geometryProperties, array(
             'border-top-left-radius',
             'border-top-right-radius',
             'border-bottom-right-radius',
             'border-bottom-left-radius',
             'background-color',
             'color',
-        ) as $property ) {
+        )) as $property ) {
             $value = trim((string) ($sourceDeclarations[$property] ?? ''));
             if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
                 $comparable = CssValueInspector::withoutImportant($value);
-                if ( in_array($property, array( 'width', 'min-width' ), true) && in_array($comparable, array( 'auto', 'fit-content', 'max-content', 'min-content' ), true) ) {
-                    continue;
-                }
-                if ( in_array($property, array( 'height', 'min-height' ), true) && in_array($comparable, array( 'auto', 'fit-content', 'max-content', 'min-content' ), true) ) {
+                if ( in_array($property, array( 'width', 'min-width', 'height', 'min-height' ), true) && in_array($comparable, array( 'auto', 'fit-content', 'max-content', 'min-content' ), true) ) {
                     continue;
                 }
                 $hasUsableWidth = $hasUsableWidth || ( in_array($property, array( 'width', 'min-width' ), true) && $this->nativeNavigationToggleDimensionIsUsable($comparable) );
@@ -204,7 +225,23 @@ final class ProjectedNavigationConverter implements ElementConverter
         // stead; the host then has to stop being the button's containing
         // block (see nativeNavigationTogglePlacement()).
         $placement = $always ? array() : $this->nativeNavigationTogglePlacement($toggle, $navigation);
-        foreach ( $placement as $property => $value ) {
+        // Follow the source collapse boundary rather than Core's 600px switch;
+        // these boundaries also participate in the generated marker hash.
+        $collapseBoundary = $always ? '' : $this->sourceCollapseBoundary($navigation, $toggle);
+        $absentAbove = $always ? '' : $this->sourceAbsentAboveBoundary($navigation, $toggle);
+        $bindsPanel = ! $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle)
+            && ( $always || ( '' !== $absentAbove && ! $this->navigationToggleSuppressor->projectedNavigationTargetForControl($toggle) instanceof DOMElement ) )
+            && $this->hasNavigationHeader($navigation);
+        // Making the host static also cancels its own relative offsets. Carry
+        // those on the leaf, in the same rule as any source-toggle placement.
+        $openPlacement = $placement;
+        if ( $bindsPanel || array() !== $placement ) {
+            $hostPlacement = $this->portableCollapsedPlacement($navigation, array_merge(array('position'), self::TOGGLE_OFFSET_PROPERTIES));
+            if ( 'relative' === strtolower($hostPlacement['position'] ?? '') && $this->hasPlacementOffset($hostPlacement) ) {
+                $openPlacement = array_replace($hostPlacement, $placement);
+            }
+        }
+        foreach ( $openPlacement as $property => $value ) {
             $openDeclarations[] = $property . ':' . $value . '!important';
         }
         if ( $always ) {
@@ -231,15 +268,21 @@ final class ProjectedNavigationConverter implements ElementConverter
             }
         }
 
-        // Core switches its overlay at 600px. When the source collapses this
-        // menu at a wider boundary, the generated rules follow the source
-        // boundary instead; the boundary joins the marker hash so two menus
-        // that differ only in where they collapse keep separate rules.
-        $collapseBoundary = $always ? '' : $this->sourceCollapseBoundary($navigation, $toggle);
-        $absentAbove = $always ? '' : $this->sourceAbsentAboveBoundary($navigation, $toggle);
-        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . $extra . (null === $source ? '' : serialize($source)) . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary ) . ( '' === $absentAbove ? '' : ';absent:' . $absentAbove )), 0, 12);
+        // A projected menu replaces the toggle as a grid/flex item, not only
+        // as a DOM occurrence. Carry its authored row slot on the host; putting
+        // this on Core's leaf opener would place it inside the nav instead.
+        $slotDeclarations = array();
+        if ( $this->navigationToggleSuppressor->projectedNavigationTargetForControl($toggle) instanceof DOMElement ) {
+            foreach ( $this->styleResolver->collapsedViewportAuthorDeclarations($toggle, array('grid-area', 'grid-column', 'grid-row', 'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end', 'order', 'align-self', 'justify-self')) as $property => $value ) {
+                $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant(trim($value)), $toggle);
+                if ( '' !== $value && ! preg_match('/[{}<>;]|var\(/i', $value) ) {
+                    $slotDeclarations[] = $property . ':' . $value . '!important';
+                }
+            }
+        }
+        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . implode(';', $slotDeclarations) . $extra . (null === $source ? '' : serialize($source)) . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary ) . ( '' === $absentAbove ? '' : ';absent:' . $absentAbove )), 0, 12);
         $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation.' . $marker;
-        $hostRule = $host . '{' . implode(';', $this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations, array() !== $placement)) . '}';
+        $hostRule = $host . '{' . implode(';', array_merge($this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations, array() !== $placement), $slotDeclarations)) . '}';
         $openRule = $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $openDeclarations) . '}';
         if ( array() !== $placement ) {
             $openRule .= $this->nativeNavigationTogglePlacementEditorReset($host, $placement);
@@ -269,16 +312,14 @@ final class ProjectedNavigationConverter implements ElementConverter
             if ( $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle) ) {
                 $extraRules .= $this->nativeNavigationToggleDropdownCss($host, $navigation);
                 $extraRules .= $this->nativeNavigationToggleOpenControlCss($host);
-            } else {
+            } elseif ( $bindsPanel ) {
                 $extraRules .= $this->nativeNavigationBoundPanelCss($host, $navigation);
             }
         }
-        // A mobile-only drawer opens in place under its header, like the
-        // captured panel of an always-overlay control. It can open only where
-        // its button shows, so the rules stay inside the collapsed range.
-        $drawerRules = '' === $absentAbove || $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle)
-            ? ''
-            : $this->nativeNavigationBoundPanelCss($host, $navigation);
+        // A superseded burger uses Core's viewport overlay, not the source
+        // dropdown's header-bound geometry. Other mobile-only drawers retain
+        // their existing panel projection within the collapsed range.
+        $drawerRules = ! $always && $bindsPanel ? $this->nativeNavigationBoundPanelCss($host, $navigation) : '';
         if ( $always ) {
             $rule = $hostRule . $openRule . $extraRules;
         } elseif ( '' === $collapseBoundary ) {
@@ -305,59 +346,59 @@ final class ProjectedNavigationConverter implements ElementConverter
     }
 
     /**
-     * Marker carrying the source menu's collapsed-state paint onto Core's open
-     * overlay.
+     * Core supports for the source's mobile panel. Only portable paint and
+     * horizontal packing belong here; Core owns the overlay's vertical stack.
      *
-     * Core paints the open responsive container white with black text unless
-     * the block declares its own colours. A source menu states its collapsed
-     * panel's paint in its stylesheet, typically under the breakpoint that
-     * shows the toggle (`@media(max-width:…){.nav nav{background:var(--navy)}}`).
-     * That rule is projected onto the nav HOST, which at phone width is the
-     * toggle-sized box, while the fixed overlay the links actually open inside
-     * keeps Core's defaults — and the author's link colour, so the menu was
-     * white on white.
-     *
-     * Read the background and text colour the source resolves for the menu at
-     * the mobile reference viewport — on the nav and the wrapper chain down to
-     * its list, since either may be the painted panel, with variables resolved
-     * — and restate them on the open overlay. Only a colour that can travel
-     * is carried: a `url()` image is bound to the source stylesheet's location
-     * and a transparent or inherited value says nothing about the panel. A
-     * menu whose source paints nothing in that state is left alone.
+     * @return array<string, mixed>
      */
+    public function responsiveNavigationOverlayAttributes(DOMElement $navigation): array
+    {
+        $attrs = array();
+        foreach ( $this->collapsedPanelChain($navigation) as $panel ) {
+            $values = $this->styleResolver->collapsedViewportDeclarations($panel, array('background', 'background-color', 'color', 'text-align', 'align-items', 'flex-direction'));
+            $background = '';
+            foreach ( $values as $property => $value ) {
+                if ( in_array($property, array('background', 'background-color'), true) ) {
+                    if ( '' === $background || CssValueInspector::isImportant($value) || ! CssValueInspector::isImportant($background) ) $background = $value;
+                } elseif ( 'color' === $property ) {
+                    $paint = $this->portableCollapsedPaint($panel, $value);
+                    if ( '' !== $paint ) $attrs['customOverlayTextColor'] = $paint;
+                } else {
+                    if ( 'flex-direction' === $property || ('align-items' === $property && ! str_starts_with(CssValueInspector::withoutImportant($values['flex-direction'] ?? ''), 'column')) ) continue;
+                    $value = CssValueInspector::withoutImportant($value);
+                    $justify = match (trim($value)) {
+                        'end', 'right', 'flex-end' => 'right',
+                        'center' => 'center',
+                        'start', 'left', 'flex-start' => 'left',
+                        default => '',
+                    };
+                    if ( '' !== $justify ) $attrs['layout'] = array('type' => 'flex', 'justifyContent' => $justify);
+                }
+            }
+            $paint = $this->portableCollapsedPaint($panel, $background);
+            if ( '' !== $paint ) $attrs['customOverlayBackgroundColor'] = $paint;
+        }
+
+        return $attrs;
+    }
+
+    /** Carry panel paint and content-box repairs onto Core's default open overlay. */
     public function responsiveNavigationOverlayMarker(DOMElement $navigation): string
     {
-        $background = '';
-        $color = '';
+        $attrs = $this->responsiveNavigationOverlayAttributes($navigation);
+        $background = $attrs['customOverlayBackgroundColor'] ?? '';
+        $color = $attrs['customOverlayTextColor'] ?? '';
         $listPadding = array();
-        foreach ($this->styleResolver->collapsedViewportDeclarations($navigation, array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left')) as $property => $value) {
-            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $navigation);
-            if ('' !== trim($value) && !preg_match('/[{}<>;]|url\(/i', $value)) {
+        $chain = $this->collapsedPanelChain($navigation);
+        foreach ($this->styleResolver->collapsedViewportDeclarations($chain[0], array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left')) as $property => $value) {
+            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $chain[0]);
+            if ('' !== trim($value) && !preg_match('/[{}<>;]|var\(|url\(/i', $value)) {
                 $listPadding[] = $property . ':' . $value . '!important';
             }
         }
-        foreach ( $this->collapsedPanelChain($navigation) as $panel ) {
-            $paint = $this->styleResolver->collapsedViewportDeclarations($panel, array( 'background-color', 'background', 'color' ));
-            $panelColor = $this->portableCollapsedPaint($panel, (string) ( $paint['color'] ?? '' ));
-            unset($paint['color']);
-            // The later of the shorthand and the longhand wins, as in the
-            // cascade — unless only the earlier one is `!important`.
-            $winner = '';
-            foreach ( $paint as $value ) {
-                if ( '' === $winner || CssValueInspector::isImportant($value) || ! CssValueInspector::isImportant($winner) ) {
-                    $winner = $value;
-                }
-            }
-            $panelBackground = $this->portableCollapsedPaint($panel, $winner);
-            if ( '' !== $panelBackground ) {
-                $background = $panelBackground;
-            }
-            if ( '' !== $panelColor ) {
-                $color = $panelColor;
-            }
-        }
+        $alignmentMarker = $this->responsiveNavigationAlignmentMarker($navigation);
         if ( '' === $background && '' === $color && array() === $listPadding ) {
-            return '';
+            return $alignmentMarker;
         }
 
         $declarations = array();
@@ -378,15 +419,43 @@ final class ProjectedNavigationConverter implements ElementConverter
             // this list owns the source content box again, including room for
             // scaled icons and nested item wrappers.
             $rule .= $open . ' .wp-block-navigation__container{' . implode(';', $listPadding) . '}';
+            if ( ! $chain[0]->isSameNode($navigation) ) {
+                // The discarded panel gutter replaces Core's inline sheet
+                // gutter, rather than adding a second inset around the list.
+                $rule .= $open . '{padding-inline:0!important}';
+            }
         }
+        $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay($marker, $rule);
+
+        return trim($marker . ' ' . $alignmentMarker);
+    }
+
+    private function responsiveNavigationAlignmentMarker(DOMElement $navigation): string
+    {
+        $alignment = $this->responsiveNavigationOverlayAttributes($navigation)['layout']['justifyContent'] ?? '';
+        if ( '' === $alignment ) return '';
+        $marker = 'blocks-engine-navigation-alignment-' . $alignment;
+        $open = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker
+            . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
+        // Core owns the vertical stack. Only restate its cross-axis and
+        // remove desktop submenu indentation inside the default overlay.
+        $align = match ($alignment) { 'right' => 'flex-end', 'center' => 'center', default => 'flex-start' };
+        $rule = $open . ' .wp-block-navigation__container,' . $open . ' .wp-block-navigation__submenu-container{align-items:' . $align . '!important;text-align:' . $alignment . '!important}'
+            . $open . ' .wp-block-navigation__submenu-container{padding-inline:0!important;margin-inline:0!important}'
+            . $open . ' .wp-block-navigation-item,' . $open . ' .wp-block-navigation-item__content{text-align:' . $alignment . '!important}'
+            // Retained desktop item/link classes and generated presentation
+            // carriers can set align-self on the LI or center a nested flex
+            // wrapper. Let the overlay's cross-axis alignment flow through the
+            // entire item chain, including childless top-level links.
+            . $open . ' .wp-block-navigation-item,' . $open . ' .wp-block-navigation-item *{align-self:auto!important;align-items:inherit!important}';
         $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay($marker, $rule);
 
         return $marker;
     }
 
     /**
-     * The elements that can paint the collapsed panel: the navigation itself
-     * and the single-wrapper chain beneath it down to its list, outer first.
+     * The collapsed out-of-flow parent (if any), navigation itself and the
+     * single-wrapper chain beneath it down to its list, outer first.
      * Siblings such as the toggle control or a brand anchor do not break the
      * chain; two candidate wrappers at one level make the panel ambiguous.
      *
@@ -395,6 +464,16 @@ final class ProjectedNavigationConverter implements ElementConverter
     private function collapsedPanelChain(DOMElement $navigation): array
     {
         $chain = array( $navigation );
+        // A collapsed out-of-flow wrapper is discarded when navigation moves
+        // into the burger slot. Its gutter and alignment belong to the overlay.
+        $parent = $navigation->parentNode;
+        if ( $parent instanceof DOMElement ) {
+            $values = $this->styleResolver->collapsedViewportDeclarations($parent, array('position', 'visibility', 'max-height'));
+            if ( in_array(CssValueInspector::withoutImportant($values['position'] ?? ''), array('absolute', 'fixed'), true)
+                && ('hidden' === CssValueInspector::withoutImportant($values['visibility'] ?? '') || in_array(CssValueInspector::withoutImportant($values['max-height'] ?? ''), array('0', '0px'), true)) ) {
+                array_unshift($chain, $parent);
+            }
+        }
         $node = $navigation;
         for ( $depth = 0; $depth < 4 && ! in_array(strtolower($node->tagName), array( 'ul', 'ol' ), true); ++$depth ) {
             $wrapper = null;
@@ -499,13 +578,19 @@ final class ProjectedNavigationConverter implements ElementConverter
             . '}';
     }
 
+    private function hasNavigationHeader(DOMElement $navigation): bool
+    {
+        for ( $node = $navigation->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'header' === strtolower($node->tagName) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private function nativeNavigationBoundPanelCss(string $host, DOMElement $navigation): string
     {
-        $header = $navigation->parentNode;
-        while ( $header instanceof DOMElement && 'header' !== strtolower($header->tagName) ) {
-            $header = $header->parentNode;
-        }
-        if ( ! $header instanceof DOMElement ) {
+        if ( ! $this->hasNavigationHeader($navigation) ) {
             return '';
         }
         $open = $host . ' .wp-block-navigation__responsive-container.is-menu-open';
@@ -658,18 +743,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         // The author analysis, not the resting cascade: transforms are kept
         // out of the source-style collections, and the toggle's transform is
         // the part that centres it.
-        $declared = $this->styleResolver->collapsedViewportAuthorDeclarations(
-            $toggle,
-            array_merge(self::TOGGLE_PLACEMENT_PROPERTIES, array( 'display' ))
-        );
-        $portable = array();
-        foreach ( $declared as $property => $value ) {
-            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant(trim($value)), $toggle);
-            if ( '' === $value || preg_match('/[{}<>;]|var\(/i', $value) ) {
-                continue;
-            }
-            $portable[$property] = $value;
-        }
+        $portable = $this->portableCollapsedPlacement($toggle, array_merge(self::TOGGLE_PLACEMENT_PROPERTIES, array( 'display' )));
         if ( 'none' === strtolower((string) ( $portable['display'] ?? '' )) ) {
             return array();
         }
@@ -677,15 +751,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         if ( ! in_array(strtolower((string) ( $portable['position'] ?? '' )), array( 'absolute', 'fixed' ), true) ) {
             return array();
         }
-        $offset = false;
-        foreach ( self::TOGGLE_OFFSET_PROPERTIES as $property ) {
-            $value = strtolower((string) ( $portable[$property] ?? '' ));
-            if ( '' !== $value && 'auto' !== $value ) {
-                $offset = true;
-                break;
-            }
-        }
-        if ( ! $offset ) {
+        if ( ! $this->hasPlacementOffset($portable) ) {
             return array();
         }
         $toggleContainingBlock = $this->collapsedContainingBlock($toggle);
@@ -696,6 +762,31 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return $portable;
+    }
+
+    /** @param list<string> $properties @return array<string, string> */
+    private function portableCollapsedPlacement(DOMElement $element, array $properties): array
+    {
+        $portable = array();
+        foreach ( $this->styleResolver->collapsedViewportAuthorDeclarations($element, $properties) as $property => $value ) {
+            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant(trim($value)), $element);
+            if ( '' !== $value && ! preg_match('/[{}<>;]|var\(/i', $value) ) {
+                $portable[$property] = $value;
+            }
+        }
+        return $portable;
+    }
+
+    /** @param array<string, string> $placement */
+    private function hasPlacementOffset(array $placement): bool
+    {
+        foreach ( self::TOGGLE_OFFSET_PROPERTIES as $property ) {
+            $value = strtolower($placement[$property] ?? '');
+            if ( '' !== $value && 'auto' !== $value ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -801,8 +892,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             return $host;
         }
 
-        $host[] = 'width:fit-content!important';
-        $host[] = 'height:fit-content!important';
+        // The leaf opener owns the burger's visual box, not this host.
         $host[] = 'min-width:0!important';
         $host[] = 'min-height:0!important';
         if ( ! $always ) {
@@ -1015,14 +1105,5 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return (float) $matches[1] >= 24;
-    }
-
-    private function sourceBlockAttributeProjectionContext(): SourceBlockAttributeProjectionContext
-    {
-        return new SourceBlockAttributeProjectionContext(
-            $this->session->authorStyleAnalysis(),
-            $this->session->authorSelectorProjectionState(),
-            $this->session->generatedSupportStylesheetState()
-        );
     }
 }

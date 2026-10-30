@@ -47,7 +47,7 @@ $marker = $wrapperMarker[1] ?? 'missing-marker';
 $assert(str_contains($stylesheet, '.mu5PoX[aria-disabled=false] .twJknM,.mu5PoX.' . $marker . ' .twJknM{'), 'the skin fill rule also selects the converted wrapper through its state class');
 $assert(str_contains($stylesheet, '.mu5PoX.' . $marker . ':hover .twJknM'), 'the hover variant keeps its dynamic state on the projected ancestor');
 $assert(!str_contains($stylesheet, '.mu5PoX.' . $marker . ' .twJknM::after'), 'pseudo-element rules are left as authored rather than half-projected');
-$assert(1 === preg_match('/\.mu5PoX\.' . preg_quote($marker, '/') . ' \.OR4Nv8:not\(:where\(\.blocks-engine-richtext-/', $stylesheet), 'the class form inherits the rich-text exclusion of the projected original');
+$assert(1 === preg_match('/\.mu5PoX\.' . preg_quote($marker, '/') . ' \.OR4Nv8:not\(:where\(\.blocks-engine-role-richtext\)\)/', $stylesheet), 'the class form inherits the rich-text exclusion of the projected original');
 $assert(str_contains($stylesheet, '.mu5PoX[aria-disabled=true] .twJknM{'), 'a state no source wrapper held stays as authored, with no class form');
 $assert(1 === preg_match('/<a [^>]*class="twJknM wixui-button"[^>]*aria-disabled="false"/', $markup), 'the anchor keeps its own attribute and gains no state class');
 $assert(1 === preg_match('/\.mu5PoX\.' . preg_quote($marker, '/') . ' \.OR4Nv8[^{]*\{text-transform:uppercase/', $stylesheet), 'quote styles of one condition share a single class');

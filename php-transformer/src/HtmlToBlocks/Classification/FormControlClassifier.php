@@ -6,6 +6,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 final class FormControlClassifier
@@ -25,11 +27,33 @@ final class FormControlClassifier
      */
     public const DATA_ENTRY_TAGS = array( 'input', 'select', 'textarea' );
 
-    /** The external label host emitted independently from its control. */
+    /**
+     * The external label host emitted independently from its control: a label
+     * that names a control by `for`, or a group by its id in `aria-labelledby`.
+     */
     public static function isExternalAssociatedLabel(DOMElement $element): bool
     {
-        return 'label' === strtolower($element->tagName) && '' !== $element->getAttribute('for')
+        return 'label' === strtolower($element->tagName)
+            && ('' !== $element->getAttribute('for') || self::namesLabelledElement($element))
             && array() === self::controlElements($element);
+    }
+
+    /** Whether another element in the document lists this element's id in `aria-labelledby`. */
+    private static function namesLabelledElement(DOMElement $element): bool
+    {
+        $id = trim($element->getAttribute('id'));
+        if ( '' === $id || null === $element->ownerDocument ) {
+            return false;
+        }
+        $xpath = new \DOMXPath($element->ownerDocument);
+        foreach ( $xpath->query('//*[@aria-labelledby]') ?: array() as $labelled ) {
+            if ( $labelled instanceof DOMElement && $labelled !== $element
+                && in_array($id, preg_split('/\s+/', trim($labelled->getAttribute('aria-labelledby'))) ?: array(), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static function isControlElement(DOMElement $element): bool
@@ -153,6 +177,9 @@ final class FormControlClassifier
      */
     public static function isNonAuthoredControl(DOMElement $control): bool
     {
+        if ( false === ( NativeControlState::payload($control)['rendered'] ?? null ) ) {
+            return true;
+        }
         if ( 'hidden' === self::controlType($control) ) {
             return true;
         }
@@ -162,14 +189,14 @@ final class FormControlClassifier
         if ( 'new-password' === strtolower(trim($control->getAttribute('autocomplete'))) ) {
             return true;
         }
-        if ( self::isUnreachableTextTrap($control) ) {
+        if ( self::isHoneypotControl($control) ) {
+            return true;
+        }
+        if ( SourceDom::hasNonAuthoredAncestor($control) ) {
             return true;
         }
         $insideNativeForm = false;
         for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( in_array(strtolower($parent->tagName), array( 'template', 'script', 'style', 'noscript' ), true) ) {
-                return true;
-            }
             if ( null !== self::sourceSelectAfterCapturedPanel($parent) ) {
                 return true;
             }
@@ -185,22 +212,169 @@ final class FormControlClassifier
     }
 
     /**
-     * A free-text field hidden from assistive technology on itself and removed
-     * from the tab order cannot be reached by a person, so it is a bot trap.
+     * An untabbable free-text field is a trap when aria-hidden on itself or on
+     * an ancestor inside its form, or invisible and non-interactive on itself
+     * or its immediate field container.
      * Choice and select value carriers share those attributes beside their
      * visible widget, so only free-text entry qualifies.
      */
     private static function isUnreachableTextTrap(DOMElement $control): bool
     {
-        if ( 'true' !== strtolower(trim($control->getAttribute('aria-hidden')))
-            || ! is_numeric(trim($control->getAttribute('tabindex')))
+        if ( ! is_numeric(trim($control->getAttribute('tabindex')))
             || 0 <= (int) trim($control->getAttribute('tabindex')) ) {
             return false;
         }
         $tag = strtolower($control->tagName);
 
-        return 'textarea' === $tag || ( 'input' === $tag
-            && in_array(self::controlType($control), array( 'text', 'email', 'url', 'tel', 'search', 'number' ), true) );
+        if ( 'textarea' !== $tag && ( 'input' !== $tag
+            || ! in_array(self::controlType($control), array( 'text', 'email', 'url', 'tel', 'search', 'number' ), true) ) ) {
+            return false;
+        }
+        if ( 'true' === strtolower(trim($control->getAttribute('aria-hidden')))
+            || null !== self::ariaHiddenFormAncestor($control) ) {
+            return true;
+        }
+        foreach ( array( $control, $control->parentNode ) as $element ) {
+            if ( ! $element instanceof DOMElement
+                || in_array(strtolower($element->tagName), array( 'form', 'fieldset', 'body', 'html' ), true) ) {
+                continue;
+            }
+            $declarations = array_column(
+                CssRuleAnalyzer::declarations($element->getAttribute('style'), array( 'opacity', 'pointer-events' )),
+                'value',
+                'name'
+            );
+            if ( '0' === CssValueInspector::comparable((string) ( $declarations['opacity'] ?? '' ))
+                && 'none' === CssValueInspector::comparable((string) ( $declarations['pointer-events'] ?? '' )) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The outermost `aria-hidden="true"` ancestor between a control and its
+     * native form, or null when the control sits outside a form or no
+     * ancestor below the form is hidden from assistive technology.
+     */
+    private static function ariaHiddenFormAncestor(DOMElement $control): ?DOMElement
+    {
+        $hidden = null;
+        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'form' === strtolower($parent->tagName) ) {
+                return $hidden;
+            }
+            if ( 'true' === strtolower(trim($parent->getAttribute('aria-hidden'))) ) {
+                $hidden = $parent;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * A decoy field bots fill and no reader sees: `aria-hidden="true"`, out of
+     * the tab order, and hidden or moved off-screen by inline style — all
+     * three together on the control itself, or all three together on the label
+     * that wraps it. A field carrying only some of the signals stays authored
+     * except for an untabbable free-text trap that is aria-hidden or carries
+     * invisible, non-interactive inline styling (see `isUnreachableTextTrap()`).
+     * Form providers bring their own spam protection, so a honeypot is left out of form extraction entirely:
+     * no field, and no unrepresented label text.
+     */
+    public static function isHoneypotControl(DOMElement $control): bool
+    {
+        return self::isUnreachableTextTrap($control) || self::hasHoneypotSignals($control) || null !== self::honeypotSignalLabel($control);
+    }
+
+    /**
+     * A trap owns its associated/wrapping label and its immediate field
+     * container's copy. A trap hidden by an aria-hidden ancestor inside its
+     * form also owns every container up to and including that ancestor.
+     * Never claim a form/group or a container shared with a real control,
+     * and count raw controls here (authored enumeration has already dropped
+     * the traps).
+     *
+     * @return array<int, DOMElement>
+     */
+    public static function honeypotCopyElements(DOMElement $form): array
+    {
+        $elements = array();
+        foreach ( $form->getElementsByTagName('*') as $control ) {
+            if ( ! $control instanceof DOMElement || ! self::isControlElement($control) || ! self::isHoneypotControl($control) ) {
+                continue;
+            }
+            $label = FormControlLabel::element($control);
+            if ( null !== $label ) {
+                $elements[] = $label;
+            }
+            $hiddenAncestor = self::isUnreachableTextTrap($control) ? self::ariaHiddenFormAncestor($control) : null;
+            for ( $container = $control->parentNode; $container instanceof DOMElement; $container = $container->parentNode ) {
+                if ( in_array(strtolower($container->tagName), array( 'form', 'fieldset', 'body', 'html' ), true)
+                    || self::holdsAuthoredControl($container) ) {
+                    break;
+                }
+                if ( ! in_array($container, $elements, true) ) {
+                    $elements[] = $container;
+                }
+                if ( null === $hiddenAncestor || $container === $hiddenAncestor ) {
+                    break;
+                }
+            }
+        }
+
+        return $elements;
+    }
+
+    /** Whether a container holds a raw control that is not a honeypot. */
+    private static function holdsAuthoredControl(DOMElement $container): bool
+    {
+        foreach ( $container->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && self::isControlElement($element) && ! self::isHoneypotControl($element) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** The control's wrapping label when that label, not the control, carries the honeypot signals. */
+    private static function honeypotSignalLabel(DOMElement $control): ?DOMElement
+    {
+        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'label' === strtolower($parent->tagName) ) {
+                return self::hasHoneypotSignals($parent) ? $parent : null;
+            }
+            if ( in_array(strtolower($parent->tagName), array( 'form', 'fieldset' ), true) ) {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The three honeypot signals on one element: hidden from assistive
+     * technology, removed from the tab order, and hidden or moved off-screen
+     * by its inline style (`display:none`, `visibility:hidden`, or an
+     * absolute box shifted 999px or further out by `left`/`top`).
+     */
+    private static function hasHoneypotSignals(DOMElement $element): bool
+    {
+        if ( 'true' !== strtolower(trim($element->getAttribute('aria-hidden')))
+            || '-1' !== trim($element->getAttribute('tabindex')) ) {
+            return false;
+        }
+        $declarations = array_column(
+            CssRuleAnalyzer::declarations($element->getAttribute('style'), array( 'display', 'visibility', 'position', 'left', 'top' )),
+            'value',
+            'name'
+        );
+
+        return 'none' === CssValueInspector::comparable((string) ( $declarations['display'] ?? '' ))
+            || 'hidden' === CssValueInspector::comparable((string) ( $declarations['visibility'] ?? '' ))
+            || CssValueInspector::isMovedOffscreenBox($declarations);
     }
 
     /**
@@ -264,14 +438,54 @@ final class FormControlClassifier
         return false;
     }
 
+    /**
+     * Whether a degraded page can summarize the control as prose. Other
+     * readable controls stay native inputs in the readable tree only.
+     */
+    public static function hasProseSummary(DOMElement $control): bool
+    {
+        $tagName = strtolower($control->tagName);
+        if ( in_array($tagName, array( 'select', 'textarea', 'button' ), true) ) {
+            return true;
+        }
+
+        return 'input' === $tagName && in_array(self::controlType($control), array( 'checkbox', 'email', 'number', 'password', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url' ), true);
+    }
+
+    /** Whether every control in the form has a prose summary. */
+    public static function controlsHaveProseSummaries(DOMElement $form): bool
+    {
+        foreach ( self::controlElements($form) as $control ) {
+            if ( ! self::hasProseSummary($control) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public static function isReadableControl(DOMElement $control): bool
     {
+        // Formless controls lower straight onto the page, so they need a prose
+        // summary. Form controls are gated by the form dispatcher instead.
+        if ( ! self::hasFormAncestor($control) && ! self::hasProseSummary($control) ) {
+            return false;
+        }
+
+        // Inside a form every control belongs to the readable tree, so a
+        // provider can account for it by index; page lowering stays gated by
+        // hasProseSummary().
+        if ( self::hasFormAncestor($control) ) {
+            return true;
+        }
+
         $tagName = strtolower($control->tagName);
         if ( in_array($tagName, array( 'select', 'textarea' ), true) ) {
             return true;
         }
 
-        return 'button' === $tagName || ( 'input' === $tagName && in_array(self::controlType($control), array( 'checkbox', 'email', 'number', 'password', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url' ), true) );
+        return 'button' === $tagName || self::isDataEntryControl($control)
+            || ('input' === $tagName && 'submit' === self::controlType($control));
     }
 
     public static function isSubmitLikeControl(DOMElement $control): bool
@@ -299,6 +513,12 @@ final class FormControlClassifier
 
     public static function hasSubmitSemantics(DOMElement $control): bool
     {
+        // A control with an ARIA choice role selects state; a caption such as
+        // "Subscribe & Save" on a purchase option is not submit intent.
+        if ( self::hasAriaChoiceRole($control) ) {
+            return false;
+        }
+
         $values = array( $control->textContent ?? '' );
         foreach ( array( 'value', 'class', 'id', 'name', 'aria-label', 'data-hook', 'data-field-type', 'data-testid' ) as $attribute ) {
             $values[] = $control->hasAttribute($attribute) ? $control->getAttribute($attribute) : '';
@@ -334,6 +554,11 @@ final class FormControlClassifier
         return self::hasSubmitSemantics($control);
     }
 
+    private static function hasAriaChoiceRole(DOMElement $control): bool
+    {
+        return in_array(strtolower(trim($control->getAttribute('role'))), array( 'radio', 'checkbox', 'switch', 'option', 'tab', 'menuitemradio', 'menuitemcheckbox' ), true);
+    }
+
     public static function isPseudoFormDataEntryControl(DOMElement $control): bool
     {
         return self::isDataEntryControl($control) && 'search' !== self::controlType($control);
@@ -356,6 +581,10 @@ final class FormControlClassifier
         }
 
         foreach ( self::UNSAFE_INLINE_BUTTON_ATTRIBUTES as $attribute ) {
+            if ( 'true' === $button->getAttribute(CaptureEvidence::INERT_CONTROL)
+                && in_array($attribute, array( 'aria-controls', 'aria-expanded', 'data-action', 'jsaction', 'onclick', 'onchange', 'onsubmit' ), true) ) {
+                continue;
+            }
             if ( $button->hasAttribute($attribute) ) {
                 return false;
             }
@@ -408,7 +637,8 @@ final class FormControlClassifier
     private const UNSAFE_INLINE_BUTTON_DESCENDANTS = array(
         'a',
         'button',
-        'svg',
+        // Inline SVG is materialized as a RichText image by the caller;
+        // unsupported SVG still fails that materialization's fallback gate.
         'canvas',
         'img',
         'picture',

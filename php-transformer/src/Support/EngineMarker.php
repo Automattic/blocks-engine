@@ -3,6 +3,10 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use DOMElement;
+
 /**
  * The one definition of engine marker classes.
  *
@@ -16,9 +20,10 @@ namespace Automattic\BlocksEngine\PhpTransformer\Support;
  * and attribute-state markers use a seed derived from the tag or the source
  * predicate they stand for.
  *
- * Control and semantic carriers also carry their kind's role class and the
- * subject classes of their source element (see subjectTagClass()). Neither is
- * a marker: both are the same on every page, so arms that only need "every
+ * Control, semantic and RichText carriers also carry their kind's role class
+ * and the subject classes of their source element (see subjectTagClass()). A
+ * RichText carrier states its marker in its style or data attribute, not as a
+ * class. Neither the role nor the subject classes are markers: both are the same on every page, so arms that only need "every
  * carrier of this kind" or "every carrier whose source matches this
  * context-free compound" name them instead of enumerating markers.
  *
@@ -30,6 +35,44 @@ namespace Automattic\BlocksEngine\PhpTransformer\Support;
  */
 final class EngineMarker
 {
+    /** Internal, collision-allocated specificity tokens; punctuation determines weight. */
+    public const SPECIFICITY_PREFIXES = array(
+        'specificity' => 'be-t-',
+        'specificity-class' => 'be-c-',
+        'specificity-id' => 'be-i-',
+    );
+
+    /** Compact output alias for CaptureEvidence::DEVICE_DOCUMENT. */
+    public const DEVICE_SCOPE_ATTRIBUTE = 'data-be-d';
+
+    /** Compact only the zero-weight document gate, never authored text or scripts. */
+    public static function compactDeviceScope(string $css): string
+    {
+        $gate = ':where([' . CaptureEvidence::DEVICE_DOCUMENT;
+        if (!str_contains($css, $gate)) return $css;
+        return (new CssStylesheetTransformer())->transformStyleRules(
+            $css,
+            static fn (string $selector, string $body): string => str_replace($gate, ':where([' . self::DEVICE_SCOPE_ATTRIBUTE, $selector) . '{' . $body . '}'
+        );
+    }
+
+    public static function deviceScopeValue(DOMElement $element): string
+    {
+        return $element->getAttribute(self::DEVICE_SCOPE_ATTRIBUTE) ?: $element->getAttribute(CaptureEvidence::DEVICE_DOCUMENT);
+    }
+
+    /** Regex body for a collision-allocated shim of the given kind (or any kind). */
+    public static function specificityPatternBody(?string $kind = null): string
+    {
+        $prefixes = null === $kind ? array_values(self::SPECIFICITY_PREFIXES) : array(self::SPECIFICITY_PREFIXES[$kind]);
+        return '(?:' . implode('|', array_map(static fn (string $prefix): string => preg_quote($prefix, '/'), $prefixes)) . ')\d+';
+    }
+
+    public static function isSpecificityShim(string $token): bool
+    {
+        return 1 === preg_match('/^' . self::specificityPatternBody() . '$/D', $token);
+    }
+
     /** Fixed marker kinds. `source-<tag>` is the one parameterized kind. */
     public const DOCUMENT_KINDS = array(
         'attribute',
@@ -40,6 +83,7 @@ final class EngineMarker
         'navigation-anchor',
         'navigation-item',
         'navigation-box',
+        'navigation-list-box',
         'navigation-artwork',
         'richtext',
         'root-child',
@@ -80,7 +124,7 @@ final class EngineMarker
     }
 
     /** Marker kinds whose every carrier also carries the kind's role class. */
-    public const ROLE_KINDS = array('control', 'semantic');
+    public const ROLE_KINDS = array('control', 'richtext', 'semantic');
 
     /**
      * Shared role class every element carrying `$marker` inherits, e.g.
@@ -126,6 +170,18 @@ final class EngineMarker
     {
         $tagName = strtolower($tagName);
         return self::SUBJECT_TAG_PREFIX . (1 === preg_match('/^[a-z][a-z0-9-]*$/D', $tagName) ? $tagName : 'x' . substr(hash('sha256', $tagName), 0, 12));
+    }
+
+    /**
+     * Compound matching a carrier that stands in for a source tag other than
+     * `$tagName`, e.g. a `<p>` lowered to a `<span>` carrier. A projected type
+     * selector for the carrier's own tag excludes it through
+     * `:not(:where(...))`, so the carrier matches the rules its source
+     * element matched and not those for real elements of its rendered tag.
+     */
+    public static function foreignSubjectCarrier(string $tagName): string
+    {
+        return '.' . self::SUBJECT_BASE_CLASS . ':not(.' . self::subjectTagClass($tagName) . ')';
     }
 
     /** Class restating one source class token; hashed, so any token is a valid class. */

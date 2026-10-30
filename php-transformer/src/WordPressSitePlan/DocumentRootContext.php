@@ -17,10 +17,50 @@ final class DocumentRootContext
     }
 
     /** @return array{root_attributes:array<string,string>,body_attributes:array<string,string>} */
-    public static function metadataFromHtml(string $html): array
+    public static function metadataFromHtml(string $html, string $routeIdentity = '', ?string $routeClass = null): array
     {
         $attributes = DocumentRootAttributes::forDocument($html);
+        if ('' !== $routeIdentity) $attributes['html']['class'] = trim(($attributes['html']['class'] ?? '') . ' be-r ' . ($routeClass ?? self::routeClass($routeIdentity)));
         return array('root_attributes' => $attributes['html'], 'body_attributes' => $attributes['body']);
+    }
+
+    /** Stable per-document route class from the compile-time source identity, used by CSS and the root registry alike. */
+    public static function routeClass(string $identity, int $length = 8): string
+    {
+        return 'be-r-' . substr(hash('sha256', $identity), 0, $length);
+    }
+
+    /**
+     * Allocate deterministic classes for the whole site, extending only colliding
+     * hashes. Sorting makes the result independent of route discovery order.
+     *
+     * @param list<string> $identities
+     * @return array<string,string> Classes keyed by route identity.
+     */
+    public static function routeClasses(array $identities): array
+    {
+        $identities = array_values(array_unique($identities));
+        sort($identities);
+        $lengths = array_fill_keys($identities, 8);
+        do {
+            $groups = $classes = array();
+            foreach ($identities as $identity) {
+                $class = self::routeClass($identity, $lengths[$identity]);
+                $classes[$identity] = $class;
+                $groups[$class][] = $identity;
+            }
+            $collision = false;
+            foreach ($groups as $group) {
+                if (count($group) < 2) continue;
+                foreach ($group as $identity) {
+                    if ($lengths[$identity] >= 64) throw new \LogicException('Route identity hash collision.');
+                    ++$lengths[$identity];
+                }
+                $collision = true;
+            }
+        } while ($collision);
+        if (count(array_unique($classes)) !== count($identities)) throw new \LogicException('Route classes must be unique.');
+        return $classes;
     }
 
     public static function assertValid(mixed $attributes): void
@@ -52,10 +92,10 @@ final class DocumentRootContext
         if (array() === $rows) return '';
         $code = <<<'PHP'
 $blocks_engine_document_attributes = static function ( string $element ) use ( &$blocks_engine_document_roots ): array {
-    $id = is_singular() ? get_queried_object_id() : 0;
+    $id = (int) apply_filters( 'blocks_engine_document_id', is_singular() ? get_queried_object_id() : 0 );
     $identity = $id ? get_post_meta( $id, '_blocks_engine_reconciliation_identity', true ) : '';
     foreach ( $blocks_engine_document_roots as $row ) {
-        if ( '' !== $identity ? $identity === $row['identity'] : ( ( $row['front_page'] && is_front_page() ) || ( is_page() && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) return $row[ 'body' === $element ? 'body_attributes' : 'attributes' ];
+        if ( '' !== $identity ? $identity === $row['identity'] : ( ( $row['front_page'] && is_front_page() ) || ( 0 !== $id && 'page' === get_post_type( $id ) && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) return $row[ 'body' === $element ? 'body_attributes' : 'attributes' ];
     }
     return array();
 };

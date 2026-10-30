@@ -55,6 +55,7 @@ Two audiences read this vocabulary:
 | `data-blocks-engine-capture-desktop-document` | class | — | Root of the desktop (default) copy of a responsive capture. |
 | `data-blocks-engine-capture-responsive-counterpart-` | class prefix | 12 lowercase hex digits | Pairs an element in the default document with its counterpart in another variant. |
 | `data-blocks-engine-capture-responsive-source` | attribute | source id | Source identity of a responsive counterpart; ignored when comparing shared chrome. |
+| `data-blocks-engine-capture-device-style` | attribute on `<style>`/`<link>` | space-separated profile ids | Device profiles that activate the stylesheet. Document occurrences and their projected slices retain these keys in generated frontend links. |
 | `data-blocks-engine-capture-source-media` | attribute on `<style>`/`<link>` | media query | The authored media condition, independent of a serialized `media` that only records the inactive document's activation. |
 
 ### Dialogs and dropdowns
@@ -102,6 +103,7 @@ See [Captured image galleries](../captured-galleries.md).
 | `data-blocks-engine-capture-gallery-sequence` | attribute | JSON frame sequence | The observed frame cycle. |
 | `data-blocks-engine-capture-gallery-slot` | attribute | integer | Image slot offset relative to the current frame. |
 | `data-blocks-engine-capture-gallery-stage` | attribute (flag) | ignored | The gallery stage. |
+| `data-blocks-engine-capture-gallery-frame` | attribute | integer | One captured frame inside the gallery stage; the gallery runtime toggles its `hidden` state. |
 | `data-blocks-engine-capture-gallery-initial` | attribute | integer | Initial frame of a gallery list. |
 | `data-blocks-engine-capture-gallery-display` | attribute | CSS `display` keyword | Observed display of a gallery item. |
 | `data-blocks-engine-capture-gallery-direction` | attribute on `<button>` | `-1` or `1` | Previous or next control. |
@@ -140,6 +142,7 @@ See [Native control state](../native-control-state.md).
 | `data-blocks-engine-capture-choice-group` | attribute | integer | Config key of a choice group; its transitions are in the choice runtime. Stripped from projected markup. |
 | `data-blocks-engine-capture-choice-index` | attribute | integer | Capture-internal option index; stripped from projected choice markup. |
 | `data-blocks-engine-capture-choice-runtime` | attribute (flag) on `<script>` | ignored | The capture's choice-group runtime. Its `configs[key].transitions[index]` is the group's markup after selecting choice `index`. Retired when its body is the recognized runtime (below) and every marked group projects. |
+| `data-blocks-engine-capture-inert-control` | attribute on a control | `true` | Activation had no observable effect during capture. Treat as static markup, not lost behavior; stripped from output. Other values do not establish inertness. |
 | `data-blocks-engine-capture-native-control-state` | attribute | JSON, version 1 | Observed native control state facts. Never reaches output. |
 | `data-blocks-engine-capture-native-control-runtime` | attribute (flag) on `<script>` | ignored | The capture's native control helper. |
 
@@ -152,17 +155,34 @@ See [Native control state](../native-control-state.md).
 | `data-blocks-engine-capture-viewport-entrance` | attribute | JSON | Recorded entrance states of an element the source reveals as it scrolls into view; layout shells carrying it are labelled "Scroll reveal". |
 | `data-blocks-engine-capture-viewport-entrances` | attribute | presence | Marks the capture's own entrance activator `<script>`. It addresses entrance evidence, not source behavior, so runtime-selector analysis excludes it. |
 
+### Component replay
+
+| Name | Kind | Value | Meaning |
+| ---- | ---- | ----- | ------- |
+| `data-blocks-engine-capture-tabs` | attribute (flag) | ignored | Captured semantic tablist, with observed lazy panels materialized beside it. |
+| `data-blocks-engine-capture-component-runtime` | attribute on `<script>` | ignored | Portable tab replay helper; retired only when its exact recognized body is replaced by native tabs. |
+| `data-blocks-engine-capture-component-carousel-runtime` | attribute on `<script>` | ignored | Component carousel replay helper, with state HTML and click transitions in its config. |
+
 ### Sidecar schemas
 
 | Name | Kind | Meaning |
 | ---- | ---- | ------- |
-| `blocks-engine-capture/captured-interactions/v1` | `interaction-states.json` `schema` | Captured interaction report: dialogs, galleries, selectable sets, choice groups, filters. |
+| `blocks-engine-capture/captured-interactions/v2` | `interaction-states.json` `schema` | Component-owned interaction states and replay evidence (see below). |
 | `blocks-engine-capture/capture-receipt/v1` | capture receipt `schema` | Routes the report pages to captured documents. |
 | `blocks-engine-capture/source-interactivity/v1` | receipt `sourceInteractivity.schema` | Source interactivity summary. |
 | `blocks-engine-capture/finite-bootstrap/v1` | filter `finiteBootstrap.schema` | Finite collection bootstrap record. |
 | `blocks-engine-capture/collection-status/v1` | filter `finiteBootstrap.status.schema` | Collection status labels. |
 
 ### Runtime scripts
+
+The disclosure body is the current DLA producer interpreter, including its authored
+resting-CSS check for reused non-dropdown panels with concealed triggers. Such
+panels can remain visible inline on desktop while opening as overlays on mobile.
+Blocks Engine currently keeps that page's runtime and wiring unchanged and emits
+`captured_disclosure_resting_inline_runtime_kept`: its native dialog replacement
+does not reproduce this responsive presentation. This applies by capture evidence,
+not by framework class names, including when the panel is hidden at capture width.
+
 
 A capture may ship helper scripts that keep captured interactions working in
 the static page. Blocks Engine replaces them with native blocks only when it
@@ -177,7 +197,7 @@ allowed.
 
 | Name | Kind | Meaning |
 | ---- | ---- | ------- |
-| `b545f43a77b79d075373048431101fe11d7ff8cdfe7987de6d7971512763d88f` | sha256 of the disclosure interpreter | Body: [`tests/fixtures/capture-disclosure-runtime.js`](../../tests/fixtures/capture-disclosure-runtime.js), marker `data-blocks-engine-capture-disclosure-runtime` (value `true`), in `<head>`. |
+| `67e77fd6348495edd9113e0ba1632abcd0907314aa46b5201fd1ff749544732c` | sha256 of the disclosure interpreter | Body: [`tests/fixtures/capture-disclosure-runtime.js`](../../tests/fixtures/capture-disclosure-runtime.js), marker `data-blocks-engine-capture-disclosure-runtime` (value `true`), in `<head>`. |
 | `456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b` | sha256 of the gallery helper | Body: [`tests/fixtures/capture-gallery-runtime.js`](../../tests/fixtures/capture-gallery-runtime.js), marker `data-blocks-engine-capture-gallery-runtime`, in `<head>`. |
 | `82806634d813434b72ca5cbc9532c88f26aa4bd3cec880c2e6c12580dd6849eb` | sha256 of the choice-group runtime | Body: [`tests/fixtures/capture-choice-runtime.js`](../../tests/fixtures/capture-choice-runtime.js) with the JSON config list in place of its empty config list (`var configs=[];`); the digest covers the body with the empty list, marker `data-blocks-engine-capture-choice-runtime` (value `true`), in `<head>`. |
 
@@ -258,17 +278,42 @@ To check a body, run `php -r 'echo hash("sha256", trim(file_get_contents($argv[1
 `tests/contract/capture-evidence-vocabulary.php` holds the published
 constants to these fixture digests.
 
+### Interaction component contract
+
+`interaction-states.json` has `schema` and `pages`. Each page retains `sourceUrl`,
+`viewport`, `capturedAt` and optional route metadata, but carries **only** a
+`components` inventory, never a flat interaction inventory. A component has:
+
+- `selector`: source owner selector;
+- `kind`: `tabs`, `disclosure`, `dialog`, `listbox`, `carousel`, `menu`, `filter`, `choice-group` or `unsupported`;
+- `initial`: the initial observed state id;
+- `states`: observed `{ id, html, evidence? }` nodes; probe replay facts belong to `evidence`;
+- `transitions`: `{ from, to, trigger: { selector, action: "click" } }` edges;
+- `status`: `captured`, `partial` or `unsupported`, with optional `reason`.
+
+Projectors select component kinds and consume state-owned replay facts. They do
+not read another trigger inventory. Semantic tabs use observed panel HTML; lazy
+panels are sanitized before native tab projection. Semantic carousels use only
+observed active slides. Native details retain their authored `open` state.
+Unsupported components never materialize hidden content, even if they carry probe
+evidence. Partial nodes grant no unobserved states or complete-coverage claim.
+
+This is a breaking, lockstep replacement of the retired flat interaction reader.
+Refs Automattic/blocks-engine#3709. This change must ship together with
+Automattic/data-liberation-agent#1039.
+
 ### Published for downstream importers
 
 Blocks Engine does not read these names. Downstream importers do.
 
 | Name | Kind | Value | Meaning |
 | ---- | ---- | ----- | ------- |
+| `data-blocks-engine-capture-component-disclosure` | attribute | config index | Non-native disclosure replay config binding; native details retain authored open state. |
+| `data-blocks-engine-capture-component-disclosure-runtime` | attribute on `<script>` | ignored | Portable non-native disclosure helper. |
 | `data-blocks-engine-capture-device-selection` | attribute (flag) on `<script>` | ignored | The capture's device-selection bootstrap in `<head>`. |
 | `data-blocks-engine-capture-device-body` | attribute (flag) on `<script>` | ignored | The capture's device-document overlay script at the start of `<body>`. |
 | `data-blocks-engine-capture-selected-document` | attribute on `<html>` | profile id | The device profile the selection runtime chose. Written at runtime, so author selectors on it stay live. |
 | `data-blocks-engine-capture-selected-viewport` | attribute (flag) on `<meta name="viewport">` | ignored | The viewport meta the selection runtime fills. |
 | `data-blocks-engine-capture-document-unavailable` | attribute (flag) on `<html>` | ignored | Set at runtime when no captured document applies to the device. |
-| `data-blocks-engine-capture-device-style` | attribute on `<style>`/`<link>` | profile id | The device profile the stylesheet belongs to. |
 | `data-blocks-engine-capture-member-login` | attribute | provider `[a-z0-9_-]+` | The link leads to a member login with that provider. |
 | `data-blocks-engine-capture-member-login-` | class prefix | `<prefix><provider>`, provider `[a-z0-9_-]+` | Class form of the member-login marker. It survives block conversion, which keeps classes. |

@@ -23,7 +23,9 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
     public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
+    public const SYNTHETIC_IMAGE_GAP_CLASS = 'blocks-engine-synthetic-image-gap';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
+    public const SYNTHETIC_FILL_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
     public const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
@@ -56,11 +58,13 @@ final class SourceBlockAttributeProjector
             self::PROPAGATED_LINK_CLASS,
             self::PROPAGATED_LINK_COLOR_CLASS,
         ),
+        'core/video'     => array(self::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS),
         'core/image'     => array(
             self::SYNTHETIC_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
+            self::SYNTHETIC_IMAGE_GAP_CLASS,
         ),
     );
 
@@ -97,6 +101,15 @@ final class SourceBlockAttributeProjector
         if ( 'core/image' === $name && 'figure' !== $sourceTagName ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
             if ($this->sourceImageIsFlexOrGridItem($sourceElement)) {
+                $attrs['className'] = SourceDom::mergeClassNames(
+                    (string) ($attrs['className'] ?? ''),
+                    self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
+                    $this->styleResolver->syntheticFlexImageBoxClassName($sourceElement)
+                );
+            } elseif ('' !== (string) ($attrs['href'] ?? '') && $this->sourceImageLinkIsFlexOrGridItem($sourceElement)) {
+                // The link core/image re-emits around the image was the item.
+                // A figure box would put it on a line instead, adding the strut
+                // below an inline-level link that a blockified item never had.
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS);
             }
             // The source image was inline content that its parent aligned. A
@@ -104,8 +117,18 @@ final class SourceBlockAttributeProjector
             // so the alignment has nothing left to move.
             if ( $facts->syntheticImageFigureFollowsInlineFlow ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS);
+                if ( $this->hasCollapsedImageGap($sourceElement) ) {
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_GAP_CLASS);
+                }
             } elseif ( $this->sourceImageFillsParent($sourceElement) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS);
+            }
+        }
+        if ( 'core/video' === $name && 'video' === $sourceTagName ) {
+            $declarations = $this->styleResolver->resolvedPresentationDeclarations($sourceElement);
+            if ( '100%' === CssValueInspector::comparable((string) ($declarations['width'] ?? ''))
+                && '100%' === CssValueInspector::comparable((string) ($declarations['height'] ?? '')) ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS);
             }
         }
         if ( 'core/paragraph' === $name && $facts->isInlineSourceElement ) {
@@ -133,7 +156,15 @@ final class SourceBlockAttributeProjector
             }
         }
         $baseClassName = (string) ($attrs['className'] ?? '');
-        $projectionClassName = $this->sourceProjectionClassName($sourceElement, $context, $baseClassName);
+        // A RichText marker is already the selector projection of this source
+        // element. Its paragraph is only a validity carrier, not a second box.
+        $richTextMarker = $context->selectorProjections->richTextMarker($sourceElement->getNodePath() ?? '');
+        $contentOwnsProjection = 'core/paragraph' === $name && $facts->isInlineSourceElement
+            && '' !== $richTextMarker
+            && str_contains((string) ($attrs['content'] ?? ''), '--blocks-engine-richtext-marker:' . $richTextMarker);
+        $projectionClassName = $contentOwnsProjection
+            ? $baseClassName
+            : $this->sourceProjectionClassName($sourceElement, $context, $baseClassName);
         if ( '' !== $projectionClassName ) {
             $attrs['className'] = 'core/paragraph' === $name && 'a' === $sourceTagName && $facts->isInlineSourceElement
                 ? self::withoutContentAnchorClasses($projectionClassName, $baseClassName, (string) ($attrs['content'] ?? ''))
@@ -224,6 +255,40 @@ final class SourceBlockAttributeProjector
         return ( new EditorListViewContainerNamer() )->apply($name, $attrs, $sourceElement);
     }
 
+    /** Whitespace-only nodes are discarded by convertChildren(), not by the browser. */
+    private function hasCollapsedImageGap(DOMElement $image): bool
+    {
+        $item = $image;
+        if ( $image->parentNode instanceof DOMElement && 'a' === strtolower($image->parentNode->tagName) ) {
+            $item = $image->parentNode;
+        }
+        $sibling = $item->previousSibling;
+        $space = false;
+        while ( $sibling instanceof \DOMText || $sibling instanceof \DOMComment ) {
+            if ( $sibling instanceof \DOMText ) {
+                if ( ! preg_match('/^[\x20\t\r\n\f]*$/D', $sibling->textContent) ) return false;
+                $space = $space || '' !== $sibling->textContent;
+            }
+            $sibling = $sibling->previousSibling;
+        }
+        if ( ! $space || ! $sibling instanceof DOMElement ) return false;
+        foreach ( array($item, $sibling) as $element ) {
+            $tag = strtolower($element->tagName);
+            if ( 'img' !== $tag && ('a' !== $tag || 1 !== $element->getElementsByTagName('img')->length || '' !== trim($element->textContent)) ) return false;
+            $declarations = $this->styleResolver->resolvedPresentationDeclarations($element);
+            $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+            if ( ! in_array($display, array('', 'inline', 'inline-block'), true) ) return false;
+            if ( ! in_array(CssValueInspector::comparable((string) ($declarations['float'] ?? '')), array('', 'none'), true) ) return false;
+        }
+        // A real space in flex/grid does not create a layout item. Keep it that way.
+        $parent = $item->parentNode;
+        if ( $parent instanceof DOMElement ) {
+            $declarations = $this->styleResolver->resolvedPresentationDeclarations($parent);
+            if ( in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array('flex', 'inline-flex', 'grid', 'inline-grid'), true) ) return false;
+        }
+        return true;
+    }
+
     private function sourceImageFillsParent(DOMElement $image): bool
     {
         if ( 'img' !== strtolower($image->tagName) ) {
@@ -241,33 +306,16 @@ final class SourceBlockAttributeProjector
 
     private function sourceImageIsFlexOrGridItem(DOMElement $image): bool
     {
-        $parent = $image->parentNode;
-        if ( ! $parent instanceof DOMElement ) {
+        return $this->styleResolver->imageIsFlexOrGridItem($image);
+    }
+
+    private function sourceImageLinkIsFlexOrGridItem(DOMElement $image): bool
+    {
+        $link = $image->parentNode;
+        if ( ! $link instanceof DOMElement || 'a' !== strtolower($link->tagName) ) {
             return false;
         }
-
-        // An absolutely positioned child is out of flow, not a flex/grid item.
-        // Its figure carries the author's positioned geometry, so it must keep
-        // a real box instead of the transparent flex-item treatment.
-        $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($image)['position'] ?? ''));
-        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
-            return false;
-        }
-
-        // A responsive capture states each document's layout only inside its
-        // media condition, so the parent is a flex item container whenever any
-        // viewport says so. Where it is plain flow instead, the figure's
-        // `display:contents` still leaves the image in its parent as the
-        // source had it.
-        $displays = $this->styleResolver->authorDeclaredValuesAtAnyViewport($parent, array( 'display' ))['display'] ?? array();
-        $displays[] = (string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? '');
-        foreach ( $displays as $display ) {
-            if ( in_array(CssValueInspector::comparable($display), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->styleResolver->imageIsFlexOrGridItem($link);
     }
 
     private static function isHiddenAccessibilitySupportElement(DOMElement $element): bool
@@ -326,6 +374,23 @@ final class SourceBlockAttributeProjector
         return $className;
     }
 
+    /** Modifiers are shared by native lowering and safe core/html reduction. */
+    public function layoutNeutralButtonSourceBoxClasses(DOMElement $element): string
+    {
+        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($element));
+        $classes = array();
+        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        if ( in_array($display, array( 'inline-block', 'block', 'flex', 'inline-flex' ), true) ) {
+            $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-display-' . $display;
+        }
+        foreach ( array( 'width', 'height' ) as $property ) {
+            if ( '' !== trim((string) ($declarations[$property] ?? '')) ) {
+                $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-' . $property;
+            }
+        }
+        return implode(' ', $classes);
+    }
+
     /** @param array<string, mixed> $attrs @return array<string, mixed> */
     private function projectButtonAttributes(
         string $name,
@@ -345,6 +410,7 @@ final class SourceBlockAttributeProjector
         }
         if ( $participation instanceof LayoutParticipation && $participation->neutralizeButtonWrapper() && 'core/button' === $name ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYOUT_NEUTRAL_BUTTON_CLASS);
+            $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], $this->layoutNeutralButtonSourceBoxClasses($logicalControl), (string) ($context->reducedButtonSourceBoxes[SourceDom::attr($logicalControl, 'id')] ?? ''));
         }
         $nativeButtonTextAlignment = '';
         $hasNativeButtonColor = false;
@@ -405,6 +471,12 @@ final class SourceBlockAttributeProjector
                 }
             }
             if ( '' !== $controlMarker && '' !== $presentationPath && $presentationPath !== $logicalControlPath ) {
+                // The collapsed surface has its own selector identity, even though
+                // navigation and layout still belong to the logical control.
+                $attrs['className'] = SourceDom::mergeClassNames(
+                    (string) ($attrs['className'] ?? ''),
+                    ...$context->selectorProjections->buttonPresentationCarrierClasses($presentationPath)
+                );
                 $context->selectorProjections->installButtonPresentationMarker($presentationPath, $controlMarker);
             }
             // core/button unwraps the label into RichText. Keep its selector
@@ -581,10 +653,13 @@ final class SourceBlockAttributeProjector
     /** @return array<string,string> */
     public function syntheticInlineParagraphAttributes(DOMElement $container): array
     {
+        // This carrier adds no source box, regardless of its links.
+        $attrs = array('className' => self::SYNTHETIC_PARAGRAPH_CLASS);
         $anchors = $container->getElementsByTagName('a');
-        if (0 === $anchors->length) return array();
-        foreach ($anchors as $anchor) if (!$anchor instanceof DOMElement || !$this->sourceAnchorHasNoTextDecoration($anchor)) return array();
-        return array('className' => self::SYNTHETIC_PARAGRAPH_CLASS . ' ' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
+        if (0 === $anchors->length) return $attrs;
+        foreach ($anchors as $anchor) if (!$anchor instanceof DOMElement || !$this->sourceAnchorHasNoTextDecoration($anchor)) return $attrs;
+        $attrs['className'] .= ' ' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS;
+        return $attrs;
     }
 
     /**

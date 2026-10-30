@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedDialogProjector;
@@ -41,10 +43,10 @@ $files = static function (array $pages, array $statesByUrl) use ($state): array 
         }
         $routes[] = array('url' => $url, 'path' => $path);
         $pageRows[] = array('path' => $path, 'content' => $html);
-        $reportPages[] = array('sourceUrl' => $url, 'states' => $statesByUrl[$url] ?? array());
+        $reportPages[] = array('sourceUrl' => $url, 'components' => captured_components($statesByUrl[$url] ?? array()));
     }
     $pageRows[] = array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => $routes), JSON_UNESCAPED_SLASHES));
-    $pageRows[] = array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => $reportPages), JSON_UNESCAPED_SLASHES));
+    $pageRows[] = array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => $reportPages), JSON_UNESCAPED_SLASHES));
     return $pageRows;
 };
 

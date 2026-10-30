@@ -598,6 +598,7 @@ trait StagedTransport
             'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
             'native_runtime_replacements' => array_merge(
                 $capturedDialogsProjection['native_runtime_replacements'] ?? array(),
+                $selectableSetsProjection['native_runtime_replacements'] ?? array(),
                 $collectionsProjection['superseded_runtime_scripts'] ?? array()
             ),
         );
@@ -607,7 +608,7 @@ trait StagedTransport
         if (0 < $choiceGroupsProjection['projected_count']) {
             $capturedDialogs['projected_choice_group_count'] = $choiceGroupsProjection['projected_count'];
         }
-        $rawFiles = $scrollStatesProjection['files'];
+        $rawFiles = (new RouteStateProjector())->project($scrollStatesProjection['files'])['files'];
         // A later partition-envelope normalization must not lose the implicit
         // page ownership of already-expanded inline assets.
         foreach ($rawFiles as &$file) {

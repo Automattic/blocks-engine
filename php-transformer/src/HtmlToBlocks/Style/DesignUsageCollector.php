@@ -63,6 +63,16 @@ final class DesignUsageCollector
         'padding-top' => array('top'), 'padding-right' => array('right'), 'padding-bottom' => array('bottom'), 'padding-left' => array('left'),
     );
 
+    /** Style families read at the desktop reference viewport when media rules set them, and their properties. */
+    private const DESKTOP_READ_FAMILIES = array(
+        'color' => array('color'),
+        'background' => array('background-color', 'background'),
+        'font-family' => array('font-family'),
+        'font-size' => array('font-size'),
+        'font-weight' => array('font-weight'),
+        'line-height' => array('line-height'),
+    );
+
     /** Bindable properties of class-styled elements and the style family a variant of each declares. */
     private const CLASS_STYLE_FAMILIES = array(
         'color' => 'color', 'background-color' => 'background', 'font-size' => 'font-size', 'font-family' => 'font-family',
@@ -79,6 +89,8 @@ final class DesignUsageCollector
     private array $widths = array();
     /** @var array<string,array<string,array<string,true>>> Class list => property => observations. */
     private array $classStyles = array();
+    /** @var list<array<string,mixed>> One observation per rendered heading, never inherited from a text descendant. */
+    private array $headingTypography = array();
     private float $rootPx = 16.0;
     private int $elements = 0;
 
@@ -91,6 +103,7 @@ final class DesignUsageCollector
     {
         $this->text = $this->backgrounds = $this->spacing = $this->widths = $this->classStyles = array();
         $this->elements = 0;
+        $this->headingTypography = array();
         $this->rootPx = $this->resolver->documentRootFontSize($body) ?? 16.0;
         $html = $body->parentNode instanceof DOMElement && 'html' === strtolower($body->parentNode->tagName) ? $body->parentNode : null;
         $htmlDeclarations = null !== $html ? $this->declarations($html) : array();
@@ -139,6 +152,7 @@ final class DesignUsageCollector
             'spacing' => self::rows($this->spacing),
             'widths' => self::rows($this->widths),
             'class_styles' => $this->classStyleRows(),
+            'heading_typography' => $this->headingTypography,
             'total_mass' => max(1, $mass),
             'element_count' => $this->elements,
         );
@@ -183,6 +197,24 @@ final class DesignUsageCollector
             if ($control) $context['role'] = 'button';
         }
         $mass = $this->walkChildren($element, $context);
+        if (isset(self::HEADING_EM[$tag])) {
+            $own = $this->declarations($element, true);
+            $observation = array('level' => (int) $tag[1], 'size_px' => $this->fontSize($own['font-size'] ?? null, $parent['size']));
+            foreach (array('font-size' => 'font_size', 'font-weight' => 'font_weight', 'line-height' => 'line_height') as $property => $field) {
+                $value = self::clean($own[$property] ?? '');
+                // Inherited, relative, unresolved and varying values cannot be
+                // replaced with one fixed element value at every viewport.
+                $safe = '' !== $value && !$this->resolver->hasConditionalStyleFamily($element, $property)
+                    && !$this->resolver->hasStateStyleFamily($element, $property)
+                    && !$this->resolver->readsConditionalCustomProperty($element, array($property));
+                $observation[$field] = match ($property) {
+                    'font-size' => $safe && preg_match('/^\d*\.?\d+(?:px|rem)$/i', $value) ? $observation['size_px'] : null,
+                    'font-weight' => $safe && preg_match('/^(?:[1-9][0-9]{0,2}|1000|normal|bold)$/', $value) ? $this->fontWeight($value, $tag, (int) $parent['weight']) : null,
+                    default => $safe && preg_match('/^(?:normal|\d*\.?\d+|\d*\.?\d+(?:px|rem))$/', $value) ? $value : null,
+                };
+            }
+            $this->headingTypography[] = $observation;
+        }
         if ('input' === $tag && in_array(strtolower($element->getAttribute('type')), array('submit', 'button'), true) && '' !== trim($element->getAttribute('value'))) {
             $inputMass = max(1, (int) round(mb_strlen(trim($element->getAttribute('value'))) * ($context['size'] / 16) ** 2));
             $mass += $inputMass;
@@ -577,12 +609,34 @@ final class DesignUsageCollector
         return null;
     }
 
-    /** @return array<string,string> */
-    private function declarations(DOMElement $element): array
+    /**
+     * The element's design declarations where it renders at the desktop
+     * reference viewport.
+     *
+     * The unconditional cascade alone misses what only media rules declare. A
+     * responsive capture scopes the whole desktop stylesheet to a min-width
+     * query and gives phones a scoped copy, so every authored colour and
+     * family is conditional there although one applies at every width. A
+     * property family the unconditional cascade leaves unset but a media rule
+     * sets is read as the desktop-anchored resolvers read it, with custom
+     * properties resolved in the element's scope. A family with a base value
+     * keeps it: mobile-first breakpoints only refine what is already there.
+     *
+     * @return array<string,string>
+     */
+    private function declarations(DOMElement $element, bool $headingReference = false): array
     {
         $declarations = array();
         foreach ($this->resolver->resolvedPresentationDeclarations($element) as $property => $value) {
             $declarations[strtolower((string) $property)] = (string) $value;
+        }
+        $conditional = array();
+        foreach (self::DESKTOP_READ_FAMILIES as $family => $properties) {
+            if ((array() === array_intersect_key($declarations, array_flip($properties)) || ($headingReference && in_array($family, array('font-size', 'font-weight', 'line-height'), true))) && $this->resolver->hasConditionalStyleFamily($element, $family)) array_push($conditional, ...$properties);
+        }
+        if (array() === $conditional) return $declarations;
+        foreach ($this->resolver->referenceViewportAuthorDeclarations($element, $conditional) as $property => $value) {
+            $declarations[strtolower((string) $property)] = $this->resolver->resolveCssVariablesInValue((string) $value, $element);
         }
         return $declarations;
     }

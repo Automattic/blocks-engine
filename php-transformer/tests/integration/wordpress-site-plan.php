@@ -215,6 +215,10 @@ $flowNavigation = ( new HtmlTransformer() )->transform('<style>.flow-menu{displa
 $flowNavigationSaved = serialize_blocks(parse_blocks((string) ($flowNavigation['serialized_blocks'] ?? '')));
 $flowNavigationRendered = do_blocks($flowNavigationSaved);
 $assert(str_contains($flowNavigationSaved, '"layout":{"type":"default"}') && str_contains($flowNavigationRendered, 'is-layout-flow') && ! str_contains($flowNavigationRendered, 'is-layout-flex'), 'WordPress parses the serialized non-flex navigation layout and renders its flow class instead of core/navigation default flex.');
+$hookedMenu = (string) ((new HtmlTransformer())->transform('<nav class="site-nav" data-nav data-state="closed" aria-label="Primary"><a href="/">Home</a><a href="/shop">Shop</a></nav>', array('runtime_dom_selectors' => array('[data-nav]'), 'runtime_script_metadata' => array(array('path' => 'js/app.js'))))->toArray()['serialized_blocks'] ?? '');
+eval(\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RuntimeAttributesRuntime::source());
+$hookedMenuRendered = do_blocks(serialize_blocks(parse_blocks($hookedMenu)));
+$assert(1 === preg_match('/<nav\b[^>]*\bclass="[^"]*\bsite-nav\b[^"]*\bwp-block-navigation\b[^>]*>/', $hookedMenuRendered, $hookedNav) && str_contains($hookedNav[0], ' data-nav') && str_contains($hookedNav[0], 'data-state="closed"') && 1 === substr_count($hookedMenuRendered, 'data-nav'), 'WordPress renders a script-addressed core/navigation with the data hooks its script finds it by: ' . substr($hookedMenuRendered, 0, 400));
 $stylableButton = (new HtmlTransformer())->transform('<style>.wix-label{padding:12px 20px;background:#173b64;border-radius:6px;color:#fff}</style><a class="wix-button" href="mailto:hello@example.com" target="_blank" rel="noopener external" aria-label="Email us"><span class="wix-label"><span>Email us</span></span><svg aria-hidden="true"><g><path d="M0 0h1v1z"/></g></svg></a>')->toArray();
 $stylableButtonMarkup = (string) ($stylableButton['serialized_blocks'] ?? '');
 $stylableButtonId = wp_insert_post(array('post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Stylable button', 'post_content' => serialize_blocks(parse_blocks($stylableButtonMarkup))), true);
@@ -340,7 +344,9 @@ $post = $frontPage; $setRequest($post, true);
 $rendered = do_blocks($front); wp_reset_postdata();
 // get_the_block_template_html() finishes with core's skip link to the first <main>.
 $rendered = _block_template_add_skip_link('<div class="wp-site-blocks">' . $rendered . '</div>');
-$assert(1 === substr_count($rendered, '<header') && 1 === substr_count($rendered, '<footer') && str_contains($rendered, 'id="site-chrome"') && str_contains($rendered, 'site-chrome') && str_contains($rendered, 'border-top:3px solid #111') && 1 === substr_count($rendered, 'href="#content"') && str_contains($rendered, 'id="wp-skip-link" href="#content"') && str_contains($rendered, '<main id="content"'), 'WordPress renders one complete styled landmark wrapper per front-page route and one skip link to its main.');
+// The part's landmark group is the box; the bootstrap unwraps Core's
+// template-part transport wrapper, and the group carries resolved supports.
+$assert(1 === substr_count($rendered, '<header') && 1 === substr_count($rendered, '<footer') && 0 === preg_match('/<(?:header|footer|div) class="wp-block-template-part"/', $rendered) && 1 === preg_match('/<header id="site-chrome" class="wp-block-group site-chrome [^"]*" style="[^"]*border-top-color:#111;border-top-style:solid;border-top-width:3px/', $rendered) && 1 === substr_count($rendered, 'href="#content"') && str_contains($rendered, 'id="wp-skip-link" href="#content"') && str_contains($rendered, '<main id="content"'), 'WordPress renders one complete styled landmark wrapper per front-page route and one skip link to its main.');
 $assert(str_contains($rendered, 'Home') && str_contains($rendered, home_url('/wp-content/themes/' . $theme . '/assets/assets/logo.svg')), 'WordPress renders front-page content with a browser-valid resolved image URL.');
 $pageTemplate = file_get_contents($themeDir . '/templates/page.html'); if (false === $pageTemplate) throw new RuntimeException('Could not read page template.');
 $post = $about; $setRequest($post, false); $nestedRendered = _block_template_add_skip_link('<div class="wp-site-blocks">' . do_blocks($pageTemplate) . '</div>'); wp_reset_postdata();
@@ -416,7 +422,7 @@ $sharedRouteNavHeaderMarkup = $bindNavigation($sharedRouteNavPlan, (string) ($sh
 $assert(!str_contains($sharedRouteNavHeaderMarkup, 'blocks-engine-current-navigation-item'), 'The shared header carries no static current-item marker, since one rendered part serves every route.');
 $sharedRouteNavWrites = array(); foreach ($sharedRouteNavPlan['writes'] ?? array() as $write) $sharedRouteNavWrites[$write['target_path']] = $write;
 $sharedRouteNavBootstrap = (string) ($sharedRouteNavWrites['functions.php']['payload']['data'] ?? '');
-$sharedRouteNavClosureStart = strpos($sharedRouteNavBootstrap, "static function ( string \$content, array \$block ): string {");
+$sharedRouteNavClosureStart = strpos($sharedRouteNavBootstrap, "static function ( string \$content, array \$block ): string {", (int) strpos($sharedRouteNavBootstrap, "add_filter( 'render_block_core/navigation-link',"));
 if (false === $sharedRouteNavClosureStart) throw new RuntimeException('The generated theme bootstrap does not declare the navigation-link current-item filter closure for a shared-part-only navigation.');
 $sharedRouteNavClosureEnd = strpos($sharedRouteNavBootstrap, "\n}, 10, 2 );", $sharedRouteNavClosureStart);
 if (false === $sharedRouteNavClosureEnd) throw new RuntimeException('The shared-part navigation filter closure has no discoverable closing statement.');
@@ -446,12 +452,13 @@ $assert(str_contains($frontSharedRendered, '<a class="wp-block-navigation-item__
 // disposable second theme materializes the corroborated taxonomy fixture, the
 // bootstrap's emitted rewrite rules register through init, and the actual
 // source page-2 path is resolved the way WordPress resolves a request.
-$taxonomyArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+$postRouteFixture = require dirname(__DIR__) . '/contract/fixtures/post-route-rewrites-spare-pages.php';
+$taxonomyArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array_merge($postRouteFixture['files'], array(
     'index.html' => '<main><h1>Home</h1></main>',
     array('path' => 'archives/field-notes.html', 'content' => '<main><h1>Field Notes</h1><article><h2><a href="/stories/one">One</a></h2><p>One summary.</p></article><article><h2><a href="/stories/two">Two</a></h2><p>Two summary.</p></article></main>', 'metadata' => array('route_path' => '/journal/category/field-notes')),
     array('path' => 'stories/one.html', 'content' => '<article><h1>One</h1><p>Full one.</p><a href="/journal/category/field-notes">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
     array('path' => 'stories/two.html', 'content' => '<article><h1>Two</h1><p>Full two.</p><a href="/journal/category/field-notes">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
-)))->toArray();
+))))->toArray();
 $taxonomyPlan = $taxonomyArtifact['source_reports']['wordpress_site_plan'] ?? array();
 $assert(1 === count($taxonomyPlan['taxonomy_entities'] ?? array()) && '/journal/category/field-notes' === ($taxonomyPlan['taxonomy_entities'][0]['archive']['source_route'] ?? null), 'The taxonomy fixture projects one corroborated term on its source route.');
 $taxonomyTheme = $theme . '-taxonomy';
@@ -486,6 +493,40 @@ $resolveRequest = static function (string $path): array {
     $request->parse_request('');
     return $request->query_vars;
 };
+// #3360: generated post rewrites must leave hierarchical pages to core,
+// including a child whose slug also belongs to a default-locale root page.
+$fixtureIds = array();
+$fixtureIdentities = array();
+foreach ($taxonomyPlan['pages'] as $plannedPage) {
+    $fixtureIdentities[$plannedPage['route']['path']] = $plannedPage['reconciliation_identity'];
+}
+foreach ($postRouteFixture['files'] as $file) {
+    if (!is_array($file)) continue;
+    $route = $file['metadata']['route_path'];
+    $type = $file['metadata']['post_type'];
+    $id = wp_insert_post(array(
+        'post_type' => $type, 'post_status' => 'publish',
+        'post_title' => $route, 'post_name' => basename($route),
+        'post_parent' => 'page' === $type ? ($fixtureIds[dirname($route)] ?? 0) : 0,
+    ), true);
+    if (is_wp_error($id)) throw new RuntimeException($id->get_error_message());
+    update_post_meta($id, '_blocks_engine_reconciliation_identity', $fixtureIdentities[$route]);
+    $fixtureIds[$route] = $id;
+    $pageIds['post-route-' . $route] = $id;
+}
+$assert('first-note' === get_post_field('post_name', $fixtureIds['/north/first-note']) && 'first-note-2' === get_post_field('post_name', $fixtureIds['/south/first-note']), 'WordPress assigns unique post names to shared source slugs.');
+flush_rewrite_rules(false);
+foreach ($fixtureIds as $route => $id) {
+    $assert($id === url_to_postid(home_url($route . '/')), 'Source route resolves to its own post or page: ' . $route);
+    $routeVars = $resolveRequest($route . '/');
+    if ('post' === get_post_type($id)) $assert($id === ($routeVars['p'] ?? null) && !isset($routeVars['name']), 'Post request resolves by identity to p, never name: ' . $route);
+    $routeQuery = new WP_Query($routeVars);
+    $assert($id === $routeQuery->get_queried_object_id() && !$routeQuery->is_404(), 'Core request resolves the intended object: ' . $route);
+    if ('page' === get_post_type($id)) $assert($routeQuery->is_page(), 'Child routes retain native page query semantics.');
+}
+delete_post_meta($fixtureIds['/south/first-note'], '_blocks_engine_reconciliation_identity');
+$assert('404' === ($resolveRequest('/south/first-note/')['error'] ?? null), 'A missing identity owner produces a native 404 instead of the other locale post.');
+$assert(0 === url_to_postid(home_url('/south/first-note/')), 'Direct URL lookup also refuses a route without an identity owner.');
 $baseRouteVars = $resolveRequest('/journal/category/field-notes/');
 $pageTwoVars = $resolveRequest('/journal/category/field-notes/page/2/');
 $zeroPageVars = $resolveRequest('/journal/category/field-notes/page/0/');

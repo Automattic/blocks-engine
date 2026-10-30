@@ -66,6 +66,23 @@ $assert(
     'an unambiguous description leaves no ambiguity marker behind'
 );
 
+// #3183: retain the resolved description's class tokens so consumers can
+// distinguish visually hidden sub-labels from visible helper copy.
+$subLabelControls = $controlsByName(
+    '<main><form method="post" action="/join"><div><label for="first">Name</label>'
+    . '<input id="first" name="first"><span class="sub hidden-util">First</span></div>'
+    . '<button type="submit">Send</button></form></main>'
+);
+$assert(
+    'First' === ($subLabelControls['first']['description'] ?? null),
+    'a single sub-label resolves as the description'
+);
+$assert(
+    array( 'sub', 'hidden-util' ) === ($subLabelControls['first']['description_classes'] ?? null),
+    'a resolved description carries its source class tokens',
+    json_encode($subLabelControls['first'] ?? null)
+);
+
 // A field with no nearby copy at all reports no description and no ambiguity.
 $plainControls = $controlsByName(
     '<main><div class="signup"><div class="field"><label>Email</label><input type="email" name="email"></div>'
@@ -77,11 +94,16 @@ $assert(
     json_encode($plainControls['email'] ?? null)
 );
 
+$assert(
+    ! isset($plainControls['email']['description_classes']),
+    'a field without a description has no description classes'
+);
+
 // Two disjoint, independently text-bearing siblings in the same exclusive
 // wrapper cannot be safely attributed to the one control they surround.
 $ambiguousControls = $controlsByName(
     '<main><div class="signup"><div class="field"><label>Portfolio URL</label>'
-    . '<input type="text" name="portfolio"><p>Link to your design work</p><span>Optional but recommended</span></div>'
+    . '<input type="text" name="portfolio"><p class="helper">Link to your design work</p><span class="sub hidden-util">Optional but recommended</span></div>'
     . '<button>Subscribe</button></div></main>'
 );
 $assert(
@@ -93,6 +115,11 @@ $assert(
     array( 'Link to your design work', 'Optional but recommended' ) === ( $ambiguousControls['portfolio']['_unresolved_description_candidates'] ?? null ),
     'both disjoint candidates are named so a caller can diagnose the loss',
     json_encode($ambiguousControls['portfolio'] ?? null)
+);
+
+$assert(
+    ! isset($ambiguousControls['portfolio']['description_classes']),
+    'ambiguous descriptions do not contribute class tokens'
 );
 
 // A description nested inside a wrapper shared with another control cannot

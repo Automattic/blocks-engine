@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
+use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use InvalidArgumentException;
 
 /** Owns navigation content sharing and exact document occurrences. */
@@ -64,7 +65,7 @@ final class NavigationEntityProjection
                 $attrs['ref'] = WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $token . '}}';
                 $replacements[$occurrence['kind']][$occurrence['index']][] = array(
                     'offset' => $occurrence['block']['offset'], 'length' => $occurrence['block']['length'],
-                    'markup' => '<!-- wp:navigation ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . ' /-->',
+                    'markup' => '<!-- wp:navigation ' . BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR) . ' /-->',
                 );
             }
         }
@@ -198,7 +199,7 @@ final class NavigationEntityProjection
             $entities[$token] = false;
             $identities[$menu['reconciliation_identity']] = true;
         }
-        foreach (array('pages', 'template_parts', 'templates') as $group) foreach ($plan[$group] as $document) self::assertMarkupReferences($document['canonical_block_markup'], $entities);
+        foreach (array('pages', 'template_parts', 'templates', 'synced_patterns') as $group) foreach ($plan[$group] ?? array() as $document) self::assertMarkupReferences((string) ($document['canonical_block_markup'] ?? ''), $entities);
         foreach ($plan['writes'] as $write) if ('utf8' === ($write['payload']['encoding'] ?? null)) self::assertMarkupReferences($write['payload']['data'], $entities);
         if (array() !== $entities && (self::REFERENCE_CONTRACT !== ($plan['reference_semantics']['navigation_entities'] ?? null) || in_array(false, $entities, true))) {
             throw new InvalidArgumentException('WordPress site plan navigation entities require explicit owned references.');

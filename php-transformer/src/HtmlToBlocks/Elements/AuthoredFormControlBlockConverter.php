@@ -55,6 +55,12 @@ final class AuthoredFormControlBlockConverter
         $this->editableLabelContent = $editableLabelContent ?? $this->richTextLabelContent;
     }
 
+    /** A label's inline rich text without the controls it wraps. */
+    public function labelMarkup(DOMElement $label): string
+    {
+        return ($this->richTextLabelContent)($label);
+    }
+
     public function labelContent(DOMElement $label): string
     {
         $content = ($this->editableLabelContent)($label);
@@ -95,10 +101,14 @@ final class AuthoredFormControlBlockConverter
     }
 
     /** @return array<string, mixed>|null */
-    public function select(DOMElement $select, bool $forceNative = false, ?DOMElement $labelElement = null): ?array
+    /**
+     * @param bool $runtimeTarget The control is a script's DOM target: it stays native and keeps
+     *                            the data-* hooks and the id the script finds it by.
+     */
+    public function select(DOMElement $select, bool $forceNative = false, ?DOMElement $labelElement = null, bool $runtimeTarget = false): ?array
     {
         $state = NativeControlState::attributes($select);
-        $forceNative = $forceNative || null !== $state;
+        $forceNative = $forceNative || $runtimeTarget || null !== $state;
         $label = $this->metadataBuilder->readableLabel($select);
         ($this->registerEcho)($label);
         $options = $this->metadataBuilder->options($select);
@@ -137,7 +147,7 @@ final class AuthoredFormControlBlockConverter
             'form' => SourceDom::attr($select, 'form'),
             'multiple' => $select->hasAttribute('multiple'),
             'size' => SourceDom::attr($select, 'size'),
-            'dataAttributes' => null !== $state ? $this->dataAttributes($select) : array(),
+            'dataAttributes' => $runtimeTarget || null !== $state ? $this->dataAttributes($select) : array(),
             'ariaLabel' => SourceDom::attr($select, 'aria-label'),
             'placeholder' => SourceDom::attr($select, 'placeholder'),
             'className' => SourceDom::attr($select, 'class'),
@@ -159,14 +169,12 @@ final class AuthoredFormControlBlockConverter
             'innerBlocks' => array(),
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
+            // Anchor-only identity: lets a finding bind this control's block
+            // without registering it as a provenance source.
+            '_source_anchor_selector' => SourceDom::elementSelector($select),
         );
 
-        // Preserve the established structural address while source identity and
-        // authored selectors remain on the native control inside this shell.
-        return $this->createBlock->createBlock('core/group', array_filter(array(
-            'anchor' => null !== $state ? '' : ($this->safeAnchor)(SourceDom::attr($select, 'id')),
-            'className' => 'blocks-engine-authored-select-wrapper',
-        )), array( $controlBlock ), null);
+        return $controlBlock;
     }
 
     public function listbox(DOMElement $trigger, ?DOMElement $panel = null): ?array
@@ -250,8 +258,12 @@ final class AuthoredFormControlBlockConverter
         $registry = ($this->generatedBlocks)();
         $registry->register(AuthoredInputBlockGenerator::class, $generator->definition($registry->namespace()));
         $isImage = 'image' === FormControlClassifier::controlType($input);
+        $indicator = in_array(strtolower($input->tagName), array('progress', 'meter'), true);
         $attrs = array_filter(array(
-            'type' => FormControlClassifier::controlType($input),
+            'tagName' => $indicator ? strtolower($input->tagName) : '',
+            'fallbackText' => $indicator ? $input->textContent : '',
+            'indicatorAttributes' => $indicator ? SourceAttribute::staticAttributes(SourceDom::htmlAttributes($input), array('id', 'class', 'style', 'value', 'min', 'max', 'aria-label')) : array(),
+            'type' => $indicator ? '' : FormControlClassifier::controlType($input),
             'id' => SourceDom::attr($input, 'id'),
             'name' => SourceDom::attr($input, 'name'),
             'form' => SourceDom::attr($input, 'form'),
@@ -262,6 +274,9 @@ final class AuthoredFormControlBlockConverter
             'style' => SourceDom::attr($input, 'style'),
             'min' => SourceDom::attr($input, 'min'),
             'max' => SourceDom::attr($input, 'max'),
+            'low' => $indicator ? SourceDom::attr($input, 'low') : '',
+            'high' => $indicator ? SourceDom::attr($input, 'high') : '',
+            'optimum' => $indicator ? SourceDom::attr($input, 'optimum') : '',
             'step' => SourceDom::attr($input, 'step'),
             // An image submit is painted by its picture; without it the control has no face.
             'src' => $isImage ? SourceDom::attr($input, 'src') : '',
@@ -290,6 +305,7 @@ final class AuthoredFormControlBlockConverter
             'innerBlocks' => array(),
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
+            '_source_anchor_selector' => SourceDom::elementSelector($input),
         );
     }
 

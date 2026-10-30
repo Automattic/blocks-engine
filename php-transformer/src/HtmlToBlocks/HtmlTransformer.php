@@ -23,8 +23,27 @@ final class HtmlTransformer
         return HtmlCompilation::emittedCoreBlockContracts();
     }
 
-    /** @param array<string, mixed> $options */
+    /**
+     * Convert HTML to blocks. Input that already carries block delimiters keeps
+     * every parsed block as written; only HTML outside blocks, or loose inside a
+     * container block, is converted and spliced back at its position.
+     *
+     * @param array<string, mixed> $options
+     */
     public function transform(string $html, array $options = array()): TransformerResult
+    {
+        if ( BlockMarkupInputCompilation::containsBlockDelimiters($html) ) {
+            return (new BlockMarkupInputCompilation(
+                $this->runtime,
+                fn (string $fragment, array $fragmentOptions): TransformerResult => $this->transformHtml($fragment, $fragmentOptions)
+            ))->transform($html, $options);
+        }
+
+        return $this->transformHtml($html, $options);
+    }
+
+    /** @param array<string, mixed> $options */
+    private function transformHtml(string $html, array $options): TransformerResult
     {
         return (new HtmlCompilation($this->runtime, $this->analysisCache))->transform($html, $options);
     }

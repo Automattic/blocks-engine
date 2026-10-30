@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -64,8 +65,202 @@ final class ImageDimensionResolver
             // relied on `auto` to do.
             return '';
         }
-        $attribute = trim(SourceDom::attr($image, $property));
-        return $this->imageDimensionValue($attribute);
+        return HtmlDimensionAttribute::cssLength(SourceDom::attr($image, $property));
+    }
+
+    /**
+     * The image's used size in CSS pixels on each axis that is fixed, or null
+     * for an axis that is not.
+     *
+     * An axis is fixed when {@see imageDisplayDimension()} -- the same
+     * inline/stylesheet/attribute resolution core/image emission uses --
+     * yields an absolute length, or yields `100%` and the image fills a
+     * sizing wrapper whose own size on that axis is a fixed length. That
+     * covers an avatar sized by `.av{width:36px;height:36px} .av img{width:100%;
+     * height:100%}` exactly like one sized by `width="36" height="36"`.
+     *
+     * @return array{width: ?float, height: ?float}
+     */
+    public function fixedPixelSize(DOMElement $image): array
+    {
+        return array(
+            'width' => $this->fixedPixelDimension($image, 'width'),
+            'height' => $this->fixedPixelDimension($image, 'height'),
+        );
+    }
+
+    /** {@see fixedPixelSize()} for one axis. */
+    public function fixedPixelDimension(DOMElement $image, string $property): ?float
+    {
+        $parentSizing = $this->parentSizedDimension($image, $property);
+        if ( '' !== $parentSizing ) {
+            return $this->fillingWrapperPixelDimension($image, $property, 'inherit' === $parentSizing);
+        }
+
+        return $this->absolutePixelLength($this->imageDisplayDimension($image, $property), $image);
+    }
+
+    /**
+     * How this image axis takes its size from its parent box, if it does:
+     * `100%` when it fills the parent, `inherit` when it inherits the parent's
+     * specified length, or '' when the axis is sized some other way.
+     *
+     * This is the one rule for "this image dimension is the parent's size":
+     * both {@see fixedPixelDimension()} and core/image emission ask it before
+     * replacing a parent-relative dimension with the parent's fixed length.
+     * `inherit` is only honoured when author CSS states it for the axis at
+     * every viewport; a responsive rule leaves the axis to the projected
+     * stylesheet.
+     */
+    public function parentSizedDimension(DOMElement $image, string $property): string
+    {
+        if ( '100%' === $this->imageDisplayDimension($image, $property) ) {
+            return '100%';
+        }
+        if ( $this->styles->imageAxisVariesByViewport($image, $property) ) {
+            return '';
+        }
+        $declaration = $this->styles->imageShapeDeclarations($image)[$property] ?? array();
+        if ( ! is_array($declaration) || ! $this->imageStylesheetDimensionIsViewportInvariant($declaration['conditions'] ?? array()) ) {
+            return '';
+        }
+
+        return 'inherit' === CssValueInspector::comparable(CssValueInspector::withoutImportant((string) ($declaration['value'] ?? '')))
+            ? 'inherit'
+            : '';
+    }
+
+    /**
+     * The fixed length of the wrapper a `100%`-sized image fills on this axis.
+     *
+     * Walks up through wrappers the image (or the wrapper below) is the only
+     * content of. An in-flow, block-level wrapper whose size on the axis is
+     * unstated, `auto` or `100%` passes the box through; the first wrapper that
+     * states an absolute length is the box the image fills. Anything else --
+     * shared content, padding that insets the box, floats, out-of-flow or
+     * flex/grid-item wrappers whose auto size depends on their content, a size
+     * a media query varies -- is not a fixed box, and the axis stays unfixed.
+     *
+     * An `inherit`ed axis takes the parent's specified value instead of a
+     * share of its box: the parent's absolute length is the image's size
+     * (its padding does not inset an inherited length), a parent that is
+     * itself `100%` continues as a fill, and a parent that is unstated or
+     * `auto` leaves the image `auto`, so the axis stays unfixed.
+     */
+    private function fillingWrapperPixelDimension(DOMElement $image, string $property, bool $inherits = false): ?float
+    {
+        $paddingProperties = 'width' === $property
+            ? array( 'padding', 'padding-left', 'padding-right', 'padding-inline', 'padding-inline-start', 'padding-inline-end' )
+            : array( 'padding', 'padding-top', 'padding-bottom', 'padding-block', 'padding-block-start', 'padding-block-end' );
+        $node = $image;
+        for ( $depth = 0; $depth < 6; ++$depth ) {
+            $wrapper = $node->parentNode;
+            if ( ! $wrapper instanceof DOMElement
+                || in_array(strtolower($wrapper->tagName), array( 'body', 'html' ), true)
+                || ! $this->isSoleContent($wrapper, $node)
+                || $this->styles->imageAxisVariesByViewport($wrapper, $property) ) {
+                return null;
+            }
+            $declarations = $this->styles->referenceViewportAuthorDeclarations(
+                $wrapper,
+                array_merge(array( $property, 'display', 'position', 'float' ), $paddingProperties)
+            );
+            $value = CssValueInspector::comparable(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? '')));
+            if ( $inherits ) {
+                if ( 'inherit' === $value ) {
+                    $node = $wrapper;
+                    continue;
+                }
+                if ( in_array($value, array( '', 'auto' ), true) ) {
+                    return null;
+                }
+                $inherits = false;
+                if ( '100%' !== $value ) {
+                    return $this->absolutePixelLength($value, $wrapper);
+                }
+            }
+            foreach ( $paddingProperties as $padding ) {
+                if ( ! $this->isZeroLength(CssValueInspector::comparable((string) ($declarations[ $padding ] ?? ''))) ) {
+                    return null;
+                }
+            }
+
+            if ( ! in_array($value, array( '', 'auto', '100%' ), true) ) {
+                return $this->absolutePixelLength($value, $wrapper);
+            }
+            if ( ! $this->passesFillThrough($wrapper, $declarations) ) {
+                return null;
+            }
+            $node = $wrapper;
+        }
+
+        return null;
+    }
+
+    /** @param array<string, string> $declarations */
+    private function passesFillThrough(DOMElement $wrapper, array $declarations): bool
+    {
+        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        if ( '' === $display ) {
+            $display = $this->styles->defaultTagDisplay($wrapper);
+        }
+        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+        $float = CssValueInspector::comparable((string) ($declarations['float'] ?? ''));
+        if ( ! in_array($display, array( 'block', 'flow-root', 'flex', 'grid', 'list-item' ), true)
+            || in_array($position, array( 'absolute', 'fixed' ), true)
+            || ! in_array($float, array( '', 'none' ), true) ) {
+            return false;
+        }
+        $container = $wrapper->parentNode;
+        if ( ! $container instanceof DOMElement ) {
+            return false;
+        }
+        $containerDisplay = CssValueInspector::comparable((string) ($this->styles->referenceViewportAuthorDeclarations($container, array( 'display' ))['display'] ?? ''));
+
+        return ! in_array($containerDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+    }
+
+    private function isSoleContent(DOMElement $wrapper, DOMElement $child): bool
+    {
+        foreach ( $wrapper->childNodes as $node ) {
+            if ( $node instanceof DOMElement ) {
+                if ( ! $node->isSameNode($child) ) {
+                    return false;
+                }
+            } elseif ( $node instanceof \DOMText && '' !== trim($node->textContent) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function isZeroLength(string $value): bool
+    {
+        foreach ( preg_split('/\s+/', trim($value)) ?: array() as $token ) {
+            if ( '' !== $token && 1 !== preg_match('/^[+-]?0*(?:\.0+)?(?:[a-z]+|%)?$/', $token) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function absolutePixelLength(string $value, DOMElement $context): ?float
+    {
+        if ( 1 !== preg_match('/^((?:\d+|\d*\.\d+))(px|rem)$/i', trim($value), $matches) ) {
+            return null;
+        }
+        $length = (float) $matches[1];
+        if ( 'rem' === strtolower($matches[2]) ) {
+            $root = $this->styles->documentRootFontSize($context);
+            if ( null === $root ) {
+                return null;
+            }
+            $length *= $root;
+        }
+
+        return $length;
     }
 
     /**

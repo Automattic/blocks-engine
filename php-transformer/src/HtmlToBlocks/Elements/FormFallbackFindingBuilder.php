@@ -13,6 +13,9 @@ use DOMElement;
 /** Builds the provider-materializable diagnostic for a form-like element. */
 final class FormFallbackFindingBuilder
 {
+    /** @var list<string> Canonical selectors for the accepted source groups. */
+    private array $choiceGroupSelectors = array();
+
     public function __construct(
         private readonly FormFallbackFindingContext $context,
         private readonly FormControlMetadataBuilder $metadataBuilder,
@@ -72,11 +75,16 @@ final class FormFallbackFindingBuilder
             'selector'         => SourceDom::elementSelector($element),
             'attributes'       => SourceDom::htmlAttributes($element),
             'form'             => $formMetadata,
+            'form_intent'      => FormRuntimeRequirementAnalyzer::formIntent($element),
             'success_panel'    => $this->successPanelMetadataBuilder->build($element),
             'context'          => $this->context->sourceContext($element),
             'classification'   => $this->context->classifyFallbackSubtree($element),
             'events'           => SourceDom::eventMetadata($element),
-            'readable_blocks'  => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
+            // Top-level block annotations (never attrs): form_control_index
+            // addresses controls[], form_choice_group_index addresses
+            // choice_groups[]. Page provenance resolution removes both before
+            // serialization; providers can replace blocks without order guesses.
+            'readable_blocks'  => null !== $readableFormBlock ? $this->identifyChoiceGroups(array( $readableFormBlock ), $choiceGroups) : array(),
             'binding'          => $binding,
             'controls'         => $controls,
             'control_topology' => $controlTopology,
@@ -104,10 +112,74 @@ final class FormFallbackFindingBuilder
         return $this->context->buildFallbackDiagnostic($finding);
     }
 
+    /**
+     * Match captured groups by source identity, not their tree position.
+     * @param list<array<string, mixed>> $blocks
+     * @param list<array<string, mixed>> $groups
+     * @return list<array<string, mixed>>
+     */
+    private function identifyChoiceGroups(array $blocks, array $groups): array
+    {
+        foreach ($blocks as &$block) {
+            if (isset($block['_form_field_box'])) {
+                // The field's box encloses the control: a substituted field keeps it.
+                $shell = $block['_form_field_box'];
+                unset($block['_form_field_box']);
+                $shell['innerBlocks'] = array($block);
+                $shell['innerContent'] = array($shell['innerContent'][0] ?? '', null, $shell['innerContent'][1] ?? '');
+                $block = $shell;
+                continue;
+            }
+            foreach ($groups as $index => $group) {
+                if (isset($block['_source_anchor_selector']) && $block['_source_anchor_selector'] === ($this->choiceGroupSelectors[$index] ?? null)) {
+                    $block['form_choice_group_index'] = $index;
+                    break;
+                }
+            }
+            if (!empty($block['innerBlocks'])) {
+                $block['innerBlocks'] = $this->identifyChoiceGroups($block['innerBlocks'], $groups);
+            }
+            if ('group' === ($block['form_field']['kind'] ?? null)) {
+                // The legend is stated once, as the group's label.
+                foreach ($block['innerBlocks'] ?? array() as $child) {
+                    if (!empty($child['_form_legend'])) {
+                        $block['form_field']['label_attributes'] = array_diff_key($child['attrs'] ?? array(), array('content' => true));
+                    }
+                }
+                // Drop the legend's child slot along with the block, keeping innerContent aligned.
+                $children = array();
+                $content = array();
+                $slot = 0;
+                foreach ($block['innerContent'] ?? array() as $part) {
+                    if (null !== $part) {
+                        $content[] = $part;
+                        continue;
+                    }
+                    $child = $block['innerBlocks'][$slot++] ?? null;
+                    if (is_array($child) && empty($child['_form_legend'])) {
+                        $children[] = $child;
+                        $content[] = null;
+                    }
+                }
+                $block['innerBlocks'] = $children;
+                $block['innerContent'] = $content;
+                // A fieldset framing one captured choice group is that group's node.
+                $indexed = array_keys(array_filter($block['innerBlocks'], static fn (array $child): bool => isset($child['form_choice_group_index'])));
+                if (1 === count($indexed) && ! isset($block['form_choice_group_index'])) {
+                    $block['form_choice_group_index'] = $block['innerBlocks'][$indexed[0]]['form_choice_group_index'];
+                    unset($block['innerBlocks'][$indexed[0]]['form_choice_group_index']);
+                }
+            }
+        }
+        unset($block);
+        return $blocks;
+    }
+
     /** @return array<int, array<string, mixed>> */
     private function choiceGroups(DOMElement $form): array
     {
         $groups = array();
+        $this->choiceGroupSelectors = array();
         foreach ( $form->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement || 'true' !== strtolower($element->getAttribute('data-blocks-engine-choice-group')) ) {
                 continue;
@@ -132,6 +204,7 @@ final class FormFallbackFindingBuilder
                 if ( ! array_key_exists('source_value', $choices[array_key_last($choices)]) ) $choices[array_key_last($choices)]['source_value'] = null;
             }
             if ( count($choices) < 2 ) continue;
+            $this->choiceGroupSelectors[] = SourceDom::elementSelector($element);
             $groups[] = array(
                 // The group is a flat record of named source facts (see
                 // `CapturedChoiceGroupProjector::boundedGroup()`). Nested values
@@ -139,13 +212,45 @@ final class FormFallbackFindingBuilder
                 // into the form's fallback and runtime entity.
                 'group' => array_filter($config['group'], static fn (mixed $value, int|string $key): bool => is_string($key) && is_string($value), ARRAY_FILTER_USE_BOTH),
                 'choices' => $choices,
-                'observed_transition' => array(
-                    'selected_index' => null,
-                    'selected' => array_fill(0, count($choices), null),
-                ),
+                'observed_transition' => $this->sourceSelection($element, $choices),
             );
         }
 
         return $groups;
+    }
+
+    /**
+     * The selection the source document shows, read from each choice's own
+     * ARIA state. A choice that states none stays unknown (`null`).
+     *
+     * @param array<int, array<string, mixed>> $choices
+     * @return array{selected_index: ?int, selected: array<int, ?bool>}
+     */
+    private function sourceSelection(DOMElement $group, array $choices): array
+    {
+        $selected = array();
+        foreach ( $choices as $position => $choice ) {
+            // The capture binds the nth choice to the nth control of its tag and role.
+            $nodes = array();
+            foreach ( '' === ($choice['tag'] ?? '') ? array() : $group->getElementsByTagName((string) $choice['tag']) as $node ) {
+                if ( $node instanceof DOMElement && strtolower($node->getAttribute('role')) === strtolower((string) ($choice['role'] ?? '')) ) {
+                    $nodes[] = $node;
+                }
+            }
+            $node = $nodes[$choice['index']] ?? null;
+            $selected[$position] = null;
+            foreach ( array('aria-pressed', 'aria-checked', 'aria-selected') as $attribute ) {
+                if ( $node instanceof DOMElement && $node->hasAttribute($attribute) ) {
+                    $selected[$position] = 'true' === strtolower(trim($node->getAttribute($attribute)));
+                    break;
+                }
+            }
+        }
+        $chosen = array_keys($selected, true, true);
+
+        return array(
+            'selected_index' => 1 === count($chosen) ? $chosen[0] : null,
+            'selected' => $selected,
+        );
     }
 }

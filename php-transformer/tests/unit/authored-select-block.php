@@ -134,6 +134,12 @@ $assert(( new AuthoredSelectBlockGenerator() )->markup($disabledAttrs) === $save
 $inputAttrs = array( 'type' => 'email', 'className' => 'authored-input', 'required' => true, 'disabled' => true );
 $input      = new AuthoredInputBlockGenerator();
 $assert($input->markup($inputAttrs) === $saveMarkup($input, $inputAttrs), 'authored-input save() already round-trips required and disabled');
+foreach (array('progress', 'meter') as $tag) {
+    foreach (array('0', '40', '') as $value) {
+        $indicatorAttrs = array('tagName' => $tag, 'id' => 'indicator', 'value' => $value, 'min' => '0', 'max' => '100', 'low' => '20', 'high' => '80', 'optimum' => '50', 'style' => 'width:200px;height:6px', 'fallbackText' => '40% & <remaining>', 'indicatorAttributes' => array('aria-hidden' => 'true', 'role' => 'progressbar'));
+        $assert($input->markup($indicatorAttrs) === $saveMarkup($input, $indicatorAttrs), $tag . ' PHP markup equals editor save for zero, filled and indeterminate native indicators');
+    }
+}
 $choiceAttrs = array('type' => 'checkbox', 'checked' => true, 'label' => 'Receive updates', 'labelMarkup' => '<span>Receive updates</span>', 'labelId' => 'choice-label', 'labelClassName' => 'choice', 'labelAfterControl' => true);
 $assert($input->markup($choiceAttrs) === $saveMarkup($input, $choiceAttrs) && str_contains($input->markup($choiceAttrs), '<label id="choice-label" class="choice"><input type="checkbox" checked><span>'), 'native choice identity, state and source order survive PHP/editor save');
 $editedChoice = json_decode($invokeLabelEditor($input, $choiceAttrs, 'inspector', 'Updated choice'), true, 512, JSON_THROW_ON_ERROR);

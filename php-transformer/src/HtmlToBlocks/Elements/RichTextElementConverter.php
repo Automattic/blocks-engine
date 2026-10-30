@@ -76,16 +76,13 @@ final class RichTextElementConverter implements ElementConverter
             $content = $withInlineSvg;
         }
 
-        // A logo title (only images, each bare or inside its own link) is
-        // RichText too: Gutenberg keeps the `<img>` as its `core/image` object
-        // format inside the heading, so the heading need not become core/html.
-        $imageOnly = SourceDom::isImageOnlyHeading($element);
-
-        if ( ! $imageOnly && $this->context->requiresHtmlFallback($content) ) {
+        if ( $this->context->requiresHtmlFallbackForElement($element, $content) ) {
             return $this->context->htmlPreservationBlock($element);
         }
 
-        if ( ! $imageOnly && '' === trim($this->context->stripAllTags($content)) && ! $this->context->containsNativeSvgImageObject($content) ) {
+        if ( '' === trim($this->context->stripAllTags($content))
+            && ! SourceDom::carriesOnlyRichTextInlineImages($element)
+            && ! $this->context->containsNativeSvgImageObject($content) ) {
             return null;
         }
 
@@ -263,7 +260,7 @@ final class RichTextElementConverter implements ElementConverter
             return $emptyLayout;
         }
 
-        if ( $this->context->requiresHtmlFallback($content) ) {
+        if ( $this->context->requiresHtmlFallbackForElement($element, $content) ) {
             // A paragraph wrapping one anchor that mixes an image with text is
             // not RichText, but the container path already converts that anchor
             // shape natively. Lower it the same way instead of preserving a
@@ -298,7 +295,9 @@ final class RichTextElementConverter implements ElementConverter
             }
         }
 
-        if ( '' === trim($this->context->stripAllTags($content)) && ! $this->context->containsNativeSvgImageObject($content) ) {
+        if ( '' === trim($this->context->stripAllTags($content))
+            && ! SourceDom::carriesOnlyRichTextInlineImages($element)
+            && ! $this->context->containsNativeSvgImageObject($content) ) {
             // An empty paragraph that scripts address by selector must keep a
             // block at that position, otherwise the runtime target disappears.
             $fragmentId = SourceDom::namedFragmentTargetId($element);

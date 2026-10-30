@@ -209,7 +209,7 @@ $inlineShell = current(array_filter(
     $shellReferenced['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array(),
     static fn (array $artifact): bool => 'header' === ($artifact['area'] ?? null)
 ));
-$inlineMarkup = is_array($inlineShell) ? (string) ($inlineShell['template_part_block_markup'] ?? $inlineShell['block_markup'] ?? '') : '';
+$inlineMarkup = is_array($inlineShell) ? (string) ($inlineShell['block_markup'] ?? '') : '';
 $assert(str_contains($inlineMarkup, '"iconColorValue":"#ffffff"'), 'isolated shared-shell compilation carries the referenced glyph color, got ' . $inlineMarkup);
 
 echo "Social-links icon color tests passed\n";

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** Routes standalone SVGs to materialized, preserved, decorative, or fallback representations. */
@@ -44,6 +45,15 @@ final class SvgElementConverter implements ElementConverter
             }
         }
 
+        // A definition carrier is document content even when aria-hidden or
+        // positioned as decoration; do not discard it or wrap it as an image.
+        if (SourceDom::isDefinitionsOnlySvg($element)) {
+            $block = $this->materializer->inlineSvgBlockFromElement($element);
+            if (null !== $block) {
+                return ConversionOutcome::handled($block);
+            }
+        }
+
         if ( ! $this->materializer->svgNeedsPhrasingHost($element) ) {
             $textRun = $this->textRun->block($element);
             if ( null !== $textRun ) {
@@ -53,6 +63,15 @@ final class SvgElementConverter implements ElementConverter
 
         if ( $this->isSafeEmptyMediaPlaceholder($element) ) {
             return ConversionOutcome::handled(null);
+        }
+
+        // Empty artwork may still occupy an authored inline media box. Keep
+        // its baseline and dimensions instead of collapsing the container.
+        if ( ! $element->hasChildNodes() && $element->hasAttribute('width') && $element->hasAttribute('height') ) {
+            $html = $this->context->sanitizeMarkup($element);
+            if ( $this->context->isSafeContent($html) ) {
+                return ConversionOutcome::handled($this->context->createBlock('core/html', array('content' => $html), array(), $element));
+            }
         }
 
         if ( $this->materializer->isSafeDecorativeSvgElement($element) ) {

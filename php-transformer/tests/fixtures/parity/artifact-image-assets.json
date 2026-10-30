@@ -36,7 +36,7 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "assets/logo.svg", "alt": "Logo", "width": "120px", "height": "80px", "caption": "Brand", "className": "hero-logo rounded is-resized", "id": 42, "sizeSlug": "medium" } }
+    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "assets/logo.svg", "alt": "Logo", "width": "120px", "height": "80px", "caption": "Brand", "className": "hero-logo rounded is-resized be-inline-geometry-e842990d8b1fdafb", "id": 42, "sizeSlug": "medium" } }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -49,16 +49,17 @@
     { "path": "source_reports.artifact.image_references.0.safe", "assert": "equals", "value": true },
     { "path": "source_reports.artifact.image_references.1.asset_path", "assert": "equals", "value": "assets/bad.svg" },
     { "path": "source_reports.artifact.image_references.1.safe", "assert": "equals", "value": false },
-    { "path": "assets.0.path", "assert": "equals", "value": "assets/logo.svg" },
-    { "path": "assets.0.content", "assert": "contains", "value": "<svg" },
-    { "path": "assets.1.path", "assert": "equals", "value": "assets/bad.svg" },
-    { "path": "assets.1.content", "assert": "equals", "value": null },
+    { "path": "assets.0.content", "assert": "contains", "value": "figcaption{margin-top:0;margin-bottom:0}" },
+    { "path": "assets.1.path", "assert": "equals", "value": "assets/logo.svg" },
+    { "path": "assets.1.content", "assert": "contains", "value": "<svg" },
+    { "path": "assets.2.path", "assert": "equals", "value": "assets/bad.svg" },
+    { "path": "assets.2.content", "assert": "equals", "value": null },
     { "path": "diagnostics.0.code", "assert": "equals", "value": "unsafe_svg_asset" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"id\":42" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"sizeSlug\":\"medium\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-image-42\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image is-resized hero-logo rounded size-medium" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image is-resized hero-logo rounded be-inline-geometry-" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "bad.svg" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "onload" },
     { "path": "metrics.block_count", "assert": "equals", "value": 1 }

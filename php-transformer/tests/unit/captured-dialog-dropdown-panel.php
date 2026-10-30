@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 /**
  * A captured dropdown menu panel is not a modal. The user agent paints a bare
  * <dialog> as a centred white box with black text, and the source panel's
@@ -34,13 +36,13 @@ $compile = static function (?string $presentation, string $rootClass = 'menu-pan
         'files' => array(
             array('path' => 'website/index.html', 'content' => '<header><nav><button type="button" aria-label="Menu">Menu</button></nav></header><main><p>Body</p></main>'),
             array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-            array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array(
+            array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array(
                 'sourceUrl' => 'https://example.test/',
-                'states' => array(array(
+                'components' => captured_components(array(array(
                     'status' => 'captured',
                     'trigger' => array('selector' => 'body > header > nav > button', 'tag' => 'button', 'ariaHaspopup' => '', 'label' => 'Menu', 'dataBindings' => array()),
                     'dialog' => $dialog,
-                )),
+                ))),
             ))), JSON_UNESCAPED_SLASHES)),
         ),
     ))->toArray();
@@ -77,13 +79,13 @@ $compileWired = static function (string $panelClass, string $ancestorJson, bool 
         'files' => array(
             array('path' => 'website/index.html', 'content' => $html),
             array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-            array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array(
+            array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array(array(
                 'sourceUrl' => 'https://example.test/',
-                'states' => array(array(
+                'components' => captured_components(array(array(
                     'status' => 'captured',
                     'trigger' => array('selector' => 'body > header > div > button', 'tag' => 'button', 'ariaHaspopup' => 'menu', 'label' => 'Toggle menu', 'dataBindings' => array()),
                     'dialog' => array('html' => '<div><a href="/one">One</a></div>', 'htmlBytes' => strlen('<div><a href="/one">One</a></div>'), 'htmlTruncated' => false, 'presentation' => 'dropdown'),
-                )),
+                ))),
             ))), JSON_UNESCAPED_SLASHES)),
         ),
     ))->toArray();

@@ -64,6 +64,69 @@ $assert(1 === count($blocksNamed($form, 'core/search')), 'the search form inside
 $assert(1 === count($searchGroups($form)), 'the <search> landmark stays a core/group with tagName "search"');
 $assert(str_contains((string) ($form['serialized_blocks'] ?? ''), '<search class="wp-block-group site-search">'), 'the group renders the <search> landmark with its class');
 
+// Accessible names do not imply a visible source label.
+foreach ( array(
+    'visible label' => array( '<label for="q">Find items</label><input id="q" type="search">', true ),
+    'aria-label only' => array( '<input type="search" aria-label="Find items">', false ),
+    'placeholder only' => array( '<input type="search" placeholder="Find items">', false ),
+    'sr-only label' => array( '<label for="q" class="sr-only">Find items</label><input id="q" type="search">', false ),
+) as $case => [ $controls, $showLabel ] ) {
+    $result = $transform('<form role="search">' . $controls . '</form>');
+    $searchBlocks = $blocksNamed($result, 'core/search');
+    $assert(1 === count($searchBlocks), "{$case}: converts to native search");
+    $attrs = $searchBlocks[0]['attrs'] ?? array();
+    $assert($showLabel === ($attrs['showLabel'] ?? null), "{$case}: only a visible source label enables showLabel");
+    $assert('Find items' === ($attrs['label'] ?? ''), "{$case}: keeps the accessible label");
+}
+
+// Search glyph names identify a submit control independently of the site's language.
+$searchControls = array(
+    'localized icon-font form' => array( '<button type="submit"><i class="fa fa-search"></i></button>', true ),
+    'span glyph' => array( '<button><span class="icon-magnifier"></span></button>', true ),
+    'svg class' => array( '<button><svg class="icon-magnifying-glass"></svg></button>', true ),
+    'svg sprite' => array( '<button><svg><use href="#search"></use></svg></button>', true ),
+    'svg legacy sprite' => array( '<button><svg><use xlink:href="icons.svg#magnifier"></use></svg></button>', true ),
+    'data icon' => array( '<button><span data-icon="magnifying-glass"></span></button>', true ),
+    'control class' => array( '<button class="icon-search"></button>', true ),
+    'control aria label' => array( '<button aria-label="Search"></button>', true ),
+    'control title' => array( '<button title="Magnifier"></button>', true ),
+    'input submit' => array( '<input type="submit" class="icon-search" value="">', true ),
+    'plain Go' => array( '<button type="submit">Go</button>', false ),
+    'close glyph' => array( '<button><i class="search-close"></i></button>', false ),
+    'clear glyph' => array( '<button><span data-icon="search-clear"></span></button>', false ),
+    'close control' => array( '<button aria-label="Close"><i class="fa-search"></i></button>', false ),
+    'clear descendant' => array( '<button class="search"><svg><use href="#clear"></use></svg></button>', false ),
+    'compound control id' => array( '<button type="submit" id="searchsubmit"><svg viewBox="0 0 1 1"><path d="M0 0"/></svg></button>', true ),
+    'non-submit glyph' => array( '<button type="button"><i class="fa-search"></i></button>', false ),
+    'unrelated descendant' => array( '<button><em class="search"></em></button>', false ),
+);
+foreach ( $searchControls as $case => [ $control, $expectedSearch ] ) {
+    $result = $transform('<form action="/recherche" id="rechercheheader"><input name="termes">' . $control . '</form>');
+    $searchBlocks = $blocksNamed($result, 'core/search');
+    $assert(($expectedSearch ? 1 : 0) === count($searchBlocks), "{$case}: only search-signaled GET forms become core/search");
+    if ( $expectedSearch ) {
+        $assert(true === ($searchBlocks[0]['attrs']['buttonUseIcon'] ?? false), "{$case}: the search submit retains buttonUseIcon");
+    }
+}
+
+// Replaced controls must beat core/theme element defaults with source presentation.
+foreach ( array(
+    'icon font UA padding' => array( '<i class="fa fa-search"></i>', '#hr button .fa-search{color:#ccc}', '1px 2px', '1px 6px' ),
+    'SVG authored padding' => array( '<svg class="search-icon"><path d="M0 0"/></svg>', '#hr svg{color:#ccc} #hr input{padding:3px 4px} #hr button{padding:5px 7px}', '3px 4px', '5px 7px' ),
+    'span inherits button colour' => array( '<span class="icon-magnifier"></span>', '#hr button{color:#ccc}', '1px 2px', '1px 6px' ),
+) as $case => [ $icon, $extraCss, $inputPadding, $buttonPadding ] ) {
+    $result = $transform(
+        '<header><section id="hr"><form id="s" action="/recherche"><input type="text" name="q"><button type="submit">' . $icon . '</button></form></section></header>',
+        '#hr form{display:inline-block;border:1px solid #d8d8d8;background:white} #hr input{width:182px;font-size:16px;border:none;background:white} #hr button[type=submit]{border:none;background:white;line-height:26px}' . $extraCss
+    );
+    $search = $blocksNamed($result, 'core/search')[0] ?? array();
+    $assert(true === ($search['attrs']['buttonUseIcon'] ?? false), "{$case}: native icon search survives");
+    $css = json_encode($result, JSON_UNESCAPED_SLASHES);
+    $assert(str_contains($css, 'color:#ccc!important'), "{$case}: source icon colour reaches the currentColor button");
+    $assert(str_contains($css, '.wp-block-search__input{padding:' . $inputPadding . '!important'), "{$case}: source input padding beats core padding");
+    $assert(str_contains($css, '.wp-block-search__button{padding:' . $buttonPadding . '!important'), "{$case}: source button padding beats theme padding");
+}
+
 // A search landmark wrapping only a toggle button (a search-overlay trigger).
 $toggle = $transform('<main><h1>Catalog</h1><search class="toolbar"><button type="button" aria-label="Search">Search</button></search><p>After</p></main>');
 $assert(array() === $unsupported($toggle), 'a <search> wrapping a button records no unsupported element; got: ' . json_encode(array_column($unsupported($toggle), 'tag')));

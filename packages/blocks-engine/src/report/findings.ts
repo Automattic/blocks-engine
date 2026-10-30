@@ -267,6 +267,15 @@ export function buildReport({
     message: issue,
   }));
 
+  for (const name of fixResult.preservedBlocks ?? []) {
+    diagnostics.push({
+      code: 'invalid_block_preserved',
+      severity: 'warning',
+      message: `${name} kept as written: the editor's re-save would drop content it shows.`,
+      selector: name,
+    });
+  }
+
   if (fixResult.degraded) {
     diagnostics.push({
       code: 'conversion_degraded',

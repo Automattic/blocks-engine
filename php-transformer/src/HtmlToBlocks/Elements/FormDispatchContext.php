@@ -10,6 +10,7 @@ use DOMElement;
 final class FormDispatchContext
 {
     /**
+     * @param Closure(DOMElement): ?array<string, mixed> $loginBlockFromForm
      * @param Closure(DOMElement): ?array<string, mixed> $searchBlockFromForm
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $nativeGetFormBlock
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array{block: array<string, mixed>, slot: array<string, mixed>} $compose
@@ -18,9 +19,10 @@ final class FormDispatchContext
      * @param Closure(DOMElement, bool, array<int, array<string, mixed>>&): ?array<string, mixed> $buildReadableFormBlock
      * @param Closure(DOMElement): bool $requiresPreservation
      * @param Closure(DOMElement): array<string, mixed> $htmlPreservationBlock
-     * @param Closure(DOMElement): bool $isPseudoForm
+     * @param Closure(DOMElement): bool $isProviderPseudoForm
      */
     public function __construct(
+        private readonly Closure $loginBlockFromForm,
         private readonly Closure $searchBlockFromForm,
         private readonly Closure $nativeGetFormBlock,
         private readonly Closure $compose,
@@ -29,8 +31,14 @@ final class FormDispatchContext
         private readonly Closure $buildReadableFormBlock,
         private readonly Closure $requiresPreservation,
         private readonly Closure $htmlPreservationBlock,
-        private readonly Closure $isPseudoForm
+        private readonly Closure $isProviderPseudoForm
     ) {
+    }
+
+    /** @return array<string, mixed>|null */
+    public function loginBlockFromForm(DOMElement $element): ?array
+    {
+        return ($this->loginBlockFromForm)($element);
     }
 
     /** @return array<string, mixed>|null */
@@ -87,8 +95,8 @@ final class FormDispatchContext
         return ($this->htmlPreservationBlock)($element);
     }
 
-    public function isPseudoForm(DOMElement $element): bool
+    public function isProviderPseudoForm(DOMElement $element): bool
     {
-        return ($this->isPseudoForm)($element);
+        return ($this->isProviderPseudoForm)($element);
     }
 }

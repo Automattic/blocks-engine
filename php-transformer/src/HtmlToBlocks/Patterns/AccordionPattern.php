@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -30,7 +31,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         $fallbacks = array();
         $items = array();
         foreach ( $itemElements as $child ) {
-            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggle(...));
+            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggle(...), $context->accordionItemBox(...), $context->sourceElementStartsHidden(...));
             if ( null === $item ) {
                 return null;
             }
@@ -56,7 +57,7 @@ final class AccordionPattern implements PatternRecognizerInterface
     }
 
     /** @param list<array<string, mixed>> $fallbacks */
-    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggle): ?array
+    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggle, callable $accordionItemBox, callable $startsHidden): ?array
     {
         if ( ! $this->isAccordionItemElement($item) || $this->hasRuntimeHeavyDescendant($item) ) {
             return null;
@@ -67,11 +68,37 @@ final class AccordionPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // The label and toggle presentation come from the title's control;
+        // ARIA state and the controlled panel come from the item itself when
+        // the whole row is the disclosure control.
         $control = $this->disclosureControlElement($title);
+        $stateControl = $this->isItemLevelDisclosure($item, $title) ? $item : $control;
 
-        $panel = $this->panelElement($item, $control);
+        $panel = $this->panelElement($item, $stateControl);
         if ( null !== $panel && $panel->isSameNode($title) ) {
             return null;
+        }
+
+        $header = $this->headerRowElement($item, $title, $panel);
+        $toggle = $accordionToggle($control, $header);
+        $carriedIcon = '' !== $toggle['iconSvg'] && 1 === $header->getElementsByTagName('svg')->length
+            ? $header->getElementsByTagName('svg')->item(0) : null;
+        if ( $panel instanceof DOMElement ) {
+            if ( $this->containsNode($panel, $title)
+                || ! $this->itemContentIsCovered($item, $control, $panel, $header, $carriedIcon instanceof DOMElement ? $carriedIcon : null)
+            ) {
+                return null;
+            }
+
+            // An unlinked read-more control beside an already visible body
+            // does not establish a disclosure relationship.
+            if ( 'details' !== strtolower($item->tagName)
+                && ! $this->hasClass($item, 'wp-block-accordion-item')
+                && '' === $this->trimmedAttribute($stateControl, 'aria-controls')
+                && ! $startsHidden($panel)
+            ) {
+                return null;
+            }
         }
 
         $titleHtml = $this->disclosureLabelHtml($control, $innerHtml);
@@ -90,8 +117,10 @@ final class AccordionPattern implements PatternRecognizerInterface
         // source trigger's own box — the vertical padding that gives every row
         // its height — is carried on the heading as a marker instead. A
         // source-proved vector icon rides in block metadata: core saves a fixed
-        // `+` icon slot, and the theme renders the actual SVG into it.
-        $toggle = $control instanceof DOMElement ? $accordionToggle($control) : array('className' => '', 'iconSvg' => '');
+        // `+` icon slot, and the theme renders the actual SVG into it. The
+        // source header row is offered too: when the row, not the control,
+        // holds the end icon (an item-level control beside a bare heading),
+        // that icon is the one carried.
         $headingAttrs = array_filter(array(
             'title' => $titleHtml,
             'level' => $this->headingLevel($title),
@@ -99,12 +128,108 @@ final class AccordionPattern implements PatternRecognizerInterface
             'metadata' => '' !== $toggle['iconSvg'] ? array('blocksEngineIcon' => $toggle['iconSvg']) : '',
         ), static fn ($value): bool => '' !== $value);
 
-        return $createBlock('core/accordion-item', array_filter(array_merge($presentationAttributes($item), array(
-            'openByDefault' => $this->isOpen($item, $control, $panel) ? true : '',
+        return $createBlock('core/accordion-item', array_filter(array_merge($this->withItemBox($presentationAttributes($item), $accordionItemBox($item)), array(
+            'openByDefault' => $this->isOpen($item, $stateControl, $panel) ? true : '',
         )), static fn ($value): bool => '' !== $value), array(
             $createBlock('core/accordion-heading', $headingAttrs, array(), $title),
-            $createBlock('core/accordion-panel', $panel instanceof DOMElement ? $presentationAttributes($panel) : array(), $panelBlocks, $panel),
+            $createBlock('core/accordion-panel', $panel instanceof DOMElement ? $this->openPanelPresentation($panel, $presentationAttributes) : array(), $panelBlocks, $panel),
         ), $item);
+    }
+
+    /**
+     * The item's resolved padding and border as core/accordion-item style
+     * attributes; anything the source already states inline keeps its value.
+     *
+     * @param array<string, mixed> $attributes
+     * @param array<string, string> $box
+     * @return array<string, mixed>
+     */
+    private function withItemBox(array $attributes, array $box): array
+    {
+        if ( array() === $box ) {
+            return $attributes;
+        }
+        $mapped = ( new StyleAttributeMapper() )->map($box, static fn (string $value): string => $value);
+        $style = is_array($mapped['style'] ?? null) ? $mapped['style'] : array();
+        $style = array_intersect_key($style, array_flip(array('spacing', 'border')));
+        if ( isset($style['spacing']) && is_array($style['spacing']) ) {
+            $style['spacing'] = array_intersect_key($style['spacing'], array_flip(array('padding')));
+        }
+        $style = array_filter($style, static fn ($value): bool => array() !== $value);
+        if ( array() === $style ) {
+            return $attributes;
+        }
+        $existing = is_array($attributes['style'] ?? null) ? $attributes['style'] : array();
+        $attributes['style'] = array_replace_recursive($style, $existing);
+
+        return $attributes;
+    }
+
+    /**
+     * The source header row of an item: the outermost element around the
+     * title that stays inside the item and does not contain the panel.
+     */
+    private function headerRowElement(DOMElement $item, DOMElement $title, ?DOMElement $panel): DOMElement
+    {
+        $row = $title;
+        for ( $node = $title->parentNode; $node instanceof DOMElement && ! $node->isSameNode($item); $node = $node->parentNode ) {
+            if ( $panel instanceof DOMElement && $this->containsNode($node, $panel) ) {
+                break;
+            }
+            $row = $node;
+        }
+
+        return $row;
+    }
+
+    /**
+     * Presentation of a disclosure panel in its open state.
+     *
+     * Native core/accordion owns the open/closed state: it opens a panel by
+     * removing its `hidden` attribute and never touches classes. A captured
+     * panel records its open-state class list, so the panel is presented with
+     * that list and the capture's closed-state-only classes (e.g. a Tailwind
+     * `hidden`) are dropped; otherwise the panel would stay invisible when its
+     * item opens. Applies whether the control is item-level or a title button.
+     *
+     * @return array<string, mixed>
+     */
+    private function openPanelPresentation(DOMElement $panel, callable $presentationAttributes): array
+    {
+        $openAttribute = CaptureEvidence::DISCLOSURE_OPEN_PREFIX . 'class';
+        if ( ! $panel->hasAttribute($openAttribute) ) {
+            return $presentationAttributes($panel);
+        }
+
+        $hadClass = $panel->hasAttribute('class');
+        $sourceClass = $panel->getAttribute('class');
+        $panel->setAttribute('class', $this->openClassList($panel));
+        try {
+            return $presentationAttributes($panel);
+        } finally {
+            if ( $hadClass ) {
+                $panel->setAttribute('class', $sourceClass);
+            } else {
+                $panel->removeAttribute('class');
+            }
+        }
+    }
+
+    /** The panel's source classes with closed-only classes swapped for the recorded open-state list. */
+    private function openClassList(DOMElement $panel): string
+    {
+        $tokens = static fn (string $value): array => array_values(array_filter(preg_split('/\s+/', trim($value)) ?: array(), static fn (string $t): bool => '' !== $t));
+        $open = $tokens($panel->getAttribute(CaptureEvidence::DISCLOSURE_OPEN_PREFIX . 'class'));
+        $closed = $tokens($panel->getAttribute(CaptureEvidence::DISCLOSURE_CLOSED_PREFIX . 'class'));
+        $closedOnly = array_diff($closed, $open);
+
+        $classes = array_values(array_diff($tokens($panel->getAttribute('class')), $closedOnly));
+        foreach ( $open as $class ) {
+            if ( ! in_array($class, $classes, true) ) {
+                $classes[] = $class;
+            }
+        }
+        return implode(' ', $classes);
     }
 
     /**
@@ -163,7 +288,7 @@ final class AccordionPattern implements PatternRecognizerInterface
             }
 
             $title = $this->titleElement($element);
-            if ( ! $title instanceof DOMElement || ! $this->isDisclosureTitle($title) ) {
+            if ( ! $title instanceof DOMElement || ! ( $this->isDisclosureTitle($title) || $this->isItemLevelDisclosure($element, $title) ) ) {
                 return false;
             }
             $hasNonNativeDisclosure = true;
@@ -207,7 +332,33 @@ final class AccordionPattern implements PatternRecognizerInterface
 
         $title = $this->titleElement($element);
 
-        return $title instanceof DOMElement && $this->isDisclosureTitle($title);
+        return $title instanceof DOMElement && ( $this->isDisclosureTitle($title) || $this->isItemLevelDisclosure($element, $title) );
+    }
+
+    /**
+     * Whether the item element itself is the disclosure control: the whole row
+     * is clickable, so the item carries `aria-controls` naming a panel it
+     * contains. Applies only when the title has no control of its own, so a
+     * title-level control keeps deciding state and panel as before.
+     */
+    private function isItemLevelDisclosure(DOMElement $item, DOMElement $title): bool
+    {
+        if ( $this->isDisclosureTitle($title) ) {
+            return false;
+        }
+
+        $controlledId = $this->trimmedAttribute($item, 'aria-controls');
+        if ( '' === $controlledId ) {
+            return false;
+        }
+
+        foreach ( $item->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement && $candidate->getAttribute('id') === $controlledId ) {
+                return ! $this->containsNode($candidate, $title);
+            }
+        }
+
+        return false;
     }
 
     private function isDisclosureTitle(DOMElement $title): bool
@@ -342,6 +493,45 @@ final class AccordionPattern implements PatternRecognizerInterface
         }
 
         return null;
+    }
+
+    /**
+     * Wrappers may surround the title and panel, but cannot hide unrelated
+     * content. Only a header's disclosure glyph is replaced by core's icon.
+     */
+    private function itemContentIsCovered(DOMElement $node, DOMElement $title, DOMElement $panel, DOMElement $header, ?DOMElement $carriedIcon): bool
+    {
+        if ( $node->isSameNode($title) || $node->isSameNode($panel) || ( $carriedIcon instanceof DOMElement && $node->isSameNode($carriedIcon) ) ) {
+            return true;
+        }
+
+        $tag = strtolower($node->tagName);
+        if ( in_array($tag, array( 'script', 'style', 'template' ), true) ) {
+            return true;
+        }
+        $isHeaderIcon = $this->containsNode($header, $node)
+            && preg_match('/(?:^|[\\s_-])icon(?:$|[\\s_-])/i', $node->getAttribute('class'))
+            && preg_match('/^[\\s+−–—×✕⌄⌃›‹❯❮]+$/u', $node->textContent)
+            && 0 === $node->getElementsByTagName('*')->length;
+        if ( $isHeaderIcon ) {
+            return true;
+        }
+        // Graphics and media can render without any text descendants.
+        if ( in_array($tag, array( 'img', 'svg', 'picture', 'video', 'audio', 'canvas', 'iframe', 'object', 'embed', 'hr' ), true)
+            || 'img' === strtolower($node->getAttribute('role'))
+        ) {
+            return false;
+        }
+        foreach ( $node->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+            if ( $child instanceof DOMElement && ! $this->itemContentIsCovered($child, $title, $panel, $header, $carriedIcon) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function headingLevel(DOMElement $title): int

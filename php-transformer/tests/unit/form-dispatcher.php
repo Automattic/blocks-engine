@@ -29,6 +29,7 @@ $mode = 'readable';
 $recorded = array();
 $calls = array();
 $context = new FormDispatchContext(
+    static fn (DOMElement $element): ?array => null,
     static function (DOMElement $element) use (&$mode, &$calls): ?array {
         $calls[] = 'search';
         return 'search' === $mode ? array( 'blockName' => 'core/search' ) : null;

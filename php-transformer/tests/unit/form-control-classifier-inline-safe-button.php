@@ -92,8 +92,14 @@ foreach ( array( 'form="f1"', 'formaction="/x"', 'formmethod="post"', 'formencty
     );
 }
 
-// Nested interactive or media content disqualifies the button.
-foreach ( array( '<a href="/x">link</a>', '<button>nested</button>', '<svg></svg>', '<img src="x.png">', '<input type="text">', '<select></select>', '<textarea></textarea>' ) as $descendant ) {
+// SVG icons use the existing RichText image materializer, unlike other media.
+$assert(
+    FormControlClassifier::isInlineSafeButton($buttonFrom('<p><button type="button"><svg viewBox="0 0 10 10"><path d="M0 0h10v10z"></path></svg><em>Network</em></button></p>')),
+    'svg-icon-can-be-materialized-in-richtext'
+);
+
+// Nested interactive or non-SVG media content disqualifies the button.
+foreach ( array( '<a href="/x">link</a>', '<button>nested</button>', '<img src="x.png">', '<input type="text">', '<select></select>', '<textarea></textarea>' ) as $descendant ) {
     $assert(
         ! FormControlClassifier::isInlineSafeButton($buttonFrom('<p>Text <button>' . $descendant . '</button></p>')),
         'unsafe-descendant-disqualifies-' . strtok($descendant, ' >')

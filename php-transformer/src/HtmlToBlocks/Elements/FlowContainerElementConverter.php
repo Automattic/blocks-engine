@@ -104,10 +104,6 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        $block = $this->context->capturedMediaLayoutBlock($element);
-        if ( null !== $block ) {
-            return ConversionOutcome::handled($block);
-        }
         if ( $this->context->hasExternalSvgFragmentDependencyBoundary($element) ) {
             return ConversionOutcome::handled($this->context->responsiveMediaBlock($element));
         }
@@ -153,16 +149,27 @@ final class FlowContainerElementConverter implements ElementConverter
             && $this->context->isAuthorOwnedLayout($element)
         ) {
             // The element's own CSS layout (a flex/grid list of disclosure
-            // items) must not hide a semantic widget from its recognizer any
-            // more than a parent's layout may (see below). Unclaimed layouts
+            // items) must not hide an accordion from its recognizer any more
+            // than a parent's layout may (see below). A single disclosure item
+            // laid out by its own CSS stays a layout: core/details' plain
+            // summary cannot carry the trigger's box or icon. Unclaimed layouts
             // still lower to the CSS-owned layout block.
-            $claim = $this->semanticPatternClaim($element, $fallbacks);
+            $claim = $this->accordionClaim($element, $fallbacks);
             if ( null !== $claim ) {
                 return $claim;
             }
             $navigation = $this->navigationClaim($element, $fallbacks);
             if ( null !== $navigation ) {
                 return $navigation;
+            }
+            // Native core/buttons save markup is laid out by its own block
+            // CSS. Its author flex rules restate that layout, so the native
+            // block keeps each button (and its width class) editable.
+            if ( SourceDom::hasClass($element, 'wp-block-buttons') ) {
+                $buttons = $this->context->recognizePatterns($element, $fallbacks, array( ButtonsContainerPattern::class ));
+                if ( null !== $buttons ) {
+                    return ConversionOutcome::handled($buttons);
+                }
             }
             $block = $this->context->proofBackedWrapperCoalescing($element, $fallbacks);
             return ConversionOutcome::handled($block ?? $this->context->authorLayoutBlock($element, $fallbacks));
@@ -187,6 +194,15 @@ final class FlowContainerElementConverter implements ElementConverter
             $navigation = $this->navigationClaim($element, $fallbacks);
             if ( null !== $navigation ) {
                 return $navigation;
+            }
+            // A layout item holding one run of text and inline elements is one
+            // box in the source, exactly as it is in flow: its run stays one
+            // paragraph rather than splitting at each inline element.
+            if ( ! $this->context->isAuthorOwnedLayout($element) && 0 < SourceDom::childElementCount($element) ) {
+                $block = $this->context->paragraphBlockFromInlineContentWrapper($element);
+                if ( null !== $block ) {
+                    return ConversionOutcome::handled($block);
+                }
             }
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
@@ -289,6 +305,10 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( array() === $children && ! $this->context->hasDirectMediaChild($element) ) {
             $backgroundImage = $this->context->backgroundImageBlock($element);
             if ( null !== $backgroundImage ) {
+                // A background group already owns the source element's box.
+                if ( 'core/group' === ($backgroundImage['blockName'] ?? '') ) {
+                    return ConversionOutcome::handled($backgroundImage);
+                }
                 $children[] = $backgroundImage;
             }
         }
@@ -331,11 +351,9 @@ final class FlowContainerElementConverter implements ElementConverter
      */
     private function semanticPatternClaim(DOMElement $element, array &$fallbacks): ?ConversionOutcome
     {
-        if ( ! $this->context->shouldDeferNavigationPatternToChildren($element) ) {
-            $block = $this->context->recognizePatterns($element, $fallbacks, array( AccordionPattern::class ));
-            if ( null !== $block ) {
-                return ConversionOutcome::handled($this->context->rememberAccordionDisclosureRoot($block, $element));
-            }
+        $accordion = $this->accordionClaim($element, $fallbacks);
+        if ( null !== $accordion ) {
+            return $accordion;
         }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( DetailsPattern::class ));
         if ( null !== $block ) {
@@ -343,6 +361,16 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($block);
         }
         return null;
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    private function accordionClaim(DOMElement $element, array &$fallbacks): ?ConversionOutcome
+    {
+        if ( $this->context->shouldDeferNavigationPatternToChildren($element) ) {
+            return null;
+        }
+        $block = $this->context->recognizePatterns($element, $fallbacks, array( AccordionPattern::class ));
+        return null === $block ? null : ConversionOutcome::handled($this->context->rememberAccordionDisclosureRoot($block, $element));
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */

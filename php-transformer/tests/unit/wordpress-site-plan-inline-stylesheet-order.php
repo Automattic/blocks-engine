@@ -66,7 +66,7 @@ $position = static function (array $targets, callable $matches): int {
 $containing = static fn(string $needle): callable => static fn(string $target): bool => str_contains($contents[$target] ?? '', $needle);
 $named = static fn(string $name): callable => static fn(string $target): bool => str_ends_with($target, '/' . $name);
 
-foreach (array('home' => 'if ( is_front_page() ) {', 'post' => "'post' === trim( get_page_uri( get_queried_object_id() ), '/'") as $route => $needle) {
+foreach (array('home' => 'if ( is_front_page() ) {', 'post' => "'post' === trim( get_page_uri( \$blocks_engine_page_id ), '/'") as $route => $needle) {
     $targets = $routeEnqueues($needle);
     $base = $position($targets, $named('base.css'));
     $inline = $position($targets, $containing('padding:56px'));
@@ -75,7 +75,7 @@ foreach (array('home' => 'if ( is_front_page() ) {', 'post' => "'post' === trim(
     $assert($base < $inline && $inline < $responsive, "{$route}: inline <style> is enqueued between the links that surround it", implode(' -> ', $targets));
 }
 
-$split = $routeEnqueues("'split' === trim( get_page_uri( get_queried_object_id() ), '/'");
+$split = $routeEnqueues("'split' === trim( get_page_uri( \$blocks_engine_page_id ), '/'");
 $before = $position($split, $containing('margin:8px'));
 $responsive = $position($split, $named('responsive.css'));
 $after = $position($split, $containing('margin:4px'));

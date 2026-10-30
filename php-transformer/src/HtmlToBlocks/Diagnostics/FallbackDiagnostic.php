@@ -12,7 +12,15 @@ final class FallbackDiagnostic
      */
     public static function build(array $fields, array $provenance = array()): array
     {
-        $finding = array_merge(self::defaults($fields), $fields, $provenance);
+        $defaults = self::defaults($fields);
+        if ( 'html_form_fallback' === ($fields['diagnostic_code'] ?? '') && 'commerce_add_to_cart' === ($fields['form_intent'] ?? '') ) {
+            // Use the existing commerce runtime contract even outside a product grid.
+            $commerce = self::defaults(array( 'diagnostic_code' => 'html_commerce_controls_fallback' ));
+            foreach ( array( 'runtime_requirement', 'recoverability', 'actionability', 'suggested_repair_class', 'materialization_hint', 'materialization_target' ) as $key ) {
+                $defaults[$key] = $commerce[$key];
+            }
+        }
+        $finding = array_merge($defaults, $fields, $provenance);
         if ( 'html_form_fallback' === ($finding['diagnostic_code'] ?? null) ) {
             // Source location, rather than mutable form content, is the stable
             // reconciliation key a successful provider projection consumes.
@@ -68,6 +76,7 @@ final class FallbackDiagnostic
 
         return match ( $code ) {
             'html_form_fallback' => array(
+                'form_intent'           => 'unknown',
                 'severity'              => 'warning',
                 'conversion_classification' => 'runtime_island_preserved',
                 'loss_class'            => 'preserved_runtime_island',
@@ -122,6 +131,25 @@ final class FallbackDiagnostic
                     'entity'        => 'commerce_controls',
                     'provider_role' => 'commerce_cart_runtime',
                     'requires'      => array( 'controls', 'seeded_products' ),
+                ),
+            ),
+            'html_cart_view_fallback' => array(
+                'severity'              => 'warning',
+                'conversion_classification' => 'editable_approximation',
+                'loss_class'            => 'preserved_runtime_island',
+                'diagnostic_class'      => 'commerce_cart_view_detected',
+                'preservation_strategy' => 'layout_blocks_with_cart_view_binding',
+                'runtime_requirement'   => 'commerce_cart_runtime',
+                'recoverability'        => 'recoverable_with_commerce_cart_provider',
+                'actionability'         => 'replace_the_cart_view_scope_with_the_shop_provider_cart',
+                'suggested_repair_class' => 'materialize_commerce_runtime',
+                'suggested_primitive'   => 'commerce_cart',
+                'materialization_hint'  => 'the_cart_view_scope_is_bound_for_replacement; core_blocks_cannot_provide_cart_lines_totals_or_checkout',
+                'materialization_target' => array(
+                    'capability'    => 'shop',
+                    'entity'        => 'cart',
+                    'provider_role' => 'commerce_cart_runtime',
+                    'requires'      => array( 'cart' ),
                 ),
             ),
             'html_script_fallback' => array(

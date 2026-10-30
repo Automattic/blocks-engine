@@ -25,7 +25,7 @@
   },
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "assets", "assert": "count", "count": 2 },
+    { "path": "assets", "assert": "count", "count": 3 },
     { "path": "assets.0.path", "assert": "equals", "value": "assets/css/engine-support-before-author-1c2aa37274b6f89d.css" },
     { "path": "assets.0.source", "assert": "equals", "value": "engine-support" },
     { "path": "assets.0.stylesheet_placement", "assert": "equals", "value": "before-author" },
@@ -37,6 +37,8 @@
     { "path": "assets.1.content", "assert": "contains", "value": ":root{--accent:#c4a35a" },
     { "path": "assets.1.content", "assert": "contains", "value": "body{background:#faf7f0;color:var(--ink)}" },
     { "path": "assets.1.content", "assert": "contains", "value": ".card{border:1px solid var(--accent)" },
+    { "path": "assets.2.stylesheet_placement", "assert": "equals", "value": "after-author" },
+    { "path": "assets.2.content", "assert": "contains", "value": "body,body.editor-styles-wrapper{margin-top:8px;margin-right:8px;margin-bottom:8px;margin-left:8px}" },
     { "path": "source_reports.artifact.files_by_source.inline-style", "assert": "equals", "value": 1 },
     { "path": "source_reports.artifact.files_by_intent.style", "assert": "equals", "value": 1 },
     { "path": "source_reports.compiled_site.theme.stylesheets.1", "assert": "equals", "value": "index.inline.css" },

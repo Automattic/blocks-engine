@@ -23,9 +23,9 @@ $result = (new HtmlTransformer())->transform($nest('<a class="card" href="/posts
 $markup = (string) ($result['serialized_blocks'] ?? '');
 $json = json_encode($result);
 
-$assert(1 === preg_match('/<!-- wp:custom\/(?:collection|card|panel|block)-[a-f0-9]{64} \{"content":"\\\\u003ca href=\\\\u0022\/posts\/one\/\\\\u0022 target=\\\\u0022_blank\\\\u0022 rel=\\\\u0022noopener\\\\u0022 class=\\\\u0022blocks-engine-link-contents\\\\u0022\\\\u003e\\\\u003cdiv class=\\\\u0022card-body\\\\u0022/', $markup), 'frozen-component-content-keeps-enclosing-link', $markup);
-$assert(1 === substr_count($markup, '/posts/one/'), 'link-restored-once', $markup);
-$assert(str_contains($json, ':root :where(a.blocks-engine-link-contents){display:contents;color:inherit;text-decoration:inherit}'), 'restored-link-is-layout-transparent-and-inherits-paint');
+$assert(str_contains($markup, '<a class="card" href="/posts/one/" rel="noopener" target="_blank">'), 'container-keeps-enclosing-link', $markup);
+$assert(1 === substr_count($markup, '<a '), 'one-saved-link', $markup);
+$assert(str_contains($markup, 'First post'), 'inner-content-is-retained');
 $assert(!str_contains($json, 'no longer navigable'), 'restored-link-not-reported-dropped');
 
 $unlinked = (string) ((new HtmlTransformer())->transform($nest($body), array())->toArray()['serialized_blocks'] ?? '');

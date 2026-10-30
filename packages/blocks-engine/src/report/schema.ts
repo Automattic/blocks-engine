@@ -23,6 +23,7 @@ export const CONVERSION_FINDING_CODES = [
   'conversion_degraded',
   'fallback_inventory_truncated',
   'content_dropped',
+  'invalid_block_preserved',
   'hero_image_layering_risk',
   'body_text_promoted_to_heading',
   'heading_inside_list_item',

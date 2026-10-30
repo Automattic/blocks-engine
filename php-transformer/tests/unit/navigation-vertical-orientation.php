@@ -71,11 +71,13 @@ $assert(
     'a center-aligned source column justifies center'
 );
 
-// A horizontal menu keeps the core default untouched.
+// A horizontal menu stays core's row: no vertical orientation. A row that
+// never wraps carries only core's native flexWrap:nowrap (#2987).
 $row = $navigation($transform('<style>' . $utilities . '</style><nav class="flex items-center">' . $links . '</nav>'));
 $assert(
-    ! isset($row['attrs']['layout']),
-    'a horizontal navigation keeps the core row default untouched'
+    ! isset($row['attrs']['layout']) || array( 'type' => 'flex', 'flexWrap' => 'nowrap' ) === $row['attrs']['layout'],
+    'a horizontal navigation keeps the core row default untouched',
+    json_encode($row['attrs']['layout'] ?? null)
 );
 
 // Print chrome is conditional presentation of another medium: `@media print`

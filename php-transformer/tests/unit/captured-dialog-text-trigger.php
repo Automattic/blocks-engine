@@ -14,6 +14,7 @@ declare(strict_types=1);
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
+require_once __DIR__ . '/../fixtures/captured-components.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -44,7 +45,7 @@ $compile = static function (array $ancestors) use ($runtime): array {
     return (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array(
         array('path' => 'website/index.html', 'content' => $html),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => CaptureEvidence::CAPTURE_RECEIPT_SCHEMA, 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA, 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array($state)))))),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA, 'pages' => array(array('sourceUrl' => 'https://example.test/', 'components' => captured_components(array($state))))))),
     )))->toArray();
 };
 $retired = static fn (array $result): bool => CaptureEvidence::DISCLOSURE_RUNTIME_SHA256 === (array_column($result['source_reports']['native_runtime_replacements'] ?? array(), 'body_hash', 'attribute')[CaptureEvidence::DISCLOSURE_RUNTIME] ?? null);

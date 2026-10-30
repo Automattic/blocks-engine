@@ -187,8 +187,8 @@ $assert(
     'a single layout wrapper around phrasing is still a RichText label'
 );
 $assert(
-    $classifier->isRichTextButtonLabel($element('<a class="primary-button" href="/book"><h3>Reserve now</h3><span aria-hidden="true"></span></a>')),
-    'a heading used as the sole visible CTA label is still a RichText label'
+    ! $classifier->isRichTextButtonLabel($element('<a class="primary-button" href="/book"><h3>Reserve now</h3><span aria-hidden="true"></span></a>')),
+    'even a sole heading remains block content, not a RichText button label'
 );
 $assert(
     $classifier->isRichTextButtonLabel($element(
@@ -263,6 +263,10 @@ $assert(! $classifier->isPositiveCssLength('-4px'), 'a negative length is not po
 $assert(! $classifier->isPositiveCssLength('auto'), 'a keyword is not a length');
 $assert(! $classifier->isPositiveCssLength('50%'), 'a percentage is not an absolute length');
 $assert(! $classifier->isPositiveCssLength(''), 'an empty value is not a length');
+$assert($classifier->isPositiveCssLength('calc(.25rem * 2)'), 'a calc() scaling a definite length is a positive length');
+$assert($classifier->isPositiveCssLength('calc(3 * 4px)'), 'a calc() with the number first is a positive length');
+$assert(! $classifier->isPositiveCssLength('calc(.25rem * 0)'), 'a calc() that scales to zero is not positive');
+$assert(! $classifier->isPositiveCssLength('calc(100% - 2rem)'), 'a calc() whose size depends on layout is not a definite length');
 
 // --- tokens: commerce vocabulary -------------------------------------------
 

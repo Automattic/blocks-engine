@@ -54,11 +54,19 @@ WordPressSitePlan::assertValid($catalogPlan);
 
 // 2. One product whose site-plan record exceeds the payload limit is dropped
 // with its bindings. Its block stays static and the other products keep theirs.
-$grid = $card('Huge Item', '10.00', 'data:image/png;base64,' . str_repeat('A', 1800000)) . $card('Small Item', '11.00', 'https://cdn.example.test/s.jpg') . $card('Tiny Item', '12.00', 'https://cdn.example.test/t.jpg') . $card('Wee Item', '13.00', 'https://cdn.example.test/w.jpg');
+// The record carries the image in its fields and its binding's block markup,
+// so an image over half the limit is over it, while the page stays a file the
+// compiler accepts.
+$grid = $card('Huge Item', '10.00', 'data:image/png;base64,' . str_repeat('A', intdiv(RuntimeDeclarations::MAX_PAYLOAD_BYTES, 2) + 100000)) . $card('Small Item', '11.00', 'https://cdn.example.test/s.jpg') . $card('Tiny Item', '12.00', 'https://cdn.example.test/t.jpg') . $card('Wee Item', '13.00', 'https://cdn.example.test/w.jpg');
 $oversized = $compile(array('index.html' => '<main><h1>Shop</h1><div class="grid">' . $grid . '</div></main>'));
 $oversizedPlan = $oversized['source_reports']['wordpress_site_plan'] ?? null;
 $assert('success_with_warnings' === $oversized['status'] && is_array($oversizedPlan), 'One oversized product entity no longer fails the site: ' . json_encode(array_column($findings($oversized['diagnostics'], 'wordpress_site_plan_not_self_contained'), 'message')));
-$dropped = $findings($oversized['diagnostics'], 'runtime_entity_dropped');
+$allDropped = $findings($oversized['diagnostics'], 'runtime_entity_dropped');
+// The grid that shows the oversized product carries that product's card in
+// its item template and anchor, so the grid entity is over the limit too.
+$droppedGrids = array_values(array_filter($allDropped, static fn (array $row): bool => 'generic/product-grids/v1' === ($row['entity_schema'] ?? null)));
+$assert(1 === count($droppedGrids) && 'runtime_entity_exceeds_byte_limit' === $droppedGrids[0]['reason_code'], 'The grid around the oversized product is reported as dropped: ' . json_encode($droppedGrids));
+$dropped = array_values(array_filter($allDropped, static fn (array $row): bool => 'generic/product-grids/v1' !== ($row['entity_schema'] ?? null)));
 $assert(1 === count($dropped), 'Exactly the oversized product is reported as dropped.');
 $assert('warning' === $dropped[0]['severity'] && 'item' === $dropped[0]['unit'] && 'index.html' === $dropped[0]['source_path'] && 'generic/products/v1' === $dropped[0]['entity_schema'] && 'runtime_entity_exceeds_byte_limit' === $dropped[0]['reason_code'], 'The dropped entity finding names its unit, source, schema and reason: ' . json_encode($dropped[0]));
 $assert(is_int($dropped[0]['metrics']['bytes'] ?? null) && $dropped[0]['metrics']['bytes'] > RuntimeDeclarations::MAX_PAYLOAD_BYTES && RuntimeDeclarations::MAX_PAYLOAD_BYTES === $dropped[0]['metrics']['limit_bytes'], 'The finding measures the entity against the payload limit.');

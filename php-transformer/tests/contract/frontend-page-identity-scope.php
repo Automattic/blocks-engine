@@ -110,6 +110,27 @@ if (!function_exists('get_queried_object_id')) {
         return (int) $frontendScopeQuery['queried_id'];
     }
 }
+if (!function_exists('is_singular')) {
+    function is_singular(): bool
+    {
+        global $frontendScopeQuery;
+        return (bool) $frontendScopeQuery['page'];
+    }
+}
+if (!function_exists('get_post_type')) {
+    function get_post_type(int $postId = 0): string|false
+    {
+        global $frontendScopeQuery;
+        return in_array($postId, array((int) $frontendScopeQuery['queried_id'], (int) ($frontendScopeQuery['document_id'] ?? 0)), true) && 0 !== $postId ? 'page' : false;
+    }
+}
+if (!function_exists('apply_filters')) {
+    function apply_filters(string $hook, mixed $value): mixed
+    {
+        global $frontendScopeQuery;
+        return 'blocks_engine_document_id' === $hook && isset($frontendScopeQuery['document_id']) ? $frontendScopeQuery['document_id'] : $value;
+    }
+}
 if (!function_exists('get_post_meta')) {
     function get_post_meta(int $postId, string $key, bool $single = false): string
     {
@@ -168,7 +189,7 @@ $routeScriptHandle = '';
 if (preg_match("/wp_register_script\( '([^']+)', get_theme_file_uri\( '([^']*route\.js)' \)/", $bootstrap, $routeScriptMatch)) $routeScriptHandle = (string) $routeScriptMatch[1];
 $routeScriptCondition = current(array_filter($scriptConditions, static fn(array $match): bool => $match[2] === $routeScriptHandle)) ?: array();
 $assert('' !== $globalStylePath && '' !== $routeStylePath && '' !== $frontStylePath, 'The plan carries the global, route-owned, and entry-page stylesheet targets.');
-$assert('' !== $routeScriptHandle && isset($routeScriptCondition[1]) && str_contains($routeScriptCondition[1], '_blocks_engine_reconciliation_identity') && str_contains($routeScriptCondition[1], "'guides/2048' === trim( get_page_uri( get_queried_object_id() ), '/' )"), 'The route-owned script shares the identity-first page scope primitive with the stylesheets.', $routeScriptCondition[1] ?? '');
+$assert('' !== $routeScriptHandle && isset($routeScriptCondition[1]) && str_contains($routeScriptCondition[1], '_blocks_engine_reconciliation_identity') && str_contains($routeScriptCondition[1], "'guides/2048' === trim( get_page_uri( \$blocks_engine_page_id ), '/' )"), 'The route-owned script shares the identity-first page scope primitive with the stylesheets.', $routeScriptCondition[1] ?? '');
 
 $serveFrontendRequest = static function (array $query, array $meta, array $uris): array {
     global $frontendScopeQuery, $frontendScopeMetaByPostId, $frontendScopeUriByPostId, $frontendScopeEnqueuedStyles, $frontendScopeEnqueuedScripts, $frontendScopeActions;
@@ -179,6 +200,8 @@ $serveFrontendRequest = static function (array $query, array $meta, array $uris)
     $frontendScopeEnqueuedScripts = array();
     foreach ($frontendScopeActions['wp_enqueue_scripts'] as $callbacks) foreach ($callbacks as $callback) $callback();
     $styleTargets = array_map(static fn(array $style): string => substr((string) $style['src'], strlen('https://theme.test/')), $frontendScopeEnqueuedStyles);
+    // Body UA support adds another global stylesheet, unrelated to page identity.
+    $styleTargets = array_values(array_filter($styleTargets, static fn(string $path): bool => !str_contains($path, 'engine-support-after-author-')));
     return array('styles' => $styleTargets, 'scripts' => $frontendScopeEnqueuedScripts);
 };
 $routeOnly = static fn(array $served): bool => array($globalStylePath, $routeStylePath) === $served['styles'] && array($routeScriptHandle) === $served['scripts'];
@@ -209,6 +232,14 @@ $assert(array($globalStylePath) === $served['styles'] && array() === $served['sc
 $frontPageId = 7;
 $served = $serveFrontendRequest(array('front_page' => true, 'page' => true, 'queried_id' => $frontPageId), array($frontPageId => array('_blocks_engine_reconciliation_identity' => $frontIdentity)), array($frontPageId => ''));
 $assert(array($globalStylePath, $frontStylePath) === $served['styles'] && array() === $served['scripts'], 'The front-page scope keeps activating entry-page assets without pulling route-owned ones.', json_encode($served));
+
+// A non-singular view a provider renders with a page's design (an archive of
+// the provider's own content type) names that page through the
+// `blocks_engine_document_id` filter, and the page's route assets follow.
+$served = $serveFrontendRequest(array('front_page' => false, 'page' => false, 'queried_id' => 0, 'document_id' => $numericPageId), array($numericPageId => array('_blocks_engine_reconciliation_identity' => $routeIdentity)), array($numericPageId => 'guides/2048'));
+$assert($routeOnly($served), 'An archive view whose provider names the page through blocks_engine_document_id activates that page\'s route-owned assets.', json_encode($served));
+$served = $serveFrontendRequest(array('front_page' => false, 'page' => false, 'queried_id' => 0), array($numericPageId => array('_blocks_engine_reconciliation_identity' => $routeIdentity)), array($numericPageId => 'guides/2048'));
+$assert(array($globalStylePath) === $served['styles'] && array() === $served['scripts'], 'An archive view no provider names activates no page assets.', json_encode($served));
 
 if ($failures > 0) {
     fwrite(STDERR, "Frontend page identity scope: {$failures} failed, {$passes} passed\n");

@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Buttons</title><style>
+body{margin:0;font-family:sans-serif;background:#fff;color:#111}
+.btn{display:inline-flex;align-items:center;padding:10px 28px;border-radius:6px;font-weight:500}
+.primary{background:#3a6e9e;color:#fff}.ghost{background:#f3efe9;color:#111;border:1px solid #ddd}
+.bar{position:fixed;bottom:0;left:0;width:100%;padding:16px;background:rgba(248,245,241,.9);border-top:1px solid #ddd}
+@media (min-width:640px){.bar{display:none}}
+</style></head><body><main style="padding:40px 20px 200px">
+<h1>Buttons</h1>
+<form action="/send" method="post"><label for="n">Name</label><input id="n" name="n" required><button type="button" class="btn ghost">+ Add file</button><button type="submit" class="btn primary">Send request</button></form>
+</main>
+<div class="bar"><a href="#top" class="btn primary" style="width:100%;justify-content:center">Book a call</a></div>
+</body></html>

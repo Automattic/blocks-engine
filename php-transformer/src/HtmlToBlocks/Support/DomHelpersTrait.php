@@ -157,14 +157,14 @@ trait DomHelpersTrait
         return SourceDom::isFallbackUrlAttribute($attribute);
     }
 
-    private function safeFallbackSrcset(string $srcset): string
+    private function safeFallbackSrcset(string $srcset, string $tag = '', bool $insidePicture = false): string
     {
-        return SourceDom::safeFallbackSrcset($srcset);
+        return SourceDom::safeFallbackSrcset($srcset, $tag, $insidePicture);
     }
 
-    private function safeFallbackUrl(string $url, string $attribute): bool
+    private function safeFallbackUrl(string $url, string $attribute, string $tag = '', bool $insidePicture = false): bool
     {
-        return SourceDom::safeFallbackUrl($url, $attribute);
+        return SourceDom::safeFallbackUrl($url, $attribute, $tag, $insidePicture);
     }
 
     private function boundedFallbackHtml(string $html): array

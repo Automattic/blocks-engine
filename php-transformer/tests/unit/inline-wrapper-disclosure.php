@@ -47,6 +47,25 @@ foreach ( array( 'plain wrapper' => '<section><p>Intro</p><span class="anchor"><
     $assert(array() === ( $result['fallbacks'] ?? array() ), $label . ': no behavior-loss fallback is recorded', (string) json_encode($result['fallbacks'] ?? array()));
 }
 
+// A button's artwork and styling hooks replace, rather than supplement, the
+// native summary chrome. A neighbouring native details keeps its own marker.
+$leadingIcon = '<svg class="profile-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle></svg>';
+$trailingIcon = '<svg class="chevron-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>';
+$presentation = $transform('<div class="profile-menu"><button type="button" class="profile-trigger" aria-expanded="false" aria-controls="profile-panel">'
+    . $leadingIcon . '<span class="profile-label">Profile</span>' . $trailingIcon
+    . '</button><div id="profile-panel" role="menu" hidden><p>Account settings</p></div></div>'
+    . '<details><summary>More</summary><p>Native content</p></details>');
+$presentationBlocks = (string) ($presentation['serialized_blocks'] ?? '');
+$presentationCss = implode('', array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $presentation['assets'] ?? array()));
+preg_match('/<summary>(.*?)<\/summary>/s', $presentationBlocks, $summaryMatch);
+$summaryHtml = $summaryMatch[1] ?? '';
+$assert(false !== stripos($summaryHtml, $leadingIcon) && false !== stripos($summaryHtml, $trailingIcon), 'button presentation: both source icons survive inside the summary', $summaryHtml);
+$assert(str_contains($summaryHtml, 'profile-trigger') && str_contains($summaryHtml, '<span class="profile-label">Profile</span>'), 'button presentation: the trigger class and label survive', $summaryHtml);
+preg_match('/<details class="[^"]*(blocks-engine-disclosure-summary-[0-9a-f]{12})[^"]*"/', $presentationBlocks, $markerMatch);
+$summarySelector = '.wp-block-details.' . ($markerMatch[1] ?? 'missing') . '>summary';
+$assert(str_contains($presentationCss, $summarySelector . '{list-style:none}') && str_contains($presentationCss, $summarySelector . '::-webkit-details-marker{display:none}'), 'button presentation: both marker resets are scoped to its block', $presentationCss);
+$assert(str_contains($presentationBlocks, '<details class="wp-block-details"><summary>More</summary>'), 'native details: the existing bare summary fixture is unchanged', $presentationBlocks);
+
 // A text run ending in the same widget stays text plus a native disclosure,
 // never an opaque core/html island.
 $run = $transform('<footer><p>Copyright text <span class="anchor"><button type="button" aria-expanded="false" aria-controls="pn">Note</button><span id="pn" hidden role="region">Panel text</span></span></p></footer>');

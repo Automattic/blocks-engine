@@ -116,9 +116,6 @@ final class WrapperCoalescer
         $terminalBlocks = $terminalIsShell ? $terminal['innerBlocks'] : (is_array($terminal['innerBlocks'] ?? null) && 'core/freeform' === ($terminal['blockName'] ?? null) ? $terminal['innerBlocks'] : array($terminal));
         $wrappers = array_column($chain, 'descriptor');
         if ($terminalIsShell) $wrappers = array_merge($wrappers, is_array($terminal['_layout_shell_wrappers'] ?? null) ? $terminal['_layout_shell_wrappers'] : array());
-        if ( 2 <= count($terminalBlocks) ) {
-            $wrappers = $this->truncateWrappersAfterAuthoredGrid($wrappers);
-        }
         $opening = implode('', array_column($wrappers, 'opening'));
         $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
         $provenanceIds = array_values(array_filter(array_map(static fn (array $entry): mixed => $entry['block']['_source_provenance_id'] ?? null, $chain), 'is_int'));
@@ -143,7 +140,8 @@ final class WrapperCoalescer
     {
         $content = is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array();
         $opening = is_string($content[0] ?? null) ? $content[0] : '';
-        $closing = is_string($content[array_key_last($content)] ?? null) ? $content[array_key_last($content)] : '';
+        $last = array() === $content ? null : $content[array_key_last($content)];
+        $closing = is_string($last) ? $last : '';
         $children = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
         if (count($content) !== count($children) + 2 || array_slice($content, 1, -1) !== array_fill(0, count($children), null)) {
             return null;
@@ -705,52 +703,6 @@ final class WrapperCoalescer
         }
 
         return array() !== $signals;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $wrappers
-     * @return array<int, array<string, mixed>>
-     */
-    private function truncateWrappersAfterAuthoredGrid(array $wrappers): array
-    {
-        $trimmed = array();
-        $seenGrid = false;
-        foreach ( $wrappers as $wrapper ) {
-            $className = (string) (is_array($wrapper['attributes'] ?? null) ? ($wrapper['attributes']['class'] ?? '') : '');
-            if ( ! $seenGrid ) {
-                $trimmed[] = $wrapper;
-                $seenGrid = str_contains($className, 'blocks-engine-css-owned-grid');
-                continue;
-            }
-            if ( $this->classListHasAuthorToken($className) ) {
-                $trimmed[] = $wrapper;
-                continue;
-            }
-            break;
-        }
-        return $trimmed;
-    }
-
-    /**
-     * Duplicated verbatim from `HtmlCompilation::classListHasAuthorToken()`,
-     * which keeps its own copy for `groupCarriesAuthorClass()` (an authored-
-     * grid check unrelated to wrapper coalescing). Pure string classification
-     * with no collaborators, so duplication costs less than injecting it.
-     */
-    private function classListHasAuthorToken(string $className): bool
-    {
-        foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
-            if ( '' === $class
-                || str_starts_with($class, 'blocks-engine-')
-                || str_starts_with($class, 'wp-block-')
-                || str_starts_with($class, 'is-layout-')
-                || str_starts_with($class, 'be-inline-')
-            ) {
-                continue;
-            }
-            return true;
-        }
-        return false;
     }
 
     /**

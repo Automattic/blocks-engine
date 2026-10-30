@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use DOMElement;
@@ -15,7 +16,7 @@ use DOMElement;
  *
  * exactly two element children? -------- no --> null
  * |
- * +-- exactly one pure img/video side? -- no --> null
+ * +-- exactly one pure image side? ------ no --> null
  * |
  * +-- text side out of flow (overlay)? -- yes -> null
  * |
@@ -54,7 +55,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
             $media->resolveImageUrl(...),
             $context->createBlock(...),
             $media->coverStyle(...),
-            $media->documentRootFontSize(...)
+            $media->documentRootFontSize(...),
+            $media->imageFixedPixelSize(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -72,6 +74,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
      * @param callable(DOMElement): string $fullPresentationStyle Superset of the gate-only media style, including
      *        `position` (the same source CoverPattern reads background/position facts from).
      * @param callable(DOMElement): ?float $documentRootFontSize CSS root size used to resolve rem dimensions.
+     * @param (callable(DOMElement): array{width: ?float, height: ?float})|null $imageFixedPixelSize The image's
+     *        used pixel size per axis where its attributes or author CSS (on the image or a sizing wrapper it
+     *        fills) fix it -- the same resolution core/image emission uses.
      * @return array<string, mixed>|null
      */
     public function match(
@@ -85,7 +90,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
         callable $resolveAssetUrl,
         callable $createBlock,
         callable $fullPresentationStyle,
-        callable $documentRootFontSize
+        callable $documentRootFontSize,
+        ?callable $imageFixedPixelSize = null
     ): ?array {
         $elementChildren = $this->strictElementChildren($element);
         if ( null === $elementChildren || 2 !== count($elementChildren) ) {
@@ -118,7 +124,10 @@ final class MediaTextPattern implements PatternRecognizerInterface
         if ( 'img' === $mediaType && (new SourceElementClassifier())->hasResponsiveImageSources($resolution['media']) ) {
             return null;
         }
-        if ( 'video' === $mediaType && $resolution['anchor'] instanceof DOMElement ) {
+        // core/media-text cannot retain native video playback attributes or
+        // the source pane layout. Keep videos editable through core/video
+        // inside the ordinary source group layout instead.
+        if ( 'video' === $mediaType ) {
             return null;
         }
 
@@ -204,7 +213,27 @@ final class MediaTextPattern implements PatternRecognizerInterface
             }
             $mediaStyle = $fullPresentationStyle($resolution['media']);
             $rootFontSize = $documentRootFontSize($element);
+            $fixedSize = 'img' === $mediaType && null !== $imageFixedPixelSize
+                ? $imageFixedPixelSize($resolution['media'])
+                : null;
         } catch ( \Throwable ) {
+            return null;
+        }
+
+        // Out-of-flow media (`position: absolute`/`fixed`) sizes against its
+        // containing block — typically the source media wrapper that sets
+        // `position: relative`, a min-height and overflow clipping — not a grid
+        // track. core/media-text replaces that wrapper with its own figure, so
+        // the media would resolve against a distant ancestor (often the
+        // viewport) and cover the text pane. Keep the authored wrapper through
+        // ordinary flow lowering, mirroring the out-of-flow text-pane gate.
+        if ( $this->declaresUnresolvableGateValue($mediaStyle, array( 'position' )) ) {
+            return null;
+        }
+        $mediaPosition = strtolower($this->normalizedCssValue(
+            (string) ($this->styleDeclarations($mediaStyle)['position'] ?? '')
+        ));
+        if ( in_array($mediaPosition, array( 'absolute', 'fixed' ), true) ) {
             return null;
         }
 
@@ -218,10 +247,55 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // Media & Text replaces flex items with percentage grid tracks and
+        // adds its own content padding. A gap, bounded column, or unequal
+        // growing columns therefore cannot keep its authored geometry. Nor
+        // can its generated figure retain a decorated visual wrapper.
+        if ( 'flex' === $displayType ) {
+            $textGrow = $this->flexGrow($childStyles[$textIndex]);
+            $mediaGrow = $this->flexGrow($childStyles[$mediaIndex]);
+            $containerDeclarations = $this->styleDeclarations($containerStyle);
+            foreach ( 0.0 < $textGrow || 0.0 < $mediaGrow ? array( 'gap', 'column-gap' ) : array() as $property ) {
+                $value = $this->normalizedCssValue((string) ($containerDeclarations[$property] ?? ''));
+                if ( '' !== $value && ! in_array($value, array( '0', '0px', 'normal' ), true) ) {
+                    return null;
+                }
+            }
+            foreach ( $childStyles as $childStyle ) {
+                $declarations = $this->styleDeclarations($childStyle);
+                foreach ( array( 'min-width', 'max-width' ) as $property ) {
+                    $value = $this->normalizedCssValue((string) ($declarations[$property] ?? ''));
+                    if ( '' !== $value && ! in_array($value, array( 'none', 'auto', '0', '0px' ), true) ) {
+                        return null;
+                    }
+                }
+            }
+            if ( 0.0 < $textGrow && 0.0 < $mediaGrow && $textGrow !== $mediaGrow ) {
+                return null;
+            }
+        }
+
+        // The generated media figure discards the source wrapper chain. Keep
+        // authored boxes in ordinary group/image lowering for grids as well as
+        // flex rows, using the full style resolver (not the layout gate subset).
+        for ( $wrapper = $resolution['media']->parentNode; $wrapper instanceof DOMElement && $wrapper !== $element; $wrapper = $wrapper->parentNode ) {
+            try {
+                $wrapperDeclarations = $this->styleDeclarations($mergedPresentationStyle($wrapper) . ';' . $fullPresentationStyle($wrapper));
+            } catch ( \Throwable ) {
+                return null;
+            }
+            foreach ( array_keys($wrapperDeclarations) as $property ) {
+                if ( in_array($property, array( 'perspective', 'transform', 'filter', 'box-shadow', 'aspect-ratio', 'overflow', 'overflow-x', 'overflow-y' ), true)
+                    || preg_match('/^(?:background|border|padding)(?:-|$)/', $property) ) {
+                    return null;
+                }
+            }
+        }
+
         // A small, explicitly sized image beside short text is an icon lockup,
         // not a two-pane media/text section. Let normal group lowering retain
         // the authored row so both the image and text stay editable.
-        if ( 'img' === $mediaType && $this->isCompactIconTextPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle, $rootFontSize) ) {
+        if ( 'img' === $mediaType && $this->isCompactIconTextPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle, $rootFontSize, $fixedSize) ) {
             return null;
         }
 
@@ -290,51 +364,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
         }
         unset($attrs['layout']);
 
-        $attrs['mediaType'] = 'img' === $mediaType ? 'image' : 'video';
+        $attrs['mediaType'] = 'image';
         $attrs['mediaUrl']  = $mediaUrl;
-
-        // core/media-text's save() renders a video pane as a fixed
-        // `<video controls src={mediaUrl} />` — no attribute exists for
-        // intrinsic dimensions, poster, or native playback state. Without
-        // width/height the video collapses to the browser's 300x150 default
-        // intrinsic size before it can load, shifting every section below
-        // it. These facts still have to reach the saved `<video>` markup
-        // without becoming part of the serialized comment (core's save()
-        // never reads them back), so they use the same internal-only carrier
-        // shape as `mediaFigureClassName`: BlockFactory consumes the
-        // `mediaVideo*` keys to build the pane's `<video>` tag and strips
-        // them from the comment attrs before serialization.
-        if ( 'video' === $mediaType ) {
-            $videoAttrs = array_filter(array(
-                'mediaVideoWidth'   => trim($this->attr($resolution['media'], 'width')),
-                'mediaVideoHeight'  => trim($this->attr($resolution['media'], 'height')),
-                'mediaVideoPreload' => trim($this->attr($resolution['media'], 'preload')),
-            ), static fn (string $value): bool => '' !== $value);
-            $attrs = array_merge($attrs, $videoAttrs);
-
-            $poster = trim($this->attr($resolution['media'], 'poster'));
-            if ( '' !== $poster ) {
-                try {
-                    $posterUrl = $this->safeMediaUrl(trim($resolveAssetUrl($poster)));
-                } catch ( \Throwable ) {
-                    $posterUrl = '';
-                }
-                if ( '' !== $posterUrl ) {
-                    $attrs['mediaVideoPoster'] = $posterUrl;
-                }
-            }
-
-            foreach ( array(
-                'autoplay'    => 'mediaVideoAutoplay',
-                'loop'        => 'mediaVideoLoop',
-                'muted'       => 'mediaVideoMuted',
-                'playsinline' => 'mediaVideoPlaysInline',
-            ) as $sourceAttribute => $attributeName ) {
-                if ( $resolution['media']->hasAttribute($sourceAttribute) ) {
-                    $attrs[ $attributeName ] = true;
-                }
-            }
-        }
 
         // core/media-text's save() puts `className` on the outer wrapper
         // `<div>` only — never on the generated `<figure
@@ -613,22 +644,34 @@ final class MediaTextPattern implements PatternRecognizerInterface
         return false;
     }
 
-    private function isCompactIconTextPair(DOMElement $media, DOMElement $text, string $mediaStyle, ?float $rootFontSize): bool
+    /**
+     * @param array{width: ?float, height: ?float}|null $fixedSize Resolved used size of the image, or null
+     *        when the caller supplies no resolver and only the dimension attributes can be read.
+     */
+    private function isCompactIconTextPair(DOMElement $media, DOMElement $text, string $mediaStyle, ?float $rootFontSize, ?array $fixedSize): bool
     {
+        // An image whose used size is fixed on both axes at icon/avatar scale
+        // -- by its width/height attributes or by author CSS on it or on the
+        // sizing wrapper it fills -- is never one pane of a media/text split:
+        // core/media-text stretches its media to the media column, so the
+        // icon would render at the column width instead of its fixed size.
+        $width = null === $fixedSize ? $this->compactHtmlDimension($this->attr($media, 'width')) : $fixedSize['width'];
+        $height = null === $fixedSize ? $this->compactHtmlDimension($this->attr($media, 'height')) : $fixedSize['height'];
+        if ( null !== $width
+            && null !== $height
+            && 0 < $width
+            && 0 < $height
+            && 64 >= $width
+            && 64 >= $height ) {
+            return true;
+        }
+
         $simpleText = preg_match('/^(?:h[1-6]|p|span)$/', strtolower($text->tagName));
         if ( ! $simpleText && ! $this->hasCompactPortraitPresentation($mediaStyle) ) {
             return false;
         }
 
         $declarations = $this->styleDeclarations($mediaStyle);
-        $width = $this->compactHtmlDimension($this->attr($media, 'width'));
-        $height = $this->compactHtmlDimension($this->attr($media, 'height'));
-        if ( null !== $width
-            && null !== $height
-            && 64 >= $width
-            && 64 >= $height ) {
-            return true;
-        }
 
         $width = $this->compactPixelDimension($this->normalizedCssValue((string) ($declarations['width'] ?? '')), $rootFontSize);
         $heightValue = strtolower($this->normalizedCssValue((string) ($declarations['height'] ?? 'auto')));
@@ -670,12 +713,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
 
     private function compactHtmlDimension(string $value): ?float
     {
-        if ( ! preg_match('/^\s*(\d+(?:\.\d+)?)\s*$/', $value, $matches) ) {
-            return null;
-        }
+        $dimension = HtmlDimensionAttribute::pixels($value);
 
-        $dimension = (float) $matches[1];
-        return 0 < $dimension ? $dimension : null;
+        return null !== $dimension && 0 < $dimension ? $dimension : null;
     }
 
     /**

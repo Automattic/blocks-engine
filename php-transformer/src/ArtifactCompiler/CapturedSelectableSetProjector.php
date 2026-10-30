@@ -27,6 +27,8 @@ final class CapturedSelectableSetProjector
     private const MAX_MEMBERS_PER_SET = 32;
     private const MAX_REGION_BYTES = 65536;
     private const MAX_SET_INLINE_BYTES = 262144;
+    private const FORM_SUBMISSION_ATTRIBUTES = array('action', 'method', 'enctype', 'target', 'novalidate', 'accept-charset');
+    private const CONTROL_SUBMISSION_ATTRIBUTES = array('formaction', 'formmethod', 'formenctype', 'formtarget', 'formnovalidate');
     private const GRAPHIC_HOST_TAGS = array(
         'svg', 'g', 'path', 'text', 'tspan', 'rect', 'circle', 'ellipse',
         'polygon', 'polyline', 'line', 'use', 'image', 'foreignobject', 'canvas', 'area',
@@ -37,6 +39,15 @@ final class CapturedSelectableSetProjector
      * @return array{files:array<int, array<string, mixed>>, diagnostics:array<int, array<string, mixed>>, projected_count:int}
      */
     public function project(array $files, array $consumedBindings = array()): array
+    {
+        $semantic = $this->projectComponentTabs($files);
+        $result = $this->projectEvidence($semantic['files'], $consumedBindings);
+        $result['projected_count'] += $semantic['projected_count'];
+        $result['native_runtime_replacements'] = $semantic['native_runtime_replacements'];
+        return $result;
+    }
+
+    private function projectEvidence(array $files, array $consumedBindings): array
     {
         $files = (new CapturedCollectionFilterProjector())->project($files);
         $diagnostics = array();
@@ -53,10 +64,10 @@ final class CapturedSelectableSetProjector
 
         $hasSelectableSets = false;
         foreach ($report['pages'] as $page) {
-            if (! is_array($page) || ! is_array($page['states'] ?? null)) {
+            if (! is_array($page) || ! is_array($page['components'] ?? null)) {
                 continue;
             }
-            foreach ($page['states'] as $state) {
+            foreach (CapturedComponentStates::evidence($page['components'], array('tabs')) as $state) {
                 if (is_array($state) && self::KIND === ($state['kind'] ?? null)) {
                     $hasSelectableSets = true;
                     break 2;
@@ -88,12 +99,12 @@ final class CapturedSelectableSetProjector
 
         $projected = 0;
         foreach ($report['pages'] as $page) {
-            if (! is_array($page) || ! is_string($page['sourceUrl'] ?? null) || ! is_array($page['states'] ?? null)) {
-                $diagnostics[] = $this->diagnostic('captured_selectable_set_page_invalid', 'warning', 'A captured interaction page was ignored because its source URL or states are invalid.');
+            if (! is_array($page) || ! is_string($page['sourceUrl'] ?? null) || ! is_array($page['components'] ?? null)) {
+                $diagnostics[] = $this->diagnostic('captured_selectable_set_page_invalid', 'warning', 'A captured interaction page was ignored because its source URL or components are invalid.');
                 continue;
             }
             $path = $routes[$this->normalizedUrl($page['sourceUrl'])] ?? '';
-            $sets = $this->groupedSets($page['states'], $page['sourceUrl'], $path, $diagnostics);
+            $sets = $this->groupedSets(CapturedComponentStates::evidence($page['components'], array('tabs')), $page['sourceUrl'], $path, $diagnostics);
             if (count($sets) > self::MAX_SETS_PER_PAGE) {
                 $diagnostics[] = $this->diagnostic('captured_selectable_set_limit_exceeded', 'warning', 'A captured interaction page exceeded the selectable-set limit.', array('source_url' => $page['sourceUrl'], 'max_sets' => self::MAX_SETS_PER_PAGE));
                 continue;
@@ -117,6 +128,100 @@ final class CapturedSelectableSetProjector
         }
 
         return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
+    }
+
+    /** Semantic tabs have observed panel HTML, not popup probe evidence. */
+    private function projectComponentTabs(array $files): array
+    {
+        $report = $this->jsonFile($files, 'interaction-states.json');
+        $receipt = $this->jsonFile($files, 'capture-receipt.json');
+        $count = 0;
+        $retired = array();
+        if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null)
+            || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)) {
+            return array('files' => $files, 'projected_count' => 0, 'native_runtime_replacements' => array());
+        }
+        $routes = array();
+        foreach ($receipt['routes'] ?? array() as $route) {
+            if (is_string($route['url'] ?? null) && is_string($route['path'] ?? null)) $routes[$this->normalizedUrl($route['url'])] = $route['path'];
+        }
+        foreach (array_slice($report['pages'] ?? array(), 0, self::MAX_PAGES) as $page) {
+            $path = $routes[$this->normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
+            foreach ($files as &$file) {
+                if ('' === $path || $path !== ($file['path'] ?? null) || !is_string($file['content'] ?? null)) continue;
+                $document = new DOMDocument('1.0', 'UTF-8');
+                $previous = libxml_use_internal_errors(true);
+                $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_NONET);
+                libxml_clear_errors();
+                libxml_use_internal_errors($previous);
+                if (!$loaded) continue;
+                $changed = false;
+                $bindings = new ScriptOccurrenceBindings($document);
+                foreach (array_slice($page['components'] ?? array(), 0, self::MAX_SETS_PER_PAGE) as $component) {
+                    if ('tabs' !== ($component['kind'] ?? null) || !in_array($component['status'] ?? null, array('captured', 'partial'), true)
+                        || !is_array($component['states'] ?? null) || array() !== CapturedComponentStates::evidence(array($component), array('tabs'))) continue;
+                    foreach ($this->documentScopes($document) as $scope) {
+                        $roots = $this->selectorMatches($scope, (string) ($component['selector'] ?? ''));
+                        if (1 !== count($roots) || 'tablist' !== $roots[0]->getAttribute('role')) continue;
+                        $root = $roots[0];
+                        $owner = $root->parentNode;
+                        if (!$owner instanceof DOMElement) continue;
+                        $tabs = array_values(array_filter(iterator_to_array($root->getElementsByTagName('*')), static fn($node): bool => $node instanceof DOMElement && 'tab' === $node->getAttribute('role')));
+                        $observed = array();
+                        foreach (array_slice($component['states'], 0, self::MAX_MEMBERS_PER_SET) as $state) {
+                            if (is_string($state['id'] ?? null) && is_string($state['html'] ?? null) && 1 === preg_match('/^tab-(\d+)$/', $state['id'], $match)
+                                && strlen($state['html']) <= self::MAX_REGION_BYTES && isset($tabs[(int) $match[1]])) {
+                                $observed[(int) $match[1]] = $state;
+                            }
+                        }
+                        if (count($observed) < 2) continue;
+                        ksort($observed);
+                        $panels = array();
+                        $valid = true;
+                        foreach ($observed as $index => $state) {
+                            $safe = $this->safeRegionHtml($state['html']);
+                            $nodes = null !== $safe ? $this->fragmentNodes($safe) : array();
+                            $panel = null;
+                            foreach ($nodes as $node) if ($node instanceof DOMElement && 'tabpanel' === $node->getAttribute('role')) $panel = $node;
+                            if (!$panel instanceof DOMElement || $panel->getAttribute('id') !== $tabs[$index]->getAttribute('aria-controls')) { $valid = false; break; }
+                            $existing = $this->descendantsWithId($scope, $panel->getAttribute('id'));
+                            if (count($existing) > 1 || (1 === count($existing) && !$existing[0]->parentNode?->isSameNode($owner))) { $valid = false; break; }
+                            $panels[$index] = array('panel' => $panel, 'existing' => $existing[0] ?? null);
+                        }
+                        // This owner becomes the tabs block. Do not discard unrelated
+                        // authored siblings while adopting its observed panels.
+                        foreach ($owner->childNodes as $child) {
+                            if ($child instanceof DOMElement && !$child->isSameNode($root) && 'tabpanel' !== $child->getAttribute('role')) $valid = false;
+                            if (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) $valid = false;
+                        }
+                        if (!$valid) continue;
+                        $active = 0;
+                        foreach (array_keys($observed) as $position => $index) {
+                            if ($observed[$index]['id'] === ($component['initial'] ?? null)) $active = $position;
+                            $old = $panels[$index]['existing'];
+                            if ($old instanceof DOMElement) $owner->removeChild($old);
+                            $panel = $document->importNode($panels[$index]['panel'], true);
+                            $panel->removeAttribute('hidden');
+                            $owner->appendChild($panel);
+                        }
+                        foreach ($tabs as $index => $tab) if (!isset($observed[$index])) $tab->parentNode?->removeChild($tab);
+                        $owner->setAttribute('data-blocks-engine-captured-selectable-set', 'true');
+                        $owner->setAttribute(self::ACTIVE_TAB_ATTRIBUTE, (string) $active);
+                        $changed = true;
+                        ++$count;
+                    }
+                }
+                if ($changed) {
+                    $retired[$path] = CapturedComponentStates::retireRuntime($document, CaptureEvidence::COMPONENT_RUNTIME, array());
+                    $file['content'] = HtmlSerialization::documentHtml($document);
+                    $file['bytes'] = strlen($file['content']);
+                    $bindings->rebind($files, $path);
+                }
+            }
+            unset($file);
+        }
+        $proofs = CapturedComponentStates::omitScripts($files, $retired);
+        return array('files' => $files, 'projected_count' => $count, 'native_runtime_replacements' => $proofs);
     }
 
     /**
@@ -1013,14 +1118,20 @@ final class CapturedSelectableSetProjector
                 $node->parentNode?->removeChild($node);
             }
         }
-        foreach ($xpath->query('//form') ?: array() as $form) {
-            if (! $form instanceof DOMElement || ! $form->parentNode) {
+        // A captured form keeps its element box (class, id, style, data-*) and
+        // children so source rules targeting its children keep matching; only
+        // its submission semantics are dropped, on the form and on any control
+        // that overrides them.
+        foreach (iterator_to_array($xpath->query('//*') ?: array()) as $element) {
+            if (! $element instanceof DOMElement) {
                 continue;
             }
-            while ($form->firstChild) {
-                $form->parentNode->insertBefore($form->firstChild, $form);
+            $submission = 'form' === strtolower($element->tagName) ? self::FORM_SUBMISSION_ATTRIBUTES : self::CONTROL_SUBMISSION_ATTRIBUTES;
+            foreach (iterator_to_array($element->attributes) as $attribute) {
+                if (in_array(strtolower($attribute->name), $submission, true)) {
+                    $element->removeAttribute($attribute->name);
+                }
             }
-            $form->parentNode->removeChild($form);
         }
         foreach ($xpath->query('//*') ?: array() as $element) {
             if (! $element instanceof DOMElement) {

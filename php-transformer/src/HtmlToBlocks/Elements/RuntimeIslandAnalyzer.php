@@ -149,7 +149,10 @@ final class RuntimeIslandAnalyzer
         $count = 0;
         foreach ( $this->context->descendantElements($element) as $descendant ) {
             if ( $this->isRuntimeCanvasTarget($descendant)
-                || ( $this->isRuntimeDomTarget($descendant) && ! $this->isCapturedAttributeRuntimeBinding($descendant) )
+                || ( $this->isRuntimeDomTarget($descendant)
+                    && ! $this->isCapturedAttributeRuntimeBinding($descendant)
+                    && ! $this->isCapturedDialogRuntimeBinding($descendant)
+                )
             ) {
                 if ( ++$count >= $limit ) {
                     break;
@@ -158,6 +161,25 @@ final class RuntimeIslandAnalyzer
         }
 
         return $count;
+    }
+
+    /** Dialog controls own a bounded panel, not the surrounding page. */
+    private function isCapturedDialogRuntimeBinding(DOMElement $element): bool
+    {
+        if ( SourceDom::isBoundCapturedDialogTrigger($element) || SourceDom::isBoundCapturedDialogCloser($element) ) {
+            return true;
+        }
+
+        foreach ( array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_CLOSE) as $binding ) {
+            $key = trim(SourceDom::attr($element, $binding));
+            if ( '' === $key ) continue;
+            $panel = $element->ownerDocument?->getElementById($key);
+            if ( $panel instanceof DOMElement && $key === SourceDom::attr($panel, CaptureEvidence::DIALOG_PANEL) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -293,7 +315,14 @@ final class RuntimeIslandAnalyzer
 
     public function hasRuntimeAppRootToken(DOMElement $element): bool
     {
-        $tokens = preg_split('/[^A-Za-z0-9]+/', strtolower(trim(SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'class')))) ?: array();
+        // Capture-evidence classes are engine metadata, not author naming, so
+        // they never feed this author-token heuristic (a capture class such as
+        // `…-capture-desktop-only` must not yield the token `desktop`).
+        $authorClasses = array_values(array_filter(
+            SourceDom::classNames($element),
+            static fn (string $class): bool => ! str_starts_with($class, CaptureEvidence::ATTRIBUTE_PREFIX)
+        ));
+        $tokens = preg_split('/[^A-Za-z0-9]+/', strtolower(trim(SourceDom::attr($element, 'id') . ' ' . implode(' ', $authorClasses)))) ?: array();
         foreach ( $tokens as $token ) {
             if ( in_array($token, self::RUNTIME_APP_ROOT_TOKENS, true) ) {
                 return true;
@@ -361,6 +390,7 @@ final class RuntimeIslandAnalyzer
     {
         return $this->isDataAttributeRuntimeTarget($element)
             && ! $this->retainsDataAttributeRuntimeTargetInShell($element)
+            && ! $this->retainsRuntimeTextLeafInRichText($element)
             // An image-only custom element host belongs to the media path, which
             // keeps a non-inert host verbatim as responsive media.
             && null === SourceDom::imageOnlyCustomElement($element);
@@ -466,58 +496,28 @@ final class RuntimeIslandAnalyzer
         return true;
     }
 
-    public function canRetainRuntimeDomContractNatively(DOMElement $element, string $blockName): bool
+    /**
+     * Source hooks a dynamic block cannot save but must render for the script
+     * that finds it: its data-* attributes, role and aria state other than the
+     * label. They ride in block metadata and are applied when WordPress renders
+     * the block (WordPressSitePlan's runtime attribute filter).
+     *
+     * @return array<string, string>
+     */
+    public function runtimeAttributesCarriedBy(DOMElement $element, string $blockName): array
     {
-        if ($blockName === $this->context->generatedBlockName('authored-button') && AuthoredButtonBlockGenerator::isRoleButton($element)) return true;
-        // Responsive media saves the source element verbatim, so every id, class
-        // and attribute a runtime selector addresses survives on the frontend.
-        $responsiveMedia = $this->context->generatedBlockName(ResponsiveMediaBlockGenerator::LOCAL_NAME);
-        if ('' !== $responsiveMedia && $blockName === $responsiveMedia) return true;
-        if ($blockName === $this->context->generatedBlockName('layout-shell') && in_array(strtolower($element->tagName), array('div', 'span', 'article', 'aside', 'header', 'footer', 'main', 'section', 'nav'), true)) {
-            $root = SourceDom::documentVariantRoot($element);
-            if ($root && $root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)) return true;
+        if ('core/navigation' !== $blockName || 'nav' !== strtolower($element->tagName) || ! $this->isRuntimeDomTarget($element)) return array();
+        $attributes = array();
+        foreach ($element->attributes ?? array() as $attribute) {
+            $name = strtolower($attribute->nodeName);
+            if (str_starts_with($name, 'data-blocks-engine-') || ! preg_match('/^(?:data-[a-z0-9_.:-]+|aria-(?!label$)[a-z]+|role)$/', $name)) continue;
+            $value = (string) $attribute->nodeValue;
+            if (strlen($value) > 300 || preg_match('/javascript\s*:/i', $value)) continue;
+            $attributes[$name] = $value;
         }
-        // The authored hidden marker is the exact save() DOM contract for these
-        // companion blocks. A native editable marker is not a runtime island.
-        if ('span' === strtolower($element->tagName) && $element->hasAttribute('hidden') && (
-            ($blockName === $this->context->generatedBlockName('live-clock') && $element->hasAttribute('data-blocks-engine-live-clock'))
-            || ($blockName === $this->context->generatedBlockName('motion-sequence') && $element->hasAttribute('data-blocks-engine-motion-steps'))
-        )) return true;
-        $isLayoutShell = $blockName === $this->context->generatedBlockName('layout-shell');
-        if ( ! $isLayoutShell && ! in_array($blockName, array('core/group', 'core/paragraph', 'core/heading'), true) ) {
-            return false;
-        }
+        ksort($attributes);
 
-        // Group can serialize these semantic wrappers exactly. Generic div app
-        // surfaces retain their existing bounded-island treatment, unless a
-        // layout-shell carries the source attributes verbatim around editable
-        // children.
-        if ('core/group' === $blockName && ! in_array(strtolower($element->tagName), array('article', 'aside', 'footer', 'header', 'main', 'section'), true)) {
-            return false;
-        }
-        // Only a container of block-level children lowers to a group the shell can
-        // wrap; empty mount points and text-only wrappers become other blocks (or
-        // stay script-populated) and cannot carry the attribute. A hidden panel is
-        // script-toggled state, so it keeps the island treatment.
-        if ( $isLayoutShell && (
-            ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true)
-            || $element->hasAttribute('hidden')
-            || ! $this->hasBlockLevelChildElement($element)
-        ) ) {
-            return false;
-        }
-
-        if (array_intersect($this->runtimeAppShellSignals($element), array('app_root_token', 'workspace_surface'))) {
-            return false;
-        }
-
-        foreach ($this->context->descendantElements($element) as $descendant) {
-            if (in_array(strtolower($descendant->tagName), array('button', 'input', 'select', 'textarea', 'canvas', 'form', 'template'), true)) {
-                return false;
-            }
-        }
-
-        return true;
+        return $attributes;
     }
 
     private function hasBlockLevelChildElement(DOMElement $element): bool
@@ -530,6 +530,109 @@ final class RuntimeIslandAnalyzer
 
         return false;
     }
+
+    /**
+     * Inline text a script finds only by its `data-*` hooks and rewrites, such
+     * as a live result count. Paragraph rich text saves the element verbatim
+     * with those hooks, which nothing rewrites, so the script finds the same
+     * node in an editable block. Text addressed by class or id keeps its island.
+     */
+    public function retainsRuntimeTextLeafInRichText(DOMElement $element): bool
+    {
+        return $this->context->isInlineContentElement(strtolower($element->tagName))
+            && SourceDom::isStandaloneTextLeaf($element)
+            && $this->isRuntimeDomTarget($element)
+            && $this->isAddressedOnlyByAttributes($element);
+    }
+
+    private function isAddressedOnlyByAttributes(DOMElement $element): bool
+    {
+        foreach ($this->runtimeDomSelectorsForElement($element) as $selector) {
+            if ( ! str_starts_with((string) $selector, '[') ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public function canRetainRuntimeDomContractNatively(DOMElement $element, string $blockName): bool
+    {
+        if ($blockName === $this->context->generatedBlockName('authored-button') && AuthoredButtonBlockGenerator::isRoleButton($element)) return true;
+        // Responsive media saves the source element verbatim, so every id, class
+        // and attribute a runtime selector addresses survives on the frontend.
+        $responsiveMedia = $this->context->generatedBlockName(ResponsiveMediaBlockGenerator::LOCAL_NAME);
+        if ('' !== $responsiveMedia && $blockName === $responsiveMedia) return true;
+        if ($blockName === $this->context->generatedBlockName('layout-shell') && in_array(strtolower($element->tagName), array('div', 'span', 'article', 'aside', 'header', 'footer', 'main', 'section', 'nav'), true)) {
+            $root = SourceDom::documentVariantRoot($element);
+            if ($root && $root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)) return true;
+            // A captured gallery frame is the gallery runtime's own contract:
+            // the shell saves its frame attributes and `hidden` state verbatim,
+            // and the runtime only flips them, so the frame stays editable.
+            if ($element->hasAttribute(CaptureEvidence::GALLERY_FRAME) && $element->parentNode instanceof DOMElement && $element->parentNode->hasAttribute(CaptureEvidence::GALLERY_STAGE)) return true;
+        }
+        // The authored hidden marker is the exact save() DOM contract for these
+        // companion blocks. A native editable marker is not a runtime island.
+        if ('span' === strtolower($element->tagName) && $element->hasAttribute('hidden') && (
+            ($blockName === $this->context->generatedBlockName('live-clock') && $element->hasAttribute('data-blocks-engine-live-clock'))
+            || ($blockName === $this->context->generatedBlockName('motion-sequence') && $element->hasAttribute('data-blocks-engine-motion-steps'))
+        )) return true;
+        // Core navigation renders its <nav> dynamically: the anchor and aria-label
+        // supports carry id and label, and the remaining hooks travel as
+        // render-time attributes (see runtimeAttributesCarriedBy()).
+        if ('core/navigation' === $blockName && 'nav' === strtolower($element->tagName)) return true;
+        $isLayoutShell = $blockName === $this->context->generatedBlockName('layout-shell');
+        if ( ! $isLayoutShell && ! in_array($blockName, array('core/group', 'core/paragraph', 'core/heading'), true) ) {
+            return false;
+        }
+
+        // Group can serialize these semantic wrappers exactly. Generic div app
+        // surfaces retain their existing bounded-island treatment, unless a
+        // layout-shell carries the source attributes verbatim around editable
+        // children.
+        if ('core/group' === $blockName && ! in_array(strtolower($element->tagName), array('article', 'aside', 'footer', 'header', 'main', 'section'), true)) {
+            return false;
+        }
+        // The shell saves the source wrapper verbatim, so an empty mount point the
+        // script fills, a `hidden` panel the script reveals, and a container of
+        // controls the script binds all keep their exact DOM contract while their
+        // children stay editable blocks (a hidden shell shows itself in the editor
+        // while selected). A text-only wrapper lowers to a paragraph instead, which
+        // cannot carry the attribute.
+        // An empty paragraph is the same mount point: a status line the script
+        // reveals and writes once a form is sent. With nothing inside, the shell
+        // saves it exactly as the source wrote it.
+        $emptyParagraph = 'p' === strtolower($element->tagName) && ! $element->hasChildNodes();
+        if ( $isLayoutShell && (
+            ( ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) && ! $emptyParagraph )
+            || ( ! $this->hasBlockLevelChildElement($element) && '' !== trim($element->textContent) )
+        ) ) {
+            return false;
+        }
+
+        if (array_intersect($this->runtimeAppShellSignals($element), array('app_root_token', 'workspace_surface'))) {
+            return false;
+        }
+
+        foreach ($this->context->descendantElements($element) as $descendant) {
+            $tagName = strtolower($descendant->tagName);
+            if (in_array($tagName, array('canvas', 'form', 'template'), true)) {
+                return false;
+            }
+            // Inside a shell, a control converts to a native block that saves the
+            // `data-*` hooks a script finds it by. A control the script finds any
+            // other way (its class or id, whose state the script rewrites) keeps
+            // the whole container as one island.
+            if (in_array($tagName, array('button', 'input', 'select', 'textarea'), true)
+                && ( ! $isLayoutShell || ( $this->isRuntimeDomTarget($descendant) && ! $this->isAddressedOnlyByAttributes($descendant) ) )
+            ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
 
     /**
      * @param array<string, mixed> $options

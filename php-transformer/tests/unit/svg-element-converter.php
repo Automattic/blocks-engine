@@ -4,6 +4,7 @@ declare(strict_types=1);
 require __DIR__ . '/../../vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementMaterializer;
@@ -154,6 +155,33 @@ $otherIcon = '<svg viewBox="0 0 20 20"><g class="blocks-engine-attribute-bbf8754
 $assert($svgIdentity->invoke($svgMaterializer, $iconOnRouteA) === $svgIdentity->invoke($svgMaterializer, $iconOnRouteB), 'svg-asset-identity-ignores-document-scoped-engine-classes');
 $assert($svgIdentity->invoke($svgMaterializer, $iconOnRouteA) !== $svgIdentity->invoke($svgMaterializer, $otherIcon), 'svg-asset-identity-keeps-distinct-geometry');
 $assert(str_contains($svgIdentity->invoke($svgMaterializer, $iconOnRouteA), 'class="icon-fill"'), 'svg-asset-identity-keeps-authored-classes');
+
+// Neutral artwork covers the issue's paragraph/div table and both inline and
+// block image materialization, with accessible-name precedence shared by both.
+$svgAlt = new ReflectionMethod($svgMaterializer, 'svgImageAlt');
+$assert('T' === $svgAlt->invoke($svgMaterializer, $elementFrom('<svg alt="F"><title>T</title></svg>')), 'svg-title-element-precedes-alt');
+$wrappers = array( '<p>%sN</p>', '<p>%s</p>', '<div>%s</div>', '%s' );
+$names = array(
+    'unnamed' => array( '', '', '' ),
+    'alt-only' => array( 'alt="F"', '', 'F' ),
+    'title-attribute' => array( 'title="T" alt="F"', '', 'T' ),
+    'aria-label' => array( 'aria-label="A" title="T" alt="F"', '<title>T</title>', 'A' ),
+    'hidden' => array( 'aria-hidden="true" aria-label="A" title="T" alt="F"', '<title>T</title>', '' ),
+);
+foreach ( $wrappers as $wrapper ) {
+    foreach ( $names as $name => [$attributes, $title, $expectedAlt] ) {
+        $artwork = '<svg ' . $attributes . ' viewBox="0 0 10 10">' . $title . '<path d="M0 0h10v10z"></path></svg>';
+        $output = ( new HtmlTransformer() )->transform(sprintf($wrapper, $artwork))->toArray();
+        $markup = (string) ($output['serialized_blocks'] ?? '');
+        $label = $wrapper . ':' . $name;
+        $assert(! str_contains($markup, '<!-- wp:html'), $label . ':no-core-html');
+        $document = new DOMDocument();
+        $document->loadHTML($markup, LIBXML_NOERROR | LIBXML_NOWARNING);
+        $image = $document->getElementsByTagName('img')->item(0);
+        $assert($image instanceof DOMElement && str_starts_with($image->getAttribute('src'), 'assets/materialized-svg/'), $label . ':materialized-image');
+        $assert($image instanceof DOMElement && $image->hasAttribute('alt') && $expectedAlt === $image->getAttribute('alt'), $label . ':image-alt');
+    }
+}
 
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");

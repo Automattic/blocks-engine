@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 /**
  * A header whose menu is a captured dialog is still shared chrome.
  *
@@ -39,10 +41,10 @@ $state = array(
 );
 $routes = array('https://example.test/' => 'website/index.html', 'https://example.test/about/' => 'website/about/index.html');
 $receipt = array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array());
-$interactions = array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array());
+$interactions = array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => array());
 foreach ($routes as $url => $path) {
     $receipt['routes'][] = array('url' => $url, 'path' => $path);
-    $interactions['pages'][] = array('sourceUrl' => $url, 'states' => array($state));
+    $interactions['pages'][] = array('sourceUrl' => $url, 'components' => captured_components(array($state)));
 }
 
 $plan = (new ArtifactCompiler())->compile(array(

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../fixtures/captured-components.php';
+
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
@@ -337,7 +339,7 @@ $siteAssets = array_column($sitePlan['assets'] ?? array(), null, 'source_path');
 $siteWrites = array_column($sitePlan['writes'] ?? array(), null, 'target_path');
 $bootstrap = (string) ($siteWrites['functions.php']['payload']['data'] ?? '');
 $assert(array(array('kind' => 'global')) === ($siteAssets['assets/site.css']['scopes'] ?? null), 'Shared stylesheets retain an explicit global runtime scope.');
-$assert('about.html' === ($siteAssets['assets/about.css']['scopes'][0]['source_path'] ?? null) && 1 === preg_match("~'about' === trim\\( get_page_uri\\( get_queried_object_id\\(\\) \\), '/' \\) \\) \\) \\{\\n        \\\$blocks_engine_route_styles = true;\\n(        wp_enqueue_style\\([^\\n]+\\n)*        wp_enqueue_style\\( '[^']+', get_theme_file_uri\\( 'assets/assets/about\\.css' \\)~", $bootstrap) && 1 === substr_count($bootstrap, "get_theme_file_uri( 'assets/assets/about.css' )"), 'Page-owned stylesheets enqueue only inside their canonical WordPress route block, with the route comparison as the fallback after reconciliation identity.');
+$assert('about.html' === ($siteAssets['assets/about.css']['scopes'][0]['source_path'] ?? null) && 1 === preg_match("~'about' === trim\\( get_page_uri\\( \\\$blocks_engine_page_id \\), '/' \\) \\) \\) \\{\\n        \\\$blocks_engine_route_styles = true;\\n(        wp_enqueue_style\\([^\\n]+\\n)*        wp_enqueue_style\\( '[^']+', get_theme_file_uri\\( 'assets/assets/about\\.css' \\)~", $bootstrap) && 1 === substr_count($bootstrap, "get_theme_file_uri( 'assets/assets/about.css' )"), 'Page-owned stylesheets enqueue only inside their canonical WordPress route block, with the route comparison as the fallback after reconciliation identity.');
 $assert('(min-width: 48rem)' === ($siteAssets['assets/about.css']['media'] ?? null) && str_contains($bootstrap, "array(), null, '(min-width: 48rem)'"), 'Stylesheet media conditions are retained as canonical frontend enqueue arguments.');
 $assert(!str_starts_with((string) ($siteAssets['assets/about.css']['content'] ?? ''), '@media') && str_contains((string) ($siteAssets['assets/about.css']['content'] ?? ''), '.about-grid{display:grid') && '(min-width: 48rem)' === ($siteAssets['assets/about.css']['stylesheet_instances'][0]['media'] ?? null) && 'about.html' === ($siteAssets['assets/about.css']['stylesheet_instances'][0]['source_path'] ?? null), 'One stylesheet resource retains its original rule stream while its canonical document instance carries the enqueue condition.');
 $assert(str_contains($bootstrap, "\$canvas = ! wp_should_load_block_editor_scripts_and_styles();") && str_contains($bootstrap, "( \$canvas || ( empty( \$style['author_css'] ) && empty( \$style['editor_only'] ) ) ) && \$blocks_engine_presentation_matches(") && ! str_contains($bootstrap, "add_editor_style(") && str_contains($bootstrap, "\$style['content_hash']") && str_contains($bootstrap, "\$style['media'] ?? 'all'") && str_contains($bootstrap, "get_theme_file_uri( \$style['target_path'] )"), 'Editor-only support styles and authored styles are enqueued by URL only on Core\'s editor-canvas iframe asset pass, route-scoped so an edited post loads only its own.');
@@ -519,14 +521,14 @@ $assertReceiptEquality($responsiveShellArtifact, 'Shared responsive shell varian
 
 $dialogHtml = '<div role="dialog" aria-label="Contact"><p>Captured dialog</p></div>';
 $capturedStates = array(
-    'schema' => 'blocks-engine-capture/captured-interactions/v1',
+    'schema' => 'blocks-engine-capture/captured-interactions/v2',
     'pages' => array(array(
         'sourceUrl' => 'https://example.test/',
-        'states' => array(array(
+        'components' => captured_components(array(array(
             'status' => 'captured',
             'trigger' => array('selector' => 'body > main > a', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
             'dialog' => array('html' => $dialogHtml, 'htmlBytes' => strlen($dialogHtml), 'htmlTruncated' => false),
-        )),
+        ))),
     )),
 );
 $capturedDialogArtifact = array('site_slug' => 'staged-dialog', 'files' => array(
@@ -643,5 +645,36 @@ $layoutStaged = $layoutCompiler->compose($layoutShared, array($layoutCompiler->c
 $layoutPage = $layoutWhole['source_reports']['compiled_site']['pages'][0] ?? array();
 $assert('passed' === ($layoutWhole['source_reports']['editability_policy']['status'] ?? null) && str_contains((string) ($layoutPage['block_markup'] ?? ''), '<!-- wp:custom/responsive-layout {"content":'), 'A deep semantic media main compiles as one dedicated typed layout boundary under the unchanged editability policy.');
 $assert($canonical($layoutWhole) === $canonical($layoutStaged), 'Typed captured layout boundaries preserve direct and staged canonical equivalence.');
+$assert(1 === substr_count((string) $layoutPage['block_markup'], '<!-- wp:custom/responsive-layout '), 'The single deep chain still has exactly one captured boundary.');
+
+$branchedLayout = '<main><section class="hero"><h1>Title</h1><p>Intro</p><a class="cta" href="/shop">Shop</a></section><ul class="grid"><li>'
+    . str_repeat('<div>', 24) . '<a href="/p"><img src="p.jpg" alt="P"></a>' . str_repeat('</div>', 24) . '</li></ul></main>';
+$branchedArtifact = array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'content' => $branchedLayout)));
+$branchedWhole = $layoutCompiler->compile($branchedArtifact)->toArray();
+$branchedShared = $layoutCompiler->prepareShared($branchedArtifact);
+$branchedStaged = $layoutCompiler->compose($branchedShared, array($layoutCompiler->compilePage($branchedArtifact, $branchedShared, 'index.html')))->toArray();
+$branchedMarkup = (string) ($branchedWhole['source_reports']['compiled_site']['pages'][0]['block_markup'] ?? '');
+$assert(1 === substr_count($branchedMarkup, '<!-- wp:custom/responsive-layout ') && str_contains($branchedMarkup, '"content":"\\u003cul class=\\u0022grid\\u0022'), 'Issue 3606 captures only ul.grid, not main or the shallow hero.');
+$assert(str_contains($branchedMarkup, '<!-- wp:heading ') && str_contains($branchedMarkup, '<!-- wp:paragraph -->') && str_contains($branchedMarkup, '<a class="cta" href="/shop">Shop</a>'), 'The hero heading, paragraph, and CTA remain native editable content.');
+$assert('passed' === ($branchedWhole['source_reports']['editability_policy']['status'] ?? null) && 20 >= ($branchedWhole['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX), 'The branched fixture satisfies the unchanged nesting policy.');
+$assert($canonical($branchedWhole) === $canonical($branchedStaged), 'Issue 3606 stays canonical-equivalent through staged compilation.');
+$assert(6 === ($branchedWhole['source_reports']['editability_report']['metrics']['block_count'] ?? null), 'The fixture retains its native ancestors and hero alongside one captured grid.');
+// The issue's bare CTA is an inline link. With ordinary button presentation,
+// the same shallow hero must retain its native button recognizer as well.
+$buttonArtifact = $branchedArtifact;
+$buttonArtifact['files'][0]['content'] = '<style>.cta{display:inline-block;background:#123;color:#fff;padding:12px 24px;border-radius:4px}</style>' . $branchedLayout;
+$buttonWhole = $layoutCompiler->compile($buttonArtifact)->toArray();
+$buttonMarkup = (string) ($buttonWhole['source_reports']['compiled_site']['pages'][0]['block_markup'] ?? '');
+$assert(str_contains($buttonMarkup, '<!-- wp:button ') && 1 === substr_count($buttonMarkup, '<!-- wp:custom/responsive-layout '), 'A styled shallow CTA stays a native button beside the captured grid.');
+
+// Branches prevent single-wrapper folding: source depth alone cannot choose
+// how far into this tree it is safe to defer capture.
+$budgetLayout = '<main>';
+for ($depth = 0; $depth < 24; ++$depth) $budgetLayout .= '<section><p>Level ' . $depth . '</p>';
+$budgetLayout .= '<img src="p.jpg" alt="P">' . str_repeat('</section>', 24) . '</main>';
+$budgetWhole = $layoutCompiler->compile(array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'content' => $budgetLayout))))->toArray();
+$budgetMarkup = (string) ($budgetWhole['source_reports']['compiled_site']['pages'][0]['block_markup'] ?? '');
+$assert(20 === ($budgetWhole['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? null) && 1 === substr_count($budgetMarkup, '<!-- wp:custom/responsive-layout '), 'Boundary placement spends the actual converted block budget, not a second source-depth constant.');
+$assert(str_starts_with($budgetMarkup, '<!-- wp:group ') && str_contains($budgetMarkup, '<!-- wp:paragraph -->'), 'The ancestors and their shallow siblings above the budget boundary stay native.');
 
 fwrite(STDOUT, sprintf("Staged artifact compilation contract passed (50-page receipts: %d compact / %d expanded bytes; large receipt: %d compact / %d expanded bytes)\n", $compactReceiptBytes, $expandedReceiptBytes, $largeCompactBytes, $largeExpandedBytes));

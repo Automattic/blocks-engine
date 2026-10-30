@@ -670,7 +670,8 @@ final class SemanticParityReporter
         }
 
         $tokens = strtolower($this->attr($anchor, 'class') . ' ' . $this->attr($anchor, 'id'));
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:separator|divider)(?:[^a-z0-9]|$)/', $tokens);
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:separator|divider)(?:[^a-z0-9]|$)/', $tokens)
+            && ! preg_match('/[\p{L}\p{N}]/u', (string) $anchor->textContent);
     }
 
     /**

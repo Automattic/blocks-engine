@@ -240,6 +240,46 @@ $assert(
     $cssFor($classOwned, 'author-css')
 );
 
+// #3261: source classes move to a display:contents figure. The actual
+// flex item is the native img, so class-resolved margins must follow its box.
+foreach ( array(
+    '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>',
+    '<img class="ico" src="icon.png" alt="Icon">',
+) as $icon ) {
+    $result = $transform(
+        '<style>.row{display:flex;align-items:flex-start;gap:12px}'
+        . '.ico{width:20px;height:20px;flex-shrink:0;margin-top:2px}'
+        . '.t{line-height:20px}</style>'
+        . '<div class="row">' . $icon . '<span class="t">One line</span>'
+        . (str_starts_with($icon, '<img') ? '<span>Another sibling prevents media-text lowering.</span>' : '') . '</div>'
+    );
+    $markup = (string) ($result['serialized_blocks'] ?? '');
+    $css = $cssFor($result, 'author-css');
+    $assert(str_contains($markup, 'blocks-engine-synthetic-flex-image-figure'), 'reduced case: image uses the transparent flex figure', $markup);
+    preg_match_all('/(\.ico)[^{}]*>\s*img[^{}]*\{([^{}]*)\}/', $css, $leafRules, PREG_SET_ORDER);
+    $marginRule = '';
+    foreach ( $leafRules as $leafRule ) {
+        if ( preg_match('/(?:^|;)margin-top:2px(?:\s*!important)?(?:;|$)/', $leafRule[2])
+            && str_contains($markup, 'ico') ) {
+            $marginRule = $leafRule[2];
+        }
+    }
+    $assert('' !== $marginRule, 'reduced case: author rule gives the inner img its 2px top margin', $css);
+    $assert(! preg_match('/<img[^>]*style="[^"]*margin/', $markup), 'reduced case: margin is carried by CSS, not an inline image style', $markup);
+}
+
+$box = $transform(
+    '<style>.row{display:flex}.ico{margin:1px 3px 4px 5px;padding:2px;align-self:center}</style>'
+    . '<div class="row"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg><span>Label</span></div>'
+);
+$boxCss = $cssFor($box, 'author-css');
+$assert(
+    1 === preg_match('/\.ico[^{}]*>\s*img[^{}]*\{[^{}]*margin:1px 3px 4px 5px[^{}]*\}/', $boxCss)
+        && str_contains($boxCss, 'padding:2px') && str_contains($boxCss, 'align-self:center'),
+    'transparent image figure: shorthand spacing and item alignment share the projected author rule',
+    $boxCss
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Inline flex-item carrier contract: {$failures} failed, {$passes} passed\n");
     exit(1);

@@ -22,8 +22,6 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  */
 final class NavigationStyleProjector
 {
-    /** The editor-only host a shell block renders its inner blocks inside. */
-    private const EDITOR_INNER_BLOCKS_CLASS = 'blocks-engine-layout-shell-editor-inner-blocks';
 
     public function __construct(
         private readonly NavigationStyleProjectionContext $context,
@@ -78,91 +76,6 @@ final class NavigationStyleProjector
         return '' === $css ? array() : array( new CascadeRule(CascadeLayer::DIRECT_NAVIGATION_REPAIR, $css) );
     }
 
-    /**
-     * Core adds an unlayered flex display to every navigation block. Retain an
-     * authored class-only display state on the same host, including its media
-     * or layer conditions, so a desktop navigation can remain hidden while its
-     * separate mobile trigger is visible.
-     *
-     * Tagged {@see CascadeLayer::DIRECT_NAVIGATION_REPAIR}.
-     *
-     * @return list<CascadeRule>
-     */
-    public function directNavigationDisplayRules(string $serializedBlocks): array
-    {
-        $classes = $this->directNavigationHostClasses($serializedBlocks);
-        if ( array() === $classes ) {
-            return array();
-        }
-
-        $sourceRules = array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules());
-        $requiresBridge = false;
-        foreach ( $sourceRules as $rule ) {
-            $selector = trim((string) ($rule['selector'] ?? ''));
-            if ( 1 !== preg_match('/^\.((?:\\\\.|[A-Za-z0-9_-])+)$/', $selector, $match) ) {
-                continue;
-            }
-            $class = preg_replace('/\\\\(.)/', '$1', $match[1]) ?? $match[1];
-            $display = preg_replace('/\s*!important\s*$/i', '', trim((string) ($rule['declarations']['display'] ?? ''))) ?? '';
-            if ( isset($classes[$class]) && 'none' === strtolower($display) ) {
-                $requiresBridge = true;
-                break;
-            }
-        }
-        if ( ! $requiresBridge ) {
-            return array();
-        }
-
-        $rules = array();
-        foreach ( $sourceRules as $rule ) {
-            $selector = trim((string) ($rule['selector'] ?? ''));
-            if ( 1 !== preg_match('/^\.((?:\\\\.|[A-Za-z0-9_-])+)$/', $selector, $match) ) {
-                continue;
-            }
-            $class = preg_replace('/\\\\(.)/', '$1', $match[1]) ?? $match[1];
-            $display = trim((string) ($rule['declarations']['display'] ?? ''));
-            if ( '' === $display || ! isset($classes[$class]) ) {
-                continue;
-            }
-
-            $target = ':root .wp-block-navigation.' . $match[1];
-            $css = $target . '{display:' . preg_replace('/\s*!important\s*$/i', '', $display) . '!important}';
-            foreach ( array_reverse(is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array()) as $condition ) {
-                $css = trim((string) $condition) . '{' . $css . '}';
-            }
-            $rules[] = $css;
-        }
-
-        return array_map(
-            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::DIRECT_NAVIGATION_REPAIR, $css),
-            array_values(array_unique($rules))
-        );
-    }
-
-    /** @return array<string, true> */
-    private function directNavigationHostClasses(string $serializedBlocks): array
-    {
-        if ( ! preg_match_all('/<!--\s*wp:navigation\s+(\{.*?\})\s*-->/s', $serializedBlocks, $matches) ) {
-            return array();
-        }
-
-        $classes = array();
-        foreach ( $matches[1] as $json ) {
-            $attrs = json_decode($json, true);
-            if ( ! is_array($attrs) || str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-list-navigation') ) {
-                continue;
-            }
-            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
-                if ( '' !== $class ) {
-                    $classes[$class] = true;
-                }
-            }
-        }
-
-        return $classes;
-    }
-
-
     public function materializeEditorStaticStateStylesheet(string $projectedAuthorCss = ''): void
     {
         $rules = array();
@@ -210,7 +123,7 @@ final class NavigationStyleProjector
                 // percentage height resolves against. Inside a layout shell the
                 // transport sits under the shell's inner-blocks layer rather
                 // than directly under a block element.
-                . ':root .editor-styles-wrapper :where(.block-editor-block-list__block,.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ')>div:not([class]):not([id]):not([style]):has(>.' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder){display:contents}';
+                . ':root .editor-styles-wrapper .block-editor-block-list__block>div:not([class]):not([id]):not([style]):has(>.' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder){display:contents}';
         }
         if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->context->authorStyles()->combinedCss()) ) {
             $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';
@@ -233,21 +146,19 @@ final class NavigationStyleProjector
             return '';
         }
 
-        // An authored rule reaches its target through two hooks: the ancestor it
-        // is scoped by, and the element it addresses. Projection already rewrote
-        // the ancestor — a source attribute the editor drops becomes a generated
-        // class that survives — so reading the projected stylesheet keeps that
-        // half intact while this pass restates the id half. Reading the source
-        // stylesheet keeps the spellings projection leaves alone, and a rule
-        // that lands in both is the same declaration twice.
+        // The main projection already supplies anchor alternatives for scoped
+        // identities. Only restate selectors with an id it does not cover.
+        // Keep the projected pass for those remaining ids: its ancestor hooks
+        // may have been rewritten to classes that survive in the editor.
+        $uncoveredIds = array_diff_key($ids, ScopedAnchorSelectorProjection::identities($this->context->authorStyles()));
         $stylesheets = array($this->context->authorStyles()->combinedCss());
         if ( '' !== trim($projectedAuthorCss) ) {
             $stylesheets[] = $projectedAuthorCss;
         }
 
         $projections = array();
-        foreach ( $stylesheets as $stylesheet ) {
-            $projection = $this->projectEditorAnchorStylesheet($stylesheet, $ids);
+        foreach ( $stylesheets as $index => $stylesheet ) {
+            $projection = $this->projectEditorAnchorStylesheet($stylesheet, $ids, 0 === $index ? $uncoveredIds : $ids);
             if ( '' !== $projection ) {
                 $projections[] = $projection;
             }
@@ -256,17 +167,30 @@ final class NavigationStyleProjector
         return trim(implode("\n", $projections));
     }
 
-    /** @param array<string, bool> $ids */
-    private function projectEditorAnchorStylesheet(string $stylesheet, array $ids): string
+    /** @param array<string, bool> $ids @param array<string, bool> $uncoveredIds */
+    private function projectEditorAnchorStylesheet(string $stylesheet, array $ids, array $uncoveredIds): string
     {
         $stateMarkers = $this->context->selectorProjections()->attributeNegationMarkers();
 
         return trim(( new CssStylesheetTransformer() )->transform(
             $stylesheet,
-            function (string $prelude, string $body) use ($ids, $stateMarkers): array {
+            function (string $prelude, string $body) use ($ids, $uncoveredIds, $stateMarkers): array {
                 $projected = array();
                 $transported = array();
                 foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    // Ignore only the exact alternatives emitted by the main
+                    // projection, not arbitrary :is() lists containing an id.
+                    $uncovered = preg_replace_callback(
+                        '/:is\(([^()]*)\)/',
+                        static function (array $match) use ($ids): string {
+                            $source = explode(',', $match[1], 2)[0];
+                            return ScopedAnchorSelectorProjection::selector($source, $ids) === $match[0] ? '' : $match[0];
+                        },
+                        $selector
+                    ) ?? $selector;
+                    if ( $this->projectAnchorIds($uncovered, $uncoveredIds) === $uncovered ) {
+                        continue;
+                    }
                     $marker = $stateMarkers[trim($selector)] ?? '';
                     if ( '' !== $marker ) {
                         $selector = preg_replace(
@@ -278,10 +202,6 @@ final class NavigationStyleProjector
                     $replacement = $this->projectAnchorIds($selector, $ids);
                     if ( $replacement !== $selector ) {
                         $projected[] = $replacement;
-                        $throughInnerBlocks = self::throughEditorInnerBlocks($replacement);
-                        if ( null !== $throughInnerBlocks ) {
-                            $projected[] = $throughInnerBlocks;
-                        }
                         $transportSelector = $this->editorTemplatePartTransportSelector($selector, $ids);
                         if ( null !== $transportSelector ) {
                             $transported[] = $transportSelector;
@@ -301,33 +221,6 @@ final class NavigationStyleProjector
                 return $rules;
             }
         ));
-    }
-
-    /**
-     * Restate a child combinator so it still reaches its target across the
-     * editor's inner-blocks host.
-     *
-     * A shell block renders its inner blocks inside one extra element on the
-     * canvas. That host is `display:contents`, so the child still participates
-     * in its grandparent's layout and the authored declaration is the right one
-     * to apply — but a child combinator is matched on the tree, not on the
-     * layout, so the authored `parent > child` stopped matching. Offer the same
-     * declaration through the host as an additional alternative.
-     *
-     * Only the hop into the rightmost compound is relaxed: that is the one that
-     * places the element, and widening every combinator would let an unrelated
-     * ancestor match.
-     */
-    private static function throughEditorInnerBlocks(string $selector): ?string
-    {
-        $position = strrpos($selector, '>');
-        if ( false === $position ) {
-            return null;
-        }
-
-        return substr($selector, 0, $position + 1)
-            . ':where(.' . self::EDITOR_INNER_BLOCKS_CLASS . ')>'
-            . substr($selector, $position + 1);
     }
 
     /**

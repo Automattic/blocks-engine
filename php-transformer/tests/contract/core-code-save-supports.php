@@ -63,7 +63,7 @@ $assert(
     (string) json_encode($code['attrs'] ?? array())
 );
 $assert(
-    str_starts_with($wrapper, '<pre class="wp-block-code has-text-color has-background has-border-color prompt-code" style="color:#0f172a;background-color:#e2e8f0;border-color:#1e3a8a;border-style:solid;border-width:1px;border-radius:12px;padding-top:16px;padding-right:20px;padding-bottom:16px;padding-left:20px;font-size:14px;line-height:1.6"><code>')
+    str_starts_with($wrapper, '<pre class="wp-block-code has-text-color has-background has-border-color blocks-engine-source-code prompt-code" style="color:#0f172a;background-color:#e2e8f0;border-color:#1e3a8a;border-style:solid;border-width:1px;border-radius:12px;padding-top:16px;padding-right:20px;padding-bottom:16px;padding-left:20px;font-size:14px;line-height:1.6"><code>')
         && str_ends_with($wrapper, '</code></pre>'),
     'the saved wrapper serializes the generated class, support classes, projected class, and inline support style the canonical native serializer emits everywhere else',
     $wrapper
@@ -101,17 +101,16 @@ $parsedCode = $parsed[0]['innerBlocks'][0] ?? array();
 $assert(
     'core/code' === ($parsedCode['blockName'] ?? '')
         && 'prompt-code' === ($parsedCode['attrs']['className'] ?? '')
-        && str_contains((string) ($parsedCode['innerHTML'] ?? ''), 'has-text-color has-background has-border-color prompt-code'),
+        && str_contains((string) ($parsedCode['innerHTML'] ?? ''), 'has-text-color has-background has-border-color blocks-engine-source-code prompt-code'),
     'parsing the saved markup restores the block comment supports and the serialized wrapper verbatim',
     (string) json_encode(array($parsedCode['attrs'] ?? array(), $parsedCode['innerHTML'] ?? ''))
 );
 
-// An unstyled code block keeps the byte-identical canonical shape core saves
-// with no supports, so the repair changes nothing for plain markup.
+// An unstyled code block keeps the canonical shape plus the importer scope.
 $plain = ( new HtmlTransformer() )->transform('<pre><code>plain code</code></pre>')->toArray();
 $assert(
-    '<pre class="wp-block-code"><code>plain code</code></pre>' === (string) (($plain['blocks'][0]['innerHTML'] ?? '')),
-    'an unstyled code block keeps the exact canonical wrapper core save() emits without supports',
+    '<pre class="wp-block-code blocks-engine-source-code"><code>plain code</code></pre>' === (string) (($plain['blocks'][0]['innerHTML'] ?? '')),
+    'an unstyled code block keeps the canonical wrapper with its importer scope',
     (string) ($plain['blocks'][0]['innerHTML'] ?? '')
 );
 

@@ -8,9 +8,8 @@ declare(strict_types=1);
  * `display:contents`, so the items lay out in core/navigation itself. With no
  * layout that is core's flex row: a Wix phone menu (`.menu>ul li{display:block}`
  * with no display on the nav or the list) came out as flex items sized by their
- * `min-width`, and the longer labels were cut off. Only item evidence switches
- * the default: an unstyled menu, inline items, and a flex list keep
- * core's row.
+ * `min-width`, and the longer labels were cut off. UA list-item defaults also
+ * prove a stack; authored inline items and flex lists keep core's row.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -72,8 +71,11 @@ $assert(
     array( 'type' => 'default' ) === $layout($menu('', 'display:block;float:left')),
     'floated block items take flow, where their projected float still applies'
 );
-$assert(null === $layout($menu('', 'display:block') . '.menu>ul{display:flex}'), 'a flex list keeps core\'s row');
-$assert(null === $layout('.menu{direction:ltr}'), 'a menu without item display evidence keeps core\'s default');
+// A source flex row is carried as core's horizontal row; a row that never
+// wraps carries core's native flexWrap:nowrap (#2987), never a stack.
+$flexListLayout = $layout($menu('', 'display:block') . '.menu>ul{display:flex}');
+$assert(null === $flexListLayout || ( 'flex' === ($flexListLayout['type'] ?? null) && ! isset($flexListLayout['orientation']) ), 'a flex list keeps core\'s row', json_encode($flexListLayout));
+$assert(array( 'type' => 'default' ) === $layout('.menu{direction:ltr}'), 'a menu with UA list-item display stacks in core flow');
 $assert(null === $layout('.item{display:flex}'), 'flex items keep core\'s row');
 
 if ( 0 < $failures ) {

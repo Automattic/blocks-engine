@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
@@ -47,7 +49,7 @@ final class ListingQueryPresentation
                             }
                             $offset = $next;
                         }
-                        if (!$zero || !preg_match('/^(?::not\(\.[a-z0-9-]*blocks-engine-specificity[a-z0-9-]*\))*$/', $suffix)) continue;
+                        if (!$zero || !preg_match('/^(?::not\(\.' . EngineMarker::specificityPatternBody('specificity-class') . '\))*$/', $suffix)) continue;
                     }
                     $parts = explode('>', $selector);
                     if (2 !== count($parts)) continue;
@@ -62,10 +64,7 @@ final class ListingQueryPresentation
                 return $original . (array() === $aliases ? '' : implode(',', array_keys($aliases)) . '{' . $body . '}');
             });
             if ($content === $asset['content']) continue;
-            $asset['content'] = $content;
-            $asset['content_hash'] = hash('sha256', $content);
-            $asset['hash'] = $asset['content_hash'];
-            $asset['bytes'] = strlen($content);
+            $asset = WordPressSitePlan::withRewrittenTextContent($asset, $content);
         }
         unset($asset);
         return $assets;

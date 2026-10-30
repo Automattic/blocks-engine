@@ -116,9 +116,9 @@ final class DocumentVariantIds
             }
             if ( '#' === $char && 0 === $bracket && 1 === preg_match('/\G#(-?[_a-zA-Z][\w-]*)(?![\\\\\w-])/', $selector, $match, 0, $i) ) {
                 $id = $match[1];
-                // Engine specificity shims (`:not(#blocks-engine-specificity-id-…)`)
+                // Engine specificity shims
                 // name no element; an id already carrying the suffix is final.
-                $result .= str_ends_with($id, $suffix) || str_starts_with($id, 'blocks-engine-') ? '#' . $id : ':is(#' . $id . ',#' . $id . $suffix . ')';
+                $result .= str_ends_with($id, $suffix) || EngineMarker::isSpecificityShim($id) || str_starts_with($id, 'blocks-engine-') ? '#' . $id : ':is(#' . $id . ',#' . $id . $suffix . ')';
                 $i += strlen($match[0]) - 1;
                 continue;
             }

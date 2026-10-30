@@ -1,0 +1,7 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Anchor selectors</title><style>
+body{margin:0;font-family:sans-serif}
+.site-nav{display:flex;gap:20px;padding:20px}
+.site-nav a{color:#365c36;text-decoration:none}
+.card__media{display:grid;grid-template-columns:1fr 1fr;gap:30px;padding:40px}
+.card__media > a > img{display:block;width:100%;height:240px;object-fit:cover;border:6px solid #f76ee4}
+</style></head><body><header><nav class="site-nav" aria-label="Main"><a href="#one">One</a><a href="#two">Two</a></nav></header><main><section class="card__media" id="one"><a href="https://example.com/"><img src="photo.jpg" alt="Linked photo"></a><div><h2 id="two">Linked image</h2><p>A linked image beside text.</p></div></section></main></body></html>

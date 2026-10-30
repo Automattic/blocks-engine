@@ -5,7 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Support\InlineBodyStyle;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
@@ -633,14 +633,14 @@ final class ArtifactNormalizer
                 $linkPosition = count(array_filter($linkOffsets, static fn(int $offset): bool => $offset < $style['offset']));
                 $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'source_media' => array_key_exists(CaptureEvidence::SOURCE_MEDIA, \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
             }
-            // Spacing an author declares inline on <body> is page content the
+            // Spacing and custom properties inline on <body> are data the
             // reader sees, but the document is re-wrapped in a bare <body>
             // before it reaches the transformer, so it is gone by then. Carry
             // it as authored CSS while the source document is still intact.
             // It rides on the last inline stylesheet, which keeps both the
             // precedence inline style had and the file count the caller's
             // compiler budget was reserved against.
-            $bodySpacing = $this->inlineBodySpacingCss($content);
+            $bodySpacing = InlineBodyStyle::rule($content);
             if ( '' !== $bodySpacing ) {
                 if ( array() === $styles ) {
                     $styles[] = array( 'content' => $bodySpacing, 'media' => '', 'type' => '' );
@@ -756,39 +756,6 @@ final class ArtifactNormalizer
             $expandedFile['metadata'] = array( 'compilation' => $file['metadata']['compilation'] );
         }
         return $expandedFile;
-    }
-
-    /**
-     * Spacing an author declares inline on <body> — reserving room for a fixed
-     * footer bar is the common case. Positioning, sizing and overflow are
-     * document mechanics WordPress owns, and forcing those onto the body
-     * breaks scrolling in the editor canvas, so only spacing is carried.
-     */
-    private function inlineBodySpacingCss(string $html): string
-    {
-        if ( 1 !== preg_match('/<body\b[^>]*\sstyle\s*=\s*(?:"([^"]*)"|\'([^\']*)\')/i', $html, $matches) ) {
-            return '';
-        }
-
-        $style = html_entity_decode('' !== ($matches[1] ?? '') ? $matches[1] : ($matches[2] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        if ( '' === trim($style) || preg_match('/[{}<>]/', $style) ) {
-            return '';
-        }
-
-        $spacing = array();
-        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            $parts = explode(':', $declaration, 2);
-            if ( 2 !== count($parts) ) {
-                continue;
-            }
-            $property = strtolower(trim($parts[0]));
-            $value = trim($parts[1]);
-            if ( '' !== $value && 1 === preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left))?$/', $property) ) {
-                $spacing[] = $property . ':' . $value;
-            }
-        }
-
-        return array() === $spacing ? '' : 'body{' . implode(';', $spacing) . '}';
     }
 
     private function inlineStylePath(string $htmlPath, int $count = 1, int $index = 1): string

@@ -34,6 +34,17 @@ enum CascadeLayer: int
     case GENERATED_MARKUP_REPAIR = 10;
 
     /**
+     * `box-sizing:content-box` restated on sized and padded source boxes
+     * that core's group stylesheet resets to border-box, at the projected
+     * author selector and conditions, followed by the source rules that set
+     * `box-sizing` under a narrower condition and must keep winning there
+     * ({@see ContentBoxRestatements}). Support CSS rather than author CSS, so
+     * it reaches hosts that keep their own theme stylesheet as the author
+     * CSS. Every later engine repair still wins over it.
+     */
+    case SOURCE_BOX_MODEL_RESTATEMENT = 15;
+
+    /**
      * Author-authored visual facts captured during translation (resting
      * link/icon colors, arbitrary source-selector-to-target-selector
      * declarations) restated on the native element core actually renders,

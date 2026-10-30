@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -56,7 +57,7 @@ final class ButtonsPattern
             return null;
         }
 
-        if ( ! $this->sourceElements->isRichTextButtonLabel($anchor) ) {
+        if ( ! $this->isRichTextAnchorLabel($anchor, $buttons) ) {
             return null;
         }
 
@@ -68,8 +69,15 @@ final class ButtonsPattern
             return null;
         }
 
-        $text = $this->buttonText($anchor, SourceDom::innerHtml($anchor), $buttons);
+        $text = $this->buttonText($anchor, $buttons->richTextInnerHtml($anchor), $buttons);
         if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
+            // The companion's RichText element replaces the anchor's single
+            // wrapper child, so its content is that wrapper's label.
+            $wrapper = $this->accessibleLinkContentWrapper($anchor);
+            $wrapperText = $wrapper instanceof DOMElement ? $this->buttonText($wrapper, $buttons->richTextInnerHtml($wrapper), $buttons) : '';
+            if ( '' !== $wrapperText ) {
+                return $buttons->accessibleNameCompanion($anchor, $wrapperText, $wrapper);
+            }
             return $buttons->accessibleNameCompanion($anchor, $text);
         }
 
@@ -154,18 +162,52 @@ final class ButtonsPattern
         if ( $wrappedAnchor instanceof DOMElement && $this->wrappedButtonRequiresPreservation($wrappedAnchor) ) {
             return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($wrappedAnchor) ), array(), $wrappedAnchor);
         }
-        if ( null !== $wrappedAnchor && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element)) ) {
+        // The wrapper is only the control surface when the anchor inside it is
+        // bare. An anchor carrying its own control presentation is the button,
+        // and a styled wrapper around it is a second painted box (a fixed CTA
+        // bar with its own background and responsive visibility, say): folding
+        // the wrapper away repaints the link with the bar's paint and drops the
+        // bar's box, so leave both in place — the wrapper keeps its group and
+        // the anchor becomes the button through the plain anchor pattern.
+        if ( null !== $wrappedAnchor
+            && $this->isRichTextAnchorLabel($wrappedAnchor, $buttons)
+            && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element))
+            && ! $this->hasButtonSignal($wrappedAnchor, $buttons) ) {
             return $context->createBlock('core/buttons', $this->buttonWrapperAttributes($element, $context, $buttons), array( $this->buttonBlockFromAnchor($wrappedAnchor, $context, $buttons, $element) ), $element);
         }
 
         $buttonBlocks = array();
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && ! $this->isPositionedFragmentNavigation($child, $buttons->resolvedStyle($child)) && $this->hasButtonSignal($child, $buttons) && $this->sourceElements->isRichTextButtonLabel($child) ) {
-                $buttonBlocks[] = $this->buttonBlockFromAnchor($child, $context, $buttons);
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
             }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+            // Controls may have a single presentational wrapper apiece. Keep
+            // that ancestry intact until the anchor's class rules are resolved.
+            $anchor = 'a' === strtolower($child->tagName) ? $child : $this->singleSimpleAnchorChild($child);
+            if ( ! $anchor instanceof DOMElement ) {
+                return null;
+            }
+            $nativeWrapper = $anchor !== $child
+                && SourceDom::hasClass($element, 'wp-block-buttons')
+                && SourceDom::hasClass($child, 'wp-block-button')
+                && SourceDom::hasClass($anchor, 'wp-block-button__link');
+            if ( $anchor !== $child && ! $nativeWrapper
+                && ( $child->attributes->length > ($child->hasAttribute('class') ? 1 : 0) || '' !== trim($buttons->resolvedStyle($child)) ) ) {
+                return null;
+            }
+            if ( '' === trim($anchor->textContent ?? '')
+                || ! $this->isSimpleAnchor($anchor) || $buttons->isRuntimeDomTarget($anchor)
+                || $this->isPositionedFragmentNavigation($anchor, $buttons->resolvedStyle($anchor))
+                || ! $this->hasButtonSignal($anchor, $buttons) || ! $this->isRichTextAnchorLabel($anchor, $buttons) ) {
+                return null;
+            }
+            $buttonBlocks[] = $this->buttonBlockFromAnchor($anchor, $context, $buttons, null, $nativeWrapper ? $child : null);
         }
 
-        if ( count($buttonBlocks) <= 1 ) {
+        if ( array() === $buttonBlocks || (1 === count($buttonBlocks) && ! SourceDom::hasClass($element, 'wp-block-buttons')) ) {
             return null;
         }
 
@@ -173,11 +215,23 @@ final class ButtonsPattern
     }
 
     /** @return array<string, mixed> */
-    private function buttonBlockFromAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons, ?DOMElement $presentationElement = null): array
+    private function buttonBlockFromAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons, ?DOMElement $presentationElement = null, ?DOMElement $nativeWrapper = null): array
     {
-        $presentationElement ??= $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
-            ? $anchor
-            : ($this->buttonSurfaceElement($anchor) ?? $anchor);
+        $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
+        $retainsDescendants = $this->rendersSourceDescendants($anchor, $text);
+        // A static native button is unwrapped by buttonHtml(), so its box
+        // becomes the link surface even when its label retains an icon.
+        // Presentational wrappers that remain inside the link are descendants,
+        // not the control surface: in that case the anchor still owns it.
+        $presentationElement ??= $this->staticAnchorButtonSurface($anchor)
+            ?? ($retainsDescendants || $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
+                ? $anchor
+                : ($this->buttonSurfaceElement($anchor) ?? $anchor));
+        if ( $retainsDescendants ) {
+            // The native button is unwrapped into the link surface, not kept
+            // as label markup. Its author selectors still need control carriers.
+            $buttons->retainSourceDescendants($anchor, $presentationElement, false, $text);
+        }
         $resolvedPresentation = trim($buttons->resolvedStyle($presentationElement));
         $hasAuthoredStyleRules = $resolvedPresentation !== trim($presentationElement->getAttribute('style'));
         $attrs = $this->buttonPresentationAttributes($presentationElement, $context, $buttons);
@@ -186,8 +240,19 @@ final class ButtonsPattern
         if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
-        $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
         $attrs = array_replace_recursive($attrs, $this->buttonLabelTextAttributes($anchor, $buttons));
+        if ( $nativeWrapper instanceof DOMElement ) {
+            // The saved wrapper owns width/alignment, while descendant author
+            // rules paint the link. Neither is an authored outer Group.
+            $wrapperAttrs = $this->buttonPresentationAttributes($nativeWrapper, $context, $buttons);
+            $attrs = array_replace_recursive($wrapperAttrs, $attrs);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($wrapperAttrs['className'] ?? ''), (string) ($attrs['className'] ?? ''));
+            // This runtime strips the legacy width attribute on serialization.
+            // Keep the native save class as well so core CSS still sizes the box.
+            if ( preg_match('/(?:^|\s)(wp-block-button__width-(?:25|50|75|100))(?:\s|$)/', $nativeWrapper->getAttribute('class'), $widthClass) ) {
+                $attrs['className'] = SourceDom::mergeClassNames($attrs['className'], 'has-custom-width ' . $widthClass[1]);
+            }
+        }
 
         return $context->createBlock('core/button', array_filter(array_merge($attrs, array(
             'text'       => $text,
@@ -321,10 +386,10 @@ final class ButtonsPattern
     {
         $surface = $this->staticAnchorButtonSurface($anchor);
         if ( $surface instanceof DOMElement ) {
-            return SourceDom::innerHtml($surface);
+            return $buttons->richTextInnerHtml($surface);
         }
 
-        $html = SourceDom::innerHtml($anchor);
+        $html = $buttons->richTextInnerHtml($anchor);
         return str_contains($html, 'data-blocks-engine-richtext-marker=') && $this->hasStandaloneButtonLabel($anchor)
             ? $buttons->richText($anchor)
             : $html;
@@ -378,6 +443,37 @@ final class ButtonsPattern
         return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
     }
 
+    /**
+     * The anchor's only child when it is a span or div wrapping the whole
+     * label with attributes the accessible-link RichText element can carry.
+     */
+    private function accessibleLinkContentWrapper(DOMElement $anchor): ?DOMElement
+    {
+        $wrapper = null;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( null !== $wrapper ) {
+                    return null;
+                }
+                $wrapper = $child;
+            } elseif ( $child instanceof \DOMText || $child instanceof \DOMCdataSection ) {
+                if ( '' !== trim($child->textContent) ) {
+                    return null;
+                }
+            }
+        }
+        if ( ! $wrapper instanceof DOMElement || ! in_array(strtolower($wrapper->tagName), array( 'span', 'div' ), true) || ! $wrapper->hasAttributes() ) {
+            return null;
+        }
+        foreach ( $wrapper->attributes ?? array() as $attribute ) {
+            if ( ! AccessibleLinkBlockGenerator::isContentAttributeName(strtolower($attribute->name)) ) {
+                return null;
+            }
+        }
+
+        return $wrapper;
+    }
+
     private function hasMateriallyDifferentAccessibleLabel(DOMElement $anchor, string $text): bool
     {
         $ariaLabel = $this->normalizedAccessibleText($anchor->getAttribute('aria-label'));
@@ -404,11 +500,167 @@ final class ButtonsPattern
     private function unwrapPresentationalSpan(string $html): string
     {
         $html = $this->semanticMarkerSpansAsMarks($html);
-        while ( preg_match('/^<span\b[^>]*>(.*)<\/span>$/is', $html, $matches) === 1 && $this->spanWrapsEntireContent($matches[1]) ) {
-            $html = trim($matches[1]);
+        $wrapped = $html;
+        $identified = null;
+        while ( preg_match('/^(<span\b[^>]*>)(.*)<\/span>$/is', $html, $matches) === 1 && $this->spanWrapsEntireContent($matches[2]) ) {
+            // A bare span among the wrappers is not restorable: RichText drops it.
+            $identified = (null === $identified || $identified) && $this->hasSourceIdentity($matches[1]);
+            $html = trim($matches[2]);
+        }
+
+        // A label that still holds source elements of its own (a label run
+        // beside an icon) is retained descendant markup, not a single text
+        // run. Its source wrapper (a flex container, say) is part of that
+        // markup: author rules lay the retained elements out through it, and
+        // it carries attributes RichText keeps as an element. That holds
+        // whether those elements stay plain authored markup or became RichText
+        // marker carriers: either way they are separate items the wrapper
+        // lays out, not one run the wrapper merely styles.
+        if ( true === $identified && ($this->hasRetainedSourceElement($html) || $this->isSourceItemSequence($html)) ) {
+            return $wrapped;
         }
 
         return $html;
+    }
+
+    /**
+     * Whether the markup is a sequence of sibling source elements with no
+     * bare text between them (a label span beside an icon span), at least one
+     * of which keeps a source identity (an authored class or a RichText
+     * marker). A wrapper around such a sequence is its layout container.
+     */
+    private function isSourceItemSequence(string $html): bool
+    {
+        if ( ! str_contains($html, '<') ) {
+            return false;
+        }
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if ( ! $body instanceof DOMElement ) {
+            return false;
+        }
+
+        $items = 0;
+        $identified = false;
+        foreach ( $body->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                ++$items;
+                $identified = $identified
+                    || $child->hasAttribute('data-blocks-engine-richtext-marker')
+                    || str_contains($child->getAttribute('style'), '--blocks-engine-richtext-marker:')
+                    || $this->hasAuthoredClass($child->getAttribute('class'));
+                continue;
+            }
+            if ( XML_COMMENT_NODE !== $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+        }
+
+        return $items > 1 && $identified;
+    }
+
+    /** Whether the markup is a source-identified wrapper around a source item sequence. */
+    private function isSourceItemWrapper(string $html): bool
+    {
+        $identified = null;
+        $wrapped = false;
+        while ( preg_match('/^(<span\b[^>]*>)(.*)<\/span>$/is', $html, $matches) === 1 && $this->spanWrapsEntireContent($matches[2]) ) {
+            $identified = (null === $identified || $identified) && $this->hasSourceIdentity($matches[1]);
+            $html = trim($matches[2]);
+            $wrapped = true;
+        }
+
+        return $wrapped && true === $identified && $this->isSourceItemSequence($html);
+    }
+
+    /**
+     * Whether the markup holds an element carrying an authored class: one
+     * that is neither an engine marker nor a generated geometry class.
+     */
+    private function hasSourceIdentity(string $html): bool
+    {
+        if ( preg_match_all('/<[a-z][a-z0-9]*\b[^>]*\bclass\s*=\s*(["\'])(.*?)\1/is', $html, $matches) < 1 ) {
+            return false;
+        }
+        foreach ( $matches[2] as $classes ) {
+            if ( $this->hasAuthoredClass($classes) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether a class list holds a class that is neither an engine marker nor generated geometry. */
+    private function hasAuthoredClass(string $classes): bool
+    {
+        foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
+            if ( '' !== $class && ! str_starts_with($class, 'blocks-engine-') && ! str_starts_with($class, 'be-') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the markup holds a source element kept as authored markup
+     * rather than as a RichText carrier: one carrying an authored class but
+     * no RichText marker, so only author rules as written can reach it.
+     *
+     * @return array<string, true> The authored classes such elements carry.
+     */
+    private function retainedSourceElementClasses(string $html): array
+    {
+        if ( preg_match_all('/<[a-z][a-z0-9]*\b[^>]*>/is', $html, $tags) < 1 ) {
+            return array();
+        }
+        $classes = array();
+        foreach ( $tags[0] as $tag ) {
+            if ( str_contains($tag, 'blocks-engine-richtext-marker') || 1 !== preg_match('/\bclass\s*=\s*(["\'])(.*?)\1/is', $tag, $class) ) {
+                continue;
+            }
+            foreach ( preg_split('/\s+/', trim(html_entity_decode($class[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?: array() as $token ) {
+                if ( '' !== $token && ! str_starts_with($token, 'blocks-engine-') && ! str_starts_with($token, 'be-') ) {
+                    $classes[$token] = true;
+                }
+            }
+        }
+
+        return $classes;
+    }
+
+    private function hasRetainedSourceElement(string $html): bool
+    {
+        return array() !== $this->retainedSourceElementClasses($html);
+    }
+
+    /**
+     * Whether the emitted label keeps any of the anchor's descendants as
+     * authored markup inside the link (an icon beside the label run).
+     */
+    private function rendersSourceDescendants(DOMElement $anchor, string $html): bool
+    {
+        if ( $this->isSourceItemWrapper($html) ) {
+            return true;
+        }
+        $emitted = $this->retainedSourceElementClasses($html);
+        if ( array() === $emitted ) {
+            return false;
+        }
+        foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
+            foreach ( preg_split('/\s+/', trim($descendant->getAttribute('class'))) ?: array() as $class ) {
+                if ( '' !== $class && isset($emitted[$class]) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function semanticMarkerSpansAsMarks(string $html): string
@@ -479,6 +731,10 @@ final class ButtonsPattern
     {
         $resolvedStyle = $buttons->resolvedStyle($element);
         $width = LayoutParticipation::widthPreset($resolvedStyle);
+        if ( null === $width && SourceDom::hasClass($element, 'wp-block-button')
+            && preg_match('/(?:^|\s)wp-block-button__width-(25|50|75|100)(?:\s|$)/', $element->getAttribute('class'), $matches) ) {
+            $width = (int) $matches[1];
+        }
         // Resolve native paint before classifying an outline: a generic reset such
         // as `button { background: none }` can precede a filled button variant.
         // It is also resolved before the presentation attributes so the carrier
@@ -537,7 +793,9 @@ final class ButtonsPattern
 
         if ( $isOutline ) {
             if ( array() !== $native ) {
-                $attrs['className'] = 'is-style-outline';
+                // Consume source chrome classes without discarding the wrapper's
+                // generated geometry (including positioned flex-item offsets).
+                $this->removeSourceControlClasses($attrs, $element);
             }
             $attrs['style']['color']['background'] = 'transparent';
         }
@@ -632,6 +890,14 @@ final class ButtonsPattern
         }
 
         return preg_match('/^(?:transparent|none|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*$/i', trim((string) ($matches[1] ?? ''))) === 1;
+    }
+
+    private function isRichTextAnchorLabel(DOMElement $anchor, ButtonPatternContext $buttons): bool
+    {
+        return $this->sourceElements->isRichTextButtonLabel(
+            $anchor,
+            $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
+        );
     }
 
     private function hasButtonSignal(DOMElement $anchor, ButtonPatternContext $buttons): bool
