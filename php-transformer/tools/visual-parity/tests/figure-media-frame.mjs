@@ -10,7 +10,7 @@ assert.equal((result.serialized_blocks.match(/<figcaption/g) || []).length, 3, '
 const css = result.assets.filter(asset => asset.kind === 'css').map(asset => asset.content ?? '').join('\n');
 const browser = await chromium.launch({ headless: true });
 try {
-  for (const width of [390, 1440]) {
+  for (const width of [390, 768, 1440]) {
     const page = await browser.newPage({ viewport: { width, height: 1000 } });
     await page.route('**/*.jpg', route => {
       const [w, h] = route.request().url().endsWith('wide.jpg') ? [460, 310] : [805, 959];
@@ -30,7 +30,7 @@ try {
     const candidate = await measure(`<!doctype html><head><base href="https://fixture.test/"><style>/* Native core image baseline */.wp-block-image img{max-width:100%;height:auto;vertical-align:bottom}${css}</style></head><body>${result.serialized_blocks}</body>`);
     console.log(JSON.stringify({ width, source, candidate }));
     for (const [index, box] of candidate.entries()) {
-      assert.ok(Math.abs(box.width / box.height - 4 / 3) < 0.002, `image ${index} has a 4:3 frame at ${width}`);
+      assert.ok(Math.abs(box.height - box.width * 3 / 4) < 0.1, `image ${index} height equals width × 3/4 at ${width}`);
       assert.ok(box.captionTop >= box.bottom, 'caption stays below the frame');
       assert.equal(box.caption, source[index].caption);
       assert.equal(box.fit, index === 2 ? 'contain' : 'cover');
