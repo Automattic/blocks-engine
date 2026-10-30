@@ -44,8 +44,8 @@ try {
     assert.deepEqual(urls.map(url => url.split('/').pop()), ['one.svg', 'two.svg', 'two.svg', 'four.svg', 'five.svg']);
     assert.ok(urls.every(url => !url.includes('example.org')));
     if (width === 390) {
-      await root.dispatchEvent('touchstart', { touches: [{ clientX: 300, clientY: 150 }] });
-      await root.dispatchEvent('touchend', { changedTouches: [{ clientX: 80, clientY: 152 }] });
+      await root.dispatchEvent('touchstart', { touches: [{ identifier: 0, clientX: 300, clientY: 150 }] });
+      await root.dispatchEvent('touchend', { changedTouches: [{ identifier: 0, clientX: 80, clientY: 152 }] });
     } else await root.locator('[data-carousel-next]').click();
     await page.waitForFunction(() => document.querySelector('.blocks-engine-authored-carousel__track').children[3].classList.contains('blocks-engine-authored-carousel__slide--active'));
     await waitForSettledSlide();
