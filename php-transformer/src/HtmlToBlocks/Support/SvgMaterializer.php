@@ -34,6 +34,11 @@ final class SvgMaterializer implements SvgElementMaterializer
         private readonly Runtime $runtime
     ) {
     }
+    public function paintsNothing(DOMElement $element): bool
+    {
+        return (new SvgPaintEmptiness($this->styleResolver))->paintsNothing($element);
+    }
+
     /**
      * @return array<string, mixed>|null
      */

@@ -5,6 +5,19 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
 final class TransformationEvidenceState
 {
+    /** @var list<array<string, mixed>> */
+    private array $emptyDecorationDiagnostics = array();
+
+    public function recordEmptyDecoration(array $finding): void
+    {
+        $this->emptyDecorationDiagnostics[] = $finding;
+    }
+
+    public function emptyDecorationDiagnostics(): array
+    {
+        return $this->emptyDecorationDiagnostics;
+    }
+
     /** @var list<string> */
     private array $formControlEchoTexts = array();
 
