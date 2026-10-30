@@ -49,4 +49,6 @@ wp eval 'putenv("SHELL_LANDMARK_FRAMED=1"); require "/engine/tests/integration/s
 SHELL_LANDMARK_FRAMED=1 SHELL_LANDMARK_TEST_URL="$url" node "$root/tests/integration/shell-landmark-box-browser.mjs"
 wp eval 'putenv("SCOPED_DROPDOWN_TEST=1"); require "/engine/tests/integration/navigation-anchor-subject.php";'
 DROPDOWN_TEST_URL="$url" node "$root/tests/integration/scoped-mixed-dropdown-browser.mjs"
+wp eval 'require "/engine/tests/integration/global-styles-readability.php";'
+READABILITY_TEST_URL="$url" node "$root/tests/integration/global-styles-readability-browser.mjs"
 exit "$runtime_status"

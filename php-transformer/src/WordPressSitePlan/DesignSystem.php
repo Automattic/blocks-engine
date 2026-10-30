@@ -226,6 +226,23 @@ final class DesignSystem
         $rootFontPx = (float) rtrim((string) array_key_first($rootPx), 'px');
 
         $root = self::unanimousRoot($usageBySource);
+        // Choose a rendered body run, not the html rem base. Keep the
+        // typography tuple together so size, family and leading agree.
+        $bodyTypography = array();
+        foreach ($usageBySource as $usage) foreach ($usage['text'] ?? array() as $row) {
+            if ('body' !== ($row['role'] ?? null)) continue;
+            $tuple = array('font_size' => CssLength::format((float) $row['font_size_px']), 'font_family' => $row['font_family'] ?? '', 'line_height' => $row['line_height'] ?? 'normal');
+            $key = json_encode($tuple, JSON_THROW_ON_ERROR);
+            $bodyTypography[$key] = ($bodyTypography[$key] ?? 0) + self::documentShare((int) $row['weight'], self::documentMass($usage));
+        }
+        if (array() !== $bodyTypography) {
+            uksort($bodyTypography, static fn(string $a, string $b): int => ($bodyTypography[$b] <=> $bodyTypography[$a]) ?: strcmp($a, $b));
+            $dominant = json_decode((string) array_key_first($bodyTypography), true, 512, JSON_THROW_ON_ERROR);
+            // Route-dependent families remain source-owned. Where a shared
+            // family exists, name the body role from readable text instead.
+            if (!isset($root['font_family']) || '' === $dominant['font_family']) unset($dominant['font_family']);
+            $root = array_replace($root, $dominant);
+        }
         $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root);
         $literalColors = array_keys(array_diff_key($prominence, array_flip(array_column($colors, 'color'))));
         usort($literalColors, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: strcmp($a, $b));
@@ -982,7 +999,7 @@ final class DesignSystem
                     default => array(),
                 };
                 foreach ($elements as $element) {
-                    $observe($element, 'color', $row['color'] ?? null, $row);
+                    $observe($element, 'color', true === ($row['color_authored'] ?? false) ? ($row['color'] ?? null) : null, $row);
                     if ('link' === $element || 'button' === $element) $observe($element, 'hover_color', $row['hover_color'] ?? null, $row);
                     if ('link' === $element) continue;
                     $observe($element, 'font_family', self::familyKey((string) ($row['font_family'] ?? '')) . "\n" . (string) ($row['font_family'] ?? ''), $row);
