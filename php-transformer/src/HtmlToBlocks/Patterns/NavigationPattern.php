@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CoreSelectorScoping;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedMenuDialogFold;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
@@ -358,13 +359,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($navigationSource, 'never' === ($navigationAttrs['overlayMenu'] ?? '') ? $listSource : null, 'default' === ($navigationAttrs['layout']['type'] ?? '') ? ($navigationAttrs['style']['spacing']['blockGap'] ?? null) : null) ?? '');
         $navigationAttrs = $this->withSourceSubmenuIndicator($navigationAttrs, $element, $navigationContext);
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $navigationSource);
-        // WordPress copies the emitted block's classes onto its inner list. Key
-        // the container reset on the source's own classes; a class-less source
-        // is reached only through the engine's markers, which join the className
-        // as the block is created, so fall back to the created block's classes.
+        // WordPress copies the emitted block's classes onto its inner list.
         $navigationContext?->recordNavigationContainerReset(
             $navigationSource,
-            array() !== $authorClasses ? $authorClasses : $this->carriedClassNames((string) ($navigation['attrs']['className'] ?? '')),
+            $this->containerResetClasses($authorClasses, $navigation),
             $listSource
         );
         $this->recordNavigationSources($links, $directAnchors, $listItems, $navigationSource, $navigationContext);
@@ -870,7 +868,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $clusterClasses = $this->authorClassNames((string) ($navigationAttrs['className'] ?? ''));
         $navigationContext?->recordNavigationContainerReset(
             $cluster,
-            array() !== $clusterClasses ? $clusterClasses : $this->carriedClassNames((string) ($navigation['attrs']['className'] ?? '')),
+            $this->containerResetClasses($clusterClasses, $navigation),
             $listSource
         );
 
@@ -3162,6 +3160,29 @@ final class NavigationPattern implements PatternRecognizerInterface
             $this->carriedClassNames($className),
             static fn (string $candidate): bool => ! str_starts_with($candidate, 'blocks-engine-')
         ));
+    }
+
+    /**
+     * Classes that key the inner container reset for a created navigation.
+     *
+     * The source's own classes when they identify the imported navigation. A
+     * class-less source, or one carrying only core-shaped classes (a
+     * WordPress-sourced `wp-block-navigation has-*-color` nav), is reached
+     * through the engine's markers, which join the className as the block is
+     * created; a reset keyed on core classes alone would also reach navigation
+     * blocks an owner adds after import.
+     *
+     * @param array<int, string>   $sourceClasses
+     * @param array<string, mixed> $navigation The created core/navigation block.
+     * @return array<int, string>
+     */
+    private function containerResetClasses(array $sourceClasses, array $navigation): array
+    {
+        if ( array() !== $sourceClasses && ( new CoreSelectorScoping() )->selectorIsScoped(CssIdent::compoundClassSelector($sourceClasses)) ) {
+            return $sourceClasses;
+        }
+
+        return $this->carriedClassNames((string) ($navigation['attrs']['className'] ?? ''));
     }
 
     /**

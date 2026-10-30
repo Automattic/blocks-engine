@@ -4379,7 +4379,15 @@ final class StyleResolver implements ElementPresentationResolver
 
         $classes = SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'));
 
-        return array() === $classes ? '' : CssIdent::compoundClassSelector($classes);
+        $selector = array() === $classes ? '' : CssIdent::compoundClassSelector($classes);
+        if ( '' !== $selector && ! (new CoreSelectorScoping())->selectorIsScoped($selector) ) {
+            // Authored core-shaped classes are not an imported-element scope.
+            // Reuse the semantic carrier emitted by source attribute projection
+            // so repairs cannot reveal blocks an owner adds after import.
+            return '.' . $this->context->authorSelectorProjectionState()->ensureSemanticMarker($element->getNodePath() ?? '');
+        }
+
+        return $selector;
     }
 
     /**
