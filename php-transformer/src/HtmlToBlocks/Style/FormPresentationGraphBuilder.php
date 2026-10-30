@@ -5,7 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
@@ -99,10 +99,13 @@ final class FormPresentationGraphBuilder
     /** Memoized rule sets for {@see typographyStyles()}, analyzed once per transform. */
     private ?array $typographyAnalysis = null;
     private ?array $visibilityAnalysis = null;
+    /** Selector match memo for one source document; a cache-owning caller shares it across the passes of one compile. */
+    private readonly CssSelectorMatchCache $matchCache;
 
-    /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker @param list<DOMElement> $scopeElements */
-    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null, private readonly array $scopeElements = array())
+    /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker @param list<DOMElement> $scopeElements @param CssSelectorMatchCache|null $selectorMatchCache A cache the caller owns and shares across one compile's passes; by default this builder owns one. */
+    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null, private readonly array $scopeElements = array(), ?CssSelectorMatchCache $selectorMatchCache = null)
     {
+        $this->matchCache = $selectorMatchCache ?? new CssSelectorMatchCache();
     }
 
     /** Source form box presentation is distinct from its control layout graph. */
@@ -110,7 +113,7 @@ final class FormPresentationGraphBuilder
     {
         $this->truncated = false;
         $this->unrepresentable = array();
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, self::cascadeFilter(array($form)), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $this->cascadeFilter(array($form)), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         if ($analysis['truncated']) return array();
         $matched = $this->matched($form, $analysis['rules']);
         $styles = $this->styles($matched['base'], $form, null, array());
@@ -270,7 +273,7 @@ final class FormPresentationGraphBuilder
     public function hiddenState(DOMElement $element, DOMElement $boundary, array $stylesheets, string $inlineCss = ''): ?array
     {
         if ( null === $this->visibilityAnalysis ) {
-            $filter = array() === $this->scopeElements ? null : self::cascadeFilter($this->scopeElements);
+            $filter = array() === $this->scopeElements ? null : $this->cascadeFilter($this->scopeElements);
             $this->visibilityAnalysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array( 'display', 'visibility' ), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         }
         if ( $this->visibilityAnalysis['truncated'] ) {
@@ -350,7 +353,7 @@ final class FormPresentationGraphBuilder
         $base = array();
         $conditional = array();
         foreach ( $rules as $rule ) {
-            $match = ! empty($rule['inline']) ? array( 'supported' => true, 'matches' => true ) : CssSelectorMatcher::matches($element, $rule['parsed_selector']);
+            $match = ! empty($rule['inline']) ? array( 'supported' => true, 'matches' => true ) : $this->matchCache->matches($element, $rule['selector'], $rule['parsed_selector']);
             if ( ! $match['supported'] || ! $match['matches'] ) {
                 continue;
             }
@@ -459,7 +462,7 @@ final class FormPresentationGraphBuilder
     /** @param list<array<string, mixed>> $stylesheets @return array{truncated: bool, rules: list<array<string, mixed>>, customProperties: list<array<string, mixed>>} */
     private function typographyAnalysis(array $stylesheets, string $inlineCss): array
     {
-        $filter = array() === $this->scopeElements ? null : self::cascadeFilter($this->scopeElements);
+        $filter = array() === $this->scopeElements ? null : $this->cascadeFilter($this->scopeElements);
         $properties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         $customProperties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array('--*'), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         return array(
@@ -469,15 +472,30 @@ final class FormPresentationGraphBuilder
         );
     }
 
-    /** @param list<DOMElement> $elements */
-    private static function cascadeFilter(array $elements): Closure
+    /**
+     * The retention filter shared by every pass: a selector is kept when it
+     * matches a scope element or one of its ancestors — or when the matcher
+     * cannot read it, so the rule survives to report its diagnostic exactly as
+     * before. Custom-property passes keep only matchable selectors, matching
+     * their previous inline filters. The visited chain is resolved once and its
+     * wrappers retained, so every pass answers the same (element, selector)
+     * questions from {@see $matchCache} instead of re-matching them.
+     *
+     * @param list<DOMElement> $elements
+     */
+    private function cascadeFilter(array $elements, bool $retainUnsupported = true): Closure
     {
-        return static function (array $selector) use ($elements): bool {
-            foreach ($elements as $element) {
-                for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null) {
-                    $match = CssSelectorMatcher::matches($ancestor, $selector);
-                    if (!$match['supported'] || $match['matches']) return true;
-                }
+        $cache = $this->matchCache;
+        $visits = array();
+        foreach ($elements as $element) {
+            for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null) {
+                $visits[] = $ancestor;
+            }
+        }
+        return static function (array $selector, string $selectorText) use ($visits, $cache, $retainUnsupported): bool {
+            foreach ($visits as $ancestor) {
+                $match = $cache->matches($ancestor, $selectorText, $selector);
+                if ($match['matches'] || ($retainUnsupported && ! $match['supported'])) return true;
             }
             return false;
         };
@@ -491,7 +509,7 @@ final class FormPresentationGraphBuilder
         $this->unrepresentable = array();
         $groupCaptions = $this->captionElements($form);
         $controlsForCustomProperties = array_merge($this->presentationElements($form), $groupCaptions['elements']);
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, self::cascadeFilter($controlsForCustomProperties), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $this->cascadeFilter($controlsForCustomProperties), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
@@ -500,14 +518,7 @@ final class FormPresentationGraphBuilder
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,
-            function (array $selector) use ($controlsForCustomProperties): bool {
-                foreach ( $controlsForCustomProperties as $control ) {
-                    for ( $ancestor = $control; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
-                        if ( CssSelectorMatcher::matches($ancestor, $selector)['matches'] ) return true;
-                    }
-                }
-                return false;
-            }
+            $this->cascadeFilter($controlsForCustomProperties, retainUnsupported: false)
         );
         $this->diagnostics = $analysis['diagnostics'];
         $this->truncated = $analysis['truncated'];
@@ -1267,7 +1278,7 @@ final class FormPresentationGraphBuilder
         }
         $base = array(); $conditional = array(); $matched = 0;
         foreach ( $rules as $rule ) {
-            $match = ! empty($rule['inline']) ? array( 'supported' => true, 'matches' => true ) : CssSelectorMatcher::matches($element, $rule['parsed_selector']);
+            $match = ! empty($rule['inline']) ? array( 'supported' => true, 'matches' => true ) : $this->matchCache->matches($element, $rule['selector'], $rule['parsed_selector']);
             if ( ! $match['supported'] ) { $this->diagnostics[] = 'unsupported_selector:' . $rule['selector']; continue; }
             if ( ! $match['matches'] ) continue;
             if ( $matched++ >= self::MAX_RULES_PER_ROLE ) { $this->truncated = true; $this->diagnostics[] = 'rules_per_role_limit'; break; }
