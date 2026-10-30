@@ -10057,6 +10057,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $height = $this->cssPixelValue($fixedSize['height']);
             }
         }
+        if ( array() !== $this->styleResolver->flattenedImageFrameBox($image, $figure) ) {
+            // The folded frame derives height from its ratio. The source's
+            // percentage height referred to the wrapper we no longer emit.
+            $height = '';
+        }
         if ( '' !== $width || '' !== $height ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-resized');
         }

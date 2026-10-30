@@ -2160,10 +2160,12 @@ final class StyleResolver implements ElementPresentationResolver
      * For a filling image the same box can live on the replaced element. Its
      * padding/background form the frame and object-fit paints in the content
      * box (including the centering of a flex frame), without changing save HTML.
+     * Native image emission also uses this result to leave height to the frame:
+     * the source percentage refers to the removed wrapper, not the figure.
      *
      * @return array<string, string>
      */
-    private function flattenedImageFrameBox(DOMElement $image, ?DOMElement $figure): array
+    public function flattenedImageFrameBox(DOMElement $image, ?DOMElement $figure): array
     {
         $frame = $image->parentNode;
         if (! $figure instanceof DOMElement || ! $frame instanceof DOMElement || $frame === $figure
