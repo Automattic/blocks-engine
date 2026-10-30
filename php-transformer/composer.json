@@ -847,6 +847,7 @@
       "php tests/unit/svg-inherited-color-reset.php",
       "php tests/unit/svg-inherited-icon-paint.php",
       "php tests/unit/linked-inline-svg-geometry.php",
+      "php tests/unit/classed-wrapper-linked-svg.php",
       "php tests/unit/svg-current-color-reference-cascade.php",
       "php tests/unit/materialized-svg-custom-property-carry.php",
       "php tests/unit/inset-positioned-parent-fill-svg.php",

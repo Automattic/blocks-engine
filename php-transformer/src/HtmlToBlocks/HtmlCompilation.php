@@ -3549,7 +3549,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             new LogoPatternContext(
                 $this->richTextMaterializer,
-                fn (DOMElement $sourceElement): array => $this->styleResolver->structuralPresentationDeclarations($sourceElement)
+                fn (DOMElement $sourceElement): array => $this->styleResolver->structuralPresentationDeclarations($sourceElement),
+                function (DOMElement $element, array &$fallbacks): void { $this->captureInlineSvgFallback($element, $fallbacks); }
             ),
             new GalleryPatternContext(
                 fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
