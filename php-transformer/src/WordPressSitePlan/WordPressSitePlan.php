@@ -3041,9 +3041,10 @@ PHP;
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
             $structuredTypes[$index] = self::structuredPageTypes($document);
             $localTimesByIndex[$index] = array();
-            // Repeated article metadata on pagination is not an independent
+            // Repeated article metadata on pagination, and the listed entries'
+            // dates on a category or tag archive, are not an independent
             // publication and must not vote in listing or dated-site inference.
-            $evidenceByIndex[$index] = null === self::paginationParentRoute($routes[$index]) ? $this->publicationEvidence($document, $localTimesByIndex[$index]) : array();
+            $evidenceByIndex[$index] = null === self::paginationParentRoute($routes[$index]) && !TaxonomyProjection::isTermRoute($routes[$index]) ? $this->publicationEvidence($document, $localTimesByIndex[$index]) : array();
             $pageTypes = array_intersect(array('WebPage', 'AboutPage', 'ContactPage', 'CollectionPage'), $structuredTypes[$index]);
             if (!array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $structuredTypes[$index]) && $pageTypes) {
                 $evidenceByIndex[$index] = array();
