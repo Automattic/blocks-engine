@@ -246,10 +246,19 @@ final class TableAttributesBuilder
                     $sourceMarkupMutated = true;
                 }
             }
-            $cells[] = array(
+            $entry = array(
                 'content' => $this->innerHtml($cell),
                 'tag'     => strtolower($cell->tagName),
             );
+            // core/table cells carry their own spans, so merged and ragged
+            // rows stay one editable table.
+            foreach ( array( 'colspan', 'rowspan' ) as $span ) {
+                $value = trim($this->attr($cell, $span));
+                if ( 1 === preg_match('/^[1-9][0-9]*$/', $value) && '1' !== $value ) {
+                    $entry[$span] = $value;
+                }
+            }
+            $cells[] = $entry;
         }
         if ( $sourceMarkupMutated ) {
             $this->onSourceMarkupMutated();
