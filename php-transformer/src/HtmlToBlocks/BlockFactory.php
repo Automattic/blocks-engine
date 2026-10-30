@@ -772,7 +772,9 @@ final class BlockFactory
                 $html .= '<tr>';
                 foreach ( $row['cells'] ?? array() as $cell ) {
                     $cellTag = 'th' === ($cell['tag'] ?? '') ? 'th' : 'td';
-                    $html .= '<' . $cellTag . '>' . $this->preserveRichTextPunctuation((string) ($cell['content'] ?? '')) . '</' . $cellTag . '>';
+                    // core/table saves spans after its other cell attributes.
+                    $spans = $this->htmlAttrs(array( 'colspan' => (string) ($cell['colspan'] ?? ''), 'rowspan' => (string) ($cell['rowspan'] ?? '') ));
+                    $html .= '<' . $cellTag . $spans . '>' . $this->preserveRichTextPunctuation((string) ($cell['content'] ?? '')) . '</' . $cellTag . '>';
                 }
                 $html .= '</tr>';
             }

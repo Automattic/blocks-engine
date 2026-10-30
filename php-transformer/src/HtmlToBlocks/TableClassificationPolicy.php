@@ -11,7 +11,6 @@ final class TableClassificationPolicy
     public const PARAMETER = 'parameter';
     public const LAYOUT_SIMPLE = 'layout_simple';
     public const COMPLEX_NESTED = 'complex_nested';
-    public const COMPLEX_SPANNING = 'complex_spanning';
 
     /**
      * @return array{classification: string, representable: bool, signals: array<string, mixed>}
@@ -30,14 +29,6 @@ final class TableClassificationPolicy
         if ( true === $signals['has_descendant_table'] ) {
             return array(
                 'classification' => self::COMPLEX_NESTED,
-                'representable'  => false,
-                'signals'        => $signals,
-            );
-        }
-
-        if ( true === $signals['has_colspan'] || true === $signals['has_rowspan'] || false === $signals['rectangular'] ) {
-            return array(
-                'classification' => self::COMPLEX_SPANNING,
                 'representable'  => false,
                 'signals'        => $signals,
             );

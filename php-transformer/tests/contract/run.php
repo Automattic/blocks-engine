@@ -773,7 +773,7 @@ $assert(TableClassificationPolicy::COMPLEX_NESTED === ($nestedTableClassificatio
 $assert(false === ($nestedTableClassification['representable'] ?? null), 'table classifier marks descendant tables not representable as native tables');
 $assert(array(1) === ($nestedTableClassification['signals']['column_counts'] ?? null), 'table classifier scopes row signals to the current table before nested fallback');
 $spanningTableClassification = $tablePolicy->classify($tableElement('<table><tr><td colspan="2">Merged</td></tr><tr><td>A</td><td>B</td></tr></table>'));
-$assert(TableClassificationPolicy::COMPLEX_SPANNING === ($spanningTableClassification['classification'] ?? null), 'table classifier identifies colspan tables as complex spanning');
+$assert(true === ($spanningTableClassification['representable'] ?? null), 'table classifier marks colspan tables representable as native tables');
 $assert(true === ($spanningTableClassification['signals']['has_colspan'] ?? null), 'table classifier exposes colspan signal');
 
 $simpleDataTableResult = ( new HtmlTransformer() )->transform('<table><thead><tr><th>Name</th><th>Role</th></tr></thead><tbody><tr><td>Ada</td><td>Engineer</td></tr></tbody></table>')->toArray();
@@ -848,7 +848,6 @@ $assert($tablePolicy->isMetadataLayoutTable($tableElement($metadataTableSource))
 $assert(! str_contains($metadataTableMarkup, '<!-- wp:html') && ! str_contains($metadataTableMarkup, '<!-- wp:table') && str_contains($metadataTableMarkup, 'report.pdf'), 'a caption table lowers to native blocks instead of preserved table HTML');
 $assert(1 === preg_match('/\.([a-z0-9-]*be-inline-geometry-[a-f0-9]+)\{[^}]*display:none[^}]*\}/i', $metadataTableCss), 'metadata rows the source hid stay hidden after lowering');
 $assert('pass' === ($metadataTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'a lowered caption table stays editor-valid');
-$assert('core/html' === (( new HtmlTransformer() )->transform('<table><tr><td colspan="2">Merged</td></tr><tr><td>A</td><td>B</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'a spanning cell beside visible data cells still falls back');
 // A page header laid out as a table: every row is one cell that spans the
 // declared grid, so no cell ever shares a row with another. The colspan is the
 // only thing that made it a "spanning" table; the cell count per row is one.
@@ -861,13 +860,6 @@ $assert(! str_contains($stackedHeaderTableMarkup, '<!-- wp:html') && ! str_conta
 $assert('pass' === ($stackedHeaderTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'a lowered stacked header table stays editor-valid');
 $assert(! $tablePolicy->isMetadataLayoutTable($tableElement('<table><tr><td>One</td></tr><tr><td>Two</td></tr></table>')), 'a one-column table without colspan is left to data-table classification');
 $assert('core/table' === (( new HtmlTransformer() )->transform('<table><tr><td>One</td></tr><tr><td>Two</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'a one-column table without colspan still becomes core/table');
-$assert('core/html' === (( new HtmlTransformer() )->transform('<table><tr><td colspan="3">One</td></tr><tr><td colspan="2">Two</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'single cells with unequal colspans are still a spanning table');
-$assert('core/html' === (( new HtmlTransformer() )->transform('<table><tr><th colspan="2">Head</th></tr><tr><td colspan="2">Body</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'a header cell keeps a stacked colspan table as data');
-
-$colspanTableResult = ( new HtmlTransformer() )->transform('<table><tr><td colspan="2">Merged</td></tr><tr><td>A</td><td>B</td></tr></table>')->toArray();
-$assert('core/html' === ($colspanTableResult['blocks'][0]['blockName'] ?? null), 'colspan table falls back to core/html');
-$rowspanTableResult = ( new HtmlTransformer() )->transform('<table><tr><td rowspan="2">Merged</td><td>A</td></tr><tr><td>B</td></tr></table>')->toArray();
-$assert('core/html' === ($rowspanTableResult['blocks'][0]['blockName'] ?? null), 'rowspan table falls back to core/html');
 
 $metadataDefinitionList = ( new HtmlTransformer() )->transform(
     '<style>.facts{display:grid;grid-template-columns:8rem 1fr;gap:8px 18px}</style><dl class="facts"><dt>Office</dt><dd>North Hall</dd><dt>Hours</dt><dd>Weekdays</dd></dl>'
