@@ -341,7 +341,7 @@ $styledShellCss = implode("\n", array_map(static fn(array $asset): string => 'cs
 $assert(array() !== $styledShellClasses && array() === array_filter(array_unique($styledShellClasses), static fn(string $class): bool => !str_contains($styledShellCss, '.' . $class)), 'Shared-shell selector projections are materialized for the native classes emitted inside extracted template parts.');
 $sourceDivergentResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $sourceResponsiveHtml('Home'), 'about.html' => str_replace('Mobile header', 'Different mobile header', $sourceResponsiveHtml('About')))))->toArray();
 $sourceDivergentArtifacts = $sourceDivergentResult['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array();
-$assert(!array_filter($sourceDivergentArtifacts, static fn(array $artifact): bool => 'header' === ($artifact['area'] ?? null)) && 2 === count(array_filter($sourceDivergentArtifacts, static fn(array $artifact): bool => 'footer' === ($artifact['area'] ?? null))), 'A divergent source variant rejects the complete area bundle while an independently shared area remains canonical.');
+$assert(1 === count(array_filter($sourceDivergentArtifacts, static fn(array $artifact): bool => 'header' === ($artifact['area'] ?? null))) && 2 === count(array_filter($sourceDivergentArtifacts, static fn(array $artifact): bool => 'footer' === ($artifact['area'] ?? null))), 'A divergent source variant remains unshared without rejecting the other shared area/variant groups.');
 
 $unicodeResponsiveHtml = static function (string $title, string $current): string {
     $link = static function (string $name, string $label, string $current): string {

@@ -604,6 +604,7 @@
       "php tests/unit/editor-anchor-projection-coverage.php",
       "php tests/unit/editor-list-view-container-names.php",
       "php tests/unit/navigation-collapsed-item-band.php",
+      "php tests/unit/page-only-stylesheet-keeps-shared-header.php",
       "php tests/unit/navigation-underline-color-resolver.php",
       "php tests/unit/navigation-brand-anchor-hoist.php",
       "php tests/unit/navigation-cluster-trailing-control.php",

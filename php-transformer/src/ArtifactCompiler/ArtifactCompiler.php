@@ -3694,6 +3694,16 @@ final class ArtifactCompiler
                 }
             };
             $walk($body);
+            foreach ($rows as &$areaRows) foreach ($areaRows as &$row) {
+                $row['source_identity'] = 'markup:' . hash('sha256', $row['identity']);
+                foreach ($file['metadata']['compilation']['html_include_sources'] ?? array() as $path => $fragment) {
+                    if (self::normalizeSourceShellIdentity($fragment) === $row['identity']) {
+                        $row['source_identity'] = 'include:' . $path . ':' . hash('sha256', $row['identity']);
+                        break;
+                    }
+                }
+            }
+            unset($areaRows, $row);
             $documents[(string) $file['path']] = array('content' => (string) $file['content'], 'rows' => $rows);
         }
         if (count($documents) < 2) return array('artifacts' => array(), 'assets' => array(), 'author_stylesheet_projections' => array(), 'runtime_script_projections' => array());
@@ -3703,33 +3713,39 @@ final class ArtifactCompiler
         $authorStylesheetProjections = array();
         $runtimeScriptProjections = array();
         foreach (array('header', 'footer') as $area) {
-            $variantCount = null; $canonicalMarkups = array();
-            $sourcePath = isset($documents[$entryPath]) ? $entryPath : (string) array_key_first($documents);
-            foreach ($documents as $document) {
-                $count = count($document['rows'][$area]);
-                if (0 === $count || (null !== $variantCount && $variantCount !== $count)) { $variantCount = null; break; }
-                $variantCount = $count;
+            $groups = array();
+            foreach ($documents as $path => $document) {
+                foreach ($document['rows'][$area] as $variant => $row) {
+                    $groups[$variant][$row['source_identity']][$path] = $document;
+                }
             }
-            if (null === $variantCount) continue;
-            for ($variant = 0; $variant < $variantCount; ++$variant) {
-                $identities = self::normalizeSourceShellRootClasses(array_map(static fn(array $document): string => $document['rows'][$area][$variant]['identity'], $documents));
-                if (1 !== count(array_unique($identities))) continue 2;
-                $canonicalMarkups[$variant] = $identities[$sourcePath];
-            }
-            $head = preg_match('/<head\b[^>]*>(.*?)<\/head>/is', $documents[$sourcePath]['content'], $headMatch) ? $headMatch[1] : '';
-            foreach ($documents[$sourcePath]['rows'][$area] as $variant => $row) {
-                $synthetic = '<!doctype html><html><head>' . $head . '</head><body>' . $canonicalMarkups[$variant] . '</body></html>';
+            foreach ($groups as $variant => $variantGroups) foreach ($variantGroups as $sourceIdentity => $members) {
+                if (count($members) < 2) continue;
+                $sourcePath = isset($members[$entryPath]) ? $entryPath : (string) array_key_first($members);
+                $canonicalMarkup = $members[$sourcePath]['rows'][$area][$variant]['identity'];
+                $head = preg_match('/<head\b[^>]*>(.*?)<\/head>/is', $members[$sourcePath]['content'], $headMatch) ? $headMatch[1] : '';
+                // A route-only stylesheet must not seed the shared part, even
+                // when that route is the entrypoint. Only style sources common
+                // to this source group shape the shell; carried CSS stays local.
+                $head = preg_replace_callback('/<(?:link\b[^>]*|style\b[^>]*>.*?<\/style)\s*>/is', static function (array $match) use ($members): string {
+                    foreach ($members as $document) {
+                        if (!str_contains($document['content'], $match[0])) return '';
+                    }
+                    return $match[0];
+                }, $head) ?? $head;
+                $synthetic = '<!doctype html><html><head>' . $head . '</head><body>' . $canonicalMarkup . '</body></html>';
                 $compiled = $this->compileHtmlDocumentBlocks($synthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true);
                 $shell = current(array_filter($compiled['shell_artifacts'], static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
-                if (!is_array($shell)) { $artifacts = array(); $assets = array(); break 2; }
-                $slug = 1 === $variantCount ? $area : $area . '-' . ($variant + 1);
+                if (!is_array($shell)) continue;
+                $slug = 1 === count($groups) ? $area : $area . '-' . ($variant + 1);
+                if (count($variantGroups) > 1) $slug .= '-' . substr(hash('sha256', $sourceIdentity), 0, 12);
                 $artifacts[] = array_merge($shell, array(
                     'slug' => $slug,
                     'source_path' => $sourcePath . '#' . $slug,
-                    'source_paths' => array_keys($documents),
-                    'source_hash' => hash('sha256', $canonicalMarkups[$variant]),
+                    'source_paths' => array_keys($members),
+                    'source_hash' => hash('sha256', $canonicalMarkup),
                     'variant' => $variant + 1,
-                    'placement' => array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => array_keys($documents), 'variant' => $variant + 1),
+                    'placement' => array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => array_keys($members), 'variant' => $variant + 1, 'equal_source_identity' => true),
                 ));
                 foreach ($compiled['assets'] as $asset) {
                     if (!is_array($asset)) continue;
@@ -3791,25 +3807,6 @@ final class ArtifactCompiler
         $loaded = $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
         libxml_clear_errors(); libxml_use_internal_errors($previous);
         return $loaded;
-    }
-
-    /** @param array<int,string> $markups @return array<int,string> */
-    private static function normalizeSourceShellRootClasses(array $markups): array
-    {
-        $classSets = array();
-        foreach ($markups as $markup) {
-            preg_match('/^<[^>]+\sclass="([^"]*)"/i', $markup, $match);
-            $classSets[] = array_values(array_filter(preg_split('/\s+/', trim($match[1] ?? '')) ?: array()));
-        }
-        if (count($markups) < 3 && 1 !== count(array_unique(array_map(static fn(array $classes): string => implode("\0", $classes), $classSets)))) return $markups;
-        $counts = array(); $order = array();
-        foreach ($classSets as $classes) foreach (array_unique($classes) as $class) {
-            if (!isset($counts[$class])) $order[] = $class;
-            $counts[$class] = ($counts[$class] ?? 0) + 1;
-        }
-        $threshold = intdiv(count($markups), 2) + 1;
-        $consensus = array_values(array_filter($order, static fn(string $class): bool => ($counts[$class] ?? 0) >= $threshold));
-        return array_map(static fn(string $markup): string => preg_replace('/^(<[^>]+\sclass=")[^"]*(")/i', '$1' . implode(' ', $consensus) . '$2', $markup, 1) ?? $markup, $markups);
     }
 
     /**
