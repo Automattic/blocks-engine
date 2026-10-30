@@ -3,8 +3,12 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || '../tools/vis
 const base = process.env.BE_EDITOR_WP_URL, id = process.env.BE_EDITOR_POST_ID;
 const browser = await chromium.launch();
 const page = await browser.newPage();
+const errors = [];
+page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+page.on('pageerror', error => errors.push(String(error)));
 try {
- await page.goto(`${base}/?page_id=${id}`);
+ await page.goto(`${base}/?page_id=${id}`, { waitUntil: 'networkidle' });
+ assert.deepEqual(errors, [], 'front-end console errors');
  const records = () => page.locator('article').evaluateAll(nodes => nodes.filter(n => !n.hidden && getComputedStyle(n).display !== 'none').map(n => Number(n.textContent.match(/Record (\d+)/)[1])));
  const all = Array.from({length:16}, (_, i) => i);
  assert.deepEqual(await records(), all);
