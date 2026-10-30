@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
@@ -2917,8 +2918,8 @@ final class ShellExtraction
                 if (array() === $classes) unset($attrs['className']); else $attrs['className'] = implode(' ', $classes);
             }
             self::ksortRecursive($attrs);
-            $encoded = json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            return is_string($encoded) ? '<!-- wp:' . $parts[1] . ' ' . $encoded . ' ' . $parts[3] . '-->' : $match[0];
+            $encoded = BlockAttributes::encode($attrs);
+            return '' !== $encoded ? '<!-- wp:' . $parts[1] . ' ' . $encoded . ' ' . $parts[3] . '-->' : $match[0];
         }, $markup) ?? $markup;
     }
 
@@ -2936,9 +2937,9 @@ final class ShellExtraction
             if (!is_array($attrs) || !isset($attrs['style'])) return $match[0];
             unset($attrs['style']);
             self::ksortRecursive($attrs);
-            $encoded = json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $encoded = BlockAttributes::encode($attrs);
             $html = preg_replace('/\sstyle="[^"]*"/', '', $match[2]) ?? $match[2];
-            return is_string($encoded) ? '<!-- wp:group ' . $encoded . ' -->' . $html . '<!-- /wp:group -->' : $match[0];
+            return '' !== $encoded ? '<!-- wp:group ' . $encoded . ' -->' . $html . '<!-- /wp:group -->' : $match[0];
         }, $markup) ?? $markup;
     }
 
@@ -3031,7 +3032,7 @@ final class ShellExtraction
                 $stateCarriers = $semanticIdentity ? array() : array_values(array_filter($classes, static fn(string $class): bool => 1 === preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class)));
                 $merged = array_values(array_filter(array_merge($peerClasses, $stable, $stateCarriers), static fn(string $class): bool => '' !== $class));
                 if (array() === $merged) unset($attrs['className']); else $attrs['className'] = implode(' ', $merged);
-                return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
+                return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
             }
             if (!$current && !$semanticIdentity) return $match[0];
             $isLink = 'navigation' !== $match[1];
@@ -3067,7 +3068,7 @@ final class ShellExtraction
             // split by which page happens to be current.
             if ($current || ($semanticIdentity && $isLink && false === $peer)) unset($attrs['color'], $attrs['style'], $attrs['typography']);
             if ($current || ($semanticIdentity && $isLink)) unset($attrs['anchor'], $attrs['anchorClassName']);
-            return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
+            return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
         }, $markup) ?? $markup;
         // A menu authored as plain links (list items, rich text) marks the
         // served route with aria-current="page" in saved content. One shared
@@ -3225,7 +3226,7 @@ final class ShellExtraction
     /** @param array<string,mixed> $attrs */
     private static function navigationBlockOpening(string $name, array $attrs, bool $selfClosing): string
     {
-        return '<!-- wp:' . $name . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . ($selfClosing ? '/' : '') . '-->';
+        return '<!-- wp:' . $name . ' ' . BlockAttributes::encode($attrs) . ' ' . ($selfClosing ? '/' : '') . '-->';
     }
 
     private static function withoutMenuSelectionState(string $markup, bool $resting = false): string

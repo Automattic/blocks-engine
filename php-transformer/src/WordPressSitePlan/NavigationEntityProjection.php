@@ -152,7 +152,7 @@ final class NavigationEntityProjection
                 foreach ($value as &$child) if (is_array($child)) $normalize($child);
             };
             $normalize($attrs);
-            return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . ' ' . ($match[3] ?? '') . '-->';
+            return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR) . ' ' . ($match[3] ?? '') . '-->';
         }, $markup);
         return hash('sha256', $canonical ?? $markup);
     }

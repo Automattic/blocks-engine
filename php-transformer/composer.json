@@ -181,6 +181,7 @@
       "php tests/contract/framed-body-landmark-shared-part.php",
       "php tests/contract/shared-shell-route-state.php",
       "php tests/contract/route-state-document-recognition.php",
+      "php tests/contract/block-comment-attribute-escaping.php",
       "php tests/contract/shared-header-control-routes.php",
       "php tests/contract/route-edge-shared-shell.php",
       "php tests/contract/route-edge-inward-chrome.php",
