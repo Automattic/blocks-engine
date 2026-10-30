@@ -3723,7 +3723,7 @@ PHP;
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || self::shellPartAppliesToOverride($part, $templateSlug)
                  || ('archive' === $templateSlug && 'header' === $part['area'] && in_array('index', $part['placement']['template_slugs'] ?? array(), true) && !in_array($part['slug'], $frames['archive']['shells'] ?? array(), true))) {
                  if (is_array($part['placement']['container'] ?? null)) $container = $part['placement']['container'];
-                 $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '"} /-->' . "\n";
+                 $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '","className":"blocks-engine-shell-transport"} /-->' . "\n";
                  $wrapper = $part['placement']['template_wrappers'][$templateSlug] ?? null;
                  if (is_array($wrapper) && is_string($wrapper['opening'] ?? null) && is_string($wrapper['closing'] ?? null)) $reference = $wrapper['opening'] . "\n" . $reference . $wrapper['closing'] . "\n";
                  if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
@@ -3788,7 +3788,7 @@ PHP;
              $before = ''; $after = '';
               foreach ($bound as $part) {
                   if (!in_array('archive', $part['placement']['template_slugs'] ?? array(), true) || str_contains($content, '"slug":"' . $part['slug'] . '"')) continue;
-                 $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '"} /-->' . "\n";
+                 $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '","className":"blocks-engine-shell-transport"} /-->' . "\n";
                  $wrapper = $part['placement']['template_wrappers']['archive'] ?? null;
                  if (is_array($wrapper) && is_string($wrapper['opening'] ?? null) && is_string($wrapper['closing'] ?? null)) $reference = $wrapper['opening'] . "\n" . $reference . $wrapper['closing'] . "\n";
                   if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
@@ -3797,7 +3797,7 @@ PHP;
               foreach ($bound as $part) if (in_array('archive', $part['placement']['template_slugs'] ?? array(), true)) $nestedShellMarkup .= (string) $part['canonical_block_markup'];
               foreach ($parts as $part) {
                   if ('inline_shared_shell' !== ($part['placement']['kind'] ?? null) || !in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true) || str_contains($content . $nestedShellMarkup, '"slug":"' . $part['slug'] . '"')) continue;
-                  $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '"} /-->' . "\n";
+                  $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '","className":"blocks-engine-shell-transport"} /-->' . "\n";
                   if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
               }
              $content = $before . $content . "\n" . $after;
@@ -5263,16 +5263,11 @@ PHP;
             $lines[] = "    }";
             $lines[] = "} );";
         }
-        // A generated header or footer part carries its own landmark box.
-        // Core's template-part wrapper is transport only, so the frontend
-        // renders the landmark at its authored document position.
-        $shellSlugs = array_values(array_map(static fn(array $part): string => (string) $part['slug'], array_filter($parts, static fn(array $part): bool => in_array($part['area'] ?? null, array('header', 'footer'), true) && in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell', 'inline_shared_shell'), true))));
-        if (array() !== $shellSlugs) {
-            $lines[] = "add_filter( 'render_block_core/template-part', static function ( string \$content, array \$block ): string {";
-            $lines[] = '    $slugs = ' . var_export($shellSlugs, true) . ';';
-            $lines[] = "    if ( ! in_array( (string) ( \$block['attrs']['slug'] ?? '' ), \$slugs, true ) || ! preg_match( '/^<([a-z][a-z0-9-]*)\\b[^>]*>(.*)<\\/\\1>$/s', \$content, \$match ) ) return \$content;";
-            $lines[] = "    return \$match[2];";
-            $lines[] = "}, 10, 2 );";
+        // Keep the source landmark intact. The marked Core transport contributes
+        // no layout box on the frontend; the editor retains its selection box.
+        if (array() !== $parts) {
+            $transportCss = ':where(body:not(.editor-styles-wrapper):not(.wp-admin)) :where(.blocks-engine-shell-transport){display:contents}';
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-shell-transport', false, array(), null ); wp_enqueue_style( 'blocks-engine-shell-transport' ); wp_add_inline_style( 'blocks-engine-shell-transport', " . var_export($transportCss, true) . " ); } );";
         }
         // A page's layout frame sits in its template around post-content. Core's
         // post-content element would be an extra box in that layout, so the

@@ -3683,7 +3683,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
-        if ( $this->session->preservesShellLandmarks() && in_array(ShellLandmarkPolicy::landmarkKind($tagName, $this->attr($element, 'role')), array('header', 'footer'), true) && ('body' === strtolower($element->parentNode?->nodeName ?? '') || $this->hasAncestorTag($element, array('article'))) ) {
+        // App roots are transport, not sectioning content. Even a footer
+        // holding only one paragraph must survive until shared-shell extraction.
+        $documentFooter = 'footer' === $tagName
+            && ! $this->hasAncestorTag($element, array('main', 'section', 'aside', 'nav'));
+        if ( $this->session->preservesShellLandmarks()
+            && in_array(ShellLandmarkPolicy::landmarkKind($tagName, $this->attr($element, 'role')), array('header', 'footer'), true)
+            && ('body' === strtolower($element->parentNode?->nodeName ?? '') || $this->hasAncestorTag($element, array('article')) || $documentFooter)
+        ) {
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
                 return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
