@@ -276,7 +276,11 @@ final class PresetBinding
                 continue;
             }
             [$delimiter, $tagStart, $tagEnd, $tag] = $rewritten;
-            $result .= $delimiter . substr($markup, $end, $tagStart - $end) . $tag;
+            $between = substr($markup, $end, $tagStart - $end);
+            if ('button' === $match[1][0] && null !== ($slug = $this->system->buttonVariationSlug()) && str_contains($delimiter, 'is-style-' . $slug)) {
+                $between = (string) preg_replace('/\bclass="/', 'class="is-style-' . $slug . ' ', $between, 1);
+            }
+            $result .= $delimiter . $between . $tag;
             $offset = $tagEnd;
         }
         $result = $this->bindInlineColors($result . substr($markup, $offset));
@@ -617,6 +621,44 @@ final class PresetBinding
         $bound = 0;
         $style = $attributes->style ?? new \stdClass();
 
+        $variation = $isLink && null !== $this->system->buttonVariationSlug() && $this->matchesButtonVariation($style);
+        $buttonLook = $isLink && (isset($this->system->elements['button']['padding']) || $variation);
+        if ($variation) {
+            $class = 'is-style-' . $this->system->buttonVariationSlug();
+            $attributes->className = trim(($attributes->className ?? '') . ' ' . $class);
+            ++$bound;
+        }
+        if ($buttonLook) {
+            foreach (array('fontFamily' => 'font-family', 'fontSize' => 'font-size', 'fontWeight' => 'font-weight', 'textTransform' => 'text-transform', 'letterSpacing' => 'letter-spacing') as $key => $property) {
+                $value = $style->typography->{$key} ?? null;
+                if (is_string($value) && $this->matchesButtonElement($property, $value) && self::removeDeclaration($declarations, $property, $value)) {
+                    unset($style->typography->{$key});
+                    if ('fontSize' === $key) $dropClasses[] = 'has-custom-font-size';
+                    ++$bound;
+                }
+            }
+            $value = $style->border->radius ?? null;
+            if (is_string($value) && $this->matchesButtonElement('border-radius', $value) && self::removeDeclaration($declarations, 'border-radius', $value)) {
+                unset($style->border->radius);
+                ++$bound;
+            }
+            foreach (array('top', 'right', 'bottom', 'left') as $side) {
+                $value = $style->spacing->padding->{$side} ?? null;
+                if (is_string($value) && $this->matchesButtonElement('padding-' . $side, $value) && self::removeDeclaration($declarations, 'padding-' . $side, $value)) {
+                    unset($style->spacing->padding->{$side});
+                    ++$bound;
+                }
+            }
+            foreach (array('text' => 'color', 'background' => 'background-color') as $key => $property) {
+                $value = $style->color->{$key} ?? null;
+                if (is_string($value) && $this->matchesButtonElement($property, $value) && self::removeDeclaration($declarations, $property, $value)) {
+                    unset($style->color->{$key});
+                    $dropClasses[] = 'text' === $key ? 'has-text-color' : 'has-background';
+                    ++$bound;
+                }
+            }
+        }
+
         $presets = array(
             'text' => array('textColor', 'color', 'color', 'has-text-color', 'has-%s-color'),
             'background' => array('backgroundColor', 'background-color', 'background-color', 'has-background', 'has-%s-background-color'),
@@ -624,6 +666,7 @@ final class PresetBinding
         foreach ($presets as $key => [$attribute, $property, $observedProperty, $flagClass, $presetClass]) {
             if (isset($attributes->{$attribute})) continue;
             $literal = $style->color->{$key} ?? null;
+            if ($buttonLook && null === $literal && $this->matchesButtonElement($property, (string) ($observed[$observedProperty] ?? ''))) continue;
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
             $added = array($flagClass, sprintf($presetClass, '%s'));
@@ -778,7 +821,68 @@ final class PresetBinding
     public function bindStylesheet(string $css): string
     {
         $transformer = new CssStylesheetTransformer();
-        return $transformer->transformStyleRules($css, fn(string $prelude, string $body): string => $prelude . '{' . $this->bindRuleBody($transformer, $body, self::rootSelector($prelude)) . '}');
+        return $transformer->transformStyleRules($css, function (string $prelude, string $body) use ($transformer): string {
+            // Only projected button-link rules yield to the element. Variants
+            // keep their selectors and the specificity fix from #3188.
+            if (isset($this->system->elements['button']['padding']) && str_contains($prelude, '.wp-block-button__link')
+                && array() === array_filter(CssValueSplitter::splitTopLevel($prelude, array(',')), static fn(string $arm): bool => !str_contains($arm, '.wp-block-button__link'))
+                && !preg_match('/:(?:hover|focus|active|disabled)|!important|\{/i', $prelude . $body)) {
+                $body = implode(';', array_filter(CssValueSplitter::splitTopLevel($body, array(';')), function (string $declaration): bool {
+                    $pair = explode(':', $declaration, 2);
+                    return 2 !== count($pair) || !$this->matchesButtonElement(trim($pair[0]), trim($pair[1]));
+                }));
+            }
+            if (null !== ($slug = $this->system->buttonVariationSlug()) && str_contains($prelude, '.wp-block-button__link') && !preg_match('/:(?:hover|focus|active|disabled)|!important|\{/i', $prelude . $body)
+                && array() === array_filter(CssValueSplitter::splitTopLevel($prelude, array(',')), static fn(string $arm): bool => !str_contains($arm, '.wp-block-button__link'))) {
+                $shared = $kept = array();
+                foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
+                    $pair = explode(':', $declaration, 2);
+                    if (2 === count($pair) && $this->matchesButtonElement(trim($pair[0]), trim($pair[1]))) $shared[] = $declaration;
+                    else $kept[] = $declaration;
+                }
+                if (array() !== $shared) {
+                    // Keep off-look controls unchanged, but let the registered
+                    // variation beat both author rules and wp-element-button.
+                    $excluded = implode(',', array_map(static fn(string $arm): string => trim($arm) . ':not(:where(.is-style-' . $slug . ' *))', CssValueSplitter::splitTopLevel($prelude, array(','))));
+                    return $prelude . '{' . $this->bindRuleBody($transformer, implode(';', $kept), false) . '}' . $excluded . '{' . $this->bindRuleBody($transformer, implode(';', $shared), false) . '}';
+                }
+            }
+            return $prelude . '{' . $this->bindRuleBody($transformer, $body, self::rootSelector($prelude)) . '}';
+        });
+    }
+
+    /** Only complete, exactly matching blocks opt into a variation. */
+    private function matchesButtonVariation(\stdClass $style): bool
+    {
+        foreach (array('fontFamily' => 'font-family', 'fontSize' => 'font-size', 'fontWeight' => 'font-weight', 'textTransform' => 'text-transform', 'letterSpacing' => 'letter-spacing') as $key => $property) {
+            if (in_array($key, array('textTransform', 'letterSpacing'), true) && !isset($this->system->buttonVariation['textTransform' === $key ? 'text_transform' : 'letter_spacing'])) continue;
+            if (!$this->matchesButtonElement($property, (string) ($style->typography->{$key} ?? ''))) return false;
+        }
+        if (!$this->matchesButtonElement('border-radius', (string) ($style->border->radius ?? ''))) return false;
+        foreach (self::SPACING_SIDES as $side) if (!$this->matchesButtonElement('padding-' . $side, (string) ($style->spacing->padding->{$side} ?? ''))) return false;
+        foreach (array('text' => 'color', 'background' => 'background-color') as $key => $property) if (!$this->matchesButtonElement($property, (string) ($style->color->{$key} ?? ''))) return false;
+        return true;
+    }
+
+    /** Equality only: yielding to Global Styles must never change paint. */
+    private function matchesButtonElement(string $property, string $value): bool
+    {
+        $fields = array('color' => 'color', 'background' => 'background', 'background-color' => 'background', 'font-family' => 'font_family', 'font-size' => 'font_size', 'font-weight' => 'font_weight', 'text-transform' => 'text_transform', 'letter-spacing' => 'letter_spacing', 'border-radius' => 'radius', 'padding' => 'padding');
+        $element = $this->system->elements['button'] ?? $this->system->buttonVariation;
+        $expected = $element[$fields[$property] ?? ''] ?? null;
+        if (str_starts_with($property, 'padding-') && isset($element['padding'])) {
+            $parts = preg_split('/\s+/', trim($element['padding'])) ?: array();
+            $sides = array($parts[0], $parts[1] ?? $parts[0], $parts[2] ?? $parts[0], $parts[3] ?? $parts[1] ?? $parts[0]);
+            $index = array_search(substr($property, 8), array('top', 'right', 'bottom', 'left'), true);
+            $expected = false === $index ? null : ($sides[$index] ?? null);
+        }
+        if (null === $expected || '' === $value) return false;
+        $value = $this->resolve($value);
+        if (in_array($property, array('color', 'background', 'background-color'), true)) return null !== CssColor::hex($value) && CssColor::hex($value) === CssColor::hex($expected);
+        if ($value === $expected) return true;
+        $a = CssLength::toPx($value, $this->system->rootPx);
+        $b = CssLength::toPx($expected, $this->system->rootPx);
+        return null !== $a && null !== $b && abs($a - $b) < 0.001;
     }
 
     private function bindRuleBody(CssStylesheetTransformer $transformer, string $body, bool $rootSelector = false): string
@@ -1503,7 +1607,8 @@ final class PresetBinding
     /** Drop style groups the rewrite emptied, as core's serializer would never emit them. */
     private static function prune(\stdClass $attributes): void
     {
-        foreach (array('color', 'typography', 'spacing') as $group) {
+        if (isset($attributes->style->spacing->padding) && $attributes->style->spacing->padding instanceof \stdClass && array() === get_object_vars($attributes->style->spacing->padding)) unset($attributes->style->spacing->padding);
+        foreach (array('color', 'typography', 'spacing', 'border') as $group) {
             if (isset($attributes->style->{$group}) && $attributes->style->{$group} instanceof \stdClass && array() === get_object_vars($attributes->style->{$group})) unset($attributes->style->{$group});
         }
         if (array() === get_object_vars($attributes->style)) unset($attributes->style);

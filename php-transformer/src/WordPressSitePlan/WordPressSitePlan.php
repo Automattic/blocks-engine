@@ -5111,6 +5111,15 @@ PHP;
     private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), array $taxonomyEntities = array()): string
     {
         $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY);
+        // Core only retains theme.json variations registered for the block.
+        $lines[] = <<<'PHP'
+add_action( 'init', static function (): void {
+    $theme = wp_json_file_decode( get_theme_file_path( 'theme.json' ), array( 'associative' => true ) );
+    foreach ( $theme['styles']['blocks']['core/button']['variations'] ?? array() as $slug => $look ) {
+        register_block_style( 'core/button', array( 'name' => $slug, 'label' => ucwords( str_replace( '-', ' ', $slug ) ) ) );
+    }
+} );
+PHP;
         $rootContext = DocumentRootContext::bootstrap($pages);
         if ('' !== $rootContext) $lines[] = $rootContext;
         $headContext = DocumentHeadContext::bootstrap($pages, $assets, $tokens, $taxonomyEntities);
