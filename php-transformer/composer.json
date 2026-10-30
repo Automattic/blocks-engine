@@ -827,6 +827,7 @@
       "php tests/unit/svg-element-converter.php",
       "php tests/unit/svg-text-run-native-text.php",
       "php tests/unit/filtered-svg-materialization.php",
+      "php tests/unit/svg-empty-paint.php",
       "php tests/unit/childless-passive-svg.php",
       "php tests/unit/passive-svg-mask-textpath.php",
       "php tests/unit/own-output-round-trip.php",

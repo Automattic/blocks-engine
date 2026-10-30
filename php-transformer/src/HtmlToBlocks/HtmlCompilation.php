@@ -594,6 +594,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this,
             function (DOMElement $element, array &$fallbacks): void {
                 $this->captureInlineSvgFallback($element, $fallbacks);
+            },
+            function (DOMElement $element): bool {
+                if (!$this->svgMaterializer->paintsNothing($element)) return false;
+                $this->transformationEvidence()->recordEmptyDecoration(array(
+                    'code' => 'html_empty_svg_decoration_omitted',
+                    'severity' => 'info',
+                    'loss_class' => 'native_conversion',
+                    'selector' => SourceDom::elementSelector($element),
+                    'message' => 'Omitted SVG decoration proven to paint nothing in the captured state.',
+                ));
+                return true;
             }
         ), $this->svgMaterializer, new SvgTextRunLowering(
             $this->styleResolver,
@@ -1885,7 +1896,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'context' => $context,
             'started_at' => $startedAt,
             'selector_cache' => $conversionSelectorCache,
-            'diagnostics' => $diagnostics,
+            'diagnostics' => array_merge($diagnostics, $this->transformationEvidence()->emptyDecorationDiagnostics()),
             'supported_blocks' => $supportedBlocks,
             'native_target_blocks' => $nativeTargetBlocks,
             'bundled_snapshot_blocks' => $bundledSnapshotBlocks,
