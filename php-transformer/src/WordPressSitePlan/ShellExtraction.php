@@ -723,7 +723,7 @@ final class ShellExtraction
                 $markup = $pages[$index]['canonical_block_markup'];
                 foreach ($rows as $candidate) {
                     $variant = $candidate['variant']; $slug = $slugs[$variant];
-                    $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"' . $area . '","tagName":"div"} /-->';
+                    $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"' . $area . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
                     $markup = substr($markup, 0, $candidate['offset']) . $reference . substr($markup, $candidate['offset'] + $candidate['length']);
                 }
                 $pages[$index]['canonical_block_markup'] = $markup;
@@ -875,7 +875,7 @@ final class ShellExtraction
         for ($suffix = 2; isset($existingSlugs[$slug]); ++$suffix) $slug = $baseSlug . '-' . $suffix;
         $excludedTemplateSlugs = array();
         foreach ($parts as $existingPart) foreach ($existingPart['placement']['excluded_template_slugs'] ?? array() as $templateSlug) if (is_string($templateSlug)) $excludedTemplateSlugs[$templateSlug] = true;
-        $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"footer","tagName":"div"} /-->';
+        $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"footer","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
         $pageReplacements = array();
         $partReplacements = array();
         $sources = array();
@@ -1190,7 +1190,7 @@ final class ShellExtraction
                         $markup = $page['canonical_block_markup'];
                         foreach ($renames as $old => $slug) {
                             $markup = str_replace('"slug":"' . $old . '"', '"slug":"' . $slug . '"', $markup);
-                            if (in_array($page['source_path'], $adoptedSources, true) && !str_contains($markup, '"slug":"' . $slug . '"')) $markup = '<!-- wp:template-part {"slug":"' . $slug . '","tagName":"div"} /-->' . $markup;
+                            if (in_array($page['source_path'], $adoptedSources, true) && !str_contains($markup, '"slug":"' . $slug . '"')) $markup = '<!-- wp:template-part {"slug":"' . $slug . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->' . $markup;
                         }
                         $page['canonical_block_markup'] = $markup;
                         $page['content_hash'] = WordPressSitePlan::contentHash($markup);
@@ -1677,7 +1677,7 @@ final class ShellExtraction
             }
             $first = $group['indexes'][0];
             $markup = self::landmarkPartMarkup(self::withoutCurrentNavigationState(substr((string) $pages[$first]['canonical_block_markup'], $ranges[$first]['offset'], $ranges[$first]['length'])), $area);
-            $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"' . $area . '","tagName":"div"} /-->';
+            $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"' . $area . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
             // Replace from the end of each page so earlier offsets stay valid.
             foreach ($group['indexes'] as $index) {
                 $page = (string) $pages[$index]['canonical_block_markup'];
@@ -2177,7 +2177,7 @@ final class ShellExtraction
     /** Replace the exact shell occurrence without changing its layout ancestry. */
     private function replaceShellInPlace(string $markup, array $candidate, string $area): ?string
     {
-        $reference = '<!-- wp:template-part {"slug":"' . $area . '","area":"' . $area . '","tagName":"div"} /-->';
+        $reference = '<!-- wp:template-part {"slug":"' . $area . '","area":"' . $area . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
         if (!empty($candidate['nested_shell'])) return $this->withoutNestedShell($markup, $candidate, $reference);
         $range = $this->topLevelShellRange($markup, $area, $candidate['markup'], $candidate['offset'] ?? null);
         if (null === $range) return null;
