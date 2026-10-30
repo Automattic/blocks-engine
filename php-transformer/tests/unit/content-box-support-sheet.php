@@ -129,6 +129,11 @@ $cases = array(
         'not_after' => array( '/content-box/' ),
         'not_author' => array( '/content-box/' ),
     ),
+    'a core-shaped authored class is restated only through its importer class' => array(
+        'sheets' => static fn (): array => $compile('<!doctype html><html><head><style>.wp-block-x{height:0;width:0;overflow:hidden;padding:1px}</style></head><body><div><p>Hi</p><div class="wp-block-x"><p>Hidden</p></div></div></body></html>'),
+        'after' => array( '/\.blocks-engine-source-class-[a-f0-9]+-0 ?\{ ?box-sizing:content-box ?\}/' ),
+        'not_after' => array( '/(?:^|\}) ?\.wp-block-x ?\{ ?box-sizing/' ),
+    ),
     'a stylesheet asset keeps its media around the restatement' => array(
         'sheets' => static fn (): array => $compile('<!doctype html><html><head><style media="screen and (min-width: 600px)">.box{width:600px;padding:20px}</style></head><body>' . $box . '</body></html>'),
         'after' => array( '/@media screen and \(min-width: 600px\) ?\{ ?\.box ?\{ ?box-sizing:content-box ?\} ?\}/' ),
