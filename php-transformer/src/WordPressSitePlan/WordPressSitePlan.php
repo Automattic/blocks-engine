@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -4457,7 +4458,7 @@ PHP;
                     $identity = $node['attributes'] ?? array();
                     if ('a' === ($node['name'] ?? '') && self::hrefMatchesListingRoute((string) ($identity['href'] ?? ''), $route) && 'true' === ($identity['aria-hidden'] ?? '') && '-1' === ($identity['tabindex'] ?? '')) {
                         $attrs = array('className' => trim((string) ($identity['class'] ?? '') . ' blocks-engine-listing-overlay'), 'content' => '<span aria-hidden="true"></span>');
-                        return array('markup' => '<!-- wp:read-more ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->', 'title' => false, 'content' => false);
+                        return array('markup' => '<!-- wp:read-more ' . BlockAttributes::encode($attrs) . ' /-->', 'title' => false, 'content' => false);
                     }
                 }
             }
@@ -4466,7 +4467,7 @@ PHP;
                 unset($attrs['metadata']);
                 $attrs['excerptLength'] = $excerptLength;
                 $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-authored-excerpt');
-                return array('markup' => '<!-- wp:post-excerpt ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->', 'title' => false, 'content' => false);
+                return array('markup' => '<!-- wp:post-excerpt ' . BlockAttributes::encode($attrs) . ' /-->', 'title' => false, 'content' => false);
             }
             $kind = $this->classifyListingCardBlock($slice, $post, $route);
             if ($linkedContainer && 'heading' === self::listingBlockName($slice)) {
@@ -4532,7 +4533,7 @@ PHP;
             }
             unset($wrapper);
             if ($changed) {
-                $slice = preg_replace_callback('/^(<!--\\s*wp:[^\\s]+)\\s+\\{.*?\\}\\s*-->/', static fn(array $match): string => $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' -->', $slice, 1) ?? $slice;
+                $slice = preg_replace_callback('/^(<!--\\s*wp:[^\\s]+)\\s+\\{.*?\\}\\s*-->/', static fn(array $match): string => $match[1] . ' ' . BlockAttributes::encode($attrs) . ' -->', $slice, 1) ?? $slice;
                 $slice = preg_replace('/(<a)\\b[^>]*>/', '<div' . self::listingWrapperAttributes($attrs) . '>', $slice, 1) ?? $slice;
                 $position = strrpos($slice, '</a>');
                 if (false !== $position) $slice = substr_replace($slice, '</div>', $position, 4);
@@ -4637,7 +4638,7 @@ PHP;
         }
         $classes = array_values(array_filter(preg_split('/\s+/', (string) ($source['className'] ?? '')) ?: array(), static fn(string $class): bool => '' !== $class && 'is-resized' !== $class));
         if (array() !== $classes) $attrs['className'] = implode(' ', $classes);
-        return '<!-- wp:post-featured-image ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->';
+        return '<!-- wp:post-featured-image ' . BlockAttributes::encode($attrs) . ' /-->';
     }
     private static function listingQueryMarkup(int $perPage, string $template, bool $inherit = false): string
     {
@@ -4658,7 +4659,7 @@ PHP;
             ),
             'className' => self::LISTING_QUERY_CLASS,
         );
-        $encoded = json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $encoded = BlockAttributes::encode($attrs);
         $pagination = $inherit
             ? '<!-- wp:query-pagination {"paginationArrow":"arrow","layout":{"type":"flex","justifyContent":"space-between"}} --><!-- wp:query-pagination-previous /--><!-- wp:query-pagination-next /--><!-- /wp:query-pagination --><!-- wp:query-no-results --><!-- wp:paragraph --><p>No posts found.</p><!-- /wp:paragraph --><!-- /wp:query-no-results -->'
             : '';
@@ -4678,7 +4679,7 @@ PHP;
             $attrs['className'] = $className;
         }
         foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) if ('a' === ($node['name'] ?? '') && is_string($node['attributes']['class'] ?? null)) $attrs['metadata']['blocksEngineLinkClass'] = $node['attributes']['class'];
-        return '<!-- wp:post-title ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->';
+        return '<!-- wp:post-title ' . BlockAttributes::encode($attrs) . ' /-->';
     }
     private static function postDateMarkup(string $slice): string
     {
@@ -4693,7 +4694,7 @@ PHP;
         if (null !== $className) {
             $attrs['className'] = $className;
         }
-        $encoded = array() === $attrs ? '' : ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $encoded = array() === $attrs ? '' : ' ' . BlockAttributes::encode($attrs);
         return '<!-- wp:post-date' . $encoded . ' /-->';
     }
     private static function listingHeadingLevel(string $slice): int
@@ -6040,7 +6041,7 @@ PHP;
             $url = \Automattic\BlocksEngine\PhpTransformer\Support\NavigationUrl::serialize($attrs['url']);
             if ($url === $attrs['url']) return $match[0];
             $attrs['url'] = $url;
-            return str_replace($match[1], json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), $match[0]);
+            return str_replace($match[1], BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR), $match[0]);
         }, $content) ?? $content;
         $content = $this->unresolvedNavigationLinks($content, $origin, $routes);
         return null === $this->presetBinding ? $content : $this->presetBinding->bind($content);

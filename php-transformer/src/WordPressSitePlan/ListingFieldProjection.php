@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use DOMDocument;
 use InvalidArgumentException;
 
@@ -62,7 +63,7 @@ final class ListingFieldProjection
         $paragraph->setAttribute('class', trim($paragraph->getAttribute('class') . ' ' . $marker));
         $opening = strstr($document->saveHTML($paragraph), '>', true) . '>';
         $attrs['metadata']['bindings']['content'] = array('source' => 'core/post-meta', 'args' => array('key' => $key));
-        return '<!-- wp:paragraph ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' -->' . $opening . $content . '</p><!-- /wp:paragraph -->';
+        return '<!-- wp:paragraph ' . BlockAttributes::encode($attrs) . ' -->' . $opening . $content . '</p><!-- /wp:paragraph -->';
     }
 
     /** @param list<array<string,mixed>> $pages */
