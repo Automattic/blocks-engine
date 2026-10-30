@@ -49,6 +49,35 @@ final class PseudoFormAnalyzer
         return true;
     }
 
+    /**
+     * A pseudo-form a form provider could host. A group with no submission
+     * target whose fields are all unnamed carries nothing a submission could
+     * send: a script reads the fields directly, as an amount box beside an
+     * "Add" button does. Without a messaging field (email, phone or a message)
+     * nothing marks it as a form either, so its readable blocks stand alone.
+     */
+    public function isProviderPseudoForm(DOMElement $element): bool
+    {
+        if ( ! $this->isPseudoForm($element) ) {
+            return false;
+        }
+        foreach ( array( 'action', 'method', 'data-action' ) as $attribute ) {
+            if ( '' !== trim(SourceDom::attr($element, $attribute)) ) {
+                return true;
+            }
+        }
+        foreach ( FormControlClassifier::controlElements($element) as $control ) {
+            if ( FormControlClassifier::isPseudoFormDataEntryControl($control)
+                && ( '' !== trim(SourceDom::attr($control, 'name'))
+                    || 'textarea' === strtolower($control->tagName)
+                    || in_array(FormControlClassifier::controlType($control), array( 'email', 'tel' ), true) ) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @return array<string, mixed> */
     public function boundaryMetadata(DOMElement $element): array
     {

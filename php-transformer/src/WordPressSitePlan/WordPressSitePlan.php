@@ -576,11 +576,9 @@ PHP;
          foreach ($taxonomyProjection['entities'] as $taxonomyEntity) {
              foreach ($pages as $page) if (($page['source_path'] ?? null) === ($taxonomyEntity['archive']['source_path'] ?? null)) {
                  if (!str_contains((string) ($page['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
-                     unset($taxonomyEntity['archive']['presentation_markup']);
-                     $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_presentation_template_hierarchy', 'severity' => 'info', 'message' => 'The captured archive presentation fell back to the WordPress template hierarchy because it could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
-                 } else {
-                     $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
+                     $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_presentation_static', 'severity' => 'warning', 'message' => 'The archive renders its captured presentation and static cards rather than a live query because the listing could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
                  }
+                 $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
                  $projectedTaxonomyEntities[] = $taxonomyEntity;
                  continue 2;
              }
@@ -3672,7 +3670,8 @@ PHP;
          $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm): string {
              $before = ''; $after = '';
              $container = null;
-             foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || self::shellPartAppliesToOverride($part, $templateSlug)) {
+             foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || self::shellPartAppliesToOverride($part, $templateSlug)
+                 || ('archive' === $templateSlug && 'header' === $part['area'] && in_array('index', $part['placement']['template_slugs'] ?? array(), true) && !in_array($part['slug'], $frames['archive']['shells'] ?? array(), true))) {
                  if (is_array($part['placement']['container'] ?? null)) $container = $part['placement']['container'];
                  $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '"} /-->' . "\n";
                  $wrapper = $part['placement']['template_wrappers'][$templateSlug] ?? null;
@@ -4316,8 +4315,18 @@ PHP;
             }
         }
         $compact = !array_filter($cards, fn(array $card): bool => !$this->isExcerptListingCard($markup, $card));
-        $transformed = $this->listingTransformRange($markup, $first, $first['post'], $first['route'], $compact ? ListingExcerptProjection::length($cards) : 0, $boundGroups);
-        if (!$transformed['title'] || '' === $transformed['markup']) {
+        $sharedText = null;
+        foreach ($cards as $card) {
+            $texts = array();
+            $cardMarkup = substr($markup, $card['offset'], $card['length']);
+            foreach (self::blockRanges($cardMarkup) as $leaf) {
+                if (array() !== self::childBlockRanges($cardMarkup, $leaf)) continue;
+                $texts[ListingExcerptProjection::text(substr($cardMarkup, $leaf['offset'], $leaf['length']))] = true;
+            }
+            $sharedText = null === $sharedText ? $texts : array_intersect_key($sharedText, $texts);
+        }
+        $transformed = $this->listingTransformRange($markup, $first, $first['post'], $first['route'], $compact ? ListingExcerptProjection::length($cards) : 0, $boundGroups, false, $sharedText ?? array());
+        if (null === $transformed || !$transformed['title'] || '' === $transformed['markup']) {
             return null;
         }
         $template = $transformed['markup'];
@@ -4372,9 +4381,10 @@ PHP;
     /**
      * @param array{offset:int,length:int} $range
      * @param array<string,mixed> $post
-     * @return array{markup:string,title:bool,content:bool}
+     * @param array<string,true> $sharedText
+     * @return array{markup:string,title:bool,content:bool}|null
      */
-    private function listingTransformRange(string $markup, array $range, array $post, string $route, int $excerptLength = 0, array $boundGroups = array(), bool $linkedContainer = false): array
+    private function listingTransformRange(string $markup, array $range, array $post, string $route, int $excerptLength = 0, array $boundGroups = array(), bool $linkedContainer = false, array $sharedText = array()): ?array
     {
         $slice = substr($markup, $range['offset'], $range['length']);
         if (isset($boundGroups[$range['offset']])) return array('markup' => $boundGroups[$range['offset']], 'title' => false, 'content' => false);
@@ -4423,6 +4433,12 @@ PHP;
             if ('featured-image' === $kind) {
                 return array('markup' => self::postFeaturedImageMarkup($slice), 'title' => false, 'content' => false);
             }
+            if ('unbound' === $kind) {
+                // Repeating an unbound per-post literal is no more truthful than
+                // rendering the full article in its place. Decline the listing.
+                if (!isset($sharedText[ListingExcerptProjection::text($slice)])) return null;
+                $kind = 'chrome';
+            }
             if ('comments' === $kind || 'chrome' === $kind) {
                 return array('markup' => $slice, 'title' => false, 'content' => false);
             }
@@ -4435,7 +4451,8 @@ PHP;
         $emittedContent = false;
         $replacements = array();
         foreach ($children as $child) {
-            $transformed = $this->listingTransformRange($markup, $child, $post, $route, $excerptLength, $boundGroups, $linkedContainer);
+            $transformed = $this->listingTransformRange($markup, $child, $post, $route, $excerptLength, $boundGroups, $linkedContainer, $sharedText);
+            if (null === $transformed) return null;
             $foundTitle = $foundTitle || $transformed['title'];
             if ($transformed['content'] && $emittedContent) {
                 $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
@@ -4536,7 +4553,16 @@ PHP;
         if ('' === $text || in_array($name, array('separator', 'spacer'), true) || preg_match('/\bseparator\b/', (string) (self::listingBlockAttributes($slice)['className'] ?? ''))) {
             return 'chrome';
         }
-        return 'body';
+        // Recognize actual article leaves before considering unbound card text.
+        $postMarkup = (string) ($post['canonical_block_markup'] ?? '');
+        foreach (self::blockRanges($postMarkup) as $range) {
+            if (array() !== self::childBlockRanges($postMarkup, $range)) continue;
+            if (ListingExcerptProjection::text(substr($postMarkup, $range['offset'], $range['length'])) === ListingExcerptProjection::text($slice)) return 'body';
+        }
+        // Keep the legacy content-listing contract for paragraphs without an
+        // authored summary. Summary cards must never infer body ownership from
+        // an otherwise unrecognized text leaf.
+        return ListingExcerptProjection::matches($slice, $post) || ('paragraph' === $name && null === ListingExcerptProjection::description($post)) ? 'body' : 'unbound';
     }
     /**
      * The single plan-owned image of a card slot, which the post owns as its
@@ -6642,16 +6668,17 @@ PHP;
         }
     }
 
-    /** Presentation is optional; when present it must be an inherited archive query. */
+    /** Presentation may retain captured static blocks or an inherited archive query. */
     private static function validArchivePresentation(array $archive): bool
     {
         if (!array_key_exists('presentation_markup', $archive)) return true;
         $markup = $archive['presentation_markup'];
-        return is_string($markup) && strlen($markup) <= 1000000
-            && str_contains($markup, '<!-- wp:query ')
-            && str_contains($markup, '"inherit":true')
-            && str_contains($markup, '<!-- wp:query-pagination ')
-            && str_contains($markup, '<!-- wp:query-no-results -->');
+        return is_string($markup) && '' !== trim($markup) && strlen($markup) <= 1000000
+            && (!str_contains($markup, '<!-- wp:query ') || (
+                str_contains($markup, '"inherit":true')
+                && str_contains($markup, '<!-- wp:query-pagination ')
+                && str_contains($markup, '<!-- wp:query-no-results -->')
+            ));
     }
 
     private static function assertTaxonomyEntities(array $entities, array $pagesBySource): void

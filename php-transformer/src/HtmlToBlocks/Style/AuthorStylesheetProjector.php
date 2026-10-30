@@ -251,11 +251,20 @@ final class AuthorStylesheetProjector
             );
             $imageRule .= implode(',', $inlineSelectors) . '{display:' . ($declarations['display'] ?? 'inline')
                 . ';max-width:' . ($declarations['max-width'] ?? 'none') . ';vertical-align:' . ($declarations['vertical-align'] ?? 'baseline') . '}';
+            // Any inline-flow image aligns on its line as the source declared,
+            // not at the bottom where core's Image rule would put it.
+            if ( isset($declarations['vertical-align']) ) {
+                $imageRule .= str_replace('.wp-block-image', '.wp-block-image:where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . ')', $imagePrelude)
+                    . '{vertical-align:' . $declarations['vertical-align'] . '}';
+            }
             $imageRule .= $this->flexItemImageBoxRule($prelude, $imagePrelude, $declarations, $context);
         }
+        // Keep the normal bridge defaults, then the authored replaced-box
+        // declarations at this rule's cascade position. Do not promote them
+        // above SvgMaterializer's inline-geometry carrier or replay SVG paint.
         $svgImageRule = '' === $svgImagePrelude
             ? ''
-            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
+            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . ';' . $this->styleResolver->cssDeclarationString($this->imageApplicableSvgDeclarations($declarations)) . '}';
         $svgImageRule .= $this->flexItemImageBoxRule(
             $prelude,
             $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations, true),
@@ -1594,6 +1603,11 @@ final class AuthorStylesheetProjector
             }
         }
 
+        if ( ! (new CoreSelectorScoping())->selectorIsScoped($projected) ) {
+            $context->evidence->recordUnscopedCoreSelectorDrop($selector, 'no_importer_class_for_core_image_projection');
+            return null;
+        }
+
         return $projected;
     }
 
@@ -2579,7 +2593,16 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
-            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && '' === ($context->selectorProjections->imageFigure($element->getNodePath() ?? '')['leafMarker'] ?? '') && ('svg' !== $tagName || ($flexBox && $this->styleResolver->imageIsFlexOrGridItem($element)) || $this->isProjectableFillSvg($element, $declarations))));
+            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool =>
+                $tagName === strtolower($element->tagName)
+                && '' === ($context->selectorProjections->imageFigure($element->getNodePath() ?? '')['leafMarker'] ?? '')
+                && ('svg' !== $tagName
+                    || ($flexBox && $this->styleResolver->imageIsFlexOrGridItem($element))
+                    || $this->isProjectableFillSvg($element, $declarations)
+                    || (! $flexBox
+                        && ! $context->selectorProjections->isSupersededControlPath($element->getNodePath() ?? '')
+                        && array() !== $this->imageApplicableSvgDeclarations($declarations)))
+            ));
             if ( array() === $imageMatches ) {
                 continue;
             }
@@ -2592,8 +2615,10 @@ final class AuthorStylesheetProjector
                 }
                 continue;
             }
-            if ( 'svg' === $tagName ) {
-                $projected[] = $this->projectImageSelector($selector, $parsed, $context, true);
+            // Only the existing fill/flex paths need a synthetic wrapper box.
+            // Ordinary SVG presentation belongs on the replaced image itself.
+            if ( 'svg' === $tagName && ($flexBox || $this->isProjectableFillSvg($imageMatches[0], $declarations)) ) {
+                $this->pushScopedImageArm($projected, $selector, $this->projectImageSelector($selector, $parsed, $context, true), $context);
             }
             $mediaTextImages = array_values(array_filter(
                 $imageMatches,
@@ -2628,10 +2653,31 @@ final class AuthorStylesheetProjector
                 $projected[] = NativeImageLeafPresentation::selectors(':where(.' . $marker . ').wp-block-image', $this->selectorSpecificityShims($parsed, $context) . $suffix);
             }
             if ( $hasUnmarkedImage ) {
-                $projected[] = $this->projectImageSelector($selector, $parsed, $context);
+                $this->pushScopedImageArm($projected, $selector, $this->projectImageSelector($selector, $parsed, $context), $context);
             }
         }
         return implode(',', array_values(array_unique($projected)));
+    }
+
+    /**
+     * Emits a projected image-rule arm only when every core block class it
+     * names is reached through an importer-emitted class as well. An arm that
+     * would stand on the bare core class is dropped and recorded instead of
+     * leaking onto blocks a host adds to the served page later. Ordinary
+     * image arms carry a zero-specificity factory scope, not a semantic marker.
+     *
+     * @param list<string> $projected
+     */
+    private function pushScopedImageArm(array &$projected, string $authoredSelector, string $arm, AuthorStylesheetProjectionContext $context): void
+    {
+        if ( '' === $arm ) {
+            return;
+        }
+        if ( ! (new CoreSelectorScoping())->selectorIsScoped($arm) ) {
+            $context->evidence->recordUnscopedCoreSelectorDrop($authoredSelector, 'no_importer_class_for_core_image_projection');
+            return;
+        }
+        $projected[] = $arm;
     }
 
     private function projectMediaTextImagePrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
@@ -2724,6 +2770,23 @@ final class AuthorStylesheetProjector
             $hasTextBranch = $hasTextBranch || ( ! $containsImage && '' !== trim($child->textContent ?? '') );
         }
         return $branchCount >= 2 && $hasImageBranch && $hasTextBranch;
+    }
+
+    /**
+     * Only the outer replaced box survives SVG materialization. Paint such as
+     * fill/stroke still belongs to the asset, not the generated image.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private function imageApplicableSvgDeclarations(array $declarations): array
+    {
+        return array_filter($declarations, static fn (string $property): bool =>
+            NativeImageLeafPresentation::isBoxProperty($property)
+            || NativeImageLeafPresentation::isPlacementProperty($property)
+            || in_array($property, array('display', 'filter', 'opacity', 'object-fit', 'object-position', 'visibility'), true),
+            ARRAY_FILTER_USE_KEY
+        );
     }
 
     /** @param array<string, string> $declarations */
@@ -3372,7 +3435,17 @@ final class AuthorStylesheetProjector
                     );
                 }
             }
-            $projected[] = $this->replaceSelectorSpans($selector, $replacements);
+            $arm = $this->replaceSelectorSpans($selector, $replacements);
+            if ( ! (new CoreSelectorScoping())->selectorIsScoped($arm) ) {
+                // The factory class is only a scope key, never a semantic
+                // subject. Replacing * with :where() keeps its zero weight
+                // and leaves the declaration on the same native image leaf.
+                $arm = str_replace('*.wp-block-image', ':where(.blocks-engine-image).wp-block-image', $arm);
+                if ( ! (new CoreSelectorScoping())->selectorIsScoped($arm) ) {
+                    $arm = str_replace('.wp-block-image', ':where(.blocks-engine-image).wp-block-image', $arm);
+                }
+            }
+            $projected[] = $arm;
         }
         return implode(',', $projected);
     }

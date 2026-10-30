@@ -8,7 +8,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
  * them.
  *
  * The parser reads hex notation (3, 4, 6 or 8 digits), `rgb()`/`rgba()`,
- * `hsl()`/`hsla()`, `oklab()`/`oklch()` (Tailwind v4 emits these), the CSS
+ * `hsl()`/`hsla()`, `oklab()`/`oklch()` (Tailwind v4 emits these), CIE
+ * `lab()`/`lch()` (Lightning CSS emits these after a hex fallback), the CSS
  * named colours, and `transparent`. Any other notation (`color-mix()`,
  * `currentColor`, system colours, relative colour syntax) is null: it is
  * either not a design token or cannot be resolved without a rendering engine.
@@ -70,7 +71,7 @@ final class CssColor
             $alpha = 8 === strlen($hex) ? hexdec(substr($hex, 6, 2)) / 255 : 1.0;
             return array((float) hexdec(substr($hex, 0, 2)), (float) hexdec(substr($hex, 2, 2)), (float) hexdec(substr($hex, 4, 2)), round($alpha, 4));
         }
-        if (1 !== preg_match('/^(rgba?|hsla?|oklab|oklch)\(\s*([^()]*)\)$/', $value, $match)) return null;
+        if (1 !== preg_match('/^(rgba?|hsla?|oklab|oklch|lab|lch)\(\s*([^()]*)\)$/', $value, $match)) return null;
         $arguments = self::arguments($match[2]);
         if (null === $arguments) return null;
         [$channels, $alpha] = $arguments;
@@ -81,6 +82,8 @@ final class CssColor
             'hsl', 'hsla' => self::hsl($channels),
             'oklab' => self::oklab($channels, false),
             'oklch' => self::oklab($channels, true),
+            'lab' => self::cieLab($channels, false),
+            'lch' => self::cieLab($channels, true),
         };
         if (null === $color) return null;
         $color[] = $alpha;
@@ -240,6 +243,48 @@ final class CssColor
             -1.2684380046 * $l_ + 2.6097574011 * $m_ - 0.3413193965 * $s_,
             -0.0041960863 * $l_ - 0.7034186147 * $m_ + 1.7076147010 * $s_,
         );
+        return self::encodeSrgb($linear);
+    }
+
+    /**
+     * CSS Color 4 `lab()`/`lch()`: CIELAB under D50, adapted to D65 with the
+     * Bradford matrix and encoded as sRGB, clamped to the sRGB gamut.
+     *
+     * @param list<string> $channels @return list<float>
+     */
+    private static function cieLab(array $channels, bool $polar): array
+    {
+        $l = self::number($channels[0], 100);
+        if ($polar) {
+            $c = self::number($channels[1], 150);
+            $h = deg2rad(self::number($channels[2], 360));
+            $a = $c * cos($h);
+            $b = $c * sin($h);
+        } else {
+            $a = self::number($channels[1], 125);
+            $b = self::number($channels[2], 125);
+        }
+        $epsilon = 216 / 24389;
+        $kappa = 24389 / 27;
+        $fy = ($l + 16) / 116;
+        $fx = $fy + $a / 500;
+        $fz = $fy - $b / 200;
+        $x = 0.3457 / 0.3585 * ($fx ** 3 > $epsilon ? $fx ** 3 : (116 * $fx - 16) / $kappa);
+        $y = $l > $kappa * $epsilon ? $fy ** 3 : $l / $kappa;
+        $z = (1.0 - 0.3457 - 0.3585) / 0.3585 * ($fz ** 3 > $epsilon ? $fz ** 3 : (116 * $fz - 16) / $kappa);
+        $x65 = 0.9554734527042182 * $x - 0.023098536874261423 * $y + 0.0632593086610217 * $z;
+        $y65 = -0.028369706963208136 * $x + 1.0099954580058226 * $y + 0.021041398966943008 * $z;
+        $z65 = 0.012314001688319899 * $x - 0.020507696433477912 * $y + 1.3303659366080753 * $z;
+        return self::encodeSrgb(array(
+            3.2409699419045226 * $x65 - 1.537383177570094 * $y65 - 0.4986107602930034 * $z65,
+            -0.9692436362808796 * $x65 + 1.8759675015077202 * $y65 + 0.04155505740717559 * $z65,
+            0.05563007969699366 * $x65 - 0.20397695888897652 * $y65 + 1.0569715142428786 * $z65,
+        ));
+    }
+
+    /** @param list<float> $linear Linear-light sRGB 0–1. @return list<float> */
+    private static function encodeSrgb(array $linear): array
+    {
         return array_map(static function (float $channel): float {
             $channel = max(0.0, min(1.0, $channel));
             $encoded = $channel <= 0.0031308 ? 12.92 * $channel : 1.055 * $channel ** (1 / 2.4) - 0.055;

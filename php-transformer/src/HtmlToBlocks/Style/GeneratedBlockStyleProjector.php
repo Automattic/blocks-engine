@@ -60,7 +60,7 @@ final class GeneratedBlockStyleProjector
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $className);
             $generatedStyles->registerNavigationSubmenuBackground($className, $submenuBackground);
         }
-        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: array();
         if ( 'core/navigation' === $name && is_array($fallback['spacing']['padding'] ?? null) ) {
             foreach ( $classes as $class ) {
                 if ( 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
@@ -242,7 +242,7 @@ final class GeneratedBlockStyleProjector
             $inlineDeclarations = $this->styleResolver->cssDeclarations($sourceControl->getAttribute('style'));
             $hasAuthoredWidth = isset($inlineDeclarations['width'])
                 || array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
-            $definiteAncestorWidth = $hasAuthoredWidth ? '' : $this->definiteAncestorWidth($sourceControl);
+            $definiteAncestorWidth = $hasAuthoredWidth ? '' : $this->definiteAncestorWidth($sourceControl, $sourceDeclarations);
             $stretchingFlex = $this->sourceControlStretchesFlex($sourceDeclarations);
             $height = CssValueInspector::comparable((string) ($sourceDeclarations['height'] ?? ''));
             if ( '' !== $definiteAncestorWidth ) {
@@ -284,8 +284,14 @@ final class GeneratedBlockStyleProjector
                 // width; an intrinsic one would shrink it to its label.
             } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex', 'inline-block', 'inline-grid', 'inline-table' ), true) ) {
                 if ( 'center' === $inheritedTextAlignment ) {
-                    $outerWrapperDeclarations[] = 'width:100%';
-                    $outerWrapperDeclarations[] = 'max-width:100%';
+                    // A flex or grid item shrinks to its content unless told to
+                    // fill. In block flow the wrapper already spans its line,
+                    // inside the margins the control's rules may give it; a
+                    // 100% width would push it past them and off center.
+                    if ( ! $this->sourceParentIsBlockContainer($sourceControl) ) {
+                        $outerWrapperDeclarations[] = 'width:100%';
+                        $outerWrapperDeclarations[] = 'max-width:100%';
+                    }
                 } else {
                     $outerWrapperDeclarations[] = 'width:max-content';
                     $outerWrapperDeclarations[] = 'max-width:100%';
@@ -817,6 +823,17 @@ final class GeneratedBlockStyleProjector
         return in_array($parentDisplay, array( '', 'block', 'flow-root', 'list-item' ), true);
     }
 
+    private function sourceParentIsBlockContainer(DOMElement $sourceControl): bool
+    {
+        $parent = $sourceControl->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $display = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? ''));
+
+        return in_array($display, array( '', 'block', 'flow-root', 'list-item', 'inline-block', 'table-cell' ), true);
+    }
+
     private function sourceControlFillsGridCell(DOMElement $sourceControl, array $sourceDeclarations): bool
     {
         if ( ! in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'grid', 'table' ), true) ) {
@@ -854,14 +871,30 @@ final class GeneratedBlockStyleProjector
             || 1 === preg_match('/^[1-9]/', $flex);
     }
 
-    private function definiteAncestorWidth(DOMElement $sourceControl): string
+    /**
+     * The px width of the nearest sized ancestor, when the control actually
+     * fills it. Only a block-level control spans its container, and only
+     * through ancestors in block flow: an inline-level control, or any
+     * shrink-to-fit, flex, floated or out-of-flow box on the way up, sizes the
+     * control to its content instead of the sized ancestor.
+     *
+     * @param array<string, string> $sourceDeclarations
+     */
+    private function definiteAncestorWidth(DOMElement $sourceControl, array $sourceDeclarations): string
     {
+        if ( ! $this->sourceControlFillsFlowLine($sourceControl, $sourceDeclarations) ) {
+            return '';
+        }
         for ( $ancestor = $sourceControl->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            $width = CssValueInspector::comparable(
-                (string) ($this->styleResolver->presentationDeclarations($ancestor)['width'] ?? '')
-            );
+            $declarations = $this->styleResolver->presentationDeclarations($ancestor);
+            $width = CssValueInspector::comparable((string) ($declarations['width'] ?? ''));
             if ( preg_match('/^(?:\d+(?:\.\d+)?)px$/', $width) ) {
                 return $width;
+            }
+            if ( ! in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( '', 'block', 'flow-root', 'list-item' ), true)
+                || in_array(CssValueInspector::comparable((string) ($declarations['float'] ?? '')), array( 'left', 'right' ), true)
+                || in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true) ) {
+                return '';
             }
         }
 

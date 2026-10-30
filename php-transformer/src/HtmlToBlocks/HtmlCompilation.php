@@ -781,7 +781,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             },
             fn (DOMElement $element): bool => $this->formRuntimeRequirementAnalyzer->requiresPreservation($element),
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
-            fn (DOMElement $element): bool => $this->pseudoFormAnalyzer->isPseudoForm($element)
+            fn (DOMElement $element): bool => $this->pseudoFormAnalyzer->isProviderPseudoForm($element)
         ));
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $buttonConverter = new ButtonElementConverter(new ButtonElementContext(
@@ -1700,7 +1700,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->runtimeIslands->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->interactionFallbackReporter->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $this->commerceReporter->appendProductGridFallbacks($body, $fallbacks, $blocks);
-        $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks);
+        $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks, (string) ($options['declarative_state_html'] ?? $html));
         $this->commerceReporter->appendCartViewFallbacks($body, $fallbacks);
         // Inserted into a theme the engine does not own, core's flow layout
         // spaces group children with the host's block gap; encode the
@@ -1910,6 +1910,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'responsive_geometry_ambiguities' => $this->transformationEvidence()->responsiveGeometryAmbiguities(),
             'responsive_height_ambiguities' => $this->transformationEvidence()->responsiveHeightAmbiguities(),
             'grid_placement_carrier_findings' => $this->transformationEvidence()->gridPlacementCarrierFindings(),
+            'unscoped_core_selector_drops' => $this->transformationEvidence()->unscopedCoreSelectorDrops(),
             'has_description_list_block' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class),
         ), $blockCompilationOutput);
     }
@@ -4556,13 +4557,91 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // is built from these attributes and so carries them too.
         $attrs = $this->withRichTextCarrierClasses($attrs);
 
-        return $this->blockMaterializer->materialize(
+        return $this->withSourceInterItemSpaces($this->blockMaterializer->materialize(
             $name,
             $attrs,
             $innerBlocks,
             $sourceMaterializationFacts,
             $this->transformationProvenance()
-        );
+        ), $sourceElement);
+    }
+
+    /**
+     * Inline-level items that the source separated by collapsible whitespace
+     * share their line with one space of the parent's font between each pair.
+     * A container block's inner blocks serialize back to back, so the items
+     * lost that space. Keep one between their placeholders, where WordPress
+     * renders it as the source did.
+     *
+     * @param array<string, mixed> $block
+     * @return array<string, mixed>
+     */
+    private function withSourceInterItemSpaces(array $block, ?DOMElement $sourceElement): array
+    {
+        $innerContent = $block['innerContent'] ?? null;
+        if ( ! $sourceElement instanceof DOMElement || ! is_array($innerContent) || ! $this->sourceChildrenAreSpaceSeparatedInline($sourceElement, count($block['innerBlocks'] ?? array())) ) {
+            return $block;
+        }
+        $spaced = array();
+        $previousWasBlock = false;
+        foreach ( $innerContent as $part ) {
+            if ( null === $part && $previousWasBlock ) {
+                $spaced[] = ' ';
+            }
+            $spaced[] = $part;
+            $previousWasBlock = null === $part;
+        }
+        $block['innerContent'] = $spaced;
+        $block['innerHTML'] = implode('', array_filter($spaced, 'is_string'));
+
+        return $block;
+    }
+
+    private function sourceChildrenAreSpaceSeparatedInline(DOMElement $parent, int $innerBlockCount): bool
+    {
+        if ( $innerBlockCount < 2 ) {
+            return false;
+        }
+        // The source markup first: one element per inner block, with only
+        // collapsible whitespace (and comments) around them and some between
+        // every pair. `</li><li>` has no space to give back.
+        $items = array();
+        $whitespace = null;
+        foreach ( $parent->childNodes as $node ) {
+            if ( $node instanceof DOMElement ) {
+                if ( array() !== $items && '' === $whitespace ) {
+                    return false;
+                }
+                $items[] = $node;
+                $whitespace = '';
+            } elseif ( XML_TEXT_NODE === $node->nodeType ) {
+                if ( 1 !== preg_match('/^[ \t\n\r\f]*$/', (string) $node->nodeValue) ) {
+                    return false;
+                }
+                $whitespace .= (string) $node->nodeValue;
+            } elseif ( XML_COMMENT_NODE !== $node->nodeType ) {
+                return false;
+            }
+        }
+        if ( count($items) !== $innerBlockCount
+            || 1 === preg_match('/flex|grid|box|contents|none|table/', $this->resolvedDeclaration($parent, 'display'))
+            || ! in_array($this->resolvedDeclaration($parent, 'white-space'), array( '', 'normal', 'nowrap' ), true) ) {
+            return false;
+        }
+        // Then each item shares the parent's line box: inline-level and in flow.
+        foreach ( $items as $item ) {
+            $display = $this->resolvedDeclaration($item, 'display');
+            $inline = '' === $display
+                ? $this->sourceElementClassifier->isInlineSourceElement(strtolower($item->tagName)) || in_array(strtolower($item->tagName), array( 'button', 'img', 'input', 'select', 'textarea' ), true)
+                : 1 === preg_match('/^inline(?:-[a-z-]+)?$/', $display);
+            if ( ! $inline
+                || ! in_array($this->resolvedDeclaration($item, 'float'), array( '', 'none' ), true)
+                || in_array($this->resolvedDeclaration($item, 'position'), array( 'absolute', 'fixed' ), true) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -11643,6 +11722,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ($parent instanceof DOMElement
             && $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
             && in_array($this->resolvedDeclaration($parent, 'display'), array('', 'inline'), true)) {
+            return true;
+        }
+
+        // A link that is a flex or grid item is the item itself. Its in-flow
+        // image still sits on the link's own line, so the strut sizes the link.
+        if ($parent instanceof DOMElement && 'a' === strtolower($parent->tagName) && $this->styleResolver->imageIsFlexOrGridItem($parent)
+            && ! in_array($this->resolvedDeclaration($element, 'position'), array( 'absolute', 'fixed' ), true)
+            && in_array($this->resolvedDeclaration($element, 'float'), array( '', 'none' ), true)) {
             return true;
         }
 
