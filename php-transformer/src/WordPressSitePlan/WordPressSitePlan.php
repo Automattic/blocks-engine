@@ -4417,7 +4417,7 @@ PHP;
             $cardMarkup = substr($markup, $card['offset'], $card['length']);
             foreach (self::blockRanges($cardMarkup) as $leaf) {
                 if (array() !== self::childBlockRanges($cardMarkup, $leaf)) continue;
-                $texts[ListingExcerptProjection::text(substr($cardMarkup, $leaf['offset'], $leaf['length']))] = true;
+                $texts[self::listingLeafIdentity(substr($cardMarkup, $leaf['offset'], $leaf['length']))] = true;
             }
             $sharedText = null === $sharedText ? $texts : array_intersect_key($sharedText, $texts);
         }
@@ -4532,9 +4532,12 @@ PHP;
             if ('unbound' === $kind) {
                 // Repeating an unbound per-post literal is no more truthful than
                 // rendering the full article in its place. Decline the listing.
-                if (!isset($sharedText[ListingExcerptProjection::text($slice)])) return null;
+                if (!isset($sharedText[self::listingLeafIdentity($slice)])) return null;
                 $kind = 'chrome';
             }
+            // Media and other textless leaves carry no visible text to compare,
+            // so they are shared only when every card renders the same markup.
+            if ('chrome' === $kind && !isset($sharedText[self::listingLeafIdentity($slice)])) return null;
             if ('comments' === $kind || 'chrome' === $kind) {
                 return array('markup' => $slice, 'title' => false, 'content' => false);
             }
@@ -4586,6 +4589,13 @@ PHP;
         }
         return array('markup' => $slice, 'title' => $foundTitle, 'content' => $emittedContent && !$foundTitle);
     }
+    /** Visible text identifies a card leaf; a textless leaf is identified by its markup. */
+    private static function listingLeafIdentity(string $leaf): string
+    {
+        $text = ListingExcerptProjection::text($leaf);
+        return '' !== $text ? $text : "\0" . $leaf;
+    }
+
     /** @param array<string,mixed> $attrs */
     private static function listingWrapperAttributes(array $attrs): string
     {
