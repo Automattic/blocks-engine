@@ -137,6 +137,7 @@ final class DesignSystem
      * @param array<string,mixed> $root Root values every document agrees on.
      * @param array<string,mixed> $elements Shared element values and proven no-op per-level heading typography.
      * @param list<string> $literalColors Painted opaque colours the palette bound left without a token, heaviest first.
+     * @param array<string,string> $buttonVariation Dominant look scoped to matching button blocks when an element would reach unowned values.
      */
     private function __construct(
         public readonly array $colors,
@@ -149,6 +150,7 @@ final class DesignSystem
         public readonly float $rootPx,
         public readonly int $documentCount,
         public readonly array $literalColors = array(),
+        public readonly array $buttonVariation = array(),
     ) {
     }
 
@@ -314,6 +316,14 @@ final class DesignSystem
         if (!isset($this->elements['button'])) return $this;
         $dominant = isset($this->elements['button']['padding']);
         $owned = array('color' => true, 'background' => true, 'font_family' => true, 'font_size' => true, 'font_weight' => true);
+        $unstyled = false;
+        foreach ($markups as $markup) {
+            preg_match_all('/<!-- wp:button(?: (\{.*?\}))? \/?-->/s', $markup, $buttons);
+            foreach ($buttons[1] as $json) {
+                $attributes = json_decode($json, true);
+                if (empty($attributes['style'])) $unstyled = true;
+            }
+        }
         foreach ($markups as $markup) {
             if (!preg_match_all('/<!-- wp:button(?: (\{.*?\}))? \/?-->/s', $markup, $matches)) continue;
             foreach ($matches[1] as $json) {
@@ -331,7 +341,9 @@ final class DesignSystem
                         || (!$outline && !isset($style['color']['background']) && !isset($attributes['backgroundColor']))) {
                         $elements = $this->elements;
                         unset($elements['button']);
-                        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors);
+                        // A plain unstyled button does not establish a button system.
+                        $variation = $unstyled ? array() : $this->elements['button'];
+                        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $variation);
                     }
                 }
                 $carried = array(
@@ -351,7 +363,7 @@ final class DesignSystem
         if (!$owned['background']) unset($button['hover_background']);
         $elements = $this->elements;
         if (array() === $button) unset($elements['button']); else $elements['button'] = $button;
-        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors);
+        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
     }
 
     /**
@@ -388,7 +400,12 @@ final class DesignSystem
             if (array() === $values) unset($elements[$element]); else $elements[$element] = $values;
         }
         if ($elements === $this->elements) return $this;
-        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors);
+        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+    }
+
+    public function buttonVariationSlug(): ?string
+    {
+        return array() === $this->buttonVariation ? null : ($this->colorSlug($this->buttonVariation['background']) ?? 'primary');
     }
 
     /** A palette colour's value by slug, or null. */

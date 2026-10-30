@@ -58,6 +58,38 @@ $reversed['files'] = array_reverse($fixture['files'], true);
 foreach ($compile($reversed)['writes'] as $write) {
     if ('theme.json' === $write['target_path']) $assert($theme === json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR), 'route insertion order does not change the design system');
 }
+$input = $fixture;
+foreach ($input['files'] as &$html) $html = str_replace('</body>', '<button class="close" aria-label="Close" style="font-size:1.2rem;border-radius:50%">✕</button></body>', $html);
+unset($html);
+$variationMarkup = '';
+$registered = false;
+foreach ($compile($input)['writes'] as $write) {
+    if ('functions.php' === $write['target_path']) $registered = str_contains($write['payload']['data'], "register_block_style( 'core/button'");
+    if ('theme.json' === $write['target_path']) $variationTheme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
+    else $variationMarkup .= $write['payload']['data'];
+}
+$assert(!isset($variationTheme['styles']['elements']['button']['spacing']['padding']), 'icon control prevents element look');
+$variations = $variationTheme['styles']['blocks']['core/button']['variations'] ?? array();
+$assert(1 === count($variations), 'unsafe element becomes one button variation');
+$assert($registered, 'generated bootstrap registers theme button variations in the editor');
+$slug = array_key_first($variations);
+$assert('primary' === $slug, 'variation name describes its fill role');
+$assert($button === $variations[$slug], 'variation carries the same preset-backed look');
+preg_match_all('/<!-- wp:button (\{.*?\}) -->/', $variationMarkup, $variantMatches);
+$styled = $close = 0;
+foreach ($variantMatches[1] as $json) {
+    $attrs = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+    if (str_contains($attrs['className'] ?? '', 'is-style-' . $slug)) {
+        ++$styled;
+        $assert(!isset($attrs['style']['typography']) && !isset($attrs['style']['spacing']['padding']) && !isset($attrs['style']['border']['radius']), 'variation removes duplicate look');
+    }
+    if ('50%' === ($attrs['style']['border']['radius'] ?? null)) {
+        ++$close;
+        $assert(!str_contains($attrs['className'], 'is-style-' . $slug), 'close is not styled');
+        $assert('1.2rem' === ($attrs['style']['typography']['fontSize'] ?? null) && '50%' === ($attrs['style']['border']['radius'] ?? null), 'close keeps its own values');
+    }
+}
+$assert($styled > 0 && $close > 0, 'variation and icon covered');
 // Neither a tie nor a viewport-dependent button system establishes a look.
 foreach (array('tie', 'responsive', 'unstyled') as $case) {
     $input = $fixture;
@@ -71,6 +103,7 @@ foreach (array('tie', 'responsive', 'unstyled') as $case) {
         if ('theme.json' !== $write['target_path']) continue;
         $negative = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
         $assert(!isset($negative['styles']['elements']['button']['spacing']['padding']), $case . ': no unproven dominant look');
+        $assert(!isset($negative['styles']['blocks']['core/button']['variations']), $case . ': no variation');
     }
 }
 echo "Dominant button element regression passed\n";

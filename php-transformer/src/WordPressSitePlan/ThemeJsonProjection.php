@@ -545,7 +545,9 @@ final class ThemeJsonProjection
         );
         foreach (array('text_transform' => array('typography', 'textTransform'), 'letter_spacing' => array('typography', 'letterSpacing'), 'radius' => array('border', 'radius'), 'padding' => array('spacing', 'padding')) as $field => $path) $paths[$field] = array($path, static fn(string $value): string => $value);
         $properties = array('color' => array('color'), 'background' => array('background', 'background-color'), 'font_family' => array('font-family', 'font'), 'font_size' => array('font-size', 'font'), 'font_weight' => array('font-weight', 'font'), 'line_height' => array('line-height', 'font'));
-        foreach ($system->elements as $element => $values) {
+        $elements = $system->elements;
+        if (null !== $system->buttonVariationSlug()) $elements['button'] = $system->buttonVariation;
+        foreach ($elements as $element => $values) {
             $tags = 'heading' === $element ? array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') : array($element);
             $element = 'a' === $element ? 'link' : $element;
             foreach ($values as $field => $value) {
@@ -555,7 +557,8 @@ final class ThemeJsonProjection
                 $dominantButton = 'button' === $element && isset($values['padding']);
                 if ($differs && !$dominantButton && !('button' === $element && 'color' === $field)) continue;
                 [$path, $reference] = $paths[$field];
-                $target = &$styles['elements'][$element];
+                if ('button' === $element && null !== ($slug = $system->buttonVariationSlug())) $target = &$styles['blocks']['core/button']['variations'][$slug];
+                else $target = &$styles['elements'][$element];
                 foreach ($path as $key) $target = &$target[$key];
                 // A button colour is what binding relies on when it drops a
                 // button's literal (PresetBinding::rendersThroughElement()),
