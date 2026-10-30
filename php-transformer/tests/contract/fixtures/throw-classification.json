@@ -1419,6 +1419,14 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/MissingFontSourceRecovery.php": {
+      "ValidationException($diagnostic['message'])": {
+        "class": "integrity",
+        "count": 1,
+        "finding": "wordpress_site_plan_missing_font_source",
+        "test": "tests/contract/missing-local-media.php"
+      }
+    },
     "src/WordPressSitePlan/DocumentHeadContext.php": {
       "InvalidArgumentException('Document head '.$row['tag'].' asset is not bound to a declared write or external URL: '.mb_strcut((string)$reference,0,160,'UTF-8'))": {
         "class": "integrity",
