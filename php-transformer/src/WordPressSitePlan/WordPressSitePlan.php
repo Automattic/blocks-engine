@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -4051,6 +4052,12 @@ PHP;
         if ('' !== $identity && isset($shared[$identity])) {
             return array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => true, 'content' => false, 'retained' => array());
         }
+        // A closed dialog opens on demand, so it can neither host the post
+        // title nor place post-content: both would stay hidden with it. When
+        // it varies by post it travels with the body, unplaced.
+        if (self::isClosedDialogBlock($slice)) {
+            return array('template' => '', 'body' => $slice, 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array(array('offset' => $range['offset'], 'length' => $range['length'])));
+        }
         $children = self::childBlockRanges($markup, $range);
         if (array() === $children) {
             $kind = $this->classifyPostChromeBlock($slice, $post, $route);
@@ -4116,6 +4123,23 @@ PHP;
         }
         $normalize = static fn(string $value): string => trim(preg_replace('/\s+/', ' ', str_replace("\xc2\xa0", ' ', html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?? '');
         return $normalize(strip_tags($slice)) === $normalize($title);
+    }
+    /** Whether a block renders a dialog that is hidden until opened. */
+    private static function isClosedDialogBlock(string $slice): bool
+    {
+        if (!preg_match('/^\s*<!--\s*wp:.*?-->\s*(<(?!!)[^>]*>)/s', $slice, $match)) {
+            return false;
+        }
+        $attributes = HtmlTagScanner::attributes($match[1]);
+        if (preg_match('/^<dialog\b/i', $match[1])) {
+            return !array_key_exists('open', $attributes);
+        }
+        if (!array_key_exists('hidden', $attributes) && 'true' !== strtolower($attributes['aria-hidden'] ?? '')) {
+            return false;
+        }
+        return 'dialog' === strtolower($attributes['role'] ?? '')
+            || 'true' === strtolower($attributes['aria-modal'] ?? '')
+            || array_key_exists(CaptureEvidence::DIALOG_PANEL, $attributes);
     }
     private static function isCommentFormChrome(string $slice): bool
     {
