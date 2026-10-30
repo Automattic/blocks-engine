@@ -317,3 +317,33 @@ Blocks Engine does not read these names. Downstream importers do.
 | `data-blocks-engine-capture-document-unavailable` | attribute (flag) on `<html>` | ignored | Set at runtime when no captured document applies to the device. |
 | `data-blocks-engine-capture-member-login` | attribute | provider `[a-z0-9_-]+` | The link leads to a member login with that provider. |
 | `data-blocks-engine-capture-member-login-` | class prefix | `<prefix><provider>`, provider `[a-z0-9_-]+` | Class form of the member-login marker. It survives block conversion, which keeps classes. |
+
+### Collection component nodes
+
+| Attribute | Meaning |
+| --- | --- |
+| `data-blocks-engine-capture-unsupported` | Unsupported component function. |
+
+The v2 `kind: collection` node carries `collection.members` (stable key, text,
+optional URL and source member HTML), observed `states` (id, optional selector /
+action / value trigger, ordered member keys), `controls`, `coverage`, `limits`,
+and the producer's `replay` capability. The producer's `replay: unsupported`
+does not prohibit consumer materialization from complete membership evidence.
+`data-blocks-engine-capture-unsupported="collection"` remains an honest loss
+marker unless the owning complete node can be projected.
+
+Only captured, complete nodes are admitted. Partial/unsupported evidence and
+bounded inventories retain their original tree and a loss finding. Source
+member HTML becomes one editable native block tree in first-observed order.
+Observed filter values select their exact recorded sets; empty/reset values
+restore the union. Search samples do not prove a server predicate: the shared
+collection filter runtime instead performs local normalized text search over
+editable captured content and supplies an explicit no-matching-captured-records
+state. This is not a promise to search uncaptured records.
+
+Pagination is removed in favor of the complete captured list. Page probes
+prove membership, not stable page boundaries across filter/search states;
+therefore no source pagination behavior is invented. The obsolete portable
+annotation-only collection filter projector is retired; existing verified
+legacy typed-search evidence continues through the canonical collection
+projector and the same editable runtime.

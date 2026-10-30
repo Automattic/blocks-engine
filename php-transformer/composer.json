@@ -62,6 +62,7 @@
     "visual:source-class-selector-ownership": "node tools/visual-parity/tests/source-class-selector-ownership.mjs",
     "visual:nested-responsive-font-size": "node tools/visual-parity/tests/nested-responsive-font-size.mjs",
     "test:image-caption-margins-browser": "node tests/unit/image-caption-margins-browser.mjs",
+    "test:collection-component-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-collection-component-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/collection-component-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "test:slideshow-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-slideshow-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/slideshow-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "test:structural-carousel-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-structural-carousel-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/structural-carousel-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "test:carousel-control-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-carousel-control-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/carousel-control-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
@@ -274,6 +275,7 @@
       "@test:unit"
     ],
     "test:unit": [
+      "php tests/unit/collection-component.php",
       "php tests/unit/menu-list-container.php",
       "php tests/unit/navigation-positioned-row-layout.php",
       "php tests/unit/block-markup-input.php",
