@@ -596,13 +596,28 @@ final class GeneratedBlockStyleProjector
             $parentDisplays = array_merge($parentDisplays, array_values($this->styleResolver->conditionalDisplayRules($parent)));
         }
         $isFlex = (bool) array_intersect(array_map(CssValueInspector::comparable(...), $parentDisplays), array('flex', 'inline-flex'));
+        $isGrid = in_array(CssValueInspector::comparable((string) ($parentStyle['display'] ?? '')), array('grid', 'inline-grid'), true);
+        $controlStyle = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($control));
+        $alignment = CssValueInspector::comparable((string) ($controlStyle['align-self'] ?? 'auto'));
+        if ( 'auto' === $alignment ) $alignment = CssValueInspector::comparable((string) ($parentStyle['align-items'] ?? 'normal'));
+        $stretchesHeight = $isGrid
+            && in_array($alignment, array('normal', 'stretch'), true)
+            && in_array(CssValueInspector::comparable((string) ($controlStyle['height'] ?? 'auto')), array('', 'auto'), true);
+        // A grid item's stretched track height reaches the link through flex
+        // carriers, since a percentage height cannot resolve against the
+        // auto-height block wrapper. Flex rows keep the height:100% path.
+        $stretchRule = $stretchesHeight
+            ? $wrapper . '{display:flex!important;align-items:stretch!important}'
+                . $button . '{display:flex!important;align-items:stretch!important;width:100%;flex:1}'
+                . $link . '{height:auto!important}'
+            : '';
         // The wrapper stands in for the source control as its parent's flex or
         // grid item. When the source kept CSS's automatic minimum size, the
         // wrapper must keep it too: zeroing it lets the row shrink below its
         // nowrap labels, which lowers an ancestor grid item's min-content
         // contribution and shifts `fr` tracks away from the source resolution.
         $wrapperFloor = self::sourceControlKeepsAutomaticMinimum(
-            $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($control)),
+            $controlStyle,
             $this->styleResolver->authorStructuralDeclarations($control)
         ) ? '' : ';min-width:0';
         $generatedStyles->registerDirectFlexButton(
@@ -611,7 +626,9 @@ final class GeneratedBlockStyleProjector
                 . $button . '{display:block!important;margin:0!important;min-width:0' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
                 . $link . '{box-sizing:border-box' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
                 . ($hasWidth || ! $isFlex ? '' : $wrapper . '{width:auto!important}')
-                . ($isFlex ? $button . '{width:100%!important;height:100%}' . $link . '{width:100%!important;height:100%}' : '')
+                . ($isGrid ? $button . '{width:100%}' : '')
+                . ($isFlex ? $button . '{width:100%!important;height:100%}' . $link . '{' . ($hasWidth ? '' : 'width:100%!important;') . 'height:100%}' : '')
+                . $stretchRule
         );
     }
 

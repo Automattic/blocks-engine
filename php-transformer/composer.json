@@ -109,6 +109,7 @@
       "php tests/contract/class-owned-native-buttons.php",
       "php tests/contract/custom-width-native-button.php",
       "php tests/contract/native-button-link-geometry.php",
+      "php tests/contract/grid-item-button-link-box.php",
       "php tests/contract/button-link-margin-once.php",
       "php tests/contract/button-inline-paint.php",
       "php tests/contract/fixed-cta-bar-single-button.php",

@@ -1379,8 +1379,25 @@ final class AuthorStylesheetProjector
             }
             return true;
         }
+        if ( $this->buttonSubjectsAreLayoutItems($controls)
+            && ( 'min-width' === $property || 'auto' === CssValueInspector::comparable($value) )
+        ) {
+            // Auto must compete with intrinsic widths on the same link; the
+            // minimum constrains that box rather than only its outer carrier.
+            return true;
+        }
         $value = strtolower(CssValueInspector::withoutImportant($value));
         return in_array($value, array( 'min-content', 'max-content', 'fit-content', 'content' ), true);
+    }
+
+    /** @param list<DOMElement> $controls */
+    private function buttonSubjectsAreLayoutItems(array $controls): bool
+    {
+        if ( array() === $controls ) return false;
+        foreach ( $controls as $control ) {
+            if ( ! LayoutParticipation::resolve($control, $this->styleResolver)->isLayoutItem() ) return false;
+        }
+        return true;
     }
 
     private function isCollapsedButtonKeywordWidth(string $property, string $value): bool
