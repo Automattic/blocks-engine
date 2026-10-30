@@ -4574,12 +4574,16 @@ final class ArtifactCompiler
 
         $titleDeclaration = HtmlTagScanner::scan($html, 'title')[0] ?? null;
         $titleKey = null !== $titleDeclaration ? trim(html_entity_decode(strip_tags($titleDeclaration['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : '';
+        // Content shown only on demand (a closed dialog, a hidden panel) never
+        // names the page a visitor lands on.
+        $visibleHtml = self::withoutHiddenSubtrees($html);
         if ( $path !== $entryPath && ($titleCounts[$titleKey] ?? 0) > 1 ) {
             // A title served verbatim by multiple routes cannot identify one.
             // The entry page owns its title; the routes that copy it do not.
             // Read headings in content order, not heading-level priority, and
             // never let a shell heading displace the route's inbound label.
             // Without a <main> landmark, read the body minus page chrome.
+            $html = $visibleHtml;
             if ( preg_match('/<main\b[^>]*>(.*?)<\/main\s*>/is', $html, $mainMatch) ) {
                 $main = $mainMatch[1];
             } else {
@@ -4587,6 +4591,16 @@ final class ArtifactCompiler
                 $main = preg_replace('/<(header|nav|footer|aside)\b[^>]*>.*?<\/\1\s*>/is', '', $main) ?? $main;
             }
             if ( preg_match_all('/<h([1-6])\b[^>]*>(.*?)<\/h\1>/is', $main, $headings) ) {
+                // The page's own share title names its heading when content
+                // order alone would pick a byline or another lead-in heading.
+                $shareTitle = self::openGraphTitle($html);
+                if ( '' !== $shareTitle ) {
+                    foreach ( $headings[2] as $heading ) {
+                        if ( $normalize($this->withoutOtherLanguageText($heading, $html)) === $shareTitle ) {
+                            return $shareTitle;
+                        }
+                    }
+                }
                 foreach ( $headings[2] as $heading ) {
                     if ( ! $this->headingIsHyperlinkChrome($heading) ) {
                         $label = $normalize($this->withoutOtherLanguageText($heading, $html));
@@ -4621,7 +4635,7 @@ final class ArtifactCompiler
         }
 
         $contentHeading = '';
-        if ( preg_match_all('/<h1\b[^>]*>(.*?)<\/h1>/is', $html, $matches) ) {
+        if ( preg_match_all('/<h1\b[^>]*>(.*?)<\/h1>/is', $visibleHtml, $matches) ) {
             foreach ( $matches[1] as $headingHtml ) {
                 if ( $this->headingIsHyperlinkChrome($headingHtml) ) {
                     continue;
@@ -4663,6 +4677,47 @@ final class ArtifactCompiler
         }
 
         return $this->titleFromPath($path);
+    }
+
+    /**
+     * The document without subtrees a visitor cannot see at rest: elements
+     * with the `hidden` attribute or `aria-hidden="true"`, closed `<dialog>`s,
+     * and `<template>` contents.
+     */
+    private static function withoutHiddenSubtrees(string $html): string
+    {
+        if ( ! preg_match('/<(?:[a-z][a-z0-9-]*\b[^>]*\s(?:hidden(?=[\s=\/>])|aria-hidden\s*=\s*["\']?true)|template\b|dialog\b)/i', $html) ) {
+            return $html;
+        }
+        $dom = new \DOMDocument();
+        if ( ! self::loadUtf8Html($dom, $html) ) {
+            return $html;
+        }
+        $xpath = new \DOMXPath($dom);
+        $hidden = $xpath->query('//*[@hidden] | //*[translate(@aria-hidden, "TRUE", "true") = "true"] | //template | //dialog[not(@open)]');
+        $nodes = array();
+        foreach ( $hidden ?: array() as $node ) {
+            $nodes[] = $node;
+        }
+        foreach ( $nodes as $node ) {
+            $node->parentNode?->removeChild($node);
+        }
+        $root = $dom->documentElement;
+        return $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $html) : $html;
+    }
+
+    /** The document's Open Graph title, normalized like a heading label. */
+    private static function openGraphTitle(string $html): string
+    {
+        foreach ( HtmlTagScanner::scan($html, 'meta') as $meta ) {
+            $attributes = HtmlTagScanner::attributes($meta['tag']);
+            if ( 'og:title' !== strtolower($attributes['property'] ?? $attributes['name'] ?? '') ) {
+                continue;
+            }
+            $value = html_entity_decode($attributes['content'] ?? '', ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            return trim(preg_replace('/\s+/u', ' ', str_replace("\u{00A0}", ' ', $value)) ?? '');
+        }
+        return '';
     }
 
     /**
