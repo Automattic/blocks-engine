@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/throw-classification/v1",
   "description": "Every throw new and throwing-helper call in src/, keyed by file and Class(normalized message) or helper(normalized arguments), with its occurrence count. Enforced by tests/contract/throw-classification.php; see docs/contracts/throw-classification.md. LogicException and its project subclasses are integrity by construction and are not listed.",
-  "representability_pending_max": 9,
+  "representability_pending_max": 8,
   "sites": {
     "src/ArtifactCompiler/ArtifactCompiler.php": {
       "InvalidArgumentException('Caller runtime declarations cannot provide compiler-reserved script supersession proofs.')": {
@@ -161,13 +161,6 @@
       "InvalidArgumentException(\"Runtime declaration {$index} asset transformation requires declared local CSS and font inputs.\")": {
         "class": "integrity",
         "count": 1
-      },
-      "InvalidArgumentException(\"Runtime declaration {$index} contains an entity that exceeds the byte limit.\")": {
-        "class": "representability",
-        "count": 1,
-        "unit": "item",
-        "finding": "runtime_entity_dropped",
-        "pending": true
       },
       "InvalidArgumentException(\"Runtime declaration {$index} entity collections require a typed entities payload.\")": {
         "class": "integrity",
@@ -1561,14 +1554,6 @@
       }
     },
     "src/WordPressSitePlan/WordPressSitePlan.php": {
-      "InvalidArgumentException('WordPress site plan page override must resolve to a materialized page.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan synthetic parent must have a materialized child.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "DocumentIdentityException($failures)": {
         "class": "integrity",
         "count": 1
@@ -1605,6 +1590,10 @@
         "class": "integrity",
         "count": 1
       },
+      "InvalidArgumentException('A native archive template collides with a declared template.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('A page asset scope does not match its canonical page.')": {
         "class": "integrity",
         "count": 1
@@ -1622,6 +1611,10 @@
         "count": 1
       },
       "InvalidArgumentException('A provider script supersession proof is malformed or detached from its bound form.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A resolved WordPress site plan does not resolve every runtime entity manifest.')": {
         "class": "integrity",
         "count": 1
       },
@@ -1659,7 +1652,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('A native archive template collides with a declared template.')": {
+      "InvalidArgumentException('Asset consumers or destination are stale.')": {
         "class": "integrity",
         "count": 1
       },
@@ -1843,6 +1836,34 @@
         "class": "integrity",
         "count": 1
       },
+      "InvalidArgumentException('WordPress site plan author archive is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan author entity count or list is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan author entity is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan author evidence is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan author membership list is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan author membership must be sorted.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan author membership must name a canonical post.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('WordPress site plan binary write cannot carry a resolution projection.')": {
         "class": "integrity",
         "count": 1
@@ -1852,10 +1873,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan content decision evidence is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan structured page evidence is invalid.')": {
         "class": "integrity",
         "count": 1
       },
@@ -1899,6 +1916,10 @@
         "class": "integrity",
         "count": 1
       },
+      "InvalidArgumentException('WordPress site plan fallback archive must not have a per-entity template.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('WordPress site plan font materialization is structurally invalid.')": {
         "class": "integrity",
         "count": 1
@@ -1923,6 +1944,10 @@
         "class": "integrity",
         "count": 1
       },
+      "InvalidArgumentException('WordPress site plan hierarchical category lacks its parent.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('WordPress site plan identity is missing, malformed, or stale.')": {
         "class": "integrity",
         "count": 1
@@ -1932,6 +1957,14 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan must export every canonical page route.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan native archive entity lacks its source-owned archive template.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan native archive must name a captured source without a materialized page.')": {
         "class": "integrity",
         "count": 1
       },
@@ -1952,6 +1985,10 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan page lacks a canonical route.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan page override must resolve to a materialized page.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2055,7 +2092,15 @@
         "class": "integrity",
         "count": 1
       },
+      "InvalidArgumentException('WordPress site plan structured page evidence is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('WordPress site plan style.css scaffold is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan synthetic parent must have a materialized child.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2067,35 +2112,11 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan native archive must name a captured source without a materialized page.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan taxonomy entity count exceeds its bound.')": {
         "class": "operational",
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan taxonomy entity is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan taxonomy slug does not match its archive route.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan taxonomy parent is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan taxonomy parent is not a proven immediate ancestor.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan hierarchical category lacks its parent.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan native archive entity lacks its source-owned archive template.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2108,6 +2129,18 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan taxonomy membership list is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan taxonomy parent is not a proven immediate ancestor.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan taxonomy parent is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan taxonomy slug does not match its archive route.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2314,51 +2347,15 @@
         "finding": "wordpress_site_plan_colliding_asset_target",
         "test": "tests/contract/colliding-asset-targets.php"
       },
+      "unique($claimed,$source,'post author membership')": {
+        "class": "integrity",
+        "count": 1
+      },
       "unique($documentIdentities,$page['reconciliation_identity'],'page reconciliation identity')": {
         "class": "integrity",
         "count": 1
       },
       "unique($memberSet,$sourcePath,'taxonomy membership')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan fallback archive must not have a per-entity template.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan author archive is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan author entity count or list is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan author entity is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan author evidence is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan author membership list is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan author membership must be sorted.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan author membership must name a canonical post.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "unique($slugs,$entity['slug'],'author nicename')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "unique($claimed,$source,'post author membership')": {
         "class": "integrity",
         "count": 1
       },
@@ -2378,6 +2375,10 @@
         "class": "integrity",
         "count": 1
       },
+      "unique($slugs,$entity['slug'],'author nicename')": {
+        "class": "integrity",
+        "count": 1
+      },
       "unique($sources,$document['source_path'],'source document')": {
         "class": "integrity",
         "count": 1
@@ -2391,10 +2392,6 @@
         "count": 1
       },
       "unique($writeTargets,$write['target_path'],'write target',(string)($write['source_path']??''))": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Asset consumers or destination are stale.')": {
         "class": "integrity",
         "count": 1
       }

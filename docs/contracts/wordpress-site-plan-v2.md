@@ -54,8 +54,23 @@ and `WordPressSitePlanResolver::resolve()`.
   can walk, is dropped with its bindings and its block stays static: a
   `runtime_entity_dropped` warning (unit `item`). A collection whose manifest
   still exceeds 5 MiB is dropped with its dependency: a
-  `runtime_declaration_dropped` warning (unit `declaration`). The aggregate
-  declaration bounds stay fail-closed.
+  `runtime_declaration_dropped` warning (unit `declaration`). At compiler
+  intake the aggregate declaration bound stays fail-closed.
+- Composition applies the declaration byte limits once, when the plan is
+  assembled: an entity list over 5 MiB, then the largest others while the set
+  exceeds the aggregate limit, becomes an entity manifest whose records join
+  `runtime_entity_records` (the form resolution expands, with bindings
+  anchored on the resolved documents), then a
+  declaration whose payload still exceeds 5 MiB is dropped, and while the set
+  exceeds the aggregate limit the largest declaration is dropped. A dropped
+  declaration takes the declarations required only for it, and those it is
+  `required_for`, with it; its bindings and whole-page candidates leave the
+  plan, so its blocks stay static. Each drop is a `runtime_declaration_dropped`
+  warning (unit `declaration`, `declaration_key`, `source_path`, `reason_code`,
+  `metrics.bytes`, `metrics.limit_bytes`). A declaration integrity depends on
+  (asset publications, theme preference ownership, and forms that prove a
+  source script was superseded) is never dropped, so its limit stays
+  fail-closed.
 - A script or `aria-controls` target missing from the emitted markup is a
   `runtime_dependency_target_missing` warning (unit `block`). The plan is kept,
   with `quality.status` `success_with_warnings`.

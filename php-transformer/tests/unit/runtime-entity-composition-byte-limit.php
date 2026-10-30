@@ -15,21 +15,16 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
 };
 $collection = static fn (array $entities): array => array('kind' => 'entity_collection', 'type' => 'widgets', 'source_path' => 'index.html', 'payload' => array('schema' => 'example/widgets/v1', 'entities' => $entities));
 
-// An oversized entity AFTER a small one must not bypass the chunk guard.
-try {
-    $factored = RuntimeDeclarations::factor(array($collection(array(array('id' => 'small'), array('id' => 'large', 'text' => str_repeat('x', RuntimeDeclarations::MAX_PAYLOAD_BYTES + 1))))));
-    foreach ($factored['records'] as $record) $assert($record['bytes'] <= RuntimeDeclarations::MAX_PAYLOAD_BYTES, 'Every factored record fits the byte limit.');
-    $assert(false, 'factor rejects an entity no record can carry.');
-} catch (InvalidArgumentException $error) {
-    $assert(str_contains($error->getMessage(), 'contains an entity that exceeds the byte limit'), 'factor checks the new chunk entity: ' . $error->getMessage());
-}
+// A list holding an entity no record can carry is dropped with a finding
+// instead of failing the plan; nothing oversized reaches the record store.
+$factored = RuntimeDeclarations::factor(array($collection(array(array('id' => 'small'), array('id' => 'large', 'text' => str_repeat('x', RuntimeDeclarations::MAX_PAYLOAD_BYTES + 1))))));
+$assert(array() === $factored['declarations'] && array() === $factored['entity_records'] && 1 === count($factored['diagnostics']), 'factor drops a list whose entity no record can carry.');
 
-// Collections can still span several bounded records without losing entities.
+// Representable entities move into bounded entity records without loss.
 $bounded = array(array('id' => 'small'), array('id' => 'one', 'text' => str_repeat('x', 3000000)), array('id' => 'two', 'text' => str_repeat('y', 3000000)));
 $factored = RuntimeDeclarations::factor(array($collection($bounded)));
-$assert(2 === count($factored['records']), 'Representable entities split into bounded records.');
-foreach ($factored['records'] as $record) $assert($record['bytes'] <= RuntimeDeclarations::MAX_PAYLOAD_BYTES && strlen(RuntimeDeclarations::canonicalJson($record['payload'])) <= RuntimeDeclarations::MAX_PAYLOAD_BYTES, 'Every emitted record fits the byte limit.');
-$assert($bounded === RuntimeDeclarations::materialize($factored['declarations'], $factored['records'])[0]['payload']['entities'], 'Factoring preserves representable entities.');
+$assert(RuntimeEntityManifest::SCHEMA === ($factored['declarations'][0]['payload']['schema'] ?? null) && array() === $factored['diagnostics'], 'Representable entities move into an entity manifest.');
+$assert($bounded === RuntimeEntityManifest::resolve($factored['declarations'][0]['payload'], $factored['entity_records']), 'Factoring preserves representable entities.');
 
 // Recompose a real compiler envelope. The shared block is modest, but one
 // entity references it many times, as shared collection bindings can do.
@@ -65,17 +60,16 @@ try {
 } catch (InvalidArgumentException $error) {
     $assert(false, 'Composition remains valid: ' . $error->getMessage());
 }
-// Factoring must still fail closed on aggregate metadata and declaration count.
-foreach (array(
-    'aggregate canonical byte limit' => array(array('kind' => 'dependency', 'capability' => 'widget', 'source_path' => 'index.html', 'payload' => array('schema' => 'example/metadata/v1', 'text' => str_repeat('x', RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES - 128)))),
-    'bounded ordered collection' => array_fill(0, 101, $collection(array(array('id' => 'small')))),
-) as $message => $declarations) {
-    try {
-        RuntimeDeclarations::normalizeForComposition($declarations);
-        $assert(false, 'Aggregate bounds fail closed: ' . $message);
-    } catch (InvalidArgumentException $error) {
-        $assert(str_contains($error->getMessage(), $message), 'Aggregate bounds fail closed: ' . $error->getMessage());
-    }
+// Oversized metadata degrades to a dropped declaration with a finding; the
+// declaration count bound still fails closed.
+$oversized = array(array('kind' => 'dependency', 'capability' => 'widget', 'source_path' => 'index.html', 'payload' => array('schema' => 'example/metadata/v1', 'text' => str_repeat('x', RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES - 128))));
+$factored = RuntimeDeclarations::factor($oversized);
+$assert(array() === $factored['declarations'] && 'runtime_declaration_dropped' === ($factored['diagnostics'][0]['code'] ?? null), 'Oversized metadata is dropped with a finding.');
+try {
+    RuntimeDeclarations::normalizeForComposition(array_fill(0, 101, $collection(array(array('id' => 'small')))));
+    $assert(false, 'The declaration count bound fails closed.');
+} catch (InvalidArgumentException $error) {
+    $assert(str_contains($error->getMessage(), 'bounded ordered collection'), 'The declaration count bound fails closed: ' . $error->getMessage());
 }
 if ($failures) exit(1);
 echo "runtime entity composition byte limit passed\n";
