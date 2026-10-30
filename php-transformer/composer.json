@@ -498,6 +498,7 @@
       "php tests/unit/heading-block-span-font-size.php",
       "php tests/unit/color-scheme-variant.php",
       "php tests/unit/color-scheme-projection.php",
+      "php tests/unit/color-scheme-design-tokens.php",
       "php tests/unit/background-image-extractor.php",
       "php tests/unit/repeating-background-layer.php",
       "php tests/unit/empty-layout-background-carrier.php",
