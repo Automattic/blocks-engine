@@ -107,6 +107,18 @@ $reset = $compile(
 );
 $assert('' === $containerRule($reset, 'reset-nav'), 'zero margin, padding, and border are not treated as a duplicated frame');
 
+// A WordPress-sourced menu carries only core-shaped classes. Its reset is keyed
+// through the importer's markers, so it never reaches a navigation the owner
+// adds after import.
+$core = $compile(
+    '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><header><nav class="wp-block-navigation has-secondary-background-color"><ul><li><a href="/a">Alpha</a></li><li><a href="/b">Beta</a></li></ul></nav></header><main><p>Copy</p></main></body></html>',
+    '.has-secondary-background-color{background-color:#eee}'
+);
+$assert(
+    1 === preg_match('/\.wp-block-navigation[.a-z0-9-]*\.blocks-engine-[.a-z0-9-]* \.wp-block-navigation__container\{background:none!important/', $core),
+    'a painted core-shaped menu resets its container through importer markers'
+);
+
 // The observed academic CV corpus case.
 $cvDirectory = dirname(__DIR__, 3) . '/fixtures/websites/31-personal-cv-academic';
 $cv = $compile((string) file_get_contents($cvDirectory . '/index.html'), (string) file_get_contents($cvDirectory . '/styles.css'));
