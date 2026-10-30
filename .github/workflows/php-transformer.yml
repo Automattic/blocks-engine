@@ -173,6 +173,9 @@ jobs:
       - name: Verify slideshow slides with inline images stack in one stage
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/carousel-inline-image-slides-browser.mjs
+      - name: Verify a height-limited image keeps its ratio after WordPress adds size attributes
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/image-height-clamp-intrinsic-width-browser.mjs
 
       - name: Verify native disclosure paint and label wrapping
         working-directory: php-transformer
