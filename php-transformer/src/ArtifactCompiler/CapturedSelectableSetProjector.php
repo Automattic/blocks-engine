@@ -49,7 +49,6 @@ final class CapturedSelectableSetProjector
 
     private function projectEvidence(array $files, array $consumedBindings): array
     {
-        $files = (new CapturedCollectionFilterProjector())->project($files);
         $diagnostics = array();
         $report = $this->jsonFile($files, 'interaction-states.json');
         if (null === $report) {

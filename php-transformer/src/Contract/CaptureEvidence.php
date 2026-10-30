@@ -23,6 +23,9 @@ final class CaptureEvidence
     /** Prefix of every capture-evidence data attribute. */
     public const ATTRIBUTE_PREFIX = 'data-blocks-engine-capture-';
 
+    /** Unsupported component marker; removed only when its owning evidence is projected. */
+    public const UNSUPPORTED = 'data-blocks-engine-capture-unsupported';
+
     // Document variants and responsive documents.
 
     /** Presence marks an element as a body-equivalent captured document root. */

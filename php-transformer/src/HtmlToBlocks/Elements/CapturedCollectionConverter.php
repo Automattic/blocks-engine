@@ -73,7 +73,7 @@ final class CapturedCollectionConverter implements ElementConverter
             foreach (array('mode' => 'category-and-query', 'order' => array(), 'categoryOrders' => array()) as $key => $default) {
                 $attrs[$key] = $config[$key] ?? $default;
             }
-            if (!in_array($attrs['mode'], array('category-and-query', 'category-or-global-search'), true) || !is_array($attrs['order']) || !is_array($attrs['categoryOrders'])) return ConversionOutcome::unhandled();
+            if (!in_array($attrs['mode'], array('category-and-query', 'category-or-global-search', 'captured-union'), true) || !is_array($attrs['order']) || !is_array($attrs['categoryOrders'])) return ConversionOutcome::unhandled();
             $children = ($this->convertChildren)($element, $fallbacks);
         } elseif (CollectionFilterBlockGenerator::CHOICES === $local) {
             $attrs['tagName'] = in_array($tagName, array('div', 'nav', 'section'), true) ? $tagName : 'div';

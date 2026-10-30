@@ -44,6 +44,18 @@ final class CapturedCollectionProjector
             if (!is_int($index) || !is_string($files[$index]['content'] ?? null)) continue;
             $document = null;
             $pageCount = 0;
+            foreach ($page['components'] as $component) {
+                if ('collection' !== ($component['kind'] ?? null)) continue;
+                $document ??= $this->document($files[$index]['content']);
+                $candidate = clone $document;
+                if (!$this->materializeCollection($candidate, $component)) {
+                    $diagnostics[] = $this->diagnostic('Collection coverage or control membership is incomplete; source controls remain unsupported.');
+                    continue;
+                }
+                $document = $candidate;
+                $count++;
+                $pageCount++;
+            }
             foreach (array_slice(CapturedComponentStates::evidence($page['components'], array('filter')), 0, 128) as $state) {
                 if (!is_array($state)) continue;
                 if ('typed-search' !== ($state['kind'] ?? null)) continue;
@@ -947,6 +959,99 @@ final class CapturedCollectionProjector
             for ($parent = $node; $parent && !$parent->isSameNode($root); $parent = $parent->parentNode) {}
             if (!$parent) return false;
         }
+        return true;
+    }
+
+    /** Collection probes prove membership, not source pagination or a search predicate. */
+    private function materializeCollection(DOMDocument $document, array $component): bool
+    {
+        $evidence = $component['collection'] ?? array();
+        if ('captured' !== ($component['status'] ?? null) || 'complete' !== ($evidence['coverage'] ?? null)
+            || empty($evidence['members']) || count($evidence['members']) >= 200 || count($evidence['controls'] ?? array()) >= 24
+            || strlen(json_encode($evidence)) > 2097152) return false;
+        $target = $this->one($document, $component['selector'] ?? '');
+        if (!$target) return false;
+        $keys = array_column($evidence['members'], 'key');
+        if (count($keys) !== count(array_unique($keys))) return false;
+        $controls = $pages = $memberships = array();
+        foreach ($evidence['states'] ?? array() as $state) {
+            if (preg_match('/-page-([0-9]+)$/', $state['id'] ?? '', $match) && (int) $match[1] >= 19) return false;
+        }
+        foreach ($evidence['states'] ?? array() as $state) {
+            if (!is_array($state['members'] ?? null) || array_diff($state['members'], $keys)) return false;
+            $trigger = $state['trigger'] ?? null;
+            if (!$trigger) continue;
+            $selector = $trigger['selector'] ?? '';
+            $node = $this->one($document, $selector);
+            if (!$node) return false;
+            if (preg_match('/-page-[0-9]+$/', $state['id'] ?? '')) { $pages[$selector] = $node; continue; }
+            if ('fill' === ($trigger['action'] ?? null)) { $controls[$selector] = array('node' => $node, 'search' => true); continue; }
+            if (!in_array($trigger['action'] ?? '', array('click', 'select'), true)) return false;
+            $controls[$selector]['node'] = $node;
+            $controls[$selector]['values'][] = array('value' => $trigger['value'] ?? null, 'keys' => $state['members']);
+        }
+        $root = $target->parentNode;
+        while ($root instanceof DOMElement) {
+            foreach (array_merge(array_column($controls, 'node'), array_values($pages)) as $node) {
+                for ($ancestor = $node; $ancestor && !$ancestor->isSameNode($root); $ancestor = $ancestor->parentNode) {}
+                if (!$ancestor) { $root = $root->parentNode; continue 2; }
+            }
+            break;
+        }
+        if (!$root instanceof DOMElement || in_array(strtolower($root->tagName), array('html', 'body'), true)) return false;
+        $category = 1;
+        foreach ($controls as $control) {
+            $node = $control['node'];
+            $node->removeAttribute(CaptureEvidence::UNSUPPORTED);
+            if ($control['search'] ?? false) { $node->setAttribute('data-blocks-engine-collection-field', 'true'); continue; }
+            foreach ($control['values'] as $value) {
+                $button = $node;
+                if ('select' === strtolower($node->tagName)) {
+                    $button = $document->createElement('button');
+                    foreach ($node->getElementsByTagName('option') as $option) if ($option->getAttribute('value') === $value['value']) $button->textContent = $option->textContent;
+                    $node->parentNode->insertBefore($button, $node);
+                }
+                if ($button !== $node && '' === $button->textContent) return false;
+                $index = $category++;
+                $state = array('class' => $button->getAttribute('class'), 'style' => $button->getAttribute('style'));
+                $button->setAttribute('data-blocks-engine-collection-choice', json_encode(array('index' => $index, 'initial' => false, 'active' => $state, 'inactive' => $state)));
+                // An observed empty/reset value restores the complete captured union.
+                $memberships[$index] = '' === $value['value'] ? $keys : $value['keys'];
+            }
+            if ('select' === strtolower($node->tagName)) $node->parentNode->removeChild($node);
+        }
+        foreach ($pages as $node) $node->parentNode?->removeChild($node);
+        foreach ($evidence['controls'] ?? array() as $selector) {
+            if (isset($controls[$selector]) || isset($pages[$selector])) continue;
+            $node = $this->one($document, $selector);
+            if (!$node || !preg_match('/^(next(?: page)?|previous(?: page)?|prev|load more|show more|older|›|»|→|‹|«|←)$/i', trim($node->textContent))) return false;
+            $node->parentNode?->removeChild($node);
+        }
+        while ($target->firstChild) $target->removeChild($target->firstChild);
+        $items = array();
+        $identity = substr(hash('sha256', $component['selector']), 0, 16);
+        foreach ($evidence['members'] as $offset => $member) {
+            if (!is_string($member['html'] ?? null)) return false;
+            $fragment = $this->document($member['html']);
+            $body = $fragment->getElementsByTagName('body')->item(0);
+            $children = array_values(array_filter(iterator_to_array($body->childNodes), static fn($node) => $node instanceof DOMElement));
+            if (1 !== count($children)) return false;
+            $node = $document->importNode($children[0], true);
+            $marker = 'blocks-engine-collection-item-' . $identity . '-' . $offset;
+            $node->setAttribute('class', SourceDom::mergeClassNames($node->getAttribute('class'), $marker));
+            $node->setAttribute('data-blocks-engine-collection-item-marker', $marker);
+            $node->removeAttribute('hidden');
+            $target->appendChild($node);
+            $categories = array(0);
+            foreach ($memberships as $index => $set) if (in_array($member['key'], $set, true)) $categories[] = $index;
+            $items[] = array('marker' => $marker, 'categories' => $categories);
+        }
+        $root->setAttribute('data-blocks-engine-collection-root', json_encode(array('items' => $items, 'initialCategory' => 0, 'mode' => 'captured-union')));
+        $target->setAttribute('data-blocks-engine-collection-target', $identity);
+        $empty = $document->createElement('div');
+        $empty->setAttribute('data-blocks-engine-collection-empty', 'true');
+        $empty->appendChild($document->createElement('p', 'No matching captured records.'));
+        $target->parentNode->insertBefore($empty, $target->nextSibling);
         return true;
     }
 
