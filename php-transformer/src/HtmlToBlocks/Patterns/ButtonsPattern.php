@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -149,6 +150,15 @@ final class ButtonsPattern
                 || 'a' !== strtolower($child->tagName)
                 || null !== $preservedAnchor
                 || ! $this->wrappedButtonRequiresPreservation($child) ) {
+                $preservedAnchor = null;
+                break;
+            }
+            if ( $this->anchorsNativeRuntimeControl($child, $buttons) ) {
+                // The wrapped control is a captured runtime control with a
+                // native authored-button conversion. Leave the anchor to its
+                // own conversion, which keeps the source anchor as the saved
+                // link wrapper around the native control, instead of one
+                // core/html island for the whole subtree.
                 $preservedAnchor = null;
                 break;
             }
@@ -1093,6 +1103,23 @@ final class ButtonsPattern
         }
 
         return $surface;
+    }
+
+    /**
+     * Whether an anchor's wrapped behavior button is a captured runtime
+     * control with a native authored-button conversion — the same element
+     * converts natively without a link. Such a link does not need the
+     * wrapped-button preservation exit.
+     */
+    private function anchorsNativeRuntimeControl(DOMElement $anchor, ButtonPatternContext $buttons): bool
+    {
+        $surface = $this->buttonSurfaceElement($anchor);
+        if ( null === $surface || 'button' !== strtolower($surface->tagName) ) {
+            return false;
+        }
+
+        return $buttons->isRuntimeDomTarget($surface)
+            && array() !== AuthoredButtonBlockGenerator::sourceSafeAttributes($surface);
     }
 
     private function guardedWrappedButtonAnchor(DOMElement $element): ?DOMElement

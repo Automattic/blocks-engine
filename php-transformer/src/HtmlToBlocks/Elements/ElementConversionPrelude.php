@@ -39,6 +39,7 @@ final class ElementConversionPrelude
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): ?array<string, mixed> $convertElement
      * @param Closure(DOMElement): array<string, mixed> $htmlPreservationBlock
+     * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $linkedRuntimeControl
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
      * @param Closure(DOMElement): bool $requiresStandaloneInlineLayoutLeaf
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $proofBackedWrapperCoalescing
@@ -68,6 +69,7 @@ final class ElementConversionPrelude
         private readonly Closure $convertChildren,
         private readonly Closure $convertElement,
         private readonly Closure $htmlPreservationBlock,
+        private readonly Closure $linkedRuntimeControl,
         private readonly Closure $recognizePatterns,
         private readonly Closure $requiresStandaloneInlineLayoutLeaf,
         private readonly Closure $proofBackedWrapperCoalescing,
@@ -101,6 +103,13 @@ final class ElementConversionPrelude
         }
 
         if ( 'a' === $tagName && $this->requiresWrappedButtonPreservation($element) ) {
+            // One captured runtime control inside the link converts natively
+            // (the link stays as its saved wrapper); everything else keeps the
+            // wrapped-button preservation the shape has always taken.
+            $linked = ($this->linkedRuntimeControl)($element, $fallbacks);
+            if ( null !== $linked ) {
+                return ConversionOutcome::handled($linked);
+            }
             return ConversionOutcome::handled(($this->htmlPreservationBlock)($element));
         }
 
