@@ -802,6 +802,7 @@
       "php tests/unit/authored-form-control-block-converter.php",
       "php tests/unit/authored-button-label-presentation.php",
       "php tests/unit/runtime-dialog-trigger-button.php",
+      "php tests/unit/linked-captured-dialog-trigger.php",
       "php tests/unit/runtime-data-target-layout-shell.php",
       "php tests/contract/dialog-document-scope.php",
       "php tests/unit/authored-select-block.php",
