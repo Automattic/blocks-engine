@@ -1552,6 +1552,25 @@ final class SourceDom
         return false;
     }
 
+    /** Whether a subtree holds nothing but native media or media-support
+     * markup (`img`, `video`, `picture`, `source`, `track`) and at least one
+     * of them carries a captured source, so the host renders all of its
+     * content without a script.
+     */
+    public static function hasOnlyRenderableMediaContent(DOMElement $element): bool
+    {
+        if ( ! self::hasRenderableMediaContent($element) ) {
+            return false;
+        }
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && ! in_array(strtolower($descendant->tagName), array( 'img', 'video', 'picture', 'source', 'track' ), true) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /**
      * Whether an autonomous custom element is empty light DOM whose only
      * rendered output is its own inline background image or colour, so it

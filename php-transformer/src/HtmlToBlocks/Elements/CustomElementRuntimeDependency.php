@@ -41,7 +41,7 @@ final class CustomElementRuntimeDependency
             return array('disposition' => 'preserve', 'scripts' => $scripts);
         }
 
-        if ( ! $this->hasConfigurationAttribute($element) ) {
+        if ( ! $this->hasConfigurationAttribute($element, SourceDom::hasOnlyRenderableMediaContent($element)) ) {
             return $declined;
         }
 
@@ -261,13 +261,15 @@ final class CustomElementRuntimeDependency
     }
 
     /**
-     * @param bool $paintOnly The element is empty and its painted output is
-     *        already inline CSS. Its `data-*` values (`data-tiled-image-info`,
-     *        `data-motion-part`) can then only parameterize that existing paint
-     *        for an unproven script, so they are not configuration on their own;
-     *        any other non-global attribute still is.
+     * @param bool $outputCaptured The element's rendered output is already
+     *        captured without a script: an empty host whose painted output is
+     *        inline CSS, or a host whose light DOM is nothing but native
+     *        media. Its `data-*` values (`data-tiled-image-info`,
+     *        `data-video-info`) can then only parameterize that existing
+     *        output for an unproven script, so they are not configuration on
+     *        their own; any other non-global attribute still is.
      */
-    public function hasConfigurationAttribute(DOMElement $element, bool $paintOnly = false): bool
+    public function hasConfigurationAttribute(DOMElement $element, bool $outputCaptured = false): bool
     {
         foreach ( $element->attributes ?? array() as $attribute ) {
             $name = strtolower($attribute->name);
@@ -280,7 +282,7 @@ final class CustomElementRuntimeDependency
             if ( str_starts_with($name, 'aria-') || str_starts_with($name, 'data-wp-') || 1 === preg_match('/^on[a-z]+$/', $name) ) {
                 continue;
             }
-            if ( $paintOnly && str_starts_with($name, 'data-') ) {
+            if ( $outputCaptured && str_starts_with($name, 'data-') ) {
                 continue;
             }
 

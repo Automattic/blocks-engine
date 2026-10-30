@@ -3998,10 +3998,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * accessible name (a widget, not a wrapper) stays on the preservation
      * path, as do the legacy Shadow DOM insertion points `content` and
      * `shadow`, and a textless hyphenated custom element, which a script may
-     * still upgrade into rendered shadow content. Passive graphic-only light DOM,
-     * captured native media, or an empty host painting only its inline
+     * still upgrade into rendered shadow content. Passive graphic-only light
+     * DOM, captured native media, or an empty host painting only its inline
      * background is the exception, unless configuration or a proven runtime
-     * owns the host.
+     * owns the host. As with a background-paint-only host, a host whose light
+     * DOM is nothing but captured native media already renders without a
+     * script, so its `data-*` values parameterize existing content rather
+     * than prove a missing runtime.
      */
     private function isTransparentUnknownElement(DOMElement $element): bool
     {
@@ -4025,7 +4028,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $runtimeDependency = new CustomElementRuntimeDependency();
         $paintOnly = SourceDom::backgroundPaintOnlyCustomElement($element);
         return ( $paintOnly || SourceDom::staticGraphicOnlyCustomElement($element) || SourceDom::hasRenderableMediaContent($element) )
-            && ! $runtimeDependency->hasConfigurationAttribute($element, $paintOnly)
+            && ! $runtimeDependency->hasConfigurationAttribute($element, $paintOnly || SourceDom::hasOnlyRenderableMediaContent($element))
             && 'preserve' !== $runtimeDependency->classify(
                 $element,
                 $this->runtimeBehavior()->runtimeScriptMetadata(),
@@ -10555,7 +10558,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function customVideoElement(DOMElement $element): ?DOMElement
     {
-        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || ! $this->isSafeTransparentCustomElement($element) || ! $this->hasOnlyStructuralCustomVideoHostAttributes($element) ) {
+        // Capture-snapshot `data-*` on a video host parameterizes media the
+        // capture already renders, so they no more prove a missing runtime
+        // than they do for the poster path below (#2524).
+        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || ! $this->isSafeTransparentCustomElement($element) || ! $this->hasOnlyStructuralCustomVideoHostAttributes($element, true) ) {
             return null;
         }
 
@@ -10602,7 +10608,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     /** Explicit native media plus a separate decorative poster is already a
      * browser-owned presentation tree. Keep both source boxes around editable
-     * native media instead of requiring a script to upgrade the custom tags.
+     * native media instead of requiring a script to upgrade the custom tags,
+     * whether the poster layer is a bare decorative `img` or an image-only
+     * custom element wrapping one.
      */
     private function customVideoPosterBlock(DOMElement $element): ?array
     {
@@ -10611,21 +10619,61 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if (2 !== count($children)) return null;
         $video = null; $poster = null;
         foreach ($children as $child) {
-            if ('video' === strtolower($child->tagName)) $video = $child;
-            elseif (null !== SourceDom::imageOnlyCustomElement($child)) $poster = $child;
-            else return null;
+            if (null === $video && 'video' === strtolower($child->tagName)) { $video = $child; continue; }
+            if (null === $poster && null !== $this->posterLayerImage($child)) { $poster = $child; continue; }
+            return null;
         }
-        if (!$video instanceof DOMElement || !$poster instanceof DOMElement || !$this->hasOnlyStructuralCustomVideoHostAttributes($poster, true)) return null;
-        $image = SourceDom::imageOnlyCustomElement($poster);
-        if (!$image instanceof DOMElement || !$image->hasAttribute('alt') || '' !== $this->attr($image, 'alt') || 1 !== count($this->elementElementChildren($poster)) || $image->parentNode !== $poster) return null;
+        if (!$video instanceof DOMElement || !$poster instanceof DOMElement) return null;
+        $image = $this->posterLayerImage($poster);
+        if (!$image instanceof DOMElement || !$image->hasAttribute('alt') || '' !== $this->attr($image, 'alt')) return null;
         $videoBlock = $this->convertMediaElement($video);
         $imageBlock = $this->convertImageElement($image);
         if (null === $videoBlock || null === $imageBlock) return null;
         $this->authorSelectorProjections()->ensureTagMarker(strtolower($element->tagName));
-        $this->authorSelectorProjections()->ensureTagMarker(strtolower($poster->tagName));
-        $posterBlock = $this->layoutShellBlockForElements(array($poster), array($imageBlock), $poster);
+        if ($poster !== $image && $image->parentNode === $poster) {
+            // The poster layer is wrapped: keep the wrapper's identity.
+            if (!$this->hasOnlyStructuralCustomVideoHostAttributes($poster, true) || 1 !== count($this->elementElementChildren($poster))) return null;
+            $this->authorSelectorProjections()->ensureTagMarker(strtolower($poster->tagName));
+            $posterBlock = $this->layoutShellBlockForElements(array($poster), array($imageBlock), $poster);
+        } else {
+            $posterBlock = $imageBlock;
+        }
         $blocks = $children[0] === $video ? array($videoBlock, $posterBlock) : array($posterBlock, $videoBlock);
         return $this->layoutShellBlockForElements(array($element), $blocks, $element);
+    }
+
+    /** The poster image an element owns: a bare decorative `img` itself, or
+     * the single image of an image-only custom element. A bare img qualifies
+     * only with media and capture-snapshot attributes, like the wrapped
+     * poster element below: an authoring signal (`aria-hidden`, a role) keeps
+     * the poster on the preserved-content path instead.
+     */
+    private function posterLayerImage(DOMElement $element): ?DOMElement
+    {
+        if ( 'img' === strtolower($element->tagName) ) {
+            return $this->isBareDecorativePosterImage($element) ? $element : null;
+        }
+
+        return SourceDom::imageOnlyCustomElement($element);
+    }
+
+    private function isBareDecorativePosterImage(DOMElement $image): bool
+    {
+        if ( !$image->hasAttribute('alt') || '' !== trim($this->attr($image, 'alt')) ) {
+            return false;
+        }
+        foreach ( $image->attributes as $attribute ) {
+            $name = strtolower($attribute->name);
+            if ( in_array($name, array( 'src', 'srcset', 'sizes', 'alt', 'width', 'height', 'loading', 'decoding', 'fetchpriority', 'draggable', 'class', 'style', 'id' ), true) ) {
+                continue;
+            }
+            if ( str_starts_with($name, 'data-') && ! str_starts_with($name, 'data-wp-') && 'data-action' !== $name ) {
+                continue;
+            }
+            return false;
+        }
+
+        return true;
     }
 
     private function hasOnlyStructuralCustomVideoHostAttributes(DOMElement $element, bool $allowSnapshotMetadata = false): bool
