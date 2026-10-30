@@ -181,6 +181,57 @@ final class RichTextElementConverter implements ElementConverter
     }
 
     /**
+     * Lowers a paragraph whose whole content is one `<button>` the RichText
+     * lowering declined (a dialog trigger, a toggle with `aria-controls`, a
+     * control labelled like a submit) through the container path, which
+     * already converts that button natively with its runtime attributes, as
+     * it does when the same button sits in a `<div>`. The paragraph keeps its
+     * box as a group. Inline `<span>` wrappers between the paragraph and the
+     * button are crossed only when they carry no class, style or id, so no
+     * presentation is dropped. Declined when any block would still need
+     * core/html.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function soleButtonParagraph(DOMElement $element, array &$fallbacks): ?array
+    {
+        $host = $element;
+        while ( null !== ($wrapper = SourceDom::onlyChildElement($host, 'span')) ) {
+            foreach ( array( 'class', 'style', 'id' ) as $attribute ) {
+                if ( $wrapper->hasAttribute($attribute) ) {
+                    return null;
+                }
+            }
+            $host = $wrapper;
+        }
+        if ( null === SourceDom::onlyChildElement($host, 'button') ) {
+            return null;
+        }
+
+        $local    = array();
+        $children = $this->context->convertChildren($host, $local);
+        if ( array() === $children || $this->containsHtmlBlock($children) ) {
+            return null;
+        }
+        $fallbacks = array_merge($fallbacks, $local);
+
+        return $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element);
+    }
+
+    /** @param array<int, array<string, mixed>> $blocks */
+    private function containsHtmlBlock(array $blocks): bool
+    {
+        foreach ( $blocks as $block ) {
+            if ( 'core/html' === ($block['blockName'] ?? '') || $this->containsHtmlBlock((array) ($block['innerBlocks'] ?? array())) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Lowers a paragraph holding a `<picture>` beside inline text (an avatar
      * next to an attribution line) to a row group. RichText cannot keep the
      * picture's `<source>` set, but the container path already converts the
@@ -280,6 +331,11 @@ final class RichTextElementConverter implements ElementConverter
             $pictureRow = $this->pictureWithTextRow($element, $fallbacks);
             if ( null !== $pictureRow ) {
                 return $pictureRow;
+            }
+
+            $soleControl = $this->soleButtonParagraph($element, $fallbacks);
+            if ( null !== $soleControl ) {
+                return $soleControl;
             }
 
             return $this->context->htmlPreservationBlock($element);
