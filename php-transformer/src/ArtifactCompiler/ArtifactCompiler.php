@@ -1363,7 +1363,7 @@ final class ArtifactCompiler
                 $products[$productSlug]['whole_page_candidate'] = $row['whole_page_candidate'];
             }
             // Detail-page descriptive evidence wins; cards fill only absent fields.
-            foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'stock_status') as $field ) if ( isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
+            foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'stock_status', 'translations') as $field ) if ( isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
             foreach ( array('tags', 'sale_price') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
         }
         // Listing-owned forms are shop controls, not a second form-provider
