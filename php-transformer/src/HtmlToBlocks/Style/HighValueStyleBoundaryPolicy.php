@@ -15,7 +15,10 @@ final class HighValueStyleBoundaryPolicy
     public function matches(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'button', 'header', 'footer', 'main', 'nav', 'article', 'aside', 'section', 'svg' ), true) ) {
+        // Quotes resolve authored typography and box declarations here, before
+        // either native quote recognition or structural child lowering. Their
+        // presentation must not depend on a class-name vocabulary match.
+        if ( in_array($tagName, array( 'button', 'header', 'footer', 'main', 'nav', 'article', 'aside', 'section', 'blockquote', 'svg' ), true) ) {
             return true;
         }
 
