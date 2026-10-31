@@ -263,7 +263,7 @@ final class FormPresentationGraphBuilder
 
     /**
      * Whether the source hides an element unconditionally: `display: none` on it
-     * or on an ancestor below `$boundary`, or a resolved `visibility` of
+     * or on an ancestor below `$boundary` (including the `hidden` attribute), or a resolved `visibility` of
      * `hidden`/`collapse` (the nearest declaration wins, since a descendant may
      * re-show itself). Form builders keep status copy such as a success message
      * inside the form this way until a submission succeeds. Returns the
@@ -349,6 +349,11 @@ final class FormPresentationGraphBuilder
     private function visibilityFacts(DOMElement $element, array $rules): array
     {
         $properties = array( 'display', 'visibility' );
+        // The user-agent stylesheet's `[hidden] { display: none }`: it loses to
+        // every author rule, so a stylesheet that re-shows the element wins.
+        if ( $element->hasAttribute('hidden') && 'until-found' !== strtolower(trim($element->getAttribute('hidden'))) ) {
+            $rules[] = array( 'inline' => true, 'selector' => '[hidden]', 'declarations' => array( array( 'name' => 'display', 'value' => 'none' ) ), 'condition' => null, 'path' => 'user-agent', 'hash' => 'user-agent-hidden', 'order' => PHP_INT_MIN, 'specificity' => -1 );
+        }
         if ( $element->hasAttribute('style') ) {
             $inline = $element->getAttribute('style');
             $rules[] = array( 'inline' => true, 'selector' => '[style]', 'declarations' => CssRuleAnalyzer::declarations($inline, $properties), 'condition' => null, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'order' => PHP_INT_MAX, 'specificity' => 10000 );

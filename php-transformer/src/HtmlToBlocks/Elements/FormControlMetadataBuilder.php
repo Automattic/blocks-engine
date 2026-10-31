@@ -67,6 +67,14 @@ final class FormControlMetadataBuilder
                 if ( '' !== $marker ) {
                     $metadata['source_tag_marker'] = $marker;
                 }
+                // A control the source keeps hidden (a conditional field shown
+                // only by script) is not one the reader can fill in. Say so,
+                // and by which declaration, so a consumer does not render it
+                // as a visible or required field.
+                $hidden = null === $this->hiddenState ? null : ($this->hiddenState)($control, $form);
+                if ( is_array($hidden) ) {
+                    $metadata['hidden'] = $hidden;
+                }
                 $metadata['order'] = $order;
                 $controls[] = $metadata;
                 ++$order;
