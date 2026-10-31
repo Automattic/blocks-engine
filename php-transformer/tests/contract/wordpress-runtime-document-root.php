@@ -18,6 +18,8 @@ foreach (array('index' => 'Home', 'first' => 'First story', 'second' => 'Second 
         $comment = static fn(string $id, string $text, string $reply = ''): string => '<li id="comment-' . $id . '"><div class="wp-block-group captured-comment"><div class="wp-block-avatar"><img src="https://example.org/avatar.png" width="40"></div><div class="wp-block-group comment-body"><div class="wp-block-comment-author-name"><a href="https://example.org/author">Alice</a></div><div class="wp-block-comment-date"><time datetime="2024-03-02T10:00:00+00:00">March 2</time></div><div class="wp-block-comment-content"><p>' . $text . '</p><script>alert(1)</script><a href="javascript:alert(1)" onclick="alert(1)">Safe</a></div><div class="wp-block-comment-reply-link"><a href="?replytocom=' . $id . '">Reply</a></div></div></div>' . $reply . '</li>';
         $comments = '<div class="wp-block-comments"><h2 class="wp-block-comments-title">Captured responses</h2><ol class="wp-block-comment-template">' . $comment('249', 'Captured top-level Redmibook', '<ol class="children">' . $comment('250', 'Captured nested reply') . '</ol>') . '</ol><div id="respond" class="comment-respond"><h3 id="reply-title">Leave a Reply</h3><form id="commentform" class="comment-form" action="/wp-comments-post.php" method="post"><textarea name="comment"></textarea><input type="hidden" name="comment_post_ID" value="1"><input type="submit" value="Post Comment"></form></div></div>';
         $html = str_replace('<div class="comments">', $comments . '<div class="comments">', $html);
+        // The responsive mobile copy renders the same comments with suffixed ids.
+        $html = str_replace('</main>', '<ol class="wp-block-comment-template">' . str_replace(array('comment-249"', 'comment-250"'), array('comment-249--data-blocks-engine-capture-mobile"', 'comment-250--data-blocks-engine-capture-mobile"'), $comment('249', 'Captured top-level Redmibook', '<ol class="children">' . $comment('250', 'Captured nested reply') . '</ol>')) . '</ol></main>', $html);
     }
     $html = str_replace('<div class="comments">', $navigation . '<div class="comments">', $html);
     $artifact['files'][] = array('path' => $slug . '.html', 'content' => $html, 'metadata' => array('post_type' => 'index' === $slug ? 'page' : 'post'));
@@ -28,7 +30,7 @@ WordPressSitePlan::assertValid($plan);
 $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
 $single = $templates['single'];
 $entities = $plan['comment_entities'];
-$assert(2 === count($entities), 'Both captured comments become native records.');
+$assert(2 === count($entities), 'Both captured comments become native records, once each across responsive copies.', json_encode(array_column($entities, 'source_id')));
 $assert('first.html' === $entities[0]['source_path'] && 'comment-249' === $entities[0]['source_id'] && null === $entities[0]['parent_source_id'], 'Top-level comment keeps its page and source identity.');
 $assert('comment-250' === $entities[1]['source_id'] && 'comment-249' === $entities[1]['parent_source_id'], 'Nested reply keeps its parent source id.');
 $assert('Alice' === $entities[0]['author_name'] && 'https://example.org/author' === $entities[0]['author_url'] && '2024-03-02T10:00:00+00:00' === $entities[0]['date'] && 'https://example.org/avatar.png' === $entities[0]['avatar_url'], 'Captured author, date and avatar survive.');

@@ -21,6 +21,9 @@ final class WordPressComments
         @$dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
         $xpath = new DOMXPath($dom);
         $rows = array();
+        // A responsive document copy renders the same comments again with
+        // suffixed ids (`comment-249--data-blocks-engine-capture-mobile`).
+        $identity = static fn(string $id): string => (string) preg_replace('/--data-blocks-engine-capture-[a-z0-9-]+$/', '', $id);
         foreach ($xpath->query('//*[contains(concat(" ",normalize-space(@class)," ")," wp-block-comment-template ")]//li[starts-with(@id,"comment-")]') as $item) {
             $find = static fn(string $class) => $xpath->query('.//*[contains(concat(" ",normalize-space(@class)," ")," ' . $class . ' ")]', $item)->item(0);
             $author = $find('wp-block-comment-author-name');
@@ -32,14 +35,16 @@ final class WordPressComments
             $parent = null;
             for ($node = $item->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
                 if ('ol' === $node->tagName && self::hasClass($node, 'children') && $node->parentNode instanceof DOMElement) {
-                    $parent = $node->parentNode->getAttribute('id');
+                    $parent = $identity($node->parentNode->getAttribute('id'));
                     break;
                 }
             }
             $content = $find('wp-block-comment-content');
-            $rows[] = array('source_path' => $sourcePath, 'source_id' => $item->getAttribute('id'), 'parent_source_id' => $parent, 'author_name' => trim($author?->textContent ?? ''), 'author_url' => self::safeUrl($link?->getAttribute('href') ?? ''), 'date' => $time?->getAttribute('datetime') ?? '', 'content' => $content instanceof DOMElement ? self::safeContent($content) : '', 'avatar_url' => $image?->getAttribute('src') ?? '');
+            $id = $identity($item->getAttribute('id'));
+            if (isset($rows[$id])) continue;
+            $rows[$id] = array('source_path' => $sourcePath, 'source_id' => $id, 'parent_source_id' => $parent, 'author_name' => trim($author?->textContent ?? ''), 'author_url' => self::safeUrl($link?->getAttribute('href') ?? ''), 'date' => $time?->getAttribute('datetime') ?? '', 'content' => $content instanceof DOMElement ? self::safeContent($content) : '', 'avatar_url' => $image?->getAttribute('src') ?? '');
         }
-        return $rows;
+        return array_values($rows);
     }
 
     private static function safeUrl(string $url): string
