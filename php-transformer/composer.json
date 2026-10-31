@@ -949,6 +949,7 @@
       "php tests/unit/columns-sidebar-partner-desktop-layout.php",
       "php tests/unit/columns-row-stacking-from-source.php",
       "php tests/unit/column-inline-flex-basis.php",
+      "php tests/unit/rich-text-whitespace-inline.php",
       "php tests/unit/consumed-inline-custom-properties.php",
       "php tests/unit/button-block-level-grid-item-fill.php",
       "php tests/unit/hidden-positioned-layer-opacity.php",
