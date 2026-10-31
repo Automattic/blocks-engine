@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\NavigationLabelNormalizer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -2790,7 +2791,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return '';
         }
 
-        return $html;
+        return NavigationLabelNormalizer::normalize($html);
     }
 
     /**
