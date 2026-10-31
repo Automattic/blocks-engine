@@ -441,6 +441,7 @@
       "php tests/unit/pagination-routes-project-onto-parent.php",
       "php tests/unit/taxonomy-archive-heading-names-term-element.php && php tests/unit/archive-heading-outside-page-banner.php",
       "php tests/unit/author-archives-project-entities.php",
+      "php tests/unit/author-archive-body-class-proof.php",
       "php tests/unit/navigation-entities-after-repeated-chrome.php",
       "php tests/unit/wordpress-site-plan-stylesheet-order.php",
       "php tests/unit/wordpress-site-plan-frame-template-bindings.php",
