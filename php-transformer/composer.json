@@ -452,6 +452,7 @@
       "php tests/unit/shared-chrome-projection-media-instances.php",
       "php tests/unit/wordpress-site-plan-inline-stylesheet-order.php",
       "php tests/unit/document-root-font-ownership.php",
+      "php tests/unit/theme-json-root-font-size-authorship.php",
       "php tests/unit/listing-source-excerpts.php",
       "php tests/unit/listing-query-unfactored-post-chrome.php",
       "php tests/unit/listing-card-summary-slots.php",

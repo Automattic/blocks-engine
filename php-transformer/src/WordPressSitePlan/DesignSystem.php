@@ -245,6 +245,15 @@ final class DesignSystem
             if (!isset($root['font_family']) || '' === $dominant['font_family']) unset($dominant['font_family']);
             $root = array_replace($root, $dominant);
         }
+        // An explicit pixel size replaces the UA medium keyword, which also
+        // changes bare monospace sizing. Require root author evidence on every
+        // document before applying the rendered size site-wide.
+        foreach ($usageBySource as $usage) {
+            if (true !== ($usage['root']['font_size_authored'] ?? false)) {
+                unset($root['font_size']);
+                break;
+            }
+        }
         $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root);
         $literalColors = array_keys(array_diff_key($prominence, array_flip(array_column($colors, 'color'))));
         usort($literalColors, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: strcmp($a, $b));
