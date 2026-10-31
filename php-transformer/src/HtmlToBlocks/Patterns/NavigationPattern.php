@@ -186,6 +186,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( ! in_array(strtolower($element->tagName), array('nav', 'ul', 'ol'), true)
             && null !== SourceDom::documentVariantRoot($element)
             && $this->hasOnlyNestedListDestinations($element)
+            && ! $this->isInsideCapturedDialogPanel($element)
             && 'never' === ($navigationContext?->overlayMenu($element) ?? 'never') ) {
             // A layout wrapper owns the occurrence's containing box, not the
             // list. Keep it around the recursively converted native menu.
@@ -3530,6 +3531,25 @@ final class NavigationPattern implements PatternRecognizerInterface
                 return true;
             }
         }
+        return false;
+    }
+
+    /**
+     * Captured menu panels must be recognized whole. Deferring their wrappers
+     * can make toggle projection choose a convertible descendant submenu while
+     * suppressing the panel, losing the parent items and their hierarchy.
+     */
+    private function isInsideCapturedDialogPanel(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $node->hasAttribute(CaptureEvidence::DIALOG_PANEL) ) {
+                return true;
+            }
+            if ( SourceDom::isDocumentVariantRoot($node) ) {
+                break;
+            }
+        }
+
         return false;
     }
 
