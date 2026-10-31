@@ -58,6 +58,17 @@ final class SourceStyleResolutionState
     /** @var array<int, array<string, true>> */
     private array $ariaControlledTargetIds = array();
 
+    /**
+     * Each source element's matched cascaded-value declarations, keyed by node
+     * path. An entry is reused only for the same node with the same inline
+     * style, so a node replaced at that path or restyled in place is
+     * recomputed; the selector matches behind it are dropped with the
+     * selector match cache.
+     *
+     * @var array<string, array{node: DOMElement, style: string, declarations: array<string, string>, custom: array<string, string>}>
+     */
+    private array $cascadedDeclarations = array();
+
     private string $formLayoutCss = '';
 
     public function __construct()
@@ -69,6 +80,7 @@ final class SourceStyleResolutionState
     {
         $this->selectorMatchCache->clear();
         $this->structuralDeclarations = array();
+        $this->cascadedDeclarations = array();
         $this->ariaControlledTargetIds = array();
     }
 
@@ -86,6 +98,7 @@ final class SourceStyleResolutionState
         $this->imageShapeRules = $analysis['image_shape'];
         $this->pseudoElementRules = $analysis['pseudo'];
         $this->cascadedValueRules = $analysis['cascaded_values'] ?? array();
+        $this->cascadedDeclarations = array();
         $this->customProperties = $analysis['custom_properties'];
         $this->layerNames = array_values(array_map('strval', $analysis['layer_names'] ?? array()));
     }
@@ -102,6 +115,31 @@ final class SourceStyleResolutionState
         $this->conditionalRules = array_filter($this->conditionalRules, $isMatchable);
         $this->pseudoElementRules = array_filter($this->pseudoElementRules, $isMatchable);
         $this->ruleCandidateIndexes = array();
+    }
+
+    /**
+     * The element's remembered cascaded-value declarations and their custom
+     * properties, computing and remembering them on a miss.
+     *
+     * @param callable(DOMElement): array<string, string> $compute
+     * @return array{declarations: array<string, string>, custom: array<string, string>}
+     */
+    public function cascadedDeclarations(DOMElement $element, callable $compute): array
+    {
+        $path = (string) $element->getNodePath();
+        $style = $element->getAttribute('style');
+        $entry = $this->cascadedDeclarations[$path] ?? null;
+        if ( null === $entry || $entry['style'] !== $style || ! $entry['node']->isSameNode($element) ) {
+            $declarations = $compute($element);
+            $custom = array();
+            foreach ( $declarations as $name => $value ) {
+                if ( str_starts_with((string) $name, '--') ) {
+                    $custom[$name] = $value;
+                }
+            }
+            $entry = $this->cascadedDeclarations[$path] = array( 'node' => $element, 'style' => $style, 'declarations' => $declarations, 'custom' => $custom );
+        }
+        return $entry;
     }
 
     /** @return array<int, string> */

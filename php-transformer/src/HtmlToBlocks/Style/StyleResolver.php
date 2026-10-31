@@ -6144,6 +6144,12 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function matchedCascadedDeclarations(DOMElement $element): array
     {
+        return $this->context->sourceStyles()->cascadedDeclarations($element, $this->computeCascadedDeclarations(...))['declarations'];
+    }
+
+    /** @return array<string, string> */
+    private function computeCascadedDeclarations(DOMElement $element): array
+    {
         $declarations = array();
         foreach ( $this->matchingStyleRules($element, 'cascaded-values') as $rule ) {
             $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
@@ -6166,16 +6172,15 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function cascadedCustomProperties(DOMElement $element): array
     {
-        $customProperties = $this->context->sourceStyles()->customProperties();
+        $sourceStyles = $this->context->sourceStyles();
+        $customProperties = $sourceStyles->customProperties();
         $ancestors = array();
         for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
             $ancestors[] = $current;
         }
         foreach ( array_reverse($ancestors) as $ancestor ) {
-            foreach ( $this->matchedCascadedDeclarations($ancestor) as $name => $propertyValue ) {
-                if ( str_starts_with($name, '--') ) {
-                    $customProperties[$name] = $propertyValue;
-                }
+            foreach ( $sourceStyles->cascadedDeclarations($ancestor, $this->computeCascadedDeclarations(...))['custom'] as $name => $propertyValue ) {
+                $customProperties[$name] = $propertyValue;
             }
         }
 
