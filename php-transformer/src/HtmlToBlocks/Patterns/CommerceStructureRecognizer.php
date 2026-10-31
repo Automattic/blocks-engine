@@ -18,7 +18,9 @@ use DOMElement;
 final class CommerceStructureRecognizer
 {
     public function __construct(
-        private readonly SourceElementClassifier $classifier = new SourceElementClassifier()
+        private readonly SourceElementClassifier $classifier = new SourceElementClassifier(),
+        /** @var \Closure(DOMElement): ?array|null */
+        private readonly ?\Closure $svgImageReference = null
     ) {
     }
 
@@ -791,7 +793,64 @@ final class CommerceStructureRecognizer
             ), static fn (mixed $value): bool => '' !== $value);
         }
 
+        if (null !== $this->svgImageReference) {
+            $candidates = iterator_to_array($card->getElementsByTagName('svg'));
+            // A media wrapper is stronger evidence than artwork elsewhere in
+            // the card. Preserve document order within each group.
+            $media = array();
+            $other = array();
+            foreach ($candidates as $svg) {
+                $inMedia = false;
+                for ($node = $svg->parentNode; $node instanceof DOMElement && $node !== $card; $node = $node->parentNode) {
+                    if ('figure' === strtolower($node->tagName) || $this->classifier->hasCommerceToken($node, array('media', 'image', 'visual'))) {
+                        $inMedia = true;
+                        break;
+                    }
+                }
+                if ($inMedia) $media[] = $svg;
+                else $other[] = $svg;
+            }
+            foreach (array_merge($media, $other) as $svg) {
+                if (!$svg instanceof DOMElement || !$this->isProductMediaSvg($svg, $card)) {
+                    continue;
+                }
+                $image = ($this->svgImageReference)($svg);
+                if (null !== $image) {
+                    return $image;
+                }
+            }
+        }
+
         return null;
+    }
+
+    /** Exclude control glyphs and decorative/hidden branches before materializing. */
+    private function isProductMediaSvg(DOMElement $svg, DOMElement $card): bool
+    {
+        for ($node = $svg; $node instanceof DOMElement; $node = $node->parentNode) {
+            if ($node->hasAttribute('hidden')
+                || 'true' === strtolower(trim(SourceDom::attr($node, 'aria-hidden')))
+                || in_array(strtolower($node->tagName), array('button', 'input', 'select', 'textarea'), true)
+                || in_array(strtolower(SourceDom::attr($node, 'role')), array('button', 'checkbox', 'switch'), true)
+                || $this->classifier->hasCommerceToken($node, array('cart', 'wishlist', 'quickview'))
+                || preg_match('/(?:display\s*:\s*none|visibility\s*:\s*hidden)/i', SourceDom::attr($node, 'style'))
+            ) {
+                return false;
+            }
+            if ($node === $card) break;
+        }
+        if (in_array(strtolower(SourceDom::attr($svg, 'role')), array('none', 'presentation'), true)) {
+            return false;
+        }
+        // Explicit icon-sized viewports are not product artwork. A viewBox is
+        // intrinsic coordinate space, not a rendered size, so do not use it here.
+        foreach (array('width', 'height') as $axis) {
+            $size = trim(SourceDom::attr($svg, $axis));
+            if (preg_match('/^([\d.]+)(?:px)?$/i', $size, $match) && (float) $match[1] <= 32) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
