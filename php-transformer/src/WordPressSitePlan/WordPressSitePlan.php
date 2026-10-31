@@ -3850,12 +3850,19 @@ PHP;
      */
     private function extractPostCommentForms(array $pages): array
     {
-        // Only factor a shared post primitive when every captured post has it.
-        // Strip every device copy, leaving one dynamic form in the template.
+        // Only factor a shared post primitive when every captured post has it
+        // and nothing renderable follows any occurrence in its original context.
         $pattern = '~<!-- wp:comments -->\\s*<div class="wp-block-comments">\\s*<!-- wp:post-comments-form /-->\\s*</div>\\s*<!-- /wp:comments -->~';
         $posts = array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null) && empty($page['synthetic']));
         if (array() === $posts) return $pages;
-        foreach ($posts as $post) if (!preg_match($pattern, $post['canonical_block_markup'])) return $pages;
+        $closingOnly = '~\A(?:\s|<!--\s*/wp:[a-zA-Z0-9_/-]+\s*-->|</[a-zA-Z][a-zA-Z0-9:-]*\s*>)*\z~';
+        foreach ($posts as $post) {
+            $markup = $post['canonical_block_markup'];
+            if (!preg_match_all($pattern, $markup, $matches, PREG_OFFSET_CAPTURE)) return $pages;
+            foreach ($matches[0] as [$form, $offset]) {
+                if (1 !== preg_match($closingOnly, substr($markup, $offset + strlen($form)))) return $pages;
+            }
+        }
         foreach ($posts as $index => $post) {
             $pages[$index]['canonical_block_markup'] = preg_replace($pattern, '', $post['canonical_block_markup']);
             $pages[$index]['metadata']['native_comment_form'] = true;
