@@ -4001,6 +4001,7 @@ PHP;
                 // children, so desktop/mobile never duplicate the site shell.
                 if (!isset($templates['single'])) continue;
                 $bodies = array();
+                $articles = array();
                 $retained = array();
                 foreach ($contents as $content) {
                     $children = self::childBlockRanges($markup, $content);
@@ -4012,7 +4013,8 @@ PHP;
                     foreach (self::blockRanges($markup) as $candidate) {
                         if ($candidate['offset'] >= $content['offset'] || $candidate['offset'] + $candidate['length'] <= $content['offset']) continue;
                         $slice = substr($markup, $candidate['offset'], $candidate['length']);
-                        if (str_starts_with($slice, '<!-- wp:custom/layout-shell ') && array_key_exists(CaptureEvidence::DOCUMENT_SCOPE, self::listingBlockAttributes($slice)['wrappers'][0]['attributes'] ?? array())) {
+                        // The generated-block namespace is consumer-owned.
+                        if (1 === preg_match('~^<!-- wp:[a-z0-9-]+/layout-shell ~', $slice) && array_key_exists(CaptureEvidence::DOCUMENT_SCOPE, self::listingBlockAttributes($slice)['wrappers'][0]['attributes'] ?? array())) {
                             $owner = $candidate;
                             break;
                         }
@@ -4023,12 +4025,15 @@ PHP;
                     $first = $siblings[0]['offset'];
                     $lastSibling = $siblings[count($siblings) - 1];
                     $end = $lastSibling['offset'] + $lastSibling['length'];
-                    $bodies[] = substr($markup, $owner['offset'], $first - $owner['offset']) . substr($markup, $start, $length) . substr($markup, $end, $owner['offset'] + $owner['length'] - $end);
+                    $articles[] = substr($markup, $start, $length);
+                    $bodies[] = substr($markup, $owner['offset'], $first - $owner['offset']) . $articles[count($articles) - 1] . substr($markup, $end, $owner['offset'] + $owner['length'] - $end);
                     $retained[] = array('offset' => $start, 'length' => $length);
                 }
                 if (count($bodies) !== count($contents) || $this->postChromeFactoringStrandsBindings($post, $retained, $declarations, $records)) continue;
                 $pages[$index]['route_template'] = 'single';
-                $pages[$index]['canonical_block_markup'] = implode("\n", $bodies);
+                // Exact serialized equality also preserves authored styles and
+                // bindings. Text equality alone cannot establish render parity.
+                $pages[$index]['canonical_block_markup'] = 1 === count(array_unique($articles)) ? $articles[0] : implode("\n", $bodies);
                 $pages[$index]['content_hash'] = self::contentHash($pages[$index]['canonical_block_markup']);
                 continue;
             }

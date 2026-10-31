@@ -66,10 +66,10 @@ $assert(!str_contains($single, 'Neighbor of') && !str_contains($single, 'href="/
 $assert(!array_filter(array_keys($templates), static fn(string $slug): bool => str_starts_with($slug, 'single-post-')), 'Navigation differences must not generate per-post templates.');
 $assert(!str_contains(json_encode($result), 'blocksEnginePostContent') && !str_contains(json_encode($plan), 'blocksEnginePostContent'), 'No compiler or plan output may persist a private boundary marker.');
 foreach ($posts as $post) {
-    $assert('single' === ($post['route_template'] ?? 'single'), 'Every post uses the shared single lifecycle.');
+    $assert('single' === ($post['route_template'] ?? null), 'Every post uses the shared single lifecycle.');
     $content = $post['canonical_block_markup'];
     $assert(!str_contains($content, 'Redmibook') && !str_contains($content, 'Captured nested reply') && !str_contains($content, 'wp:comment-template'), 'Captured comments must not remain in post content.');
-    $assert(!str_contains($content, 'wp:template-part') && !str_contains($content, 'wp-site-blocks'), 'Post content must not contain runtime document chrome.');
+    $assert(!str_contains($content, 'wp:template-part') && !str_contains($content, 'wp-site-blocks') && !str_contains($content, 'wp-block-post-title') && !str_contains($content, 'wp-block-post-date'), 'Post content must not contain runtime document chrome, title or date.');
     $assert(str_contains($content, 'Unique article') && !str_contains($content, '<main') && !str_contains($content, 'Discussion'), 'Only article children belong to the post.');
 }
 // A comment-free post may own the shared chrome. The repeatable comment
@@ -93,14 +93,32 @@ $dualPlan = (new WordPressSitePlan())->fromCompilerResult((new ArtifactCompiler(
 WordPressSitePlan::assertValid($dualPlan);
 foreach ($dualPlan['pages'] as $post) {
     if ('post' !== $post['post_type']) continue;
-    $assert('single' === ($post['route_template'] ?? 'single'), 'Dual-document posts share the single lifecycle.');
+    $assert('single' === ($post['route_template'] ?? null), 'Dual-document posts share the single lifecycle.');
     $assert(!str_contains($post['canonical_block_markup'], 'wp:template-part') && !str_contains($post['canonical_block_markup'], '<main'), 'Neither responsive copy keeps shell chrome.');
     if ('second' === $post['slug']) {
-        $assert(2 === substr_count($post['canonical_block_markup'], 'Unique article'), 'Both responsive article copies survive.');
-        $assert(str_contains($post['canonical_block_markup'], 'data-blocks-engine-capture-mobile-document'), 'Responsive visibility ownership survives.');
+        $assert(1 === substr_count($post['canonical_block_markup'], 'Unique article'), 'Equivalent responsive article copies collapse to one body.');
+        $assert(!str_contains($post['canonical_block_markup'], 'capture-document-scope'), 'Equivalent bodies need no responsive document wrapper.');
     }
 }
 $assert(!str_contains(json_encode($dualPlan), 'blocksEnginePostContent'), 'Dual documents must not leak private markers.');
+// Differing article bodies retain their original responsive visibility owners.
+$mobileStart = strpos($artifact['files'][2]['content'], '<div class="data-blocks-engine-capture-mobile-document"');
+$artifact['files'][2]['content'] = substr($artifact['files'][2]['content'], 0, $mobileStart) . str_replace('More about second.', 'Mobile article detail.', substr($artifact['files'][2]['content'], $mobileStart));
+// Importers compile under their own generated-block namespace.
+$artifact['block_namespace'] = 'ssi-example';
+$differentPlan = (new WordPressSitePlan())->fromCompilerResult((new ArtifactCompiler())->compile($artifact)->toArray());
+WordPressSitePlan::assertValid($differentPlan);
+foreach ($differentPlan['pages'] as $post) {
+    if ('second' !== $post['slug']) continue;
+    $content = $post['canonical_block_markup'];
+    $assert('single' === ($post['route_template'] ?? null), 'Differing responsive bodies share single.');
+    $assert(str_contains($content, '<!-- wp:ssi-example/layout-shell '), 'Responsive copies stay in the consumer-namespaced layout shell.');
+    $assert(!preg_match('/wp:(?:template-part|post-title|post-date)\\b|wp-block-post-(?:title|date)|<main/', $content), 'Neither responsive body retains template, title or date chrome.');
+    $assert(2 === substr_count($content, 'Unique article') && str_contains($content, 'More about second.') && str_contains($content, 'Mobile article detail.'), 'Both differing article bodies survive.');
+    foreach (array('desktop', 'mobile') as $device) {
+        $assert(str_contains($content, 'data-blocks-engine-capture-' . $device . '-document'), 'Differing body keeps its ' . $device . ' visibility wrapper.');
+    }
+}
 // Archives that retain responsive document chrome must not bind it again.
 $archiveArtifact = require dirname(__DIR__) . '/fixtures/taxonomy/corroborated-category.php';
 foreach ($archiveArtifact['files'] as &$file) {
