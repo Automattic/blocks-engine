@@ -2,8 +2,9 @@
 /**
  * An element's matching rules are found once per collection and reused. A
  * reused list must still follow the live source: a sibling's rules do not
- * leak, a node replaced at a remembered path is recomputed, and invalidating
- * selector matches after a class change drops the list.
+ * leak, a node replaced at a remembered path is recomputed, invalidating
+ * selector matches after a class change drops the list, and a detached clone
+ * that has been released does not poison the next clone at its path.
  */
 declare(strict_types=1);
 
@@ -65,6 +66,14 @@ $assert(array( 1, 1, 0 ) === $specificity($replacement), 'a node replaced at a r
 $b->setAttribute('class', 'other');
 $context->sourceStyles()->invalidateSelectorMatches();
 $assert(array( 0, 0, 0 ) === $specificity($b), 'a class change followed by invalidation is recomputed');
+
+$cloneSpecificity = static function () use ($dom, $specificity): array {
+    $clone = $dom->getElementById('b')->cloneNode(true);
+    $clone->appendChild($dom->createElement('span'))->setAttribute('class', 'plain');
+    return $specificity($clone->firstChild->nextSibling);
+};
+$assert(array( 0, 1, 0 ) === $cloneSpecificity(), 'a detached clone resolves its own rules');
+$assert(array( 0, 1, 0 ) === $cloneSpecificity(), 'a released clone does not stand in for the next one');
 
 if ( $failures > 0 ) {
     exit(1);

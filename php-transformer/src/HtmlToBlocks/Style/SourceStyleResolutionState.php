@@ -149,18 +149,16 @@ final class SourceStyleResolutionState
      */
     public function cascadedDeclarations(DOMElement $element, callable $compute): array
     {
+        if ( ! self::isInDocument($element) ) {
+            $declarations = $compute($element);
+            return array( 'node' => $element, 'style' => $element->getAttribute('style'), 'declarations' => $declarations, 'custom' => self::customDeclarations($declarations) );
+        }
         $path = (string) $element->getNodePath();
         $style = $element->getAttribute('style');
         $entry = $this->cascadedDeclarations[$path] ?? null;
         if ( null === $entry || $entry['style'] !== $style || ! $entry['node']->isSameNode($element) ) {
             $declarations = $compute($element);
-            $custom = array();
-            foreach ( $declarations as $name => $value ) {
-                if ( str_starts_with((string) $name, '--') ) {
-                    $custom[$name] = $value;
-                }
-            }
-            $entry = $this->cascadedDeclarations[$path] = array( 'node' => $element, 'style' => $style, 'declarations' => $declarations, 'custom' => $custom );
+            $entry = $this->cascadedDeclarations[$path] = array( 'node' => $element, 'style' => $style, 'declarations' => $declarations, 'custom' => self::customDeclarations($declarations) );
         }
         return $entry;
     }
@@ -176,6 +174,9 @@ final class SourceStyleResolutionState
      */
     public function matchedRules(DOMElement $element, string $collection, callable $compute): array
     {
+        if ( ! self::isInDocument($element) ) {
+            return $compute($element, $collection);
+        }
         $key = $collection . "\0" . $element->getNodePath();
         $entry = $this->matchedRules[$key] ?? null;
         if ( null === $entry || ! $entry['node']->isSameNode($element) ) {
@@ -185,11 +186,44 @@ final class SourceStyleResolutionState
     }
 
     /**
+     * Whether the element is attached to its document. Per-element memos
+     * remember only attached elements: a detached clone is transient, and
+     * PHP 8.2 frees its subtree with the clone even while a remembered
+     * wrapper still refers to it.
+     */
+    private static function isInDocument(DOMElement $element): bool
+    {
+        $node = $element;
+        while ( null !== $node->parentNode ) {
+            $node = $node->parentNode;
+        }
+        return $node instanceof \DOMDocument;
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private static function customDeclarations(array $declarations): array
+    {
+        $custom = array();
+        foreach ( $declarations as $name => $value ) {
+            if ( str_starts_with((string) $name, '--') ) {
+                $custom[$name] = $value;
+            }
+        }
+        return $custom;
+    }
+
+    /**
      * @param callable(DOMElement): array<string, true> $compute
      * @return array<string, true>
      */
     public function stateStyleFamilies(DOMElement $element, callable $compute): array
     {
+        if ( ! self::isInDocument($element) ) {
+            return $compute($element);
+        }
         $path = (string) $element->getNodePath();
         $entry = $this->stateStyleFamilies[$path] ?? null;
         if ( null === $entry || ! $entry['node']->isSameNode($element) ) {
