@@ -335,7 +335,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         $sharedWrapperClasses = $this->sharedReplacedWrapperClassNames($element);
         if ( '' !== $sharedWrapperClasses ) {
             foreach ( $links as $linkIndex => $link ) {
-                if ( in_array($link['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
+                // Retained source boxes already carry their own classes in
+                // anchor metadata; repeating them on the LI paints them twice.
+                if ( in_array($link['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true)
+                    && ! isset($link['attrs']['metadata']['blocksEngineNavigationAnchor']['boxes']) ) {
                     $links[$linkIndex]['attrs'] = $this->withClassName(is_array($link['attrs'] ?? null) ? $link['attrs'] : array(), $sharedWrapperClasses);
                 }
             }

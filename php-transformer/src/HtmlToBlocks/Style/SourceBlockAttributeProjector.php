@@ -162,7 +162,20 @@ final class SourceBlockAttributeProjector
         $contentOwnsProjection = 'core/paragraph' === $name && $facts->isInlineSourceElement
             && '' !== $richTextMarker
             && str_contains((string) ($attrs['content'] ?? ''), '--blocks-engine-richtext-marker:' . $richTextMarker);
-        $projectionClassName = $contentOwnsProjection
+        // NavigationPattern has split the source anchor from its LI already.
+        // Later source projection must follow that ownership, not put the
+        // anchor's attribute selectors back on the block's rendered LI.
+        $navigationAnchorOwnsProjection = in_array($name, array('core/navigation-link', 'core/navigation-submenu'), true)
+            && 'a' === $sourceTagName
+            && isset($attrs['metadata']['blocksEngineNavigationAnchor']);
+        if ($navigationAnchorOwnsProjection) {
+            $attrs['metadata']['blocksEngineNavigationAnchor']['className'] = $this->sourceProjectionClassName(
+                $sourceElement,
+                $context,
+                (string) ($attrs['metadata']['blocksEngineNavigationAnchor']['className'] ?? '')
+            );
+        }
+        $projectionClassName = $contentOwnsProjection || $navigationAnchorOwnsProjection
             ? $baseClassName
             : $this->sourceProjectionClassName($sourceElement, $context, $baseClassName);
         if ( '' !== $projectionClassName ) {
