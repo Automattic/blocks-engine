@@ -455,6 +455,7 @@
       "php tests/unit/listing-source-excerpts.php",
       "php tests/unit/listing-query-unfactored-post-chrome.php",
       "php tests/unit/listing-card-summary-slots.php",
+      "php tests/unit/listing-card-per-post-media.php",
       "php tests/unit/listing-card-text-badge.php",
       "php tests/unit/tag-archive-static-badges.php",
       "php tests/unit/listing-card-date-class.php",
