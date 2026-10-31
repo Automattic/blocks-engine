@@ -19,7 +19,7 @@ final class BlockFactory
      *
      * @var array<int, string>
      */
-    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main', 'search', 'ul', 'ol', 'li', 'form' );
+    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main', 'search', 'ul', 'ol', 'menu', 'li', 'form' );
 
     private ?StyleAttributeMapper $styleMapper = null;
 
@@ -94,6 +94,12 @@ final class BlockFactory
         }
 
         $attrs = $this->normalizeClassNameAttr($attrs, $name);
+
+        // Group save() renders the stored tagName, so the attribute must name the
+        // tag the markup uses; an unsupported tag falls back to the default div.
+        if ( 'core/group' === $name && array_key_exists('tagName', $attrs) ) {
+            $attrs['tagName'] = $this->groupTagName($attrs['tagName']);
+        }
 
         $attrs = $this->runtime()->normalizeBlockSupportAttributes($name, $attrs)['attrs'];
 
