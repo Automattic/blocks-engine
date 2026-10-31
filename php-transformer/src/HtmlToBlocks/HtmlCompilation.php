@@ -3423,6 +3423,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<int, array<string, mixed>>
      */
+    private function hasWordPressTemplateParts(DOMElement $root): bool
+    {
+        $areas = array();
+        foreach ($root->childNodes as $child) {
+            if (!$child instanceof DOMElement) continue;
+            if (in_array('wp-block-template-part', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)) $areas[strtolower($child->tagName)] = true;
+        }
+        return isset($areas['header'], $areas['footer']);
+    }
+
     private function convertChildren(DOMNode $parent, array &$fallbacks, bool $captureUnsupported = false, bool $preserveLinkContainers = false): array
     {
         $blocks = array();
@@ -3463,11 +3473,26 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     continue;
                 }
             }
+            // WordPress supplies this document root at render time. Keep the
+            // source DOM intact for selector/style analysis, but emit its children
+            // as document siblings rather than an authored layout group.
+            if ('div' === strtolower($child->tagName)
+                && in_array('wp-site-blocks', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)
+                && $parent instanceof DOMElement
+                && ('body' === strtolower($parent->tagName) || SourceDom::isDocumentVariantRoot($parent))
+                && $this->hasWordPressTemplateParts($child)
+            ) {
+                $blocks = array_merge($blocks, $this->convertChildren($child, $fallbacks, $captureUnsupported, $preserveLinkContainers));
+                continue;
+            }
             $fallbackOffset = count($fallbacks);
             $block = $preserveLinkContainers && 'div' === strtolower($child->tagName) && 0 === $child->attributes->length
                 ? $this->layoutShellBlockForElements(array($child), $this->convertChildren($child, $fallbacks, $captureUnsupported, true), $child)
                 : $this->convertElement($child, $fallbacks, $captureUnsupported);
             if ( null !== $block ) {
+                if (in_array('wp-block-post-content', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)) {
+                    $block['attrs']['metadata']['blocksEnginePostContent'] = true;
+                }
                 $blocks[] = $block;
             } elseif ( $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($child) ) {
                 $ownerSelector = $this->elementSelector($child);

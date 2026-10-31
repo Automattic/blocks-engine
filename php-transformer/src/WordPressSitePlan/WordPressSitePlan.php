@@ -563,7 +563,10 @@ PHP;
          $parts = $navigation['parts'];
          $menus = $navigation['menus'];
         $pages = $this->extractPostCommentForms($pages);
+        $blockThemeChrome = $this->extractBlockThemePostChrome($pages, $runtimeDeclarations, $runtimeEntityRecords);
+        $pages = $blockThemeChrome['pages'];
         $articleChrome = $this->extractPostArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
+        if (array() !== $blockThemeChrome['templates']) $articleChrome['single'] = reset($blockThemeChrome['templates']);
          $pages = $articleChrome['pages'];
           $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
           $pages = self::resolveFeaturedImageTargets($pages, $tokens);
@@ -625,7 +628,17 @@ PHP;
         unset($asset);
         // Shell extraction needed the archive documents, but route overrides
         // belong only to documents that actually materialize in WordPress.
-        $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single'], $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome']);
+        $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single'], $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome'], $blockThemeChrome['templates']);
+        foreach ($templates as &$template) {
+            $chrome = $blockThemeChrome['templates'][$template['slug']] ?? null;
+            if (!is_string($chrome)) continue;
+            $template['shell_frame'] = array_values(array_unique(array_merge($template['shell_frame'] ?? array(), $blockThemeChrome['shells'][$template['slug']] ?? array())));
+        }
+        unset($template);
+        if (array() !== $blockThemeChrome['templates']) foreach ($templates as &$template) {
+            if ('single' === $template['slug']) $template['shell_frame'] = reset($blockThemeChrome['shells']);
+        }
+        unset($template);
         $sharedTemplateTitles = self::shareOverrideTemplates($pages, $parts, $templates);
         $registeredTemplates = array();
         foreach ($pages as $page) if (isset($page['route_template']) && !isset($registeredTemplates[$page['route_template']])) {
@@ -3778,7 +3791,7 @@ PHP;
      * @param array<string,string> $documentChrome Shared document chrome by template slug.
      * @return array<int,array<string,mixed>>
      */
-    private function templates(array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, array $routes = array(), ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array()): array
+    private function templates(array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, array $routes = array(), ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array(), array $postTemplates = array()): array
      {
          $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)));
          usort($bound, static function (array $left, array $right): int {
@@ -3787,7 +3800,7 @@ PHP;
          });
          $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
          $hasCommentForm = (bool) array_filter($pages, static fn(array $page): bool => !empty($page['metadata']['native_comment_form']));
-         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm): string {
+         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates): string {
              $before = ''; $after = '';
              $container = null;
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || self::shellPartAppliesToOverride($part, $templateSlug)
@@ -3805,12 +3818,12 @@ PHP;
               } elseif ('404' === $templateSlug) {
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Page not found</h1><!-- /wp:heading -->' . "\n" . '<!-- wp:search {"label":"Search","showLabel":false,"buttonText":"Search"} /-->' . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
              } else {
-                 $content = ('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->';
+                 $content = $postTemplates[$templateSlug] ?? (('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->');
                  if ('single' === $templateSlug && !$hasCapturedPosts) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
              }
-            if ($hasCommentForm && ('single' === $templateSlug || str_starts_with($templateSlug, 'single-'))) {
+            if ($hasCommentForm && !str_contains($content, '<!-- wp:post-comments-form') && ('single' === $templateSlug || str_starts_with($templateSlug, 'single-'))) {
                 $content .= "\n" . '<!-- wp:comments --><div class="wp-block-comments"><!-- wp:post-comments-form /--></div><!-- /wp:comments -->';
             }
             // Keep each lifecycle's native content inside the shared app frame.
@@ -3918,6 +3931,58 @@ PHP;
             $pages[$index]['content_hash'] = self::contentHash($pages[$index]['canonical_block_markup']);
         }
         return $pages;
+    }
+
+    /**
+     * A captured WordPress entry-content boundary is stronger evidence than
+     * cross-post similarity: everything outside it belongs to the template.
+     * Keep route-specific chrome (including responsive shells) route-specific.
+     */
+    private function extractBlockThemePostChrome(array $pages, array $declarations, array $records): array
+    {
+        $templates = array();
+        $shells = array();
+        foreach ($pages as $index => $post) {
+            if ('post' !== ($post['post_type'] ?? null)) continue;
+            $markup = $post['canonical_block_markup'];
+            $contents = array();
+            foreach (self::blockRanges($markup) as $range) {
+                $slice = substr($markup, $range['offset'], $range['length']);
+                $attrs = self::listingBlockAttributes($slice);
+                if (!empty($attrs['metadata']['blocksEnginePostContent'])) $contents[] = $range;
+            }
+            // Multiple document copies need their own visibility/content owner.
+            if (1 !== count($contents)) continue;
+            $content = $contents[0];
+            $children = self::childBlockRanges($markup, $content);
+            if (array() === $children) continue;
+            $start = $children[0]['offset'];
+            $last = $children[count($children) - 1];
+            $length = $last['offset'] + $last['length'] - $start;
+            $retained = array(array('offset' => $start, 'length' => $length));
+            if ($this->postChromeFactoringStrandsBindings($post, $retained, $declarations, $records)) continue;
+            $template = substr($markup, 0, $start) . '<!-- wp:post-content /-->' . substr($markup, $start + $length);
+            // Reuse the normal title/date conversion, but never infer article
+            // body from arbitrary chrome siblings once WordPress named it.
+            $replacements = array();
+            foreach (self::blockRanges($template) as $range) {
+                $slice = substr($template, $range['offset'], $range['length']);
+                if (array() !== self::childBlockRanges($template, $range)) continue;
+                $kind = $this->classifyPostChromeBlock($slice, $post, (string) ($post['route']['path'] ?? ''));
+                if (preg_match('/<time\b[^>]*datetime=/i', $slice)) $kind = 'date';
+                if ('title' === $kind || 'date' === $kind) $replacements[] = $range + array('markup' => 'title' === $kind ? self::postTitleMarkup($slice) : self::postDateMarkup($slice));
+            }
+            usort($replacements, static fn(array $a, array $b): int => $b['offset'] <=> $a['offset']);
+            foreach ($replacements as $replacement) $template = substr_replace($template, $replacement['markup'], $replacement['offset'], $replacement['length']);
+            $slug = self::routeTemplateKey($post);
+            $pages[$index]['route_template'] = $slug;
+            $pages[$index]['canonical_block_markup'] = substr($markup, $start, $length);
+            $pages[$index]['content_hash'] = self::contentHash($pages[$index]['canonical_block_markup']);
+            $templates[$slug] = $template;
+            preg_match_all('/<!-- wp:template-part (\{.*?\}) \/-->/', $template, $matches);
+            $shells[$slug] = array_map(static fn(string $json): string => (string) (json_decode($json, true)['slug'] ?? ''), $matches[1]);
+        }
+        return array('pages' => $pages, 'templates' => $templates, 'shells' => $shells);
     }
 
     /**
