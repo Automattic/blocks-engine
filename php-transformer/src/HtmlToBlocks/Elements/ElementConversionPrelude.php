@@ -35,6 +35,15 @@ final class ElementConversionPrelude
      */
     public const SCRIPT_NAVIGATION_CLASS = 'blocks-engine-script-navigation';
 
+    private function commentContainer(DOMElement $element, string $name, array $children): array
+    {
+        $block = $this->createBlock->createBlock($name, $this->styleResolver->presentationAttributes($element), $children, $element);
+        $open = '<div class="' . htmlspecialchars($element->getAttribute('class'), ENT_QUOTES, 'UTF-8') . '">';
+        $block['innerHTML'] = $open . '</div>';
+        $block['innerContent'] = array_merge(array($open), array_fill(0, count($children), null), array('</div>'));
+        return $block;
+    }
+
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): ?array<string, mixed> $convertElement
@@ -84,11 +93,41 @@ final class ElementConversionPrelude
      */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported): ConversionOutcome
     {
+        if (WordPressComments::hasClass($element, 'wp-block-comments')) {
+            $children = ($this->convertChildren)($element, $fallbacks, $captureUnsupported);
+            return ConversionOutcome::handled($this->commentContainer($element, 'core/comments', $children));
+        }
+        if (WordPressComments::hasClass($element, 'wp-block-comment-template')) {
+            foreach ($element->childNodes as $item) {
+                if (!$item instanceof DOMElement || 'li' !== $item->tagName) continue;
+                $copy = $item->cloneNode(true);
+                $xpath = new \DOMXPath($element->ownerDocument);
+                foreach ($xpath->query('.//ol[contains(concat(" ",normalize-space(@class)," ")," children ")]', $copy) as $nested) $nested->parentNode->removeChild($nested);
+                $children = ($this->convertChildren)($copy, $fallbacks, $captureUnsupported);
+                $block = $this->createBlock->createBlock('core/comment-template', $this->styleResolver->presentationAttributes($element), $children, $element);
+                $block['innerContent'] = array_fill(0, count($children), null);
+                return ConversionOutcome::handled($block);
+            }
+            return ConversionOutcome::handled($this->createBlock->createBlock('core/comment-template'));
+        }
+        foreach (array('comments-title', 'comment-author-name', 'comment-date', 'comment-content', 'comment-reply-link', 'avatar') as $type) {
+            if (!WordPressComments::hasClass($element, 'wp-block-' . $type)) continue;
+            $attrs = $this->styleResolver->presentationAttributes($element);
+            if ('comments-title' === $type) $attrs['level'] = (int) substr($element->tagName, 1) ?: 2;
+            if ('avatar' === $type) {
+                $image = $element->getElementsByTagName('img')->item(0);
+                if ($image instanceof DOMElement && is_numeric($image->getAttribute('width'))) $attrs['size'] = (int) $image->getAttribute('width');
+            }
+            return ConversionOutcome::handled($this->createBlock->createBlock('core/' . $type, $attrs));
+        }
         if (WordPressCommentForm::isReplyHeading($element)) return ConversionOutcome::handled(null);
         if (WordPressCommentForm::matches($element)) {
             // This is a dynamic destination-site primitive. Source post IDs,
             // nonces, and form values must never become block attributes.
             $form = $this->createBlock->createBlock('core/post-comments-form');
+            for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+                if (WordPressComments::hasClass($ancestor, 'wp-block-comments')) return ConversionOutcome::handled($form);
+            }
             $comments = $this->createBlock->createBlock('core/comments', array(), array($form));
             $comments['innerHTML'] = '<div class="wp-block-comments"></div>';
             $comments['innerContent'] = array('<div class="wp-block-comments">', null, '</div>');

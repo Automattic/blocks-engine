@@ -721,6 +721,12 @@ PHP;
             if (1 === count($slugs)) $diagnostic['template_part'] = $slugs[0];
         }
         unset($diagnostic);
+        $commentEntities = array();
+        foreach ($pages as &$page) {
+            array_push($commentEntities, ...($page['document_metadata']['comment_entities'] ?? array()));
+            unset($page['document_metadata']['comment_entities']);
+        }
+        unset($page);
         $plan = array(
             'schema' => self::SCHEMA,
             'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance'], 'source_documents' => $this->sourceDocumentCatalog($compiled['pages'] ?? array())),
@@ -734,6 +740,7 @@ PHP;
             'operations' => $operations,
             'routes' => $routes,
             'taxonomy_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'taxonomy_term' === $entity['kind'])),
+            'comment_entities' => $commentEntities,
             'author_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'author' === $entity['kind'])),
             'navigation_links' => $input->navigationLinks,
             'menus' => $menus,
@@ -3943,6 +3950,18 @@ PHP;
     {
         $templates = array();
         $shells = array();
+        $capturedComments = null;
+        foreach ($pages as $page) {
+            if ('post' !== ($page['post_type'] ?? null)) continue;
+            $source = $page['canonical_block_markup'];
+            foreach (self::blockRanges($source) as $range) {
+                $slice = substr($source, $range['offset'], $range['length']);
+                if (str_starts_with($slice, '<!-- wp:comments') && str_contains($slice, '<!-- wp:comment-template')) {
+                    $capturedComments = $slice;
+                    break 2;
+                }
+            }
+        }
         // Prefer a unified document with both navigation directions as the
         // chrome owner, not an endpoint whose absent neighbor rendered empty.
         $ordered = $pages;
@@ -4027,6 +4046,17 @@ PHP;
             $templates[$slug] = $template;
             preg_match_all('/<!-- wp:template-part (\{.*?\}) \/-->/', $template, $matches);
             $shells[$slug] = array_map(static fn(string $json): string => (string) (json_decode($json, true)['slug'] ?? ''), $matches[1]);
+        }
+        if (null !== $capturedComments && isset($templates['single'])) {
+            $template = $templates['single'];
+            $replacements = array();
+            foreach (self::blockRanges($template) as $range) {
+                $slice = substr($template, $range['offset'], $range['length']);
+                if (preg_match('/^<!-- wp:comments(?:\s|-->)/', $slice)) $replacements[] = $range;
+            }
+            if (array() === $replacements) $template .= $capturedComments;
+            else foreach (array_reverse($replacements) as $range) $template = substr_replace($template, $capturedComments, $range['offset'], $range['length']);
+            $templates['single'] = $template;
         }
         return array('pages' => $pages, 'templates' => $templates, 'shells' => $shells);
     }

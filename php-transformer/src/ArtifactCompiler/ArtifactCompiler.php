@@ -4401,6 +4401,8 @@ final class ArtifactCompiler
         }
         $head = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext::fromHtml($html, $sourcePath, $files);
         if (null !== $head) $metadata['head'] = $head;
+        $comments = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WordPressComments::entities($html, $sourcePath);
+        if (array() !== $comments) $metadata['comment_entities'] = $comments;
         return $metadata;
     }
 
