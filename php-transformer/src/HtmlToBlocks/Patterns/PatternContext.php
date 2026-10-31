@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 
@@ -29,6 +30,7 @@ final class PatternContext
      * @param Closure(DOMElement): string|null $capturedGlyphColor
      * @param Closure(DOMElement): array<string, string>|null $accordionItemBox
      * @param Closure(DOMElement): bool|null $sourceElementVisuallyClipped
+     * @param Closure(DOMElement): string|null $richTextContent
      */
     public function __construct(
         private readonly Closure $presentationAttributes,
@@ -51,7 +53,8 @@ final class PatternContext
         private readonly ?Closure $glyphColorUndecodable = null,
         private readonly ?Closure $capturedGlyphColor = null,
         private readonly ?Closure $accordionItemBox = null,
-        private readonly ?Closure $sourceElementVisuallyClipped = null
+        private readonly ?Closure $sourceElementVisuallyClipped = null,
+        private readonly ?Closure $richTextContent = null
     ) {
     }
 
@@ -113,6 +116,11 @@ final class PatternContext
     public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
     {
         return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement, $logicalSourceElement);
+    }
+
+    public function richTextContent(DOMElement $element): string
+    {
+        return null === $this->richTextContent ? SourceDom::innerHtml($element) : ($this->richTextContent)($element);
     }
 
     public function recursiveConverter(): ?PatternTreeConverter { return $this->recursiveConverter; }

@@ -3569,7 +3569,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src),
             fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : '',
             fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
-            fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement)
+            fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->inlineRichTextContent($sourceElement, true)
         );
     }
 
@@ -5772,9 +5773,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * wrapper paragraph: the materialized source markup, with styling hooks
      * lowered to semantic carriers inline rather than hoisted onto the host.
      */
-    private function inlineRichTextContent(DOMElement $element): string
+    private function inlineRichTextContent(DOMElement $element, bool $materializeSvg = false): string
     {
         $content = $this->richTextMaterializer->content($element);
+        if ($materializeSvg) {
+            $content = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content) ?? $content;
+        }
         if ('' === $content) return '';
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);

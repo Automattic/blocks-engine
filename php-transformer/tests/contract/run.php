@@ -1090,7 +1090,7 @@ $capturedMenuDisclosure = ( new HtmlTransformer() )->transform('<details class="
 $capturedMenuDisclosureMarkup = (string) ($capturedMenuDisclosure['serialized_blocks'] ?? '');
 $capturedMenuDisclosureBlock = $capturedMenuDisclosure['blocks'][0] ?? array();
 $assert('core/details' === ($capturedMenuDisclosureBlock['blockName'] ?? null) && 'core/navigation' === (($capturedMenuDisclosureBlock['innerBlocks'][0]['innerBlocks'][0] ?? array())['blockName'] ?? null), 'icon-only menu disclosures preserve their native trigger and navigation content');
-$assert(str_contains($capturedMenuDisclosureMarkup, '<summary><svg aria-hidden="true">') && str_contains($capturedMenuDisclosureMarkup, '<!-- wp:navigation'), 'icon-only menu disclosures retain an operable summary with editable navigation content');
+$assert(str_contains($capturedMenuDisclosureMarkup, '<span class="screen-reader-text"') && str_contains($capturedMenuDisclosureMarkup, '>Menu</span></summary>') && str_contains($capturedMenuDisclosureMarkup, '<!-- wp:navigation'), 'icon-only menu disclosures retain an operable summary with editable navigation content');
 
 $capturedMobileMenuDisclosure = ( new ArtifactCompiler() )->compile(
     array(
@@ -1130,7 +1130,7 @@ $separateResponsiveMenuArtifact = ( new ArtifactCompiler() )->compile(
 $separateResponsiveMenuMarkup = (string) ($separateResponsiveMenuArtifact['serialized_blocks'] ?? '');
 $separateResponsiveMenuCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $separateResponsiveMenuArtifact['assets'] ?? array()));
 $assert(! str_contains($separateResponsiveMenuMarkup, 'blocks-engine-native-responsive-navigation') && 2 === substr_count($separateResponsiveMenuMarkup, '"overlayMenu":"never"'), 'a separately preserved disclosure menu does not promote its desktop companion to native responsive navigation', $separateResponsiveMenuMarkup);
-$assert(str_contains($separateResponsiveMenuMarkup, '<!-- wp:details') && str_contains($separateResponsiveMenuMarkup, '<summary><svg aria-hidden="true">'), 'the mobile source summary remains the emitted interactive menu control', $separateResponsiveMenuMarkup);
+$assert(str_contains($separateResponsiveMenuMarkup, '<!-- wp:details') && str_contains($separateResponsiveMenuMarkup, '>Menu</span></summary>'), 'the mobile source summary remains the emitted interactive menu control', $separateResponsiveMenuMarkup);
 $assert(str_contains($separateResponsiveMenuCss, '@media(max-width:768px)') && str_contains($separateResponsiveMenuCss, '@media(min-width:769px)') && ! str_contains($separateResponsiveMenuCss, 'blocks-engine-native-responsive-navigation{display:flex!important}'), 'the emitted artifact retains authored mobile and desktop menu visibility without a native host override', $separateResponsiveMenuCss);
 
 $linkedCapturedDisclosure = ( new HtmlTransformer() )->transform('<details><summary>&nbsp;</summary><div role="dialog" data-blocks-engine-triggers="menu-trigger"><nav><a href="/about">About</a></nav></div></details>')->toArray();
