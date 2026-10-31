@@ -11,7 +11,7 @@ $artifact = array('entrypoint' => 'index.html', 'files' => array());
 foreach (array('index' => 'Home', 'first' => 'First story', 'second' => 'Second story') as $slug => $title) {
     $navigation = '';
     foreach (array('prev' => 'previous', 'next' => 'next') as $rel => $type) {
-        $navigation .= '<div class="wp-block-post-navigation-link post-navigation-link-' . $type . ' is-arrow-arrow"><a href="/' . $slug . '-' . $type . '" rel="' . $rel . '"><span class="post-navigation-link__arrow">→</span><span class="post-navigation-link__label">' . ucfirst($type) . ':</span> <mark class="post-navigation-link__title">Neighbor of ' . $title . '</mark></a></div>';
+        $navigation .= '<div style="font-size:0.875rem" class="post-navigation-link-' . $type . ' wp-block-post-navigation-link">' . ('previous' === $type ? '<span class="wp-block-post-navigation-link__arrow-previous is-arrow-arrow" aria-hidden="true">←</span>' : '') . '<a href="/' . $slug . '-' . $type . '" rel="' . $rel . '"><span class="post-navigation-link__label">' . ucfirst($type) . ':</span> <span class="post-navigation-link__title">Neighbor of ' . $title . '</span></a>' . ('next' === $type ? '<span class="wp-block-post-navigation-link__arrow-next is-arrow-arrow" aria-hidden="true">→</span>' : '') . '</div>';
     }
     $html = '<html><head><title>' . $title . '</title><style>.wp-block-comment-content{font-size:.95rem;line-height:1.7}</style></head><body><div class="wp-site-blocks"><header class="wp-block-template-part"><p>Publication</p></header><main class="wp-block-group"><h1 class="wp-block-post-title">' . $title . '</h1><div class="wp-block-post-date"><time datetime="2024-03-01">March 1, 2024</time></div><div class="entry-content alignfull wp-block-post-content has-global-padding is-layout-constrained"><p>Unique article for ' . $slug . '.</p><p>More about ' . $slug . '.</p></div><div class="comments"><p>Discussion</p></div></main><footer class="wp-block-template-part"><p>Copyright publication</p></footer></div></body></html>';
     if ('first' === $slug) {
@@ -29,6 +29,9 @@ $plan = (new WordPressSitePlan())->fromCompilerResult($result);
 WordPressSitePlan::assertValid($plan);
 $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
 $single = $templates['single'];
+preg_match_all('/<!-- wp:post-navigation-link (\{.*?\}) \/-->/', $single, $navigationBlocks);
+foreach ($navigationBlocks[1] as $json) { $navigationAttrs = json_decode($json, true); $assert('arrow' === ($navigationAttrs['arrow'] ?? null) && '0.875rem' === ($navigationAttrs['style']['typography']['fontSize'] ?? null), 'Post navigation keeps the captured arrow and typography: ' . $json); }
+$assert(2 === count($navigationBlocks[1]), 'Single binds both post navigation links.');
 // The authored rule on the comment body must still reach the native block.
 $commentRule = array_filter(array_column($plan['assets'], 'content'), static fn($css): bool => is_string($css) && str_contains($css, 'line-height:1.7') || is_string($css) && str_contains($css, 'line-height: 1.7'));
 preg_match('/<!-- wp:comment-content (\{.*?\}) \/-->/', $single, $commentContent);
