@@ -35,6 +35,31 @@ final class ElementConversionPrelude
      */
     public const SCRIPT_NAVIGATION_CLASS = 'blocks-engine-script-navigation';
 
+    /** Keep authored selectors on dynamic comment blocks. */
+    private function commentAttributes(DOMElement $element): array
+    {
+        $attrs = $this->styleResolver->presentationAttributes($element);
+        $attrs['className'] = implode(' ', array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class') . ' ' . ($attrs['className'] ?? ''))) ?: array())));
+        return $attrs;
+    }
+
+    private function insideCommentsArea(DOMElement $element, string $areaClass): bool
+    {
+        for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if (WordPressComments::hasClass($ancestor, $areaClass)) return true;
+        }
+        return false;
+    }
+
+    private function commentContainer(DOMElement $element, string $name, array $children): array
+    {
+        $block = $this->createBlock->createBlock($name, $this->commentAttributes($element), $children, $element);
+        $open = '<div class="' . htmlspecialchars($element->getAttribute('class'), ENT_QUOTES, 'UTF-8') . '">';
+        $block['innerHTML'] = $open . '</div>';
+        $block['innerContent'] = array_merge(array($open), array_fill(0, count($children), null), array('</div>'));
+        return $block;
+    }
+
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): ?array<string, mixed> $convertElement
@@ -84,11 +109,54 @@ final class ElementConversionPrelude
      */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported): ConversionOutcome
     {
+        if (WordPressComments::hasClass($element, 'wp-block-comments')) {
+            $children = ($this->convertChildren)($element, $fallbacks, $captureUnsupported);
+            return ConversionOutcome::handled($this->commentContainer($element, 'core/comments', $children));
+        }
+        if (WordPressComments::hasClass($element, 'wp-block-comment-template')) {
+            foreach ($element->childNodes as $item) {
+                if (!$item instanceof DOMElement || 'li' !== $item->tagName) continue;
+                // Convert the real item (provenance must reference live source
+                // nodes), with its nested replies set aside: the comment
+                // template renders one representative comment.
+                $xpath = new \DOMXPath($element->ownerDocument);
+                $nestedReplies = array();
+                foreach (iterator_to_array($xpath->query('.//ol[contains(concat(" ",normalize-space(@class)," ")," children ")]', $item)) as $nested) {
+                    $nestedReplies[] = array($nested, $nested->parentNode, $nested->nextSibling);
+                }
+                foreach ($nestedReplies as [$nested, $parent]) $parent->removeChild($nested);
+                try {
+                    $children = ($this->convertChildren)($item, $fallbacks, $captureUnsupported);
+                } finally {
+                    foreach (array_reverse($nestedReplies) as [$nested, $parent, $next]) $parent->insertBefore($nested, $next);
+                }
+                $block = $this->createBlock->createBlock('core/comment-template', $this->commentAttributes($element), $children, $element);
+                $block['innerContent'] = array_fill(0, count($children), null);
+                return ConversionOutcome::handled($block);
+            }
+            return ConversionOutcome::handled($this->createBlock->createBlock('core/comment-template'));
+        }
+        foreach (array('comments-title', 'comment-author-name', 'comment-date', 'comment-content', 'comment-reply-link', 'avatar') as $type) {
+            if (!WordPressComments::hasClass($element, 'wp-block-' . $type)) continue;
+            // These are dynamic blocks that render from comment context: only
+            // a captured comments area supplies it.
+            if (!$this->insideCommentsArea($element, 'comments-title' === $type ? 'wp-block-comments' : 'wp-block-comment-template')) break;
+            $attrs = $this->commentAttributes($element);
+            if ('comments-title' === $type) $attrs['level'] = (int) substr($element->tagName, 1) ?: 2;
+            if ('avatar' === $type) {
+                $image = $element->getElementsByTagName('img')->item(0);
+                if ($image instanceof DOMElement && is_numeric($image->getAttribute('width'))) $attrs['size'] = (int) $image->getAttribute('width');
+            }
+            return ConversionOutcome::handled($this->createBlock->createBlock('core/' . $type, $attrs, array(), $element));
+        }
         if (WordPressCommentForm::isReplyHeading($element)) return ConversionOutcome::handled(null);
         if (WordPressCommentForm::matches($element)) {
             // This is a dynamic destination-site primitive. Source post IDs,
             // nonces, and form values must never become block attributes.
             $form = $this->createBlock->createBlock('core/post-comments-form');
+            for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+                if (WordPressComments::hasClass($ancestor, 'wp-block-comments')) return ConversionOutcome::handled($form);
+            }
             $comments = $this->createBlock->createBlock('core/comments', array(), array($form));
             $comments['innerHTML'] = '<div class="wp-block-comments"></div>';
             $comments['innerContent'] = array('<div class="wp-block-comments">', null, '</div>');

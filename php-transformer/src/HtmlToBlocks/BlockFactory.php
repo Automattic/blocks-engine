@@ -199,7 +199,8 @@ final class BlockFactory
         $classes = array();
         foreach ( preg_split('/\s+/', trim($attrs['className'])) ?: array() as $class ) {
             $nativeButtonWidth = 'core/button' === $blockName && 1 === preg_match('/^wp-block-button__width-(25|50|75|100)$/', $class);
-            if ( '' === $class || (! $nativeButtonWidth && GeneratedGutenbergClassPolicy::isGeneratedClassName($class)) || in_array($class, $classes, true) ) {
+            $commentClass = in_array($blockName, array('core/comments', 'core/comments-title', 'core/comment-template', 'core/comment-content', 'core/comment-author-name', 'core/comment-date', 'core/comment-reply-link', 'core/avatar'), true);
+            if ( '' === $class || (! $commentClass && ! $nativeButtonWidth && GeneratedGutenbergClassPolicy::isGeneratedClassName($class)) || in_array($class, $classes, true) ) {
                 continue;
             }
             $classes[] = $class;

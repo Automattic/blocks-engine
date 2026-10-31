@@ -3423,6 +3423,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<int, array<string, mixed>>
      */
+    private function hasWordPressTemplateParts(DOMElement $root): bool
+    {
+        $areas = array();
+        foreach ($root->childNodes as $child) {
+            if (!$child instanceof DOMElement) continue;
+            if (in_array('wp-block-template-part', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)) $areas[strtolower($child->tagName)] = true;
+        }
+        return isset($areas['header'], $areas['footer']);
+    }
+
     private function convertChildren(DOMNode $parent, array &$fallbacks, bool $captureUnsupported = false, bool $preserveLinkContainers = false): array
     {
         $blocks = array();
@@ -3463,11 +3473,27 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     continue;
                 }
             }
+            // WordPress supplies this document root at render time. Keep the
+            // source DOM intact for selector/style analysis, but emit its children
+            // as document siblings rather than an authored layout group.
+            if ('div' === strtolower($child->tagName)
+                && in_array('wp-site-blocks', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)
+                && $parent instanceof DOMElement
+                && ('body' === strtolower($parent->tagName) || SourceDom::isDocumentVariantRoot($parent))
+                && $this->hasWordPressTemplateParts($child)
+            ) {
+                $blocks = array_merge($blocks, $this->convertChildren($child, $fallbacks, $captureUnsupported, $preserveLinkContainers));
+                continue;
+            }
             $fallbackOffset = count($fallbacks);
             $block = $preserveLinkContainers && 'div' === strtolower($child->tagName) && 0 === $child->attributes->length
                 ? $this->layoutShellBlockForElements(array($child), $this->convertChildren($child, $fallbacks, $captureUnsupported, true), $child)
                 : $this->convertElement($child, $fallbacks, $captureUnsupported);
             if ( null !== $block ) {
+                // Retain the public source boundary rather than private metadata.
+                if (in_array('wp-block-post-content', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)) {
+                    $block['attrs']['className'] = trim(($block['attrs']['className'] ?? '') . ' wp-block-post-content');
+                }
                 $blocks[] = $block;
             } elseif ( $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($child) ) {
                 $ownerSelector = $this->elementSelector($child);
@@ -3759,6 +3785,40 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $tagName = strtolower($element->tagName);
+
+        // WordPress post navigation is a dynamic post primitive, not a menu.
+        $classes = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+        if (in_array('wp-block-post-navigation-link', $classes, true)) {
+            foreach ($element->getElementsByTagName('a') as $link) {
+                if (!in_array($link->getAttribute('rel'), array('prev', 'next'), true)) continue;
+                $title = null;
+                $label = '';
+                foreach ($link->childNodes as $child) {
+                    $class = $child instanceof DOMElement ? $child->getAttribute('class') : '';
+                    if (str_contains($class, 'post-navigation-link__title')) { $title = $child; continue; }
+                    if (str_contains($class, 'post-navigation-link__arrow')) continue;
+                    $label .= $child->textContent;
+                }
+                // The arrow modifier sits on the arrow span; older markup carries it on the wrapper.
+                $arrow = 'none';
+                foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('span'))) as $node) {
+                    $nodeClasses = preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array();
+                    if ($node !== $element && array() === preg_grep('/^wp-block-post-navigation-link__arrow-/', $nodeClasses)) continue;
+                    if (in_array('is-arrow-arrow', $nodeClasses, true)) $arrow = 'arrow';
+                    elseif (in_array('is-arrow-chevron', $nodeClasses, true)) $arrow = 'chevron';
+                }
+                // A captured label sits inside the link (core's linkLabel); that
+                // is also the only label placement core keeps alongside an arrow.
+                // Keep the wrapper's own presentation (inline typography, source
+                // classes) so authored rules still reach the native block.
+                $attrs = $this->styleResolver->presentationAttributes($element);
+                $type = 'prev' === $link->getAttribute('rel') ? 'previous' : 'next';
+                $ownClasses = array_diff(preg_split('/\s+/', trim(($attrs['className'] ?? '') . ' ' . implode(' ', $classes))) ?: array(), array('', 'wp-block-post-navigation-link', 'post-navigation-link-' . $type, 'is-arrow-arrow', 'is-arrow-chevron'));
+                unset($attrs['className']);
+                if (array() !== $ownClasses) $attrs['className'] = implode(' ', array_unique($ownClasses));
+                return $this->createBlock('core/post-navigation-link', array_merge($attrs, array('type' => $type, 'showTitle' => null !== $title, 'arrow' => $arrow, 'label' => trim($label)), null !== $title && '' !== trim($label) ? array('linkLabel' => true) : array()), array(), $element);
+            }
+        }
 
         $authoredMotion = (new AuthoredMotionMarkerConverter($this->session, $this))->convert($element);
         if (null !== $authoredMotion) return $authoredMotion;

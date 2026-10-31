@@ -64,6 +64,11 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( SourceDom::documentVariantRoot($element) === $element ) {
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
+        if (in_array($tagName, array('header', 'footer'), true)
+            && in_array('wp-block-template-part', preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), true)
+        ) {
+            return ConversionOutcome::handled($this->group($element, $this->context->convertChildren($element, $fallbacks)));
+        }
         $runtimeAppShell = $this->context->runtimeAppShellBlock($element, $fallbacks);
         if ( null !== $runtimeAppShell ) {
             return ConversionOutcome::handled($runtimeAppShell);
