@@ -271,13 +271,12 @@ final class ProjectedNavigationConverter implements ElementConverter
         // A projected menu replaces the toggle as a grid/flex item, not only
         // as a DOM occurrence. Carry its authored row slot on the host; putting
         // this on Core's leaf opener would place it inside the nav instead.
+        // Its collapsed margins also belong to that outer item box.
         $slotDeclarations = array();
-        if ( $this->navigationToggleSuppressor->projectedNavigationTargetForControl($toggle) instanceof DOMElement ) {
-            foreach ( $this->styleResolver->collapsedViewportAuthorDeclarations($toggle, array('grid-area', 'grid-column', 'grid-row', 'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end', 'order', 'align-self', 'justify-self')) as $property => $value ) {
-                $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant(trim($value)), $toggle);
-                if ( '' !== $value && ! preg_match('/[{}<>;]|var\(/i', $value) ) {
-                    $slotDeclarations[] = $property . ':' . $value . '!important';
-                }
+        foreach ( $this->styleResolver->collapsedViewportAuthorDeclarations($toggle, array('grid-area', 'grid-column', 'grid-row', 'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end', 'order', 'align-self', 'justify-self', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left')) as $property => $value ) {
+            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant(trim($value)), $toggle);
+            if ( '' !== $value && ! preg_match('/[{}<>;]|var\(/i', $value) ) {
+                $slotDeclarations[] = $property . ':' . $value . '!important';
             }
         }
         $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . implode(';', $slotDeclarations) . $extra . (null === $source ? '' : serialize($source)) . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary ) . ( '' === $absentAbove ? '' : ';absent:' . $absentAbove )), 0, 12);
