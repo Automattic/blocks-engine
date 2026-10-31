@@ -371,6 +371,7 @@
       "php tests/unit/carousel-page-navigation-link.php",
       "php tests/unit/carousel-div-controls-rich-slides.php",
       "php tests/unit/image-slideshow-gallery.php",
+      "php tests/unit/group-tag-name-save-agreement.php",
       "php tests/unit/authored-marquee-block.php",
       "php tests/unit/copy-to-clipboard-block.php",
       "php tests/unit/theme-toggle-block.php",
