@@ -486,13 +486,23 @@ final class FormPresentationGraphBuilder
     private function cascadeFilter(array $elements, bool $retainUnsupported = true): Closure
     {
         $cache = $this->matchCache;
+        // Controls share most of their ancestors; each element is visited once.
         $visits = array();
         foreach ($elements as $element) {
             for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null) {
-                $visits[] = $ancestor;
+                $path = $ancestor->getNodePath();
+                if ( isset($visits[$path]) ) {
+                    break;
+                }
+                $visits[$path] = $ancestor;
             }
         }
-        return static function (array $selector, string $selectorText) use ($visits, $cache, $retainUnsupported): bool {
+        $visits = array_values($visits);
+        $subjects = $cache->subjectTokens($visits);
+        return static function (array $selector, string $selectorText) use ($visits, $subjects, $cache, $retainUnsupported): bool {
+            if ( ! $cache->subjectMayMatch($selector, $subjects) ) {
+                return false;
+            }
             foreach ($visits as $ancestor) {
                 $match = $cache->matches($ancestor, $selectorText, $selector);
                 if ($match['matches'] || ($retainUnsupported && ! $match['supported'])) return true;
