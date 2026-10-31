@@ -1746,6 +1746,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $serializedBlocks = $this->runtime->serializeBlocks(self::withoutDefaultCommentAttributes($blocks));
         $this->finalizeFallbackBindings($fallbacks, $blocks, $serializedBlocks);
         $reusableComponentRecognition = $this->reusableComponents()->report($this->materializedAssets()->assets());
+        // Resolve against emitted blocks while the existing source provenance
+        // IDs are still attached. Declaration-addressed classes are rewritten below.
+        $authorLayoutTopologyFindings = $this->transformationEvidence()->authorLayoutTopologyFindings($blocks);
         $sourceProvenance = $this->transformationProvenance()->resolveBlockPaths($blocks);
         $responsiveCounterpartContracts = (new ResponsiveCorrespondence())->declare($blocks, $sourceProvenance);
         $this->authorSelectorProjections()->confirmRichTextCarriers($serializedBlocks);
@@ -1851,7 +1854,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $diagnostics[] = ConversionFindingContract::withClassification($finding);
         }
         $headMetadata = $this->headMetadataReport($html);
-        $authorLayoutTopologyFindings = $this->transformationEvidence()->authorLayoutTopologyFindings();
+        $authorLayoutTopologyFindings = $classIdentity->rewrite($authorLayoutTopologyFindings, $classReplacements);
         $this->styleResolver->recordSourceSelectorMatchWork();
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
         $bundledSnapshotBlocks = $this->runtime->bundledCoreBlockNames();
@@ -5344,15 +5347,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return $coalesced;
             }
         }
-        if ( $isAuthorOwnedLayout ) {
-            $this->transformationEvidence()->recordAuthorLayoutTopology(
-                $this->elementSelector($element),
-                $sourceChildCount,
-                count($children),
-                $sourceTags,
-                $blockTags
-            );
-        }
         $attrs = $this->cssOwnedGroupAttributes($element, false, $topologyChanged);
         if ( 0 === count($children) && '' === $this->renderedTextContent($element) ) {
             // Empty source layout containers are visual boundaries, not new
@@ -5374,6 +5368,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             );
         }
         $block = $this->createBlock('core/group', $attrs, $children, $element);
+        if ( $isAuthorOwnedLayout ) {
+            $this->transformationEvidence()->recordAuthorLayoutTopology(
+                $this->elementSelector($element),
+                $sourceChildCount,
+                count($children),
+                $sourceTags,
+                $blockTags,
+                $block['_source_provenance_id'] ?? null
+            );
+        }
         if ($topologyChanged && $this->styleResolver->hasTopologyUnsafeFixedHeight($element)) {
             $this->layoutGeometry()->removeTopologyUnsafeFixedHeightRules(
                 $this->styleResolver->geometryStructuralPath($element)
