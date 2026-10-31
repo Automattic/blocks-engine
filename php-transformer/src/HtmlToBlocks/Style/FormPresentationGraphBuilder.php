@@ -101,11 +101,14 @@ final class FormPresentationGraphBuilder
     private ?array $visibilityAnalysis = null;
     /** Selector match memo for one source document; a cache-owning caller shares it across the passes of one compile. */
     private readonly CssSelectorMatchCache $matchCache;
+    /** Custom-property resolution over {@see $matchCache}'s source document. */
+    private readonly FormCustomPropertyResolver $customProperties;
 
     /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker @param list<DOMElement> $scopeElements @param CssSelectorMatchCache|null $selectorMatchCache A cache the caller owns and shares across one compile's passes; by default this builder owns one. */
     public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null, private readonly array $scopeElements = array(), ?CssSelectorMatchCache $selectorMatchCache = null)
     {
         $this->matchCache = $selectorMatchCache ?? new CssSelectorMatchCache();
+        $this->customProperties = new FormCustomPropertyResolver($this->matchCache);
     }
 
     /** Source form box presentation is distinct from its control layout graph. */
@@ -164,7 +167,7 @@ final class FormPresentationGraphBuilder
         }
         foreach ($base as $property => $fact) {
             $owner = $fact['element'] ?? $element;
-            foreach (FormCustomPropertyResolver::conditionsChanging($fact['value'], $owner, $analysis['customProperties'], true) as $condition) {
+            foreach ($this->customProperties->conditionsChanging($fact['value'], $owner, $analysis['customProperties'], true) as $condition) {
                 $encoded = json_encode($condition);
                 $conditional[$encoded][$property] ??= $fact;
             }
@@ -561,7 +564,7 @@ final class FormPresentationGraphBuilder
                 $provenance = $this->provenance($matched['base'], null);
                 $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
                 foreach ($matched['base'] as $property => $fact) {
-                    foreach (FormCustomPropertyResolver::conditionsChanging($fact['value'], $element, $customPropertyAnalysis['rules'], true) as $condition) $conditional[json_encode($condition)][$property] ??= $fact;
+                    foreach ($this->customProperties->conditionsChanging($fact['value'], $element, $customPropertyAnalysis['rules'], true) as $condition) $conditional[json_encode($condition)][$property] ??= $fact;
                 }
                 $carried = array();
                 // A button, or the element painting a hidden native submit, carries its caption.
@@ -815,7 +818,7 @@ final class FormPresentationGraphBuilder
             $base = array_intersect_key($matched['base'], $carried);
             $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
             foreach ($base as $property => $fact) {
-                foreach (FormCustomPropertyResolver::conditionsChanging($fact['value'], $element, $customPropertyRules, true) as $condition) $conditional[json_encode($condition)][$property] ??= $fact;
+                foreach ($this->customProperties->conditionsChanging($fact['value'], $element, $customPropertyRules, true) as $condition) $conditional[json_encode($condition)][$property] ??= $fact;
             }
             foreach ( $conditional as $encoded => &$facts ) {
                 $facts = array_intersect_key($facts, $carried);
@@ -1336,7 +1339,7 @@ final class FormPresentationGraphBuilder
         $result = array();
         foreach ( $facts as $property => $fact ) {
             $owner = $fact['element'] ?? $element;
-            $value = FormCustomPropertyResolver::resolve($fact['value'], $owner, $condition, $rules, $unconditionalBase);
+            $value = $this->customProperties->resolve($fact['value'], $owner, $condition, $rules, $unconditionalBase);
             if ( null !== $this->resolveValue && str_contains($value, 'var(') ) $value = ($this->resolveValue)($element, $value);
             // A value that is empty or over the style budget cannot be carried.
             // Drop that one property and report it; the rest of the form keeps its presentation.

@@ -45,10 +45,13 @@ final class FormLayoutGraphBuilder
     private array $labels = array();
     /** Selector match memo for one build's document; replaced at every build() so it never spans documents. */
     private CssSelectorMatchCache $selectorCache;
+    /** Custom-property resolution over {@see $selectorCache}; replaced with it at every build(). */
+    private FormCustomPropertyResolver $customProperties;
 
     public function __construct()
     {
         $this->selectorCache = new CssSelectorMatchCache();
+        $this->customProperties = new FormCustomPropertyResolver($this->selectorCache);
     }
 
     /**
@@ -64,6 +67,7 @@ final class FormLayoutGraphBuilder
         // builders below re-ask the same (element, selector) questions of the
         // same stylesheet set, and each match is computed once for all of them.
         $selectorCache = $this->selectorCache = new CssSelectorMatchCache();
+        $this->customProperties = new FormCustomPropertyResolver($selectorCache);
         $controls = array();
         $relevant = array();
         $this->nodeIds = array();
@@ -846,7 +850,7 @@ final class FormLayoutGraphBuilder
     private function withoutAmbiguousCustomProperties(array $base, DOMElement $element, array $conditional, array $customPropertyRules): array
     {
         foreach ( $base as $property => $fact ) {
-            foreach ( FormCustomPropertyResolver::conditionsChanging($fact['value'], $element, $customPropertyRules) as $condition ) {
+            foreach ( $this->customProperties->conditionsChanging($fact['value'], $element, $customPropertyRules) as $condition ) {
                 if ( ! isset($conditional[ json_encode($condition) ][ $property ]) ) {
                     unset($base[$property]);
                     $this->diagnostics[] = 'conditional_custom_property_layout';
@@ -1019,7 +1023,7 @@ final class FormLayoutGraphBuilder
         $result = array();
         foreach ( $facts as $property => $fact ) {
             $key = in_array($property, self::SOURCE_BOX_PROPERTIES, true) ? str_replace('-', '_', $property) : self::layoutKey($property);
-            $result[$key] = FormCustomPropertyResolver::resolve($fact['value'], $element, $condition, $customPropertyRules);
+            $result[$key] = $this->customProperties->resolve($fact['value'], $element, $condition, $customPropertyRules);
         }
         ksort($result);
         return $result;
