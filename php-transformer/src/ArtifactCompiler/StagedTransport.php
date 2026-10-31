@@ -29,7 +29,7 @@ trait StagedTransport
      */
     public function prepareShared(array $artifact, ?PayloadReader $payloadReader = null): array
     {
-        $artifact = (new ResponsiveDocumentVariants())->compose($artifact);
+        $artifact = $this->composeInputArtifact($artifact);
         if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
             return $this->prepareReferencedStage($artifact, 'shared', '', $payloadReader, null);
         }
@@ -59,6 +59,7 @@ trait StagedTransport
                 'canonical_diagnostics' => $partition['canonical_diagnostics'],
                 'canonical_rejected_count' => $partition['canonical_rejected_count'],
                 'captured_dialogs' => $partition['captured_dialogs'],
+                'source_css_bytes' => $partition['source_css_bytes'],
             )),
             'compiler_options' => $this->receiptCompilerOptions(),
         );
@@ -82,7 +83,7 @@ trait StagedTransport
     public function preparePage(array $artifact, array $sharedPlan, string $pageId, ?PayloadReader $payloadReader = null): array
     {
         $this->assertSharedPlan($sharedPlan);
-        $artifact = (new ResponsiveDocumentVariants())->compose($artifact);
+        $artifact = $this->composeInputArtifact($artifact);
         if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
             return $this->prepareReferencedStage($artifact, 'page', $pageId, $payloadReader, (string) $sharedPlan['digest']);
         }
@@ -105,7 +106,7 @@ trait StagedTransport
     public function preparePages(array $artifact, array $sharedPlan, ?PayloadReader $payloadReader = null): array
     {
         $this->assertSharedPlan($sharedPlan);
-        $artifact = (new ResponsiveDocumentVariants())->compose($artifact);
+        $artifact = $this->composeInputArtifact($artifact);
         if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
             $plans = array();
             foreach ($sharedPlan['analysis']['page_ids'] ?? array() as $pageId) {
@@ -450,6 +451,7 @@ trait StagedTransport
                 $files,
                 is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array()
             );
+            $artifact['_captured_source_css_bytes'] = $sharedPlan['analysis']['source_css_bytes'];
             return $this->compileArtifact($artifact);
         }
         $this->reportProgress($onProgress, 'reduce_receipts', 0, 1);
@@ -555,6 +557,7 @@ trait StagedTransport
         $rejected = $sharedNormalized['rejected_count'];
         $normalized = array_merge($sharedNormalized, array(
             'files' => $files,
+            'source_css_bytes' => $sharedPlan['analysis']['source_css_bytes'],
             'entrypoints' => $sharedArtifact['entrypoints'],
             'bytes' => $sharedPlan['analysis']['canonical_bytes'] ?? $bytes,
             'diagnostics' => $this->dedupeDiagnostics($diagnostics),
@@ -589,6 +592,7 @@ trait StagedTransport
         // roles, rejection diagnostics, and source order have exactly the same
         // meaning as inline compilation before ownership partitions are made.
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
+        $sourceCssBytes = $artifact['_captured_source_css_bytes'] ?? self::sourceCssBytes($normalized['files']);
         $capturedDialogsProjection = (new CapturedDialogProjector())->project($normalized['files']);
         $collectionsProjection = (new CapturedCollectionProjector())->project($capturedDialogsProjection['files']);
         $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($collectionsProjection['files'], $collectionsProjection['consumed_selectable_bindings'] ?? array());
@@ -655,6 +659,7 @@ trait StagedTransport
             'input_keys' => array_values(array_filter(array_keys($artifact), 'is_string')),
             'identity' => $identity,
             'source_paths' => $sourcePaths,
+            'source_css_bytes' => $sourceCssBytes,
             'canonical_source_hash' => $normalized['source_hash'],
             'canonical_bytes' => $normalized['bytes'],
             'canonical_provenance_hashes' => $canonicalProvenanceHashes,
@@ -805,6 +810,7 @@ trait StagedTransport
                 'canonical_diagnostics' => $partition['canonical_diagnostics'],
                 'canonical_rejected_count' => $partition['canonical_rejected_count'],
                 'captured_dialogs' => $partition['captured_dialogs'],
+                'source_css_bytes' => $partition['source_css_bytes'],
             ));
             $plan['shared_reduction'] = array(
                 'files' => $planArtifact['files'],

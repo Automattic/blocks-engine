@@ -501,10 +501,10 @@ final class DesignSystem
      * - `theme_css_bytes`: CSS the theme ships, every stylesheet asset
      *   (author projections, per-page copies, shared chrome, engine support)
      *   plus inline block `style` attributes.
-     * - `unique_source_css_bytes`: the author's stylesheets as captured,
-     *   each counted once however often the theme copies it (see
-     *   WordPressSitePlan::uniqueSourceCssBytes()). Without it, the bytes of
-     *   the shipped author stylesheets.
+     * - `unique_source_css_bytes`: input artifact CSS files and inline
+     *   <style> block contents, deduplicated by content hash before compilation.
+     *   Compiled-site source_css_bytes supplies this total, not emitted assets.
+     *   Without an explicit total, the bytes of the shipped author stylesheets.
      * - `engine_css_bytes`: CSS the conversion adds rather than projects:
      *   engine support stylesheets plus inline block `style` attributes.
      * - `generated_to_source_css_ratio`: `theme_css_bytes` over
