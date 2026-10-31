@@ -3556,6 +3556,20 @@ final class StyleResolver implements ElementPresentationResolver
         return self::rootFontSizePx($fontSize);
     }
 
+    /** Root author evidence, including html/:root rules in body-only analysis documents. */
+    public function hasAuthoredHtmlFontSize(DOMElement $body): bool
+    {
+        if (!$this->hasRootFontSizeRule()) return false;
+        $document = $body->ownerDocument;
+        if (null === $document) return false;
+        $root = $document->documentElement;
+        if (!$root instanceof DOMElement || 'html' !== strtolower($root->tagName)) {
+            $this->detachedDocumentRoots ??= new \WeakMap();
+            $root = $this->detachedDocumentRoots[$document] ??= $document->createElement('html');
+        }
+        return isset($this->structuralPresentationDeclarations($root)['font-size']);
+    }
+
     /** Whether any static rule that can select a bare `html` element declares a font size. */
     private function hasRootFontSizeRule(): bool
     {

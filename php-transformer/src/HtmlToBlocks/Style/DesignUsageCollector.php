@@ -141,6 +141,7 @@ final class DesignUsageCollector
             'color' => $bodyContext['color'],
             'font_family' => $bodyContext['family'],
             'font_size_px' => self::number($bodyContext['size']),
+            'font_size_authored' => isset($bodyDeclarations['font-size']) || isset($htmlDeclarations['font-size']) || $this->resolver->hasAuthoredHtmlFontSize($body),
             'conditional' => array_values(array_filter(
                 array('color', 'background', 'font-family', 'font-size'),
                 fn(string $family): bool => $this->resolver->hasConditionalStyleFamily($body, $family) || (null !== $html && $this->resolver->hasConditionalStyleFamily($html, $family))
