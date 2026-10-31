@@ -145,7 +145,7 @@ final class ShellExtraction
                 foreach ($this->nestedLandmarkCandidates($page['canonical_block_markup'], '', $area) as $row) {
                     ++$variant;
                     $class = self::responsiveVariantClass($row);
-                    if (null === $class || count($variantIdentities[$area][$variant]) < 2) continue;
+                    if (null === $class || !empty($row['capture_scope_edge']) || count($variantIdentities[$area][$variant]) < 2) continue;
                     $artifact = self::sourceSharedShellArtifact($artifacts, $page, $area, $variant);
                     if (null === $artifact) continue;
                     $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
@@ -1047,9 +1047,76 @@ final class ShellExtraction
             $disjoint[] = $row;
             $outerEnd = $end;
         }
-        $rows = $disjoint;
+        $rows = $this->captureScopeEdges($markup, $disjoint, $area);
         foreach ($rows as $variant => &$row) { unset($row['main_ancestors']); $row['variant'] = $variant; } unset($row);
         return $rows;
+    }
+
+    /**
+     * Give each capture document its own route edge. The responsive shell
+     * machinery then compares and removes the complete edge, not just its
+     * landmark. Unscoped documents keep the ordinary route_edge pass.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @return list<array<string,mixed>>
+     */
+    private function captureScopeEdges(string $markup, array $rows, string $area): array
+    {
+        if (!str_contains($markup, CaptureEvidence::DOCUMENT_SCOPE)) return $rows;
+        $stack = array(); $scopes = array();
+        foreach (self::blockCommentTokens($markup) as $token) {
+            if ($token['closing']) {
+                $open = array_pop($stack);
+                if (!is_array($open) || !$open['scope']) continue;
+                $scopes[] = array('offset' => $open['offset'], 'length' => $token['offset'] + strlen($token['token']) - $open['offset']);
+            } elseif (!$token['self_closing']) {
+                $openingEnd = strpos($markup, '>', $token['offset'] + strlen($token['token']));
+                $opening = false === $openingEnd ? '' : substr($markup, $token['offset'], $openingEnd + 1 - $token['offset']);
+                $stack[] = array('offset' => $token['offset'], 'scope' => str_contains($opening, CaptureEvidence::DOCUMENT_SCOPE));
+            }
+        }
+        foreach ($scopes as $scope) {
+            $wrapper = substr($markup, $scope['offset'], $scope['length']);
+            $children = self::directChildBlockRanges($wrapper);
+            if (array() === $children) continue;
+            $base = $children[0]['offset'];
+            $last = $children[count($children) - 1];
+            $document = substr($wrapper, $base, $last['offset'] + $last['length'] - $base);
+            $edge = $this->routeEdge($document, array(), $area, array());
+            foreach ($rows as &$row) {
+                if ($row['offset'] < $scope['offset'] || $row['offset'] + $row['length'] > $scope['offset'] + $scope['length']) continue;
+                $at = $this->edgeLandmarkIndex($document, $edge, $row['markup']);
+                if (null === $at) continue;
+                $length = $at + 1;
+                while ($length < count($edge) && self::isOutOfFlowChrome(substr($document, $edge[$length]['offset'], $edge[$length]['length']))) ++$length;
+                $range = self::edgeRange($edge, $length);
+                $row['offset'] = $scope['offset'] + $base + $range['offset'];
+                $row['length'] = $range['length'];
+                $row['markup'] = substr($markup, $row['offset'], $row['length']);
+                $row['identity_markup'] = self::normalizeNestedChromeMarkup($row['markup']);
+                $row['source_hash'] = hash('sha256', $row['markup']);
+                $row['template_part_markup'] = self::landmarkPartMarkup($row['markup'], $area);
+                $row['capture_scope_edge'] = $length > 1;
+            }
+            unset($row);
+        }
+        return $rows;
+    }
+
+    /** Compare capture navigation with its unscoped, non-responsive fallback. */
+    private static function captureEdgeIdentity(string $markup): string
+    {
+        $markup = preg_replace_callback('/<!--\s*wp:navigation\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match): string {
+            $attrs = json_decode($match[1], true);
+            if (!is_array($attrs)) return $match[0];
+            unset($attrs['overlayMenu'], $attrs['customOverlayBackgroundColor']);
+            if (isset($attrs['className'])) {
+                $attrs['className'] = trim(preg_replace('/\bblocks-engine-(?:native-responsive-navigation|navigation-overlay-[a-f0-9]+)\b/', '', $attrs['className']) ?? $attrs['className']);
+                if ('' === $attrs['className']) unset($attrs['className']);
+            }
+            return '<!-- wp:navigation ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . ($match[2] ?? '') . '-->';
+        }, $markup) ?? $markup;
+        return self::normalizeNestedChromeMarkup($markup);
     }
 
     /**
@@ -2521,6 +2588,13 @@ final class ShellExtraction
             usort($classes, static fn(string $left, string $right): int => self::responsiveVariantRank($left) <=> self::responsiveVariantRank($right) ?: strcmp($left, $right));
             $primary = array() === $classes ? null : $identities[$classes[0]];
             foreach ($rows as $row) {
+                $edge = $this->routeEdge($markup, array(), $area, array());
+                $at = $this->edgeLandmarkIndex($markup, $edge, $row['markup']);
+                if (null !== $at) {
+                    $range = self::edgeRange($edge, $at + 1);
+                    $edgeMarkup = substr($markup, $range['offset'], $range['length']);
+                    if (self::captureEdgeIdentity((string) $primary) === self::captureEdgeIdentity($edgeMarkup)) $row = array_replace($row, $range, array('markup' => $edgeMarkup, 'identity_markup' => $primary));
+                }
                 if (null === $primary || $primary !== $row['identity_markup']) return null;
                 $remove[] = $row;
             }
