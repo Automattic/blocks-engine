@@ -69,8 +69,8 @@ $assert(1 === preg_match('/(?:^|}|,)header \.sr-only\{position:absolute/', $chro
 $assert(str_contains($chromeCss, '.cta{border:1px solid}'), 'Authored chrome rules are unchanged.');
 
 // Pruning keeps what each selector matches and its specificity.
-$prune = (new ReflectionMethod(WordPressSitePlan::class, 'withoutDeadRichTextMarkers'))->getClosure(null);
-$live = array('blocks-engine-richtext-aaaaaaaaaaaa-0' => true);
+$prune = (new ReflectionMethod(WordPressSitePlan::class, 'withoutDeadElementMarkers'))->getClosure(null);
+$live = array('blocks-engine-richtext-aaaaaaaaaaaa-0' => true, 'blocks-engine-control-aaaaaaaaaaaa-0' => true);
 $cases = array(
     '.sr-only:not(:where(.blocks-engine-richtext-bbbbbbbbbbbb-0))' => '.sr-only',
     '.sr-only:not(:where(.blocks-engine-richtext-aaaaaaaaaaaa-0,.blocks-engine-richtext-bbbbbbbbbbbb-0))' => '.sr-only:not(:where(.blocks-engine-richtext-aaaaaaaaaaaa-0))',
@@ -81,6 +81,10 @@ $cases = array(
     '.blocks-engine-richtext-bbbbbbbbbbbb-0 .x' => null,
     '.x:not(.blocks-engine-richtext-bbbbbbbbbbbb-0)' => '.x:not(.blocks-engine-richtext-bbbbbbbbbbbb-0)',
     '.blocks-engine-richtext-aaaaaaaaaaaa-0' => '.blocks-engine-richtext-aaaaaaaaaaaa-0',
+    // Control and semantic markers name one carrier element too: another
+    // route's copy of a cookie banner's buttons.
+    ':where(.blocks-engine-control-aaaaaaaaaaaa-0,.blocks-engine-control-bbbbbbbbbbbb-0,.blocks-engine-semantic-bbbbbbbbbbbb-0):not(.be-c-0)' => ':where(.blocks-engine-control-aaaaaaaaaaaa-0):not(.be-c-0)',
+    '#banner :where(.blocks-engine-semantic-bbbbbbbbbbbb-0)' => null,
 );
 foreach ($cases as $selector => $expected) {
     $actual = $prune($selector, $live);
