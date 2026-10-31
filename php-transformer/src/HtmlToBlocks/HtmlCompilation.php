@@ -1639,6 +1639,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $resultComposer->emptyBody($html, $provenance, $context, $startedAt, $selectorCache);
         }
         SourceDom::removeIntegerKeyAttributes($body);
+        $this->restoreNativeNavigationPanels($body);
         $this->restoreCapturedExistingPanelRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
         $this->capturedGlyphColors = CapturedGlyphColor::detach($body);
@@ -2197,6 +2198,69 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         foreach ( iterator_to_array($body->getElementsByTagName('link')) as $link ) {
             if ( $link instanceof DOMElement && $this->isNonRenderedMetadataLink($link) ) {
                 $link->parentNode?->removeChild($link);
+            }
+        }
+    }
+
+    /**
+     * Capture wraps Core's shared desktop/mobile menu in a hidden dialog.
+     * Restore the native tree before classification: core/navigation replaces
+     * both controls and supplies its own accessible overlay at render time.
+     * Other captured dialogs retain their existing runtime contract.
+     */
+    private function restoreNativeNavigationPanels(DOMElement $body): void
+    {
+        foreach ( iterator_to_array($body->getElementsByTagName('nav')) as $nav ) {
+            if ( ! SourceDom::hasClass($nav, 'wp-block-navigation') ) {
+                continue;
+            }
+            foreach ( iterator_to_array($nav->childNodes) as $panel ) {
+                if ( ! $panel instanceof DOMElement || ! $panel->hasAttribute(CaptureEvidence::EXISTING_PANEL) ) {
+                    continue;
+                }
+                $id = $panel->getAttribute(CaptureEvidence::DIALOG_PANEL);
+                // Include expansion and capture projection can leave either the
+                // wrapper around Core's container or the container itself. The
+                // latter already owns the native tree; do not unwrap its close
+                // element as though it were another captured dialog wrapper.
+                $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
+                $restingClass = is_array($snapshot) ? ($snapshot['resting']['class'] ?? '') : '';
+                $projectedWrapper = $panel->hasAttribute(CaptureEvidence::RESTING_PANEL)
+                    && SourceDom::hasClass($panel, 'wp-block-navigation__responsive-container')
+                    && is_string($restingClass)
+                    && in_array('wp-block-navigation__responsive-container', preg_split('/\s+/', trim($restingClass)) ?: array(), true);
+                $native = $projectedWrapper ? $panel : $panel->firstElementChild;
+                if ( '' === $id || ! $native instanceof DOMElement
+                    || ($native !== $panel && 1 !== $panel->childElementCount)
+                    || ! SourceDom::hasClass($native, 'wp-block-navigation__responsive-container') ) {
+                    continue;
+                }
+                $opener = null;
+                foreach ( $nav->childNodes as $control ) {
+                    if ( $control instanceof DOMElement
+                        && SourceDom::hasClass($control, 'wp-block-navigation__responsive-container-open')
+                        && $id === $control->getAttribute(CaptureEvidence::DIALOG_TRIGGER) ) {
+                        $opener = $control;
+                    }
+                }
+                if ( ! $opener instanceof DOMElement ) {
+                    continue;
+                }
+                foreach ( array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL_STATE, 'aria-controls', 'aria-expanded') as $attribute ) {
+                    $opener->removeAttribute($attribute);
+                }
+                if ( $native === $panel ) {
+                    foreach ( array(CaptureEvidence::EXISTING_PANEL, CaptureEvidence::DIALOG_PANEL, 'hidden') as $attribute ) {
+                        $native->removeAttribute($attribute);
+                    }
+                } else {
+                    $nav->replaceChild($native, $panel);
+                }
+                foreach ( iterator_to_array($nav->childNodes) as $control ) {
+                    if ( $control instanceof DOMElement && $id === $control->getAttribute(CaptureEvidence::DIALOG_CLOSE) ) {
+                        $nav->removeChild($control);
+                    }
+                }
             }
         }
     }

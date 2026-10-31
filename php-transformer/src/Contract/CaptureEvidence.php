@@ -60,6 +60,8 @@ final class CaptureEvidence
     public const DIALOG_PANEL_STATE = 'data-blocks-engine-capture-dialog-panel-state';
     /** JSON resting/opened attribute snapshots on an existing in-place panel. */
     public const EXISTING_PANEL = 'data-blocks-engine-capture-existing-panel';
+    /** Presence: capture replay has exposed the panel's resting presentation. */
+    public const RESTING_PANEL = 'data-blocks-engine-capture-resting-panel';
     /** JSON list of ancestor attribute bindings toggled with the panel, on the trigger. */
     public const DIALOG_ANCESTOR_STATE = 'data-blocks-engine-capture-dialog-ancestor-state';
     /** Reason the ancestor bindings could not be verified (for example `ancestor-limit`); carried onto the native dialog. */
