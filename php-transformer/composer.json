@@ -300,6 +300,7 @@
       "php tests/unit/taxonomy-single-member-reciprocity.php",
       "php tests/unit/taxonomy-archive-listed-dates.php",
       "php tests/unit/taxonomy-archive-device-document-shell.php",
+      "php tests/unit/capture-scope-leading-chrome-header.php",
       "php tests/unit/functional-source-tag-identity.php",
       "php tests/unit/form-negated-source-tag-identity.php",
       "php tests/unit/html-fragment-includes-memory.php",
