@@ -34,6 +34,22 @@ final class SvgMaterializer implements SvgElementMaterializer
         private readonly Runtime $runtime
     ) {
     }
+    /** Product evidence uses the same sanitized payload and asset identity as blocks. */
+    public function inlineSvgImageReference(DOMElement $element): ?array
+    {
+        if (!SourceDom::svgHasDrawableContent($element) || $this->paintsNothing($element)) {
+            return null;
+        }
+        $html = $this->context->sanitizeInlineSvgMarkup($element);
+        if (!SourceDom::isSafeSvgContent($html)) {
+            return null;
+        }
+        $html = $this->materializeSanitizedSvgMarkup($html, $element);
+        $path = null;
+        $attrs = $this->inlineSvgImageAttributesFromMarkup($element, $html, false, $path);
+        return null === $attrs ? null : array('src' => $path, 'alt' => $attrs['alt'] ?? '');
+    }
+
     public function paintsNothing(DOMElement $element): bool
     {
         return (new SvgPaintEmptiness($this->styleResolver))->paintsNothing($element);
@@ -209,7 +225,7 @@ final class SvgMaterializer implements SvgElementMaterializer
      *
      * @return array<string, mixed>|null
      */
-    private function inlineSvgImageAttributesFromMarkup(DOMElement $element, string $html, bool $richTextImage = false): ?array
+    private function inlineSvgImageAttributesFromMarkup(DOMElement $element, string $html, bool $richTextImage = false, ?string &$assetPath = null): ?array
     {
         if ( ! $this->isNativeImageCompatibleSvg($element, $html) ) {
             return null;
@@ -229,6 +245,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         $assetHtml = $html;
         $visualPayload = $this->svgImageAssetIdentity($html);
         $path = $this->materializedInlineSvgPath($element, $visualPayload);
+        $assetPath = $path;
         $url = $this->sourceRelativeMaterializedSvgPath($path);
         $occurrence = array_filter(array(
             'source_path' => $this->transformSourcePath(),

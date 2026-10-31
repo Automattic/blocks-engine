@@ -661,7 +661,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
         );
         $this->patternContext = $this->createPatternContext();
-        $this->commercePattern = new CommerceStructureRecognizer($this->sourceElementClassifier);
+        $this->commercePattern = new CommerceStructureRecognizer(
+            $this->sourceElementClassifier,
+            fn (DOMElement $element): ?array => $this->svgMaterializer->inlineSvgImageReference($element)
+        );
         $this->interactionFallbackReporter = new InteractionFallbackReporter(
             $this->formControlMetadataBuilder,
             $this->navigationToggleSuppressor,
@@ -2182,6 +2185,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         foreach ( self::ALWAYS_PRUNED_METADATA_TAGS as $tag ) {
             foreach ( iterator_to_array($body->getElementsByTagName($tag)) as $element ) {
                 if ( $element instanceof DOMElement ) {
+                    // SVG titles name artwork; they are not HTML head metadata.
+                    if ('title' === $tag && $this->hasAncestorTag($element, array('svg'))) {
+                        continue;
+                    }
                     $element->parentNode?->removeChild($element);
                 }
             }
