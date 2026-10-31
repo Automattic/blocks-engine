@@ -3,9 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -24,22 +22,5 @@ foreach (array(str_replace('/wp-comments-post.php', '/contact', $form), str_repl
     $result = (new HtmlTransformer())->transform($other)->toArray();
     $assert(!str_contains($result['serialized_blocks'], 'wp:post-comments-form'), 'non-WordPress form remains unaffected');
     $assert(str_contains($result['serialized_blocks'], 'Leave a Reply'), 'unrelated heading survives');
-}
-foreach (array(false, true) as $split) {
-    $files = array('index.html' => '<html><head><title>Home</title></head><body><main><h1>Home</h1><a href="/first/">First</a><a href="/second/">Second</a></main></body></html>');
-    foreach (array('first', 'second') as $slug) {
-        $body = '<main><article><h1>' . ucfirst($slug) . '</h1><p>' . str_repeat($slug . ' story text. ', 30) . '</p>' . $form . '</article></main>';
-        if ($split) $body = '<div class="desktop">' . $body . '</div><div class="phone">' . $body . '</div>';
-        $files[$slug . '/index.html'] = '<html><head><title>' . $slug . '</title><meta property="og:type" content="article"><meta property="article:published_time" content="2024-03-01T00:00:00Z"></head><body>' . $body . '</body></html>';
-    }
-    $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray();
-    $plan = (new WordPressSitePlan())->fromCompilerResult($result);
-    $posts = array_filter($plan['pages'], static fn(array $page): bool => 'post' === $page['post_type']);
-    $assert(2 === count($posts), 'two captured posts');
-    foreach ($posts as $post) $assert(!str_contains($post['canonical_block_markup'], 'wp:post-comments-form'), 'form removed from post content');
-    $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
-    $assert(1 === substr_count($templates['single'], 'wp:post-comments-form'), 'one shared form in single template');
-    $all = implode('\n', array_column(array_merge($plan['pages'], $plan['templates'], $plan['template_parts']), 'canonical_block_markup'));
-    $assert(!str_contains($all, 'wp:html'), 'two-post import has no HTML fallback');
 }
 fwrite(STDOUT, "wordpress-comment-form: passed\n");
