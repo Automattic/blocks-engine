@@ -439,6 +439,7 @@
       "php tests/unit/wordpress-site-plan-composer.php",
       "php tests/unit/capture-runtime-emoji.php",
       "php tests/unit/wordpress-comment-form-placement.php",
+      "php tests/unit/wordpress-comment-form-author-rules.php",
       "php tests/unit/wordpress-site-plan-navigation-attribute-escaping.php",
       "php tests/unit/numeric-post-route-parent.php",
       "php tests/unit/structured-content-classification.php",

@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WordPressCommentForm;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonStyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -112,6 +113,23 @@ final class AuthorStylesheetProjector
                 return '';
             }
         }
+        // These subjects are not lowered source elements. Core renders them
+        // afresh, without our source-tag, class or attribute markers. Keep the
+        // authored rule (including its declaration body and conditional context)
+        // rather than binding it to markers absent from the runtime form.
+        $runtime = array();
+        $lowered = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector ) {
+            if ( $this->targetsRuntimeCommentForm($selector, $context) ) {
+                $runtime[] = $selector;
+            } else {
+                $lowered[] = $selector;
+            }
+        }
+        if ( array() !== $runtime ) {
+            return implode(',', $runtime) . '{' . $body . '}'
+                . (array() === $lowered ? '' : $this->projectStyleRule(implode(',', $lowered), $body, $context, $inConditional, $ancestors, $outerConditions));
+        }
         $lifted = ColorSchemeVariant::liftPrelude($prelude);
         $this->contentBoxRestated = false;
         $this->contentBoxOrder = null;
@@ -123,6 +141,28 @@ final class AuthorStylesheetProjector
         }
 
         return $this->moveContentBoxRestatements($css, $context, array( ...$outerConditions, ...$ancestors ));
+    }
+
+    private function targetsRuntimeCommentForm(string $selector, AuthorStylesheetProjectionContext $context): bool
+    {
+        // Require the runtime block's identity and a non-Core scope hook. A
+        // bare Core selector must not become a site-wide WordPress override.
+        if ( ! preg_match('/\.wp-block-post-comments-form(?![\w-])/', $selector)
+            || ! (new CoreSelectorScoping())->selectorIsScoped($selector) ) {
+            return false;
+        }
+        $host = CssSelectorMatcher::pseudoElementHost($selector);
+        $parsed = $host['parsed'] ?? $context->sourceStyles->parsedSelector($selector);
+        if ( ! ($parsed['supported'] ?? false) ) return false;
+        $matches = $this->matchingSourceElements($host['selector'] ?? $selector, $parsed, $context);
+        if ( array() === $matches ) return false;
+        foreach ( $matches as $element ) {
+            for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+                if ( WordPressCommentForm::matches($ancestor) ) continue 2;
+            }
+            return false;
+        }
+        return true;
     }
 
     /**
