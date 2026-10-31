@@ -63,6 +63,27 @@ final class SearchBlockConverter
             return null;
         }
 
+        // An empty sibling whose only paint is a background image is the
+        // form's visible submit affordance; text-bearing or unpainted
+        // decorations are not promoted to a button.
+        $paintedSibling = null;
+        $paintedIcon = null;
+        if ( null === $submitControl ) {
+            $candidate = $this->nextElementSibling($textInput);
+            if ( $candidate instanceof DOMElement && 'span' === strtolower($candidate->tagName)
+                && '' === trim($candidate->textContent) && array() === SourceDom::eventMetadata($candidate) ) {
+                foreach ( array_merge(array( $candidate ), iterator_to_array($candidate->getElementsByTagName('*'))) as $part ) {
+                    $declarations = $this->context->presentationDeclarations($part);
+                    if ( 1 === preg_match('/url\(/i', ($declarations['background'] ?? '') . ($declarations['background-image'] ?? '')) ) {
+                        $paintedSibling = $candidate;
+                        $paintedIcon = $part;
+                        $submitControl = $candidate;
+                        break;
+                    }
+                }
+            }
+        }
+
         $label = $this->formControlMetadataBuilder->label($textInput);
         $showLabel = $this->hasVisibleLabel($textInput);
         if ( '' === $label ) {
@@ -100,6 +121,27 @@ final class SearchBlockConverter
         }
 
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $this->registerSearchControlPresentation($textInput, $submitControl));
+
+        // core/search cannot store source classes on its input or button, so
+        // source rules addressing them are re-targeted onto the native parts.
+        if ( '' !== trim(SourceDom::attr($textInput, 'class')) || $paintedSibling instanceof DOMElement ) {
+            $marker = 'blocks-engine-search-subject-' . substr(hash('sha256', $textInput->getNodePath() ?? ''), 0, 12);
+            $attrs['className'] = trim($attrs['className'] . ' ' . $marker);
+            $target = ':where(.wp-block-search.' . $marker . ')';
+            $this->context->registerInnerSubject($textInput, $target . ' :where(.wp-block-search__input)');
+            if ( $paintedSibling instanceof DOMElement && $paintedIcon instanceof DOMElement ) {
+                $attrs['buttonUseIcon'] = true;
+                $button = $target . ' :where(.wp-block-search__button)';
+                $this->context->registerInnerSubject($paintedSibling, $button);
+                // The source icon paints the button in place of core's SVG.
+                $css = $target . ' .wp-block-search__button>svg{display:none}';
+                if ( $paintedIcon !== $paintedSibling ) {
+                    $this->context->registerInnerSubject($paintedIcon, $button, '::before');
+                    $css .= $target . ' .wp-block-search__button::before{content:"";display:inline-block}';
+                }
+                $this->context->generatedSupportStyles()->registerNativeSearchTrigger($marker, $css);
+            }
+        }
 
         return $this->context->createBlock('core/search', $attrs, array(), $form);
     }

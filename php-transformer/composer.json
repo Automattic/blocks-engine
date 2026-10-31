@@ -549,6 +549,7 @@
       "php tests/unit/richtext-unknown-inline-element.php",
       "php tests/unit/unknown-block-position-element.php",
       "php tests/unit/search-landmark-element.php",
+      "php tests/unit/search-source-inner-presentation.php",
       "php tests/unit/login-form-native-loginout.php",
       "php tests/unit/richtext-mark-responsive-typography.php",
       "php tests/unit/lowered-control-responsive-typography.php",

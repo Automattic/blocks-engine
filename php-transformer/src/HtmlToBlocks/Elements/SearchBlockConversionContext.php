@@ -121,6 +121,11 @@ final class SearchBlockConversionContext
         return $this->svgMaterializer->restoreSvgCasing($html);
     }
 
+    public function registerInnerSubject(DOMElement $source, string $selector, string $pseudoElement = ''): void
+    {
+        $this->session->authorSelectorProjectionState()->installInnerSubject($source->getNodePath() ?? '', $selector, $pseudoElement);
+    }
+
     public function generatedSupportStyles(): GeneratedSupportStylesheetState
     {
         return $this->session->generatedSupportStylesheetState();

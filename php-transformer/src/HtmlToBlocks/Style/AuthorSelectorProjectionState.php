@@ -202,6 +202,24 @@ final class AuthorSelectorProjectionState
         return $this->navigationListBoxSubjects[$path] ?? '';
     }
 
+    /** @var array<string, array{selector:string, pseudo_element:string}> Native inner elements replacing source subjects. */
+    private array $innerSubjects = array();
+
+    /**
+     * A source element whose presentation a native block renders on one of
+     * its inner parts (optionally a pseudo-element of it).
+     */
+    public function installInnerSubject(string $path, string $selector, string $pseudoElement = ''): void
+    {
+        $this->innerSubjects[$path] = array( 'selector' => $selector, 'pseudo_element' => $pseudoElement );
+    }
+
+    /** @return array{selector:string, pseudo_element:string}|null */
+    public function innerSubject(string $path): ?array
+    {
+        return $this->innerSubjects[$path] ?? null;
+    }
+
     public function installNavigationSubject(string $path, string $selector): void
     {
         $this->navigationSubjects[$path] ??= $selector;
