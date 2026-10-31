@@ -10096,6 +10096,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $attrs = $this->imagePresentationAttributes($image, $figure);
+        // Site-logo's rounded style belongs to its wrapper, not the source
+        // image. core/image saves a new figure and does not inherit that
+        // wrapper's radius; carry the equivalent native image style explicitly.
+        $logo = $image->parentNode;
+        if ( $logo instanceof DOMElement && 'a' === strtolower($logo->tagName) ) {
+            $logo = $logo->parentNode;
+        }
+        if ( $logo instanceof DOMElement
+            && SourceDom::hasClass($logo, 'wp-block-site-logo')
+            && SourceDom::hasClass($logo, 'is-style-rounded') ) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-style-rounded');
+        }
         if ( null !== $picture && ! $figure instanceof DOMElement ) {
             $attrs = array_merge($this->styleResolver->presentationAttributes($picture), $attrs);
         }
