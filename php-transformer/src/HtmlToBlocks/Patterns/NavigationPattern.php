@@ -348,7 +348,6 @@ final class NavigationPattern implements PatternRecognizerInterface
         // than written onto the block, so documents that share this shell keep
         // identical markup and continue to collapse into one template part.
         $authorClasses = $this->authorClassNames((string) ($navigationAttrs['className'] ?? ''));
-        $navigationContext?->recordInheritedPresentation($navigationSource, $authorClasses, ! $this->hasDirectListItemCorrespondence($listSource));
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $defaultTextColorClass = $this->defaultNavigationTextColorClass($links);
             if ( '' !== $defaultTextColorClass ) {
@@ -364,10 +363,14 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($navigationSource, 'never' === ($navigationAttrs['overlayMenu'] ?? '') ? $listSource : null, 'default' === ($navigationAttrs['layout']['type'] ?? '') ? ($navigationAttrs['style']['spacing']['blockGap'] ?? null) : null) ?? '');
         $navigationAttrs = $this->withSourceSubmenuIndicator($navigationAttrs, $element, $navigationContext);
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $navigationSource);
+        // Presentation recovery and container resets must target the created
+        // block's importer identity when the source carries only core classes.
+        $scopedClasses = $this->scopedNavigationClasses($authorClasses, $navigation);
+        $navigationContext?->recordInheritedPresentation($navigationSource, $scopedClasses, ! $this->hasDirectListItemCorrespondence($listSource));
         // WordPress copies the emitted block's classes onto its inner list.
         $navigationContext?->recordNavigationContainerReset(
             $navigationSource,
-            $this->containerResetClasses($authorClasses, $navigation),
+            $scopedClasses,
             $listSource
         );
         $this->recordNavigationSources($links, $directAnchors, $listItems, $navigationSource, $navigationContext);
@@ -873,7 +876,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $clusterClasses = $this->authorClassNames((string) ($navigationAttrs['className'] ?? ''));
         $navigationContext?->recordNavigationContainerReset(
             $cluster,
-            $this->containerResetClasses($clusterClasses, $navigation),
+            $this->scopedNavigationClasses($clusterClasses, $navigation),
             $listSource
         );
 
@@ -3164,7 +3167,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
-     * Classes that key the inner container reset for a created navigation.
+     * Classes that key generated presentation for a created navigation.
      *
      * The source's own classes when they identify the imported navigation. A
      * class-less source, or one carrying only core-shaped classes (a
@@ -3177,7 +3180,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<string, mixed> $navigation The created core/navigation block.
      * @return array<int, string>
      */
-    private function containerResetClasses(array $sourceClasses, array $navigation): array
+    private function scopedNavigationClasses(array $sourceClasses, array $navigation): array
     {
         if ( array() !== $sourceClasses && ( new CoreSelectorScoping() )->selectorIsScoped(CssIdent::compoundClassSelector($sourceClasses)) ) {
             return $sourceClasses;
