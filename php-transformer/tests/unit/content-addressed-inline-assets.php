@@ -54,4 +54,15 @@ foreach (array('inline-style', 'inline-script') as $source) {
         }
     }
 }
+// Shared chrome is lifted per media condition. An inline body loaded under two
+// conditions that styles no chrome is still one asset with one target.
+$header = '<header class="site-header"><nav><a href="one.html">One</a> <a href="two.html">Two</a> <a href="print.html">Print</a></nav></header>';
+$chromeFiles = array(array('path' => 'site.css', 'content' => '.site-header{background:navy}.site-header a{color:white}'));
+foreach (array('one', 'two', 'print') as $page) {
+    $chromeFiles[] = array('path' => $page . '.html', 'content' => '<html><head><link rel="stylesheet" href="site.css"><style' . ('print' === $page ? ' media="print"' : '') . '>.sample{color:red}</style></head><body>' . $header . '<main><p class="sample">' . $page . '</p></main></body></html>');
+}
+$chromePlan = $compiler->compile(array('entrypoint' => 'one.html', 'files' => $chromeFiles))->toArray()['source_reports']['wordpress_site_plan'] ?? null;
+$assert(is_array($chromePlan), 'A site with shared chrome and a multi-media inline body plans.');
+$inline = array_values(array_filter($chromePlan['assets'], static fn(array $asset): bool => 'inline-style' === ($asset['source'] ?? '')));
+$assert(1 === count($inline) && 3 === count($inline[0]['inline_references']), 'The multi-media inline body is one asset with every occurrence.');
 echo "Content-addressed inline assets passed.\n";
