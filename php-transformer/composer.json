@@ -943,6 +943,7 @@
       "php tests/unit/link-bearing-element-lowering.php",
       "php tests/unit/link-wrapper-text-color-parity.php",
       "php tests/unit/custom-property-cascade-specificity.php",
+      "php tests/unit/conditioned-custom-property-scope.php",
       "php tests/unit/important-undecorated-link-wrapper.php",
       "php tests/unit/propagated-link-decoration.php",
       "php tests/unit/navigation-item-structural-pseudo.php",

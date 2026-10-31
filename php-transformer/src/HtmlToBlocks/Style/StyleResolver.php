@@ -5172,7 +5172,9 @@ final class StyleResolver implements ElementPresentationResolver
         }
         $pending = array_fill_keys(array_unique($matches[1]), true);
         $carried = array();
-        $static = $this->cascadedCustomProperties($element);
+        // A property no rule under these conditions defines falls back to the
+        // resting cascade only, never to a value another viewport defines.
+        $static = $this->cascadedCustomProperties($element, true);
         $visited = array();
         // Resolve dependencies through the same source scope, with a bound
         // that also terminates cyclic custom-property references.
@@ -6195,9 +6197,15 @@ final class StyleResolver implements ElementPresentationResolver
      * This supports any property that needs an element-scoped `var()` value,
      * including SVG paint and structural layout declarations.
      *
+     * Values resolve at the desktop reference viewport: a token an ancestor
+     * declares only under a media query that applies there (for example
+     * `@media (min-width:981px)`) fills in where no resting rule on that
+     * ancestor declares it. Pass `$resting = true` for the resting cascade
+     * alone, so a value conditioned on another viewport stays out of it.
+     *
      * @return array<string, string>
      */
-    public function cascadedCustomProperties(DOMElement $element): array
+    public function cascadedCustomProperties(DOMElement $element, bool $resting = false): array
     {
         $sourceStyles = $this->context->sourceStyles();
         $customProperties = $sourceStyles->customProperties();
@@ -6206,12 +6214,47 @@ final class StyleResolver implements ElementPresentationResolver
             $ancestors[] = $current;
         }
         foreach ( array_reverse($ancestors) as $ancestor ) {
-            foreach ( $sourceStyles->cascadedDeclarations($ancestor, $this->computeCascadedDeclarations(...))['custom'] as $name => $propertyValue ) {
+            $declared = $sourceStyles->cascadedDeclarations($ancestor, $this->computeCascadedDeclarations(...))['custom'];
+            if ( ! $resting ) {
+                $declared += $this->desktopConditionedCustomProperties($ancestor);
+            }
+            foreach ( $declared as $name => $propertyValue ) {
                 $customProperties[$name] = $propertyValue;
             }
         }
 
         return $customProperties;
+    }
+
+    /**
+     * Custom properties the element's own media-conditioned rules declare at
+     * the desktop reference viewport, cascade winner per name.
+     *
+     * @return array<string, string>
+     */
+    private function desktopConditionedCustomProperties(DOMElement $element): array
+    {
+        $facts = array();
+        foreach ( $this->matchingStyleRules($element, 'conditional') as $order => $rule ) {
+            $conditions = $rule['conditions'] ?? array();
+            if ( array() === $conditions || ! $this->conditionsApplyAtViewport($conditions, self::DESKTOP_REFERENCE_WIDTH) ) {
+                continue;
+            }
+            foreach ( $rule['cascadedDeclarations'] ?? array() as $name => $value ) {
+                $value = trim((string) $value);
+                if ( ! str_starts_with((string) $name, '--') || '' === $value ) {
+                    continue;
+                }
+                CssCascade::apply($facts, (string) $name, array(
+                    'value' => $value, 'important' => CssValueInspector::isImportant($value),
+                    'specificity' => $this->mediaTextSelectorSpecificity((string) $rule['selector']),
+                    'order' => (int) ($rule['cascadeOrder'] ?? $order),
+                    'inline' => false, 'layer' => $rule['layerRank'] ?? null,
+                ));
+            }
+        }
+
+        return array_map(static fn (array $fact): string => $fact['value'], $facts);
     }
 
     /**
