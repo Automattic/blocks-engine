@@ -126,7 +126,7 @@ final class ElementConversionPrelude
                 $image = $element->getElementsByTagName('img')->item(0);
                 if ($image instanceof DOMElement && is_numeric($image->getAttribute('width'))) $attrs['size'] = (int) $image->getAttribute('width');
             }
-            return ConversionOutcome::handled($this->createBlock->createBlock('core/' . $type, $attrs));
+            return ConversionOutcome::handled($this->createBlock->createBlock('core/' . $type, $attrs, array(), $element));
         }
         if (WordPressCommentForm::isReplyHeading($element)) return ConversionOutcome::handled(null);
         if (WordPressCommentForm::matches($element)) {
