@@ -1069,7 +1069,10 @@ final class StyleResolver implements ElementPresentationResolver
             ));
         }
         uasort($facts, static fn(array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
-        return array_map(static fn(array $fact): string => $fact['value'], $facts);
+        return array_replace(
+            array_intersect_key($this->presentationalHintDeclarations($element), $requested),
+            array_map(static fn(array $fact): string => $fact['value'], $facts)
+        );
     }
 
     /**
@@ -2703,6 +2706,33 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return array( 'text-align' => $value );
+    }
+
+    /**
+     * The text alignment a block inherits from source wrappers the conversion
+     * removes: an `align` presentational hint or an inline `text-align`. The
+     * nearest ancestor that declares alignment decides; when an author rule
+     * wins there, the stylesheet keeps owning it and nothing is stamped.
+     */
+    public function inheritedTextAlignmentDeclaration(DOMElement $element): string
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $value = CssValueInspector::comparable((string) ( $this->presentationDeclarations($node)['text-align'] ?? '' ));
+            if ( in_array($value, array( '', 'inherit', 'unset' ), true) ) {
+                continue;
+            }
+            $local = array(
+                CssValueInspector::comparable((string) ( $this->presentationalHintDeclarations($node)['text-align'] ?? '' )),
+                CssValueInspector::comparable((string) ( $this->cssDeclarations(SourceDom::attr($node, 'style'))['text-align'] ?? '' )),
+            );
+            if ( ! in_array($value, $local, true) ) {
+                return '';
+            }
+
+            return in_array($value, array( 'left', 'center', 'right', 'justify' ), true) ? $value : '';
+        }
+
+        return '';
     }
 
     /**
@@ -4509,7 +4539,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $inlineStyle = SourceDom::attr($element, 'style');
-        if ( array() === $this->context->sourceStyles()->staticRules() || (! $this->isHighValueStyledElement($element) && ! $this->hasGenericRecognitionDemand($element)) ) {
+        if ( array() === $this->presentationalHintDeclarations($element) && (array() === $this->context->sourceStyles()->staticRules() || (! $this->isHighValueStyledElement($element) && ! $this->hasGenericRecognitionDemand($element))) ) {
             $cache->mergedStyles[$cacheKey] = $inlineStyle;
             return $inlineStyle;
         }
@@ -4620,7 +4650,33 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
-        return $this->cssDeclarationString($declarations);
+        return $this->cssDeclarationString(array_replace($this->presentationalHintDeclarations($element), $declarations));
+    }
+
+    /**
+     * HTML presentational hints have zero specificity and precede every author
+     * rule (including layered rules). Merge them underneath the resolved author
+     * cascade, never as inline declarations, so ordinary inheritance applies.
+     *
+     * @return array<string, string>
+     */
+    private function presentationalHintDeclarations(DOMElement $element): array
+    {
+        $tag = strtolower($element->tagName);
+        $declarations = array();
+        if (in_array($tag, array('div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'td', 'th'), true)) {
+            $align = strtolower(trim(SourceDom::attr($element, 'align')));
+            if (in_array($align, array('left', 'center', 'right', 'justify'), true)) {
+                $declarations['text-align'] = $align;
+            }
+        }
+        if (in_array($tag, array('td', 'th', 'tr'), true)) {
+            $valign = strtolower(trim(SourceDom::attr($element, 'valign')));
+            if (in_array($valign, array('top', 'middle', 'bottom', 'baseline'), true)) {
+                $declarations['vertical-align'] = $valign;
+            }
+        }
+        return $declarations;
     }
     /**
      * Return the authored cascade winner for an inherited property. Theme and
@@ -6182,7 +6238,8 @@ final class StyleResolver implements ElementPresentationResolver
         }
         usort($entries, static fn (array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
 
-        $declarations = array();
+        // Presentational hints sit beneath every author declaration.
+        $declarations = $this->presentationalHintDeclarations($element);
         foreach ( $entries as $entry ) {
             $declarations = $this->mergeCssDeclarationMaps($declarations, array( $entry['property'] => $entry['value'] ));
         }
