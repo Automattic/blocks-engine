@@ -32,6 +32,15 @@ final class CommentTextRunBoundaries
     /** The engine's neutral RichText carrier: no highlight, no own color. */
     private const CARRIER_STYLE = 'background-color:transparent;color:inherit';
 
+    /** Whether a mark is one of these neutral seam carriers, exactly as {@see apply()} writes it. */
+    public static function isCarrier(DOMElement $mark): bool
+    {
+        return 'mark' === strtolower($mark->tagName)
+            && 2 === $mark->attributes->length
+            && 'none' === $mark->getAttribute('role')
+            && self::CARRIER_STYLE === $mark->getAttribute('style');
+    }
+
     public static function apply(string $content): string
     {
         if ( ! str_contains($content, '<!--') ) {
