@@ -33,7 +33,7 @@ $assert(!str_contains($result['serialized_blocks'], '1243'), 'source post identi
 $assets = implode("\n", array_column($result['assets'], 'content'));
 $assert(str_contains($assets, $selector . ' { margin: 0px; }'), 'runtime paragraphs keep their authored selector and margin reset');
 $assert(str_contains($assets, '.wp-block-post-comments-form .comment-form label { display: block; margin-bottom: 0.4rem; }'), 'runtime labels do not acquire source markers either');
-(new CoreSelectorScoping())->assertScoped($css, 'runtime-comment-form-test');
+$assert(array() === (new CoreSelectorScoping())->violations($css), 'authored runtime rules are already scoped');
 $unscoped = (new HtmlTransformer())->transform(str_replace($css, '.wp-block-post-comments-form p { color: red; }', $document))->toArray();
 $assert(!str_contains(implode("\n", array_column($unscoped['assets'], 'content')), '.wp-block-post-comments-form p { color: red; }'), 'bare Core rules do not bypass selector scoping');
 
