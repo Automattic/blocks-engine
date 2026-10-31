@@ -735,7 +735,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (DOMElement $element, array &$fallbacks): array {
                 return $this->convertChildren($element, $fallbacks, true);
             },
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            function (DOMElement $element): array {
+                $attrs = $this->styleResolver->presentationAttributes($element);
+                $alignment = $this->styleResolver->inheritedTextAlignmentDeclaration($element);
+                if (in_array($alignment, array('left', 'center', 'right'), true)) {
+                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'has-text-align-' . $alignment);
+                }
+                return $attrs;
+            },
             $this,
             fn (): GeneratedBlockRegistry => $this->generatedBlocks(),
             fn (): array => $this->sourceDocumentHosts
@@ -2899,13 +2906,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ('' !== $padding && is_numeric($padding)) {
                 $declarations[] = 'padding:' . $padding . 'px';
             }
-            $align = strtolower($this->attr($element, 'align'));
+            $align = $this->resolvedDeclaration($element, 'text-align');
             if (in_array($align, array('left', 'center', 'right', 'justify'), true)) {
                 $declarations[] = 'text-align:' . $align;
             }
-            $valign = strtolower($this->attr($element, 'valign'));
+            $valign = $this->resolvedDeclaration($element, 'vertical-align');
             if ('' === $valign && $element->parentNode instanceof DOMElement) {
-                $valign = strtolower($this->attr($element->parentNode, 'valign'));
+                $valign = $this->resolvedDeclaration($element->parentNode, 'vertical-align');
             }
             if (in_array($valign, array('top', 'middle', 'bottom', 'baseline'), true)) {
                 $declarations[] = 'vertical-align:' . $valign;
@@ -4493,7 +4500,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
         }
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) ) {
-            $textAlign = strtolower(trim((string) ($this->styleResolver->presentationDeclarations($sourceElement)['text-align'] ?? '')));
+            $textAlign = $this->styleResolver->inheritedTextAlignmentDeclaration($sourceElement);
             if ( in_array($textAlign, array( 'left', 'center', 'right' ), true) ) {
                 $attrs['align'] = $textAlign;
             }
@@ -11926,9 +11933,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $node = $element->parentNode;
         for ( $depth = 0; $depth < 8 && $node instanceof DOMElement; ++$depth ) {
             $align = $this->resolvedDeclaration($node, 'text-align');
-            if ('' === $align && in_array(strtolower($node->tagName), array('td', 'th'), true)) {
-                $align = strtolower($this->attr($node, 'align'));
-            }
             if ( '' !== $align ) {
                 return in_array($align, array( 'right', 'center', 'end' ), true);
             }
