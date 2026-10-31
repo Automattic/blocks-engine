@@ -6150,14 +6150,41 @@ final class StyleResolver implements ElementPresentationResolver
     /** @return array<string, string> */
     private function computeCascadedDeclarations(DOMElement $element): array
     {
-        $declarations = array();
+        // Fold declarations weakest first, in the shared cascade order
+        // (importance, inline, layer, specificity, source order), so the merge
+        // keeps the value a browser computes rather than the last one written.
+        $entries = array();
+        $order = 0;
         foreach ( $this->matchingStyleRules($element, 'cascaded-values') as $rule ) {
-            $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
+            $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
+            foreach ( $rule['declarations'] as $property => $value ) {
+                $entries[] = $this->cascadeEntry((string) $property, (string) $value, false, $specificity, ++$order, $rule['layerRank'] ?? null);
+            }
+        }
+        foreach ( $this->cascadeRelevantDeclarations($this->cssDeclarations(SourceDom::attr($element, 'style'))) as $property => $value ) {
+            $entries[] = $this->cascadeEntry((string) $property, (string) $value, true, array( 0, 0, 0 ), ++$order, null);
+        }
+        usort($entries, static fn (array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
+
+        $declarations = array();
+        foreach ( $entries as $entry ) {
+            $declarations = $this->mergeCssDeclarationMaps($declarations, array( $entry['property'] => $entry['value'] ));
         }
 
-        return $this->mergeCssDeclarationMaps(
-            $declarations,
-            $this->cascadeRelevantDeclarations($this->cssDeclarations(SourceDom::attr($element, 'style')))
+        return $declarations;
+    }
+
+    /** @param array{0:int,1:int,2:int} $specificity @return array<string, mixed> */
+    private function cascadeEntry(string $property, string $value, bool $inline, array $specificity, int $order, ?int $layer): array
+    {
+        return array(
+            'property'    => $property,
+            'value'       => $value,
+            'important'   => 1 === preg_match('/!\s*important\s*$/i', $value),
+            'inline'      => $inline,
+            'specificity' => $specificity,
+            'order'       => $order,
+            'layer'       => $layer,
         );
     }
 
