@@ -52,20 +52,35 @@ final class CoreSelectorScoping
 	/** @var array<string, bool> Scoping verdict per selector text. */
 	private static array $selectorVerdicts = array();
 
-	/**
-	 * @throws \RuntimeException When a rule targets a core block class without
-	 *     an importer-emitted class in the same compound or ancestor chain.
+	/** Drop unsafe selector arms, preserving surviving declaration bodies verbatim.
+	 * @param list<array<string, mixed>> $diagnostics
 	 */
-	public function assertScoped(string $css, string $origin): void
+	public function dropUnscoped(string $css, string $origin, array &$diagnostics): string
 	{
-		$violations = $this->violations($css);
-		if ( array() !== $violations ) {
-			throw new \RuntimeException(sprintf(
-				"Emitted CSS targets a core block class without an importer-emitted class in the selector chain (origin: %s):\n  - %s",
-				$origin,
-				implode("\n  - ", $violations)
-			));
-		}
+		return (new CssStylesheetTransformer())->transformStyleRules($css, function (string $prelude, string $body) use ($origin, &$diagnostics): string {
+			$selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+			if ( null === $selectors ) {
+				return $prelude . '{' . $body . '}';
+			}
+			$kept = array();
+			foreach ( $selectors as $selector ) {
+				if ( $this->selectorIsScoped($selector) ) {
+					$kept[] = $selector;
+				} else {
+					$diagnostics[] = array(
+						'code' => 'core_selector_unscoped_rule_dropped',
+						'severity' => 'warning',
+						'message' => 'Dropped a generated selector targeting a core block class without importer scope.',
+						'origin' => $origin,
+						'selector' => $selector,
+					);
+				}
+			}
+			if ( array() === $kept ) {
+				return '';
+			}
+			return (count($kept) === count($selectors) ? $prelude : implode(',', $kept)) . '{' . $body . '}';
+		});
 	}
 
 	/** @return list<string> Unscoped selectors found in the stylesheet. */
