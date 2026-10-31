@@ -268,10 +268,13 @@ final class AuthorSelectorProjectionState
 
     /** @var array<string,string> Source anchor paths whose identity belongs to Core's rendered a, not li. */
     private array $socialAnchorMarkers = array();
+    /** @var array{styles: AuthorStyleAnalysis, elements: list<DOMElement>}|null */
+    private ?array $socialAnchorSources = null;
 
     public function markSocialAnchor(DOMElement $anchor): string
     {
         $path = $anchor->getNodePath() ?? '';
+        $this->socialAnchorSources = null;
         return $this->socialAnchorMarkers[$path] = $this->ensureSemanticMarker($path);
     }
 
@@ -283,6 +286,26 @@ final class AuthorSelectorProjectionState
     public function hasSocialAnchors(): bool
     {
         return array() !== $this->socialAnchorMarkers;
+    }
+
+    /**
+     * The marked social anchors as elements of $authorStyles' source document.
+     *
+     * @return list<DOMElement>
+     */
+    public function socialAnchorSources(AuthorStyleAnalysis $authorStyles): array
+    {
+        if ( $authorStyles !== ($this->socialAnchorSources['styles'] ?? null) ) {
+            $elements = array();
+            foreach ( array_keys($this->socialAnchorMarkers) as $path ) {
+                $element = $authorStyles->sourceElementAtPath((string) $path);
+                if ( null !== $element ) {
+                    $elements[] = $element;
+                }
+            }
+            $this->socialAnchorSources = array( 'styles' => $authorStyles, 'elements' => $elements );
+        }
+        return $this->socialAnchorSources['elements'];
     }
 
     public function installAuthorStyles(AuthorStyleAnalysis $authorStyles): void
