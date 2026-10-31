@@ -240,7 +240,7 @@ final class ArtifactCompiler
     public function compile(array $artifact): TransformerResult
     {
         $this->htmlDocumentTransformCount = 0;
-        return $this->compileArtifact((new ResponsiveDocumentVariants())->compose($artifact));
+        return $this->compileArtifact($this->composeInputArtifact($artifact));
     }
 
     /**
@@ -258,6 +258,7 @@ final class ArtifactCompiler
 		$this->wordpressCompat = new WordPressCompatCss();
         $this->htmlTransformerAnalysisCache = $this->cacheHtmlAnalysis ? new HtmlTransformerAnalysisCache() : null;
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
+        $normalized['source_css_bytes'] = $artifact['_captured_source_css_bytes'] ?? self::sourceCssBytes($normalized['files']);
         $this->layoutGeometryProof = is_array($normalized['layout_geometry_proof'] ?? null) ? $normalized['layout_geometry_proof'] : array();
         $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
         $collections = (new CapturedCollectionProjector())->project($capturedDialogs['files']);
@@ -284,6 +285,45 @@ final class ArtifactCompiler
                 ),
             ),
         ));
+    }
+
+    /** @param array<string,mixed> $artifact @return array<string,mixed> */
+    private function composeInputArtifact(array $artifact): array
+    {
+        unset($artifact['_captured_source_css_bytes']);
+        if (!isset($artifact['document_variants'])) return $artifact;
+        // Responsive composition adds scoped and control CSS. Capture the
+        // original documents before that first compilation step, too.
+        $normalized = (new ArtifactNormalizer())->normalize($artifact);
+        $bytes = self::sourceCssBytes($normalized['files']);
+        $artifact = (new ResponsiveDocumentVariants())->compose($artifact);
+        $artifact['_captured_source_css_bytes'] = $bytes;
+        return $artifact;
+    }
+
+    /**
+     * Count captured author CSS before any compiler projections. Normalization
+     * also extracts inline styles into synthetic CSS files; read their original
+     * HTML instead so whitespace is preserved and body-style projections do not
+     * enter the source total. One hash set deduplicates all captured CSS content.
+     *
+     * @param array<int,array<string,mixed>> $files
+     */
+    private static function sourceCssBytes(array $files): int
+    {
+        $bytes = array();
+        foreach ($files as $file) {
+            $content = (string) ($file['content'] ?? '');
+            if ('css' === ($file['kind'] ?? null) && 'inline-style' !== ($file['source'] ?? null)) {
+                $bytes[hash('sha256', $content)] = strlen($content);
+            } elseif ('html' === ($file['kind'] ?? null)) {
+                foreach (StyleTagScanner::scan($content) as $style) {
+                    $css = $style['content'];
+                    $bytes[hash('sha256', $css)] = strlen($css);
+                }
+            }
+        }
+        return array_sum($bytes);
     }
 
     /**
@@ -512,6 +552,7 @@ final class ArtifactCompiler
             $sourceReports['native_runtime_replacements'] = $capturedDialogs['native_runtime_replacements'];
         }
         $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts'], is_array($entryBlocks['document_root_markers'] ?? null) ? $entryBlocks['document_root_markers'] : array(), is_array($entryBlocks['design_usage'] ?? null) ? $entryBlocks['design_usage'] : array());
+        $compiledSite['source_css_bytes'] = $normalized['source_css_bytes'];
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;
         $sourceReports['compiled_site'] = $compiledSite;
         $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($compiledSite);
