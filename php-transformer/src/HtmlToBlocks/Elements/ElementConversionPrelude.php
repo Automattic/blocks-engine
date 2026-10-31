@@ -43,6 +43,14 @@ final class ElementConversionPrelude
         return $attrs;
     }
 
+    private function insideCommentsArea(DOMElement $element, string $areaClass): bool
+    {
+        for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if (WordPressComments::hasClass($ancestor, $areaClass)) return true;
+        }
+        return false;
+    }
+
     private function commentContainer(DOMElement $element, string $name, array $children): array
     {
         $block = $this->createBlock->createBlock($name, $this->commentAttributes($element), $children, $element);
@@ -108,10 +116,20 @@ final class ElementConversionPrelude
         if (WordPressComments::hasClass($element, 'wp-block-comment-template')) {
             foreach ($element->childNodes as $item) {
                 if (!$item instanceof DOMElement || 'li' !== $item->tagName) continue;
-                $copy = $item->cloneNode(true);
+                // Convert the real item (provenance must reference live source
+                // nodes), with its nested replies set aside: the comment
+                // template renders one representative comment.
                 $xpath = new \DOMXPath($element->ownerDocument);
-                foreach ($xpath->query('.//ol[contains(concat(" ",normalize-space(@class)," ")," children ")]', $copy) as $nested) $nested->parentNode->removeChild($nested);
-                $children = ($this->convertChildren)($copy, $fallbacks, $captureUnsupported);
+                $nestedReplies = array();
+                foreach (iterator_to_array($xpath->query('.//ol[contains(concat(" ",normalize-space(@class)," ")," children ")]', $item)) as $nested) {
+                    $nestedReplies[] = array($nested, $nested->parentNode, $nested->nextSibling);
+                }
+                foreach ($nestedReplies as [$nested, $parent]) $parent->removeChild($nested);
+                try {
+                    $children = ($this->convertChildren)($item, $fallbacks, $captureUnsupported);
+                } finally {
+                    foreach (array_reverse($nestedReplies) as [$nested, $parent, $next]) $parent->insertBefore($nested, $next);
+                }
                 $block = $this->createBlock->createBlock('core/comment-template', $this->commentAttributes($element), $children, $element);
                 $block['innerContent'] = array_fill(0, count($children), null);
                 return ConversionOutcome::handled($block);
@@ -120,6 +138,9 @@ final class ElementConversionPrelude
         }
         foreach (array('comments-title', 'comment-author-name', 'comment-date', 'comment-content', 'comment-reply-link', 'avatar') as $type) {
             if (!WordPressComments::hasClass($element, 'wp-block-' . $type)) continue;
+            // These are dynamic blocks that render from comment context: only
+            // a captured comments area supplies it.
+            if (!$this->insideCommentsArea($element, 'comments-title' === $type ? 'wp-block-comments' : 'wp-block-comment-template')) break;
             $attrs = $this->commentAttributes($element);
             if ('comments-title' === $type) $attrs['level'] = (int) substr($element->tagName, 1) ?: 2;
             if ('avatar' === $type) {
