@@ -2746,7 +2746,7 @@ final class ArtifactCompiler
             $largestCopy = $totalCopyBytes = 0;
             if (0 < $routed['route_bytes']) {
                 foreach ($routed['scoped'] as $owner) {
-                    $copyBytes = strlen($transformer->rulesAbsentFrom($pageProjections[$owner] ?? array(), $fallbackSharedStylesheets, true));
+                    $copyBytes = strlen($transformer->rulesAbsentFrom($pageProjections[$owner] ?? array(), $fallbackSharedStylesheets, true, $routeMatchIndex, (string) $owner));
                     $largestCopy = max($largestCopy, $copyBytes);
                     $totalCopyBytes += $copyBytes;
                 }
@@ -2766,7 +2766,7 @@ final class ArtifactCompiler
             $projectedFile['metadata']['native_selectors'] = array_keys($native);
             $output[] = $projectedFile;
             foreach ( $pages as $owner => $pageStylesheets ) {
-                $delta = $recompact($transformer->rulesAbsentFrom($pageStylesheets, $fallbackSharedStylesheets, true));
+                $delta = $recompact($transformer->rulesAbsentFrom($pageStylesheets, $fallbackSharedStylesheets, true, $routeMatchIndex, (string) $owner));
                 if ( '' === trim($delta) ) {
                     continue;
                 }

@@ -191,6 +191,45 @@ $shorthand = $transformer->rulesAbsentFrom(
 );
 $assert('.field.page-a{border:0}.field--error{border-color:red}.panel.page-a{flex:1}' === $shorthand, 'a later longhand of a changed shorthand stays after it; an unrelated family before the change does not');
 
+// Selector interaction narrows cascade-preserving deltas only when the
+// compiled page document proves which elements each rule can style.
+$interactionDocument = new DOMDocument();
+@$interactionDocument->loadHTML('<html><body><nav class="site-nav"><a class="btn" href="/">Home</a></nav><p class="lead">Intro</p><h1>Title</h1></body></html>');
+$interactionIndex = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex(array('page' => $interactionDocument));
+$framework = '.btn{color:red}.lead{color:green}h1{color:blue}';
+$pageRule = '.site-nav .btn{color:purple}';
+$interactionDelta = $transformer->rulesAbsentFrom(array($pageRule . $framework), array($framework), true, $interactionIndex, 'page');
+$assert($pageRule . '.btn{color:red}' === $interactionDelta, 'page delta keeps same-element shared overrides and drops same-family rules for unrelated elements');
+$assert($pageRule . $framework === $transformer->rulesAbsentFrom(array($pageRule . $framework), array($framework), true), 'without document evidence cascade preservation retains its conservative family-only behavior');
+$assert($pageRule . $framework === $transformer->rulesAbsentFrom(array($pageRule . $framework), array($framework), true, $interactionIndex, 'missing'), 'missing page documents never prove selector disjointness');
+
+$unknownDelta = $transformer->rulesAbsentFrom(array('.btn:unknown{color:purple}' . $framework), array($framework), true, $interactionIndex, 'page');
+$assert('.btn:unknown{color:purple}.btn{color:red}.lead{color:green}h1{color:blue}' === $unknownDelta, 'unsupported selectors conservatively retain overlapping shared rules');
+
+$pseudoShared = '.btn::before{content:"shared"}.lead::before{content:"unrelated"}';
+$pseudoPage = '.site-nav .btn{content:"page"}';
+$pseudoDelta = $transformer->rulesAbsentFrom(array($pseudoPage . $pseudoShared), array($pseudoShared), true, $interactionIndex, 'page');
+$assert($pseudoPage . '.btn::before{content:"shared"}' === $pseudoDelta, 'pseudo-element cascade interactions are compared on their hosts');
+
+// Projected marker arms keep every shared rule that styles a marked element
+// with an overlapping family, and the split sheet resolves identically.
+$markedDocument = new DOMDocument();
+@$markedDocument->loadHTML('<html><body><p class="m">One</p><p>Two</p><span class="m">S</span></body></html>');
+$markedIndex = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex(array('page' => $markedDocument));
+$markedShared = 'p{color:blue}.m{color:red}span{padding:9px}h1{color:navy}';
+$markedPage = ':where(.m){color:green}p{padding:2px}';
+$markedDelta = $transformer->rulesAbsentFrom(array($markedPage . $markedShared), array($markedShared), true, $markedIndex, 'page');
+$assert(':where(.m){color:green}p{padding:2px}p{color:blue}.m{color:red}' === $markedDelta, 'marker-arm page deltas retain only shared rules styling marked elements with an overlapping family');
+$cascade = \Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade::class;
+foreach (array($markedShared . "\n" . $markedDelta, $markedPage . $markedShared) as $sheet) {
+    $resolved = array();
+    foreach ($markedDocument->getElementsByTagName('*') as $element) {
+        $resolved[] = (new $cascade($markedDocument, $sheet))->resolve($element, array('color', 'padding', 'margin'), array());
+    }
+    $sheets[] = $resolved;
+}
+$assert($sheets[0] === $sheets[1], 'split shared and delta stylesheets resolve identically to the source sheet');
+
 $compact = static fn(string $list): string => \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::compact($list);
 $assert('.catalog :is(.one,.two,.three)' === $compact('.catalog .one,.catalog .two,.catalog .three'), 'equal-weight compounds factor once');
 foreach ( array(
