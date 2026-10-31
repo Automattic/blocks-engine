@@ -577,7 +577,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): array => $this->formContextTypography($element),
             fn (DOMElement $element): array => $this->formContextPaint($element),
             fn (DOMElement $element, DOMElement $boundary): ?array => $this->formContextHiddenState($element, $boundary),
-            fn (DOMElement $element): string => $this->authorSelectorProjections()->tagMarker($element->tagName)
+            fn (DOMElement $element): string => $this->authorSelectorProjections()->tagMarker($element->tagName),
+            fn (DOMElement $element): string => $this->formContextRichText($element)
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);
@@ -648,7 +649,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (string $id): string => $this->safeAnchor($id),
             fn (DOMElement $element): ?DOMElement => $this->sourceTagProjectedClone($element),
             fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' )),
-            fn (DOMElement $label): string => $this->editableFormLabelContent($label)
+            fn (DOMElement $label): string => $this->inlineRichTextContent($label)
         );
         $this->projectedNavigation = new ProjectedNavigationConverter(
             $this->navigationToggleSuppressor,
@@ -5765,10 +5766,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $attrs;
     }
 
-    /** A label's inline hooks stay inline, rather than being hoisted onto its host. */
-    private function editableFormLabelContent(DOMElement $label): string
+    /**
+     * Inline content as the standalone RichText a block's own content
+     * attribute carries — a control label, an in-form introduction, a lowered
+     * wrapper paragraph: the materialized source markup, with styling hooks
+     * lowered to semantic carriers inline rather than hoisted onto the host.
+     */
+    private function inlineRichTextContent(DOMElement $element): string
     {
-        $content = $this->richTextMaterializer->content($label);
+        $content = $this->richTextMaterializer->content($element);
         if ('' === $content) return '';
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
@@ -5779,6 +5785,27 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if (!$body instanceof DOMElement) return $content;
         $this->normalizeRichTextStylingHooks($body);
         return SourceDom::innerHtml($body);
+    }
+
+    /**
+     * In-form copy — an introduction above the fields, a note between them —
+     * as the paragraph/heading RichText the page conversion keeps, so the form
+     * contract carries the copy's formatting instead of its flattened text.
+     * Copy without inline markup, and markup a paragraph cannot hold (structure
+     * a RichText attribute rejects, or an object the fallback gate reserves for
+     * the page's own conversion), returns '': the item's plain text, styles and
+     * classes stay the contract there.
+     */
+    private function formContextRichText(DOMElement $element): string
+    {
+        $content = trim($this->inlineRichTextContent($element));
+        if ( '' === $content || ! preg_match('/<[a-zA-Z]/', $content)
+            || $this->richTextMaterializer->hasStructuralHtml($content)
+            || $this->richTextMaterializer->requiresHtmlFallback($content) ) {
+            return '';
+        }
+
+        return $content;
     }
 
     /** Use the same semantic carriers for native RichText and owned label RichText. */
@@ -7611,7 +7638,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // Reuse label RichText preparation so wrapper hooks become carriers
             // before button marks are introduced (the normalizer avoids nesting
             // marks when replacing spans). Then use the paragraph primitives.
-            $content = $this->editableFormLabelContent($element);
+            $content = $this->inlineRichTextContent($element);
             $content = $this->richTextMaterializer->contentWithInlineSafeButtonsLowered($element, $content) ?? $content;
             $content = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content) ?? $content;
         }

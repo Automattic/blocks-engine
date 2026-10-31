@@ -229,6 +229,84 @@ $assert(
     json_encode($carrierTitle)
 );
 
+// The page conversion keeps an introduction's inline formatting as nested
+// RichText marks. The contract carries the same materialized markup, so a
+// consumer rebuilding the copy as a paragraph or heading renders the source's
+// font, size and colour instead of the flattened plain text (#3403).
+$formatted = $formContext(
+    '<style>body{font-family:Arial;font-size:10px}.accent{color:#2f3e55}</style>'
+    . '<main><form method="post">'
+    . '<div class="intro"><p style="text-align:center"><span style="font-family:Georgia"><span class="accent"><span style="font-size:20px;line-height:30px">Join our list.</span></span></span></p></div>'
+    . '<input type="text" name="name" aria-label="Name"><input type="email" name="email" aria-label="Email">'
+    . '<button type="submit">Join</button></form></main>'
+);
+$intro = $formatted['context_before'][0] ?? array();
+$rich = (string) ( $intro['rich_text'] ?? '' );
+$assert(
+    'Join our list.' === ( $intro['text'] ?? '' )
+        && 1 === preg_match('/^<mark\b/', $rich)
+        && str_contains($rich, 'font-family:Georgia')
+        && str_contains($rich, 'color:#2f3e55')
+        && str_contains($rich, 'font-size:20px')
+        && str_contains($rich, 'line-height:30px')
+        && str_contains($rich, 'Join our list.'),
+    'a formatted introduction carries its materialized RichText inline content',
+    json_encode($formatted)
+);
+
+// Semantic inline formats ride along, and a line break survives that the
+// plain text cannot express.
+$formats = $formContext(
+    '<main><form method="post"><h2 class="form-title">Contact <strong>us</strong> today</h2>'
+    . '<p>Line one<br>Line two</p>'
+    . '<input type="email" name="email"><input type="submit" value="Go"></form></main>'
+);
+$formatItems = array_column($formats['context_before'] ?? array(), null, 'text');
+$assert(
+    'Contact <strong>us</strong> today' === ( $formatItems['Contact us today']['rich_text'] ?? null ),
+    'a heading keeps its semantic strong format in the contract',
+    json_encode($formats)
+);
+$assert(
+    'Line one<br>Line two' === ( $formatItems['Line oneLine two']['rich_text'] ?? null ),
+    'a line break in context copy survives where the plain text cannot express it',
+    json_encode($formats)
+);
+
+// Plain copy, and copy whose inline content a paragraph cannot hold — a
+// nested structural element, an object the fallback gate reserves for the
+// page's own conversion — carries no rich text field: the plain text stays
+// the contract there.
+$unformatted = $formContext(
+    '<main><form method="post"><p class="intro">We reply within a day.</p>'
+    . '<h2>Title <div>boxed</div></h2>'
+    . '<p>Search this site:</p><input type="search" name="q" aria-label="Search">'
+    . '<input type="submit" value="Go"></form></main>'
+);
+$unformattedItems = array_column($unformatted['context_before'] ?? array(), null, 'text');
+$assert(
+    isset($unformattedItems['We reply within a day.'], $unformattedItems['Title boxed'], $unformattedItems['Search this site:'])
+        && ! isset($unformattedItems['We reply within a day.']['rich_text'])
+        && ! isset($unformattedItems['Title boxed']['rich_text'])
+        && ! isset($unformattedItems['Search this site:']['rich_text']),
+    'plain copy and markup a paragraph cannot hold carry no rich text field',
+    json_encode($unformatted)
+);
+
+// Inline formatting is bounded like the copy it decorates: a wall of carrier
+// marks beyond the bound falls back to the plain text instead of an
+// unbounded contract value.
+$wrapped = $formContext(
+    '<main><form method="post"><p>' . str_repeat('<span style="color:#111111">', 40) . 'Deep copy.</p>'
+    . '<input type="email" name="email"><input type="submit" value="Go"></form></main>'
+);
+$assert(
+    'Deep copy.' === ( $wrapped['context_before'][0]['text'] ?? '' )
+        && ! isset($wrapped['context_before'][0]['rich_text']),
+    'formatting beyond the context rich text bound leaves the plain text as the contract',
+    json_encode($wrapped)
+);
+
 // A form builder keeps its own status copy ("Thanks for submitting!") in the
 // form and hides it until a submission succeeds. That copy is not something a
 // reader sees, so the context item says it is hidden and by which property;

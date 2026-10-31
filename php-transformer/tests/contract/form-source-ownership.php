@@ -46,6 +46,14 @@ $patches = $presentation['variants'] ?? array();
 $assert(1 === count($patches) && '27px' === ($patches[0]['styles']['font_size'] ?? null) && '2px' === ($patches[0]['styles']['letter_spacing'] ?? null) && !isset($patches[0]['styles']['padding']), 'Responsive patches carry changing properties only, including variable-only changes.');
 $assert('source.css' === ($presentation['provenance'][0]['source_path'] ?? null) && hash('sha256', $css) === ($presentation['provenance'][0]['source_sha256'] ?? null), 'Resolved presentation keeps stylesheet provenance.');
 $assert('7px 0 13px' === ($byClass['note-box']['layout']['padding'] ?? null) && isset($note['source_selector']), 'Disclaimer-only source box reaches actual compiler output.');
+// A context item's formatted inline content survives into the published form
+// entity, so a consumer rebuilding the copy renders its formatting (#3403).
+$formattedIntro = $compile('<!doctype html><html><head><link rel="stylesheet" href="source.css"></head><body><main class="page"><form method="post">'
+    . '<p class="intro">Join <em>our</em> list.</p>'
+    . '<label for="email">Email</label><input id="email" type="email" name="email" required>'
+    . '<button type="submit">Send</button></form></main></body></html>');
+$formattedRich = (string) ($formattedIntro['form']['context_before'][0]['rich_text'] ?? '');
+$assert('Join our list.' === ($formattedIntro['form']['context_before'][0]['text'] ?? null) && str_contains($formattedRich, '<em>our</em>'), 'Formatted context copy carries its RichText inline content into the runtime declaration.');
 $ariaNamed = $compile('<!doctype html><html><head><link rel="stylesheet" href="source.css"></head><body><main class="page"><form method="post"><label for="n">Name</label><input id="n" name="n"><textarea aria-label="Message" placeholder="Message" name="m"></textarea><button type="submit">Send</button></form></main></body></html>');
 $ariaControls = $ariaNamed['controls'] ?? array();
 $assert('Message' === ($ariaControls[1]['label'] ?? null) && false === ($ariaControls[1]['label_visible'] ?? null) && !array_key_exists('label_visible', $ariaControls[0] ?? array()) && !array_key_exists('label_visible', $ariaControls[2] ?? array()), 'An aria-only accessible name is marked as having no rendered label box.');
@@ -58,4 +66,4 @@ if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);
 }
-echo "Form source ownership compiler contract passed (12 assertions).\n";
+echo "Form source ownership compiler contract passed (14 assertions).\n";
