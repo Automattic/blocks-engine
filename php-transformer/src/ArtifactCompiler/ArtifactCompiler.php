@@ -414,7 +414,7 @@ final class ArtifactCompiler
             if ($content !== $file['content']) $file = $this->projectedStylesheetFile($file, $file['path'], $content);
         }
         unset($file);
-        $wordpressCompatAssets = $this->wordpressCompatAssetsForDocuments($normalized['files'], $authoredFiles);
+        $wordpressCompatAssets = $this->wordpressCompatAssetsForDocuments($normalized['files'], $authoredFiles, $diagnostics);
         $normalized['files'] = $this->chunkProjectedStylesheets($normalized['files']);
         foreach ($normalized['files'] as $file) {
             if ($entryPath === ($file['path'] ?? null) && is_string($file['content'] ?? null)) {
@@ -2264,7 +2264,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $authoredFiles
      * @return array<int, array<string, mixed>>
      */
-    private function wordpressCompatAssetsForDocuments(array $files, array $authoredFiles): array
+    private function wordpressCompatAssetsForDocuments(array $files, array $authoredFiles, array &$diagnostics = array()): array
     {
         // Replay authored rules, not generated element/editor alternatives.
         // A source list-item subject replaced by a native item projection already
@@ -2309,7 +2309,12 @@ final class ArtifactCompiler
                 $media = trim((string) ($stylesheet['media'] ?? ''));
                 $parts[] = '' === $media ? $content : '@media ' . $media . '{' . $content . '}';
             }
-            $asset = $this->wordpressCompat->asset($documentFiles, $transformer->concatenateWithoutRedundantRules($parts), $scripts);
+            $compatDiagnostics = array();
+            $asset = $this->wordpressCompat->asset($documentFiles, $transformer->concatenateWithoutRedundantRules($parts), $scripts, $compatDiagnostics);
+            foreach ($compatDiagnostics as $diagnostic) {
+                $diagnostic['source_path'] = $sourcePath;
+                $diagnostics[] = $diagnostic;
+            }
             if (null === $asset) continue;
             // Content-identical replay can still have different route ownership.
             // Keep the existing page-asset contract instead of promoting a

@@ -6,16 +6,16 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 final class TransformationEvidenceState
 {
     /** @var list<array<string, mixed>> */
-    private array $emptyDecorationDiagnostics = array();
+    private array $conversionDiagnostics = array();
 
-    public function recordEmptyDecoration(array $finding): void
+    public function recordConversionDiagnostic(array $finding): void
     {
-        $this->emptyDecorationDiagnostics[] = $finding;
+        $this->conversionDiagnostics[] = $finding;
     }
 
-    public function emptyDecorationDiagnostics(): array
+    public function conversionDiagnostics(): array
     {
-        return $this->emptyDecorationDiagnostics;
+        return $this->conversionDiagnostics;
     }
 
     /** @var list<string> */

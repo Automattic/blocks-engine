@@ -113,7 +113,7 @@ final class WordPressCompatCss
      * @param array<int, string> $scriptContents
      * @return array<string, mixed>|null
      */
-    public function asset(array $files, string $staticCss, array $scriptContents): ?array
+    public function asset(array $files, string $staticCss, array $scriptContents, array &$diagnostics = array()): ?array
     {
         $css = trim($this->css($staticCss, $files, $scriptContents));
         // ID-only source navigation has no copied author class to scope its
@@ -135,7 +135,10 @@ final class WordPressCompatCss
             return null;
         }
 
-        (new CoreSelectorScoping())->assertScoped($css, 'wordpress-compat');
+        $css = (new CoreSelectorScoping())->dropUnscoped($css, 'wordpress-compat', $diagnostics);
+        if ( '' === trim($css) ) {
+            return null;
+        }
 
         $hash = hash('sha256', $css);
         $path = 'assets/css/wordpress-compat-' . substr($hash, 0, 16) . '.css';

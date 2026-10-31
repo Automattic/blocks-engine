@@ -47,7 +47,14 @@ final class StylesheetAssetStage
             return;
         }
 
-        (new CoreSelectorScoping())->assertScoped($css, 'generated:' . $placement);
+        $diagnostics = array();
+        $css = (new CoreSelectorScoping())->dropUnscoped($css, 'generated:' . $placement, $diagnostics);
+        foreach ( $diagnostics as $diagnostic ) {
+            $this->session->transformationEvidenceState()->recordConversionDiagnostic($diagnostic);
+        }
+        if ( '' === trim($css) ) {
+            return;
+        }
 
         $content = $css . "\n";
         $hash = hash('sha256', $content);

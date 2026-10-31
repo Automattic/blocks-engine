@@ -66,6 +66,11 @@ foreach ( $fixtures as $fixturePath ) {
     validateFixture($fixture, $fixturePath);
 
     $output = runFixture($fixture);
+    array_walk_recursive($output, static function (mixed $value, mixed $key) use ($fixture): void {
+        if ( 'code' === $key && 'core_selector_unscoped_rule_dropped' === $value ) {
+            fail("Fixture {$fixture['name']} emitted an unscoped generated core selector.");
+        }
+    });
     foreach ( $fixture['expect'] as $expectation ) {
         if (str_starts_with((string) ($expectation['path'] ?? ''), 'source_reports.materialization_plan.') && !is_array($output['source_reports']['wordpress_site_plan'] ?? null)) {
             continue;

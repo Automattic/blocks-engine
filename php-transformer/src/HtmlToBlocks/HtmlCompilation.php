@@ -598,7 +598,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             },
             function (DOMElement $element): bool {
                 if (!$this->svgMaterializer->paintsNothing($element)) return false;
-                $this->transformationEvidence()->recordEmptyDecoration(array(
+                $this->transformationEvidence()->recordConversionDiagnostic(array(
                     'code' => 'html_empty_svg_decoration_omitted',
                     'severity' => 'info',
                     'loss_class' => 'native_conversion',
@@ -1905,7 +1905,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'context' => $context,
             'started_at' => $startedAt,
             'selector_cache' => $conversionSelectorCache,
-            'diagnostics' => array_merge($diagnostics, $this->transformationEvidence()->emptyDecorationDiagnostics()),
+            'diagnostics' => array_merge($diagnostics, $this->transformationEvidence()->conversionDiagnostics()),
             'supported_blocks' => $supportedBlocks,
             'native_target_blocks' => $nativeTargetBlocks,
             'bundled_snapshot_blocks' => $bundledSnapshotBlocks,

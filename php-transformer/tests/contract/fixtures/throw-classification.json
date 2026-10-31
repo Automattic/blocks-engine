@@ -2491,12 +2491,6 @@
         "class": "integrity",
         "count": 1
       }
-    },
-    "src/HtmlToBlocks/Style/CoreSelectorScoping.php": {
-      "RuntimeException(sprintf(\"Emitted CSS targets a core block class without an importer-emitted class in the selector chain (origin: %s):\\n  - %s\",$origin,implode(\"\\n  - \",$violations)))": {
-        "class": "integrity",
-        "count": 1
-      }
     }
   }
 }
