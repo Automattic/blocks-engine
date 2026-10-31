@@ -3490,8 +3490,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 ? $this->layoutShellBlockForElements(array($child), $this->convertChildren($child, $fallbacks, $captureUnsupported, true), $child)
                 : $this->convertElement($child, $fallbacks, $captureUnsupported);
             if ( null !== $block ) {
+                // Retain the public source boundary rather than private metadata.
                 if (in_array('wp-block-post-content', preg_split('/\s+/', trim($child->getAttribute('class'))) ?: array(), true)) {
-                    $block['attrs']['metadata']['blocksEnginePostContent'] = true;
+                    $block['attrs']['className'] = trim(($block['attrs']['className'] ?? '') . ' wp-block-post-content');
                 }
                 $blocks[] = $block;
             } elseif ( $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($child) ) {
@@ -3784,6 +3785,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $tagName = strtolower($element->tagName);
+
+        // WordPress post navigation is a dynamic post primitive, not a menu.
+        $classes = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+        if (in_array('wp-block-post-navigation-link', $classes, true)) {
+            foreach ($element->getElementsByTagName('a') as $link) {
+                if (!in_array($link->getAttribute('rel'), array('prev', 'next'), true)) continue;
+                $title = null;
+                $label = '';
+                foreach ($link->childNodes as $child) {
+                    $class = $child instanceof DOMElement ? $child->getAttribute('class') : '';
+                    if (str_contains($class, 'post-navigation-link__title')) { $title = $child; continue; }
+                    if (str_contains($class, 'post-navigation-link__arrow')) continue;
+                    $label .= $child->textContent;
+                }
+                return array('blockName' => 'core/post-navigation-link', 'attrs' => array('type' => 'prev' === $link->getAttribute('rel') ? 'previous' : 'next', 'showTitle' => null !== $title, 'arrow' => in_array('is-arrow-arrow', $classes, true) ? 'arrow' : (in_array('is-arrow-chevron', $classes, true) ? 'chevron' : 'none'), 'label' => trim($label)), 'innerBlocks' => array(), 'innerHTML' => '', 'innerContent' => array());
+            }
+        }
 
         $authoredMotion = (new AuthoredMotionMarkerConverter($this->session, $this))->convert($element);
         if (null !== $authoredMotion) return $authoredMotion;

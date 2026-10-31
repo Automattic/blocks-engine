@@ -3710,7 +3710,7 @@ PHP;
         foreach ($pages as $index => $page) {
             $key = self::routeTemplateKey($page);
             $template = $bySlug[$key] ?? null;
-            if (!empty($page['entrypoint']) || !is_array($template) || isset($template['source_path'])) continue;
+            if ('single' === $key || !empty($page['entrypoint']) || !is_array($template) || isset($template['source_path'])) continue;
             $groups[$page['post_type'] . "\0" . $template['canonical_block_markup']][] = $index;
         }
         $renames = array(); $titles = array(); $shared = array();
@@ -3843,7 +3843,7 @@ PHP;
         if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page'));
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
         $overrides = array_filter(self::overrideTemplateSlugs($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
-        foreach ($pages as $page) if (isset($page['route_template'])) $overrides[$page['route_template']] = true;
+        foreach ($pages as $page) if (isset($page['route_template']) && 'single' !== $page['route_template']) $overrides[$page['route_template']] = true;
         $liveOverrides = array_fill_keys(array_map(self::routeTemplateKey(...), $pages), true);
         $overrides = array_intersect_key($overrides, $liveOverrides);
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
@@ -3936,23 +3936,64 @@ PHP;
     /**
      * A captured WordPress entry-content boundary is stronger evidence than
      * cross-post similarity: everything outside it belongs to the template.
-     * Keep route-specific chrome (including responsive shells) route-specific.
+     * WordPress post primitives belong to the shared single lifecycle. Responsive
+     * document copies keep their visibility wrappers around article bodies only.
      */
     private function extractBlockThemePostChrome(array $pages, array $declarations, array $records): array
     {
         $templates = array();
         $shells = array();
-        foreach ($pages as $index => $post) {
+        // Prefer a unified document with both navigation directions as the
+        // chrome owner, not an endpoint whose absent neighbor rendered empty.
+        $ordered = $pages;
+        uasort($ordered, static fn(array $a, array $b): int => (substr_count($a['canonical_block_markup'], 'wp-block-post-content') <=> substr_count($b['canonical_block_markup'], 'wp-block-post-content')) ?: (substr_count($b['canonical_block_markup'], '<!-- wp:post-navigation-link ') <=> substr_count($a['canonical_block_markup'], '<!-- wp:post-navigation-link ')));
+        foreach ($ordered as $index => $post) {
             if ('post' !== ($post['post_type'] ?? null)) continue;
             $markup = $post['canonical_block_markup'];
             $contents = array();
             foreach (self::blockRanges($markup) as $range) {
                 $slice = substr($markup, $range['offset'], $range['length']);
                 $attrs = self::listingBlockAttributes($slice);
-                if (!empty($attrs['metadata']['blocksEnginePostContent'])) $contents[] = $range;
+                if (in_array('wp-block-post-content', preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true)) $contents[] = $range;
             }
-            // Multiple document copies need their own visibility/content owner.
-            if (1 !== count($contents)) continue;
+            if (array() === $contents) continue;
+            if (count($contents) > 1) {
+                // A shared template renders post-content once. Retain each
+                // captured document's visibility owner, but only its article
+                // children, so desktop/mobile never duplicate the site shell.
+                if (!isset($templates['single'])) continue;
+                $bodies = array();
+                $retained = array();
+                foreach ($contents as $content) {
+                    $children = self::childBlockRanges($markup, $content);
+                    if (array() === $children) continue;
+                    $start = $children[0]['offset'];
+                    $last = $children[count($children) - 1];
+                    $length = $last['offset'] + $last['length'] - $start;
+                    $owner = null;
+                    foreach (self::blockRanges($markup) as $candidate) {
+                        if ($candidate['offset'] >= $content['offset'] || $candidate['offset'] + $candidate['length'] <= $content['offset']) continue;
+                        $slice = substr($markup, $candidate['offset'], $candidate['length']);
+                        if (str_starts_with($slice, '<!-- wp:custom/layout-shell ') && array_key_exists(CaptureEvidence::DOCUMENT_SCOPE, self::listingBlockAttributes($slice)['wrappers'][0]['attributes'] ?? array())) {
+                            $owner = $candidate;
+                            break;
+                        }
+                    }
+                    if (null === $owner) continue;
+                    $siblings = self::childBlockRanges($markup, $owner);
+                    if (array() === $siblings) continue;
+                    $first = $siblings[0]['offset'];
+                    $lastSibling = $siblings[count($siblings) - 1];
+                    $end = $lastSibling['offset'] + $lastSibling['length'];
+                    $bodies[] = substr($markup, $owner['offset'], $first - $owner['offset']) . substr($markup, $start, $length) . substr($markup, $end, $owner['offset'] + $owner['length'] - $end);
+                    $retained[] = array('offset' => $start, 'length' => $length);
+                }
+                if (count($bodies) !== count($contents) || $this->postChromeFactoringStrandsBindings($post, $retained, $declarations, $records)) continue;
+                $pages[$index]['route_template'] = 'single';
+                $pages[$index]['canonical_block_markup'] = implode("\n", $bodies);
+                $pages[$index]['content_hash'] = self::contentHash($pages[$index]['canonical_block_markup']);
+                continue;
+            }
             $content = $contents[0];
             $children = self::childBlockRanges($markup, $content);
             if (array() === $children) continue;
@@ -3974,10 +4015,15 @@ PHP;
             }
             usort($replacements, static fn(array $a, array $b): int => $b['offset'] <=> $a['offset']);
             foreach ($replacements as $replacement) $template = substr_replace($template, $replacement['markup'], $replacement['offset'], $replacement['length']);
-            $slug = self::routeTemplateKey($post);
+            $slug = 'single';
             $pages[$index]['route_template'] = $slug;
             $pages[$index]['canonical_block_markup'] = substr($markup, $start, $length);
             $pages[$index]['content_hash'] = self::contentHash($pages[$index]['canonical_block_markup']);
+            // The first complete block-theme document supplies the shared
+            // lifecycle, rather than freezing each post's captured date,
+            // navigation availability and responsive header variant in a
+            // route-specific template.
+            if (isset($templates[$slug])) continue;
             $templates[$slug] = $template;
             preg_match_all('/<!-- wp:template-part (\{.*?\}) \/-->/', $template, $matches);
             $shells[$slug] = array_map(static fn(string $json): string => (string) (json_decode($json, true)['slug'] ?? ''), $matches[1]);
