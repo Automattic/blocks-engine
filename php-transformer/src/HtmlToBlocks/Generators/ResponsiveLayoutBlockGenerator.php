@@ -14,6 +14,7 @@ final class ResponsiveLayoutBlockGenerator
     {
         return array(
             'apiVersion' => 3,
+            'blocksEngine' => \Automattic\BlocksEngine\PhpTransformer\Contract\GeneratedBlockEditingSurface::RAW_HTML,
             'name' => $namespace . '/' . self::LOCAL_NAME,
             'title' => 'Responsive Layout',
             'category' => 'design',
