@@ -28,6 +28,9 @@ final class FormControlMetadataBuilder
     /** Context selectors are more numerous than control styling hooks; exhaustion is explicit. */
     private const MAX_CONTEXT_CLASSES = 64;
 
+    /** Inline formatting is bounded like the copy it decorates; beyond it the plain text stays the contract. */
+    private const MAX_CONTEXT_RICH_TEXT_LENGTH = 2000;
+
     /**
      * @param Closure(DOMElement): string $elementSelector
      * @param Closure(DOMElement): array<string, string>|null $typographyStyles Resolved snake_case typography
@@ -37,6 +40,9 @@ final class FormControlMetadataBuilder
      * @param Closure(DOMElement): string|null $sourceTagMarker Existing source tag identity for a retagging provider.
      * @param Closure(DOMElement, DOMElement): (array<string, string>|null)|null $hiddenState The declaration
      *     that hides an element below a form boundary, if the source hides it unconditionally.
+     * @param Closure(DOMElement): string|null $richTextContent The element's inline content as the RichText HTML
+     *     the page conversion keeps (formatting hooks as semantic mark carriers), or '' when the copy carries
+     *     no inline markup that is safe to carry.
      */
     public function __construct(
         private readonly Closure $elementSelector,
@@ -44,7 +50,8 @@ final class FormControlMetadataBuilder
         private readonly ?Closure $typographyStyles = null,
         private readonly ?Closure $paintStyles = null,
         private readonly ?Closure $hiddenState = null,
-        private readonly ?Closure $sourceTagMarker = null
+        private readonly ?Closure $sourceTagMarker = null,
+        private readonly ?Closure $richTextContent = null
     ) {
     }
 
@@ -255,6 +262,15 @@ final class FormControlMetadataBuilder
         $styles = $this->contextTypography($node);
         if ( array() !== $styles ) {
             $item['styles'] = $styles;
+        }
+
+        // The page conversion keeps this copy's inline formatting as nested
+        // RichText marks. The contract carries the same materialized markup, so
+        // a consumer rebuilding the copy as a paragraph or heading renders the
+        // source's font, size and colour instead of the flattened plain text.
+        $richText = null === $this->richTextContent ? '' : trim((string) ($this->richTextContent)($node));
+        if ( '' !== $richText && self::MAX_CONTEXT_RICH_TEXT_LENGTH >= strlen($richText) ) {
+            $item['rich_text'] = $richText;
         }
 
         // Status copy a form keeps hidden until it is submitted ("Thanks for
