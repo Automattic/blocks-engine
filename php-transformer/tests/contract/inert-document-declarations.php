@@ -60,7 +60,7 @@ $activeHtml = '<html><head>' . $comment . $ordinary
     . '<script async nomodule>window.tail = true;</script></body></html>';
 $artifact = array('entrypoint' => 'index.html', 'files' => array('index.html' => $activeHtml, 'assets/site.css' => '.real{color:red}', 'assets/site.js' => 'window.local=true;'));
 $normal = (new ArtifactNormalizer())->normalize($artifact);
-$inline = array_values(array_filter($normal['files'], static fn(array $file): bool => 'inline-script' === ($file['source'] ?? '')));
+$inline = array_values(array_filter(ArtifactNormalizer::inlineOccurrences($normal['files']), static fn(array $file): bool => 'inline-script' === ($file['source'] ?? '')));
 $assert(array('script:nth-of-type(2)', 'script:nth-of-type(4)') === array_column($inline, 'selector'), 'only real script elements advance inline selectors');
 $assert(array($body, 'window.tail = true;') === array_column($inline, 'content'), 'inline bodies retain comment-looking strings exactly');
 $assert(array('head', 'body') === array_column($inline, 'placement'), 'inline placement follows real head boundary');

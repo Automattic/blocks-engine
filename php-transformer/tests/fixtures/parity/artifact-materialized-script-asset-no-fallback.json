@@ -35,12 +35,12 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "Content remains block-convertible." },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "assets/site.js" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "window.inlineRuntime" },
-    { "path": "source_reports.compiled_site.theme.scripts.0", "assert": "equals", "value": "index.inline-2.js" },
+    { "path": "source_reports.compiled_site.theme.scripts.0", "assert": "equals", "value": "inline/992a465d25a4d14445e7c908902932c40097fc203ef3d4320e98cb225efa5e64.js" },
     { "path": "source_reports.compiled_site.theme.scripts.1", "assert": "equals", "value": "assets/site.js" },
-    { "path": "source_reports.materialization_plan.theme.scripts.0", "assert": "equals", "value": "index.inline-2.js" },
+    { "path": "source_reports.materialization_plan.theme.scripts.0", "assert": "equals", "value": "inline/992a465d25a4d14445e7c908902932c40097fc203ef3d4320e98cb225efa5e64.js" },
     { "path": "source_reports.materialization_plan.theme.scripts.1", "assert": "equals", "value": "assets/site.js" },
     { "path": "source_reports.materialization_plan.assets.0.source", "assert": "equals", "value": "inline-script" },
-    { "path": "source_reports.materialization_plan.assets.0.selector", "assert": "equals", "value": "script:nth-of-type(2)" },
+    { "path": "source_reports.materialization_plan.assets.0.inline_references.0.selector", "assert": "equals", "value": "script:nth-of-type(2)" },
     { "path": "source_reports.materialization_plan.assets.0.content", "assert": "equals", "value": "window.inlineRuntime = true;" }
   ]
 }

@@ -4693,12 +4693,12 @@ $artifactInlineScriptAsset = array_values(array_filter($artifactInlineScriptAsse
 $assert('js' === ($artifactInlineScriptAsset['kind'] ?? ''), 'artifact inline executable script becomes a JS materialization asset');
 $assert('script' === ($artifactInlineScriptAsset['role'] ?? ''), 'artifact inline executable script asset has script role');
 $assert('behavior' === ($artifactInlineScriptAsset['intent'] ?? ''), 'artifact inline executable script asset has behavior intent');
-$assert('body' === ($artifactInlineScriptAsset['placement'] ?? ''), 'artifact inline executable script placement is preserved');
-$assert(true === ($artifactInlineScriptAsset['defer'] ?? false), 'artifact inline executable script defer metadata is preserved');
-$assert('index.inline-2.js' === ($artifactInlineScriptAsset['source_path'] ?? ''), 'artifact inline executable script path is stable and indexed by source script position');
-$assert('script:nth-of-type(2)' === ($artifactInlineScriptAsset['selector'] ?? ''), 'artifact inline executable script selector is preserved');
+$assert('body' === ($artifactInlineScriptAsset['inline_references'][0]['placement'] ?? ''), 'artifact inline executable script placement is preserved');
+$assert(true === ($artifactInlineScriptAsset['inline_references'][0]['defer'] ?? false), 'artifact inline executable script defer metadata is preserved');
+$assert(1 === preg_match('#^inline/[a-f0-9]{64}\.js$#', $artifactInlineScriptAsset['source_path'] ?? ''), 'artifact inline executable script path is stable and indexed by source script position');
+$assert('script:nth-of-type(2)' === ($artifactInlineScriptAsset['inline_references'][0]['selector'] ?? ''), 'artifact inline executable script selector is preserved');
 $assert(str_contains((string) ($artifactInlineScriptAsset['content'] ?? ''), 'classList.add'), 'artifact inline executable script content is preserved');
-$assert(in_array('index.inline-2.js', array_column($artifactInlineScript['source_reports']['wordpress_site_plan']['assets'] ?? array(), 'source_path'), true), 'artifact inline executable script is exposed as a canonical plan asset');
+$assert(in_array($artifactInlineScriptAsset['source_path'], array_column($artifactInlineScript['source_reports']['wordpress_site_plan']['assets'] ?? array(), 'source_path'), true), 'artifact inline executable script is exposed as a canonical plan asset');
 $assert(! str_contains((string) ($artifactInlineScript['serialized_blocks'] ?? ''), '<!-- wp:html'), 'artifact materialized inline script does not become a core/html fallback block');
 $assert(! str_contains((string) ($artifactInlineScript['serialized_blocks'] ?? ''), 'classList.add'), 'artifact materialized inline script body is removed from serialized block content');
 

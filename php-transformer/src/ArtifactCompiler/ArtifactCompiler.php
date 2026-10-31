@@ -763,10 +763,11 @@ final class ArtifactCompiler
             // Inline styles/scripts expanded out of an unannotated page must
             // follow that page: parking page-varying content in the immutable
             // shared plan would invalidate every page plan on a page edit.
-            $inlineSource = ArtifactNormalizer::inlineExpansionSourcePath($file);
-            if ('' !== $inlineSource) {
-                return array('scope' => 'page', 'id' => $inlineSource);
+            $inlineOwnership = ArtifactNormalizer::inlineExpansionOwnership($file);
+            if (null !== $inlineOwnership) {
+                return $inlineOwnership + array('id' => '');
             }
+            if (isset($file['source_path']) && in_array($file['source'] ?? '', array('inline-style', 'inline-script'), true)) return array('scope' => 'page', 'id' => $file['source_path']);
             return array('scope' => 'shared', 'id' => '');
         }
         if (!is_array($ownership) || !is_string($ownership['scope'] ?? null) || !in_array($ownership['scope'], array('shared', 'page'), true)) {
@@ -966,6 +967,7 @@ final class ArtifactCompiler
         return 'css' === ($asset['kind'] ?? null)
             && 'stylesheet' === ($asset['role'] ?? null)
             && 'inline-style' === ($asset['source'] ?? null)
+            && !isset($asset['inline_references'])
             && is_string($asset['content'] ?? null)
             && '' !== (string) $asset['content'];
     }
@@ -1565,6 +1567,7 @@ final class ArtifactCompiler
     /** @param array<string,mixed> $fallback @param array<int,array<string,mixed>> $files @return array<int,array<string,string>> */
     private function supersededFormScripts(array $fallback, array $files, string $sourcePath): array
     {
+        $files = ArtifactNormalizer::inlineOccurrences($files);
         $ownedIds = array();
         foreach ( array_merge(array($fallback['form'] ?? array()), is_array($fallback['controls'] ?? null) ? $fallback['controls'] : array()) as $row ) {
             if ( is_array($row) && is_string($row['id'] ?? null) && '' !== trim($row['id']) ) $ownedIds[$row['id']] = true;
@@ -1792,6 +1795,7 @@ final class ArtifactCompiler
      */
     private function runtimeIslandsWithMaterializedInlineScripts(array $runtimeIslands, string $sourcePath, array $files): array
     {
+        $files = ArtifactNormalizer::inlineOccurrences($files);
         $inlineScripts = array_values(array_filter($files, fn (mixed $file): bool => is_array($file) && 'inline-script' === ($file['source'] ?? '') && $sourcePath === ($file['source_path'] ?? '') && $this->isMaterializedScriptAsset($file)));
         foreach ( $runtimeIslands as &$runtimeIsland ) {
             if ( ! is_array($runtimeIsland) || 'script' === ($runtimeIsland['kind'] ?? '') ) {
@@ -2072,6 +2076,7 @@ final class ArtifactCompiler
      */
     private function withoutMaterializedStyleTags(string $html, string $entryPath, array $files): string
     {
+        $files = ArtifactNormalizer::inlineOccurrences($files);
         $styleIndex = 0;
         return preg_replace_callback('/<style\b([^>]*)>(.*?)<\/style>/is', function (array $matches) use ($entryPath, $files, &$styleIndex): string {
             $attributes = (string) $matches[1];
@@ -2106,6 +2111,7 @@ final class ArtifactCompiler
      */
     private function findInlineScriptAsset(string $entryPath, int $scriptIndex, array $files): ?array
     {
+        $files = ArtifactNormalizer::inlineOccurrences($files);
         $selector = 'script:nth-of-type(' . $scriptIndex . ')';
         foreach ( $files as $file ) {
             if ( 'inline-script' !== ($file['source'] ?? '') || $entryPath !== ($file['source_path'] ?? '') || $selector !== ($file['selector'] ?? '') || ! $this->isMaterializedScriptAsset($file) ) {
@@ -2172,6 +2178,7 @@ final class ArtifactCompiler
      */
     private function stylesheetAssetsForSource(string $html, string $sourcePath, array $files): array
     {
+        $files = ArtifactNormalizer::inlineOccurrences($files);
         $byPath = array();
         $inline = array();
         foreach ( $files as $file ) {
@@ -2220,7 +2227,7 @@ final class ArtifactCompiler
                 }
                 ++$inlineIndex;
                 $file = $inline[$inlineIndex] ?? null;
-                if ( is_array($file) && ! isset($seenPaths[$file['path']]) ) {
+                if ( is_array($file) ) {
                     $assets[] = array( 'path' => $file['path'], 'source_path' => $file['source_path'] ?? $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => StyleTagScanner::authorMedia($attributes), 'type' => (string) ($file['type'] ?? '') );
                     $seenPaths[$file['path']] = true;
                 } elseif ( '' !== ($content = trim(html_entity_decode($tagRecord['content'], ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ) {
@@ -4309,7 +4316,7 @@ final class ArtifactCompiler
         // source-owned occurrence, including scripts already materialized by
         // artifact normalization (not only scripts generated during block
         // conversion).
-        foreach (array_merge($files, $generatedAssets) as $asset) if ('inline-script' === ($asset['source'] ?? null) && $sourcePath === ($asset['source_path'] ?? null) && is_string($asset['selector'] ?? null) && is_string($asset['path'] ?? null)) $inlineScripts[$asset['selector']] = $asset['path'];
+        foreach (ArtifactNormalizer::inlineOccurrences(array_merge($files, $generatedAssets)) as $asset) if ('inline-script' === ($asset['source'] ?? null) && $sourcePath === ($asset['source_path'] ?? null) && is_string($asset['selector'] ?? null) && is_string($asset['path'] ?? null)) $inlineScripts[$asset['selector']] = $asset['path'];
         $meta = array(); $links = array(); $scripts = array();
         foreach (HtmlTagScanner::scan($html, 'meta') as $declaration) {
             $tag = $declaration['tag'];
@@ -4958,6 +4965,7 @@ final class ArtifactCompiler
                     'references'       => $asset['references'] ?? array(),
                     'compilation'      => 'css' === ($asset['kind'] ?? null) ? ($asset['compilation'] ?? null) : null,
                     'stylesheet_link_position' => 'css' === ($asset['kind'] ?? null) && is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null,
+                    'inline_references' => $asset['inline_references'] ?? null,
                     'stylesheet_parent' => $asset['stylesheet_parent'] ?? null,
                     'stylesheet_inline_order' => $asset['stylesheet_inline_order'] ?? null,
                 ),
@@ -5212,6 +5220,7 @@ final class ArtifactCompiler
                 'source_bytes'     => (int) ($file['provenance']['projected_from_bytes'] ?? $file['bytes']),
                 'provenance'       => $file['provenance'],
             );
+            if (isset($file['inline_references'])) $asset['inline_references'] = $file['inline_references'];
             if ( ! empty($file['content_base64']) ) {
                 $asset['content_base64'] = $file['content_base64'];
             }
@@ -5250,14 +5259,14 @@ final class ArtifactCompiler
                     $asset['stylesheet_activation'] = $file['stylesheet_activation'];
                     $asset['stylesheet_source_path'] = $file['stylesheet_source_path'];
                 }
-                if (is_array($file['metadata']['compilation'] ?? null) || '' !== ArtifactNormalizer::inlineExpansionSourcePath($file)) {
+                if (is_array($file['metadata']['compilation'] ?? null) || isset($file['inline_references']) || in_array($file['source'] ?? '', array('inline-style', 'inline-script'), true)) {
                     $asset['compilation'] = $this->fileOwnership($file);
                 }
                 if ( is_int($file['stylesheet_link_position'] ?? null) ) {
                     $asset['stylesheet_link_position'] = $file['stylesheet_link_position'];
                 }
                 if (is_string($file['metadata']['page_stylesheet_of'] ?? null)) $asset['stylesheet_parent'] = $file['metadata']['page_stylesheet_of'];
-                if (is_int($file['stylesheet_index'] ?? null)) $asset['stylesheet_inline_order'] = $file['stylesheet_index'];
+                if (isset($file['stylesheet_index'])) $asset['stylesheet_inline_order'] = (int) $file['stylesheet_index'];
             }
             foreach ( array('defer', 'async') as $field ) {
                 if ( isset($file[$field]) ) {

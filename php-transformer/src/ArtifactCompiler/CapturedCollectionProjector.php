@@ -130,8 +130,8 @@ final class CapturedCollectionProjector
     {
         $proofs = array();
         $kept = array();
-        foreach ($files as $file) {
-            $sourcePath = ArtifactNormalizer::inlineExpansionSourcePath($file);
+        foreach (ArtifactNormalizer::inlineOccurrences($files) as $file) {
+            $sourcePath = (string) ($file['source_path'] ?? '');
             $body = trim((string) ($file['content'] ?? ''));
             $matched = null;
             if ('' !== $sourcePath && '' !== $body) {
@@ -156,7 +156,7 @@ final class CapturedCollectionProjector
                 'reason' => $matched['reason'],
             );
         }
-        $files = $kept;
+        $files = (new ArtifactNormalizer())->contentAddressInlineFiles($kept);
         usort($proofs, static fn (array $left, array $right): int => strcmp($left['asset_source_path'] . $left['body_hash'], $right['asset_source_path'] . $right['body_hash']));
         return $proofs;
     }

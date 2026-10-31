@@ -20,15 +20,15 @@
   },
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "assets.0.path", "assert": "equals", "value": "index.inline-generated-1.css" },
-    { "path": "assets.0.media", "assert": "equals", "value": "print" },
+    { "path": "assets.0.path", "assert": "equals", "value": "inline/e6f3706f65726ddaf70bb80c1308736bc4649b9ab35c146e1f8b5cb6f8239e39.css" },
+    { "path": "assets.0.inline_references.0.media", "assert": "equals", "value": "print" },
     { "path": "assets.0.type", "assert": "equals", "value": "text/css" },
     { "path": "assets.1.path", "assert": "equals", "value": "assets/print.css" },
     { "path": "assets.1.media", "assert": "equals", "value": "print" },
     { "path": "assets.1.type", "assert": "equals", "value": "text/css" },
     { "path": "assets.2.path", "assert": "equals", "value": "index.inline.css" },
-    { "path": "source_reports.compiled_site.assets.0.media", "assert": "equals", "value": "print" },
-    { "path": "source_reports.materialization_plan.assets.0.media", "assert": "equals", "value": "print" },
+    { "path": "source_reports.compiled_site.assets.0.inline_references.0.media", "assert": "equals", "value": "print" },
+    { "path": "source_reports.materialization_plan.assets.0.inline_references.0.media", "assert": "equals", "value": "print" },
     { "path": "assets.0.content", "assert": "not_contains", "value": "secret" },
     { "path": "assets.0.content", "assert": "not_contains", "value": ".unsupported" }
   ]

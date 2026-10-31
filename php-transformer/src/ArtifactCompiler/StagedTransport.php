@@ -422,6 +422,7 @@ trait StagedTransport
             $reductions[] = $reduction;
             $this->reportProgress($onProgress, 'compose_pages', count($reductions), $pageTotal);
         }
+        $files = (new ArtifactNormalizer())->contentAddressInlineFiles($files);
         $this->assertUniqueComposedPaths($files);
         if (array() !== $omittedPaths) {
             // An omitted page is a declared source document that no receipt
@@ -612,9 +613,9 @@ trait StagedTransport
         // A later partition-envelope normalization must not lose the implicit
         // page ownership of already-expanded inline assets.
         foreach ($rawFiles as &$file) {
-            $inlineSource = ArtifactNormalizer::inlineExpansionSourcePath($file);
-            if ('' !== $inlineSource && !isset($file['metadata']['compilation'])) {
-                $file['metadata']['compilation'] = array('scope' => 'page', 'id' => $inlineSource);
+            $inlineOwnership = ArtifactNormalizer::inlineExpansionOwnership($file);
+            if (null !== $inlineOwnership && !isset($file['metadata']['compilation'])) {
+                $file['metadata']['compilation'] = $inlineOwnership;
             }
         }
         unset($file);
@@ -1133,7 +1134,7 @@ trait StagedTransport
             if (isset($order[$path])) {
                 $rank = $order[$path] * 2;
             } else {
-                $expansionSource = 'path' === $pathField ? ArtifactNormalizer::inlineExpansionSourcePath($row) : '';
+                $expansionSource = 'path' === $pathField ? (string) ($row['inline_references'][0]['source_path'] ?? '') : '';
                 $rank = isset($order[$expansionSource]) ? $order[$expansionSource] * 2 + 1 : $fallback + $index;
             }
             $decorated[] = array('rank' => $rank, 'index' => $index, 'row' => $row);

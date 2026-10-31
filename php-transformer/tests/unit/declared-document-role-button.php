@@ -37,7 +37,8 @@ $assert($root instanceof DOMElement && 'slate' === SourceDom::documentVariantRoo
 if (isset($result['source_reports']['wordpress_site_plan'])) {
     $resolved = (new WordPressSitePlanResolver())->resolve($result['source_reports']['wordpress_site_plan'], array('theme_uri' => 'https://example.test/theme', 'require_proven_dynamic_client_assets' => true));
     $assert(isset($resolved['resolution']), 'The scoped source reaches strict materialization.');
-    $mediaAssets = array_values(array_filter($resolved['assets'], static fn(array $asset): bool => 'screen' === ($asset['source_media'] ?? null)));
+    $mediaAssets = array();
+    foreach ($resolved['assets'] as $asset) foreach ($asset['inline_references'] ?? array() as $reference) if ('screen' === ($reference['source_media'] ?? null)) $mediaAssets[] = $asset;
     $assert(4 === count($mediaAssets), 'All four declared profiles retain authored media provenance as canonical asset data.');
     foreach ($mediaAssets as $asset) $assert(!str_contains($asset['content'], '@media not all'), 'Inactive activation state cannot be baked into the stylesheet payload.');
 }

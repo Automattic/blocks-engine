@@ -104,15 +104,8 @@ final class ArtifactNormalizer
 
         $rawFiles = $this->rawFiles($artifact);
         $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports, $diagnostics);
-        $reservedPaths = array();
-        foreach ( $rawFiles as $file ) {
-            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
-            if ( '' !== $path ) {
-                $reservedPaths[$path] = true;
-            }
-        }
         $rawFiles = $this->sourceFilesBeforeGeneratedExpansions(
-            $this->withInlineScriptFiles($this->withInlineStyleFiles($rawFiles, $reservedPaths)),
+            $this->contentAddressInlineFiles($this->withInlineScriptFiles($this->withInlineStyleFiles($rawFiles))),
             $limits['max_files']
         );
         $safeEntrypoints = array();
@@ -304,6 +297,7 @@ final class ArtifactNormalizer
                     $normalized[$field] = (string) $file[$field];
                 }
             }
+            if (is_array($file['inline_references'] ?? null)) $normalized['inline_references'] = $file['inline_references'];
             if ( is_int($file['stylesheet_link_position'] ?? null) ) {
                 $normalized['stylesheet_link_position'] = $file['stylesheet_link_position'];
             }
@@ -596,18 +590,14 @@ final class ArtifactNormalizer
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
      */
-    private function withInlineStyleFiles(array $files, array &$reservedPaths): array
+    private function withInlineStyleFiles(array $files): array
     {
-        $expandedSources = $this->inlineExpandedSourcePaths($files, 'inline-style');
         $expanded = array();
         foreach ( $files as $file ) {
             $expanded[] = $file;
 
             if (!empty($file['metadata']['compilation']['included_component'])) continue;
 
-            if ( isset($expandedSources[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))]) ) {
-                continue;
-            }
             $content = $this->payload($file, (string) ($file['path'] ?? ''))['content'];
             if ( ! $this->isHtmlLikeFile($file) || '' === trim($content) ) {
                 continue;
@@ -650,9 +640,8 @@ final class ArtifactNormalizer
                 }
             }
             foreach ( $styles as $index => $style ) {
-                $path = $this->allocateGeneratedPath($this->inlineStylePath((string) ($file['path'] ?? 'index.html'), count($styles), $index + 1), $reservedPaths);
                 $expanded[] = $this->withInheritedCompilation($file, array(
-                    'path'      => $path,
+                    'path'      => '',
                     'content'   => $style['content'],
                     'kind'      => 'css',
                     'mime_type' => 'text/css',
@@ -679,7 +668,7 @@ final class ArtifactNormalizer
         $sourceFiles = array();
         $generatedFiles = array();
         foreach ($files as $file) {
-            if (in_array((string) ($file['source'] ?? ''), array('inline-style', 'inline-script'), true)) {
+            if (isset($file['inline_references'])) {
                 $generatedFiles[] = $file;
             } else {
                 $sourceFiles[] = $file;
@@ -703,48 +692,77 @@ final class ArtifactNormalizer
     }
 
     /**
-     * The source path of the file an inline style/script row was expanded
-     * from, or '' when the row is not an inline expansion. Expansion rows
-     * are recognizable by the source marker and source_path normalization
-     * itself emits.
-     *
-     * @param array<string, mixed> $file
+     * One-owner expansions follow that owner; assets referenced by distinct
+     * owners belong to the shared partition, with ownership on each reference.
+     * @param array<string,mixed> $file
+     * @return array<string,mixed>|null
      */
-    public static function inlineExpansionSourcePath(array $file): string
+    public static function inlineExpansionOwnership(array $file): ?array
     {
-        if ( ! in_array((string) ($file['source'] ?? ''), array( 'inline-style', 'inline-script' ), true) ) {
-            return '';
+        if (!isset($file['inline_references'])) return null;
+        $owners = array();
+        foreach ($file['inline_references'] as $reference) {
+            $owner = $reference['metadata']['compilation'] ?? array('scope' => 'page', 'id' => $reference['source_path']);
+            if (!in_array($owner, $owners, true)) $owners[] = $owner;
         }
-        return (string) ($file['source_path'] ?? '');
+        return 1 === count($owners) ? $owners[0] : array('scope' => 'shared');
     }
 
     /**
-     * Source paths whose inline assets of the given kind were already
-     * expanded by a previous normalize() pass. Skipping them keeps
-     * normalize() idempotent: the staged compilation flow re-normalizes
-     * already-normalized file lists, which must not re-expand the same
-     * inline assets into duplicate generated files.
-     *
-     * @param array<int, array<string, mixed>> $files
-     * @return array<string, bool>
+     * Content owns the payload; occurrences own page-local cascade/runtime facts.
+     * Re-scanning HTML is safe: identical occurrence records are set members.
+     * @param list<array<string,mixed>> $files
+     * @return list<array<string,mixed>>
      */
-    private function inlineExpandedSourcePaths(array $files, string $source): array
+    public function contentAddressInlineFiles(array $files): array
     {
-        $sources = array();
-        foreach ( $files as $file ) {
-            if ( $source !== (string) ($file['source'] ?? '') ) {
+        $result = array();
+        $indexes = array();
+        foreach ($files as $file) {
+            if (!in_array($file['source'] ?? '', array('inline-style', 'inline-script'), true)) {
+                $result[] = $file;
                 continue;
             }
-            $sourcePath = self::inlineExpansionSourcePath($file);
-            if ( '' !== $sourcePath ) {
-                $sources[$sourcePath] = true;
+            $references = $file['inline_references'] ?? array(array_intersect_key($file, array_flip(array('source_path', 'stylesheet_index', 'stylesheet_link_position', 'media', 'source_media', 'placement', 'selector', 'defer', 'async', 'superseded_by', 'metadata'))));
+            $digest = hash('sha256', ($file['intent'] ?? '') . "\0" . ($file['type'] ?? '') . "\0" . $file['content']);
+            $path = isset($file['inline_references']) ? $file['path'] : 'inline/' . $digest . '.' . $file['kind'];
+            if (!isset($indexes[$path])) {
+                $indexes[$path] = count($result);
+                foreach (array('source_path', 'stylesheet_index', 'stylesheet_link_position', 'media', 'source_media', 'placement', 'selector', 'defer', 'async', 'superseded_by', 'metadata') as $field) unset($file[$field]);
+                $file['path'] = $path;
+                $file['inline_references'] = array();
+                $result[] = $file;
+            }
+            $index = $indexes[$path];
+            foreach ($references as $reference) {
+                // normalize() stringifies scalar ordering fields.
+                if (isset($reference['stylesheet_index'])) $reference['stylesheet_index'] = (string) $reference['stylesheet_index'];
+                if (!in_array($reference, $result[$index]['inline_references'], true)) $result[$index]['inline_references'][] = $reference;
             }
         }
-        return $sources;
+        return $result;
     }
 
     /**
-     * Inline-expanded files inherit the parent file's compilation ownership.
+     * Iterate occurrences when consuming page-local facts, not asset identity.
+     * @param list<array<string,mixed>> $files
+     * @return list<array<string,mixed>>
+     */
+    public static function inlineOccurrences(array $files): array
+    {
+        $rows = array();
+        foreach ($files as $file) {
+            if (!isset($file['inline_references'])) { $rows[] = $file; continue; }
+            $references = $file['inline_references'];
+            unset($file['inline_references']);
+            foreach ($references as $reference) $rows[] = array_replace($file, $reference);
+        }
+        return $rows;
+    }
+
+    /**
+     * Inline occurrences inherit explicit parent compilation ownership.
+     * The ordinary page owner is implicit in the reference's source_path.
      *
      * @param array<string,mixed> $file
      * @param array<string,mixed> $expandedFile
@@ -753,37 +771,10 @@ final class ArtifactNormalizer
     private function withInheritedCompilation(array $file, array $expandedFile): array
     {
         if ( is_array($file['metadata']['compilation'] ?? null) ) {
-            $expandedFile['metadata'] = array( 'compilation' => $file['metadata']['compilation'] );
+            $ownership = array_intersect_key($file['metadata']['compilation'], array_flip(array('scope', 'id')));
+            if ($ownership !== array('scope' => 'page', 'id' => ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))) && isset($ownership['scope'])) $expandedFile['metadata'] = array('compilation' => $ownership);
         }
         return $expandedFile;
-    }
-
-    private function inlineStylePath(string $htmlPath, int $count = 1, int $index = 1): string
-    {
-        $path = ArtifactPath::safeRelativePath($htmlPath);
-        if ( '' === $path ) {
-            return 1 === $count ? 'inline-styles.css' : 'inline-styles-' . $index . '.css';
-        }
-
-        $directory = trim((string) pathinfo($path, PATHINFO_DIRNAME), '.');
-        $filename = pathinfo($path, PATHINFO_FILENAME);
-        $stylePath = ('' === $filename ? 'inline' : $filename) . '.inline' . (1 === $count ? '' : '-' . $index) . '.css';
-
-        return '' === $directory ? $stylePath : $directory . '/' . $stylePath;
-    }
-
-    /** @param array<string, true> $reservedPaths */
-    private function allocateGeneratedPath(string $candidate, array &$reservedPaths): string
-    {
-        $path = $candidate;
-        $index = 1;
-        while ( isset($reservedPaths[$path]) ) {
-            $extension = pathinfo($candidate, PATHINFO_EXTENSION);
-            $base = '' === $extension ? $candidate : substr($candidate, 0, -strlen($extension) - 1);
-            $path = $base . '-generated-' . $index++ . ('' === $extension ? '' : '.' . $extension);
-        }
-        $reservedPaths[$path] = true;
-        return $path;
     }
 
     /**
@@ -792,16 +783,12 @@ final class ArtifactNormalizer
      */
     private function withInlineScriptFiles(array $files): array
     {
-        $expandedSources = $this->inlineExpandedSourcePaths($files, 'inline-script');
         $expanded = array();
         foreach ( $files as $file ) {
             $expanded[] = $file;
 
             if (!empty($file['metadata']['compilation']['included_component'])) continue;
 
-            if ( isset($expandedSources[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))]) ) {
-                continue;
-            }
             $content = $this->payload($file, (string) ($file['path'] ?? ''))['content'];
             if ( ! $this->isHtmlLikeFile($file) || '' === trim($content) ) {
                 continue;
@@ -818,7 +805,7 @@ final class ArtifactNormalizer
                 }
 
                 $expanded[] = $this->withInheritedCompilation($file, array(
-                    'path'        => $this->inlineScriptPath((string) ($file['path'] ?? 'index.html'), $scriptIndex),
+                    'path'        => '',
                     'content'     => $body,
                     'kind'        => 'js',
                     'mime_type'   => 'text/javascript',
@@ -837,20 +824,6 @@ final class ArtifactNormalizer
         }
 
         return $expanded;
-    }
-
-    private function inlineScriptPath(string $htmlPath, int $index): string
-    {
-        $path = ArtifactPath::safeRelativePath($htmlPath);
-        if ( '' === $path ) {
-            return 1 === $index ? 'inline.js' : 'inline-' . $index . '.js';
-        }
-
-        $directory = trim((string) pathinfo($path, PATHINFO_DIRNAME), '.');
-        $filename = pathinfo($path, PATHINFO_FILENAME);
-        $scriptPath = ('' === $filename ? 'inline' : $filename) . (1 === $index ? '.inline.js' : '.inline-' . $index . '.js');
-
-        return '' === $directory ? $scriptPath : $directory . '/' . $scriptPath;
     }
 
     private function isExecutableScriptType(string $type): bool

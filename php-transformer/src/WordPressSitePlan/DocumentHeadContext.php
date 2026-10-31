@@ -34,7 +34,7 @@ final class DocumentHeadContext
         if (!$declared) return null;
 
         $inline = array();
-        foreach ($files as $file) {
+        foreach (\Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer::inlineOccurrences($files) as $file) {
             if ($sourcePath !== ($file['source_path'] ?? null)) continue;
             if ('inline-script' === ($file['source'] ?? null)) $inline['script'][$file['selector'] ?? ''] = $file['path'];
             if ('inline-style' === ($file['source'] ?? null)) $inline['style'][(int) ($file['stylesheet_index'] ?? 0)] = $file['path'];

@@ -350,7 +350,8 @@ $assert(is_array($themeScaffold) && true === ($themeScaffold['settings']['spacin
 $inlineEntryArtifact = $inlineArtifact;
 $inlineEntryArtifact['entrypoints'] = array('about.html');
 $inlineSitePlan = $compiler->compile($inlineEntryArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
-$inlineAssets = array_column($inlineSitePlan['assets'] ?? array(), null, 'source_path');
+$inlineAssets = array();
+foreach ($inlineSitePlan['assets'] ?? array() as $asset) foreach ($asset['inline_references'] ?? array() as $reference) if ('css' === $asset['kind'] && 'about.html' === $reference['source_path']) $inlineAssets['about.inline.css'] = $asset;
 $assert('about.html' === ($inlineAssets['about.inline.css']['scopes'][0]['source_path'] ?? null) && false === ($inlineAssets['about.inline.css']['scopes'][0]['front_page'] ?? null), 'Inferred inline stylesheet ownership follows its canonical non-root route even when that page is the compiler entrypoint.');
 $bundledPages = array();
 foreach (array('index.html', 'about.html', 'posts/news.html') as $page) {
@@ -373,9 +374,12 @@ $bundledCss = array_values(array_filter($bundledPlan['assets'] ?? array(), stati
 $bundledBootstrap = (string) ((array_column($bundledPlan['writes'] ?? array(), null, 'target_path')['functions.php']['payload']['data'] ?? ''));
 // The three routes' identical eight-style bundles are one resource scoped to
 // all three; each route still enqueues it at its own position.
-$assert(6 === count($bundledCss) && 12 === substr_count($bundledBootstrap, 'wp_enqueue_style(') && 1 === substr_count($bundledBootstrap, 'if ( is_front_page() ) {') && 3 === substr_count($bundledBootstrap, '$blocks_engine_route_styles = true;') && 1 === substr_count($bundledBootstrap, 'if ( ! $blocks_engine_route_styles ) wp_enqueue_style('), 'Three-page inline fragmentation retains six bounded resources (one bundle shared by the three routes); each route block enqueues its shared-resource instance and two route records, plus one native-route fallback and one generic editor delivery loop.');
-$indexBundle = current(array_filter($bundledCss, static fn(array $asset): bool => 'page' === ($asset['scopes'][0]['kind'] ?? null) && true === ($asset['scopes'][0]['front_page'] ?? null) && '' === ($asset['media'] ?? '')));
-$assert(is_array($indexBundle) && str_contains((string) ($indexBundle['content'] ?? ''), '.cascade-0{color:') && strpos((string) $indexBundle['content'], '.cascade-0{color:') < strpos((string) $indexBundle['content'], '.cascade-7{color:') && hash('sha256', (string) $indexBundle['content']) === ($indexBundle['content_hash'] ?? null), 'A coalesced route bundle preserves author cascade order and content-addressed identity.');
+$inlineCss = array_values(array_filter($bundledCss, static fn(array $asset): bool => 'inline-style' === ($asset['source'] ?? null)));
+$assert(11 === count($inlineCss), 'Eight common inline bodies and three route-specific bodies are eleven resources.');
+foreach ($inlineCss as $asset) {
+    $assert(hash('sha256', $asset['content']) === $asset['content_hash'], 'Shared inline resources retain valid payload digests.');
+    if (str_contains($asset['content'], '.cascade-')) $assert(3 === count($asset['stylesheet_instances'] ?? array()), 'Every common inline resource has one ordered instance per route.');
+}
 $assert($canonical($bundledWhole['source_reports']['wordpress_site_plan'] ?? array()) === $canonical($bundledStaged['source_reports']['wordpress_site_plan'] ?? array()) && $canonical($bundledWhole['diagnostics'] ?? array()) === $canonical($bundledStaged['diagnostics'] ?? array()), 'Bounded stylesheet bundles preserve direct and staged canonical plans and diagnostics.');
 $formsDeclaration = current(array_filter($whole['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $assert(29 === count($formsDeclaration['payload']['entities'] ?? array()) && $formsPayloadBytes === strlen(RuntimeDeclarations::canonicalJson($formsDeclaration['payload'] ?? null)), 'Compilation retains the complete bounded 29-form runtime declaration.');

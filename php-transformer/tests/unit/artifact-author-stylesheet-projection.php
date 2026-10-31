@@ -10,6 +10,8 @@ use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityProbe;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 
+$inlinePath = static fn(string $css): string => 'inline/' . hash('sha256', "style\0\0" . $css) . '.css';
+
 $result = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><style>.red{color:red}</style><link rel="stylesheet" href="a.css"><style>.hero p{color:green}</style><link rel="stylesheet" href="b.css"><link rel="stylesheet" href="a.css"></head><body><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><div class="hero"><p>Copy</p></div></body></html>' ),
@@ -30,7 +32,7 @@ $assets = $result['assets'] ?? array();
 $assetPaths = array_column($assets, 'path');
 $assetsByPath = array_column($assets, null, 'path');
 $assert(1 === preg_match('#^assets/css/engine-support-before-author-[a-f0-9]{16}\.css$#', $assetPaths[0] ?? '')
-    && array( 'index.inline-1.css', 'a.css', 'index.inline-2.css', 'b.css', 'a.occurrence-2.css' ) === array_slice($assetPaths, 1, 5)
+    && array( $inlinePath('.red{color:red}'), 'a.css', $inlinePath('.hero p{color:green}'), 'b.css', 'a.occurrence-2.css' ) === array_slice($assetPaths, 1, 5)
     && 1 === preg_match('#^assets/css/engine-support-after-author-[a-f0-9]{16}\.css$#', $assetPaths[6] ?? ''), 'source stylesheet order is preserved around before- and after-author support assets, and a repeated identical link adds no second copy');
 foreach ( $assets as $asset ) {
     $content = (string) ($asset['content'] ?? '');
@@ -46,7 +48,7 @@ foreach ( $planAssets as $asset ) {
 $assert(hash('sha256', base64_encode('a.cta:hover{padding:1rem}')) === ($assetsByPath['a.css']['source_hash'] ?? null) && ($assetsByPath['a.css']['hash'] ?? '') !== ($assetsByPath['a.css']['source_hash'] ?? ''), 'source hash retains linked pre-projection provenance');
 $assert('text' === ($assetsByPath['a.css']['content_encoding'] ?? '') && ! isset($assetsByPath['a.css']['content_base64']), 'projected linked CSS invalidates the stale source payload encoding');
 $assert(! str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), 'a.cta:hover') && str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), '> :where(.wp-block-button__link):not(be-t-0):hover'), 'linked button CSS is rewritten in place');
-$assert(hash('sha256', '.hero p{color:green}') === ($assetsByPath['index.inline-2.css']['source_hash'] ?? null) && ! str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), '.hero p') && str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
+$assert(hash('sha256', '.hero p{color:green}') === ($assetsByPath[$inlinePath('.hero p{color:green}')]['source_hash'] ?? null) && ! str_contains((string) ($assetsByPath[$inlinePath('.hero p{color:green}')]['content'] ?? ''), '.hero p') && str_contains((string) ($assetsByPath[$inlinePath('.hero p{color:green}')]['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
 $assert(! isset($assetsByPath['a.occurrence-2-generated-1.css']) && '.authored-collision{color:purple}' === ($assetsByPath['a.occurrence-2.css']['content'] ?? ''), 'a repeated identical link materializes no alias while authored collision CSS remains a deterministic orphan asset');
 
 // Conditions and repeated positions are instances of one resource. Authored
@@ -377,7 +379,7 @@ $multiPage = ( new ArtifactCompiler() )->compile(array(
 ) )->toArray();
 $multiPageAssets = array_column($multiPage['assets'] ?? array(), null, 'path');
 $sharedCss = (string) ($multiPageAssets['site.css']['content'] ?? '');
-$aboutCss = (string) ($multiPageAssets['about.inline.css']['content'] ?? '');
+$aboutCss = (string) ($multiPageAssets[$inlinePath('.rows li{gap:1rem}')]['content'] ?? '');
 $assert(str_contains($sharedCss, 'blocks-engine-source-p-') && str_contains($sharedCss, 'blocks-engine-source-li-'), 'shared stylesheet merges projections required by entry and sibling HTML documents');
 $assert(str_contains($aboutCss, 'blocks-engine-source-li-') && ! str_contains($aboutCss, '.rows li{gap:1rem}'), 'sibling inline stylesheets emit their complete projected form without appending dead source selectors');
 $multiPageCompiledAssetPaths = array_column($multiPage['source_reports']['compiled_site']['assets'] ?? array(), 'path');
@@ -439,7 +441,7 @@ $siblingSettledState = ( new ArtifactCompiler() )->compile(array(
     ),
 ) )->toArray();
 $siblingSettledAssets = array_column($siblingSettledState['assets'] ?? array(), null, 'path');
-$siblingSettledCss = (string) ($siblingSettledAssets['about.inline.css']['content'] ?? '');
+$siblingSettledCss = (string) ($siblingSettledAssets[$inlinePath('.animated:not([data-state="done"]){animation:fade 1s backwards paused}')]['content'] ?? '');
 $assert(str_contains($siblingSettledCss, ':not(.blocks-engine-attribute-state-') && ! str_contains($siblingSettledCss, '[data-state="done"]'), 'sibling-only inline state gates retain only their Gutenberg marker projection');
 $assert(str_contains((string) ($siblingSettledState['source_reports']['wordpress_site_plan']['pages'][1]['canonical_block_markup'] ?? ''), 'blocks-engine-attribute-state-'), 'sibling-only settled state markers survive into canonical page markup');
 
@@ -499,8 +501,8 @@ $embeddedStyleContents = implode("\n", array_column($embeddedStyleAssets, 'conte
 $embeddedStyleFallbacks = $embeddedStyles['fallbacks'] ?? array();
 $styleFallbacks = array_filter($embeddedStyleFallbacks, static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? '') && 'style' === ($fallback['tag'] ?? ''));
 $unsupportedBodyFallbacks = array_filter($embeddedStyleFallbacks, static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? '') && 'output' === ($fallback['tag'] ?? ''));
-$assert(array( 'index.inline-1.css', 'site.css', 'index.inline-2.css', 'index.inline-3.css', 'about.inline.css' ) === array_slice($embeddedStylePaths, 0, 5), 'head and body styles preserve source-order stylesheet occurrences across pages');
-$assert('(min-width: 48rem)' === (($embeddedStyleAssets[2]['media'] ?? '')), 'embedded media styles retain their stylesheet media scope');
+$assert(array( $inlinePath('.shared{color:red}'), 'site.css', $inlinePath('.wide{color:blue}'), $inlinePath('.hero{background:url("images/banner.svg")}') ) === array_slice($embeddedStylePaths, 0, 4), 'head and body styles preserve source-order stylesheet occurrences across pages');
+$assert('(min-width: 48rem)' === (($embeddedStyleAssets[2]['inline_references'][0]['media'] ?? '')), 'embedded media styles retain their stylesheet media scope');
 $assert(str_contains($embeddedStyleContents, '.hero{background:url("images/banner.svg")}'), 'embedded CSS URL references retain canonical artifact-relative resolution');
 $assert(array() === $styleFallbacks && 1 === count($unsupportedBodyFallbacks), 'materialized style elements avoid unsupported-element fallbacks while genuine unsupported body elements remain reported');
 
