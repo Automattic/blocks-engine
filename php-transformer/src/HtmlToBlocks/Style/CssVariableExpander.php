@@ -13,10 +13,13 @@ final class CssVariableExpander
      * A defined variable replaces its whole reference without evaluating the
      * fallback. Otherwise expand the fallback, including nested functions.
      * Missing, cyclic, oversized or malformed values remain invalid (null).
+     * A reference `$keep` accepts stays as written: it is a live runtime value,
+     * not a cycle, and must not invalidate the rest of the value.
      *
      * @param callable(string): ?string $resolve
+     * @param (callable(string): bool)|null $keep
      */
-    public static function expand(string $value, callable $resolve, int $depth = 0): ?string
+    public static function expand(string $value, callable $resolve, int $depth = 0, ?callable $keep = null): ?string
     {
         if ( $depth > self::MAX_EXPANSION_DEPTH || strlen($value) > self::MAX_EXPANDED_BYTES ) {
             return null;
@@ -34,10 +37,15 @@ final class CssVariableExpander
             if ( 1 !== preg_match('/^--[A-Za-z0-9_-]+$/D', $name) ) {
                 return null;
             }
+            if ( null !== $keep && $keep($name) ) {
+                $result .= substr($value, $offset, $close + 1 - $offset);
+                $offset = $close + 1;
+                continue;
+            }
             $resolved = $resolve($name);
             $replacement = null !== $resolved
-                ? self::expand($resolved, $resolve, $depth + 1)
-                : (null === $comma ? null : self::expand(trim(substr($arguments, $comma + 1)), $resolve, $depth + 1));
+                ? self::expand($resolved, $resolve, $depth + 1, $keep)
+                : (null === $comma ? null : self::expand(trim(substr($arguments, $comma + 1)), $resolve, $depth + 1, $keep));
             if ( null === $replacement ) {
                 return null;
             }

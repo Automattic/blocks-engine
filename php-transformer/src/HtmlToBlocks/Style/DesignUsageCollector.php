@@ -144,7 +144,7 @@ final class DesignUsageCollector
             'font_size_authored' => isset($bodyDeclarations['font-size']) || isset($htmlDeclarations['font-size']) || $this->resolver->hasAuthoredHtmlFontSize($body),
             'conditional' => array_values(array_filter(
                 array('color', 'background', 'font-family', 'font-size'),
-                fn(string $family): bool => $this->resolver->hasConditionalStyleFamily($body, $family) || (null !== $html && $this->resolver->hasConditionalStyleFamily($html, $family))
+                fn(string $family): bool => $this->conditionalRootFamily($body, $family) || (null !== $html && $this->conditionalRootFamily($html, $family))
             )),
         );
 
@@ -456,6 +456,24 @@ final class DesignUsageCollector
     }
 
     /**
+     * A media condition changes the family directly, or its own declaration
+     * still reads a reference the resolver keeps live (a custom property a
+     * `prefers-color-scheme` rule redefines).
+     */
+    private function conditionalRootFamily(DOMElement $element, string $family): bool
+    {
+        if ($this->resolver->hasConditionalStyleFamily($element, $family)) return true;
+        $properties = match ($family) {
+            'background' => array('background', 'background-color'),
+            'font-family', 'font-size' => array('font', $family),
+            default => array($family),
+        };
+        $live = $this->resolver->resolvedPresentationDeclarations($element);
+        foreach ($properties as $property) if (str_contains((string) ($live[$property] ?? ''), 'var(')) return true;
+        return false;
+    }
+
+    /**
      * Whether the element's own declaration of the property reads a custom
      * property that a media condition redefines (a dark theme that swaps
      * `:root` tokens), which a fixed preset could not follow.
@@ -650,9 +668,12 @@ final class DesignUsageCollector
      */
     private function declarations(DOMElement $element, bool $headingReference = false): array
     {
+        // Usage measures the default colour scheme. A reference a
+        // `prefers-color-scheme` rule keeps live reads its default value here;
+        // the `conditional` flags keep it out of fixed styles.
         $declarations = array();
         foreach ($this->resolver->resolvedPresentationDeclarations($element) as $property => $value) {
-            $declarations[strtolower((string) $property)] = (string) $value;
+            $declarations[strtolower((string) $property)] = $this->resolver->resolveDefaultSchemeCssVariablesInValue((string) $value, $element);
         }
         $conditional = array();
         foreach (self::DESKTOP_READ_FAMILIES as $family => $properties) {

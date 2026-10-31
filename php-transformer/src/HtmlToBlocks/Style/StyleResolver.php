@@ -6065,17 +6065,28 @@ final class StyleResolver implements ElementPresentationResolver
 
         // Conditional palette definitions are runtime values, not capture
         // constants. Keep their references live in every emitted carrier.
+        $live = array();
         if ($element instanceof DOMElement) {
             for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
                 foreach ($this->matchingStyleRules($node, 'conditional') as $rule) {
                     if (!str_contains(implode(' ', $rule['conditions'] ?? array()), 'prefers-color-scheme')) continue;
                     foreach ($rule['cascadedDeclarations'] ?? array() as $name => $_declared) {
-                        if (str_starts_with((string) $name, '--')) $customProperties[$name] = 'var(' . $name . ')';
+                        if (str_starts_with((string) $name, '--')) $live[$name] = true;
                     }
                 }
             }
         }
-        return $this->expandCssVariableReferences($value, $customProperties);
+        return $this->expandCssVariableReferences($value, $customProperties, $live);
+    }
+
+    /**
+     * The value a reference renders in the default (no-preference) colour
+     * scheme: every custom property takes its cascaded unconditional value,
+     * including the ones a `prefers-color-scheme` rule redefines.
+     */
+    public function resolveDefaultSchemeCssVariablesInValue(string $value, DOMElement $element): string
+    {
+        return false === strpos($value, 'var(') ? $value : $this->expandCssVariableReferences($value, $this->cascadedCustomProperties($element));
     }
 
     /**
@@ -6109,8 +6120,10 @@ final class StyleResolver implements ElementPresentationResolver
     /**
      * @param array<string, string> $customProperties
      */
-    private function expandCssVariableReferences(string $value, array $customProperties): string
+    /** @param array<string,true> $live Names kept as live references. */
+    private function expandCssVariableReferences(string $value, array $customProperties, array $live = array()): string
     {
+        $keep = array() === $live ? null : static fn(string $name): bool => isset($live[$name]);
         return CssVariableExpander::expand($value, static function (string $name) use ($customProperties): ?string {
             $propertyValue = trim((string) ($customProperties[$name] ?? ''));
             // Retain the existing design-token sentinel policy while sharing
@@ -6118,7 +6131,7 @@ final class StyleResolver implements ElementPresentationResolver
             return '' === $propertyValue || in_array(strtolower($propertyValue), array( 'unset', 'initial', 'inherit', 'revert', 'revert-layer' ), true)
                 ? null
                 : $propertyValue;
-        }) ?? trim($value);
+        }, 0, $keep) ?? trim($value);
     }
 
     /**
