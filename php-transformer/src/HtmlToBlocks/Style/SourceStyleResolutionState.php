@@ -78,6 +78,14 @@ final class SourceStyleResolutionState
      */
     private array $cascadedDeclarations = array();
 
+    /**
+     * Each source element's matching rules per collection, keyed by collection
+     * and node path.
+     *
+     * @var array<string, array{node: DOMElement, rules: list<array<string, mixed>>}>
+     */
+    private array $matchedRules = array();
+
     private string $formLayoutCss = '';
 
     public function __construct()
@@ -91,6 +99,7 @@ final class SourceStyleResolutionState
         $this->structuralDeclarations = array();
         $this->stateStyleFamilies = array();
         $this->cascadedDeclarations = array();
+        $this->matchedRules = array();
         $this->ariaControlledTargetIds = array();
     }
 
@@ -111,6 +120,7 @@ final class SourceStyleResolutionState
         $this->pseudoElementRules = $analysis['pseudo'];
         $this->cascadedValueRules = $analysis['cascaded_values'] ?? array();
         $this->cascadedDeclarations = array();
+        $this->matchedRules = array();
         $this->customProperties = $analysis['custom_properties'];
         $this->layerNames = array_values(array_map('strval', $analysis['layer_names'] ?? array()));
     }
@@ -127,6 +137,7 @@ final class SourceStyleResolutionState
         $this->conditionalRules = array_filter($this->conditionalRules, $isMatchable);
         $this->pseudoElementRules = array_filter($this->pseudoElementRules, $isMatchable);
         $this->ruleCandidateIndexes = array();
+        $this->matchedRules = array();
     }
 
     /**
@@ -152,6 +163,25 @@ final class SourceStyleResolutionState
             $entry = $this->cascadedDeclarations[$path] = array( 'node' => $element, 'style' => $style, 'declarations' => $declarations, 'custom' => $custom );
         }
         return $entry;
+    }
+
+    /**
+     * The element's remembered rules of one collection that match it,
+     * computing and remembering them on a miss. Entries are reused only for
+     * the same node and dropped with the selector match cache that decided
+     * them.
+     *
+     * @param callable(DOMElement, string): list<array<string, mixed>> $compute
+     * @return list<array<string, mixed>>
+     */
+    public function matchedRules(DOMElement $element, string $collection, callable $compute): array
+    {
+        $key = $collection . "\0" . $element->getNodePath();
+        $entry = $this->matchedRules[$key] ?? null;
+        if ( null === $entry || ! $entry['node']->isSameNode($element) ) {
+            $entry = $this->matchedRules[$key] = array( 'node' => $element, 'rules' => $compute($element, $collection) );
+        }
+        return $entry['rules'];
     }
 
     /**

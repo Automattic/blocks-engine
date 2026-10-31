@@ -157,7 +157,10 @@ $assert(4 === $selectorCache->authorSelectorMatchResultBuilds && $selectorCache-
 $sourceSelectorCache = new HtmlTransformerAnalysisCache();
 $sourceSelectorHtml = '<style>.card{display:grid;color:red}.card.primary{gap:1rem}.card[data-kind="primary"]{padding:1rem}</style><section class="card primary" data-kind="primary"><p>Repeated source selector matching</p></section>';
 $sourceSelectorResult = (new HtmlTransformer(analysisCache: $sourceSelectorCache))->transform($sourceSelectorHtml)->toArray();
-$assert(6 === $sourceSelectorCache->sourceSelectorMatchExecutions && 4 === $sourceSelectorCache->sourceSelectorMatchHits, 'Indexed general style resolution executes six matcher calls and reuses four repeated element-selector results.');
+// An element's matching rules per collection are remembered, so a repeated
+// request for the same element and collection reaches neither the candidate
+// list nor the element-selector results again.
+$assert(6 === $sourceSelectorCache->sourceSelectorMatchExecutions && 1 === $sourceSelectorCache->sourceSelectorMatchHits, 'Indexed general style resolution executes six matcher calls and reuses one repeated element-selector result.');
 // Candidate lists are keyed by each element's selector signature, which
 // reads its cached class tokens once more per element (Automattic/blocks-engine#3102).
 $assert(5 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 16 === $sourceSelectorCache->sourceSelectorClassTokenHits && 12 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
@@ -169,7 +172,7 @@ $assert(4 === $sourceSelectorCache->sourceStructuralDeclarationBuilds && 8 === $
 // lookup the parent's own presentation resolution had not already primed.
 // Conditional-only source margins also inspect the root's conditional candidates:
 // one extra candidate lookup reuses its immutable class tokens without rebuilding.
-$assert(4 === ($sourceSelectorResult['metrics']['selector_match_cache_hits'] ?? null) && 6 === ($sourceSelectorResult['metrics']['selector_match_cache_misses'] ?? null) && 0 === ($sourceSelectorResult['metrics']['selector_match_cache_evictions'] ?? null) && 3 === ($sourceSelectorResult['metrics']['selector_match_cache_peak_entries'] ?? null) && 3 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_hits'] ?? null) && 10 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_misses'] ?? null), 'Transform metrics expose selector and candidate-cache hit, miss, eviction, and peak counters without changing canonical blocks.');
+$assert(1 === ($sourceSelectorResult['metrics']['selector_match_cache_hits'] ?? null) && 6 === ($sourceSelectorResult['metrics']['selector_match_cache_misses'] ?? null) && 0 === ($sourceSelectorResult['metrics']['selector_match_cache_evictions'] ?? null) && 3 === ($sourceSelectorResult['metrics']['selector_match_cache_peak_entries'] ?? null) && 2 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_hits'] ?? null) && 10 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_misses'] ?? null), 'Transform metrics expose selector and candidate-cache hit, miss, eviction, and peak counters without changing canonical blocks.');
 
 $candidateCache = new HtmlTransformerAnalysisCache();
 $noiseRules = array();
@@ -220,11 +223,13 @@ $assert(
 // Every `<p class="pressure">` has the same tag and attributes, so the
 // subject-only `.pressure` result and each collection's candidate list are
 // shared by signature (Automattic/blocks-engine#3102): the 4,099 selector
-// lookups execute twice (the root and one paragraph) and the 12,303 candidate
-// lookups build one list per collection and signature, without evicting.
+// lookups execute twice (the root and one paragraph) and the 12,301 candidate
+// lookups build one list per collection and signature, without evicting. Each
+// element's matching rules are remembered per collection, so a repeated
+// request for the same element skips both lookups.
 $assert(
     2 === ($pressureMetrics['selector_match_cache_misses'] ?? null)
-    && 4097 === ($pressureMetrics['selector_match_cache_hits'] ?? null)
+    && 4096 === ($pressureMetrics['selector_match_cache_hits'] ?? null)
     && 0 === ($pressureMetrics['selector_match_cache_evictions'] ?? null)
     && 2 === ($pressureMetrics['selector_match_cache_peak_entries'] ?? null)
     && 4099 === $pressureCache->sourceStructuralDeclarationBuilds
@@ -233,7 +238,7 @@ $assert(
 );
 $assert(
     8 === ($pressureMetrics['style_rule_candidate_cache_misses'] ?? null)
-    && 12295 === ($pressureMetrics['style_rule_candidate_cache_hits'] ?? null)
+    && 12293 === ($pressureMetrics['style_rule_candidate_cache_hits'] ?? null)
     && 0 === ($pressureMetrics['style_rule_candidate_cache_evictions'] ?? null)
     && 8 === ($pressureMetrics['style_rule_candidate_cache_peak_entries'] ?? null)
     && 2 === ($pressureMetrics['style_rule_candidate_cache_peak_rule_references'] ?? null),
