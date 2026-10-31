@@ -264,10 +264,14 @@ final class CssStylesheetTransformer
      * cannot be proven — an unreadable selector list or an arm the index
      * cannot evaluate — meaning cascade interaction cannot be disproved.
      *
-     * @return array<int, true>|null
+     * @return array<int|string, true>|null
      */
     private static function cascadeTargets(RouteSelectorMatchIndex $matchIndex, string $owner, string $rule): ?array
     {
+        // Keyframes compete only with keyframes of the same name.
+        if ( 1 === preg_match('/^@(?:-[a-z]+-)?keyframes\s+([^\s{]+)\s*\{/i', ltrim(CssSyntaxScanner::withoutComments($rule)), $keyframes) ) {
+            return array( '@keyframes ' . trim($keyframes[1], '"\'') => true );
+        }
         $arms = self::cascadeSelectorArms($rule);
         if ( null === $arms ) {
             return null;

@@ -42,11 +42,10 @@ final class RouteSelectorMatchIndex
      * The elements of one route's document that a selector arm may style,
      * matched structurally in every interaction state, or null when the arm
      * cannot be evaluated — an unsupported selector or a missing document —
-     * so cascade interaction cannot be disproved. A static ::before/::after
-     * arm competes in the cascade on its host elements, so those hosts count
-     * as the elements it styles.
+     * so cascade interaction cannot be disproved. A pseudo-element arm styles
+     * `<id>::name` of each matched host element.
      *
-     * @return array<int, true>|null
+     * @return array<int|string, true>|null
      */
     public function matchedElements(string $arm, string $owner): ?array
     {
@@ -56,7 +55,7 @@ final class RouteSelectorMatchIndex
         return $this->cascadeMatches[$arm][$owner];
     }
 
-    /** @return array<int, true>|null */
+    /** @return array<int|string, true>|null */
     private function computeMatchedElements(string $arm, string $owner): ?array
     {
         if ( ! isset($this->owners[$owner]) ) {
@@ -65,6 +64,12 @@ final class RouteSelectorMatchIndex
         if ( ! array_key_exists($arm, $this->cascadeArms) ) {
             [$structural, $pseudo] = self::cascadeSubject($arm) ?? array('', null);
             $parsed = '' === $structural ? array('supported' => false) : CssSelectorMatcher::parse($structural);
+            if ( ! $parsed['supported'] ) {
+                // Without the pseudo-classes the matcher cannot evaluate, the
+                // subject matches a superset, which can only keep more rules.
+                [$structural, $pseudo] = self::cascadeSubject($arm, true) ?? array('', null);
+                $parsed = '' === $structural ? array('supported' => false) : CssSelectorMatcher::parse($structural);
+            }
             $keys = array();
             if ( $parsed['supported'] ) {
                 $leaf = $parsed['compounds'][count($parsed['compounds']) - 1];
@@ -110,7 +115,7 @@ final class RouteSelectorMatchIndex
      *
      * @return array{0: string, 1: ?string}|null
      */
-    private static function cascadeSubject(string $arm): ?array
+    private static function cascadeSubject(string $arm, bool $anyPseudoClass = false): ?array
     {
         if ( str_contains($arm, '\\') ) {
             return array($arm, null);
@@ -147,7 +152,7 @@ final class RouteSelectorMatchIndex
             }
             $lower = strtolower($name[1]);
             $element = $double || isset(self::LEGACY_PSEUDO_ELEMENTS[ $lower ]);
-            if ( ! $element && ( null === $argument ? ! self::isStatePseudoClass($lower) : ( 'not' !== $lower || ! self::onlyStates($argument) ) ) ) {
+            if ( ! $element && ! $anyPseudoClass && ( null === $argument ? ! self::isStatePseudoClass($lower) : ( 'not' !== $lower || ! self::onlyStates($argument) ) ) ) {
                 if ( null !== $pseudo ) return null;
                 $subject .= substr($arm, $i, $end - $i);
                 $i = $end;
