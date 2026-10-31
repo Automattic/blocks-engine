@@ -161,6 +161,8 @@ jobs:
           PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/capture-runtime-ancestor-parity-browser.mjs
           php tests/unit/capture-runtime-attribute-parity.php
           PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/capture-runtime-attribute-parity-browser.mjs
+          php tests/unit/captured-dialog-class-hidden-resting-panel.php
+          PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/captured-dialog-resting-content-browser.mjs
 
       - name: Verify native button default background neutralization
         working-directory: php-transformer

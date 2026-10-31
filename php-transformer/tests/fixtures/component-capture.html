@@ -23,7 +23,9 @@ function apply(trigger){
   if(open&&opened&&target.__dlaDialogState!==captured){target.innerHTML=opened.html;target.__dlaDialogState=captured;}
   var existing=target.getAttribute('data-blocks-engine-capture-existing-panel');
   if(existing){
-    var states=JSON.parse(existing),state=inactive?states.resting:(opened||states.opened);
+    var states=JSON.parse(existing),resting=states.resting.html!==undefined;
+    var state=(inactive||(resting&&!open))?states.resting:(opened||states.opened);
+    if(resting&&!open&&target.__dlaDialogState!==null){target.innerHTML=states.resting.html;target.__dlaDialogState=null;}
     ['style','class'].forEach(function(name){if(state[name]===null)target.removeAttribute(name);else target.setAttribute(name,state[name]);});
     target.toggleAttribute('data-blocks-engine-capture-resting-panel',inactive);
     target.hidden=inactive?states.resting.hidden:!open;

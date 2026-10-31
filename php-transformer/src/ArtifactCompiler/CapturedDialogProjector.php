@@ -820,7 +820,7 @@ final class CapturedDialogProjector
                 $resting = $this->restingPresentation($panel);
                 // A panel with a resting snapshot is adopted whole: the panel
                 // itself, at its resting presentation, is the dialog content.
-                $fragment = array() !== $resting ? $this->safeDialogFragment('<div>' . $this->restPanel($document, $panel, $resting) . '</div>') : $this->safeDialogFragment($html);
+                $fragment = array() !== $resting ? $this->safeDialogFragment('<div>' . $this->restPanel($document, $panel, $resting, $triggers[0]) . '</div>') : $this->safeDialogFragment($html);
                 if (null === $fragment) continue;
                 $identity = substr(hash('sha256', $sourcePath . "\n" . $key . "\n" . $scopeIndex . "\n" . $html), 0, 16);
                 $triggerIds = array();
@@ -985,13 +985,41 @@ final class CapturedDialogProjector
      *
      * @param array{closed:array{class:?string, style:?string}} $resting
      */
-    private function restPanel(DOMDocument $document, DOMElement $panel, array $resting): string
+    private function restPanel(DOMDocument $document, DOMElement $panel, array $resting, DOMElement $trigger): string
     {
         $copy = $panel->cloneNode(true);
         if (! $copy instanceof DOMElement) return '';
         foreach (array('class', 'style') as $name) {
             $value = $resting['closed'][$name] ?? null;
             if (null === $value) $copy->removeAttribute($name); else $copy->setAttribute($name, $value);
+        }
+        $snapshot = json_decode($panel->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
+        $closedHtml = $snapshot['resting']['html'] ?? null;
+        if (is_string($closedHtml)) {
+            // Keep both observed states editable. CSS selects the closed copy
+            // again after replay instead of leaving the opened content behind.
+            $openedContent = $document->createElement('div');
+            $openedContent->setAttribute('class', 'captured-dialog-open-content');
+            $opened = json_decode($trigger->getAttribute(CaptureEvidence::DIALOG_PANEL_STATE), true);
+            if (is_string($opened['html'] ?? null)) {
+                $fragment = $this->safeDialogFragment('<div>' . $opened['html'] . '</div>');
+                foreach ($fragment['nodes'] ?? array() as $child) {
+                    $openedContent->appendChild($document->importNode($child, true));
+                }
+                while ($copy->firstChild) $copy->removeChild($copy->firstChild);
+            } else {
+                while ($copy->firstChild) $openedContent->appendChild($copy->firstChild);
+            }
+            $closedContent = $document->createElement('div');
+            $closedContent->setAttribute('class', 'captured-dialog-closed-content');
+            $fragment = $this->safeDialogFragment('<div>' . $closedHtml . '</div>');
+            if (null !== $fragment) {
+                foreach ($fragment['nodes'] as $child) {
+                    $closedContent->appendChild($document->importNode($child, true));
+                }
+            }
+            $copy->appendChild($closedContent);
+            $copy->appendChild($openedContent);
         }
         foreach (array('hidden', CaptureEvidence::EXISTING_PANEL, CaptureEvidence::DIALOG_PANEL, CaptureEvidence::OBSERVED_PLACEMENT) as $attribute) $copy->removeAttribute($attribute);
 
