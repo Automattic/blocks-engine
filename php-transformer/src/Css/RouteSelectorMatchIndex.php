@@ -63,15 +63,8 @@ final class RouteSelectorMatchIndex
             return null;
         }
         if ( ! array_key_exists($arm, $this->cascadeArms) ) {
-            $structural = $arm;
-            if (false === strpbrk($arm, '\\"\'') && !str_contains($arm, ':not(')) {
-                $structural = preg_replace('/:(?:hover|focus-visible|focus-within|focus|active|visited|any-link|link|disabled|enabled|target)(?![\w(-])/i', '', $arm) ?? $arm;
-            }
-            $host = CssSelectorMatcher::pseudoElementHost($structural);
-            if ( null !== $host ) {
-                $structural = $host['selector'];
-            }
-            $parsed = CssSelectorMatcher::parse($structural);
+            [$structural, $pseudo] = self::cascadeSubject($arm) ?? array('', null);
+            $parsed = '' === $structural ? array('supported' => false) : CssSelectorMatcher::parse($structural);
             $keys = array();
             if ( $parsed['supported'] ) {
                 $leaf = $parsed['compounds'][count($parsed['compounds']) - 1];
@@ -90,9 +83,9 @@ final class RouteSelectorMatchIndex
                 if (null === $candidates || count($list) < count($candidates)) $candidates = $list;
                 if (!$candidates) break;
             }
-            $this->cascadeArms[$arm] = array($parsed, $candidates);
+            $this->cascadeArms[$arm] = array($parsed, $candidates, $pseudo);
         }
-        [$parsed, $candidates] = $this->cascadeArms[$arm];
+        [$parsed, $candidates, $pseudo] = $this->cascadeArms[$arm];
         if ( ! $parsed['supported'] ) {
             return null;
         }
@@ -102,11 +95,129 @@ final class RouteSelectorMatchIndex
                 continue;
             }
             if ( $this->cache->matches($this->elements[$id], $arm, $parsed, true)['matches'] ) {
-                $matched[$id] = true;
+                $matched[ null === $pseudo ? $id : $id . $pseudo ] = true;
             }
         }
         return $matched;
     }
+
+    /**
+     * The structural subject of a cascade arm and the pseudo-element it
+     * styles, or null when the arm cannot be reduced. State pseudo-classes
+     * are dropped, so the subject matches in every state: a superset, which
+     * can only keep more rules. A pseudo-element is its own cascade target,
+     * so it competes only with rules for the same pseudo-element of a host.
+     *
+     * @return array{0: string, 1: ?string}|null
+     */
+    private static function cascadeSubject(string $arm): ?array
+    {
+        if ( str_contains($arm, '\\') ) {
+            return array($arm, null);
+        }
+        $subject = '';
+        $pseudo = null;
+        $length = strlen($arm);
+        for ( $i = 0; $i < $length; ) {
+            $char = $arm[ $i ];
+            if ( '"' === $char || "'" === $char || '[' === $char || '(' === $char ) {
+                $end = self::groupEnd($arm, $i);
+                if ( null === $end ) return null;
+                if ( null !== $pseudo ) return null;
+                $subject .= substr($arm, $i, $end - $i);
+                $i = $end;
+                continue;
+            }
+            if ( ':' !== $char ) {
+                // Only state pseudo-classes may follow a pseudo-element.
+                if ( null !== $pseudo ) return null;
+                $subject .= $char;
+                ++$i;
+                continue;
+            }
+            $double = ':' === ( $arm[ $i + 1 ] ?? '' );
+            if ( 1 !== preg_match('/\G:{1,2}(-?[A-Za-z][\w-]*)/', $arm, $name, 0, $i) ) return null;
+            $end = $i + strlen($name[0]);
+            $argument = null;
+            if ( '(' === ( $arm[ $end ] ?? '' ) ) {
+                $close = self::groupEnd($arm, $end);
+                if ( null === $close ) return null;
+                $argument = substr($arm, $end + 1, $close - $end - 2);
+                $end = $close;
+            }
+            $lower = strtolower($name[1]);
+            $element = $double || isset(self::LEGACY_PSEUDO_ELEMENTS[ $lower ]);
+            if ( ! $element && ( null === $argument ? ! self::isStatePseudoClass($lower) : ( 'not' !== $lower || ! self::onlyStates($argument) ) ) ) {
+                if ( null !== $pseudo ) return null;
+                $subject .= substr($arm, $i, $end - $i);
+                $i = $end;
+                continue;
+            }
+            // A compound left empty by a dropped pseudo matches any element.
+            if ( 1 === preg_match('/(?:^|[\s>+~])$/', $subject) && ( $element || $end >= $length || false !== strpos(" \t\n\r\f>+~", $arm[ $end ]) ) ) {
+                $subject .= '*';
+            }
+            if ( $element ) {
+                if ( null !== $pseudo ) return null;
+                $pseudo = '::' . $lower . ( null === $argument ? '' : '(' . trim($argument) . ')' );
+            }
+            $i = $end;
+        }
+        return array(trim($subject), $pseudo);
+    }
+
+    /** Offset just past a quoted string or a bracketed or parenthesized group. */
+    private static function groupEnd(string $arm, int $start): ?int
+    {
+        $open = $arm[ $start ];
+        if ( '"' === $open || "'" === $open ) {
+            $end = strpos($arm, $open, $start + 1);
+            return false === $end ? null : $end + 1;
+        }
+        $close = '[' === $open ? ']' : ')';
+        $depth = 0;
+        $length = strlen($arm);
+        for ( $i = $start; $i < $length; ++$i ) {
+            $char = $arm[ $i ];
+            if ( '"' === $char || "'" === $char ) {
+                $end = self::groupEnd($arm, $i);
+                if ( null === $end ) return null;
+                $i = $end - 1;
+            } elseif ( $char === $open ) {
+                ++$depth;
+            } elseif ( $char === $close && 0 === --$depth ) {
+                return $i + 1;
+            }
+        }
+        return null;
+    }
+
+    /** Pseudo-classes that vary with user, form or media state, never structure. */
+    private static function isStatePseudoClass(string $name): bool
+    {
+        return isset(self::STATE_PSEUDO_CLASSES[ $name ]) || 1 === preg_match('/^-(?:moz|webkit|ms|o)-/', $name);
+    }
+
+    /** Whether a :not() argument lists only state pseudo-classes. */
+    private static function onlyStates(string $argument): bool
+    {
+        return 1 === preg_match('/^(?:\s*(?::[A-Za-z-]+\s*)+,?)+$/', $argument)
+            && array() === array_filter(preg_split('/[\s,:]+/', $argument, -1, PREG_SPLIT_NO_EMPTY) ?: array(), static fn (string $name): bool => ! self::isStatePseudoClass(strtolower($name)));
+    }
+
+    private const LEGACY_PSEUDO_ELEMENTS = array( 'before' => true, 'after' => true, 'first-line' => true, 'first-letter' => true );
+
+    private const STATE_PSEUDO_CLASSES = array(
+        'hover' => true, 'focus' => true, 'focus-visible' => true, 'focus-within' => true, 'active' => true,
+        'visited' => true, 'any-link' => true, 'link' => true, 'target' => true, 'target-within' => true,
+        'disabled' => true, 'enabled' => true, 'checked' => true, 'indeterminate' => true, 'default' => true,
+        'placeholder-shown' => true, 'autofill' => true, 'valid' => true, 'invalid' => true, 'user-valid' => true,
+        'user-invalid' => true, 'required' => true, 'optional' => true, 'read-only' => true, 'read-write' => true,
+        'in-range' => true, 'out-of-range' => true, 'blank' => true, 'open' => true, 'closed' => true,
+        'popover-open' => true, 'modal' => true, 'fullscreen' => true, 'picture-in-picture' => true,
+        'playing' => true, 'paused' => true, 'seeking' => true, 'buffering' => true, 'stalled' => true,
+        'muted' => true, 'volume-locked' => true, 'current' => true, 'past' => true, 'future' => true,
+    );
 
     /**
      * Compiled markup cannot disprove state WordPress restores at render time.

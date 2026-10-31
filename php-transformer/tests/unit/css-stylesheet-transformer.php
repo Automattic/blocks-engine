@@ -206,10 +206,17 @@ $assert($pageRule . $framework === $transformer->rulesAbsentFrom(array($pageRule
 $unknownDelta = $transformer->rulesAbsentFrom(array('.btn:unknown{color:purple}' . $framework), array($framework), true, $interactionIndex, 'page');
 $assert('.btn:unknown{color:purple}.btn{color:red}.lead{color:green}h1{color:blue}' === $unknownDelta, 'unsupported selectors conservatively retain overlapping shared rules');
 
-$pseudoShared = '.btn::before{content:"shared"}.lead::before{content:"unrelated"}';
-$pseudoPage = '.site-nav .btn{content:"page"}';
-$pseudoDelta = $transformer->rulesAbsentFrom(array($pseudoPage . $pseudoShared), array($pseudoShared), true, $interactionIndex, 'page');
-$assert($pseudoPage . '.btn::before{content:"shared"}' === $pseudoDelta, 'pseudo-element cascade interactions are compared on their hosts');
+// A pseudo-element is its own cascade target; state pseudo-classes match in
+// every state. Neither leaves a page rule's styled elements unknown.
+$pseudoShared = '.btn::before{content:"shared"}.lead::before{content:"unrelated"}.btn{border:1px solid;color:red}.lead{color:green}';
+foreach (array(
+    array('.site-nav .btn::before{content:"page"}', '.btn::before{content:"shared"}', 'a pseudo-element rule keeps the shared rule for the same pseudo-element of its host'),
+    array('.site-nav .btn{content:"page"}', '', 'a host rule does not compete with its pseudo-elements'),
+    array('::-moz-focus-inner{border:0}', '', 'a vendor pseudo-element rule does not compete with element rules'),
+    array('.site-nav .btn:checked{color:purple}', '.btn{border:1px solid;color:red}', 'a state pseudo-class rule competes on every element it may match'),
+) as [$pseudoPage, $expected, $label]) {
+    $assert($pseudoPage . $expected === $transformer->rulesAbsentFrom(array($pseudoPage . $pseudoShared), array($pseudoShared), true, $interactionIndex, 'page'), $label);
+}
 
 // Projected marker arms keep every shared rule that styles a marked element
 // with an overlapping family, and the split sheet resolves identically.
