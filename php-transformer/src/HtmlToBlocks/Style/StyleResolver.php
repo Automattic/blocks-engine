@@ -5877,7 +5877,6 @@ final class StyleResolver implements ElementPresentationResolver
         $this->analysisCache->sourceStyleCandidateRulePeakRetained = max($this->analysisCache->sourceStyleCandidateRulePeakRetained, $selectorCache->candidateRulePeakRetained);
     }
 
-    /** @return list<array<string, mixed>> */
     /**
      * Rules from a collection that actually match an element.
      *
@@ -5887,18 +5886,26 @@ final class StyleResolver implements ElementPresentationResolver
      * each with its own copy of the guard, so the distinction between "might
      * match" and "does match" lived in eighteen places instead of a name.
      *
-     * Generating rather than collecting keeps the superset from being
-     * materialised twice on a hot path.
+     * Each element's matches per collection are found once and remembered
+     * with the selector match cache that decided them.
      *
-     * @return iterable<array<string, mixed>>
+     * @return list<array<string, mixed>>
      */
-    private function matchingStyleRules(DOMElement $element, string $collection): iterable
+    private function matchingStyleRules(DOMElement $element, string $collection): array
     {
+        return $this->context->sourceStyles()->matchedRules($element, $collection, $this->computeMatchingStyleRules(...));
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function computeMatchingStyleRules(DOMElement $element, string $collection): array
+    {
+        $rules = array();
         foreach ( $this->styleRuleCandidates($element, $collection) as $rule ) {
             if ( $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
-                yield $rule;
+                $rules[] = $rule;
             }
         }
+        return $rules;
     }
 
     public function styleRuleCandidates(DOMElement $element, string $collection): array

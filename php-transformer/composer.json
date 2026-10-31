@@ -597,6 +597,7 @@
             "php tests/unit/unsupported-functional-control-selector.php",
             "php tests/unit/state-style-family.php",
             "php tests/unit/cascaded-custom-property-memo.php",
+            "php tests/unit/matched-style-rules-memo.php",
       "php tests/unit/projected-box-shorthand-cascade.php",
       "php tests/unit/inline-declaration-priority.php",
       "php tests/unit/author-selector-semantics.php",
