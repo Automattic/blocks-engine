@@ -36,7 +36,7 @@ final class TransformationEvidenceState
     /** @var array<string, array{selector: string, height: string}> */
     private array $responsiveHeightAmbiguities = array();
 
-    /** @var list<array{selector: string, direct_child_count: int, block_child_count: int, source_tags: list<string>, block_tags: list<string>}> */
+    /** @var array<string, array{provenance_id: ?int, selector: string, direct_child_count: int, block_child_count: int, source_tags: list<string>, block_tags: list<string>}> */
     private array $authorLayoutTopologies = array();
 
     /** @var list<array<string, mixed>> */
@@ -160,9 +160,12 @@ final class TransformationEvidenceState
      * @param list<string> $sourceTags
      * @param list<string> $blockTags
      */
-    public function recordAuthorLayoutTopology(string $selector, int $sourceChildCount, int $blockChildCount, array $sourceTags, array $blockTags): void
+    public function recordAuthorLayoutTopology(string $selector, int $sourceChildCount, int $blockChildCount, array $sourceTags, array $blockTags, ?int $provenanceId = null): void
     {
-        $this->authorLayoutTopologies[] = array(
+        // Shell artifact conversion can visit the same source container before
+        // page conversion. Keep the latest provenance, not a speculative finding.
+        $this->authorLayoutTopologies[$selector] = array(
+            'provenance_id' => $provenanceId,
             'selector' => $selector,
             'direct_child_count' => $sourceChildCount,
             'block_child_count' => $blockChildCount,
@@ -171,9 +174,26 @@ final class TransformationEvidenceState
         );
     }
 
-    /** @return list<array{selector: string, source_child_count: int, block_child_count: int, source_tags: list<string>, block_tags: list<string>}> */
-    public function authorLayoutTopologyFindings(): array
+    /** @return list<array{block_class_names: list<string>, selector: string, source_child_count: int, block_child_count: int, source_tags: list<string>, block_tags: list<string>}> */
+    public function authorLayoutTopologyFindings(array $blocks = array()): array
     {
+        $classesBySource = array();
+        $collect = static function (array $blocks) use (&$collect, &$classesBySource): void {
+            foreach ( $blocks as $block ) {
+                $ids = $block['_source_provenance_ids'] ?? array($block['_source_provenance_id'] ?? null);
+                $tokens = preg_split('/\s+/', trim((string) ($block['attrs']['className'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: array();
+                // Only engine-generated output tokens, never authored classes or
+                // generic WordPress save classes shared by unrelated blocks.
+                $tokens = array_values(array_filter($tokens, static fn (string $token): bool => null !== \Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker::markerKind($token)
+                    || str_starts_with($token, 'blocks-engine-editor-anchor-')
+                    || 1 === preg_match('/^be-[a-z-]+-[a-f0-9]{12,}(?:-[0-9]+)?$/', $token)));
+                foreach ( $ids as $id ) {
+                    if ( is_int($id) ) $classesBySource[$id] = $tokens;
+                }
+                $collect($block['innerBlocks'] ?? array());
+            }
+        };
+        $collect($blocks);
         $findings = array();
         foreach ( $this->authorLayoutTopologies as $layout ) {
             if ( 0 === $layout['direct_child_count'] ) {
@@ -183,6 +203,7 @@ final class TransformationEvidenceState
                 continue;
             }
             $findings[] = array(
+                'block_class_names' => $classesBySource[$layout['provenance_id'] ?? -1] ?? array(),
                 'selector' => $layout['selector'],
                 'source_child_count' => $layout['direct_child_count'],
                 'block_child_count' => $layout['block_child_count'],

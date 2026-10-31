@@ -689,6 +689,25 @@ PHP;
             $unitFindings = array_merge($unitFindings, $droppedDeclarations);
             $recoveryDiagnostics = array_merge($recoveryDiagnostics, $droppedDeclarations);
         }
+        // Shell extraction already knows the final part markup. Locate the
+        // emitted identity there, not via source-document structural paths.
+        foreach ($data['diagnostics'] as &$diagnostic) {
+            if ('author_layout_topology_changed' !== ($diagnostic['code'] ?? '') || empty($diagnostic['block_class_names'])) continue;
+            $slugs = array();
+            foreach ($parts as $part) {
+                preg_match_all('/\bclass="([^"]*)"/', (string) ($part['canonical_block_markup'] ?? ''), $matches);
+                foreach ($matches[1] as $classes) {
+                    $classTokens = preg_split('/\s+/', html_entity_decode($classes, ENT_QUOTES | ENT_HTML5)) ?: array();
+                    if (array() === array_diff($diagnostic['block_class_names'], $classTokens)) {
+                        $slugs[] = $part['slug'];
+                        break;
+                    }
+                }
+            }
+            $slugs = array_values(array_unique($slugs));
+            if (1 === count($slugs)) $diagnostic['template_part'] = $slugs[0];
+        }
+        unset($diagnostic);
         $plan = array(
             'schema' => self::SCHEMA,
             'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance'], 'source_documents' => $this->sourceDocumentCatalog($compiled['pages'] ?? array())),

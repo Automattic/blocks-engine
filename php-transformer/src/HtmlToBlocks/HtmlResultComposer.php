@@ -304,7 +304,7 @@ final class HtmlResultComposer
     private function appendAuthorLayoutTopologyDiagnostics(array $diagnostics, array $findings, string $source): array
     {
         foreach ($findings as $finding) {
-            $diagnostics[] = array('code' => 'author_layout_topology_changed', 'message' => 'Gutenberg block conversion changed the direct-child topology of a CSS-owned layout container.', 'source' => $source, 'severity' => 'warning', 'selector' => $finding['selector'], 'source_child_count' => $finding['source_child_count'], 'block_child_count' => $finding['block_child_count']);
+            $diagnostics[] = array('code' => 'author_layout_topology_changed', 'message' => 'Gutenberg block conversion changed the direct-child topology of a CSS-owned layout container.', 'source' => $source, 'severity' => 'warning', 'selector' => $finding['selector'], 'source_child_count' => $finding['source_child_count'], 'block_child_count' => $finding['block_child_count'], 'block_class_names' => $finding['block_class_names'] ?? array());
         }
         return $diagnostics;
     }
