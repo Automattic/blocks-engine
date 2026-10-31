@@ -1564,22 +1564,80 @@ final class StyleResolver implements ElementPresentationResolver
     public function unsupportedSelectorDeclaration(DOMElement $element, string $property): string
     {
         $value = '';
-        foreach ( array( $this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules() ) as $rules ) {
-            foreach ( $rules as $rule ) {
-                $selector = (string) ( $rule['selector'] ?? '' );
-                if ( 1 !== preg_match('/:(?:is|where|not|has)\s*\(/i', $selector)
-                    || ! $this->unsupportedSelectorReferencesElement($selector, $element)
-                ) {
-                    continue;
-                }
-                $declared = trim((string) ( $rule['declarations'][$property] ?? '' ));
-                if ( '' !== $declared ) {
-                    $value = $declared;
-                }
+        foreach ( $this->unsupportedSelectorRuleCandidates($element) as $rule ) {
+            $selector = (string) ( $rule['selector'] ?? '' );
+            if ( ! $this->unsupportedSelectorReferencesElement($selector, $element) ) {
+                continue;
+            }
+            $declared = trim((string) ( $rule['declarations'][$property] ?? '' ));
+            if ( '' !== $declared ) {
+                $value = $declared;
             }
         }
 
         return $value;
+    }
+
+    /**
+     * The functional-pseudo rules (static, then conditional, in source order)
+     * whose selectors can name the element's id or one of its classes.
+     *
+     * A name made of `[\w-]` alone, and a class CSS spells unescaped, is
+     * named exactly where it is a whole `[\w-]+` run after a `.` or `#`, so
+     * those runs index the rules. Any other name falls back to every
+     * functional-pseudo rule.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function unsupportedSelectorRuleCandidates(DOMElement $element): array
+    {
+        $cache = $this->context->sourceStyles();
+        $index = $cache->ruleCandidateIndexes['unsupported-selector'] ??= $this->unsupportedSelectorRuleIndex();
+        $names = array();
+        $id = trim(SourceDom::attr($element, 'id'));
+        if ( '' !== $id ) {
+            $names[] = '#' . $id;
+        }
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className ) {
+            if ( '' === $className ) {
+                continue;
+            }
+            // A class CSS spells escaped (`.\31 a`) is named either way.
+            if ( CssIdent::escape($className) !== $className ) {
+                return $index['rules'];
+            }
+            $names[] = '.' . $className;
+        }
+        $orders = array();
+        foreach ( $names as $name ) {
+            if ( 1 !== preg_match('/^[.#][\w-]+$/D', $name) ) {
+                return $index['rules'];
+            }
+            $orders += $index['names'][$name] ?? array();
+        }
+        ksort($orders);
+        return array_values(array_intersect_key($index['rules'], $orders));
+    }
+
+    /** @return array{rules: list<array<string, mixed>>, names: array<string, array<int, true>>} */
+    private function unsupportedSelectorRuleIndex(): array
+    {
+        $index = array( 'rules' => array(), 'names' => array() );
+        foreach ( array( $this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules() ) as $rules ) {
+            foreach ( $rules as $rule ) {
+                $selector = (string) ( $rule['selector'] ?? '' );
+                if ( 1 !== preg_match('/:(?:is|where|not|has)\s*\(/i', $selector) ) {
+                    continue;
+                }
+                $order = count($index['rules']);
+                $index['rules'][] = $rule;
+                preg_match_all('/[.#][\w-]+/', $selector, $matches);
+                foreach ( $matches[0] as $name ) {
+                    $index['names'][$name][$order] = true;
+                }
+            }
+        }
+        return $index;
     }
 
     private function unsupportedSelectorReferencesElement(string $selector, DOMElement $element): bool
