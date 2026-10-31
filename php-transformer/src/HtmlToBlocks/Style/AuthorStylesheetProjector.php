@@ -1815,6 +1815,23 @@ final class AuthorStylesheetProjector
             if (array() === $otherSubjects) continue;
             $matches = $otherSubjects;
 
+            // Native blocks that cannot store source classes on an inner part
+            // (core/search input/button) register that part as the subject;
+            // project onto it with the same specificity/state bridge as
+            // button lowering.
+            $remainingSubjects = array();
+            foreach ( $matches as $element ) {
+                $inner = $context->selectorProjections->innerSubject($element->getNodePath() ?? '');
+                if ( null === $inner ) {
+                    $remainingSubjects[] = $element;
+                    continue;
+                }
+                $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+                $rewritten[] = $inner['selector'] . $this->selectorSpecificityShims($parsed, $context) . $suffix . $inner['pseudo_element'];
+            }
+            if ( array() === $remainingSubjects ) continue;
+            $matches = $remainingSubjects;
+
             $attributeAncestryProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $matches, $context, $controlWrapper);
             if ( null !== $attributeAncestryProjection ) {
                 array_push($rewritten, ...$attributeAncestryProjection);
