@@ -1742,6 +1742,26 @@ final class AuthorStylesheetProjector
     }
 
     /**
+     * Core's captured navigation rules already address the runtime DOM. Keep
+     * them together at source weight, including dormant responsive overlay
+     * rules: projecting only the matching item rules would invert that cascade.
+     */
+    private function isNativeCoreNavigationSelector(string $selector, AuthorStylesheetProjectionContext $context): bool
+    {
+        if (!str_contains($selector, '.wp-block-navigation')) return false;
+        $syntax = preg_replace('/\.(?:wp-block-navigation[\w-]*|is-menu-open|disable-default-overlay)(?![\w-])/', '', $selector);
+        $syntax = preg_replace('/:(?:where|not)\b/', '', (string) $syntax);
+        if ('' !== trim((string) $syntax, " \t\r\n()>+~*")) return false;
+        foreach ($context->authorStyles->sourceBody()->getElementsByTagName('nav') as $nav) {
+            if (!SourceDom::hasClass($nav, 'wp-block-navigation')) continue;
+            foreach ($nav->getElementsByTagName('li') as $item) {
+                if ('' !== $context->selectorProjections->navigationSubject($item->getNodePath() ?? '')) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * @param bool $subjectArms Whether a context-free control arm may address
      *        its carriers through subject classes (see contextFreeSubject()).
      *        Only rules whose declarations the button projection never splits
@@ -1756,7 +1776,8 @@ final class AuthorStylesheetProjector
         }
         $rewritten = array();
         foreach ( $selectors as $selector ) {
-            if ( $context->selectorProjections->retainsRuntimeOwnedSelector($selector) ) {
+            if ( $context->selectorProjections->retainsRuntimeOwnedSelector($selector)
+                || $this->isNativeCoreNavigationSelector($selector, $context) ) {
                 $rewritten[] = trim($selector);
                 continue;
             }
@@ -2388,8 +2409,14 @@ final class AuthorStylesheetProjector
         }
 
         $rewritten = array();
+        $spelled = array_flip(SelectorNameRuns::spelled($selector));
         foreach ( $context->authorStyles->sourceBody()->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement || ! in_array(strtolower($element->tagName), array( 'a', 'button' ), true) ) {
+                continue;
+            }
+            // Ask for the control's path only when the selector can name it.
+            $runs = SelectorNameRuns::naming($element);
+            if ( null !== $runs && array() === array_intersect_key($spelled, array_flip($runs)) ) {
                 continue;
             }
             $marker = $context->selectorProjections->controlMarker($element->getNodePath() ?? '');

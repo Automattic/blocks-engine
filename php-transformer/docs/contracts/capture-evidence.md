@@ -72,7 +72,7 @@ Two audiences read this vocabulary:
 | `data-blocks-engine-capture-dialog-panel` | attribute | binding key | The captured panel; equals its trigger's key. |
 | `data-blocks-engine-capture-dialog-close` | attribute | binding key | A close control for that dialog. |
 | `data-blocks-engine-capture-dialog-panel-state` | attribute on the trigger | JSON | Snapshot of the opened panel state. |
-| `data-blocks-engine-capture-existing-panel` | attribute on an existing panel | JSON `{resting, opened}` snapshots | Preserves resting and opened `style`, `class`, and `hidden` values; consumers restore the resting values before static projection. |
+| `data-blocks-engine-capture-existing-panel` | attribute on an existing panel | JSON `{resting, opened}` snapshots | Preserves resting and opened `style`, `class`, and `hidden` values, and optionally resting `html`; consumers restore the resting values before static projection and after open/close replay. |
 | `data-blocks-engine-capture-resting-panel` | attribute on an existing panel | presence | Replay has exposed the resting presentation. Together with a native navigation container and its resting class snapshot, proves that Core can replace the captured controls. |
 | `data-blocks-engine-capture-dialog-ancestor-state` | attribute on the trigger | JSON list of `{selector, tag, depth, closed, opened}` | Ancestor attributes toggled with the panel. |
 | `data-blocks-engine-capture-dialog-ancestor-unverified` | attribute | reason, e.g. `ancestor-limit` | Ancestor bindings could not be verified. Carried onto the native dialog block. |
@@ -204,7 +204,7 @@ allowed.
 
 | Name | Kind | Meaning |
 | ---- | ---- | ------- |
-| `67e77fd6348495edd9113e0ba1632abcd0907314aa46b5201fd1ff749544732c` | sha256 of the disclosure interpreter | Body: [`tests/fixtures/capture-disclosure-runtime.js`](../../tests/fixtures/capture-disclosure-runtime.js), marker `data-blocks-engine-capture-disclosure-runtime` (value `true`), in `<head>`. |
+| `086fc8248547e7c1109e0f6a28e691cea966f7057b3e36eaa8ccad177d2cf737` | sha256 of the disclosure interpreter | Body: [`tests/fixtures/capture-disclosure-runtime.js`](../../tests/fixtures/capture-disclosure-runtime.js), marker `data-blocks-engine-capture-disclosure-runtime` (value `true`), in `<head>`. |
 | `456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b` | sha256 of the gallery helper | Body: [`tests/fixtures/capture-gallery-runtime.js`](../../tests/fixtures/capture-gallery-runtime.js), marker `data-blocks-engine-capture-gallery-runtime`, in `<head>`. |
 | `82806634d813434b72ca5cbc9532c88f26aa4bd3cec880c2e6c12580dd6849eb` | sha256 of the choice-group runtime | Body: [`tests/fixtures/capture-choice-runtime.js`](../../tests/fixtures/capture-choice-runtime.js) with the JSON config list in place of its empty config list (`var configs=[];`); the digest covers the body with the empty list, marker `data-blocks-engine-capture-choice-runtime` (value `true`), in `<head>`. |
 
@@ -248,6 +248,10 @@ What the native replacement reproduces:
   `core/details` cannot close on Escape, keep `aria-expanded` or replay
   ancestor bindings, so it is chosen only for disclosures that no capture
   runtime drives, where it loses nothing.
+  Existing dropdown panels with a resting `html` snapshot retain both observed
+  content states as editable blocks. The native wrapper shows opened content
+  while open and restores closed content, class and style on close. Reused
+  non-dropdown inline panels still retain the capture runtime as noted above.
 - **Gallery helper.** Frame galleries become native carousels. A src-swap
   gallery (`data-blocks-engine-capture-gallery-sequence` with
   `data-blocks-engine-capture-gallery-slot` images) becomes a native src-swap

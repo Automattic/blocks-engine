@@ -168,6 +168,7 @@ JS;
             var before = declarations( from.style ), after = declarations( to.style );
             Object.keys( before ).forEach( function( name ) { if ( ! ( name in after ) ) node.style.removeProperty( name ); } );
             Object.keys( after ).forEach( function( name ) { var value = after[ name ].replace( /\s*!important$/i, '' ); node.style.setProperty( name, value, value === after[ name ] ? '' : 'important' ); } );
+            if ( null === to.style && ! node.style.length ) node.removeAttribute( 'style' );
         }
         replayAttributes( node, to );
     }
@@ -364,6 +365,8 @@ JS;
         $style = 'dialog[data-blocks-engine-triggers]:not([open]){display:none!important}'
             . 'div[data-blocks-engine-presentation="dropdown"][data-blocks-engine-triggers]:not([open]):not([data-blocks-engine-resting="authored"]){display:none!important}'
             . ':where(div[data-blocks-engine-resting]){display:contents}'
+            . '[data-blocks-engine-resting]:not([open]) > * > .captured-dialog-open-content,[data-blocks-engine-resting][open] > * > .captured-dialog-closed-content{display:none!important}'
+            . '[data-blocks-engine-resting] > * > :is(.captured-dialog-open-content,.captured-dialog-closed-content){display:contents}'
             . ':where(dialog[data-blocks-engine-presentation="dropdown"][data-blocks-engine-placement="under-header"]){position:fixed;top:var(--blocks-engine-dropdown-top,0px);left:0;width:100%;max-width:none;max-height:calc(100vh - var(--blocks-engine-dropdown-top,0px));margin:0;overflow-y:auto;z-index:var(--blocks-engine-dropdown-layer,auto);background-color:var(--blocks-engine-dropdown-background,Canvas);-webkit-backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);color:inherit}'
             . ':where(dialog[data-blocks-engine-presentation="dropdown"][data-blocks-engine-placement="in-place"]){position:static;inset:auto;width:auto;height:auto;max-width:none;max-height:none;margin:0;padding:0;border-width:0;background-color:transparent;color:inherit;overflow:visible}'
             . ':where(dialog:not([data-blocks-engine-presentation])[data-blocks-engine-placement="source"]){inset:auto;max-width:none;max-height:none;margin:0;padding:0;border-width:0}';

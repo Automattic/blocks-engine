@@ -113,6 +113,10 @@ if ( $publishedDownstream !== $documentedDownstream ) {
     $failures[] = 'docs/contracts/capture-evidence.md "Published for downstream importers" must list exactly the PUBLISHED_FOR_DOWNSTREAM names';
 }
 
+if ('086fc8248547e7c1109e0f6a28e691cea966f7057b3e36eaa8ccad177d2cf737' !== $constants['DISCLOSURE_RUNTIME_SHA256']) {
+    $failures[] = 'Disclosure recognition must publish the current resting-content replay body';
+}
+
 $runtimes = array(
     'DISCLOSURE_RUNTIME_SHA256' => 'capture-disclosure-runtime.js',
     'GALLERY_RUNTIME_SHA256' => 'capture-gallery-runtime.js',
