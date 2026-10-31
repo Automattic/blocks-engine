@@ -35,9 +35,17 @@ final class ElementConversionPrelude
      */
     public const SCRIPT_NAVIGATION_CLASS = 'blocks-engine-script-navigation';
 
+    /** Keep authored selectors on dynamic comment blocks. */
+    private function commentAttributes(DOMElement $element): array
+    {
+        $attrs = $this->styleResolver->presentationAttributes($element);
+        $attrs['className'] = implode(' ', array_unique(array_filter(preg_split('/\s+/', trim($element->getAttribute('class') . ' ' . ($attrs['className'] ?? ''))) ?: array())));
+        return $attrs;
+    }
+
     private function commentContainer(DOMElement $element, string $name, array $children): array
     {
-        $block = $this->createBlock->createBlock($name, $this->styleResolver->presentationAttributes($element), $children, $element);
+        $block = $this->createBlock->createBlock($name, $this->commentAttributes($element), $children, $element);
         $open = '<div class="' . htmlspecialchars($element->getAttribute('class'), ENT_QUOTES, 'UTF-8') . '">';
         $block['innerHTML'] = $open . '</div>';
         $block['innerContent'] = array_merge(array($open), array_fill(0, count($children), null), array('</div>'));
@@ -104,7 +112,7 @@ final class ElementConversionPrelude
                 $xpath = new \DOMXPath($element->ownerDocument);
                 foreach ($xpath->query('.//ol[contains(concat(" ",normalize-space(@class)," ")," children ")]', $copy) as $nested) $nested->parentNode->removeChild($nested);
                 $children = ($this->convertChildren)($copy, $fallbacks, $captureUnsupported);
-                $block = $this->createBlock->createBlock('core/comment-template', $this->styleResolver->presentationAttributes($element), $children, $element);
+                $block = $this->createBlock->createBlock('core/comment-template', $this->commentAttributes($element), $children, $element);
                 $block['innerContent'] = array_fill(0, count($children), null);
                 return ConversionOutcome::handled($block);
             }
@@ -112,7 +120,7 @@ final class ElementConversionPrelude
         }
         foreach (array('comments-title', 'comment-author-name', 'comment-date', 'comment-content', 'comment-reply-link', 'avatar') as $type) {
             if (!WordPressComments::hasClass($element, 'wp-block-' . $type)) continue;
-            $attrs = $this->styleResolver->presentationAttributes($element);
+            $attrs = $this->commentAttributes($element);
             if ('comments-title' === $type) $attrs['level'] = (int) substr($element->tagName, 1) ?: 2;
             if ('avatar' === $type) {
                 $image = $element->getElementsByTagName('img')->item(0);

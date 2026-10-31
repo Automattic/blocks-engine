@@ -13,7 +13,7 @@ foreach (array('index' => 'Home', 'first' => 'First story', 'second' => 'Second 
     foreach (array('prev' => 'previous', 'next' => 'next') as $rel => $type) {
         $navigation .= '<div class="wp-block-post-navigation-link post-navigation-link-' . $type . ' is-arrow-arrow"><a href="/' . $slug . '-' . $type . '" rel="' . $rel . '"><span class="post-navigation-link__arrow">→</span><span class="post-navigation-link__label">' . ucfirst($type) . ':</span> <mark class="post-navigation-link__title">Neighbor of ' . $title . '</mark></a></div>';
     }
-    $html = '<html><head><title>' . $title . '</title></head><body><div class="wp-site-blocks"><header class="wp-block-template-part"><p>Publication</p></header><main class="wp-block-group"><h1 class="wp-block-post-title">' . $title . '</h1><div class="wp-block-post-date"><time datetime="2024-03-01">March 1, 2024</time></div><div class="entry-content wp-block-post-content"><p>Unique article for ' . $slug . '.</p><p>More about ' . $slug . '.</p></div><div class="comments"><p>Discussion</p></div></main><footer class="wp-block-template-part"><p>Copyright publication</p></footer></div></body></html>';
+    $html = '<html><head><title>' . $title . '</title></head><body><div class="wp-site-blocks"><header class="wp-block-template-part"><p>Publication</p></header><main class="wp-block-group"><h1 class="wp-block-post-title">' . $title . '</h1><div class="wp-block-post-date"><time datetime="2024-03-01">March 1, 2024</time></div><div class="entry-content alignfull wp-block-post-content has-global-padding is-layout-constrained"><p>Unique article for ' . $slug . '.</p><p>More about ' . $slug . '.</p></div><div class="comments"><p>Discussion</p></div></main><footer class="wp-block-template-part"><p>Copyright publication</p></footer></div></body></html>';
     if ('first' === $slug) {
         $comment = static fn(string $id, string $text, string $reply = ''): string => '<li id="comment-' . $id . '"><div class="wp-block-group captured-comment"><div class="wp-block-avatar"><img src="https://example.org/avatar.png" width="40"></div><div class="wp-block-group comment-body"><div class="wp-block-comment-author-name"><a href="https://example.org/author">Alice</a></div><div class="wp-block-comment-date"><time datetime="2024-03-02T10:00:00+00:00">March 2</time></div><div class="wp-block-comment-content"><p>' . $text . '</p><script>alert(1)</script><a href="javascript:alert(1)" onclick="alert(1)">Safe</a></div><div class="wp-block-comment-reply-link"><a href="?replytocom=' . $id . '">Reply</a></div></div></div>' . $reply . '</li>';
         $comments = '<div class="wp-block-comments"><h2 class="wp-block-comments-title">Captured responses</h2><ol class="wp-block-comment-template">' . $comment('249', 'Captured top-level Redmibook', '<ol class="children">' . $comment('250', 'Captured nested reply') . '</ol>') . '</ol><div id="respond" class="comment-respond"><h3 id="reply-title">Leave a Reply</h3><form id="commentform" class="comment-form" action="/wp-comments-post.php" method="post"><textarea name="comment"></textarea><input type="hidden" name="comment_post_ID" value="1"><input type="submit" value="Post Comment"></form></div></div>';
@@ -39,6 +39,13 @@ foreach (array('comments', 'comments-title', 'comment-template', 'avatar', 'comm
 $assert(str_contains($single, 'captured-comment') && str_contains($single, 'comment-body'), 'Captured comment wrapper groups survive.');
 $assert(!str_contains($single, 'Captured top-level') && !str_contains($single, 'Captured nested') && !str_contains($single, 'comment-249') && !str_contains($single, '<ol'), 'Single has no static captured list.');
 $assert(str_contains($single, 'wp:post-content'), 'Single must render the article body.');
+preg_match('/<!-- wp:post-content (\{.*?\}) \/-->/', $single, $contentMatch);
+$contentAttrs = json_decode($contentMatch[1] ?? '{}', true);
+$assert(str_contains($contentAttrs['className'] ?? '', 'entry-content alignfull') && 'constrained' === ($contentAttrs['layout']['type'] ?? null), 'Post-content owns captured classes and constrained layout.');
+$assert(!preg_match('/<!-- wp:group [^>]*wp-block-post-content/', $single), 'No captured post-content group surrounds the native block.');
+foreach (array('comment-content', 'comment-date', 'comment-author-name', 'comment-reply-link', 'comments-title', 'comment-template', 'avatar') as $type) {
+    $assert((bool) preg_match('/<!-- wp:' . $type . ' [^>]*"className":"[^"]*wp-block-' . $type . '/', $single), 'Native ' . $type . ' retains authored class selectors.');
+}
 $assert(str_contains($single, '"area":"header"') && str_contains($single, '"area":"footer"'), 'Single must bind both shell parts.');
 $assert(str_contains($single, '<main') && str_contains($single, 'wp:post-title') && str_contains($single, 'wp:post-date') && str_contains($single, 'Discussion'), 'Single owns the main, title, date, and discussion chrome.');
 $posts = array_filter($plan['pages'], static fn(array $page): bool => 'post' === $page['post_type']);
@@ -84,4 +91,18 @@ foreach ($dualPlan['pages'] as $post) {
     }
 }
 $assert(!str_contains(json_encode($dualPlan), 'blocksEnginePostContent'), 'Dual documents must not leak private markers.');
+// Archives that retain responsive document chrome must not bind it again.
+$archiveArtifact = require dirname(__DIR__) . '/fixtures/taxonomy/corroborated-category.php';
+foreach ($archiveArtifact['files'] as &$file) {
+    if (!is_array($file) || 'archives/field-notes.html' !== $file['path']) continue;
+    $html = str_replace('<header>', '<header class="archive-owned-header" style="padding:23px">', $file['content']);
+    $file['content'] = '';
+    foreach (array('desktop', 'mobile') as $device) $file['content'] .= '<div class="data-blocks-engine-capture-' . $device . '-document" data-blocks-engine-capture-document-scope="">' . $html . '</div>';
+}
+unset($file);
+$archivePlan = (new WordPressSitePlan())->fromCompilerResult((new ArtifactCompiler())->compile($archiveArtifact)->toArray());
+$archiveTemplates = array_column($archivePlan['templates'], 'canonical_block_markup', 'slug');
+$archive = $archiveTemplates['category-field-notes'] ?? '';
+$assert(2 === substr_count($archive, '<header'), 'Archive retains both captured headers.');
+$assert(!str_contains($archive, '"area":"header"'), 'Content-owned archive headers must not get another template part.');
 fwrite(STDOUT, "wordpress-runtime-document-root: ok\n");

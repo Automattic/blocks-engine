@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
@@ -23,7 +24,7 @@ final class WordPressComments
         $rows = array();
         // A responsive document copy renders the same comments again with
         // suffixed ids (`comment-249--data-blocks-engine-capture-mobile`).
-        $identity = static fn(string $id): string => (string) preg_replace('/--data-blocks-engine-capture-[a-z0-9-]+$/', '', $id);
+        $identity = static fn(string $id): string => (string) preg_replace('/' . preg_quote(CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX, '/') . '[a-z0-9-]+$/', '', $id);
         foreach ($xpath->query('//*[contains(concat(" ",normalize-space(@class)," ")," wp-block-comment-template ")]//li[starts-with(@id,"comment-")]') as $item) {
             $find = static fn(string $class) => $xpath->query('.//*[contains(concat(" ",normalize-space(@class)," ")," ' . $class . ' ")]', $item)->item(0);
             $author = $find('wp-block-comment-author-name');

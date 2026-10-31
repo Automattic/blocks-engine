@@ -1063,6 +1063,9 @@ PHP;
                 // An inline shell is bound where it sits, so a template that
                 // keeps every captured document copy binds it once per copy.
                 $allowed = 'inline_shared_shell' === ($part['placement']['kind'] ?? null) ? self::documentCopyCount($template['canonical_block_markup']) : 1;
+                $contentOwnsChrome = self::contentCarriesChrome($template['canonical_block_markup'], $part['area']);
+                foreach ($plan['pages'] as $page) if (self::routeTemplateKey($page) === $template['slug'] && self::contentCarriesChrome($page['canonical_block_markup'], $part['area'])) $contentOwnsChrome = true;
+                if (0 === $references && $contentOwnsChrome) continue;
                 if (in_array($template['slug'], $boundTemplates, true) && ($references < 1 || $references > $allowed)) throw new InvalidArgumentException('WordPress site plan template part binding is invalid.');
                 if (!in_array($template['slug'], $boundTemplates, true) && 0 !== $references) throw new InvalidArgumentException('WordPress site plan has an unproven template part binding.');
             }
@@ -3787,6 +3790,17 @@ PHP;
         return $slugs;
     }
 
+    /** Captured landmarks remain content-owned until shell extraction removes them. */
+    private static function contentCarriesChrome(string $markup, string $area): bool
+    {
+        if (!in_array($area, array('header', 'footer'), true)) return false;
+        if (1 === preg_match('~"area"\\s*:\\s*"' . $area . '"~i', $markup)) return true;
+        $dom = new \DOMDocument();
+        @$dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $markup . '</body></html>');
+        $xpath = new \DOMXPath($dom);
+        return $xpath->query('//' . $area . '[not(ancestor::article) and not(ancestor::main) and not(ancestor::section)]')->length > 0;
+    }
+
     /**
      * @param array<int,array<string,mixed>> $pages
      * @param array<int,array<string,mixed>> $parts
@@ -3807,11 +3821,16 @@ PHP;
          });
          $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
          $hasCommentForm = (bool) array_filter($pages, static fn(array $page): bool => !empty($page['metadata']['native_comment_form']));
-         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates): string {
+         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames, $hasCommentForm, $postTemplates, $pages): string {
              $before = ''; $after = '';
              $container = null;
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || self::shellPartAppliesToOverride($part, $templateSlug)
                  || ('archive' === $templateSlug && 'header' === $part['area'] && in_array('index', $part['placement']['template_slugs'] ?? array(), true) && !in_array($part['slug'], $frames['archive']['shells'] ?? array(), true))) {
+                 // A lifecycle may bind chrome only after its captured content
+                 // relinquishes that area, including responsive document copies.
+                 $retainsChrome = false;
+                 foreach ($pages as $page) if (self::routeTemplateKey($page) === $templateSlug && self::contentCarriesChrome($page['canonical_block_markup'], $part['area'])) $retainsChrome = true;
+                 if ($retainsChrome) continue;
                  if (is_array($part['placement']['container'] ?? null)) $container = $part['placement']['container'];
                  $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '","className":"blocks-engine-shell-transport"} /-->' . "\n";
                  $wrapper = $part['placement']['template_wrappers'][$templateSlug] ?? null;
@@ -3877,7 +3896,7 @@ PHP;
              $content = (string) $entity['archive']['presentation_markup'];
              $before = ''; $after = '';
               foreach ($bound as $part) {
-                  if (!in_array('archive', $part['placement']['template_slugs'] ?? array(), true) || str_contains($content, '"slug":"' . $part['slug'] . '"')) continue;
+                  if (!in_array('archive', $part['placement']['template_slugs'] ?? array(), true) || str_contains($content, '"slug":"' . $part['slug'] . '"') || self::contentCarriesChrome($content, $part['area'])) continue;
                  $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '","className":"blocks-engine-shell-transport"} /-->' . "\n";
                  $wrapper = $part['placement']['template_wrappers']['archive'] ?? null;
                  if (is_array($wrapper) && is_string($wrapper['opening'] ?? null) && is_string($wrapper['closing'] ?? null)) $reference = $wrapper['opening'] . "\n" . $reference . $wrapper['closing'] . "\n";
@@ -3886,7 +3905,7 @@ PHP;
               $nestedShellMarkup = '';
               foreach ($bound as $part) if (in_array('archive', $part['placement']['template_slugs'] ?? array(), true)) $nestedShellMarkup .= (string) $part['canonical_block_markup'];
               foreach ($parts as $part) {
-                  if ('inline_shared_shell' !== ($part['placement']['kind'] ?? null) || !in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true) || str_contains($content . $nestedShellMarkup, '"slug":"' . $part['slug'] . '"')) continue;
+                  if ('inline_shared_shell' !== ($part['placement']['kind'] ?? null) || !in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true) || str_contains($content . $nestedShellMarkup, '"slug":"' . $part['slug'] . '"') || self::contentCarriesChrome($content, $part['area'])) continue;
                   $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '","className":"blocks-engine-shell-transport"} /-->' . "\n";
                   if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
               }
@@ -4021,7 +4040,12 @@ PHP;
             $length = $last['offset'] + $last['length'] - $start;
             $retained = array(array('offset' => $start, 'length' => $length));
             if ($this->postChromeFactoringStrandsBindings($post, $retained, $declarations, $records)) continue;
-            $template = substr($markup, 0, $start) . '<!-- wp:post-content /-->' . substr($markup, $start + $length);
+            $attrs = self::listingBlockAttributes(substr($markup, $content['offset'], $content['length']));
+            $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+            $attrs['className'] = implode(' ', array_diff($classes, array('wp-block-post-content')));
+            if (array_intersect($classes, array('has-global-padding', 'is-layout-constrained'))) $attrs['layout'] = array('type' => 'constrained');
+            unset($attrs['tagName']);
+            $template = substr_replace($markup, '<!-- wp:post-content ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->', $content['offset'], $content['length']);
             // Reuse the normal title/date conversion, but never infer article
             // body from arbitrary chrome siblings once WordPress named it.
             $replacements = array();
