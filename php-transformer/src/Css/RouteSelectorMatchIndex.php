@@ -12,9 +12,12 @@ final class RouteSelectorMatchIndex
     private array $elements = array();
     private array $owners = array();
     private array $elementOwners = array();
+    private array $ownerElements = array();
     private array $keys = array();
     private array $selectors = array();
     private array $hits = array();
+    private array $cascadeArms = array();
+    private array $cascadeMatches = array();
 
     /** @param array<string,DOMDocument> $documents */
     public function __construct(array $documents)
@@ -30,8 +33,79 @@ final class RouteSelectorMatchIndex
                 if ($element->hasAttribute('id')) $keys[] = 'i:' . $element->getAttribute('id');
                 foreach ($this->cache->classTokens($element) as $class) $keys[] = 'c:' . $class;
                 foreach ($keys as $key) $this->keys[$key][$id] = true;
+                $this->ownerElements[$owner][] = $id;
             }
         }
+    }
+
+    /**
+     * The elements of one route's document that a selector arm may style,
+     * matched structurally in every interaction state, or null when the arm
+     * cannot be evaluated — an unsupported selector or a missing document —
+     * so cascade interaction cannot be disproved. A static ::before/::after
+     * arm competes in the cascade on its host elements, so those hosts count
+     * as the elements it styles.
+     *
+     * @return array<int, true>|null
+     */
+    public function matchedElements(string $arm, string $owner): ?array
+    {
+        if ( ! array_key_exists($arm, $this->cascadeMatches) || ! array_key_exists($owner, $this->cascadeMatches[$arm]) ) {
+            $this->cascadeMatches[$arm][$owner] = $this->computeMatchedElements($arm, $owner);
+        }
+        return $this->cascadeMatches[$arm][$owner];
+    }
+
+    /** @return array<int, true>|null */
+    private function computeMatchedElements(string $arm, string $owner): ?array
+    {
+        if ( ! isset($this->owners[$owner]) ) {
+            return null;
+        }
+        if ( ! array_key_exists($arm, $this->cascadeArms) ) {
+            $structural = $arm;
+            if (false === strpbrk($arm, '\\"\'') && !str_contains($arm, ':not(')) {
+                $structural = preg_replace('/:(?:hover|focus-visible|focus-within|focus|active|visited|any-link|link|disabled|enabled|target)(?![\w(-])/i', '', $arm) ?? $arm;
+            }
+            $host = CssSelectorMatcher::pseudoElementHost($structural);
+            if ( null !== $host ) {
+                $structural = $host['selector'];
+            }
+            $parsed = CssSelectorMatcher::parse($structural);
+            $keys = array();
+            if ( $parsed['supported'] ) {
+                $leaf = $parsed['compounds'][count($parsed['compounds']) - 1];
+                foreach ($leaf['classes'] as $class) $keys[] = 'c:' . $class;
+                // An id also matches an editor anchor carrier: either key
+                // can supply candidates, never require the literal id alone.
+                foreach ($leaf['ids'] as $id) {
+                    $keys[] = array('i:' . $id, 'c:' . \Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker::editorAnchorClass($id));
+                }
+                if (null !== $leaf['type']) $keys[] = 't:' . strtolower($leaf['type']);
+            }
+            $candidates = null;
+            foreach ($keys as $key) {
+                $list = array();
+                foreach ((array) $key as $alternative) $list += $this->keys[$alternative] ?? array();
+                if (null === $candidates || count($list) < count($candidates)) $candidates = $list;
+                if (!$candidates) break;
+            }
+            $this->cascadeArms[$arm] = array($parsed, $candidates);
+        }
+        [$parsed, $candidates] = $this->cascadeArms[$arm];
+        if ( ! $parsed['supported'] ) {
+            return null;
+        }
+        $matched = array();
+        foreach ( null === $candidates ? ($this->ownerElements[$owner] ?? array()) : array_keys($candidates) as $id ) {
+            if ( $this->elementOwners[$id] !== $owner ) {
+                continue;
+            }
+            if ( $this->cache->matches($this->elements[$id], $arm, $parsed, true)['matches'] ) {
+                $matched[$id] = true;
+            }
+        }
+        return $matched;
     }
 
     /**

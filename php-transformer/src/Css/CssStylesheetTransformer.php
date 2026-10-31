@@ -183,11 +183,16 @@ final class CssStylesheetTransformer
      * sets: the page stylesheet loads after the shared one, so a kept rule
      * would otherwise outrank the later shared rule it originally lost to.
      * Kept shared rules count too, since re-emitting one moves it later.
+     * With a route match index and owner, a shared rule is only re-emitted
+     * when it may style an element of that page's document that an already
+     * kept rule styles too: family overlap alone does not prove two rules
+     * compete. Unreadable selectors and missing documents keep the rule,
+     * they never drop it.
      *
      * @param list<string> $stylesheets
      * @param list<string> $present
      */
-    public function rulesAbsentFrom(array $stylesheets, array $present, bool $preserveCascade = false): string
+    public function rulesAbsentFrom(array $stylesheets, array $present, bool $preserveCascade = false, ?RouteSelectorMatchIndex $matchIndex = null, ?string $owner = null): string
     {
         foreach ( array_merge($stylesheets, $present) as $stylesheet ) {
             if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
@@ -204,20 +209,94 @@ final class CssStylesheetTransformer
         }
         $kept = array();
         $keptProperties = array();
+        // With page markup available, kept rules are indexed by the document
+        // elements they style, so a later shared rule is re-emitted only when
+        // it styles an element a kept rule styles with an overlapping family.
+        $selectorProof = $preserveCascade && null !== $matchIndex && null !== $owner && '' !== $owner;
+        $elementFamilies = array();
+        $unknownFamilies = array();
         foreach ( $stylesheets as $stylesheet ) {
             $units = array();
             $this->collectRuleUnits($stylesheet, array(), $units);
             foreach ( $units as $unit ) {
                 $key = self::ruleUnitKey($unit);
                 $properties = $preserveCascade ? self::cascadePropertyFamilies($unit['text']) : array();
-                if ( ! $unit['dedupable'] || ! isset($seen[ $key ]) || self::cascadeFamiliesOverlap($properties, $keptProperties) ) {
+                $duplicate = $unit['dedupable'] && isset($seen[ $key ]);
+                $targets = $selectorProof && ( ! $duplicate || self::cascadeFamiliesOverlap($properties, $keptProperties) )
+                    ? self::cascadeTargets($matchIndex, (string) $owner, $unit['text'])
+                    : null;
+                $keep = ! $duplicate || self::cascadeFamiliesOverlap($properties, $keptProperties);
+                if ( $keep && $duplicate && $selectorProof ) {
+                    if ( null === $targets || self::cascadeFamiliesOverlap($properties, $unknownFamilies) ) {
+                        // An unprovable match set may meet any kept rule.
+                        $keep = true;
+                    } else {
+                        $keep = false;
+                        foreach ( $targets as $id => $_ ) {
+                            if ( isset($elementFamilies[ $id ]) && self::cascadeFamiliesOverlap($properties, $elementFamilies[ $id ]) ) {
+                                $keep = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if ( $keep ) {
                     $kept[] = $unit;
                     $keptProperties += $properties;
+                    if ( $selectorProof ) {
+                        if ( null === $targets ) {
+                            $unknownFamilies += $properties;
+                        } else {
+                            foreach ( array_keys($targets) as $id ) {
+                                $elementFamilies[ $id ] = ( $elementFamilies[ $id ] ?? array() ) + $properties;
+                            }
+                        }
+                    }
                 }
                 $seen[ $key ] = true;
             }
         }
         return $this->serializeRuleUnits($kept);
+    }
+
+    /**
+     * The page-document elements a rule unit may style, or null when that set
+     * cannot be proven — an unreadable selector list or an arm the index
+     * cannot evaluate — meaning cascade interaction cannot be disproved.
+     *
+     * @return array<int, true>|null
+     */
+    private static function cascadeTargets(RouteSelectorMatchIndex $matchIndex, string $owner, string $rule): ?array
+    {
+        $arms = self::cascadeSelectorArms($rule);
+        if ( null === $arms ) {
+            return null;
+        }
+        $targets = array();
+        foreach ( $arms as $arm ) {
+            $matched = $matchIndex->matchedElements($arm, $owner);
+            if ( null === $matched ) {
+                return null;
+            }
+            $targets += $matched;
+        }
+        return $targets;
+    }
+
+    /**
+     * The comment-free selector arms of a rule unit, or null when the rule's
+     * selector list cannot be read, meaning interaction cannot be disproved.
+     *
+     * @return list<string>|null
+     */
+    private static function cascadeSelectorArms(string $rule): ?array
+    {
+        [, $rule] = self::splitLeadingComments($rule);
+        $brace = strpos($rule, '{');
+        if ( false === $brace ) {
+            return null;
+        }
+        return self::splitSelectorList(trim(CssSyntaxScanner::withoutComments(substr($rule, 0, $brace))));
     }
 
     /**
@@ -739,8 +818,9 @@ final class CssStylesheetTransformer
      * The cascade families a rule unit declares: a property, without vendor
      * prefix, reduced to the shorthand that also sets it, so a shorthand and
      * its longhands share a family. Custom properties are their own family.
-     * A rule whose declarations cannot be read (or that sets `all`) reports
-     * the wildcard family, which overlaps every other.
+     * A statement without a block declares nothing. A rule whose declarations
+     * cannot be read (or that sets `all`) reports the wildcard family, which
+     * overlaps every other.
      *
      * @return array<string, true>
      */
@@ -750,11 +830,12 @@ final class CssStylesheetTransformer
         if ( false !== $brace && '' === trim(substr(trim($rule), $brace + 1, -1)) ) {
             return array();
         }
-        // A comment or @charset declares nothing, so it can be overridden by nothing.
-        if ( false === $brace && preg_match('/^(?:\\s|\\/\\*.*?\\*\\/|@charset\\s+"[^"]*"\\s*;)*$/is', $rule) ) {
+        if ( false === $brace ) {
+            // A statement — @charset, @import, @namespace, a layer list —
+            // declares no property, so it competes with no rule.
             return array();
         }
-        if ( false === $brace || ! str_ends_with(trim($rule), '}') || ! preg_match_all('/(?:^|[;{}])\\s*(-{0,2}[a-zA-Z_][a-zA-Z0-9_-]*)\\s*:/', substr($rule, $brace + 1), $matches) ) {
+        if ( ! str_ends_with(trim($rule), '}') || ! preg_match_all('/(?:^|[;{}])\\s*(-{0,2}[a-zA-Z_][a-zA-Z0-9_-]*)\\s*:/', substr($rule, $brace + 1), $matches) ) {
             return array( '*' => true );
         }
         $aliases = array( 'top' => 'inset', 'right' => 'inset', 'bottom' => 'inset', 'left' => 'inset', 'row' => 'gap', 'column' => 'gap', 'align' => 'place', 'justify' => 'place', 'inline' => 'size', 'block' => 'size', 'width' => 'size', 'height' => 'size', 'min' => 'size', 'max' => 'size', 'line' => 'font', 'columns' => 'gap' );

@@ -386,7 +386,9 @@ echo 'Route fixture author CSS: ' . strlen($routeText) . ' bytes in ' . count($r
 
 // @namespace requires per-sheet fallback, without preventing another sheet
 // on the same route from using in-place variants.
-$unsafeSheet = array('path' => 'unsafe.css', 'kind' => 'css', 'content' => '@namespace svg url("http://www.w3.org/2000/svg");' . $routeCss);
+$frameworkTail = '';
+for ($i = 0; $i < 180; ++$i) $frameworkTail .= '.framework-tail-' . $i . '{color:#456789;padding:2px;border-top-width:1px;background-color:#fff}';
+$unsafeSheet = array('path' => 'unsafe.css', 'kind' => 'css', 'content' => '@namespace svg url("http://www.w3.org/2000/svg");' . $routeCss . $frameworkTail);
 $fallbackFiles = $routeFiles;
 foreach ($fallbackFiles as &$file) $file['content'] = str_replace('</head>', '<link rel="stylesheet" href="unsafe.css"></head>', $file['content']);
 unset($file);
@@ -396,6 +398,20 @@ $assert(array() !== $findings, 'unsafe stylesheet emits a page-attributed reason
 $fallbackAssets = $fallback['source_reports']['wordpress_site_plan']['assets'];
 $copies = array_filter($fallbackAssets, static fn (array $asset): bool => str_contains($asset['source_path'], '.page-'));
 $assert(array() !== $copies && array() === array_filter($copies, static fn (array $asset): bool => str_starts_with($asset['source_path'], 'base.page-')), 'fallback is restricted to the unsafe sheet');
+$unsafeCopies = array_values(array_filter($copies, static fn (array $asset): bool => str_starts_with($asset['source_path'], 'unsafe.page-')));
+$largestUnsafeCopy = 0;
+foreach ($unsafeCopies as $copy) {
+    $largestUnsafeCopy = max($largestUnsafeCopy, (int) ($copy['bytes'] ?? strlen((string) ($copy['content'] ?? ''))));
+}
+// Every framework tail rule shares a property family with the page-projected
+// rules, so family overlap alone re-emitted all of them into every page copy.
+// Only shared rules styling the page rules' elements may ride along (#3844).
+$assert(array() !== $unsafeCopies && strlen($frameworkTail) > 10 * $largestUnsafeCopy, 'selector interaction drops same-family framework rules from page copies', strlen($frameworkTail) . ' framework bytes vs largest page copy ' . $largestUnsafeCopy);
+foreach ($fallback['source_reports']['wordpress_site_plan']['pages'] as $row) {
+    $file = array_column($fallbackFiles, null, 'path')[$row['source_path']];
+    $alone = (new ArtifactCompiler())->compile(array('entrypoint' => $file['path'], 'files' => array($file, $routeSheet, $unsafeSheet)))->toArray()['source_reports']['wordpress_site_plan'];
+    $assert($probeStyles($alone, $alone['pages'][0], false) === $probeStyles($fallback['source_reports']['wordpress_site_plan'], $row, false), 'page-copy cascade parity ' . $row['source_path']);
+}
 foreach (array(
     array('@keyframes k{to{opacity:0}}.x{color:red}', '.x{color:red}@keyframes k{to{opacity:1}}', 'conflicting @keyframes k'),
     array('@font-face{font-family:"F";src:url(a.woff2)}.x{color:red}', '.x{color:red}@font-face{font-family:F;src:url(b.woff2)}', 'conflicting @font-face'),
