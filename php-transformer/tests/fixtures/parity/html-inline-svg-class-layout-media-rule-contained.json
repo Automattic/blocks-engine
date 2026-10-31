@@ -18,7 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "className": "ep-cover be-inline-geometry-c6f90855bb6ab387 blocks-engine-synthetic-image-figure", "alt": "EP cover" } }
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "className": "ep-cover be-inline-geometry-c4b0c4e962310eab blocks-engine-synthetic-image-figure", "alt": "EP cover" } }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },

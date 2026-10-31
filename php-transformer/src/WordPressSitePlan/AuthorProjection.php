@@ -3,9 +3,26 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
-/** Proves authors only from reciprocal archive/post source evidence. */
+/** Proves authors from reciprocal bylines or WordPress author archive body classes. */
 final class AuthorProjection
 {
+    private static function hasAuthorBodyClasses(string $html, string $slug): bool
+    {
+        if ('' === $html || !class_exists(\DOMDocument::class)) return false;
+        $document = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        try {
+            if (!$document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) return false;
+            $body = $document->getElementsByTagName('body')->item(0);
+            if (!$body instanceof \DOMElement) return false;
+            $classes = preg_split('/[\x20\t\r\n\f]+/', $body->getAttribute('class'), -1, PREG_SPLIT_NO_EMPTY);
+            return in_array('author', $classes, true) && in_array('author-' . $slug, $classes, true);
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+        }
+    }
+
     /** @return array{entities:array,diagnostics:array,pagination_source_paths_by_archive:array} */
     public static function project(array $documents, array $routes, string $sourceOrigin = ''): array
     {
@@ -41,10 +58,16 @@ final class AuthorProjection
                 foreach ($byRoute as $viewRoute => $view) if (preg_match('~^' . preg_quote($route, '~') . '/page/[1-9][0-9]{0,5}$~', $viewRoute)) $views[$view['source_path']] = $view;
                 foreach ($views as $viewSource => $view) {
                     if ($name !== ReciprocalArchiveProof::heading((string) ($view['html'] ?? ''))) continue;
+                    $hasAuthorBodyClasses = self::hasAuthorBodyClasses((string) ($view['html'] ?? ''), $slug);
                     foreach ($links[$viewSource] ?? array() as $link) {
                         $post = $byRoute[$aliases[$link['href']] ?? $link['href']] ?? null;
                         if (!is_array($post) || 'post' !== ($post['metadata']['post_type'] ?? null)) continue;
                         $postSource = (string) $post['source_path'];
+                        if ($hasAuthorBodyClasses) {
+                            $members[$postSource] = true;
+                            if ($viewSource !== $source) $pagination[$viewSource] = true;
+                            continue;
+                        }
                         foreach ($links[$postSource] ?? array() as $backlink) {
                             if ($route === ($aliases[$backlink['href']] ?? $backlink['href']) && $name === $backlink['label']) {
                                 $members[$postSource] = true;
@@ -56,7 +79,7 @@ final class AuthorProjection
                 }
             }
             if (count($members) > 10000) $members = array();
-            if (array() === $members) $diagnose('unproven', 'The author archive lacks an exact heading/byline match and a reciprocal post member, or has an unsupported nicename or route.', $source, $route);
+            if (array() === $members) $diagnose('unproven', 'The author archive lacks reciprocal byline or WordPress body-class membership proof, or has an unsupported nicename or route.', $source, $route);
             // All captures claim their route leaf, even if one cannot prove membership.
             $groups[$slug][] = array('kind' => 'author', 'slug' => $slug, 'name' => $name, 'membership_source_paths' => array_keys($members), 'archive' => array('source_path' => $source, 'source_route' => $route, 'presentation_markup' => (string) ($archive['block_markup'] ?? ''), 'query' => array('post_type' => 'post', 'author' => $slug)), 'evidence' => array('membership' => true, 'name' => true, 'archive' => true), '_pagination' => array_keys($pagination));
         }

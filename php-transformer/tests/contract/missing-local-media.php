@@ -116,4 +116,35 @@ $assert(array() !== $stagedPlan && 2 === substr_count($stagedMarkup, $placeholde
 $assert(1 === count(array_values(array_filter($stagedPlan['assets'] ?? array(), static fn (array $asset): bool => MissingMediaRecovery::TARGET_PATH === ($asset['target_path'] ?? null)))), 'Staged composition declares the placeholder asset exactly once.');
 WordPressSitePlan::assertValid($stagedPlan);
 
+// Font alternatives are filtered in their owning face, never recovered as images.
+$fonts = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<link rel="stylesheet" href="styles/fonts.css"><main><h1>Fonts</h1></main>',
+    'styles/fonts.css' => '@font-face{font-family:"Complete";src:url(../fonts/present.woff2) format("woff2")} '
+        . '@font-face{font-family:"Split";unicode-range:U+0000-00FF;src:local("Split, Local"),url(../fonts/missing.woff2) format("woff2"),url(../fonts/present.woff2) format("woff2") tech(variations),url(../fonts/present.woff) format("woff")} '
+        . '@font-face{font-family:"Split";unicode-range:U+0100-017F;src:url(../fonts/absent.woff2) format("woff2")} '
+        . '.banner{background:url(missing.png)}',
+    'fonts/present.woff2' => 'generic-font-fixture',
+    'fonts/present.woff' => 'generic-font-fixture',
+)))->toArray();
+$fontPlan = $planOf($fonts);
+WordPressSitePlan::assertValid($fontPlan);
+$fontCss = (string) (array_values(array_filter($fontPlan['writes'] ?? array(), static fn(array $write): bool => str_ends_with($write['target_path'], 'styles/fonts.css')))[0]['payload']['data'] ?? '');
+$fontTokens = array_column($fontPlan['reference_tokens'], 'token', 'source_path');
+$woff2 = WordPressSitePlan::TOKEN_PREFIX . ($fontTokens['fonts/present.woff2'] ?? '') . '}}';
+$woff = WordPressSitePlan::TOKEN_PREFIX . ($fontTokens['fonts/present.woff'] ?? '') . '}}';
+$assert(str_contains($fontCss, '@font-face{font-family:"Complete";src:url(' . $woff2 . ') format("woff2")}'), 'A complete face keeps its source and format.');
+$assert(str_contains($fontCss, 'src:local("Split, Local"), url(' . $woff2 . ') format("woff2") tech(variations), url(' . $woff . ') format("woff");'), 'Partial font recovery preserves local(), source order, format() and tech().');
+$assert(2 === substr_count($fontCss, '@font-face') && str_contains($fontCss, 'U+0000-00FF') && !str_contains($fontCss, 'U+0100-017F') && !str_contains($fontCss, 'missing.woff2') && !str_contains($fontCss, 'absent.woff2'), 'A fully missing unicode-range face drops independently of the surviving split.');
+$assert(1 === substr_count($fontCss, $placeholder) && str_contains($fontCss, '.banner{background:url(' . $placeholder . ')}'), 'Only the real media URL receives an image placeholder.');
+$fontDiagnostics = array_values(array_filter($fontPlan['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'wordpress_site_plan_missing_font_source' === ($diagnostic['code'] ?? null)));
+$assert(2 === count($fontDiagnostics) && array('../fonts/missing.woff2', '../fonts/absent.woff2') === array_column($fontDiagnostics, 'value') && array('Split', 'Split') === array_column($fontDiagnostics, 'family') && array('styles/fonts.css', 'styles/fonts.css') === array_column($fontDiagnostics, 'source_path'), 'Font warnings identify each missing URL, family and stylesheet.');
+$assert(in_array('wordpress_site_plan_missing_font_source', $fontPlan['reporting']['diagnostic_codes'] ?? array(), true) && 1 === count($mediaDiagnostics($fontPlan)), 'Font diagnostics reach the existing completion report separately from media warnings.');
+$strictFontReason = null;
+try {
+    (new WordPressSitePlan(true))->fromResult($fonts);
+} catch (ValidationException $exception) {
+    $strictFontReason = $exception->diagnostic()['reason'] ?? null;
+}
+$assert('missing_font_source' === $strictFontReason, 'Strict mode rejects missing font sources.');
+
 echo "missing-local-media contract passed\n";

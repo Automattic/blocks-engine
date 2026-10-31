@@ -225,6 +225,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             // CSS limits then scale it exactly as they scaled the inline SVG.
             $html = $this->ensureInlineSvgSizing($html);
         }
+        $html = $this->withViewBoxIntrinsicSizeForRelativeSvg($html);
         $assetHtml = $html;
         $visualPayload = $this->svgImageAssetIdentity($html);
         $path = $this->materializedInlineSvgPath($element, $visualPayload);
@@ -381,7 +382,17 @@ final class SvgMaterializer implements SvgElementMaterializer
             $fillFigureRule = '{margin:0;width:100%;height:100%;line-height:0}';
             $fillObjectFit = '' === $sourceObjectFit ? 'contain' : $sourceObjectFit;
             $fillImgRule = '>img{width:100%;height:100%;-o-object-fit:' . $fillObjectFit . ';object-fit:' . $fillObjectFit . '}';
-            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule . implode("\n", $conditionedBox) . implode("\n", $conditionedItemDisplay)
+            // A percentage SVG width resolved against the SVG's definite
+            // containing block. Give the figure that box so the image's
+            // percentage resolves against it too. A shrink-to-fit figure makes
+            // the percentage cyclic: an image that has not loaded yet (lazy)
+            // contributes 0 width, so the figure and image stay 0x0.
+            $figureFillsContainer = ! $richTextImage && (
+                null !== $this->svgPercentageWidth((string) ($dimensions['width'] ?? ''))
+                || null !== $this->svgPercentageWidth(trim((string) ($presentation['width'] ?? '')))
+            );
+            $figureWidthRule = $figureFillsContainer ? '{width:100%}' : '';
+            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule . $figureWidthRule . implode("\n", $conditionedBox) . implode("\n", $conditionedItemDisplay)
                 . (array() === $conditionedFills ? '' : "\nfill:" . implode("\n", array_map(static fn (array $conditions): string => implode('{', $conditions), $conditionedFills))));
             // The image rule must outrank the generic author image bridge
             // (`:where(figure):not(<type>).wp-block-image > img{display:block}`),
@@ -389,6 +400,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             // native wrapper class and reaches the linked image too, as the
             // parent fill rules do.
             $geometryCss = ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '')
+                . ('' === $figureWidthRule ? '' : '.wp-block-image.' . $geometryClass . $figureWidthRule)
                 . ($richTextImage
                     ? '.' . $geometryClass . $rule
                     : '.wp-block-image.' . $geometryClass . '>img,.wp-block-image.' . $geometryClass . '>a' . $rule);
@@ -1695,6 +1707,21 @@ final class SvgMaterializer implements SvgElementMaterializer
             return '';
         }
 
+        // aria-labelledby wins over aria-label, as in the accessible-name
+        // computation. A reference to an id the document does not contain
+        // names nothing, so the next source applies.
+        $labelledBy = array();
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'aria-labelledby'))) ?: array() as $id ) {
+            $label = '' !== $id ? $element->ownerDocument?->getElementById($id) : null;
+            $text = $label instanceof DOMElement ? trim(preg_replace('/\s+/', ' ', (string) $label->textContent) ?? '') : '';
+            if ( '' !== $text ) {
+                $labelledBy[] = $text;
+            }
+        }
+        if ( array() !== $labelledBy ) {
+            return implode(' ', $labelledBy);
+        }
+
         foreach ( array( 'aria-label', 'title' ) as $attribute ) {
             $value = trim(SourceDom::attr($element, $attribute));
             if ( '' !== $value ) {
@@ -1742,6 +1769,54 @@ final class SvgMaterializer implements SvgElementMaterializer
 
         $insertAt = $match[0][1] + strlen($match[0][0]) - 1;
         return substr($html, 0, $insertAt) . ' width="' . $width . '" height="' . $height . '"' . substr($html, $insertAt);
+    }
+
+    /**
+     * A percentage or auto width (attribute or root style) sizes an inline SVG
+     * from its containing block. In a standalone image document it leaves the
+     * image with no intrinsic size, so a shrink-to-fit figure around a
+     * percentage-width image collapses to 0x0. Give the asset its viewBox size
+     * as numeric intrinsic dimensions; the page CSS keeps the rendered width.
+     */
+    private function withViewBoxIntrinsicSizeForRelativeSvg(string $html): string
+    {
+        if ( 1 !== preg_match('/<svg\b([^>]*)>/i', $html, $match, PREG_OFFSET_CAPTURE) ) {
+            return $html;
+        }
+        $attrs = $match[1][0];
+        $attribute = static fn (string $name): ?string => preg_match('/\s' . $name . '\s*=\s*(["\'])(.*?)\1/is', $attrs, $m) ? trim(html_entity_decode($m[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')) : null;
+        $style = (string) $attribute('style');
+        $declarations = '' === $style ? array() : $this->styleResolver->cssDeclarations($style);
+        $isRelative = static fn (?string $value): bool => null === $value || '' === $value || 'auto' === strtolower($value) || str_ends_with($value, '%');
+        $width = isset($declarations['width']) ? trim((string) $declarations['width']) : $attribute('width');
+        $height = isset($declarations['height']) ? trim((string) $declarations['height']) : $attribute('height');
+        // Only an explicitly percentage/auto-sized SVG. A viewBox-only SVG keeps
+        // its existing sizing path, and absolute dimensions stay as authored.
+        if ( null === $width || '' === $width || ! $isRelative($width) || ! $isRelative($height) ) {
+            return $html;
+        }
+        if ( 'auto' !== strtolower($width) && null === $this->svgPercentageWidth($width) ) {
+            return $html;
+        }
+        $parts = preg_split('/[\s,]+/', (string) $attribute('viewBox')) ?: array();
+        if ( count($parts) < 4 || ! is_numeric($parts[2]) || ! is_numeric($parts[3]) ) {
+            return $html;
+        }
+        $intrinsicWidth = $this->normalizedSvgDimension((float) $parts[2]);
+        $intrinsicHeight = $this->normalizedSvgDimension((float) $parts[3]);
+        if ( '' === $intrinsicWidth || '' === $intrinsicHeight ) {
+            return $html;
+        }
+
+        $attrs = preg_replace('/\s(?:width|height)\s*=\s*(["\']).*?\1/is', '', $attrs) ?? $attrs;
+        if ( isset($declarations['width']) || isset($declarations['height']) ) {
+            unset($declarations['width'], $declarations['height']);
+            $rootStyle = $this->styleResolver->cssDeclarationString($declarations);
+            $attrs = preg_replace('/\sstyle\s*=\s*(["\']).*?\1/is', '' === $rootStyle ? '' : ' style="' . htmlspecialchars($rootStyle, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"', $attrs, 1) ?? $attrs;
+        }
+        $tag = '<svg' . $attrs . ' width="' . $intrinsicWidth . '" height="' . $intrinsicHeight . '">';
+
+        return substr($html, 0, $match[0][1]) . $tag . substr($html, $match[0][1] + strlen($match[0][0]));
     }
 
     public function ensureInlineSvgBoxStyle(string $html, DOMElement $element): string
@@ -1906,7 +1981,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             'rect', 'stop', 'svg', 'symbol', 'text', 'textpath', 'title', 'tspan', 'use',
         ));
         $allowedAttributes = array_flip(array(
-            'alt', 'amplitude', 'aria-hidden', 'aria-label', 'azimuth', 'basefrequency', 'baseprofile', 'bias',
+            'alt', 'amplitude', 'aria-describedby', 'aria-hidden', 'aria-label', 'aria-labelledby', 'azimuth', 'basefrequency', 'baseprofile', 'bias',
             'class', 'clip-path', 'clip-rule', 'clippathunits', 'cliprule', 'color-interpolation', 'color-interpolation-filters',
             'color', 'color-rendering', 'cx', 'cy', 'd',
             'data-bbox', 'data-color', 'data-testid', 'data-type',

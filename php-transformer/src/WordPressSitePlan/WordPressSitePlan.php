@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -341,7 +342,8 @@ PHP;
         }
         $this->routeLinkedFragments = $this->routeLinkedFragments($documents, $routeMap);
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
-        $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia);
+        $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
+        $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia, $missingFonts);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
         // Probe presentation with the final plan's canonical listing projection.
         // Entity ownership is already proven independently and must survive a
@@ -666,7 +668,7 @@ PHP;
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $taxonomyProjection['entities']), $assetWrites);
         $unitFindings = $this->unitFindingDiagnostics();
-        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->duplicateViewportDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
+        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->duplicateViewportDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
         // Declarations still over a byte limit are dropped here with their
@@ -1016,7 +1018,10 @@ PHP;
             if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) if (in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true)) foreach ($plan['templates'] as $template) if ((self::archiveTemplateSlug($entity) === ($template['slug'] ?? null) || ('author' === $entity['kind'] && 'author' === ($template['slug'] ?? null) && $template['source_path'] === $entity['archive']['source_path'])) && str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) $boundTemplates[] = $template['slug'];
             foreach ( $plan['templates'] as $template ) {
                 $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
-                if (in_array($template['slug'], $boundTemplates, true) && 1 !== $references) throw new InvalidArgumentException('WordPress site plan template part binding is invalid.');
+                // An inline shell is bound where it sits, so a template that
+                // keeps every captured document copy binds it once per copy.
+                $allowed = 'inline_shared_shell' === ($part['placement']['kind'] ?? null) ? self::documentCopyCount($template['canonical_block_markup']) : 1;
+                if (in_array($template['slug'], $boundTemplates, true) && ($references < 1 || $references > $allowed)) throw new InvalidArgumentException('WordPress site plan template part binding is invalid.');
                 if (!in_array($template['slug'], $boundTemplates, true) && 0 !== $references) throw new InvalidArgumentException('WordPress site plan has an unproven template part binding.');
             }
         }
@@ -1649,6 +1654,20 @@ PHP;
      *
      * @return list<string>|null
      */
+    /** Rendered elements rooting a captured document copy; at least one. */
+    private static function documentCopyCount(string $markup): int
+    {
+        $html = (string) preg_replace('/<!--.*?-->/s', '', $markup);
+        $copies = 0;
+        if (preg_match_all('/<[a-z][a-z0-9-]*\\s[^>]*?\\bclass="([^"]*)"/i', $html, $matches)) {
+            foreach ($matches[1] as $classes) {
+                if (array_filter(preg_split('/\\s+/', $classes) ?: array(), ShellExtraction::isResponsiveVariantClass(...))) ++$copies;
+            }
+        }
+
+        return max(1, $copies);
+    }
+
     private static function responsiveVariantScopeClasses(string $compound): ?array
     {
         $hooks = str_replace(array(':where(', ':is(', ')'), '', self::positiveSelector($compound));
@@ -3039,9 +3058,10 @@ PHP;
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
             $structuredTypes[$index] = self::structuredPageTypes($document);
             $localTimesByIndex[$index] = array();
-            // Repeated article metadata on pagination is not an independent
+            // Repeated article metadata on pagination, and the listed entries'
+            // dates on a category or tag archive, are not an independent
             // publication and must not vote in listing or dated-site inference.
-            $evidenceByIndex[$index] = null === self::paginationParentRoute($routes[$index]) ? $this->publicationEvidence($document, $localTimesByIndex[$index]) : array();
+            $evidenceByIndex[$index] = null === self::paginationParentRoute($routes[$index]) && !TaxonomyProjection::isTermRoute($routes[$index]) ? $this->publicationEvidence($document, $localTimesByIndex[$index]) : array();
             $pageTypes = array_intersect(array('WebPage', 'AboutPage', 'ContactPage', 'CollectionPage'), $structuredTypes[$index]);
             if (!array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $structuredTypes[$index]) && $pageTypes) {
                 $evidenceByIndex[$index] = array();
@@ -3830,12 +3850,19 @@ PHP;
      */
     private function extractPostCommentForms(array $pages): array
     {
-        // Only factor a shared post primitive when every captured post has it.
-        // Strip every device copy, leaving one dynamic form in the template.
+        // Only factor a shared post primitive when every captured post has it
+        // and nothing renderable follows any occurrence in its original context.
         $pattern = '~<!-- wp:comments -->\\s*<div class="wp-block-comments">\\s*<!-- wp:post-comments-form /-->\\s*</div>\\s*<!-- /wp:comments -->~';
         $posts = array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null) && empty($page['synthetic']));
         if (array() === $posts) return $pages;
-        foreach ($posts as $post) if (!preg_match($pattern, $post['canonical_block_markup'])) return $pages;
+        $closingOnly = '~\A(?:\s|<!--\s*/wp:[a-zA-Z0-9_/-]+\s*-->|</[a-zA-Z][a-zA-Z0-9:-]*\s*>)*\z~';
+        foreach ($posts as $post) {
+            $markup = $post['canonical_block_markup'];
+            if (!preg_match_all($pattern, $markup, $matches, PREG_OFFSET_CAPTURE)) return $pages;
+            foreach ($matches[0] as [$form, $offset]) {
+                if (1 !== preg_match($closingOnly, substr($markup, $offset + strlen($form)))) return $pages;
+            }
+        }
         foreach ($posts as $index => $post) {
             $pages[$index]['canonical_block_markup'] = preg_replace($pattern, '', $post['canonical_block_markup']);
             $pages[$index]['metadata']['native_comment_form'] = true;
@@ -4051,6 +4078,12 @@ PHP;
         if ('' !== $identity && isset($shared[$identity])) {
             return array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => true, 'content' => false, 'retained' => array());
         }
+        // A closed dialog opens on demand, so it can neither host the post
+        // title nor place post-content: both would stay hidden with it. When
+        // it varies by post it travels with the body, unplaced.
+        if (self::isClosedDialogBlock($slice)) {
+            return array('template' => '', 'body' => $slice, 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array(array('offset' => $range['offset'], 'length' => $range['length'])));
+        }
         $children = self::childBlockRanges($markup, $range);
         if (array() === $children) {
             $kind = $this->classifyPostChromeBlock($slice, $post, $route);
@@ -4074,15 +4107,17 @@ PHP;
         $replacements = array();
         foreach ($children as $child) {
             $transformed = $this->transformPostChromeRange($markup, $child, $post, $route, $shared);
-            $foundTitle = $foundTitle || $transformed['title'];
-            $foundDate = $foundDate || $transformed['date'];
             $foundShared = $foundShared || $transformed['shared'];
             $body .= $transformed['body'];
             $retained = array_merge($retained, $transformed['retained']);
             if ($transformed['content'] && $emittedContent) {
+                // The subtree leaves the template, and with it any title or
+                // date it placed: neither is found.
                 $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
                 continue;
             }
+            $foundTitle = $foundTitle || $transformed['title'];
+            $foundDate = $foundDate || $transformed['date'];
             if ($transformed['content']) {
                 $emittedContent = true;
             }
@@ -4116,6 +4151,23 @@ PHP;
         }
         $normalize = static fn(string $value): string => trim(preg_replace('/\s+/', ' ', str_replace("\xc2\xa0", ' ', html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?? '');
         return $normalize(strip_tags($slice)) === $normalize($title);
+    }
+    /** Whether a block renders a dialog that is hidden until opened. */
+    private static function isClosedDialogBlock(string $slice): bool
+    {
+        if (!preg_match('/^\s*<!--\s*wp:.*?-->\s*(<(?!!)[^>]*>)/s', $slice, $match)) {
+            return false;
+        }
+        $attributes = HtmlTagScanner::attributes($match[1]);
+        if (preg_match('/^<dialog\b/i', $match[1])) {
+            return !array_key_exists('open', $attributes);
+        }
+        if (!array_key_exists('hidden', $attributes) && 'true' !== strtolower($attributes['aria-hidden'] ?? '')) {
+            return false;
+        }
+        return 'dialog' === strtolower($attributes['role'] ?? '')
+            || 'true' === strtolower($attributes['aria-modal'] ?? '')
+            || array_key_exists(CaptureEvidence::DIALOG_PANEL, $attributes);
     }
     private static function isCommentFormChrome(string $slice): bool
     {
@@ -4372,7 +4424,7 @@ PHP;
             $cardMarkup = substr($markup, $card['offset'], $card['length']);
             foreach (self::blockRanges($cardMarkup) as $leaf) {
                 if (array() !== self::childBlockRanges($cardMarkup, $leaf)) continue;
-                $texts[ListingExcerptProjection::text(substr($cardMarkup, $leaf['offset'], $leaf['length']))] = true;
+                $texts[self::listingLeafIdentity(substr($cardMarkup, $leaf['offset'], $leaf['length']))] = true;
             }
             $sharedText = null === $sharedText ? $texts : array_intersect_key($sharedText, $texts);
         }
@@ -4487,9 +4539,12 @@ PHP;
             if ('unbound' === $kind) {
                 // Repeating an unbound per-post literal is no more truthful than
                 // rendering the full article in its place. Decline the listing.
-                if (!isset($sharedText[ListingExcerptProjection::text($slice)])) return null;
+                if (!isset($sharedText[self::listingLeafIdentity($slice)])) return null;
                 $kind = 'chrome';
             }
+            // Media and other textless leaves carry no visible text to compare,
+            // so they are shared only when every card renders the same markup.
+            if ('chrome' === $kind && !isset($sharedText[self::listingLeafIdentity($slice)])) return null;
             if ('comments' === $kind || 'chrome' === $kind) {
                 return array('markup' => $slice, 'title' => false, 'content' => false);
             }
@@ -4541,6 +4596,13 @@ PHP;
         }
         return array('markup' => $slice, 'title' => $foundTitle, 'content' => $emittedContent && !$foundTitle);
     }
+    /** Visible text identifies a card leaf; a textless leaf is identified by its markup. */
+    private static function listingLeafIdentity(string $leaf): string
+    {
+        $text = ListingExcerptProjection::text($leaf);
+        return '' !== $text ? $text : "\0" . $leaf;
+    }
+
     /** @param array<string,mixed> $attrs */
     private static function listingWrapperAttributes(array $attrs): string
     {
@@ -4991,10 +5053,11 @@ PHP;
         $writes = array();
         $authorStylesheetOrigins = array_values(array_filter(array_map(static fn(array $asset): ?string => 'css' === ($asset['kind'] ?? null) && 'files' === ($asset['source'] ?? null) && is_string($asset['source_path'] ?? null) ? $asset['source_path'] : null, $assets)));
         foreach ( $assets as $asset ) {
-            $content = is_string($asset['content'] ?? null) ? $references->content($asset['content'], (string) ($asset['reference_origin'] ?? $asset['source_path'])) : null;
-            // Editor-state rules can retain URL-bearing declarations copied from
-            // author stylesheets, whose relative origin is not this generated file.
+            $content = is_string($asset['content'] ?? null) ? $asset['content'] : null;
+            // Resolve copied author URLs before recovery judges them against the
+            // generated stylesheet's directory (which is not their origin).
             if ('editor-static-state' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, $authorStylesheetOrigins);
+            if (is_string($content)) $content = $references->content($content, (string) ($asset['reference_origin'] ?? $asset['source_path']));
             if (is_array($asset['payload_reference'] ?? null)) { $writes[] = $this->referenceWrite('theme_asset', $asset['target_path'], $asset['source_path'], $asset['payload_reference']); continue; }
             $base64Transport = is_string($asset['content_base64'] ?? null);
             $text = is_string($content) && empty($asset['binary']) && 1 === preg_match('//u', $content) && (!$base64Transport || 'text/css' === ($asset['mime_type'] ?? null));

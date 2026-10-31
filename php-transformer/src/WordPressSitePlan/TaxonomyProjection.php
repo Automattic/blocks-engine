@@ -8,6 +8,19 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
 /** Recognizes captured category and tag collections from reciprocal source-document evidence. */
 final class TaxonomyProjection
 {
+    private const TERM_ROUTE = '~(?:^|/)(category|tag)/([^/]+(?:/[^/]+)*)$~';
+
+    /**
+     * Is this route a category or tag archive? Its listed entries' dates are
+     * not its own publication, so it is never a post itself.
+     */
+    public static function isTermRoute(string $route): bool
+    {
+        if (!preg_match(self::TERM_ROUTE, $route, $match) || preg_match('~/page/[1-9][0-9]{0,5}$~', $route)) return false;
+
+        return 'category' === $match[1] || !str_contains($match[2], '/');
+    }
+
     /** @param array<int,array<string,mixed>> $documents @param array<int,array<string,mixed>> $routes @return array{entities:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>,pagination_source_paths_by_archive:array<string,array<int,string>>} */
     public static function project(array $documents, array $routes, string $sourceOrigin = ''): array
     {
@@ -31,8 +44,8 @@ final class TaxonomyProjection
         foreach ($documents as $archive) {
             $source = $archive['source_path'] ?? null;
             $route = is_string($source) ? ($routeBySource[$source] ?? null) : null;
-            if (!is_string($source) || !is_string($route) || !preg_match('~(?:^|/)(category|tag)/([^/]+(?:/[^/]+)*)$~', $route, $termMatch) || preg_match('~/page/[1-9][0-9]{0,5}$~', $route)) continue;
-            if ('tag' === $termMatch[1] && str_contains($termMatch[2], '/')) continue;
+            if (!is_string($source) || !is_string($route) || !self::isTermRoute($route)) continue;
+            preg_match(self::TERM_ROUTE, $route, $termMatch);
             $taxonomy = 'tag' === $termMatch[1] ? 'post_tag' : 'category';
             $slug = basename($route);
             if (!self::supportedTermSpelling($route, $slug)) {

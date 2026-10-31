@@ -41,6 +41,13 @@ $assert('nowrap' !== ($column['attrs']['layout']['flexWrap'] ?? null), 'a column
 $block = $navigation('.links a{display:inline-block;margin:0 8px}');
 $assert(!isset($block['attrs']['layout']['flexWrap']), 'a non-flex nav is unchanged', json_encode($block['attrs']));
 
+// 4. A flex nav wrapping a list: the list holds the items, so its row decides (#3814).
+$list = '<nav class="links"><ul class="menu"><li><a href="/a">Services</a></li><li><a href="/b">Process</a></li><li><a href="/c">Contact</a></li></ul></nav>';
+$listWraps = $navigation('.links{display:flex}.menu{display:flex;flex-wrap:var(--menu-wrap,wrap)}', $list);
+$assert(!isset($listWraps['attrs']['layout']['flexWrap']), 'a wrapping list inside a flex nav keeps core\'s wrap', json_encode($listWraps['attrs']));
+$listRow = $navigation('.links{display:flex}.menu{display:flex}', $list);
+$assert('nowrap' === ($listRow['attrs']['layout']['flexWrap'] ?? null), 'a non-wrapping list inside a flex nav is still nowrap', json_encode($listRow['attrs']));
+
 // The responsive list container's wrap rule is asserted in
 // tests/unit/engine-support-css-asset.php.
 

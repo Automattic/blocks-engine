@@ -4,9 +4,11 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InlineStackingClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LoweredLinkHost;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Closure;
 use DOMDocument;
 use DOMElement;
 
@@ -36,20 +38,29 @@ final class LogoPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // A refused SVG materialization inside the label is recorded, not
+        // silently stripped: the sink accumulates the diagnostics that ride
+        // back on the recognition result when the pattern's block wins.
+        $fallbacks = array();
+        $captureDroppedSvg = static function (DOMElement $svg) use ($logo, &$fallbacks): void {
+            $logo->captureSvgFallback($svg, $fallbacks);
+        };
+
         $block = $this->match(
             $element,
             $context->presentationAttributes(...),
             fn (DOMElement $source): string => $logo->richText($source),
             fn (DOMElement $source): string => SourceDom::outerHtml($source),
             fn (DOMElement $source, string $content): ?string => $logo->materializeSvgImages($source, $content),
-            $context->createBlock(...)
+            $context->createBlock(...),
+            $captureDroppedSvg
         );
 
         if ( null !== $block && 'a' === strtolower($element->tagName) && $this->hasStructuredAnchorChrome($element) ) {
             $context->buttonContext()?->retainSourceDescendants($element, onlyProjectedTopology: true);
         }
 
-        return null === $block ? null : new PatternRecognitionResult($block);
+        return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
     }
 
     /**
@@ -58,9 +69,10 @@ final class LogoPattern implements PatternRecognizerInterface
      * @param callable(DOMElement): string $outerHtml
      * @param callable(DOMElement, string): ?string $materializeSvgImages
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
+     * @param Closure(DOMElement): void|null $captureDroppedSvg Invoked once per SVG the label cannot keep
      * @return array<string, mixed>|null
      */
-    public function match(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $outerHtml, callable $materializeSvgImages, callable $createBlock): ?array
+    public function match(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $outerHtml, callable $materializeSvgImages, callable $createBlock, ?Closure $captureDroppedSvg = null): ?array
     {
         if ( ! $this->hasLogoSignal($element)
             || ( '' === trim($element->textContent ?? '') && 0 === $element->getElementsByTagName('svg')->length ) ) {
@@ -90,7 +102,9 @@ final class LogoPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $content = 'a' === $tagName ? $this->anchorLogoContent($element, $innerHtml($element), $materializeSvgImages) : $this->logoLabelHtml($element, $innerHtml($element), $materializeSvgImages);
+        $content = 'a' === $tagName
+            ? $this->anchorLogoContent($element, $innerHtml($element), $materializeSvgImages, $captureDroppedSvg)
+            : $this->logoLabelHtml($element, $innerHtml($element), $materializeSvgImages, $captureDroppedSvg);
         if ( '' === trim($content) ) {
             return null;
         }
@@ -114,9 +128,9 @@ final class LogoPattern implements PatternRecognizerInterface
     }
 
     /** @param callable(DOMElement, string): ?string $materializeSvgImages */
-    private function anchorLogoContent(DOMElement $anchor, string $html, callable $materializeSvgImages): string
+    private function anchorLogoContent(DOMElement $anchor, string $html, callable $materializeSvgImages, ?Closure $captureDroppedSvg = null): string
     {
-        $label = $this->logoLabelHtml($anchor, $html, $materializeSvgImages);
+        $label = $this->logoLabelHtml($anchor, $html, $materializeSvgImages, $captureDroppedSvg);
         if ( '' === trim($this->plainText($label)) ) {
             $label = $this->accessibleFallbackLabel($anchor);
         }
@@ -144,12 +158,26 @@ final class LogoPattern implements PatternRecognizerInterface
         return '<a' . SourceDom::htmlAttributeString($attrs) . '>' . $label . '</a>';
     }
 
-    /** @param callable(DOMElement, string): ?string $materializeSvgImages */
-    private function logoLabelHtml(DOMElement $element, string $html, callable $materializeSvgImages): string
+    /**
+     * @param callable(DOMElement, string): ?string $materializeSvgImages
+     * @param Closure(DOMElement): void|null $captureDroppedSvg
+     */
+    private function logoLabelHtml(DOMElement $element, string $html, callable $materializeSvgImages, ?Closure $captureDroppedSvg = null): string
     {
         $html = preg_replace('/<img\b[^>]*\balt\s*=\s*(["\'])(.*?)\1[^>]*>/is', '$2', $html) ?? $html;
         $html = preg_replace('/<img\b[^>]*>/is', '', $html) ?? $html;
-        $html = $materializeSvgImages($element, $html) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html);
+        $materialized = $materializeSvgImages($element, $html);
+        if ( null === $materialized && null !== $captureDroppedSvg ) {
+            // RichText cannot carry the raw markup and the materializer refused
+            // the artwork. The label keeps its text; the SVG it cannot keep is
+            // recorded as fallback evidence instead of being stripped silently.
+            foreach ( $element->getElementsByTagName('svg') as $svg ) {
+                if ( $svg instanceof DOMElement ) {
+                    $captureDroppedSvg($svg);
+                }
+            }
+        }
+        $html = $materialized ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html);
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
         $html = $this->semanticMarkerSpansAsMarks($html);
         $html = trim($html);
@@ -162,14 +190,25 @@ final class LogoPattern implements PatternRecognizerInterface
         // CSS-painted decoration (a dot between two words). It stays in place
         // so block creation lowers it onto the same RichText carrier the
         // paragraph path uses, instead of being unwrapped into nothing.
+        // A materialized inline SVG image object is the native RichText
+        // carrier for the source artwork, so it is label content too.
         $body = $this->labelFragment($html);
         if ( null === $body ) {
             return $html;
         }
+        // An image-only label is not editable text. Declining lets the generic
+        // element path convert the artwork to a native image block that keeps
+        // its source link, instead of pinning a bare image object inside a
+        // text paragraph.
+        if ( '' === $text && $this->carriesMaterializedSvgImage($body) ) {
+            return '';
+        }
+
         $unsupported = array();
         foreach ( $body->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement
                 && ! in_array(strtolower($descendant->tagName), self::LABEL_TAGS, true)
+                && ! $this->isMaterializedSvgImage($descendant)
                 && ! ( 'span' === strtolower($descendant->tagName) && SourceDom::isEmptyInlineBox($descendant) ) ) {
                 $unsupported[] = $descendant;
             }
@@ -194,6 +233,24 @@ final class LogoPattern implements PatternRecognizerInterface
 
         $unwrapped = trim($this->fragmentHtml($body));
         return '' !== $unwrapped ? $unwrapped : htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    /** A materialized inline SVG image object is the native RichText carrier for the source artwork. */
+    private function isMaterializedSvgImage(DOMElement $element): bool
+    {
+        return 'img' === strtolower($element->tagName)
+            && AssetMaterializationState::isInlineSvgAssetReference(trim($element->getAttribute('src')));
+    }
+
+    private function carriesMaterializedSvgImage(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('img') as $image ) {
+            if ( $image instanceof DOMElement && $this->isMaterializedSvgImage($image) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Parses label markup into a detached `<body>` holding it, or null when it does not parse. */

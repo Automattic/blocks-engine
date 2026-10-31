@@ -233,7 +233,7 @@ const choice = () => {
 export function refresh( root, context ) {
     const query = ( context.query || '' ).toLowerCase();
     const finite = context.mode === 'category-or-global-search';
-    const globalSearch = finite && query !== '';
+    const globalSearch = ( finite || context.mode === 'captured-union' ) && query !== '';
     const strip = root.querySelector( '[data-wp-bind--hidden$="::state.choicesHidden"]' );
     if ( strip ) strip.hidden = globalSearch;
     const markers = globalSearch ? ( context.order || [] ) : ( finite ? ( ( context.categoryOrders || [] )[ context.category ] || [] ) : [] );
@@ -309,10 +309,15 @@ const css = ( styles ) => Object.entries( styles || {} ).map( ( [ key, value ] )
 
 store( namespace, {
     actions: {
-        query( event ) { getContext( namespace ).query = event.target.value; },
+        query( event ) {
+            const context = getContext( namespace );
+            context.query = event.target.value;
+            if ( context.mode === 'captured-union' && context.query === '' ) context.category = 0;
+        },
         choose() {
             const context = getContext( namespace );
             context.category = context.choiceIndex;
+            if ( context.mode === 'captured-union' ) context.query = '';
         },
         chooseKey( event ) {
             if ( event.key !== 'Enter' && event.key !== ' ' ) return;
@@ -321,6 +326,7 @@ store( namespace, {
             event.preventDefault();
             const context = getContext( namespace );
             context.category = context.choiceIndex;
+            if ( context.mode === 'captured-union' ) context.query = '';
         },
     },
     state: {

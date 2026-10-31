@@ -147,13 +147,40 @@ final class ContentBoxRestatements
             return $declarations;
         }
         // A comment ahead of the rule is part of its prelude; it stays with the author rule.
-        $rule = trim((string) preg_replace('#/\*.*?\*/#s', '', $prelude)) . '{' . self::DECLARATION . '}';
+        $selector = self::scopedSelector(trim((string) preg_replace('#/\*.*?\*/#s', '', $prelude)), $parents);
+        if ( '' === $selector ) {
+            return implode(';', $kept);
+        }
+        $rule = $selector . '{' . self::DECLARATION . '}';
         foreach ( array_reverse($parents) as $parent ) {
             $rule = $parent . '{' . $rule . '}';
         }
         $this->record(self::wrap($rule, $scope), $this->order);
 
         return implode(';', $kept);
+    }
+
+    /**
+     * The selector arms of `$selector` that reach imported markup through an
+     * importer-emitted class. An authored arm keyed only on core-shaped classes
+     * (`.wp-block-*`, `.has-*`) is left out: the projection restates the same
+     * element through its importer-class twin, and the bare arm would also
+     * resize blocks an owner adds after import.
+     *
+     * @param list<string> $parents
+     */
+    private static function scopedSelector(string $selector, array $parents): string
+    {
+        $arms = CssStylesheetTransformer::splitSelectorList($selector);
+        if ( null === $arms ) {
+            return $selector;
+        }
+        $scoping = new CoreSelectorScoping();
+        $chain = implode(' ', $parents);
+
+        $scoped = array_filter($arms, static fn (string $arm): bool => $scoping->selectorIsScoped(trim($chain . ' ' . $arm)));
+
+        return count($scoped) === count($arms) ? $selector : implode(',', $scoped);
     }
 
     /** @param list<string> $conditions */

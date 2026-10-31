@@ -1161,6 +1161,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $convertChildren,
             fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): ?array => $this->convertElement($element, $fallbacks, $captureUnsupported),
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
+            fn (DOMElement $element, array &$fallbacks): ?array => $this->linkedRuntimeControlBlockFromAnchor($element, $fallbacks),
             $recognizePatterns,
             fn (DOMElement $element): bool => $this->requiresStandaloneInlineLayoutLeaf($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
@@ -3549,7 +3550,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             new LogoPatternContext(
                 $this->richTextMaterializer,
-                fn (DOMElement $sourceElement): array => $this->styleResolver->structuralPresentationDeclarations($sourceElement)
+                fn (DOMElement $sourceElement): array => $this->styleResolver->structuralPresentationDeclarations($sourceElement),
+                function (DOMElement $element, array &$fallbacks): void { $this->captureInlineSvgFallback($element, $fallbacks); }
             ),
             new GalleryPatternContext(
                 fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
@@ -11721,6 +11723,62 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($anchor), $children, $anchor);
+    }
+
+    /**
+     * Lowers a link wrapping one captured runtime control (a dialog-trigger
+     * button, say) to the source anchor saved as a layout-shell wrapper around
+     * that control's native block.
+     *
+     * The invalid interactive nesting real sources ship would otherwise take the
+     * wrapped-button preservation exit as one core/html island, although the
+     * control itself converts natively — the runtime authored-button the same
+     * element takes without a link. The shell keeps the anchor's exact
+     * attributes (the link target among them) around the editable control, and
+     * the control keeps its dialog binding attributes. Declines — keeping the
+     * wrapped-button preservation — when the control has no native conversion
+     * or any resulting block would still be core/html.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function linkedRuntimeControlBlockFromAnchor(DOMElement $anchor, array &$fallbacks): ?array
+    {
+        $control = null;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || 'button' !== strtolower($child->tagName) || null !== $control ) {
+                return null;
+            }
+            $control = $child;
+        }
+        if ( null === $control
+            || ! $this->runtimeIslands->isRuntimeDomTarget($control)
+            || array() === AuthoredButtonBlockGenerator::sourceSafeAttributes($control) ) {
+            return null;
+        }
+
+        $local    = array();
+        $children = $this->convertChildren($anchor, $local, true);
+        if ( array() === $children ) {
+            return null;
+        }
+        foreach ( $children as $child ) {
+            if ( 'core/html' === ($child['blockName'] ?? '') ) {
+                return null;
+            }
+        }
+        $fallbacks = array_merge($fallbacks, $local);
+
+        $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
+        if ( '' === $href ) {
+            $anchor->removeAttribute('href');
+        } else {
+            $anchor->setAttribute('href', $href);
+        }
+
+        return $this->layoutShellBlockForElements(array($anchor), $children, $anchor);
     }
 
     /**

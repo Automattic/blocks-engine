@@ -18,6 +18,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $failures = 0;
 $passes = 0;
@@ -49,6 +50,25 @@ $cssContent = static function (array $result, ?string $placement = null, ?string
 
     return implode("\n", $chunks);
 };
+
+// #3808: generated repairs must not restate a core-only authored selector.
+$neutral = '<!doctype html><html><head><style>.wp-block-x{opacity:0;visibility:hidden}</style></head>'
+    . '<body><div><p>Hi</p><div class="wp-block-x"><p>Hidden</p></div></div></body></html>';
+$coreClosed = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(array('path' => 'index.html', 'content' => $neutral)),
+))->toArray();
+$coreRepairCss = $cssContent($coreClosed, 'after-author', 'both');
+$assert('success' === $coreClosed['status'], 'a core-shaped closed-state selector compiles successfully');
+$assert(
+    1 === preg_match('/:root \.(blocks-engine-semantic-[a-f0-9]+-\d+)\{opacity:1!important;transform:none!important\}/', $coreRepairCss, $repairMatch),
+    'the frontend closed-state repair targets an importer semantic marker',
+    $coreRepairCss
+);
+$assert(
+    isset($repairMatch[1]) && str_contains($coreClosed['serialized_blocks'], $repairMatch[1]),
+    'the repaired element carries the importer marker used by its repair'
+);
 
 $faq = <<<'HTML'
 <div data-hook="widget-accordion-wrapper">

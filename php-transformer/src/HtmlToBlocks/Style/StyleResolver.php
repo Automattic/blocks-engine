@@ -1997,6 +1997,30 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether the source image's width is `auto` only because nothing sized it,
+     * while its height is limited.
+     *
+     * WordPress adds the attachment's width and height attributes to a Media
+     * Library image when it renders. The source image had none, so the browser
+     * derived its width from the limited height. The added width would instead
+     * be limited on its own and distort the image.
+     *
+     * @param array<string, array<string, mixed>> $declarations
+     */
+    private function imageWidthFollowsClampedHeight(DOMElement $image, array $declarations): bool
+    {
+        if ($image->hasAttribute('width') || isset($declarations['width'])) {
+            return false;
+        }
+        foreach (array('height', 'max-height') as $property) {
+            if ('' !== $this->comparableImageShapeConstraintValue($declarations, $property)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * A source `<img>` box constrained by author CSS `min-width`/`max-width`/
      * `min-height`/`max-height` — properties core/image cannot express as a
      * native block attribute at all — or by a `width`/`height` the caller's
@@ -2064,7 +2088,7 @@ final class StyleResolver implements ElementPresentationResolver
                 if ('' !== $nativeWidth || $this->imageAxisVariesByViewport($image, $property)) {
                     continue;
                 }
-                if ($widthResolvesToAuto) {
+                if ($widthResolvesToAuto || $this->imageWidthFollowsClampedHeight($image, $declarations)) {
                     $box['width'] = 'auto';
                     continue;
                 }
@@ -4379,7 +4403,15 @@ final class StyleResolver implements ElementPresentationResolver
 
         $classes = SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'));
 
-        return array() === $classes ? '' : CssIdent::compoundClassSelector($classes);
+        $selector = array() === $classes ? '' : CssIdent::compoundClassSelector($classes);
+        if ( '' !== $selector && ! (new CoreSelectorScoping())->selectorIsScoped($selector) ) {
+            // Authored core-shaped classes are not an imported-element scope.
+            // Reuse the semantic carrier emitted by source attribute projection
+            // so repairs cannot reveal blocks an owner adds after import.
+            return '.' . $this->context->authorSelectorProjectionState()->ensureSemanticMarker($element->getNodePath() ?? '');
+        }
+
+        return $selector;
     }
 
     /**

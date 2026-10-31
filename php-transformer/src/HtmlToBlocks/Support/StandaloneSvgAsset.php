@@ -28,9 +28,9 @@ final class StandaloneSvgAsset
         if ( ! $loaded || ! $root instanceof DOMElement || 'svg' !== $root->tagName || 'http://www.w3.org/2000/svg' !== $root->namespaceURI ) {
             return array( 'status' => 'invalid_svg' );
         }
-        // Page materialization may resolve CSS before extracting an asset. A raw
-        // standalone document has no such context: accept the existing passive
-        // classification only when every element belongs to this SVG document.
+        // A standalone SVG renders as its own image document, so its own CSS
+        // styles only itself. Accept that CSS when it reaches nothing outside
+        // the document, and every element belongs to this SVG document.
         $nodes = array( $root );
         foreach ( $root->getElementsByTagName('*') as $child ) {
             $nodes[] = $child;
@@ -41,7 +41,11 @@ final class StandaloneSvgAsset
             }
         }
         foreach ( $nodes as $node ) {
-            if ( 'http://www.w3.org/2000/svg' !== $node->namespaceURI || in_array(strtolower($node->localName), array( 'style', 'link' ), true) || $node->hasAttribute('style') ) {
+            if ( 'http://www.w3.org/2000/svg' !== $node->namespaceURI
+                || 'link' === strtolower($node->localName)
+                || ( 'style' === strtolower($node->localName) && ! self::isSelfContainedCss($node->textContent) )
+                || ( $node->hasAttribute('style') && ! self::isSelfContainedCss($node->getAttribute('style')) )
+            ) {
                 return array( 'status' => 'unsupported_svg_context' );
             }
             foreach ( $node->childNodes as $child ) {
@@ -71,6 +75,14 @@ final class StandaloneSvgAsset
             return array( 'status' => 'unresolved_svg_dimensions' );
         }
         return array( 'status' => 'supported', 'width' => max(1, (int) round($width)), 'height' => max(1, (int) round($height)) );
+    }
+
+    /** CSS that references nothing outside this document: no imports, and only same-document url(#id) references. */
+    private static function isSelfContainedCss(string $css): bool
+    {
+        $css = (string) preg_replace('#/\*.*?\*/#s', '', $css);
+        return 1 !== preg_match('/@import|image-set\s*\(|\\\\/i', $css)
+            && 1 !== preg_match('/\burl\s*\((?!\s*["\']?#[-_a-z0-9]+["\']?\s*\))/i', $css);
     }
 
     private static function length(string $value): ?float
