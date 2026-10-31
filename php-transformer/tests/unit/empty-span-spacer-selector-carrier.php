@@ -93,6 +93,9 @@ $reaches = static function (string $paint) use ($css, $spacer, $splitSelectorLis
 $assert($reaches('#f86'), 'the tag-qualified base paint rule has a selector that matches the emitted spacer');
 $assert($reaches('#0a0'), 'the tag-qualified hover paint rule has a selector that matches the emitted spacer');
 $assert($reaches('#00a'), 'the tag-qualified media-query paint rule has a selector that matches the emitted spacer');
+// core/spacer has no colour support. Restating the cascade-resolved paint on
+// a generated carrier with !important froze it, so :hover and @media lost.
+$assert(0 === preg_match('/background(?:-color)?:[^;}]*!\\s*important/i', $css), 'no generated rule pins spacer paint with !important');
 $assert(! str_contains($markup, 'data-blocks-engine-richtext-marker'), 'no rich-text marker is minted for a span that lowers to its own block');
 
 if ( 0 < $failures ) {

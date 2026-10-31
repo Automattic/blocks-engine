@@ -7085,22 +7085,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $paint = $this->styleResolver->styleAttributeMapper()->map(array_intersect_key($declarations, array_flip(array(
-            'background',
-            'background-color',
-            'background-image',
-            'background-position',
-            'background-size',
-            'background-repeat',
-            'background-attachment',
-            'background-origin',
-            'background-clip',
-            'background-blend-mode',
-        ))));
-        $attrs = array_merge($attrs, $paint['attrs']);
-        if ( array() !== $paint['style'] ) {
-            $attrs['style'] = array_replace_recursive($attrs['style'] ?? array(), $paint['style']);
-        }
         $attrs['height'] = $this->styleResolver->resolveCssVariablesInValue($declarations['height']);
         $attrs['width'] = $this->styleResolver->resolveCssVariablesInValue($declarations['width']);
 

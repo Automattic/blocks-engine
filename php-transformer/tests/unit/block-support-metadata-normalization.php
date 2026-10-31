@@ -48,7 +48,7 @@ $assert(! isset($navigationResult['blocks'][0]['attrs']['style']['spacing']['mar
 $spacerResult = ( new HtmlTransformer() )->transform('<style>.signal{display:block;width:24px;height:4px;background:var(--green)}</style><main><span class="signal"></span></main>')->toArray();
 $spacer = $spacerResult['blocks'][0]['innerBlocks'][0] ?? array();
 $spacerCss = implode("\n", array_column($spacerResult['assets'] ?? array(), 'content'));
-$assert(! isset($spacer['attrs']['style']['color']) && str_contains((string) ($spacer['attrs']['className'] ?? ''), 'be-inline-geometry-') && preg_match('/\.be-inline-geometry-[^{]+\{[^}]*background-color:var\(--green\)/', $spacerCss), 'Spacer carries metadata-rejected generated paint through deterministic CSS.');
+$assert(! isset($spacer['attrs']['style']['color']) && ! preg_match('/\\.be-inline-geometry-[^{]+\\{[^}]*background/', $spacerCss) && preg_match('/subject-class-[a-f0-9]+\\):not\\(\\.be-c-0\\)\\{[^}]*background:var\\(--green\\)/', $spacerCss), 'Spacer is painted by its projected author rule, not by generated paint that would freeze hover and media states (#3053).');
 
 $result = ( new HtmlTransformer() )->transform('<p style="min-height:12rem">Metadata carrier</p>')->toArray();
 $block = $result['blocks'][0] ?? array();
