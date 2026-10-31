@@ -114,6 +114,24 @@ final class RuntimeIslandAnalyzer
         return array_values(array_unique($selectors));
     }
 
+    /** Core table rows and sections cannot save selector hooks, even when populated. */
+    public function shouldPreserveRuntimeTable(DOMElement $element): bool
+    {
+        if ( 'table' !== strtolower($element->tagName) ) {
+            return false;
+        }
+
+        foreach ( $this->context->descendantElements($element) as $descendant ) {
+            if ( in_array(strtolower($descendant->tagName), array( 'thead', 'tbody', 'tfoot', 'tr' ), true)
+                && $this->isRuntimeDomTarget($descendant)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function shouldPreserveRuntimeAppShell(DOMElement $element): bool
     {
         if ( ! $this->context->runtimeSelectors()->hasRuntimeTargets() ) {
