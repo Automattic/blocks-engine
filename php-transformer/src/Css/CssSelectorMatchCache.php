@@ -254,6 +254,68 @@ final class CssSelectorMatchCache
         return $this->attributeNames[$key] = $names;
     }
 
+    /**
+     * The ids, classes and tags a set of elements carries, for
+     * {@see subjectMayMatch()}. An editor anchor class counts as the id it
+     * anchors, as it does for {@see styleRuleCandidates()}.
+     *
+     * @param list<DOMElement> $elements
+     * @return array{ids: array<string, true>, classes: array<string, true>, tags: array<string, true>}
+     */
+    public function subjectTokens(array $elements): array
+    {
+        $tokens = array( 'ids' => array(), 'classes' => array(), 'tags' => array() );
+        foreach ( $elements as $element ) {
+            $tokens['tags'][strtolower($element->tagName)] = true;
+            $id = $this->attribute($element, 'id');
+            if ( null !== $id ) {
+                $tokens['ids'][$id] = true;
+            }
+            foreach ( $this->classTokens($element) as $class ) {
+                $tokens['classes'][$class] = true;
+                $anchoredId = EngineMarker::editorAnchorId($class);
+                if ( null !== $anchoredId ) {
+                    $tokens['ids'][$anchoredId] = true;
+                }
+            }
+        }
+        return $tokens;
+    }
+
+    /**
+     * False only when a supported selector's subject compound requires an id,
+     * class or tag that none of the elements behind $tokens carries, so
+     * {@see matches()} would report a supported non-match for each of them.
+     * Support is a property of the selector alone, so an unsupported selector
+     * always answers true and keeps reporting as unsupported.
+     *
+     * @param array<string, mixed> $selector
+     * @param array{ids: array<string, true>, classes: array<string, true>, tags: array<string, true>} $tokens
+     */
+    public function subjectMayMatch(array $selector, array $tokens): bool
+    {
+        if ( ! ($selector['supported'] ?? false) || null !== ($selector['pseudo_state_suffix_span'] ?? null) ) {
+            return true;
+        }
+        $compounds = $selector['compounds'] ?? array();
+        $subject = array() === $compounds ? null : $compounds[array_key_last($compounds)];
+        if ( ! is_array($subject) ) {
+            return true;
+        }
+        foreach ( $subject['ids'] ?? array() as $id ) {
+            if ( ! isset($tokens['ids'][(string) $id]) ) {
+                return false;
+            }
+        }
+        foreach ( $subject['classes'] ?? array() as $class ) {
+            if ( ! isset($tokens['classes'][(string) $class]) ) {
+                return false;
+            }
+        }
+        $type = $subject['type'] ?? null;
+        return ! is_string($type) || '' === $type || '*' === $type || isset($tokens['tags'][strtolower($type)]);
+    }
+
     /** @param array<string, mixed> $selector @return array{supported: bool, matches: bool} */
     public function matches(DOMElement $element, string $selectorText, array $selector, bool $accountForPseudoStateSuffix = false): array
     {
