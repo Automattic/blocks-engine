@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\GeneratedBlockContent;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
@@ -597,6 +598,20 @@ $adoptedSpanCss = array_values(array_filter($adoptedSpan['assets'] ?? array(), s
 $adoptedSpanPages = array_column($adoptedSpan['source_reports']['compiled_site']['pages'] ?? array(), 'block_markup', 'source_path');
 $adoptedSpanCarriers = preg_match_all('/<p class="[^"]*blocks-engine-synthetic-paragraph[^"]*blocks-engine-role-semantic blocks-engine-subject [^"]*">(?:construction|campaign)</', implode('', $adoptedSpanPages));
 $assert(2 === $adoptedSpanCarriers && 1 === count($adoptedSpanCss) && 'icons.css' === ($adoptedSpanCss[0]['path'] ?? '') && 0 === preg_match('/blocks-engine-semantic-[a-f0-9]{12}-\d+/', (string) ($adoptedSpanCss[0]['content'] ?? '')) && str_contains((string) ($adoptedSpanCss[0]['content'] ?? ''), 'font-size:2.25rem'), 'a text-only span adopted as its own paragraph is covered by the subject arm, so its stylesheet stays one shared asset with no per-element arm');
+
+// A page copy re-emits a later shared rule only where it styles an element a
+// kept page rule styles, including content a generated block renders.
+$galleryGrid = '<photo-grid><div class="third quarter"><img src="a.jpg" alt="a"></div><div class="third quarter"><img src="b.jpg" alt="b"></div></photo-grid>';
+$pageDelta = ( new ArtifactCompiler() )->compile(array( 'entrypoint' => 'index.html', 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><p>First</p></main>' ),
+    array( 'path' => 'second.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><button class="third">Second</button>' . $galleryGrid . '</main>' ),
+    array( 'path' => 'site.css', 'kind' => 'css', 'content' => '@namespace svg url("urn:fixture:svg");button{padding:12px}.third{width:33%}.quarter{width:25%}.unused{width:10%}' ),
+) ) )->toArray();
+$pageDeltaCss = implode('', array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($pageDelta['assets'] ?? array(), static fn (array $asset): bool => str_starts_with((string) ($asset['path'] ?? ''), 'site.page-'))));
+$assert(str_contains($pageDeltaCss, '.third:not(') && str_contains($pageDeltaCss, '.quarter{width:25%}') && ! str_contains($pageDeltaCss, '.unused'), 'a page copy re-emits the shared rule its rewritten rule would outrank on generated gallery content, and no unrelated rule of the same property');
+
+$nestedReference = GeneratedBlockContent::rendered('<!-- wp:ns/shell {"tagName":"div"} --><div><!-- wp:ns/grid {"content":"' . str_repeat('\\u003cb class=\\u0022cell\\u0022\\u003e\\u003c/b\\u003e', 5000) . '"} /--></div><!-- /wp:ns/shell -->', array( 'ns/grid' => true ));
+$assert(5000 === substr_count($nestedReference, '<b class="cell"></b>') && str_ends_with($nestedReference, '</div><!-- /wp:ns/shell -->'), 'a large generated block reference inside an open block renders its own content and keeps the page');
 
 // A source grid's attribute-specific desktop winner must remain later than a
 // shared fallback that still matches the attribute-free editable Group.

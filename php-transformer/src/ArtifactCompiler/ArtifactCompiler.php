@@ -395,7 +395,11 @@ final class ArtifactCompiler
         // Pages sharing chrome each carry an identical copy of the same part;
         // one copy is the same selector evidence, and every route appends this.
         foreach (array_unique(array_map(static fn (array $part): string => (string) ($part['block_markup'] ?? ''), $parts)) as $partMarkup) $sharedMarkup .= "\n" . $partMarkup;
-        foreach ($pageMarkup as &$markup) $markup .= "\n" . $sharedMarkup;
+        // Selector evidence is the rendered page: a generated block emits its
+        // per-instance content in place of its self-closing reference.
+        $contentRenderers = GeneratedBlockContent::rendererNames($allGeneratedBlocks);
+        $sharedMarkup = GeneratedBlockContent::rendered($sharedMarkup, $contentRenderers);
+        foreach ($pageMarkup as &$markup) $markup = GeneratedBlockContent::rendered($markup, $contentRenderers) . "\n" . $sharedMarkup;
         unset($markup);
         $authoredFiles = $normalized['files'];
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics, $sharedMarkup);
@@ -2653,6 +2657,9 @@ final class ArtifactCompiler
             $routeDocuments[$owner] = $dom;
         }
         $routeMatchIndex = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex($routeDocuments);
+        // A page copy loads after the shared stylesheet: it re-emits a shared rule
+        // only when that rule styles an element of the route a kept rule styles.
+        $styledOn = static fn (string $owner): \Closure => static fn (string $arm): ?array => $routeMatchIndex->elementsStyledBy($arm, $owner);
         $reserved = array_fill_keys(array_column($files, 'path'), true);
         $output = array();
         foreach ( $files as $file ) {
@@ -2746,7 +2753,7 @@ final class ArtifactCompiler
             $largestCopy = $totalCopyBytes = 0;
             if (0 < $routed['route_bytes']) {
                 foreach ($routed['scoped'] as $owner) {
-                    $copyBytes = strlen($transformer->rulesAbsentFrom($pageProjections[$owner] ?? array(), $fallbackSharedStylesheets, true));
+                    $copyBytes = strlen($transformer->rulesAbsentFrom($pageProjections[$owner] ?? array(), $fallbackSharedStylesheets, true, $styledOn((string) $owner)));
                     $largestCopy = max($largestCopy, $copyBytes);
                     $totalCopyBytes += $copyBytes;
                 }
@@ -2766,7 +2773,7 @@ final class ArtifactCompiler
             $projectedFile['metadata']['native_selectors'] = array_keys($native);
             $output[] = $projectedFile;
             foreach ( $pages as $owner => $pageStylesheets ) {
-                $delta = $recompact($transformer->rulesAbsentFrom($pageStylesheets, $fallbackSharedStylesheets, true));
+                $delta = $recompact($transformer->rulesAbsentFrom($pageStylesheets, $fallbackSharedStylesheets, true, $styledOn((string) $owner)));
                 if ( '' === trim($delta) ) {
                     continue;
                 }

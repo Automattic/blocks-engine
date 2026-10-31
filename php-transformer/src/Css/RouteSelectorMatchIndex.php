@@ -57,6 +57,65 @@ final class RouteSelectorMatchIndex
     public function inertOutside(string $arm, array $outside): bool
     {
         if (self::dependsOnRouteState($arm)) return false;
+        [$parsed, $byOwner] = $this->subject($arm);
+        if (!$parsed['supported']) return false;
+        foreach ($outside as $owner => $_) {
+            if (!isset($this->owners[$owner])) return false;
+            if (isset($this->hits[$arm]) && array_key_exists($owner, $this->hits[$arm])) {
+                if (array() !== $this->hits[$arm][$owner]) return false;
+                continue;
+            }
+            foreach ($byOwner[$owner] ?? array() as $id) {
+                $match = $this->cache->matches($this->elements[$id], $arm, $parsed, true);
+                if (!$match['supported'] || $match['matches']) return false;
+            }
+            $this->hits[$arm][$owner] = array();
+        }
+        return true;
+    }
+
+    /**
+     * Elements of a route that a selector styles: its own subject, or the
+     * originating element of a pseudo-element. Null when this markup cannot
+     * say (route state, unsupported or escaped selectors, missing documents).
+     *
+     * @return array<int,true>|null
+     */
+    public function elementsStyledBy(string $arm, string $owner): ?array
+    {
+        $originating = str_contains($arm, '\\') ? $arm : preg_replace('/::?(?:before|after|marker|placeholder|selection|backdrop|first-line|first-letter|file-selector-button|-webkit-[a-z-]+|-moz-[a-z-]+)(?![\w(-])/i', '', $arm) ?? $arm;
+        return $this->elementsMatching('' === trim($originating) ? '*' : $originating, $owner);
+    }
+
+    /**
+     * Matching elements of one route, structurally (in every dynamic state).
+     *
+     * @return array<int,true>|null
+     */
+    private function elementsMatching(string $arm, string $owner): ?array
+    {
+        if (self::dependsOnRouteState($arm) || !isset($this->owners[$owner])) return null;
+        [$parsed, $byOwner] = $this->subject($arm);
+        if (!$parsed['supported']) return null;
+        if (!isset($this->hits[$arm]) || !array_key_exists($owner, $this->hits[$arm])) {
+            $hits = array();
+            foreach ($byOwner[$owner] ?? array() as $id) {
+                $match = $this->cache->matches($this->elements[$id], $arm, $parsed, true);
+                if (!$match['supported']) { $hits = null; break; }
+                if ($match['matches']) $hits[$id] = true;
+            }
+            $this->hits[$arm][$owner] = $hits;
+        }
+        return $this->hits[$arm][$owner];
+    }
+
+    /**
+     * A selector's parse and its candidate elements per route, once.
+     *
+     * @return array{0: array<string,mixed>, 1: array<string,list<int>>}
+     */
+    private function subject(string $arm): array
+    {
         if (!isset($this->selectors[$arm])) {
             // Match the structural subject in every state, as the projector does.
             // Do not rewrite quoted attributes or functional negations: those
@@ -92,20 +151,6 @@ final class RouteSelectorMatchIndex
             }
             $this->selectors[$arm] = array($parsed, $byOwner);
         }
-        [$parsed, $byOwner] = $this->selectors[$arm];
-        if (!$parsed['supported']) return false;
-        foreach ($outside as $owner => $_) {
-            if (!isset($this->owners[$owner])) return false;
-            if (!isset($this->hits[$arm][$owner])) {
-                $hit = false;
-                foreach ($byOwner[$owner] ?? array() as $id) {
-                    $match = $this->cache->matches($this->elements[$id], $arm, $parsed, true);
-                    if (!$match['supported'] || $match['matches']) { $hit = true; break; }
-                }
-                $this->hits[$arm][$owner] = $hit;
-            }
-            if ($this->hits[$arm][$owner]) return false;
-        }
-        return true;
+        return $this->selectors[$arm];
     }
 }

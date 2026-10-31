@@ -183,6 +183,16 @@ $transitive = $transformer->rulesAbsentFrom(
     true
 );
 $assert('.control:not(.engine){left:0}.item{left:1px;grid-row:1}@media (max-width:600px){.item--compact{grid-row:2}}' === $transitive, 'a rule overriding a re-emitted shared rule is re-emitted after it, while a rule sharing no property stays shared');
+// With the page's styled elements, a later shared rule of the same family is
+// re-emitted only when it styles an element a kept rule styles, or is unknown.
+$styled = array('.link.page-a' => array(1 => true), '.link:hover' => array(1 => true), '.unrelated' => array(2 => true), '.dead' => array(), '.widget' => null);
+$delta = $transformer->rulesAbsentFrom(
+    array('.link.page-a{color:red}.unrelated{color:green}.link:hover{color:blue}.dead{color:gray}.widget{color:teal}'),
+    array('.link{color:black}.unrelated{color:green}.link:hover{color:blue}.dead{color:gray}.widget{color:teal}'),
+    true,
+    static fn (string $arm): ?array => $styled[$arm]
+);
+$assert('.link.page-a{color:red}.link:hover{color:blue}.widget{color:teal}' === $delta, 'a page delta keeps shared rules on the page rule\'s elements and unknown ones, not other elements or none');
 // Shorthands and their longhands (vendor-prefixed or not) set the same values.
 $shorthand = $transformer->rulesAbsentFrom(
     array('.field.page-a{border:0}.field--error{border-color:red}.field--stack{-webkit-flex-direction:column}.panel.page-a{flex:1}'),

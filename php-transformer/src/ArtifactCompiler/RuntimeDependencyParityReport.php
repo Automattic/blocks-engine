@@ -372,7 +372,7 @@ final class RuntimeDependencyParityReport
                 $attrs = json_decode($json, true);
                 $content = is_array($attrs) ? ($attrs['content'] ?? null) : null;
                 if ( is_string($content) && '' !== $content ) {
-                    $chunks[] = $this->rendererEmittedMarkup($content);
+                    $chunks[] = GeneratedBlockContent::emitted($content);
                 }
             }
         }
@@ -420,16 +420,6 @@ final class RuntimeDependencyParityReport
         }
 
         return null;
-    }
-
-    private function rendererEmittedMarkup(string $content): string
-    {
-        $content = preg_replace('#<\s*(?:script|style|iframe|object|embed|foreignobject|animate|animatemotion|animatetransform|set)\b[^>]*>.*?</\s*(?:script|style|iframe|object|embed|foreignobject|animate|animatemotion|animatetransform|set)\s*>#is', '', $content) ?? '';
-        $content = preg_replace('#<\s*(?:script|style|iframe|object|embed|foreignobject|animate|animatemotion|animatetransform|set)\b[^>]*/?\s*>#is', '', $content) ?? '';
-        $content = preg_replace('#<\s*(/?)\s*[a-z][a-z0-9]*-[a-z0-9-]+\b#i', '<$1div', $content) ?? '';
-        $content = preg_replace('/\sdata-wp-[a-z0-9_-]*(?:\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+))?/i', '', $content) ?? '';
-
-        return $content;
     }
 
     /**

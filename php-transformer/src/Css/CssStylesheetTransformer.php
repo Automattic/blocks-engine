@@ -183,11 +183,15 @@ final class CssStylesheetTransformer
      * sets: the page stylesheet loads after the shared one, so a kept rule
      * would otherwise outrank the later shared rule it originally lost to.
      * Kept shared rules count too, since re-emitting one moves it later.
+     * Given the elements each selector styles on the page (null: unknown),
+     * a shared rule must also style an element a kept rule styles; one
+     * styling no element cannot be outranked there.
      *
      * @param list<string> $stylesheets
      * @param list<string> $present
+     * @param (\Closure(string): (array<int,true>|null))|null $elementsStyledBy
      */
-    public function rulesAbsentFrom(array $stylesheets, array $present, bool $preserveCascade = false): string
+    public function rulesAbsentFrom(array $stylesheets, array $present, bool $preserveCascade = false, ?\Closure $elementsStyledBy = null): string
     {
         foreach ( array_merge($stylesheets, $present) as $stylesheet ) {
             if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
@@ -203,6 +207,7 @@ final class CssStylesheetTransformer
             }
         }
         $kept = array();
+        // Family => true, or with a matcher: family => styled elements (null: unknown).
         $keptProperties = array();
         foreach ( $stylesheets as $stylesheet ) {
             $units = array();
@@ -210,14 +215,81 @@ final class CssStylesheetTransformer
             foreach ( $units as $unit ) {
                 $key = self::ruleUnitKey($unit);
                 $properties = $preserveCascade ? self::cascadePropertyFamilies($unit['text']) : array();
-                if ( ! $unit['dedupable'] || ! isset($seen[ $key ]) || self::cascadeFamiliesOverlap($properties, $keptProperties) ) {
+                $elements = false;
+                $absent = ! $unit['dedupable'] || ! isset($seen[ $key ]);
+                if ( ! $absent && self::cascadeFamiliesOverlap($properties, $keptProperties) ) {
+                    $absent = null === $elementsStyledBy || self::stylesKeptElement($properties, $keptProperties, $elements = self::unitElements($unit, $elementsStyledBy));
+                }
+                if ( $absent ) {
                     $kept[] = $unit;
-                    $keptProperties += $properties;
+                    if ( null === $elementsStyledBy ) {
+                        $keptProperties += $properties;
+                    } else {
+                        if ( false === $elements ) $elements = self::unitElements($unit, $elementsStyledBy);
+                        // A kept rule styling nothing here may style script-built markup.
+                        $styled = array() === $elements ? null : $elements;
+                        foreach ( $properties as $family => $_ ) {
+                            $keptProperties[ $family ] = null === $styled || ( array_key_exists($family, $keptProperties) && null === $keptProperties[ $family ] ) ? null : ( $keptProperties[ $family ] ?? array() ) + $styled;
+                        }
+                    }
                 }
                 $seen[ $key ] = true;
             }
         }
         return $this->serializeRuleUnits($kept);
+    }
+
+    /**
+     * Whether a shared rule may style an element a kept rule of an
+     * overlapping property family styles.
+     *
+     * @param array<string,true> $properties
+     * @param array<string,array<int,true>|null> $kept
+     * @param array<int,true>|null $elements
+     */
+    private static function stylesKeptElement(array $properties, array $kept, ?array $elements): bool
+    {
+        if ( array() === $elements ) {
+            return false;
+        }
+        $families = isset($properties['*']) ? $kept : ( array_intersect_key($kept, $properties) + array_intersect_key($kept, array( '*' => true )) );
+        foreach ( $families as $styled ) {
+            if ( null === $styled || null === $elements || array() !== array_intersect_key($styled, $elements) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Elements a style rule unit styles, or null when its selector cannot be
+     * read: at-rule bodies, nested rules, unparseable lists, unknown arms.
+     *
+     * @param array{context: list<string>, text: string, dedupable: bool} $unit
+     * @param \Closure(string): (array<int,true>|null) $elementsStyledBy
+     * @return array<int,true>|null
+     */
+    private static function unitElements(array $unit, \Closure $elementsStyledBy): ?array
+    {
+        $text = (string) preg_replace('/\/\*.*?\*\//s', '', $unit['text']);
+        $brace = strpos($text, '{');
+        if ( false === $brace || str_contains(substr($text, $brace + 1), '{') ) {
+            return null;
+        }
+        $prelude = trim(substr($text, 0, $brace));
+        $arms = '' === $prelude || '@' === $prelude[0] ? null : self::splitSelectorList($prelude);
+        if ( null === $arms ) {
+            return null;
+        }
+        $elements = array();
+        foreach ( $arms as $arm ) {
+            $styled = $elementsStyledBy(trim($arm));
+            if ( null === $styled ) {
+                return null;
+            }
+            $elements += $styled;
+        }
+        return $elements;
     }
 
     /**
@@ -771,10 +843,10 @@ final class CssStylesheetTransformer
         return $families;
     }
 
-    /** @param array<string, true> $families @param array<string, true> $kept */
+    /** @param array<string, true> $families @param array<string, mixed> $kept */
     private static function cascadeFamiliesOverlap(array $families, array $kept): bool
     {
-        return array() !== $families && array() !== $kept && ( isset($families['*']) || isset($kept['*']) || array() !== array_intersect_key($families, $kept) );
+        return array() !== $families && array() !== $kept && ( isset($families['*']) || array_key_exists('*', $kept) || array() !== array_intersect_key($families, $kept) );
     }
 
     /** @param array{context: list<string>, text: string, dedupable: bool} $unit */
