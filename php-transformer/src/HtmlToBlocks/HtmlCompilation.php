@@ -10097,8 +10097,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $attrs = $this->imagePresentationAttributes($image, $figure);
         // Site-logo's rounded style belongs to its wrapper, not the source
-        // image. core/image saves a new figure and does not inherit that
-        // wrapper's radius; carry the equivalent native image style explicitly.
+        // image. Keep the native style, but also give the replacement figure
+        // the wrapper's radius: projected logo rules make a/img inherit it and
+        // outrank core/image's zero-specificity rounded-image rule.
         $logo = $image->parentNode;
         if ( $logo instanceof DOMElement && 'a' === strtolower($logo->tagName) ) {
             $logo = $logo->parentNode;
@@ -10106,7 +10107,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( $logo instanceof DOMElement
             && SourceDom::hasClass($logo, 'wp-block-site-logo')
             && SourceDom::hasClass($logo, 'is-style-rounded') ) {
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-style-rounded');
+            $radius = array_intersect_key(
+                $this->styleResolver->resolvedPresentationDeclarations($logo),
+                array_flip(array('border-radius', 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius'))
+            );
+            $attrs['className'] = $this->mergeClassNames(
+                (string) ($attrs['className'] ?? ''),
+                'is-style-rounded',
+                $this->styleResolver->inlineGeometryClassName($logo, array(), array_keys($radius), $radius)
+            );
         }
         if ( null !== $picture && ! $figure instanceof DOMElement ) {
             $attrs = array_merge($this->styleResolver->presentationAttributes($picture), $attrs);
