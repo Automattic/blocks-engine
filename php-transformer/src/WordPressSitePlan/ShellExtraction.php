@@ -210,14 +210,17 @@ final class ShellExtraction
         return $row;
     }
 
-    private static function documentChromeIdentity(string $markup): string
+    public static function documentChromeIdentity(string $markup): string
     {
         // Only generated identity is ignored; authored ids, classes and all
         // content remain significant. Device variants are compared separately.
         $markup = preg_replace('/be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
-        $markup = preg_replace('/' . preg_quote((string) DocumentVariantIds::suffixForClass(CaptureEvidence::MOBILE_DOCUMENT_CLASS), '/') . '\b/', '', $markup) ?? $markup;
+        $suffix = (string) DocumentVariantIds::suffixForClass(CaptureEvidence::MOBILE_DOCUMENT_CLASS);
+        // Block attribute JSON escapes hyphens; rendered HTML keeps them literal.
+        $markup = str_replace(str_replace('--', '\\u002d\\u002d', $suffix), $suffix, $markup);
+        $markup = preg_replace('/' . preg_quote($suffix, '/') . '\b/', '', $markup) ?? $markup;
         $markup = preg_replace_callback('/("className"\s*:\s*"|\bclass=")([^"]*)"/', static function (array $match): string {
-            $classes = preg_split('/\s+/', trim($match[2])) ?: array();
+            $classes = array_values(array_filter(preg_split('/\s+/', trim($match[2])) ?: array(), static fn(string $class): bool => !str_starts_with($class, EngineMarker::EDITOR_ANCHOR_PREFIX)));
             sort($classes, SORT_STRING);
             return $match[1] . implode(' ', $classes) . '"';
         }, $markup) ?? $markup;

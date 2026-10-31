@@ -4031,9 +4031,11 @@ PHP;
                 }
                 if (count($bodies) !== count($contents) || $this->postChromeFactoringStrandsBindings($post, $retained, $declarations, $records)) continue;
                 $pages[$index]['route_template'] = 'single';
-                // Exact serialized equality also preserves authored styles and
-                // bindings. Text equality alone cannot establish render parity.
-                $pages[$index]['canonical_block_markup'] = 1 === count(array_unique($articles)) ? $articles[0] : implode("\n", $bodies);
+                // Compare the same non-semantic per-document capture identity
+                // as shell extraction, but retain the desktop payload verbatim
+                // so its authored blocks and generated geometry keep their CSS.
+                $identities = array_map(array(ShellExtraction::class, 'documentChromeIdentity'), $articles);
+                $pages[$index]['canonical_block_markup'] = 1 === count(array_unique($identities)) ? $articles[0] : implode("\n", $bodies);
                 $pages[$index]['content_hash'] = self::contentHash($pages[$index]['canonical_block_markup']);
                 continue;
             }

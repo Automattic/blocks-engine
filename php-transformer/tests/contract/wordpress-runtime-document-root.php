@@ -82,14 +82,22 @@ $assert(str_contains($reorderedSingle, '<!-- wp:comment-template') && str_contai
 $assert(2 === count($reorderedPlan['comment_entities']), 'Changing the chrome owner does not lose comment records.');
 // A route may retain separate desktop/mobile documents. Its visibility
 // wrappers must surround article children, not another copy of the site shell.
-$source = $artifact['files'][2]['content'];
+$source = str_replace('<p>Unique article for second.</p>', '<h2 id="article-start">Unique article for second.</h2><figure class="wp-block-image be-inline-geometry-1111111111111111"><img src="https://example.org/article.png" width="640" height="480"></figure>', $artifact['files'][2]['content']);
 preg_match('~<body>(.*)</body>~s', $source, $match);
+$source = str_replace('</style>', '.be-inline-geometry-1111111111111111{margin-top:12px}.be-inline-geometry-2222222222222222{margin-top:12px}</style>', $source);
 $copies = '';
 foreach (array('desktop', 'mobile') as $device) {
-    $copies .= '<div class="data-blocks-engine-capture-' . $device . '-document" data-blocks-engine-capture-document-scope="">' . $match[1] . '</div>';
+    $body = str_replace('id="article-start"', 'id="article-start" class="blocks-engine-editor-anchor-article-start"', $match[1]);
+    if ('mobile' === $device) {
+        $body = str_replace('id="article-start"', 'id="article-start--data-blocks-engine-capture-mobile"', $body);
+        $body = str_replace(array('blocks-engine-editor-anchor-article-start', 'be-inline-geometry-1111111111111111'), array('blocks-engine-editor-anchor-article-start--data-blocks-engine-capture-mobile', 'be-inline-geometry-2222222222222222'), $body);
+    }
+    $copies .= '<div class="data-blocks-engine-capture-' . $device . '-document" data-blocks-engine-capture-document-scope="">' . $body . '</div>';
 }
 $artifact['files'][2]['content'] = str_replace($match[1], $copies, $source);
-$dualPlan = (new WordPressSitePlan())->fromCompilerResult((new ArtifactCompiler())->compile($artifact)->toArray());
+$artifact['block_namespace'] = 'ssi-example';
+$dualResult = (new ArtifactCompiler())->compile($artifact)->toArray();
+$dualPlan = (new WordPressSitePlan())->fromCompilerResult($dualResult);
 WordPressSitePlan::assertValid($dualPlan);
 foreach ($dualPlan['pages'] as $post) {
     if ('post' !== $post['post_type']) continue;
@@ -97,7 +105,14 @@ foreach ($dualPlan['pages'] as $post) {
     $assert(!str_contains($post['canonical_block_markup'], 'wp:template-part') && !str_contains($post['canonical_block_markup'], '<main'), 'Neither responsive copy keeps shell chrome.');
     if ('second' === $post['slug']) {
         $assert(1 === substr_count($post['canonical_block_markup'], 'Unique article'), 'Equivalent responsive article copies collapse to one body.');
-        $assert(!str_contains($post['canonical_block_markup'], 'capture-document-scope'), 'Equivalent bodies need no responsive document wrapper.');
+        $content = $post['canonical_block_markup'];
+        $assert(!str_contains($content, '/layout-shell') && !str_contains($content, 'capture-document-scope'), 'Equivalent bodies need no responsive document wrapper.');
+        $assert(str_starts_with($content, '<!-- wp:heading '), 'Article starts with its first block, directly in post-content.');
+        $assert(str_contains($content, '"anchor":"article-start"') && !str_contains($content, '--data-blocks-engine-capture-mobile'), 'Desktop article identity survives unchanged.');
+        preg_match_all('/be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', $content, $geometry);
+        $assert(array() !== $geometry[0], 'Kept article has generated image geometry.');
+        $css = implode("\n", array_column($dualPlan['assets'], 'content'));
+        foreach (array_unique($geometry[0]) as $class) $assert(str_contains($css, '.' . $class), 'Kept geometry CSS still ships.');
     }
 }
 $assert(!str_contains(json_encode($dualPlan), 'blocksEnginePostContent'), 'Dual documents must not leak private markers.');
