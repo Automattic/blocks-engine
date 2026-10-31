@@ -581,6 +581,7 @@
       "php tests/unit/nth-child-columns.php",
       "php tests/unit/complex-not-selector-matching.php",
       "php tests/unit/static-css-cascade.php",
+            "php tests/unit/state-style-family.php",
             "php tests/unit/cascaded-custom-property-memo.php",
       "php tests/unit/projected-box-shorthand-cascade.php",
       "php tests/unit/inline-declaration-priority.php",

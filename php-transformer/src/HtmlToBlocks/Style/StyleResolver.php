@@ -1788,14 +1788,24 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function hasStateStyleFamily(DOMElement $element, string $family): bool
     {
-        foreach ( $this->context->sourceStyles()->navigationStateRules() as $rule ) {
-            $declared = array_filter(array_keys($rule['declarations'] ?? array()), fn (int|string $property): bool => $family === $this->responsivePropertyFamily((string) $property));
-            if ( array() !== $declared && $this->matchesCssSelector($element, (string) ($rule['base_selector'] ?? '')) ) {
-                return true;
+        return isset($this->context->sourceStyles()->stateStyleFamilies($element, $this->computeStateStyleFamilies(...))[$family]);
+    }
+
+    /**
+     * Every family an interaction-state rule matching the element declares,
+     * found once per element through the state rules' resting-selector index.
+     *
+     * @return array<string, true>
+     */
+    private function computeStateStyleFamilies(DOMElement $element): array
+    {
+        $families = array();
+        foreach ( $this->styleRuleCandidates($element, 'state-families') as $rule ) {
+            if ( array() !== array_diff_key($rule['families'], $families) && $this->matchesCssSelector($element, (string) $rule['selector']) ) {
+                $families += $rule['families'];
             }
         }
-
-        return false;
+        return $families;
     }
 
     /**
@@ -5836,6 +5846,12 @@ final class StyleResolver implements ElementPresentationResolver
             'static-conditional-pseudo' => array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules(), $this->context->sourceStyles()->pseudoElementRules()),
             'cascaded-values' => $this->context->sourceStyles()->cascadedValueRules(),
             'image-shape' => $this->context->sourceStyles()->imageShapeRules(),
+            // Interaction-state rules indexed by their resting selector, each
+            // carrying the property families it declares.
+            'state-families' => array_map(fn (array $rule): array => array(
+                'selector' => (string) ($rule['base_selector'] ?? ''),
+                'families' => array_fill_keys(array_map(fn (int|string $property): string => $this->responsivePropertyFamily((string) $property), array_keys($rule['declarations'] ?? array())), true),
+            ), $this->context->sourceStyles()->navigationStateRules()),
         };
         $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'attributes' => array(), 'total' => count($rules));
         foreach ( $rules as $order => $rule ) {

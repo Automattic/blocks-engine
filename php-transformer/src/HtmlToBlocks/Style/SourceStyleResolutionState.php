@@ -59,6 +59,15 @@ final class SourceStyleResolutionState
     private array $ariaControlledTargetIds = array();
 
     /**
+     * Each source element's interaction-state families, keyed by node path and
+     * reused only for the same node; dropped with the selector match cache
+     * that decided them.
+     *
+     * @var array<string, array{node: DOMElement, families: array<string, true>}>
+     */
+    private array $stateStyleFamilies = array();
+
+    /**
      * Each source element's matched cascaded-value declarations, keyed by node
      * path. An entry is reused only for the same node with the same inline
      * style, so a node replaced at that path or restyled in place is
@@ -80,6 +89,7 @@ final class SourceStyleResolutionState
     {
         $this->selectorMatchCache->clear();
         $this->structuralDeclarations = array();
+        $this->stateStyleFamilies = array();
         $this->cascadedDeclarations = array();
         $this->ariaControlledTargetIds = array();
     }
@@ -94,6 +104,7 @@ final class SourceStyleResolutionState
         $this->staticRules = $analysis['static'];
         $this->conditionalRules = $analysis['conditional'];
         $this->navigationStateRules = $analysis['navigation_state'];
+        $this->stateStyleFamilies = array();
         $this->revealStateRules = $analysis['reveal_state'];
         $this->imageShapeRules = $analysis['image_shape'];
         $this->pseudoElementRules = $analysis['pseudo'];
@@ -140,6 +151,20 @@ final class SourceStyleResolutionState
             $entry = $this->cascadedDeclarations[$path] = array( 'node' => $element, 'style' => $style, 'declarations' => $declarations, 'custom' => $custom );
         }
         return $entry;
+    }
+
+    /**
+     * @param callable(DOMElement): array<string, true> $compute
+     * @return array<string, true>
+     */
+    public function stateStyleFamilies(DOMElement $element, callable $compute): array
+    {
+        $path = (string) $element->getNodePath();
+        $entry = $this->stateStyleFamilies[$path] ?? null;
+        if ( null === $entry || ! $entry['node']->isSameNode($element) ) {
+            $entry = $this->stateStyleFamilies[$path] = array( 'node' => $element, 'families' => $compute($element) );
+        }
+        return $entry['families'];
     }
 
     /** @return array<int, string> */
