@@ -3807,6 +3807,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     if (in_array('is-arrow-arrow', $nodeClasses, true)) $arrow = 'arrow';
                     elseif (in_array('is-arrow-chevron', $nodeClasses, true)) $arrow = 'chevron';
                 }
+                // A captured label sits inside the link (core's linkLabel); that
+                // is also the only label placement core keeps alongside an arrow.
                 // Keep the wrapper's own presentation (inline typography, source
                 // classes) so authored rules still reach the native block.
                 $attrs = $this->styleResolver->presentationAttributes($element);
@@ -3814,7 +3816,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $ownClasses = array_diff(preg_split('/\s+/', trim(($attrs['className'] ?? '') . ' ' . implode(' ', $classes))) ?: array(), array('', 'wp-block-post-navigation-link', 'post-navigation-link-' . $type, 'is-arrow-arrow', 'is-arrow-chevron'));
                 unset($attrs['className']);
                 if (array() !== $ownClasses) $attrs['className'] = implode(' ', array_unique($ownClasses));
-                return $this->createBlock('core/post-navigation-link', array_merge($attrs, array('type' => $type, 'showTitle' => null !== $title, 'arrow' => $arrow, 'label' => trim($label))), array(), $element);
+                return $this->createBlock('core/post-navigation-link', array_merge($attrs, array('type' => $type, 'showTitle' => null !== $title, 'arrow' => $arrow, 'label' => trim($label)), null !== $title && '' !== trim($label) ? array('linkLabel' => true) : array()), array(), $element);
             }
         }
 

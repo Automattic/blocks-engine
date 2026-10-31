@@ -30,7 +30,7 @@ WordPressSitePlan::assertValid($plan);
 $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
 $single = $templates['single'];
 preg_match_all('/<!-- wp:post-navigation-link (\{.*?\}) \/-->/', $single, $navigationBlocks);
-foreach ($navigationBlocks[1] as $json) { $navigationAttrs = json_decode($json, true); $assert('arrow' === ($navigationAttrs['arrow'] ?? null) && '0.875rem' === ($navigationAttrs['style']['typography']['fontSize'] ?? null), 'Post navigation keeps the captured arrow and typography: ' . $json); }
+foreach ($navigationBlocks[1] as $json) { $navigationAttrs = json_decode($json, true); $assert(true === ($navigationAttrs['linkLabel'] ?? null) && 'arrow' === ($navigationAttrs['arrow'] ?? null) && '0.875rem' === ($navigationAttrs['style']['typography']['fontSize'] ?? null), 'Post navigation keeps the captured arrow and typography: ' . $json); }
 $assert(2 === count($navigationBlocks[1]), 'Single binds both post navigation links.');
 // The authored rule on the comment body must still reach the native block.
 $commentRule = array_filter(array_column($plan['assets'], 'content'), static fn($css): bool => is_string($css) && str_contains($css, 'line-height:1.7') || is_string($css) && str_contains($css, 'line-height: 1.7'));
