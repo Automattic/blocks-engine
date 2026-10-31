@@ -172,6 +172,9 @@ $delta = $transformer->rulesAbsentFrom(
 );
 $assert('.link.page-a{color:red}.link.page-a{color:blue}' === $delta, 'cascade-preserving page deltas retain changed rules and later selector/property overrides, not unrelated suffix rules');
 
+$charset = $transformer->rulesAbsentFrom(array('/*# map */@charset "UTF-8";.shared{color:red}'), array('@charset "UTF-8";.shared{color:red}'), true);
+$assert(!str_contains($charset, '.shared'), 'a changed comment or @charset statement declares nothing, so later shared rules stay shared');
+
 // A shared rule re-emitted for interacting with a changed rule loads later
 // too, so a shared responsive rule it originally lost to must follow it.
 $transitive = $transformer->rulesAbsentFrom(
