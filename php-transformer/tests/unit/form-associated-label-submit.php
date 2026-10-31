@@ -24,6 +24,16 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 $transformer = new HtmlTransformer();
+// #1701: a sole type="button" is the form's submit unless it operates a widget.
+foreach ( array(
+    'sole action button' => array( '<form><input type="email" name="email"><button type="button">Go</button></form>', 'submit' ),
+    'popup trigger'      => array( '<form><div><button type="button" aria-haspopup="listbox" aria-label="Phone country selector">Country</button><input type="tel" name="phone"></div></form>', 'button' ),
+) as $case => list( $html, $expected ) ) {
+    $controls = $transformer->transform($html)->toArray()['fallbacks'][0]['controls'] ?? array();
+    $button   = current(array_filter($controls, static fn(array $control): bool => 'button' === ($control['tag'] ?? '')));
+    $assert($expected === ($button['type'] ?? null), $case . ' declares type ' . $expected, json_encode($button['type'] ?? null));
+}
+
 $captionResult = $transformer->transform('<style>.caption{color:#ffffff;font-family:Inter;font-size:14px;font-weight:600;line-height:1.2}@media(max-width:700px){button{font-size:12px}.caption{font-size:18px}}</style><form method="post"><input name="email" type="email"><button type="submit"><div><p class="caption">Send quote</p></div></button></form>')->toArray();
 $captionControl = current(array_filter($captionResult['fallbacks'][0]['controls'] ?? array(), static fn(array $control): bool => 'submit' === ($control['type'] ?? '')));
 $captionStyle = $captionControl['presentation']['style'] ?? array();

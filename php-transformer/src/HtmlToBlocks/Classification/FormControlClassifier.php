@@ -508,7 +508,23 @@ final class FormControlClassifier
             return false;
         }
 
-        return self::hasSubmitSemantics($control) || self::isSoleFormActionControl($control);
+        if ( self::hasSubmitSemantics($control) ) {
+            return true;
+        }
+
+        // A popup or disclosure trigger (a country picker, a menu button)
+        // operates a widget, so being the form's only button is no evidence
+        // that it submits.
+        return ! self::isWidgetTrigger($control) && self::isSoleFormActionControl($control);
+    }
+
+    private static function isWidgetTrigger(DOMElement $control): bool
+    {
+        $popup = strtolower(trim($control->getAttribute('aria-haspopup')));
+
+        return ( '' !== $popup && 'false' !== $popup )
+            || $control->hasAttribute('aria-expanded')
+            || $control->hasAttribute('aria-controls');
     }
 
     public static function hasSubmitSemantics(DOMElement $control): bool
