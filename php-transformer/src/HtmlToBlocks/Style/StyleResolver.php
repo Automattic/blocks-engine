@@ -1582,38 +1582,18 @@ final class StyleResolver implements ElementPresentationResolver
      * The functional-pseudo rules (static, then conditional, in source order)
      * whose selectors can name the element's id or one of its classes.
      *
-     * A name made of `[\w-]` alone, and a class CSS spells unescaped, is
-     * named exactly where it is a whole `[\w-]+` run after a `.` or `#`, so
-     * those runs index the rules. Any other name falls back to every
-     * functional-pseudo rule.
-     *
      * @return list<array<string, mixed>>
      */
     private function unsupportedSelectorRuleCandidates(DOMElement $element): array
     {
-        $cache = $this->context->sourceStyles();
-        $index = $cache->ruleCandidateIndexes['unsupported-selector'] ??= $this->unsupportedSelectorRuleIndex();
-        $names = array();
-        $id = trim(SourceDom::attr($element, 'id'));
-        if ( '' !== $id ) {
-            $names[] = '#' . $id;
-        }
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className ) {
-            if ( '' === $className ) {
-                continue;
-            }
-            // A class CSS spells escaped (`.\31 a`) is named either way.
-            if ( CssIdent::escape($className) !== $className ) {
-                return $index['rules'];
-            }
-            $names[] = '.' . $className;
+        $index = $this->context->sourceStyles()->ruleCandidateIndexes['unsupported-selector'] ??= $this->unsupportedSelectorRuleIndex();
+        $runs = SelectorNameRuns::naming($element);
+        if ( null === $runs ) {
+            return $index['rules'];
         }
         $orders = array();
-        foreach ( $names as $name ) {
-            if ( 1 !== preg_match('/^[.#][\w-]+$/D', $name) ) {
-                return $index['rules'];
-            }
-            $orders += $index['names'][$name] ?? array();
+        foreach ( $runs as $run ) {
+            $orders += $index['names'][$run] ?? array();
         }
         ksort($orders);
         return array_values(array_intersect_key($index['rules'], $orders));
@@ -1631,9 +1611,8 @@ final class StyleResolver implements ElementPresentationResolver
                 }
                 $order = count($index['rules']);
                 $index['rules'][] = $rule;
-                preg_match_all('/[.#][\w-]+/', $selector, $matches);
-                foreach ( $matches[0] as $name ) {
-                    $index['names'][$name][$order] = true;
+                foreach ( SelectorNameRuns::spelled($selector) as $run ) {
+                    $index['names'][$run][$order] = true;
                 }
             }
         }
