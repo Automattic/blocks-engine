@@ -480,12 +480,15 @@ final class FormControlMetadataBuilder
             }
         }
 
+        // Required validation and a visible required marker are separate source
+        // facts: a `novalidate` form can still mark fields with an `*`.
+        $marker = $this->requiredMarker($control);
+        if ( $marker instanceof DOMElement ) {
+            $metadata['required_text'] = trim($marker->textContent ?? '');
+        }
         if ( $control->hasAttribute('required') || 'true' === strtolower(trim(SourceDom::attr($control, 'aria-required'))) ) {
             $metadata['required'] = true;
-            if ( ($marker = $this->requiredMarker($control)) instanceof DOMElement ) {
-                $metadata['required_text'] = trim($marker->textContent ?? '');
-            } else {
-                // Required validation and a visible required marker are separate source facts.
+            if ( ! $marker instanceof DOMElement ) {
                 $metadata['required_indicator'] = false;
             }
         }
@@ -746,9 +749,6 @@ final class FormControlMetadataBuilder
     /** The explicit decorative required marker also supplies provider presentation identity. */
     public function requiredMarker(DOMElement $control): ?DOMElement
     {
-        if ( ! $control->hasAttribute('required') && 'true' !== strtolower(trim(SourceDom::attr($control, 'aria-required'))) ) {
-            return null;
-        }
         $label = $this->labelElement($control);
         if ( ! $label instanceof DOMElement ) {
             return null;

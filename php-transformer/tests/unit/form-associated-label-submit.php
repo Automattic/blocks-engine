@@ -110,6 +110,14 @@ $assert(
     'whitespace before a required marker remains a trailing label space'
 );
 
+$novalidate = $transformer->transform('<main><form novalidate method="post" action="#"><label for="naam">Naam <span aria-hidden="true">*</span></label><input id="naam" name="naam" type="text"><label for="note">Note</label><input id="note" name="note" type="text"><button type="submit">Send</button></form></main>')->toArray();
+$assert(
+    '*' === ($novalidate['fallbacks'][0]['controls'][0]['required_text'] ?? null)
+        && ! isset($novalidate['fallbacks'][0]['controls'][0]['required'])
+        && ! isset($novalidate['fallbacks'][0]['controls'][1]['required_text']),
+    'a visible required marker is published without required validation'
+);
+
 $assert(
     str_contains($serialized, 'Claim My Spot') && ! str_contains($serialized, '>Button<'),
     '1: type=button submit keeps visible copy instead of the type name',
