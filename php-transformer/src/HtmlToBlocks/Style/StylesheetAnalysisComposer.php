@@ -105,7 +105,7 @@ final class StylesheetAnalysisComposer
     /** @param list<string> $payloads @return array{static: array, conditional: array, navigation_state: array, reveal_state: array, image_shape: array, pseudo: array, cascaded_values: array, custom_properties: array} */
     public function composedStyleAnalysis(array $payloads): array
     {
-        $composed = array('static' => array(), 'conditional' => array(), 'navigation_state' => array(), 'reveal_state' => array(), 'image_shape' => array(), 'pseudo' => array(), 'cascaded_values' => array(), 'custom_properties' => array('root' => array(), 'fallback' => array()), 'layer_names' => array());
+        $composed = array('static' => array(), 'conditional' => array(), 'navigation_state' => array(), 'reveal_state' => array(), 'image_shape' => array(), 'pseudo' => array(), 'cascaded_values' => array(), 'custom_properties' => array(), 'layer_names' => array());
         $layers = array();
         $nextCascadeOrder = 0;
         foreach ( $payloads as $payload ) {
@@ -153,13 +153,8 @@ final class StylesheetAnalysisComposer
                 if (null !== ($rule['layer'] ?? null)) $rule['layer'] = $layers[$rule['layer']];
                 $composed['image_shape'][] = $rule;
             }
-            $composed['custom_properties']['root'] = array_merge($composed['custom_properties']['root'], $analysis['custom_properties']['root']);
-            $composed['custom_properties']['fallback'] = array_merge($composed['custom_properties']['fallback'], $analysis['custom_properties']['fallback']);
+            $composed['custom_properties'] = array_merge($composed['custom_properties'], $analysis['custom_properties']);
         }
-
-        $composed['custom_properties'] = array() !== $composed['custom_properties']['root']
-            ? $composed['custom_properties']['root']
-            : $composed['custom_properties']['fallback'];
 
         $composed['layer_names'] = array_keys($composed['layer_names']);
 
@@ -317,7 +312,14 @@ final class StylesheetAnalysisComposer
         return true;
     }
 
-    /** @return array{root: array<string, string>, fallback: array<string, string>} */
+    /**
+     * Document-wide custom properties: those `:root`/`html` declares. Tokens
+     * scoped to any other selector resolve through the element's ancestry in
+     * the cascade, never as global values, so a token one breakpoint or one
+     * component defines cannot leak into another.
+     *
+     * @return array<string, string>
+     */
     private function cssCustomPropertyAnalysis(string $css): array
     {
         $root = array();
@@ -345,14 +347,7 @@ final class StylesheetAnalysisComposer
 
             return $prelude;
         });
-        $fallback = array();
-        if ( preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $css, $matches, PREG_SET_ORDER) ) {
-            foreach ( $matches as $match ) {
-                $fallback[(string) $match[1]] = trim((string) $match[2]);
-            }
-        }
-
-        return array('root' => $root, 'fallback' => $fallback);
+        return $root;
     }
 
     /** @return array{source_tags: array<string, bool>, rules: list<array<string, mixed>>} */
