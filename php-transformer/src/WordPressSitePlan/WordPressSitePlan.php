@@ -2414,8 +2414,10 @@ PHP;
                         $instance = $assets[$entry['index']]['stylesheet_instances'][$entry['key']];
                         // Coalesced sources share one winning slot per condition,
                         // not one copy per link or only the last condition.
+                        // An omitted type is text/css: both are one condition.
                         $conditions = array('media' => $instance['media'], 'type' => $instance['type']) + self::stylesheetDeviceAttributes($instance);
-                        $origins[serialize($conditions)] = array('position' => $position) + $conditions;
+                        $key = array('type' => 'text/css' === strtolower(trim((string) $instance['type'])) ? '' : $instance['type']) + $conditions;
+                        $origins[serialize($key)] = array('position' => $position) + $conditions;
                     }
                 }
                 if (array() === $origins) $origins[] = array('position' => $preceding ?? -1, 'media' => (string) ($assets[$projection]['media'] ?? ''), 'type' => '');
