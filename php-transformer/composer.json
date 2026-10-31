@@ -901,6 +901,7 @@
       "php tests/unit/disclosure-panel-navigation.php",
       "php tests/unit/source-closed-panel-navigation.php",
       "php tests/unit/quote-element-converter.php",
+      "php tests/unit/article-blockquote-typography.php",
       "php tests/unit/figure-quote-without-caption.php",
       "php tests/unit/figure-quote-mixed-children.php",
       "php tests/unit/form-runtime-requirement-analyzer.php",
