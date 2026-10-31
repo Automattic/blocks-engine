@@ -133,8 +133,10 @@ $assert(count($published['routes']) === count(array_filter($published['routes'],
 $assert(in_array($sharedTarget, $published['global']['! $blocks_engine_route_styles'] ?? array(), true), 'WordPress-native routes no document owns load the shared chrome from the fallback. They also load the stylesheets of the page that authored the generic page frame.');
 // Cascade: the shared rules follow the route's own contributing <style>, and a
 // later authored stylesheet still follows them, as in the flat parent order.
-$assert(array('assets/index.inline.css', $sharedTarget, 'assets/route.css') === $published['routes'][$frontCondition], 'The front page keeps inline origin, shared chrome, then its later link: ' . json_encode($published['routes'][$frontCondition]));
-$assert(array('assets/guides/about.inline.css', $sharedTarget) === $published['routes'][$aboutCondition], 'A non-front route places shared chrome after its own contributing inline stylesheet: ' . json_encode($published['routes'][$aboutCondition]));
+$inlineTargets = array();
+foreach ($plan['assets'] as $asset) foreach ($asset['inline_references'] ?? array() as $reference) $inlineTargets[$reference['source_path']] = $asset['target_path'];
+$assert(array($inlineTargets['index.html'], $sharedTarget, 'assets/route.css') === $published['routes'][$frontCondition], 'The front page keeps inline origin, shared chrome, then its later link: ' . json_encode($published['routes'][$frontCondition]));
+$assert(array($inlineTargets['guides/about.html'], $sharedTarget) === $published['routes'][$aboutCondition], 'A non-front route places shared chrome after its own contributing inline stylesheet: ' . json_encode($published['routes'][$aboutCondition]));
 $assert(1 === count(array_filter($plan['writes'], static fn(array $write): bool => ($write['target_path'] ?? null) === $sharedTarget)), 'The shared chrome resource is written once however many routes publish it.');
 $editorSharedScopes = array();
 foreach ($published['editor'] as $style) if ($sharedTarget === $style['target_path']) $editorSharedScopes[] = !empty($style['fallback']) ? 'fallback' : (string) ($style['scopes'][0]['source_path'] ?? $style['scopes'][0]['kind']);

@@ -14,7 +14,7 @@ $compile = static fn (string $css, string $control, string $attributes = ''): ar
 ))))->toArray();
 $stylesheet = static function (array $result): string {
     foreach ( $result['assets'] as $asset ) {
-        if ( 'index.inline.css' === $asset['path'] ) return $asset['content'];
+        if ( 'inline-style' === ($asset['source'] ?? '') ) return $asset['content'];
     }
     throw new RuntimeException('Missing projected inline stylesheet');
 };

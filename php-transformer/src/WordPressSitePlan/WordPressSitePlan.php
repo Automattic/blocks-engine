@@ -1290,8 +1290,9 @@ PHP;
             $contentHash = $reference['sha256'] ?? self::contentHash($payload);
             $priorReferences = array();
             if (isset($rowByTarget[strtolower($target)])) [$target, $priorReferences] = $this->collidingAssetTarget($rows, $rowByTarget, $target, (string) $asset['path'], $contentHash);
-            $rowByTarget[strtolower($target)] = count($rows);
             $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'source_role' => self::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'placement' => self::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => self::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) || array() !== $priorReferences ? self::mergedReferences($priorReferences, is_array($asset['references'] ?? null) ? $asset['references'] : array()) : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $assetContent, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'stylesheet_link_position' => is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $contentHash), static fn(mixed $value): bool => null !== $value);
+            $rowByTarget[strtolower($target)] = array_key_last($rows);
+            if (isset($asset['inline_references'])) $rows[array_key_last($rows)]['inline_references'] = $asset['inline_references'];
             if (isset($asset['source_media']) && is_string($asset['source_media'])) $rows[array_key_last($rows)]['source_media'] = $asset['source_media'];
             if (isset($asset['stylesheet_activation'])) {
                 $rows[array_key_last($rows)]['stylesheet_activation'] = $asset['stylesheet_activation'];
@@ -1365,6 +1366,13 @@ PHP;
             // another route. Its link occurrences, rather than shared chrome
             // ownership, determine where each activation variant is delivered.
             if (isset($asset['stylesheet_activation'], $stylesheetSets[$stylesheetSource ?? '']) && 'page' !== ($compilation['scope'] ?? null)) $compilation = null;
+            if (isset($asset['inline_references'])) {
+                $referencedPages = array();
+                foreach ($asset['inline_references'] as $reference) if (isset($pagesBySource[$reference['source_path']])) $referencedPages[$reference['source_path']] = $pagesBySource[$reference['source_path']];
+                $asset['scopes'] = array_values(array_map(static fn(array $page): array => array('kind' => 'post' === $page['post_type'] ? 'post' : 'page', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'), 'reconciliation_identity' => $page['reconciliation_identity'], 'front_page' => '/' === $page['route']['path']), $referencedPages));
+                if (array() === $asset['scopes']) $asset['scopes'] = array(array('kind' => 'global'));
+                continue;
+            }
             if ('shared' === ($compilation['scope'] ?? null)) {
                 $asset['scopes'] = array(array('kind' => 'global'));
                 continue;
@@ -1452,6 +1460,10 @@ PHP;
                 $index = $indexesByToken[$match[1]] ?? null;
                 if (!is_int($index)) continue;
                 $sequence[] = array(2 * $position + 1, $index, (string) ($link['media'] ?? $assets[$index]['media'] ?? ''), (string) ($link['type'] ?? ''), 0, self::stylesheetDeviceAttributes($link));
+            }
+            foreach ($assets as $index => $asset) foreach ($asset['inline_references'] ?? array() as $reference) {
+                if ('css' !== ($asset['kind'] ?? null) || $page['source_path'] !== ($reference['source_path'] ?? null)) continue;
+                $sequence[] = array(2 * (int) ($reference['stylesheet_link_position'] ?? 0), $index, (string) ($reference['source_media'] ?? $reference['media'] ?? ''), (string) ($asset['type'] ?? ''), (int) ($reference['stylesheet_index'] ?? 0));
             }
             foreach ($inlineIndexesByPage[(string) ($page['source_path'] ?? '')] ?? array() as $index) {
                 $sequence[] = array(2 * (int) $assets[$index]['stylesheet_link_position'], $index, (string) ($assets[$index]['media'] ?? ''), '', (int) ($assets[$index]['stylesheet_inline_order'] ?? $index));
@@ -2218,9 +2230,28 @@ PHP;
             return self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots));
         };
 
+        // Lift chrome once per occurrence media contract, while retaining one
+        // authored payload resource. Route instances still own their conditions.
+        $chromeAssets = array();
+        foreach ($assets as $asset) {
+            $media = array();
+            foreach ($asset['inline_references'] ?? array() as $reference) $media[(string) ($reference['source_media'] ?? $reference['media'] ?? '')] = true;
+            if (count($media) > 1) {
+                foreach (array_keys($media) as $condition) {
+                    $copy = $asset;
+                    $copy['media'] = $condition;
+                    $copy['_inline_media_projection'] = true;
+                    $chromeAssets[] = $copy;
+                }
+            } else {
+                if (1 === count($media)) $asset['media'] = (string) array_key_first($media);
+                $chromeAssets[] = $asset;
+            }
+        }
         $projected = array();
         $emittedShared = array();
-        foreach ($assets as $asset) {
+        $keptInline = array();
+        foreach ($chromeAssets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content']) || !StylesheetActivation::active($asset)) {
                 $projected[] = $asset;
                 continue;
@@ -2275,10 +2306,15 @@ PHP;
             // Global chrome is not an occurrence of the stylesheet it was lifted
             // from; placeSharedStylesheetProjections() gives it a slot on every
             // route, next to whichever contributing stylesheet that route applies.
-            unset($sharedAsset['stylesheet_instances'], $sharedAsset['stylesheet_parent'], $sharedAsset['stylesheet_inline_order']);
+            unset($sharedAsset['inline_references'], $sharedAsset['stylesheet_instances'], $sharedAsset['stylesheet_parent'], $sharedAsset['stylesheet_inline_order']);
             $sharedAsset['_stylesheet_projection_origins'] = array(self::stylesheetProjectionOrigin($asset));
             $asset = self::withRewrittenTextContent($asset, $route);
-            $projected[] = $asset;
+            if (!isset($asset['_inline_media_projection']) || !isset($keptInline[$asset['source_path']])) {
+                $keptInline[$asset['source_path']] = true;
+                unset($asset['_inline_media_projection']);
+                $projected[] = $asset;
+            }
+            unset($sharedAsset['_inline_media_projection']);
             // Media/target contracts and relative URL resolution must agree:
             // otherwise the slices cannot share a resource or reference origin.
             // Consolidate compatible chrome slices at the planning boundary,

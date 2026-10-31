@@ -66,7 +66,7 @@ foreach (array('whole' => $whole, 'staged' => $staged) as $driver => $result) {
     $assert(4 === substr_count($markup, '<!-- wp:navigation-submenu '), $driver . ' lowers both submenu anchors in each scope');
     $assert(str_contains($markup, '"label":"Shop"') && str_contains($markup, '"label":"Alpha"'), $driver . ' keeps submenu labels and child links');
     $assert(!str_contains($markup, 'data-blocks-engine-capture-dialog-trigger') && !str_contains($markup, 'data-blocks-engine-capture-disclosure-runtime'), $driver . ' generated markup has no capture disclosure controller');
-    $assert(!in_array('website/index.inline-2.js', $scriptPaths($result), true), $driver . ' omits the replaced disclosure helper');
+    $assert(!in_array('inline/' . hash('sha256', "behavior\0\0" . $helper) . '.js', $scriptPaths($result), true), $driver . ' omits the replaced disclosure helper');
     $assert(array('native_navigation_submenu_replaces_capture_disclosure') === array_values(array_unique($reasons)), $driver . ' replacement proof names native submenu ownership');
     $findings = $result['source_reports']['runtime_dependency_parity']['findings'] ?? array();
     $dialogFindings = array_values(array_filter($findings, static fn (array $row): bool => str_contains((string) ($row['selector'] ?? ''), 'dialog-trigger') || str_contains((string) ($row['selector'] ?? ''), '-panel')));
@@ -128,7 +128,7 @@ foreach (array('observed' => array_merge($ownedStates, array($state('#notes-togg
     foreach ($compileBoth($artifact($page($scope('desktop', $unresolved)), $states)) as $mixed) {
         $mixedMarkup = (string) ($mixed['serialized_blocks'] ?? '');
         $assert(str_contains($mixedMarkup, '<!-- wp:navigation-submenu ') && str_contains($mixedMarkup, 'data-blocks-engine-capture-dialog-trigger="notes-panel"') && str_contains($mixedMarkup, 'data-blocks-engine-capture-document-scope="desktop"'), $case . ' mixed document keeps the unresolved control and its scope');
-        $assert(in_array('website/index.inline-2.js', $scriptPaths($mixed), true), $case . ' non-nav control keeps the disclosure runtime');
+        $assert(in_array('inline/' . hash('sha256', "behavior\0\0" . $helper) . '.js', $scriptPaths($mixed), true), $case . ' non-nav control keeps the disclosure runtime');
         $assert(array() === ($mixed['source_reports']['native_runtime_replacements'] ?? array()), $case . ' mixed ownership does not claim complete retirement');
     }
 }

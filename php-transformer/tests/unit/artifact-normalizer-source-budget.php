@@ -10,7 +10,7 @@ $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
 };
 
-$html = '<!doctype html><html><head>' . str_repeat('<style>.x{color:red}</style>', 100) . '<link rel="preload" href="/_runtimes/site.js" as="script"></head><body></body></html>';
+$html = '<!doctype html><html><head>' . implode('', array_map(static fn(int $i): string => '<style>.x' . $i . '{color:red}</style>', range(1, 100))) . '<link rel="preload" href="/_runtimes/site.js" as="script"></head><body></body></html>';
 $normalizer = new ArtifactNormalizer();
 $result = $normalizer->normalize(array(
     'entrypoint' => 'website/index.html',

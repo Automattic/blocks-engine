@@ -1185,8 +1185,8 @@ final class CapturedDialogProjector
     {
         $proofs = array();
         $kept = array();
-        foreach ($files as $file) {
-            $sourcePath = ArtifactNormalizer::inlineExpansionSourcePath($file);
+        foreach (ArtifactNormalizer::inlineOccurrences($files) as $file) {
+            $sourcePath = (string) ($file['source_path'] ?? '');
             $body = trim((string) ($file['content'] ?? ''));
             $replacement = null;
             foreach ($retired[$sourcePath] ?? array() as $record) if ($body === $record['body']) $replacement = $record;
@@ -1204,7 +1204,7 @@ final class CapturedDialogProjector
                 'reason' => $replacement['reason'],
             );
         }
-        $files = $kept;
+        $files = (new ArtifactNormalizer())->contentAddressInlineFiles($kept);
         return $proofs;
     }
 

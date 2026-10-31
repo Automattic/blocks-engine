@@ -209,8 +209,9 @@ $emitted = ob_get_clean();
 $expected = WordPressSitePlanResolver::resolvePayload($head, WordPressSitePlanResolver::references($plan['reference_tokens'], 'https://example.test/theme'));
 $headEmitted = preg_replace('/<link data-printed-handle="[^"]+">/', '', $emitted);
 $assert($expected === $headEmitted && 1 === substr_count($emitted, 'name="viewport"'), 'Executed theme bootstrap emits exactly the proven head and replaces Core viewport.');
-$assert(str_contains($emitted, '<link rel="stylesheet" href="https://example.test/theme/assets/index.inline-1.css" data-document-scope="phone" media="not all">') && !str_contains($emitted, '.phone{') && !str_contains($plan['writes'][$writeIndex]['payload']['data'], '.phone{'), 'A head style links its written stylesheet in place; no CSS body ships in the head or functions.php.');
-$assert(str_contains(array_column($resolved['writes'], null, 'target_path')['assets/index.inline-1.css']['payload']['data'], 'background-image:url(icon.svg)'), 'The written head stylesheet resolves its asset URLs against its own target path (assets/icon.svg), not the page route.');
+$phoneAsset = array_values(array_filter($resolved['assets'], static fn(array $asset): bool => 'inline-style' === ($asset['source'] ?? '') && str_contains($asset['content'] ?? '', '.phone{')))[0];
+$assert(str_contains($emitted, '<link rel="stylesheet" href="https://example.test/theme/' . $phoneAsset['target_path'] . '" data-document-scope="phone" media="not all">') && !str_contains($emitted, '.phone{') && !str_contains($plan['writes'][$writeIndex]['payload']['data'], '.phone{'), 'A head style links its written stylesheet in place; no CSS body ships in the head or functions.php.');
+$assert(str_contains(array_column($resolved['writes'], null, 'target_path')[$phoneAsset['target_path']]['payload']['data'], 'background-image:url(../icon.svg)'), 'The written head stylesheet resolves its asset URLs against its own target path (assets/icon.svg), not the page route.');
 $assert(array() === $enqueuedScripts, 'Head-owned scripts execute only at their parser positions.');
 // #2877: a head-owned stylesheet loads once, at its parser position; its
 // ordered instance enqueue (#2634) is dequeued.

@@ -295,13 +295,13 @@ $completeContracts = array_values(array_filter($complete['diagnostics'] ?? array
 $assert(array() === $completeContracts, 'extracted capture runtimes are omitted after every binding is native: ' . json_encode($completeContracts));
 $assert(!str_contains($completeBodies, 'data-blocks-engine-capture-collection-category-control') && !str_contains($completeBodies, 'data-blocks-engine-capture-local-disclosure') && str_contains($completeBodies, 'keep-me'), 'only the proven collection and disclosure script files are omitted');
 $replacements = $complete['source_reports']['native_runtime_replacements'] ?? array();
-$assert(2 === count($replacements) && array('website/index.inline-2.js', 'website/index.inline-3.js') === array_column($replacements, 'asset_source_path'), 'script policy names the extracted files superseded before projection: ' . json_encode(array_column($replacements, 'asset_source_path')));
+$assert(2 === count($replacements) && 2 === count(array_filter(array_column($replacements, 'asset_source_path'), static fn(string $path): bool => 1 === preg_match('#^inline/[a-f0-9]{64}\.js$#', $path))), 'script policy names the extracted files superseded before projection: ' . json_encode(array_column($replacements, 'asset_source_path')));
 $completeMarkup = (string) ($complete['serialized_blocks'] ?? '');
 $assert(1 === substr_count($completeMarkup, '>Alpha answer</p>') && 1 === substr_count($completeMarkup, '>Beta answer</p>') && str_contains($completeMarkup, '"openByDefault":true'), 'native items stay one tree and the source-open disclosure stays open');
 $partial = (new ArtifactCompiler())->compile($extractedArtifact($extractedHtml('<div data-blocks-engine-capture-local-disclosure="true" id="untouched-sibling"><p>Sibling region</p></div>')))->toArray();
 $partialBodies = $scriptBodies($partial);
 $partialPaths = array_column($partial['source_reports']['native_runtime_replacements'] ?? array(), 'asset_source_path');
-$assert(array('website/index.inline-2.js') === $partialPaths && str_contains($partialBodies, 'data-blocks-engine-capture-local-disclosure') && !str_contains($partialBodies, 'data-blocks-engine-capture-collection-category-control'), 'an unconverted sibling keeps its disclosure runtime while the completed collection runtime is still omitted: ' . json_encode($partialPaths));
+$assert(array($replacements[1]['asset_source_path']) === $partialPaths && str_contains($partialBodies, 'data-blocks-engine-capture-local-disclosure') && !str_contains($partialBodies, 'data-blocks-engine-capture-collection-category-control'), 'an unconverted sibling keeps its disclosure runtime while the completed collection runtime is still omitted: ' . json_encode($partialPaths));
 $snapshotEvidence = $evidence;
 $snapshotEvidence['field']['selector'] = 'input.missing';
 $snapshotEvidence['target']['selector'] = 'div.snapshot-region';

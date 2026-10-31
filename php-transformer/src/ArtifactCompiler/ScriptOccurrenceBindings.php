@@ -32,9 +32,13 @@ final class ScriptOccurrenceBindings
             }
         }
         foreach ($files as &$file) {
-            if ('inline-script' !== ($file['source'] ?? null) || $sourcePath !== ($file['source_path'] ?? null)) continue;
-            $selector = $file['selector'] ?? null;
-            if (is_string($selector) && isset($selectors[$selector])) $file['selector'] = $selectors[$selector];
+            if ('inline-script' !== ($file['source'] ?? null)) continue;
+            foreach ($file['inline_references'] as &$reference) {
+                if ($sourcePath !== ($reference['source_path'] ?? null)) continue;
+                $selector = $reference['selector'] ?? null;
+                if (is_string($selector) && isset($selectors[$selector])) $reference['selector'] = $selectors[$selector];
+            }
+            unset($reference);
         }
         unset($file);
     }

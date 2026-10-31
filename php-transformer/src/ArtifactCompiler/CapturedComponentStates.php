@@ -42,8 +42,8 @@ final class CapturedComponentStates
     {
         $proofs = array();
         $kept = array();
-        foreach ($files as $file) {
-            $source = ArtifactNormalizer::inlineExpansionSourcePath($file);
+        foreach (ArtifactNormalizer::inlineOccurrences($files) as $file) {
+            $source = (string) ($file['source_path'] ?? '');
             $record = null;
             foreach ($retired[$source] ?? array() as $candidate) if (trim((string) ($file['content'] ?? '')) === $candidate['body']) $record = $candidate;
             if (null === $record || 'inline-script' !== ($file['source'] ?? null)) { $kept[] = $file; continue; }
@@ -51,7 +51,7 @@ final class CapturedComponentStates
                 'asset_source_path' => $file['path'], 'body_hash' => hash('sha256', $record['body']),
                 'attribute' => $record['attribute'], 'reason' => $record['reason']);
         }
-        $files = $kept;
+        $files = (new ArtifactNormalizer())->contentAddressInlineFiles($kept);
         return $proofs;
     }
 
