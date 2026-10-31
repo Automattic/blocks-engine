@@ -435,6 +435,7 @@
       "php tests/unit/navigation-image-item.php",
       "php tests/unit/staged-transport.php",
       "php tests/unit/wordpress-site-plan-composer.php",
+      "php tests/unit/capture-runtime-emoji.php",
       "php tests/unit/wordpress-comment-form-placement.php",
       "php tests/unit/wordpress-site-plan-navigation-attribute-escaping.php",
       "php tests/unit/numeric-post-route-parent.php",
