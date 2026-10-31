@@ -191,6 +191,15 @@ final class ElementConversionPrelude
             return $copyToClipboard;
         }
 
+        if ( $this->runtimeIslands->shouldPreserveRuntimeTable($element) ) {
+            $targets = $this->runtimeIslands->runtimeTargetsInSubtree($element, 8);
+            $this->runtimeIslands->recordRuntimeIsland($element, 'dom', 'runtime_dom_target', 'client_script_execution', array(
+                'target_count' => count($targets),
+                'targets' => $targets,
+            ));
+            return ConversionOutcome::handled(($this->htmlPreservationBlock)($element));
+        }
+
         if ( 'form' === $tagName ) {
             return ConversionOutcome::handled($this->formDispatcher->convert($element, $fallbacks));
         }
