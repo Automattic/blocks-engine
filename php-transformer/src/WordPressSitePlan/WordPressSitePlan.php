@@ -61,11 +61,13 @@ final class WordPressSitePlan
      * rewriting stays off while it is active. Static block content survives
      * texturization only because its punctuation is entity encoded; text that a
      * dynamic block decodes and prints is rewritten, so the guarantee belongs to
-     * the theme rather than to any one block. Native emoji also belongs to that
-     * typography: replacing glyphs with images changes authored line boxes.
+     * the theme rather than to any one block.
      */
     public const SOURCE_TEXT_TYPOGRAPHY = <<<'PHP'
 add_filter( 'run_wptexturize', '__return_false' );
+PHP;
+    /** Keep native emoji unless capture proves the source used core's runtime. */
+    public const SOURCE_NATIVE_EMOJI = <<<'PHP'
 remove_action( 'wp_head', 'print_emoji_detection_script', 7 );
 remove_action( 'embed_head', 'print_emoji_detection_script' );
 add_action( 'admin_init', static function (): void { remove_action( 'admin_print_scripts', 'print_emoji_detection_script' ); } );
@@ -301,6 +303,7 @@ PHP;
             throw new DocumentIdentityException($identityFailures);
         }
 
+        $runtimeEmoji = (bool) array_filter($compiled['pages'], static fn(array $page): bool => 'wordpress' === ($page['document_metadata']['root_attributes'][CaptureEvidence::RUNTIME_EMOJI] ?? null));
         $runtimeDeclarations = $compiled['runtime_declarations'] ?? array();
         $runtimeRecords = RuntimeDeclarations::normalizeRecords($compiled['runtime_records'] ?? array());
         $runtimeDeclarations = RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords);
@@ -666,7 +669,7 @@ PHP;
         foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) if (is_array($taxonomyEntity['archive']['document_head'] ?? null)) $taxonomyEntity['archive']['document_head'] = $integrity->head($taxonomyEntity['archive']['document_head']);
         unset($taxonomyEntity);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
-        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $taxonomyProjection['entities']), $assetWrites);
+        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $taxonomyProjection['entities'], $runtimeEmoji), $assetWrites);
         $unitFindings = $this->unitFindingDiagnostics();
         $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->duplicateViewportDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
         // All shell, navigation, listing and script binding projection is now
@@ -702,7 +705,7 @@ PHP;
             'author_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'author' === $entity['kind'])),
             'navigation_links' => $input->navigationLinks,
             'menus' => $menus,
-            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array(), self::uniqueSourceCssBytes($compiled['assets'] ?? array()))))),
+            'theme' => array_merge($runtimeEmoji ? array('runtime_emoji' => 'wordpress') : array(), array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array(), self::uniqueSourceCssBytes($compiled['assets'] ?? array()))))),
             'visual_repair' => $compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
@@ -5143,10 +5146,10 @@ PHP;
     private static function routeSlug(string $path): string { return trim((string) basename($path), '/'); }
 
     /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $templates @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $menus @return array<int,array<string,mixed>> */
-    private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts, array $theme, array $tokens, array $pages = array(), array $menus = array(), array $taxonomyEntities = array()): array
+    private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts, array $theme, array $tokens, array $pages = array(), array $menus = array(), array $taxonomyEntities = array(), bool $runtimeEmoji = false): array
     {
         $writes = array($this->write('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), $this->write('theme_scaffold', 'theme.json', json_encode($theme, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"));
-        $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts, $parts, $tokens, $templates, $pages, $menus, $taxonomyEntities));
+        $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts, $parts, $tokens, $templates, $pages, $menus, $taxonomyEntities, $runtimeEmoji));
         if (DocumentRootContext::needsCanvas($pages)) $writes[] = $this->write('theme_scaffold', 'document-canvas.php', DocumentRootContext::canvas());
         foreach ( $templates as $template ) $writes[] = $this->write('theme_template', $template['target_path'], $template['canonical_block_markup']);
         foreach ( $parts as $part ) $writes[] = $this->write('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
@@ -5154,9 +5157,10 @@ PHP;
     }
 
     /** @param array<int,array<string,mixed>> $assets */
-    private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), array $taxonomyEntities = array()): string
+    private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), array $taxonomyEntities = array(), bool $runtimeEmoji = false): string
     {
         $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY);
+        if (!$runtimeEmoji) $lines[] = self::SOURCE_NATIVE_EMOJI;
         // Core only retains theme.json variations registered for the block.
         $lines[] = <<<'PHP'
 add_action( 'init', static function (): void {
@@ -6342,7 +6346,7 @@ PHP;
         if (!is_array($theme) || 3 !== ($theme['version'] ?? null) || !is_array($theme['settings'] ?? null) || !is_array($theme['styles'] ?? null)) throw new InvalidArgumentException('WordPress site plan theme.json shape is unsupported.');
         $bootstrap = $writes['functions.php'] ?? null;
         $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations'], $plan['runtime_declarations']);
-        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages'], $plan['menus'], array_merge($plan['taxonomy_entities'], $plan['author_entities'])) !== ($bootstrap['canonical_payload'] ?? $bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
+        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages'], $plan['menus'], array_merge($plan['taxonomy_entities'], $plan['author_entities']), 'wordpress' === ($plan['theme']['runtime_emoji'] ?? null)) !== ($bootstrap['canonical_payload'] ?? $bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
         if (DocumentRootContext::needsCanvas($plan['pages'])) {
             $canvas = $writes['document-canvas.php'] ?? null;
             if (!is_array($canvas) || 'theme_scaffold' !== ($canvas['kind'] ?? null) || 'wordpress-site-plan/document-canvas.php' !== ($canvas['source_path'] ?? null) || DocumentRootContext::canvas() !== ($canvas['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan document canvas is invalid.');

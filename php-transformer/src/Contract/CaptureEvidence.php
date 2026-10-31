@@ -26,6 +26,9 @@ final class CaptureEvidence
     /** Unsupported component marker; removed only when its owning evidence is projected. */
     public const UNSUPPORTED = 'data-blocks-engine-capture-unsupported';
 
+    /** On `<html>`: `wordpress` when capture restored core runtime emoji images to text. */
+    public const RUNTIME_EMOJI = 'data-blocks-engine-capture-runtime-emoji';
+
     // Document variants and responsive documents.
 
     /** Presence marks an element as a body-equivalent captured document root. */

@@ -45,6 +45,12 @@ Two audiences read this vocabulary:
 | `data-blocks-engine-capture-` | attribute prefix | Every capture attribute. Author selectors negating a capture attribute on `html`/`:root` are runtime document state and stay live. |
 | `--data-blocks-engine-capture-` | id suffix prefix | A non-default document variant's copy of a shared source id: `<id>--data-blocks-engine-capture-mobile`, or `<id>--data-blocks-engine-capture-<variant>` for `site-document-variant-<variant>` and declared device documents. The transformer applies the same suffix and points variant-scoped author id selectors at it. |
 
+### Emoji runtime
+
+| Name | Kind | Value | Meaning |
+| ---- | ---- | ----- | ------- |
+| `data-blocks-engine-capture-runtime-emoji` | attribute on `<html>` | `wordpress` (exact) | Capture restored WordPress runtime emoji images to their alt text. If any compiled page carries this value, the generated theme keeps core's emoji runtime, including editor support. Otherwise native emoji is preserved as before. Texturization remains disabled in both cases. |
+
 ### Document variants
 
 | Name | Kind | Value | Meaning |
