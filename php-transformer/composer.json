@@ -819,6 +819,7 @@
       "php tests/unit/navigation-pattern-context.php",
       "php tests/unit/navigation-inherited-item-presentation.php",
       "php tests/unit/navigation-core-inherited-presentation.php",
+      "php tests/unit/navigation-core-overlay-precedence.php",
       "php tests/unit/navigation-shared-title-typography.php",
       "php tests/unit/navigation-font-family.php",
       "php tests/unit/button-pattern-context.php",
