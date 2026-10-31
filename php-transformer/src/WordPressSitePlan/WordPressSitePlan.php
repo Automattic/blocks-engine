@@ -3853,12 +3853,19 @@ PHP;
      */
     private function extractPostCommentForms(array $pages): array
     {
-        // Only factor a shared post primitive when every captured post has it.
-        // Strip every device copy, leaving one dynamic form in the template.
+        // Only factor a shared post primitive when every captured post has it
+        // and nothing renderable follows any occurrence in its original context.
         $pattern = '~<!-- wp:comments -->\\s*<div class="wp-block-comments">\\s*<!-- wp:post-comments-form /-->\\s*</div>\\s*<!-- /wp:comments -->~';
         $posts = array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null) && empty($page['synthetic']));
         if (array() === $posts) return $pages;
-        foreach ($posts as $post) if (!preg_match($pattern, $post['canonical_block_markup'])) return $pages;
+        $closingOnly = '~\A(?:\s|<!--\s*/wp:[a-zA-Z0-9_/-]+\s*-->|</[a-zA-Z][a-zA-Z0-9:-]*\s*>)*\z~';
+        foreach ($posts as $post) {
+            $markup = $post['canonical_block_markup'];
+            if (!preg_match_all($pattern, $markup, $matches, PREG_OFFSET_CAPTURE)) return $pages;
+            foreach ($matches[0] as [$form, $offset]) {
+                if (1 !== preg_match($closingOnly, substr($markup, $offset + strlen($form)))) return $pages;
+            }
+        }
         foreach ($posts as $index => $post) {
             $pages[$index]['canonical_block_markup'] = preg_replace($pattern, '', $post['canonical_block_markup']);
             $pages[$index]['metadata']['native_comment_form'] = true;
@@ -4420,7 +4427,7 @@ PHP;
             $cardMarkup = substr($markup, $card['offset'], $card['length']);
             foreach (self::blockRanges($cardMarkup) as $leaf) {
                 if (array() !== self::childBlockRanges($cardMarkup, $leaf)) continue;
-                $texts[ListingExcerptProjection::text(substr($cardMarkup, $leaf['offset'], $leaf['length']))] = true;
+                $texts[self::listingLeafIdentity(substr($cardMarkup, $leaf['offset'], $leaf['length']))] = true;
             }
             $sharedText = null === $sharedText ? $texts : array_intersect_key($sharedText, $texts);
         }
@@ -4535,9 +4542,12 @@ PHP;
             if ('unbound' === $kind) {
                 // Repeating an unbound per-post literal is no more truthful than
                 // rendering the full article in its place. Decline the listing.
-                if (!isset($sharedText[ListingExcerptProjection::text($slice)])) return null;
+                if (!isset($sharedText[self::listingLeafIdentity($slice)])) return null;
                 $kind = 'chrome';
             }
+            // Media and other textless leaves carry no visible text to compare,
+            // so they are shared only when every card renders the same markup.
+            if ('chrome' === $kind && !isset($sharedText[self::listingLeafIdentity($slice)])) return null;
             if ('comments' === $kind || 'chrome' === $kind) {
                 return array('markup' => $slice, 'title' => false, 'content' => false);
             }
@@ -4589,6 +4599,13 @@ PHP;
         }
         return array('markup' => $slice, 'title' => $foundTitle, 'content' => $emittedContent && !$foundTitle);
     }
+    /** Visible text identifies a card leaf; a textless leaf is identified by its markup. */
+    private static function listingLeafIdentity(string $leaf): string
+    {
+        $text = ListingExcerptProjection::text($leaf);
+        return '' !== $text ? $text : "\0" . $leaf;
+    }
+
     /** @param array<string,mixed> $attrs */
     private static function listingWrapperAttributes(array $attrs): string
     {
