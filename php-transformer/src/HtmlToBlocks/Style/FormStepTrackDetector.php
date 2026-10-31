@@ -324,6 +324,7 @@ final class FormStepTrackDetector
         }
 
         $result = array();
+        $customPropertyResolver = new FormCustomPropertyResolver();
         foreach ( $elements as $id => $element ) {
             $facts = array();
             $ambiguous = array();
@@ -347,7 +348,7 @@ final class FormStepTrackDetector
             }
             $base = array();
             foreach ( $facts as $property => $fact ) {
-                $base[$property] = strtolower(FormCustomPropertyResolver::resolve($fact['value'], $element, null, $customProperties['rules']));
+                $base[$property] = strtolower($customPropertyResolver->resolve($fact['value'], $element, null, $customProperties['rules']));
             }
             $result[$id] = array( 'base' => $base, 'ambiguous' => $ambiguous );
         }

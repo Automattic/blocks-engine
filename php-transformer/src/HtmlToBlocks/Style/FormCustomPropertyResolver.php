@@ -3,32 +3,98 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use DOMElement;
 
-/** Resolves bounded custom-property rules at a form element's cascade scope. */
+/**
+ * Resolves bounded custom-property rules at a form element's cascade scope.
+ *
+ * An instance lives as long as its selector match cache and assumes the same
+ * stable source DOM. Every value a form resolves walks the same ancestors
+ * against the same rules, so each ancestor's computed custom properties are
+ * kept per rule set and condition and shared by its descendants.
+ */
 final class FormCustomPropertyResolver
 {
     private const MAX_EXPANSION_DEPTH = 5;
     private const DEFAULT_VIEWPORT_PX = 1280;
 
+    /** @var array<string, array<string, array{node: DOMElement, properties: array<string, string>}>> Scope key, then node path. */
+    private array $computedAt = array();
+
+    public function __construct(private readonly ?CssSelectorMatchCache $cache = null)
+    {
+    }
+
     /** @param list<array<string, mixed>> $rules */
-    public static function resolve(string $value, DOMElement $element, ?array $condition, array $rules, bool $unconditionalBase = false): string
+    public function resolve(string $value, DOMElement $element, ?array $condition, array $rules, bool $unconditionalBase = false): string
     {
         if ( ! str_contains($value, 'var(') ) {
             return trim($value);
         }
-        $properties = array();
-        $ancestors = array();
-        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
-            $ancestors[] = $current;
+        $customProperties = $this->propertiesAt($element, $condition, $rules, $unconditionalBase);
+        return CssVariableExpander::expand($value, static fn (string $name): ?string => $customProperties[$name] ?? null) ?? trim($value);
+    }
+
+    /** @param list<array<string, mixed>> $rules @return list<array<string, mixed>> */
+    public function conditionsChanging(string $value, DOMElement $element, array $rules, bool $unconditionalBase = false): array
+    {
+        if ( ! str_contains($value, 'var(') ) {
+            return array();
         }
-        foreach ( array_reverse($ancestors) as $ancestor ) {
+        $base = $this->resolve($value, $element, null, $rules, $unconditionalBase);
+        $conditions = array();
+        foreach ( $rules as $rule ) {
+            $condition = $rule['condition'] ?? null;
+            if ( null === $condition ) {
+                continue;
+            }
+            $key = json_encode($condition);
+            if ( isset($conditions[$key]) ) {
+                continue;
+            }
+            $matchesAncestor = false;
+            for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
+                if ( $this->matches($ancestor, $rule) ) {
+                    $matchesAncestor = true;
+                    break;
+                }
+            }
+            if ( $matchesAncestor && $this->resolve($value, $element, $condition, $rules) !== $base ) {
+                $conditions[$key] = $condition;
+            }
+        }
+        return array_values($conditions);
+    }
+
+    /**
+     * The computed custom properties at $element: each ancestor's cascaded
+     * declarations, computed where declared and inherited downward.
+     *
+     * @param list<array<string, mixed>> $rules
+     * @return array<string, string>
+     */
+    private function propertiesAt(DOMElement $element, ?array $condition, array $rules, bool $unconditionalBase): array
+    {
+        $scope = $this->scopeKey($condition, $rules, $unconditionalBase);
+        $properties = array();
+        $pending = array();
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $path = (string) $current->getNodePath();
+            $known = $this->computedAt[$scope][$path] ?? null;
+            if ( null !== $known && $known['node']->isSameNode($current) ) {
+                $properties = $known['properties'];
+                break;
+            }
+            $pending[] = array( $current, $path );
+        }
+        foreach ( array_reverse($pending) as [$ancestor, $path] ) {
             // Cascade each element before applying its declarations over inherited values.
             $declared = array();
             foreach ( $rules as $rule ) {
-                if ( ($unconditionalBase && null === $condition && null !== ($rule['condition'] ?? null)) || ! self::ruleConditionApplies($rule['condition'] ?? null, $condition) || ! CssSelectorMatcher::matches($ancestor, $rule['parsed_selector'])['matches'] ) {
+                if ( ($unconditionalBase && null === $condition && null !== ($rule['condition'] ?? null)) || ! self::ruleConditionApplies($rule['condition'] ?? null, $condition) || ! $this->matches($ancestor, $rule) ) {
                     continue;
                 }
                 foreach ( $rule['declarations'] as $declaration ) {
@@ -48,47 +114,34 @@ final class FormCustomPropertyResolver
             }
             // Custom-property values are computed where they are declared. A
             // descendant override must not alter an already inherited value.
-            $inherited = array_map(static fn (array $fact): string => $fact['value'], $properties);
-            foreach ( self::computed($declared, $inherited) as $name => $computedValue ) {
+            foreach ( self::computed($declared, $properties) as $name => $computedValue ) {
                 if ( null === $computedValue ) {
                     unset($properties[$name]);
                     continue;
                 }
-                $properties[$name] = $declared[$name] + array( 'value' => $computedValue );
-                $properties[$name]['value'] = $computedValue;
+                $properties[$name] = $computedValue;
             }
+            $this->computedAt[$scope][$path] = array( 'node' => $ancestor, 'properties' => $properties );
         }
-        $customProperties = array_map(static fn (array $fact): string => $fact['value'], $properties);
-        return CssVariableExpander::expand($value, static fn (string $name): ?string => $customProperties[$name] ?? null) ?? trim($value);
+        return $properties;
     }
 
-    /** @param list<array<string, mixed>> $rules @return list<array<string, mixed>> */
-    public static function conditionsChanging(string $value, DOMElement $element, array $rules, bool $unconditionalBase = false): array
+    /** @param list<array<string, mixed>> $rules */
+    private function scopeKey(?array $condition, array $rules, bool $unconditionalBase): string
     {
-        if ( ! str_contains($value, 'var(') ) {
-            return array();
-        }
-        $base = self::resolve($value, $element, null, $rules, $unconditionalBase);
-        $conditions = array();
+        $identity = array();
         foreach ( $rules as $rule ) {
-            $condition = $rule['condition'] ?? null;
-            if ( null === $condition ) {
-                continue;
-            }
-            $matchesAncestor = false;
-            for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
-                if ( CssSelectorMatcher::matches($ancestor, $rule['parsed_selector'])['matches'] ) {
-                    $matchesAncestor = true;
-                    break;
-                }
-            }
-            if ( ! $matchesAncestor ) continue;
-            $key = json_encode($condition);
-            if ( ! isset($conditions[$key]) && self::resolve($value, $element, $condition, $rules) !== $base ) {
-                $conditions[$key] = $condition;
-            }
+            $identity[] = array( $rule['selector'] ?? $rule['parsed_selector'], $rule['condition'] ?? null, $rule['declarations'], $rule['order'], $rule['specificity'] );
         }
-        return array_values($conditions);
+        return hash('xxh128', serialize(array( $condition, $unconditionalBase, $identity )));
+    }
+
+    /** @param array<string, mixed> $rule */
+    private function matches(DOMElement $element, array $rule): bool
+    {
+        return null !== $this->cache && isset($rule['selector'])
+            ? $this->cache->matches($element, (string) $rule['selector'], $rule['parsed_selector'])['matches']
+            : CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches'];
     }
 
     /** @param array<string, mixed>|null $ruleCondition @param array<string, mixed>|null $requested */

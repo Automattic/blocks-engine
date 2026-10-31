@@ -25,7 +25,7 @@ $resolve = static function (string $css, string $value): string {
         $title = $element;
     }
     $rules = (new CssRuleAnalyzer())->analyze(array(), $css, array('--*'), 1 << 20, 1024, 2048, 8)['rules'];
-    return FormCustomPropertyResolver::resolve($value, $title, null, $rules);
+    return (new FormCustomPropertyResolver())->resolve($value, $title, null, $rules);
 };
 
 // A defined variable is substituted and its fallback is never evaluated, even
@@ -71,6 +71,27 @@ $assert(
 // Plain fallbacks keep working.
 $assert('12px' === $resolve('.scope{--other:1px}', 'var(--size,12px)'), 'a single-level fallback is unchanged');
 $assert('15px' === $resolve('.scope{--size:15px}', 'var(--size,12px)'), 'a defined single-level variable is unchanged');
+
+// One resolver serves every field of a form, so each ancestor's computed
+// properties are reused. A sibling's own declaration must not leak, a later
+// rule set or condition must not see earlier results, and a node replaced at
+// the same path must be recomputed.
+$document = new DOMDocument();
+$document->loadHTML('<?xml encoding="utf-8"?><html><body><form class="scope"><label id="a">A</label><label id="b" class="own">B</label></form></body></html>');
+$rules = static fn (string $css): array => (new CssRuleAnalyzer())->analyze(array(), $css, array('--*'), 1 << 20, 1024, 2048, 8)['rules'];
+$shared = $rules('.scope{--tone:red}.own{--tone:blue}@media (max-width:600px){.scope{--tone:green}}');
+$resolver = new FormCustomPropertyResolver();
+$a = $document->getElementById('a');
+$b = $document->getElementById('b');
+$assert('blue' === $resolver->resolve('var(--tone)', $b, null, $shared), 'a field resolves its own override');
+$assert('red' === $resolver->resolve('var(--tone)', $a, null, $shared), 'a sibling field does not inherit that override');
+$assert('green' === $resolver->resolve('var(--tone)', $a, array( 'kind' => 'media', 'query' => '(max-width:600px)' ), $shared), 'a condition is resolved separately');
+$assert('gold' === $resolver->resolve('var(--tone)', $a, null, $rules('.scope{--tone:gold}')), 'another rule set is resolved separately');
+$replacement = $document->createElement('form');
+$replacement->setAttribute('style', '--tone:purple');
+$replacement->appendChild($document->createElement('label'));
+$a->parentNode->parentNode->replaceChild($replacement, $a->parentNode);
+$assert('purple' === $resolver->resolve('var(--tone)', $replacement->firstChild, null, $shared), 'a node replaced at a remembered path is recomputed');
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "form custom property nested fallback FAILED: {$passes} passed, {$failures} failed\n");
