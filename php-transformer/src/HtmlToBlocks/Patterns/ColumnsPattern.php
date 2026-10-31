@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
@@ -59,7 +61,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
      * @param array<int, array<string, mixed>> $fallbacks
      * @param callable(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param callable(DOMElement, array<int, array<string, mixed>>&, bool): (array<string, mixed>|null) $convertElement
-     * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @param callable(DOMElement, array<int, string>): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $resolvedStyle Static author rules plus inline style (structural projection).
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @param (callable(DOMElement): string)|null $referenceViewportStyle Resting cascade at the desktop reference
@@ -129,7 +131,23 @@ final class ColumnsPattern implements PatternRecognizerInterface
             $children = $this->isColumnWrapperElement($child)
                 ? $convertChildren($child, $columnFallbacks, true)
                 : array_filter(array( $convertElement($child, $columnFallbacks, true) ));
-            $columns[] = $createBlock('core/column', $presentationAttributes($child), $children, $child);
+            // Core saves width as an inline flex-basis, preserving authored
+            // [style*=flex-basis] selectors as well as the editable column size.
+            $basis = '';
+            foreach ( CssRuleAnalyzer::declarations($child->getAttribute('style'), array( 'flex-basis' )) as $declaration ) {
+                if ( ! CssValueInspector::isImportant($basis) || CssValueInspector::isImportant($declaration['value']) ) {
+                    $basis = $declaration['value'];
+                }
+            }
+            $width = CssValueInspector::comparable($basis);
+            if ( ! preg_match('/^\d+(?:\.\d+)?(?:%|px|em|rem|ch|vw|vmin|vmax)$/', $width) ) {
+                $width = '';
+            }
+            $attrs = $presentationAttributes($child, '' !== $width ? array( 'flex-basis' ) : array());
+            if ( '' !== $width ) {
+                $attrs['width'] = $width;
+            }
+            $columns[] = $createBlock('core/column', $attrs, $children, $child);
         }
         array_push($fallbacks, ...$columnFallbacks);
 
