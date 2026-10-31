@@ -165,7 +165,13 @@ final class RichTextMaterializer implements RichTextMaterialization
             }
 
             if ( '' === trim($sourceInline->textContent ?? '') && 0 === SourceDom::childElementCount($sourceInline) && ! $this->inlinePolicy->retainsEmptyRichTextInline($sourceInline) ) {
-                $targetInline->parentNode?->removeChild($targetInline);
+                // Drop the empty wrapper, not its text: a whitespace-only span still separates words.
+                $text = $targetInline->textContent;
+                if ( '' === $text ) {
+                    $targetInline->parentNode?->removeChild($targetInline);
+                } else {
+                    $targetInline->parentNode?->replaceChild($targetInline->ownerDocument->createTextNode($text), $targetInline);
+                }
                 continue;
             }
 
