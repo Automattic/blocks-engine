@@ -123,6 +123,19 @@ final class RichTextMaterializer implements RichTextMaterialization
         // Browsers can serialize malformed source as a closing `</wbr>` too;
         // remove both forms so it cannot become structural HTML in a block.
         $content = preg_replace('/<\/?wbr\b[^>]*>/i', '', $content) ?? $content;
+        // A break-only phrasing run is a real line box, not an empty source
+        // paragraph. RichText treats a lone/trailing <br> as padding; use an
+        // editable NBSP on each line instead. Keep inline carriers so their
+        // typography survives, and leave empty wrappers and mixed text alone.
+        $withoutComments = preg_replace('/<!--.*?-->/s', '', $content) ?? $content;
+        $breakCount = preg_match_all('/<br\b[^>]*>/i', $withoutComments);
+        $remainder = preg_replace('/<\/?(?:br|span|font|em|i|strong|b|mark|small|sub|sup)\b[^>]*>/i', '', $withoutComments);
+        if ( 0 < $breakCount && '' === trim((string) $remainder) ) {
+            $breakIndex = 0;
+            $content = preg_replace_callback('/<br\b[^>]*>/i', static function () use (&$breakIndex, $breakCount): string {
+                return ++$breakIndex < $breakCount ? '&nbsp;<br>' : '&nbsp;';
+            }, $withoutComments) ?? $content;
+        }
         $content = $this->normalizeMarkupAttributes($content);
         if ( '' === $content || ( ! preg_match('/<(?:span|font|em|i|strong|b|mark|small|sub|sup)\b/i', $content) && ! RichTextInlineTags::containsUnknownElement($content) ) ) {
             return $content;
