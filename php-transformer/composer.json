@@ -670,6 +670,7 @@
       "php tests/unit/navigation-list-box-properties.php",
       "php tests/unit/navigation-block-child-label-carrier.php",
       "php tests/unit/navigation-label-tag-identity.php",
+      "php tests/unit/navigation-label-presentation-chain.php",
       "php tests/unit/navigation-label-wrapper-author-span.php",
       "php tests/unit/author-class-substring-engine-tokens.php",
             "php tests/unit/media-type-only-rules-are-static.php",
