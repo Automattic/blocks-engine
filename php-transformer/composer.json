@@ -414,6 +414,7 @@
       "php tests/unit/navigation-nested-list-inventory.php",
       "php tests/unit/navigation-unlabelled-group-menu.php",
       "php tests/unit/navigation-opener-presentation.php",
+      "php tests/unit/wordpress-submenu-header.php",
       "php tests/unit/navigation-overlay-source-breakpoint.php",
       "php tests/unit/navigation-toggle-recognition-memo.php",
       "php tests/unit/collapsed-viewport-declaring-rules.php",

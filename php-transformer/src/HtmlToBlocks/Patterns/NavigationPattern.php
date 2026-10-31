@@ -2178,7 +2178,13 @@ final class NavigationPattern implements PatternRecognizerInterface
                 }
                 if ( $navigationContext?->isRuntimeDomTarget($child)
                     && ! $this->isInertOverlayNavigationChrome($child)
-                    && ! $hasListBackedMenu ) {
+                    && ! $hasListBackedMenu
+                    // The native responsive overlay takes over its source opener,
+                    // including script-addressed toggles before the first list.
+                    && ! ( $this->isMenuToggleControl($child)
+                        && ! $this->hasCapturedExistingPanel($element)
+                        && $navigationContext->holdsNavigationToggle($element, $child)
+                        && 'mobile' === $this->overlayMenu($element, $navigationContext) ) ) {
                     return array();
                 }
                 continue;
@@ -2243,6 +2249,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $blocks;
+    }
+
+    /** Reused resting panels still depend on the capture runtime's wiring. */
+    private function hasCapturedExistingPanel(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $descendant->hasAttribute(CaptureEvidence::EXISTING_PANEL) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
