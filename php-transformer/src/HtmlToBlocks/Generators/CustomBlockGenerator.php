@@ -71,6 +71,7 @@ final class CustomBlockGenerator
     {
         return array(
             'apiVersion' => 3,
+            'blocksEngine' => \Automattic\BlocksEngine\PhpTransformer\Contract\GeneratedBlockEditingSurface::RAW_HTML,
             'name'       => $blockName,
             'title'      => $title,
             'category'   => self::CATEGORY,

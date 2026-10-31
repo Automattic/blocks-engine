@@ -16,7 +16,7 @@ final class EditabilityReport
     );
 
     /** @param array<int,array<string,mixed>> $blocks @return array<string,mixed> */
-    public function fromBlocks(array $blocks, string $sourcePath = '', string $serializedBlocks = '', string $generatedCarrierCss = '', array $runtimeBlockPaths = array(), array $visualBlockPaths = array(), array $sourceProvenance = array()): array
+    public function fromBlocks(array $blocks, string $sourcePath = '', string $serializedBlocks = '', string $generatedCarrierCss = '', array $runtimeBlockPaths = array(), array $visualBlockPaths = array(), array $sourceProvenance = array(), array $generatedBlocks = array()): array
     {
         $metrics = array(
             'block_count' => 0,
@@ -45,7 +45,7 @@ final class EditabilityReport
         $runtimeBlockPaths = array_map(static fn (string $path): string => str_replace('.innerBlocks', '', $path), $runtimeBlockPaths);
         $visualBlockPaths = array_map(static fn (string $path): string => str_replace('.innerBlocks', '', $path), $visualBlockPaths);
         $deepestBlock = array();
-        $this->walk($blocks, 1, array(), $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, array_fill_keys($runtimeBlockPaths, true), array_fill_keys($visualBlockPaths, true), $this->provenanceByBlockPath($sourceProvenance), $deepestBlock);
+        $this->walk($blocks, 1, array(), $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, array_fill_keys($runtimeBlockPaths, true), array_fill_keys($visualBlockPaths, true), $this->provenanceByBlockPath($sourceProvenance), $deepestBlock, GeneratedBlockEditingSurface::rawHtmlBlockNames($generatedBlocks));
         ksort($blockTypes, SORT_STRING);
         $policyWrapperCount = $metrics['wrapper_block_count'] - $metrics['empty_visual_group_count'] - $metrics['empty_runtime_group_count'];
         $metrics['wrapper_to_content_ratio'] = 0 === $metrics['content_block_count']
@@ -87,7 +87,8 @@ final class EditabilityReport
                 is_string($document['generated_carrier_css'] ?? null) ? $document['generated_carrier_css'] : '',
                 is_array($document['runtime_block_paths'] ?? null) ? $document['runtime_block_paths'] : array(),
                 is_array($document['visual_block_paths'] ?? null) ? $document['visual_block_paths'] : array(),
-                is_array($document['source_provenance'] ?? null) ? $document['source_provenance'] : array()
+                is_array($document['source_provenance'] ?? null) ? $document['source_provenance'] : array(),
+                is_array($document['generated_blocks'] ?? null) ? $document['generated_blocks'] : array()
             );
             $reports[] = array(
                 'source_path' => (string) $sourcePath,
@@ -170,7 +171,7 @@ final class EditabilityReport
      * @param array<string,int> $blockTypes
      * @param array<int,array<string,mixed>> $signals
      */
-    private function walk(array $blocks, int $depth, array $path, array &$metrics, array &$blockTypes, array &$signals, string $sourcePath, string $generatedCarrierCss, array $runtimeBlockPaths, array $visualBlockPaths, array $provenanceByBlockPath, array &$deepestBlock): void
+    private function walk(array $blocks, int $depth, array $path, array &$metrics, array &$blockTypes, array &$signals, string $sourcePath, string $generatedCarrierCss, array $runtimeBlockPaths, array $visualBlockPaths, array $provenanceByBlockPath, array &$deepestBlock, array $rawHtmlBlockNames): void
     {
         foreach ($blocks as $index => $block) {
             if (!is_array($block)) continue;
@@ -205,7 +206,7 @@ final class EditabilityReport
             } else {
                 $metrics['content_block_count']++;
             }
-            if ('core/html' === $name || 'core/freeform' === $name) {
+            if ('core/html' === $name || 'core/freeform' === $name || isset($rawHtmlBlockNames[$name])) {
                 $metrics['raw_html_block_count']++;
                 $signals[] = $this->signal('raw_html_block', $sourcePath, $blockPath, $name);
             }
@@ -235,7 +236,7 @@ final class EditabilityReport
                 ), static fn(mixed $value): bool => is_bool($value) || is_int($value) || '' !== $value);
             }
             $this->inspectAttributes($attrs, $name, $sourcePath, $blockPath, $metrics, $signals, $provenanceByBlockPath[implode('.', $blockPath)] ?? array());
-            if (array() !== $innerBlocks) $this->walk($innerBlocks, $depth + 1, $blockPath, $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $provenanceByBlockPath, $deepestBlock);
+            if (array() !== $innerBlocks) $this->walk($innerBlocks, $depth + 1, $blockPath, $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $provenanceByBlockPath, $deepestBlock, $rawHtmlBlockNames);
         }
     }
 

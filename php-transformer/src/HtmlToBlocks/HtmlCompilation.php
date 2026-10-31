@@ -1882,7 +1882,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $designUsage = (new DesignUsageCollector($this->styleResolver))->collect($body);
         $blockCompilationOutput = new BlockCompilationOutput(
             sourceProvenance: $sourceProvenance,
-            editabilityReport: (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $ownershipPaths['runtime'], $ownershipPaths['visual'], $sourceProvenance),
+            editabilityReport: (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $ownershipPaths['runtime'], $ownershipPaths['visual'], $sourceProvenance, $this->generatedBlocks()->definitions()),
             responsiveCounterpartContracts: $responsiveCounterpartContracts,
             layoutGeometryProof: $this->layoutGeometry()->proofProvenance(),
             reusableComponents: $reusableComponentRecognition,
