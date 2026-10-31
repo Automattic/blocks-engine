@@ -2388,8 +2388,14 @@ final class AuthorStylesheetProjector
         }
 
         $rewritten = array();
+        $spelled = array_flip(SelectorNameRuns::spelled($selector));
         foreach ( $context->authorStyles->sourceBody()->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement || ! in_array(strtolower($element->tagName), array( 'a', 'button' ), true) ) {
+                continue;
+            }
+            // Ask for the control's path only when the selector can name it.
+            $runs = SelectorNameRuns::naming($element);
+            if ( null !== $runs && array() === array_intersect_key($spelled, array_flip($runs)) ) {
                 continue;
             }
             $marker = $context->selectorProjections->controlMarker($element->getNodePath() ?? '');
