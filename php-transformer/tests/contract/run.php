@@ -1090,7 +1090,7 @@ $capturedMenuDisclosure = ( new HtmlTransformer() )->transform('<details class="
 $capturedMenuDisclosureMarkup = (string) ($capturedMenuDisclosure['serialized_blocks'] ?? '');
 $capturedMenuDisclosureBlock = $capturedMenuDisclosure['blocks'][0] ?? array();
 $assert('core/details' === ($capturedMenuDisclosureBlock['blockName'] ?? null) && 'core/navigation' === (($capturedMenuDisclosureBlock['innerBlocks'][0]['innerBlocks'][0] ?? array())['blockName'] ?? null), 'icon-only menu disclosures preserve their native trigger and navigation content');
-$assert(str_contains($capturedMenuDisclosureMarkup, '<summary><svg aria-hidden="true">') && str_contains($capturedMenuDisclosureMarkup, '<!-- wp:navigation'), 'icon-only menu disclosures retain an operable summary with editable navigation content');
+$assert(str_contains($capturedMenuDisclosureMarkup, '<summary><svg aria-hidden="true">') && str_contains($capturedMenuDisclosureMarkup, '>Menu</span></summary>') && str_contains($capturedMenuDisclosureMarkup, '<!-- wp:navigation'), 'icon-only menu disclosures retain an operable summary with editable navigation content');
 
 $capturedMobileMenuDisclosure = ( new ArtifactCompiler() )->compile(
     array(

@@ -3569,7 +3569,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src),
             fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : '',
             fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
-            fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement)
+            fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->inlineRichTextContent($sourceElement)
         );
     }
 

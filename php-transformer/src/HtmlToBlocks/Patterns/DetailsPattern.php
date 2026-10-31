@@ -28,7 +28,7 @@ final class DetailsPattern implements PatternRecognizerInterface
                     return $converter->childrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags);
                 },
                 $context->presentationAttributes(...),
-                SourceDom::innerHtml(...),
+                $context->richTextContent(...),
                 $context->createBlock(...),
                 $this->summaryMarker($element, $context)
             );
@@ -80,10 +80,7 @@ final class DetailsPattern implements PatternRecognizerInterface
 
         $summaryHtml = $summary instanceof DOMElement ? $innerHtml($summary) : '';
         if ($summary instanceof DOMElement && '' === trim(strip_tags($summaryHtml))) {
-            $label = trim($summary->getAttribute('aria-label'));
-            if ('' === $label) {
-                $label = trim($summary->getAttribute(CaptureEvidence::DISCLOSURE_LABEL));
-            }
+            $label = $this->summaryLabel($element, $summary);
             if ('' !== $label) {
                 $summaryHtml .= '<span class="screen-reader-text" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">' . htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</span>';
             }
@@ -103,6 +100,43 @@ final class DetailsPattern implements PatternRecognizerInterface
         return $createBlock('core/details', array_filter($attrs, static fn ($value): bool => '' !== $value), $children, $element);
     }
 
+    /** Accessible names are source evidence; never invent a generic toggle label. */
+    private function summaryLabel(DOMElement $details, DOMElement $summary): string
+    {
+        $label = $this->accessibleName($summary);
+        if ('' !== $label) return $label;
+        $label = trim($summary->getAttribute(CaptureEvidence::DISCLOSURE_LABEL));
+        if ('' !== $label) return $label;
+
+        $panels = array();
+        foreach (preg_split('/\s+/', trim($summary->getAttribute('aria-controls'))) ?: array() as $id) {
+            $panel = $summary->ownerDocument?->getElementById($id);
+            if ($panel instanceof DOMElement) $panels[] = $panel;
+        }
+        foreach ($details->childNodes as $child) {
+            if ($child instanceof DOMElement && !$child->isSameNode($summary)) $panels[] = $child;
+        }
+        foreach ($panels as $panel) {
+            if (!in_array(strtolower(trim($panel->getAttribute('role'))), array('dialog', 'region'), true)) continue;
+            $label = $this->accessibleName($panel);
+            if ('' !== $label) return $label;
+        }
+        return '';
+    }
+
+    private function accessibleName(DOMElement $element): string
+    {
+        $label = trim($element->getAttribute('aria-label'));
+        if ('' !== $label) return $label;
+        $parts = array();
+        foreach (preg_split('/\s+/', trim($element->getAttribute('aria-labelledby'))) ?: array() as $id) {
+            $target = $element->ownerDocument?->getElementById($id);
+            $text = trim($target?->textContent ?? '');
+            if ('' !== $text) $parts[] = $text;
+        }
+        return implode(' ', $parts);
+    }
+
     /**
      * core/details saves a bare summary, but source CSS often addresses the
      * summary's classes and responsive data attributes. Keep those safe styling
@@ -118,7 +152,7 @@ final class DetailsPattern implements PatternRecognizerInterface
             }
         }
 
-        if ( array() === $attributes ) {
+        if ( array() === $attributes || '' === $html ) {
             return $html;
         }
         // Keep the source control's styling hooks and interactive paint on one
@@ -127,7 +161,10 @@ final class DetailsPattern implements PatternRecognizerInterface
         if ( $hasPresentationMarker ) {
             $attributes['class'] = SourceDom::mergeClassNames((string) ($attributes['class'] ?? ''), DisclosureControlPresentation::SUMMARY_CONTENT_CARRIER_CLASS);
         }
-        return '<span' . SourceDom::htmlAttributeString($attributes) . '>' . $html . '</span>';
+        // An icon-only carrier must itself be a registered RichText format.
+        $tag = '' === strip_tags($html) ? 'mark' : 'span';
+        if ('mark' === $tag) $attributes['role'] = 'none';
+        return '<' . $tag . SourceDom::htmlAttributeString($attributes) . '>' . $html . '</' . $tag . '>';
     }
 
     /**
