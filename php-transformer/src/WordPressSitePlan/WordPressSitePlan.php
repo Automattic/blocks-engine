@@ -2240,7 +2240,7 @@ PHP;
                 foreach (array_keys($media) as $condition) {
                     $copy = $asset;
                     $copy['media'] = $condition;
-                    $copy['_inline_media_projection'] = true;
+                    $copy['_inline_media_projection'] = array_key_exists('media', $asset) ? array($asset['media']) : array();
                     $chromeAssets[] = $copy;
                 }
             } else {
@@ -2250,10 +2250,22 @@ PHP;
         }
         $projected = array();
         $emittedShared = array();
+        // A per-media copy exists only to lift chrome under its condition; the
+        // authored payload it came from is still one asset with one target.
         $keptInline = array();
+        $keep = static function (array $asset) use (&$projected, &$keptInline): void {
+            if (isset($asset['_inline_media_projection'])) {
+                if (isset($keptInline[$asset['source_path']])) return;
+                $keptInline[$asset['source_path']] = true;
+                $media = $asset['_inline_media_projection'];
+                unset($asset['_inline_media_projection'], $asset['media']);
+                if (array() !== $media) $asset['media'] = $media[0];
+            }
+            $projected[] = $asset;
+        };
         foreach ($chromeAssets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content']) || !StylesheetActivation::active($asset)) {
-                $projected[] = $asset;
+                $keep($asset);
                 continue;
             }
             $matched = false;
@@ -2278,7 +2290,7 @@ PHP;
                 }
             );
             if (!$matched || $unparseable) {
-                $projected[] = $asset;
+                $keep($asset);
                 continue;
             }
             $route = (new CssStylesheetTransformer())->transformStyleRules(
@@ -2309,11 +2321,7 @@ PHP;
             unset($sharedAsset['inline_references'], $sharedAsset['stylesheet_instances'], $sharedAsset['stylesheet_parent'], $sharedAsset['stylesheet_inline_order']);
             $sharedAsset['_stylesheet_projection_origins'] = array(self::stylesheetProjectionOrigin($asset));
             $asset = self::withRewrittenTextContent($asset, $route);
-            if (!isset($asset['_inline_media_projection']) || !isset($keptInline[$asset['source_path']])) {
-                $keptInline[$asset['source_path']] = true;
-                unset($asset['_inline_media_projection']);
-                $projected[] = $asset;
-            }
+            $keep($asset);
             unset($sharedAsset['_inline_media_projection']);
             // Media/target contracts and relative URL resolution must agree:
             // otherwise the slices cannot share a resource or reference origin.
