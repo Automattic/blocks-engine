@@ -21,6 +21,16 @@ final class SocialAnchorSelectorProjector
         // subject: `.strip > *` must not claim anchors nested deeper in .strip.
         $parsed = CssSelectorMatcher::parse(self::declaredSelector($selector));
         if (!$parsed['supported']) return null;
+        // Only a selector reaching a marked anchor is projected. Ask the few
+        // anchors first, so a stylesheet's other selectors skip the source scan.
+        $reachesAnchor = false;
+        foreach ($context->selectorProjections->socialAnchorSources($context->authorStyles) as $anchor) {
+            if (CssSelectorMatcher::matches($anchor, $parsed, true, $context->authorStyles->selectorMatchCache())['matches']) {
+                $reachesAnchor = true;
+                break;
+            }
+        }
+        if (!$reachesAnchor) return null;
         $markers = array();
         $otherSubjects = false;
         foreach ($context->authorStyles->selectorCandidates($parsed) as $element) {
