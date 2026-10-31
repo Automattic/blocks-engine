@@ -4533,6 +4533,29 @@ final class ArtifactCompiler
     }
 
     /**
+     * The number of title segments at one edge that equal the start or the
+     * end of the site-name run, compared without case. 0 when none match or
+     * nothing of the title's own would remain.
+     *
+     * @param list<string> $segments
+     * @param list<string> $siteNameSegments
+     */
+    private static function siteNameEdgeRun(array $segments, array $siteNameSegments, bool $trailing): int
+    {
+        $fold = static fn (array $values): array => array_map(static fn (string $value): string => mb_strtolower(trim($value)), $values);
+        $segments = $fold($segments);
+        $siteName = $fold($siteNameSegments);
+        for ( $length = min(count($siteName), count($segments) - 1); 0 < $length; --$length ) {
+            $run = $trailing ? array_slice($segments, $length * -1) : array_slice($segments, 0, $length);
+            if ( $run === array_slice($siteName, 0, $length) || $run === array_slice($siteName, $length * -1) ) {
+                return $length;
+            }
+        }
+
+        return 0;
+    }
+
+    /**
      * @param list<string> $siteNameSegments The shared site-name run cut from
      *                                       the title edge it sits on.
      * @param string       $siteNameEdge     `leading` or `trailing` when the
@@ -4615,9 +4638,15 @@ final class ArtifactCompiler
         }
         if ( array() !== $siteNameSegments && null !== $titleDeclaration ) {
             $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, $normalize($titleDeclaration['content'])) ?: array();
-            $length = count($siteNameSegments);
-            $trailingMatch = $length <= count($segments) && array_slice($segments, $length * -1) === $siteNameSegments;
-            $leadingMatch = $length <= count($segments) && array_slice($segments, 0, $length) === $siteNameSegments;
+            // A title may spell the site name in another case or carry only
+            // part of the shared run ("Page | site name" beside the majority
+            // "Page | Site Name | Tagline"), so match the longest edge run that
+            // is the start or end of the site-name run, ignoring case.
+            $trailingLength = self::siteNameEdgeRun($segments, $siteNameSegments, true);
+            $leadingLength = self::siteNameEdgeRun($segments, $siteNameSegments, false);
+            $trailingMatch = 0 < $trailingLength;
+            $leadingMatch = 0 < $leadingLength;
+            $length = $trailingMatch ? $trailingLength : $leadingLength;
             $entryPrefixedBySiteName = '' !== $entryPath && $path === $entryPath && 'trailing' === $siteNameEdge && $leadingMatch && ! $trailingMatch;
             if ( $entryPrefixedBySiteName && '' !== $navigationLabel ) {
                 return $navigationLabel;
@@ -4625,7 +4654,7 @@ final class ArtifactCompiler
             if ( ! $entryPrefixedBySiteName && $trailingMatch ) {
                 $own = array_slice($segments, 0, count($segments) - $length);
             } elseif ( ! $entryPrefixedBySiteName && $leadingMatch ) {
-                $own = array_slice($segments, $length);
+                $own = array_slice($segments, $leadingLength);
             } else {
                 $own = $segments;
             }

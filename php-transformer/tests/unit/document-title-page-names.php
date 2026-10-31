@@ -124,6 +124,18 @@ $named = $titles(array(
 $assert('Opening night' === ($named['post-1.html'] ?? null), 'a landmark-less route is named by its own heading, not chrome or inbound text', json_encode($named));
 $assert('Bronze casting' === ($named['post-2.html'] ?? null), 'each landmark-less route owns its heading', json_encode($named));
 
+// #2363: some routes spell the site name in another case, or carry only its
+// first segment, beside the majority "Page | Site Name | Tagline" form.
+$named = $titles(array(
+    'index.html' => $page('Home | Andrea Salas | Social Designer', 'Welcome'),
+    'heat.html' => $page('Extreme Heat | Andrea Salas | Social Designer', 'Heat'),
+    'two.html' => $page('Project Two | Andrea Salas | Social Designer', 'Two'),
+    'collection.html' => $page('Architectural Collection | andrea salas', 'Box 01'),
+    'about.html' => $page('ABOUT my practice  | andrea salas', 'About'),
+));
+$assert('Architectural Collection' === ($named['collection.html'] ?? null), 'a lower-case partial site name is still cut, not replaced by the first heading', json_encode($named));
+$assert('ABOUT my practice' === ($named['about.html'] ?? null), 'the variant site-name suffix is stripped', json_encode($named));
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "document title page names: {$failures} failed, {$passes} passed\n");
     exit(1);
