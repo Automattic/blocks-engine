@@ -750,6 +750,10 @@ final class CssStylesheetTransformer
         if ( false !== $brace && '' === trim(substr(trim($rule), $brace + 1, -1)) ) {
             return array();
         }
+        // A comment or @charset declares nothing, so it can be overridden by nothing.
+        if ( false === $brace && preg_match('/^(?:\\s|\\/\\*.*?\\*\\/|@charset\\s+"[^"]*"\\s*;)*$/is', $rule) ) {
+            return array();
+        }
         if ( false === $brace || ! str_ends_with(trim($rule), '}') || ! preg_match_all('/(?:^|[;{}])\\s*(-{0,2}[a-zA-Z_][a-zA-Z0-9_-]*)\\s*:/', substr($rule, $brace + 1), $matches) ) {
             return array( '*' => true );
         }
