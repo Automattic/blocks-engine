@@ -203,8 +203,8 @@ $assert($pageRule . '.btn{color:red}' === $interactionDelta, 'page delta keeps s
 $assert($pageRule . $framework === $transformer->rulesAbsentFrom(array($pageRule . $framework), array($framework), true), 'without document evidence cascade preservation retains its conservative family-only behavior');
 $assert($pageRule . $framework === $transformer->rulesAbsentFrom(array($pageRule . $framework), array($framework), true, $interactionIndex, 'missing'), 'missing page documents never prove selector disjointness');
 
-$unknownDelta = $transformer->rulesAbsentFrom(array('.btn:unknown{color:purple}' . $framework), array($framework), true, $interactionIndex, 'page');
-$assert('.btn:unknown{color:purple}.btn{color:red}.lead{color:green}h1{color:blue}' === $unknownDelta, 'unsupported selectors conservatively retain overlapping shared rules');
+$unknownDelta = $transformer->rulesAbsentFrom(array('.btn::before .icon{color:purple}' . $framework), array($framework), true, $interactionIndex, 'page');
+$assert('.btn::before .icon{color:purple}.btn{color:red}.lead{color:green}h1{color:blue}' === $unknownDelta, 'selectors the index cannot reduce conservatively retain overlapping shared rules');
 
 // A pseudo-element is its own cascade target; state pseudo-classes match in
 // every state. Neither leaves a page rule's styled elements unknown.
@@ -214,6 +214,8 @@ foreach (array(
     array('.site-nav .btn{content:"page"}', '', 'a host rule does not compete with its pseudo-elements'),
     array('::-moz-focus-inner{border:0}', '', 'a vendor pseudo-element rule does not compete with element rules'),
     array('.site-nav .btn:checked{color:purple}', '.btn{border:1px solid;color:red}', 'a state pseudo-class rule competes on every element it may match'),
+    array('.site-nav .btn:nth-last-child(n+3){color:purple}', '.btn{border:1px solid;color:red}', 'a structural pseudo-class the matcher cannot evaluate competes on every element it may match'),
+    array('@keyframes pulse{to{border-color:red;color:red}}', '', 'keyframes do not compete with element rules'),
 ) as [$pseudoPage, $expected, $label]) {
     $assert($pseudoPage . $expected === $transformer->rulesAbsentFrom(array($pseudoPage . $pseudoShared), array($pseudoShared), true, $interactionIndex, 'page'), $label);
 }
