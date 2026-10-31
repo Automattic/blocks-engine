@@ -24,7 +24,8 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.2.blockName", "assert": "equals", "value": "core/paragraph" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Thursday — Saturday<br>5:00 PM – 10:00 PM" },
     { "path": "serialized_blocks", "assert": "contains", "value": "The Dockyard Courtyard<br>72 Morrison Drive<br><em>Charleston, SC</em>" },
     { "path": "fallbacks", "assert": "count", "count": 0 },

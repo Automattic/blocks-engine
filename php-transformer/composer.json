@@ -343,6 +343,7 @@
       "php tests/unit/empty-paragraph-source-identity.php",
       "php tests/unit/empty-visual-group-shell-transport.php",
       "php tests/unit/empty-paragraph-editor-parity.php",
+      "php tests/unit/break-only-paragraph.php",
       "php tests/unit/comment-text-run-boundaries.php",
       "php tests/unit/label-comment-text-run-boundaries.php",
       "php tests/unit/empty-comment-richtext.php",
