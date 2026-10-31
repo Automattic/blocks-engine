@@ -30,10 +30,12 @@ $html = <<<'HTML'
 <header><a href="/">Site</a>
 <button id="menuBtn" class="lg:hidden" aria-label="Toggle menu" aria-controls="menuPanel" aria-expanded="false" aria-haspopup="menu" data-blocks-engine-capture-dialog-trigger="menuPanel">Menu</button>
 <div id="menuPanel" class="lg:hidden data-blocks-engine-capture-dropdown" style="display: block ; visibility: visible !important;"
-  data-blocks-engine-capture-existing-panel='{"resting":{"style":null,"class":"hidden lg:hidden data-blocks-engine-capture-dropdown","hidden":false},"opened":{"style":"display: block ; visibility: visible !important;","class":"lg:hidden data-blocks-engine-capture-dropdown"}}'
+  data-blocks-engine-capture-existing-panel='{"resting":{"html":"<p>Closed content</p>","style":null,"class":"hidden lg:hidden data-blocks-engine-capture-dropdown","hidden":false},"opened":{"style":"display: block ; visibility: visible !important;","class":"lg:hidden data-blocks-engine-capture-dropdown"}}'
   hidden data-blocks-engine-capture-dialog-panel="menuPanel"><a href="/about">About</a><a href="/contact">Contact</a></div>
 </header><main><h1>Home</h1></main></body></html>
 HTML;
+$html = str_replace('id="menuBtn"', 'id="menuBtn" data-blocks-engine-capture-dialog-panel-state="' . htmlspecialchars(json_encode(array('html' => '<a href="/about">About</a><a href="/contact">Contact</a>', 'class' => 'lg:hidden data-blocks-engine-capture-dropdown', 'style' => 'display: block ; visibility: visible !important;')), ENT_QUOTES) . '"', $html);
+$html = str_replace('</head>', '<script data-blocks-engine-capture-disclosure-runtime="true">' . file_get_contents(__DIR__ . '/../fixtures/capture-disclosure-runtime.js') . '</script></head>', $html);
 $panelHtml = '<div id="menuPanel" class="lg:hidden" style="display: block ; visibility: visible !important;"><a href="/about">About</a><a href="/contact">Contact</a></div>';
 $state = array(
     'status' => 'captured',
@@ -66,6 +68,9 @@ if ($dialog instanceof DOMElement && $button instanceof DOMElement) {
     $assert($panel instanceof DOMElement && 'menuPanel' === $panel->getAttribute('id') && 'hidden lg:hidden' === $panel->getAttribute('class') && ! $panel->hasAttribute('style') && ! $panel->hasAttribute('hidden'), 'the dialog holds the panel at its resting presentation', $projected);
 }
 
+$assert(! str_contains($projected, '<script'), 'the current disclosure body is recognized and retired');
+$assert(str_contains($projected, 'captured-dialog-closed-content"><p>Closed content</p>') && str_contains($projected, 'captured-dialog-open-content"><a href="/about">About</a>'), 'both observed content states survive native projection', $projected);
+
 // Conversion: the saved markup holds a closed captured dialog that toggles the panel.
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $files))->toArray();
 $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
@@ -82,6 +87,16 @@ $assert(! str_contains(str_replace($match[0] ?? '', '', $markup), 'hidden lg:hid
 $assert(1 === preg_match('/^<!-- wp:group \{"anchor":"menuPanel","className":"hidden lg:hidden[^"]*"/', $match[3] ?? ''), 'the resting class is on the panel inside the dialog', $match[3] ?? $markup);
 $resting = is_array($attrs) ? ($attrs['restingState'] ?? null) : null;
 $assert('hidden lg:hidden' === ($resting['closed']['class'] ?? null) && 'lg:hidden' === ($resting['opened']['class'] ?? null) && 'authored' === ($attrs['resting'] ?? null), 'the dialog opens the panel by replacing its resting class', json_encode($attrs));
+
+$definition = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator())->definition('custom/captured-dialog');
+$assert(str_contains($markup, 'captured-dialog-closed-content') && str_contains($markup, 'Closed content') && str_contains($markup, 'captured-dialog-open-content'), 'both observed content states remain editable after conversion', $markup);
+$assert(str_contains($definition['assets']['style.css'], ':not([open]) > * > .captured-dialog-open-content') && str_contains($definition['assets']['style.css'], '[open] > * > .captured-dialog-closed-content'), 'native open state selects the matching content without destroying either editable copy');
+file_put_contents(sys_get_temp_dir() . '/captured-dialog-resting-content.json', json_encode(array(
+    'source' => $html,
+    'markup' => $markup,
+    'script' => $definition['view_js'],
+    'css' => $definition['assets']['style.css'],
+)));
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Captured dialog class-hidden resting panel failed ({$failures})\n");

@@ -212,7 +212,7 @@ final class CaptureEvidence
     // Recognized capture runtimes: sha256 of the trimmed `<script>` body.
 
     /** The site-independent disclosure interpreter (DISCLOSURE_RUNTIME). */
-    public const DISCLOSURE_RUNTIME_SHA256 = '67e77fd6348495edd9113e0ba1632abcd0907314aa46b5201fd1ff749544732c';
+    public const DISCLOSURE_RUNTIME_SHA256 = '086fc8248547e7c1109e0f6a28e691cea966f7057b3e36eaa8ccad177d2cf737';
     /** The gallery helper (GALLERY_RUNTIME) that may coexist with a replaced disclosure interpreter. */
     public const GALLERY_RUNTIME_SHA256 = '456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b';
     /** The choice-group runtime (CHOICE_GROUP_RUNTIME) with an empty config list (`var configs=[];`). */
