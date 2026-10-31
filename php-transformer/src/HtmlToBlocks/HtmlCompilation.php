@@ -6076,7 +6076,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function replaceRichTextStylingHookWithMark(DOMElement $element): bool
     {
         $sourceIsLink = 'a' === strtolower($element->tagName);
-        if ( ! $sourceIsLink && $element->getElementsByTagName('mark')->length > 0 ) {
+        if ( ! $sourceIsLink && $this->containsUnlowerableMark($element) ) {
             return false;
         }
 
@@ -6171,6 +6171,32 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $element->removeAttribute('style');
         $element->appendChild($mark);
         return true;
+    }
+
+    /**
+     * Whether a descendant mark forbids lowering this element to a mark
+     * carrier.
+     *
+     * A genuine `<mark>` (the author's own highlight, or one an earlier pass
+     * already carried) must not be re-wrapped. The engine's neutral
+     * comment-boundary carriers are different: they only keep a framework
+     * text-split seam (`CommentTextRunBoundaries`), so a styling hook holding
+     * them still lowers and the seam carriers nest inside the new mark.
+     * Declining instead would unwrap the styling hook and shed both its
+     * identity and a display declaration — a block-level span's own line.
+     */
+    private function containsUnlowerableMark(DOMElement $element): bool
+    {
+        if ( 'mark' === strtolower($element->tagName) ) {
+            return $element->getElementsByTagName('mark')->length > 0;
+        }
+        foreach ( $element->getElementsByTagName('mark') as $mark ) {
+            if ( $mark instanceof DOMElement && ! CommentTextRunBoundaries::isCarrier($mark) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
