@@ -49,6 +49,8 @@ final class WordPressSitePlan
     /** Marks the post-content block of a template that holds a page's hoisted layout frame. */
     public const FRAME_CONTENT_CLASS = 'blocks-engine-frame-content';
     private const GENERATED_CLASS_PATTERN = '/blocks-engine-[a-z-]+-[0-9a-f]{12}-\d+/';
+    /** Markers that name one carrier element: rich text, control and semantic. */
+    private const ELEMENT_MARKER_PATTERN = '/blocks-engine-(?:richtext|control|semantic)-[a-f0-9]+-\d+/';
     public const EDITOR_CORE_IMAGE_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-image img{pointer-events:auto!important}';
     public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
@@ -521,15 +523,15 @@ PHP;
         $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
         foreach ($documentChrome['chrome'] as $chrome) $frameParts[] = array('slug' => 'document-chrome', 'placement' => array('kind' => 'shared_shell', 'template_slugs' => array('single')), 'canonical_block_markup' => $chrome);
         $assetTargetCollisions = array();
-        // Rich-text markers some emitted markup still carries. A chrome rule
-        // naming any other marker names an element extraction replaced (one
-        // route's copy of the chrome), which matches nothing anywhere.
+        // Element markers some emitted markup still carries. A rule naming
+        // any other marker names an element extraction replaced (one route's
+        // copy of the chrome), which matches nothing anywhere.
         // Underscore keys are working state the plan does not emit, such as a
         // route's projected source markup from before its chrome was extracted.
         $emitted = static fn (array $rows): array => array_map(static fn (mixed $row): mixed => is_array($row) ? array_filter($row, static fn (int|string $key): bool => !is_string($key) || !str_starts_with($key, '_'), ARRAY_FILTER_USE_KEY) : $row, $rows);
-        $liveRichTextMarkers = preg_match_all('/blocks-engine-richtext-[a-f0-9]+-\d+/', (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shells['runtime_declarations'] ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
-        $assets = self::projectSharedChromeStylesheets($assets, array_merge($parts, $frameParts), $pages, $references, $assetTargetCollisions, $liveRichTextMarkers);
-        $assets = self::withoutDeadRichTextMarkerSelectors($assets, $liveRichTextMarkers);
+        $liveElementMarkers = preg_match_all(self::ELEMENT_MARKER_PATTERN, (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shells['runtime_declarations'] ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
+        $assets = self::projectSharedChromeStylesheets($assets, array_merge($parts, $frameParts), $pages, $references, $assetTargetCollisions, $liveElementMarkers);
+        $assets = self::withoutDeadElementMarkerSelectors($assets, $liveElementMarkers);
         foreach ($assetTargetCollisions as $collision) $this->recordUnitFinding(array(
             'code' => 'wordpress_site_plan_colliding_asset_target',
             'unit' => 'asset',
@@ -2143,7 +2145,7 @@ PHP;
      * @param list<array<string,string>> $collisions Receives one row per projection given a suffixed target.
      * @return array<int,array<string,mixed>>
      */
-    private static function projectSharedChromeStylesheets(array $assets, array $parts, array $pages = array(), ?AssetReferenceCanonicalizer $references = null, array &$collisions = array(), ?array $liveRichTextMarkers = null): array
+    private static function projectSharedChromeStylesheets(array $assets, array $parts, array $pages = array(), ?AssetReferenceCanonicalizer $references = null, array &$collisions = array(), ?array $liveElementMarkers = null): array
     {
         $classes = array();
         $controlRoutes = array();
@@ -2295,7 +2297,7 @@ PHP;
             $unparseable = false;
             $shared = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
-                static function (string $prelude, string $body) use ($targetsChrome, $reanchor, $liveRichTextMarkers, &$matched, &$unparseable): string {
+                static function (string $prelude, string $body) use ($targetsChrome, $reanchor, $liveElementMarkers, &$matched, &$unparseable): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) {
                         $unparseable = true;
@@ -2303,8 +2305,8 @@ PHP;
                     }
                     $kept = array_values(array_filter($selectors, $targetsChrome));
                     if (array() === $kept) return '';
-                    if (null !== $liveRichTextMarkers) {
-                        $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::withoutDeadRichTextMarkers($selector, $liveRichTextMarkers), $kept), 'is_string'));
+                    if (null !== $liveElementMarkers) {
+                        $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::withoutDeadElementMarkers($selector, $liveElementMarkers), $kept), 'is_string'));
                         // Every selector named only replaced elements: the rule matches nothing.
                         if (array() === $kept) return '';
                     }
@@ -2639,7 +2641,7 @@ PHP;
      * @param array<string,true> $live
      */
     /**
-     * A rich-text marker no emitted markup, runtime declaration or entity
+     * An element marker no emitted markup, runtime declaration or entity
      * record carries names an element the plan replaced or dropped, so every
      * stylesheet selector naming it matches nothing: drop those arms from
      * page stylesheets too, as the shared-chrome projection already does.
@@ -2648,20 +2650,20 @@ PHP;
      * @param array<string,true> $live
      * @return list<array<string,mixed>>
      */
-    private static function withoutDeadRichTextMarkerSelectors(array $assets, array $live): array
+    private static function withoutDeadElementMarkerSelectors(array $assets, array $live): array
     {
         foreach ($assets as &$asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference']) || !str_contains($asset['content'], 'blocks-engine-richtext-')) continue;
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference']) || 1 !== preg_match(self::ELEMENT_MARKER_PATTERN, $asset['content'])) continue;
             $content = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
                 static function (string $prelude, string $body) use ($live): string {
-                    if (!str_contains($prelude, 'blocks-engine-richtext-')) return $prelude . '{' . $body . '}';
+                    if (1 !== preg_match(self::ELEMENT_MARKER_PATTERN, $prelude)) return $prelude . '{' . $body . '}';
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) return $prelude . '{' . $body . '}';
                     $kept = array();
                     $changed = false;
                     foreach ($selectors as $selector) {
-                        $pruned = self::withoutDeadRichTextMarkers(trim($selector), $live);
+                        $pruned = self::withoutDeadElementMarkers(trim($selector), $live);
                         if ($pruned !== trim($selector)) $changed = true;
                         if (null !== $pruned) $kept[] = $pruned;
                     }
@@ -2676,10 +2678,10 @@ PHP;
         return $assets;
     }
 
-    private static function withoutDeadRichTextMarkers(string $selector, array $live): ?string
+    private static function withoutDeadElementMarkers(string $selector, array $live): ?string
     {
         $dead = static function (string $text) use ($live): bool {
-            if (!preg_match_all('/blocks-engine-richtext-[a-f0-9]+-\d+/', $text, $markers)) return false;
+            if (!preg_match_all(self::ELEMENT_MARKER_PATTERN, $text, $markers)) return false;
             foreach ($markers[0] as $marker) if (!isset($live[$marker])) return true;
             return false;
         };
@@ -2701,7 +2703,7 @@ PHP;
             }
             $alive = array();
             foreach ($arguments as $argument) {
-                $argument = self::withoutDeadRichTextMarkers(trim($argument), $live);
+                $argument = self::withoutDeadElementMarkers(trim($argument), $live);
                 if (null !== $argument) $alive[] = $argument;
             }
             if (array() !== $alive) {
