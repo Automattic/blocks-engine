@@ -104,6 +104,7 @@ final class SourceStyleResolutionState
         $this->staticRules = $analysis['static'];
         $this->conditionalRules = $analysis['conditional'];
         $this->navigationStateRules = $analysis['navigation_state'];
+        $this->ruleCandidateIndexes = array();
         $this->stateStyleFamilies = array();
         $this->revealStateRules = $analysis['reveal_state'];
         $this->imageShapeRules = $analysis['image_shape'];

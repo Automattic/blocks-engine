@@ -1564,22 +1564,59 @@ final class StyleResolver implements ElementPresentationResolver
     public function unsupportedSelectorDeclaration(DOMElement $element, string $property): string
     {
         $value = '';
-        foreach ( array( $this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules() ) as $rules ) {
-            foreach ( $rules as $rule ) {
-                $selector = (string) ( $rule['selector'] ?? '' );
-                if ( 1 !== preg_match('/:(?:is|where|not|has)\s*\(/i', $selector)
-                    || ! $this->unsupportedSelectorReferencesElement($selector, $element)
-                ) {
-                    continue;
-                }
-                $declared = trim((string) ( $rule['declarations'][$property] ?? '' ));
-                if ( '' !== $declared ) {
-                    $value = $declared;
-                }
+        foreach ( $this->unsupportedSelectorRuleCandidates($element) as $rule ) {
+            $selector = (string) ( $rule['selector'] ?? '' );
+            if ( ! $this->unsupportedSelectorReferencesElement($selector, $element) ) {
+                continue;
+            }
+            $declared = trim((string) ( $rule['declarations'][$property] ?? '' ));
+            if ( '' !== $declared ) {
+                $value = $declared;
             }
         }
 
         return $value;
+    }
+
+    /**
+     * The functional-pseudo rules (static, then conditional, in source order)
+     * whose selectors can name the element's id or one of its classes.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function unsupportedSelectorRuleCandidates(DOMElement $element): array
+    {
+        $index = $this->context->sourceStyles()->ruleCandidateIndexes['unsupported-selector'] ??= $this->unsupportedSelectorRuleIndex();
+        $runs = SelectorNameRuns::naming($element);
+        if ( null === $runs ) {
+            return $index['rules'];
+        }
+        $orders = array();
+        foreach ( $runs as $run ) {
+            $orders += $index['names'][$run] ?? array();
+        }
+        ksort($orders);
+        return array_values(array_intersect_key($index['rules'], $orders));
+    }
+
+    /** @return array{rules: list<array<string, mixed>>, names: array<string, array<int, true>>} */
+    private function unsupportedSelectorRuleIndex(): array
+    {
+        $index = array( 'rules' => array(), 'names' => array() );
+        foreach ( array( $this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules() ) as $rules ) {
+            foreach ( $rules as $rule ) {
+                $selector = (string) ( $rule['selector'] ?? '' );
+                if ( 1 !== preg_match('/:(?:is|where|not|has)\s*\(/i', $selector) ) {
+                    continue;
+                }
+                $order = count($index['rules']);
+                $index['rules'][] = $rule;
+                foreach ( SelectorNameRuns::spelled($selector) as $run ) {
+                    $index['names'][$run][$order] = true;
+                }
+            }
+        }
+        return $index;
     }
 
     private function unsupportedSelectorReferencesElement(string $selector, DOMElement $element): bool
