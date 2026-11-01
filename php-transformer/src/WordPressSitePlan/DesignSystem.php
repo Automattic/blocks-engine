@@ -228,23 +228,6 @@ final class DesignSystem
         $rootFontPx = (float) rtrim((string) array_key_first($rootPx), 'px');
 
         $root = self::unanimousRoot($usageBySource);
-        // Choose a rendered body run, not the html rem base. Keep the
-        // typography tuple together so size, family and leading agree.
-        $bodyTypography = array();
-        foreach ($usageBySource as $usage) foreach ($usage['text'] ?? array() as $row) {
-            if ('body' !== ($row['role'] ?? null)) continue;
-            $tuple = array('font_size' => CssLength::format((float) $row['font_size_px']), 'font_family' => $row['font_family'] ?? '', 'line_height' => $row['line_height'] ?? 'normal');
-            $key = json_encode($tuple, JSON_THROW_ON_ERROR);
-            $bodyTypography[$key] = ($bodyTypography[$key] ?? 0) + self::documentShare((int) $row['weight'], self::documentMass($usage));
-        }
-        if (array() !== $bodyTypography) {
-            uksort($bodyTypography, static fn(string $a, string $b): int => ($bodyTypography[$b] <=> $bodyTypography[$a]) ?: strcmp($a, $b));
-            $dominant = json_decode((string) array_key_first($bodyTypography), true, 512, JSON_THROW_ON_ERROR);
-            // Route-dependent families remain source-owned. Where a shared
-            // family exists, name the body role from readable text instead.
-            if (!isset($root['font_family']) || '' === $dominant['font_family']) unset($dominant['font_family']);
-            $root = array_replace($root, $dominant);
-        }
         // An explicit pixel size replaces the UA medium keyword, which also
         // changes bare monospace sizing. Require root author evidence on every
         // document before applying the rendered size site-wide.
@@ -976,7 +959,7 @@ final class DesignSystem
     }
 
     /**
-     * Root values (canvas background, body text colour and family) that every
+     * Root values (canvas background and body text typography) that every
      * document renders identically and no document varies conditionally.
      *
      * @param array<string,array<string,mixed>> $usageBySource
@@ -984,11 +967,14 @@ final class DesignSystem
      */
     private static function unanimousRoot(array $usageBySource): array
     {
-        $values = array('background' => array(), 'color' => array(), 'font_family' => array());
+        $values = array('background' => array(), 'color' => array(), 'font_family' => array(), 'font_size' => array(), 'line_height' => array());
         $authoredBackground = true;
         $conditional = array();
         foreach ($usageBySource as $usage) {
             $root = is_array($usage['root'] ?? null) ? $usage['root'] : array();
+            // The body's cascaded size is not the html rem base or a text
+            // run's class-owned size. Only shared root values can be defaults.
+            $root['font_size'] = ($root['font_size_px'] ?? 0) > 0 ? CssLength::format((float) $root['font_size_px']) : '';
             foreach ($values as $key => $_) $values[$key][(string) ($root[$key] ?? '')] = true;
             $authoredBackground = $authoredBackground && true === ($root['background_authored'] ?? false);
             foreach ($root['conditional'] ?? array() as $family) $conditional[(string) $family] = true;
@@ -999,6 +985,10 @@ final class DesignSystem
         if (1 === count($values['color']) && '' !== $color && '#000000' !== $color && !isset($conditional['color'])) $root['color'] = $color;
         $family = (string) array_key_first($values['font_family']);
         if (1 === count($values['font_family']) && '' !== $family && !isset($conditional['font-family'])) $root['font_family'] = $family;
+        foreach (array('font_size' => 'font-size', 'line_height' => 'line-height') as $field => $property) {
+            $value = (string) array_key_first($values[$field]);
+            if (1 === count($values[$field]) && '' !== $value && !isset($conditional[$property])) $root[$field] = $value;
+        }
         return $root;
     }
 
