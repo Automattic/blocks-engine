@@ -1748,7 +1748,15 @@ final class SvgMaterializer implements SvgElementMaterializer
 
         $title = $element->getElementsByTagName('title')->item(0);
         $titleText = $title instanceof DOMElement ? trim((string) $title->textContent) : '';
-        return '' !== $titleText ? $titleText : trim(SourceDom::attr($element, 'alt'));
+        if ( '' !== $titleText ) {
+            return $titleText;
+        }
+        $alt = trim(SourceDom::attr($element, 'alt'));
+        $host = $element->parentNode;
+        if ( '' === $alt && $host instanceof DOMElement && SourceDom::staticGraphicOnlyCustomElement($host) ) {
+            $alt = trim(SourceDom::attr($host, 'alt'));
+        }
+        return $alt;
     }
 
     private function ensureInlineSvgSizing(string $html, ?DOMElement $element = null): string

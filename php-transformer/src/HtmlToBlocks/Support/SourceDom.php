@@ -1554,11 +1554,14 @@ final class SourceDom
 
     /** Whether a subtree holds nothing but native media or media-support
      * markup (`img`, `video`, `picture`, `source`, `track`) and at least one
-     * of them carries a captured source, so the host renders all of its
-     * content without a script.
+     * of them carries a captured source, or only passive static graphics,
+     * so the host renders all of its content without a script.
      */
     public static function hasOnlyRenderableMediaContent(DOMElement $element): bool
     {
+        if ( self::staticGraphicOnlyCustomElement($element) ) {
+            return true;
+        }
         if ( ! self::hasRenderableMediaContent($element) ) {
             return false;
         }
