@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><style>
+.data-blocks-engine-capture-mobile-document { display:none }
+@media(max-width:767px) {
+    .data-blocks-engine-capture-desktop-document { display:none }
+    .data-blocks-engine-capture-mobile-document { display:block }
+}
+.drawer-links { position:fixed; left:0; top:50px; width:220px }
+.compact-toolbar { display:flex }
+</style></head><body>
+<div class="data-blocks-engine-capture-desktop-document" data-blocks-engine-capture-document-scope="">
+    <nav><ul><li><a href="/studio">Studio</a></li><li><a href="/workshop">Workshop</a></li></ul></nav>
+    <main><p>Wide screen content</p></main>
+</div>
+<div class="data-blocks-engine-capture-mobile-document" data-blocks-engine-capture-document-scope="">
+    <div>
+        <menu class="compact-toolbar"><button title="Open navigation"><i></i></button><span>Studio</span></menu>
+        <div id="drawer-shade"></div>
+        <nav class="drawer-links"><ul><li><a href="/studio">Studio</a></li><li><a href="/workshop">Workshop</a></li></ul></nav>
+        <main><p>Narrow screen content</p></main>
+    </div>
+</div>
+</body></html>

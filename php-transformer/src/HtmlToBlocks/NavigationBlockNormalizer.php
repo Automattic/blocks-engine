@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
 /**
@@ -204,10 +205,22 @@ final class NavigationBlockNormalizer
 
     private function isDocumentVariant(array $block): bool
     {
-        return (bool) preg_match(
-            '/(?:^|\s)(?:' . preg_quote(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_DOCUMENT_CLASS, '/') . '|site-document-variant-[a-z][a-z0-9_-]{0,31})(?:\s|$)/',
-            (string) ($block['attrs']['className'] ?? '')
-        );
+        $attributes = array(array('class' => $block['attrs']['className'] ?? ''));
+        // Site compilation retains document roots as layout-shell wrappers,
+        // rather than placing their source classes on the block itself.
+        foreach ($block['attrs']['wrappers'] ?? array() as $wrapper) {
+            if (is_array($wrapper['attributes'] ?? null)) $attributes[] = $wrapper['attributes'];
+        }
+        foreach ($attributes as $source) {
+            if (preg_match(
+                '/(?:^|\s)(?:' . preg_quote(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_DOCUMENT_CLASS, '/') . '|site-document-variant-[a-z][a-z0-9_-]{0,31})(?:\s|$)/',
+                (string) ($source['class'] ?? '')
+            )) return true;
+            $device = $source[EngineMarker::DEVICE_SCOPE_ATTRIBUTE] ?? $source[CaptureEvidence::DEVICE_DOCUMENT] ?? null;
+            if (array_key_exists(CaptureEvidence::DOCUMENT_SCOPE, $source) && is_string($device)
+                && preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $device)) return true;
+        }
+        return false;
     }
 
     /**
