@@ -6153,13 +6153,32 @@ final class StyleResolver implements ElementPresentationResolver
      * whoever wrote it. This is the element-scoped one, which is the reading
      * that can see a property an ancestor rebound.
      *
+     * Each declaration resolves independently so an invalid token cannot undo
+     * substitution in sibling declarations. Native supports can require fully
+     * resolved values; refusals remain owned by projected author CSS.
+     *
+     * @param array<string, string>|null $declarations Optional filtered presentation stream.
      * @return array<string, string>
      */
-    public function resolvedPresentationDeclarations(DOMElement $element): array
+    public function resolvedPresentationDeclarations(DOMElement $element, ?array $declarations = null, bool $requireResolved = false): array
     {
-        return $this->cssDeclarations(
-            $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($element), $element)
-        );
+        $declarations ??= $this->cssDeclarations($this->specificityResolvedPresentationStyle($element));
+        foreach ( $declarations as $property => $value ) {
+            $resolved = $this->resolveCssVariablesInValue($value, $element);
+            if ( $requireResolved && ! str_starts_with($property, '--') && str_contains($resolved, 'var(') ) {
+                unset($declarations[$property]);
+                $this->context->transformationEvidence()->recordConversionDiagnostic(array(
+                    'code' => 'html_unresolved_native_style',
+                    'severity' => 'warning',
+                    'loss_class' => 'native_conversion',
+                    'selector' => SourceDom::elementSelector($element),
+                    'message' => 'Left unresolved ' . $property . ' to author CSS instead of native block supports.',
+                ));
+                continue;
+            }
+            $declarations[$property] = $resolved;
+        }
+        return $declarations;
     }
 
     /** SVG/state presentation also needs the unfiltered paint and motion stream. */

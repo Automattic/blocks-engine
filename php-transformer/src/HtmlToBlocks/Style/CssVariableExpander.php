@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 /** Bounded substitution shared by element-scoped custom-property resolvers. */
 final class CssVariableExpander
 {
-    private const MAX_EXPANSION_DEPTH = 5;
+    private const MAX_EXPANSION_DEPTH = 128;
     private const MAX_EXPANDED_BYTES = 4096;
 
     /**
@@ -18,8 +18,9 @@ final class CssVariableExpander
      *
      * @param callable(string): ?string $resolve
      * @param (callable(string): bool)|null $keep
+     * @param array<string, true> $active References on the current dependency path.
      */
-    public static function expand(string $value, callable $resolve, int $depth = 0, ?callable $keep = null): ?string
+    public static function expand(string $value, callable $resolve, int $depth = 0, ?callable $keep = null, array $active = array()): ?string
     {
         if ( $depth > self::MAX_EXPANSION_DEPTH || strlen($value) > self::MAX_EXPANDED_BYTES ) {
             return null;
@@ -42,10 +43,13 @@ final class CssVariableExpander
                 $offset = $close + 1;
                 continue;
             }
+            if ( isset($active[$name]) ) {
+                return null;
+            }
             $resolved = $resolve($name);
             $replacement = null !== $resolved
-                ? self::expand($resolved, $resolve, $depth + 1, $keep)
-                : (null === $comma ? null : self::expand(trim(substr($arguments, $comma + 1)), $resolve, $depth + 1, $keep));
+                ? self::expand($resolved, $resolve, $depth + 1, $keep, $active + array($name => true))
+                : (null === $comma ? null : self::expand(trim(substr($arguments, $comma + 1)), $resolve, $depth + 1, $keep, $active));
             if ( null === $replacement ) {
                 return null;
             }

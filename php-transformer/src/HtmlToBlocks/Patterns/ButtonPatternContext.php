@@ -116,13 +116,14 @@ final class ButtonPatternContext
             return '';
         }
 
-        return $this->styleResolver->resolveCssVariablesInValue(
-            $this->styleResolver->cssDeclarationString($this->styleResolver->classOwnedResponsiveDeclarations(
+        return $this->styleResolver->cssDeclarationString($this->styleResolver->resolvedPresentationDeclarations(
+            $element,
+            $this->styleResolver->classOwnedResponsiveDeclarations(
                 $element,
                 $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element))
-            )),
-            $element
-        );
+            ),
+            true
+        ));
     }
 
     /** Inner markup as button RichText {@see StyleResolver::richTextSerializationSource()}. */

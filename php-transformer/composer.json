@@ -717,6 +717,7 @@
       "php tests/unit/button-signal-classifier.php",
       "php tests/unit/pill-button-anchor.php",
       "php tests/unit/button-style-resolver.php",
+      "php tests/unit/button-custom-property-chain.php",
       "php tests/unit/anchor-owned-button-surface.php",
       "php tests/unit/brand-link-button-semantics.php",
       "php tests/unit/device-style-synthetic-anchor-carrier.php",
