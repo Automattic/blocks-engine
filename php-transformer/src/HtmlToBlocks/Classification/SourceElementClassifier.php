@@ -885,8 +885,12 @@ final class SourceElementClassifier
     public function hasCarouselIdentity(DOMElement $element): bool
     {
         if ($element->hasAttribute('data-blocks-engine-slideshow')) return true;
+        // A declared carousel owns its surface; a semantic carousel may still
+        // hold a heading and controls beside its slides, so only its kind
+        // excludes other surfaces here.
         $surface = InteractiveSurface::classify($element);
-        if (null !== $surface) return 'carousel' === $surface['kind'];
+        if (null !== $surface && 'carousel' !== $surface['kind']) return false;
+        if ('evidence' === ($surface['source'] ?? null)) return true;
         $identity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
             $element->tagName,
             SourceDom::attr($element, 'id'),
