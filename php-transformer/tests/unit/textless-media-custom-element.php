@@ -58,7 +58,7 @@ $assert(3 === substr_count((string) ($static['serialized_blocks'] ?? ''), '<!-- 
 $button = $compile('<button aria-label="Close">' . $svg . '</button>');
 $assert(array() === ($button['fallbacks'] ?? array()) && str_contains((string) ($button['serialized_blocks'] ?? ''), 'Close'), 'native named icon button keeps its existing path');
 $configuredSvg = $compile('<icon-glyph data-target="panel">' . $svg . '</icon-glyph>');
-$assert(in_array(CustomElementRuntimeDependency::UNPROVEN_CODE, $codes($configuredSvg), true), 'configured SVG host stays unproven');
+$assert(array() === ($configuredSvg['fallbacks'] ?? array()) && str_contains((string) ($configuredSvg['serialized_blocks'] ?? ''), '<!-- wp:image'), 'configured SVG host lowers its captured graphic');
 $image = $compile('<icon-glyph><img src="/media/icon.png" alt="Icon"></icon-glyph>');
 $assert(array() === ($image['fallbacks'] ?? array()) && str_contains((string) ($image['serialized_blocks'] ?? ''), '/media/icon.png'), 'direct image host retains existing conversion');
 

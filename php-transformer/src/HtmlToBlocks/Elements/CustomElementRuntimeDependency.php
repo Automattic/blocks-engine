@@ -264,10 +264,10 @@ final class CustomElementRuntimeDependency
      * @param bool $outputCaptured The element's rendered output is already
      *        captured without a script: an empty host whose painted output is
      *        inline CSS, or a host whose light DOM is nothing but native
-     *        media. Its `data-*` values (`data-tiled-image-info`,
-     *        `data-video-info`) can then only parameterize that existing
-     *        output for an unproven script, so they are not configuration on
-     *        their own; any other non-global attribute still is.
+     *        media or passive static graphics. Its `alt` describes that output;
+     *        `data-*` values (`data-tiled-image-info`, `data-video-info`) can
+     *        only parameterize it for an unproven script, so they are not
+     *        configuration on their own; any other non-global attribute still is.
      */
     public function hasConfigurationAttribute(DOMElement $element, bool $outputCaptured = false): bool
     {
@@ -282,7 +282,7 @@ final class CustomElementRuntimeDependency
             if ( str_starts_with($name, 'aria-') || str_starts_with($name, 'data-wp-') || 1 === preg_match('/^on[a-z]+$/', $name) ) {
                 continue;
             }
-            if ( $outputCaptured && str_starts_with($name, 'data-') ) {
+            if ( $outputCaptured && ( 'alt' === $name || str_starts_with($name, 'data-') ) ) {
                 continue;
             }
 

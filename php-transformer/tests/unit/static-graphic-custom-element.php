@@ -35,8 +35,38 @@ $assert(! str_contains((string) ($neutral['serialized_blocks'] ?? ''), '<!-- wp:
 
 $button = $compile('<button aria-label="Close">' . $svg . '</button>');
 $assert(array() === ($button['fallbacks'] ?? array()) && str_contains((string) ($button['serialized_blocks'] ?? ''), 'Close'), 'native named icon button keeps its existing path');
-$configured = $compile('<icon-glyph data-target="panel">' . $svg . '</icon-glyph>');
-$assert(in_array(CustomElementRuntimeDependency::UNPROVEN_CODE, $codes($configured), true), 'configuration-bearing SVG host stays unproven');
+// Captured graphics are rendered output, not evidence of a missing runtime.
+// Shadow-DOM captures carry the rendered SVG's own inline sizing.
+$styledSvg = str_replace('<svg ', '<svg style="width: 48px; height: 48px;" ', $svg);
+$flex = 'style="display:flex;align-items:center"';
+foreach ( array(
+    'bare SVG' => array('svg', '', '', $svg),
+    'span' => array('span', $flex, '', $svg),
+    'bare host' => array('icon-graphic', '', '', $svg),
+    'styled host' => array('icon-graphic', $flex, '', $svg),
+    'host with styled SVG' => array('icon-graphic', $flex, '', $styledSvg),
+    'configured host' => array('icon-graphic', 'data-src="icon.svg" data-color="#FFFFFF" ' . $flex, '', $svg),
+    'named host' => array('icon-graphic', 'alt="Visit example" ' . $flex, 'Visit example', $svg),
+    'empty configured host' => array('icon-graphic', 'data-src="icon.svg" data-color="#FFFFFF"', '', ''),
+) as $name => [$tag, $attributes, $alt, $graphic] ) {
+    $empty = '' === $graphic;
+    $content = 'svg' === $tag ? $graphic : '<' . $tag . ' ' . $attributes . '>' . $graphic . '</' . $tag . '>';
+    $result = $compile('<a href="https://example.com/">' . $content . '</a>');
+    $blocks = (string) ($result['serialized_blocks'] ?? '');
+    if ( $empty ) {
+        $assert(in_array(CustomElementRuntimeDependency::UNPROVEN_CODE, $codes($result), true), $name . ' stays runtime unproven');
+        $assert(! str_contains($blocks, '<!-- wp:image'), $name . ' does not invent an image');
+        continue;
+    }
+    $assert(array() === ($result['fallbacks'] ?? array()), $name . ' has no fallback diagnostics');
+    $assert(1 === substr_count($blocks, '<!-- wp:image'), $name . ' lowers to one core/image');
+    $assert(str_contains($blocks, 'href="https://example.com/"'), $name . ' retains the destination');
+    $assert(str_contains($blocks, 'alt="' . $alt . '"'), $name . ' maps image alt');
+    $assets = array_filter($result['assets'] ?? array(), static fn (array $asset): bool => str_contains((string) ($asset['content'] ?? ''), 'M1 1l12 12M13 1L1 13'));
+    $assert(array() !== $assets, $name . ' materializes the SVG artwork');
+}
+$configured = $compile('<icon-glyph data-target="panel"></icon-glyph>');
+$assert(in_array(CustomElementRuntimeDependency::UNPROVEN_CODE, $codes($configured), true), 'empty configuration-bearing host stays unproven');
 $assert(! str_contains((string) ($configured['serialized_blocks'] ?? ''), '<!-- wp:image'), 'unproven host is not silently lowered');
 $image = $compile('<icon-glyph><img src="icon.png" alt="Icon"></icon-glyph>');
 $assert(array() === ($image['fallbacks'] ?? array()) && str_contains((string) ($image['serialized_blocks'] ?? ''), 'icon.png'), 'image-only host keeps its existing media path');
