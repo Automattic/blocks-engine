@@ -192,18 +192,18 @@ optional parent slug to a term ID in the same taxonomy (parents first, or in a
 second pass), pass that ID as WordPress's `parent` argument on insertion, and
 reconcile existing terms' parent IDs with ownership/conflict protection,
 rollback, and receipts. Missing `parent` means a root term. The plan field is a
-slug, not a WordPress database ID. SSI's existing exact archive-route rewrites
-already accept nested source paths and need no route-contract change.
+slug, not a WordPress database ID.
 
 Each emitted `taxonomy_term` records its bounded canonical post source paths,
 the archive source identity and route, optional captured presentation markup, and native
 query scope (`post_type`, taxonomy, and term). A consumer materializes the term
 and memberships and uses the archive document as presentation evidence, not as
-a frozen page owner. The generated theme scaffold retains an exact rewrite and
-term-link mapping for the source route, and rewrites the source route's
-`/page/N` suffix onto the same native term query with `paged` for bounded
-positive page numbers, without changing the destination's global category/tag
-base. Future posts belong to WordPress's native archive query.
+a frozen page owner. WordPress owns routes through the page hierarchy and
+permalink structure. The plan retains `route.path` and `archive.source_route`
+so the importer's Redirection materializer can redirect differing source URLs
+at import time, including archive URLs. The generated theme registers no route
+resolver, permalink filter, or rewrite rules. Future posts belong to
+WordPress's native archive query.
 
 If presentation cannot become an inherited Query Loop, the term keeps its name,
 parent, membership, and pagination ownership but omits `presentation_markup` and
@@ -213,18 +213,6 @@ the source path and route; WordPress's template hierarchy serves the archive.
 Neither projected nor fallback archive sources materialize as plan pages, and
 page ancestry skips archive sources so every nonempty `parent_source_path`
 names a materialized page.
-
-The producer-only HTTP acceptance serves a resolved generated theme in a
-disposable WordPress 7.1 runtime without SSI. It follows the rendered base-page
-Next link to `/page/2/`, follows Previous back to the base route, and checks the
-native query contents and unrelated-post exclusion:
-
-```sh
-BLOCKS_ENGINE_TAXONOMY_HTTP_WORDPRESS_VERSION=7.1 \
-BLOCKS_ENGINE_TAXONOMY_HTTP_EVIDENCE=/path/to/durable/evidence \
-WP_CODEBOX_CLI=/path/to/wp-codebox \
-node tests/wordpress-site-plan-taxonomy-http.mjs
-```
 
 An HTML detail document with exactly one valid schema.org `Event` JSON-LD claim
 can add a provider-neutral `entity_collection:events` declaration with
