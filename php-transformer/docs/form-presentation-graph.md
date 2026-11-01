@@ -21,6 +21,8 @@ is not capped by the graph node limit or the roughly 2,000-byte HTML excerpt.
 
 `generic/computed-form-presentation/v2` is an optional `generic/forms/v1` payload member. It carries bounded source-CSS facts for controls, associated labels, and identified inline SVG descendants. It is not a provider recipe and never assigns visual semantics such as "globe" or "chevron".
 
+Submit control metadata optionally exports `control_carrier_classes`, an ordered array of class-token strings: the registered `blocks-engine-control-…` marker, `blocks-engine-role-control`, and source subject classes. When author CSS is present, these classes register the submit in the same selector projection state as link buttons before CSS emission. Providers should copy the complete list onto both `core/buttons` and `core/button` wrappers; do not allocate replacement markers. The field is absent when no author CSS needs projection and on data-entry controls.
+
 Control metadata in `generic/forms/v1` also carries source presentation hooks outside this graph. `description` is the resolved field helper text. When exactly one description element resolves, `description_classes` is its ordered list of class tokens (bounded to 16), for example `["sub", "hidden-util"]`; a resolved element without classes yields `[]`. With no resolved description or ambiguous candidates, the key is absent. Consumers can use these tokens to preserve visually hidden helper copy instead of rendering it visibly. Existing label hooks (`label_class` and button `label_classes`) are unchanged; unlike those space-separated strings, `description_classes` is a token array. This additive metadata does not change block output.
 
 ```php

@@ -127,6 +127,17 @@ final class ConversionFindingContract
             }
         }
 
+        foreach ( $finding['controls'] ?? array() as $control ) {
+            if ( ! is_array($control) || ! array_key_exists('control_carrier_classes', $control) ) {
+                continue;
+            }
+            $classes = $control['control_carrier_classes'];
+            if ( ! is_array($classes) || ! array_is_list($classes)
+                || array_filter($classes, static fn (mixed $class): bool => ! is_string($class) || '' === $class || 1 === preg_match('/\s/', $class)) ) {
+                throw new InvalidArgumentException(sprintf('%s control_carrier_classes must be a list of class tokens.', ucfirst($label)));
+            }
+        }
+
         // `observed_block` is the one field producers emit as either a string
         // ("none") or an array (the observed block payload).
         if ( array_key_exists('observed_block', $finding) && null !== $finding['observed_block'] && ! is_string($finding['observed_block']) && ! is_array($finding['observed_block']) ) {

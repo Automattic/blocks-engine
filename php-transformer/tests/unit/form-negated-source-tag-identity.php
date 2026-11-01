@@ -48,7 +48,7 @@ foreach ( array('.theme :not(a):not(input)', '.theme :not(a,input)') as $selecto
     $assert(CssSelectorMatcher::matches($dom->getElementsByTagName('button')->item(1), $parsed)['matches'], 'Source button is not excluded as an input');
 }
 $positive = $compile('.theme button{color:red}', '<input name="name"><button type="submit">Send</button>', ' method="post"');
-$assert(str_contains($stylesheet($positive), '.theme button{color:red}'), 'Positive source button rule is unchanged');
+$assert(str_contains($stylesheet($positive), 'blocks-engine-control-') && str_contains($stylesheet($positive), '{color:red}'), 'Positive source button rule addresses registered submit carriers');
 $assert(! str_contains(json_encode($positive['fallbacks']), 'source_tag_marker'), 'Rules without negation allocate no new control marker');
 $assert('.theme .label{color:red}' === $stylesheet($compile('.theme .label{color:red}', $input)), 'Selectors without type negation are unchanged');
 echo "Form negated source tag identity passed\n";
