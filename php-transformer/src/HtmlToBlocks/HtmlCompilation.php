@@ -1028,7 +1028,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             convertChildren: fn (DOMElement $element, array &$fallbacks): array => $this->convertChildren($element, $fallbacks, true),
             backgroundImageBlock: fn (DOMElement $element): ?array => $this->backgroundImageBlockFromElement($element),
             coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
-            shouldPreserveWrapper: fn (DOMElement $element): bool => $this->shouldPreserveWrapper($element),
+            shouldPreserveWrapper: fn (DOMElement $element, ?string $asTag = null): bool => $this->shouldPreserveWrapper($element, $asTag),
             presentationResolver: $this->styleResolver,
             emptyVisualSpacerBlock: fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element)
         ));
@@ -3887,6 +3887,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $videoPoster = $this->customVideoPosterBlock($element);
         if (null !== $videoPoster) return $videoPoster;
 
+        // A `picture` with no image candidate (no `img`, no `source[srcset]`)
+        // is not media: authors use it as a plain styled box. Lower it the way
+        // a generic container lowers so its children and author CSS survive
+        // instead of the media dispatch dropping the subtree.
+        if ( 'picture' === $tagName && ! $this->sourceElementClassifier->hasPictureImageCandidate($element) ) {
+            return $this->flowContainerConverter->convertGenericContainer($element, $fallbacks)->block;
+        }
+
         $mediaDispatch = $this->mediaDispatchConverter->convert($element, $tagName, $fallbacks);
         if ( $mediaDispatch->handled ) {
             return $mediaDispatch->block;
@@ -6620,9 +6628,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $this->styleResolver->presentationClassName(implode(' ', $classes));
     }
 
-    private function shouldPreserveWrapper(DOMElement $element): bool
+    private function shouldPreserveWrapper(DOMElement $element, ?string $asTag = null): bool
     {
-        return ( ShellLandmarkPolicy::isWrapperPreservingTag($element->tagName) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) || $this->hasStyledSourceClassBoundary($element) );
+        $tag = $asTag ?? $element->tagName;
+
+        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) || $this->hasStyledSourceClassBoundary($element) );
     }
 
     /**
