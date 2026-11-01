@@ -62,6 +62,4 @@ foreach (array('taxonomy_entities', 'author_entities') as $kind) {
     } catch (InvalidArgumentException) {
     }
 }
-$bootstrap = array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'];
-$assert(str_contains($bootstrap, 'category/programming/wordpress/page/') && str_contains($bootstrap, 'category_name=wordpress&paged='), 'Fallback term retains pagination query ownership.');
 echo "unproven-archive-presentation-keeps-entity: passed\n";

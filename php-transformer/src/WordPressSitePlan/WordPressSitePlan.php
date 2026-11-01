@@ -55,8 +55,6 @@ final class WordPressSitePlan
     public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
     public const LISTING_QUERY_CLASS = 'blocks-engine-listing-query';
-    /** The source-route pagination rewrite capture admits bounded positive page numbers only (1..999999). */
-    public const TAXONOMY_ARCHIVE_PAGED_CAPTURE = '([1-9][0-9]{0,5})';
     public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}.blocks-engine-listing-overlay{width:auto}';
     /**
      * A generated theme reproduces captured text, so WordPress typographic
@@ -5413,26 +5411,6 @@ PHP;
         if ('' !== $headContext) $lines[] = $headContext;
         $fields = ListingFieldProjection::bootstrap($pages);
         if ('' !== $fields) $lines[] = $fields;
-        if (array_filter($taxonomyEntities, static fn(array $entity): bool => 'taxonomy_term' === $entity['kind'])) {
-            $termRoutes = array();
-            foreach ($taxonomyEntities as $entity) {
-                if ('author' === $entity['kind']) continue; // Core owns author rewrites.
-                $taxonomy = (string) $entity['taxonomy'];
-                $slug = (string) $entity['slug'];
-                $sourceRoute = (string) $entity['archive']['source_route'];
-                $termRoutes[$taxonomy][$slug] = $sourceRoute;
-                $routePrefix = preg_quote(trim($sourceRoute, '/'), '~');
-                $queryVar = 'category' === $taxonomy ? 'category_name' : 'tag';
-                // The captured term link names the base route only, so the native
-                // term query owns pagination; the rewrite carries the term context
-                // through `paged` instead of mutating global category/tag bases.
-                // Zero, negative, and overlong page numbers stay outside the
-                // capture and keep WordPress's own 404 semantics.
-                $lines[] = 'add_action( \'init\', static function (): void { add_rewrite_rule( ' . var_export('^' . $routePrefix . '/?$', true) . ', ' . var_export('index.php?' . $queryVar . '=' . rawurlencode($slug), true) . ', \'top\' ); add_rewrite_rule( ' . var_export('^' . $routePrefix . '/page/' . self::TAXONOMY_ARCHIVE_PAGED_CAPTURE . '/?$', true) . ', ' . var_export('index.php?' . $queryVar . '=' . rawurlencode($slug) . '&paged=$matches[1]', true) . ', \'top\' ); }, 1 );';
-            }
-            $lines[] = '$blocks_engine_taxonomy_archive_routes = ' . var_export($termRoutes, true) . ';';
-            $lines[] = "add_filter( 'term_link', static function ( string \$url, WP_Term \$term, string \$taxonomy ) use ( \$blocks_engine_taxonomy_archive_routes ): string { \$route = \$blocks_engine_taxonomy_archive_routes[ \$taxonomy ][ \$term->slug ] ?? null; return is_string( \$route ) ? home_url( \$route ) : \$url; }, 10, 3 );";
-        }
         if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineSocialAnchor'))) $lines[] = SocialLinkSourceAttribution::bootstrap();
         if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineLinkClass'))) {
             $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { \$classes = \$block['attrs']['metadata']['blocksEngineLinkClass'] ?? ''; if ( ! is_string( \$classes ) || '' === \$classes ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) foreach ( preg_split( '/\\s+/', \$classes ) ?: array() as \$class ) \$tag->add_class( \$class ); return \$tag->get_updated_html(); }, 10, 2 );";
@@ -5703,76 +5681,6 @@ PHP;
             $lines[] = "    if ( ! isset( \$attributes[\$handle] ) ) return \$tag;";
             $lines[] = "    \$rendered = ''; foreach ( \$attributes[\$handle] as \$name => \$value ) \$rendered .= true === \$value ? ' ' . \$name : ' ' . \$name . '=\"' . esc_attr( (string) \$value ) . '\"';";
             $lines[] = "    return preg_replace( '/<script\\b/', '<script' . \$rendered, \$tag, 1 ) ?? \$tag;";
-            $lines[] = "}, 10, 2 );";
-        }
-        $postRoutePaths = array();
-        $postRouteParents = array();
-        foreach ($pages as $page) {
-            if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic'])) {
-                continue;
-            }
-            $path = trim((string) ($page['route']['path'] ?? ''), '/');
-            $identity = (string) ($page['reconciliation_identity'] ?? '');
-            if ('' === $path || '' === $identity || !str_contains($path, '/')) {
-                continue;
-            }
-            $postRoutePaths[$identity] = $path;
-            $parent = trim((string) ($page['route']['parent_path'] ?? ''), '/');
-            if ('' !== $parent) {
-                $postRouteParents[$parent][] = basename($path);
-            }
-        }
-        ksort($postRoutePaths);
-        ksort($postRouteParents);
-        if (array() !== $postRoutePaths) {
-            $lines[] = '$blocks_engine_post_routes = ' . var_export($postRoutePaths, true) . ';';
-            // WP::parse_request() reads public vars through query_vars; the
-            // rewrite tag below also registers it on \$wp for url_to_postid().
-            $lines[] = "add_filter( 'query_vars', static function ( array \$vars ): array { \$vars[] = 'blocks_engine_post_route'; return array_values( array_unique( \$vars ) ); } );";
-            $lines[] = "\$blocks_engine_resolve_post_route = static function ( array \$vars ) use ( \$blocks_engine_post_routes ): array {";
-            $lines[] = "    if ( ! isset( \$vars['blocks_engine_post_route'] ) ) return \$vars;";
-            $lines[] = "    \$identity = array_search( \$vars['blocks_engine_post_route'], \$blocks_engine_post_routes, true );";
-            // A route outside this inventory is a 404 unless a later resolver
-            // owns it, so the route var stays for that resolver to claim.
-            $lines[] = "    if ( false === \$identity ) return array( 'error' => '404', 'blocks_engine_post_route' => \$vars['blocks_engine_post_route'] );";
-            $lines[] = "    \$ids = get_posts( array( 'post_type' => 'post', 'post_status' => 'publish', 'numberposts' => 1, 'fields' => 'ids', 'meta_key' => '_blocks_engine_reconciliation_identity', 'meta_value' => \$identity ) );";
-            $lines[] = "    return empty( \$ids ) ? array( 'error' => '404' ) : array( 'p' => (int) \$ids[0] );";
-            $lines[] = "};";
-            $lines[] = "add_filter( 'request', \$blocks_engine_resolve_post_route );";
-            // url_to_postid() constructs WP_Query directly, bypassing request.
-            $lines[] = "add_action( 'parse_query', static function ( WP_Query \$query ) use ( \$blocks_engine_resolve_post_route ): void {";
-            // Re-parse only when resolution changes the request, so a route left
-            // as a claimable 404 does not re-enter parse_query indefinitely.
-            $lines[] = "    if ( ! isset( \$query->query['blocks_engine_post_route'] ) ) return;";
-            $lines[] = "    \$resolved = \$blocks_engine_resolve_post_route( \$query->query );";
-            $lines[] = "    if ( \$resolved !== \$query->query ) \$query->parse_query( \$resolved );";
-            $lines[] = "} );";
-            $lines[] = "add_action( 'init', static function () use ( \$blocks_engine_post_routes ): void {";
-            // url_to_postid() matches only \$wp->public_query_vars.
-            $lines[] = "    add_rewrite_tag( '%blocks_engine_post_route%', '(.+)' );";
-            foreach ($postRouteParents as $parent => $slugs) {
-                // Only shipped posts may shadow core's hierarchical page rules.
-                // A numeric parent (`/2019/<slug>/`) is an int key.
-                sort($slugs, SORT_STRING);
-                $quotedSlugs = array_map(static fn(string $slug): string => preg_quote($slug, '/'), array_unique($slugs));
-                $pattern = '^(' . preg_quote((string) $parent, '/') . '/(?:' . implode('|', $quotedSlugs) . '))/?$';
-                $lines[] = "    add_rewrite_rule( " . var_export($pattern, true) . ", 'index.php?blocks_engine_post_route=\$matches[1]', 'top' );";
-            }
-            $lines[] = "    \$signature = hash( 'sha256', 'identity-routes-v2:' . wp_json_encode( \$blocks_engine_post_routes ) );";
-            $lines[] = "    if ( \$signature !== get_option( 'blocks_engine_post_route_signature' ) ) {";
-            $lines[] = "        update_option( 'blocks_engine_post_route_signature', \$signature );";
-            $lines[] = "        flush_rewrite_rules( false );";
-            $lines[] = "    }";
-            $lines[] = "} );";
-            $lines[] = "add_filter( 'post_link', static function ( string \$permalink, WP_Post \$post ) use ( \$blocks_engine_post_routes ): string {";
-            $lines[] = "    if ( 'post' !== \$post->post_type ) {";
-            $lines[] = "        return \$permalink;";
-            $lines[] = "    }";
-            $lines[] = "    \$identity = (string) get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true );";
-            $lines[] = "    if ( isset( \$blocks_engine_post_routes[ \$identity ] ) ) {";
-            $lines[] = "        return home_url( user_trailingslashit( \$blocks_engine_post_routes[ \$identity ] ) );";
-            $lines[] = "    }";
-            $lines[] = "    return \$permalink;";
             $lines[] = "}, 10, 2 );";
         }
         return implode("\n", $lines) . "\n";
