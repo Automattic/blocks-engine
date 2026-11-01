@@ -73,6 +73,36 @@ foreach ( $first['files'] as $file ) {
     );
 }
 
+// Recorded resources are byte-owned by the capture, not compiled source.
+$svg = "<svg xmlns=\"http://www.w3.org/2000/svg\">\r\n<text>x</text>\r\n</svg>\r\n";
+$normalizer = new ArtifactNormalizer();
+$resources = array(
+    array('path' => 'website/media/x.svg', 'mime_type' => 'image/svg+xml', 'content' => $svg),
+    array('path' => 'website/media/font.woff2', 'content' => "font\r\nbytes\r"),
+    array('path' => 'website/media/movie.mp4', 'content' => "media\r\nbytes\r"),
+    array('path' => 'asset.html', 'kind' => 'asset', 'content' => "<pre>asset\r\nbytes</pre>"),
+);
+$resourceResult = $normalizer->normalize(array('files' => $resources));
+$resourceFiles = array_column($resourceResult['files'], null, 'path');
+foreach ($resources as $resource) {
+    $file = $resourceFiles[$resource['path']];
+    $written = isset($file['content_base64']) ? base64_decode($file['content_base64'], true) : $file['content'];
+    $assert($resource['content'] === $written, 'Resource writes preserve every payload byte.', $resource['path']);
+    $assert(hash('sha256', $resource['content']) === hash('sha256', $written), 'Resource SHA-256 survives normalization.', $resource['path']);
+}
+$svgResult = $normalizer->normalize(array('files' => array($resources[0])));
+$svgAgain = $normalizer->normalize(array('files' => $svgResult['files']));
+$assert($svgResult['files'] === $svgAgain['files'], 'SVG normalization is idempotent.');
+$assert($svgResult['source_hash'] === $svgAgain['source_hash'], 'SVG source identity is stable.');
+
+$htmlResult = $normalizer->normalize(array('files' => array(array(
+    'path' => 'crlf.html', 'content' => "<pre>one\r\ntwo\rthree\n</pre>\r\n",
+))));
+$assert("<pre>one\ntwo\nthree\n</pre>\n" === $htmlResult['files'][0]['content'], 'CRLF HTML becomes single LF, including preformatted content.');
+$htmlAgain = $normalizer->normalize(array('files' => $htmlResult['files']));
+$assert($htmlResult['files'] === $htmlAgain['files'], 'Normalized HTML bytes and provenance are idempotent.');
+$assert($htmlResult['source_hash'] === $htmlAgain['source_hash'], 'Normalized HTML source identity is stable.');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, sprintf('artifact-normalizer-idempotence: %d passed, %d failed%s', $passes, $failures, PHP_EOL));
     exit(1);

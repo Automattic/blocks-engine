@@ -724,6 +724,9 @@ final class ArtifactNormalizer
                 continue;
             }
             $references = $file['inline_references'] ?? array(array_intersect_key($file, array_flip(array('source_path', 'stylesheet_index', 'stylesheet_link_position', 'media', 'source_media', 'placement', 'selector', 'defer', 'async', 'superseded_by', 'metadata'))));
+            // Address the same canonical bytes payload() will publish, including
+            // inline bodies extracted from base64 HTML or resolved includes.
+            $file['content'] = $this->normalizeContent($file['content']);
             $digest = hash('sha256', ($file['intent'] ?? '') . "\0" . ($file['type'] ?? '') . "\0" . $file['content']);
             $path = isset($file['inline_references']) ? $file['path'] : 'inline/' . $digest . '.' . $file['kind'];
             if (!isset($indexes[$path])) {
@@ -875,7 +878,15 @@ final class ArtifactNormalizer
         if (null === $contentKey || !is_string($file[$contentKey])) {
             return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => 0, 'diagnostics' => array($this->diagnostic('missing_file_payload', 'warning', 'An artifact file was ignored because it has no explicit text or base64 payload.', array('path' => $path))));
         }
-        $content = !empty($file['metadata']['compilation']['resolved_html_includes']) ? $file[$contentKey] : $this->normalizeContent($file[$contentKey]);
+        $content = $file[$contentKey];
+        $mimeType = $this->mimeType((string) ($file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? (str_contains((string) ($file['type'] ?? ''), '/') ? $file['type'] : '')), $path);
+        $kind = $this->kind((string) ($file['kind'] ?? $file['type'] ?? ''), $path, $content, $mimeType);
+        // Resource payloads belong to the capture: importers verify their raw
+        // bytes against recorded digests, even when the payload is text (SVG).
+        $resourceMime = preg_match('#^(image|font|audio|video)/#', $mimeType);
+        if ($this->isTextKind($kind) && !$resourceMime && empty($file['metadata']['compilation']['resolved_html_includes'])) {
+            $content = $this->normalizeContent($content);
+        }
         return array('accepted' => true, 'content' => $content, 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => strlen($content), 'diagnostics' => array());
     }
 
@@ -1025,7 +1036,7 @@ final class ArtifactNormalizer
             if ( ! str_contains($content, "\r") ) {
                 return $content;
             }
-            return str_replace("\r\n", "\n", str_replace("\r", "\n", $content));
+            return preg_replace('/\r\n?/', "\n", $content) ?? $content;
         }
         if ( is_scalar($content) ) {
             return (string) $content;
