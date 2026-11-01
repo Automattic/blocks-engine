@@ -1427,72 +1427,6 @@
         "test": "tests/contract/missing-local-media.php"
       }
     },
-    "src/WordPressSitePlan/DocumentHeadContext.php": {
-      "InvalidArgumentException('Document head '.$row['tag'].' asset is not bound to a declared write or external URL: '.mb_strcut((string)$reference,0,160,'UTF-8'))": {
-        "class": "integrity",
-        "count": 1,
-        "finding": "wordpress_site_plan_omitted_link_declaration",
-        "test": "tests/contract/unresolved-local-head-links.php"
-      },
-      "InvalidArgumentException('Document head attributes are invalid or exceed their budget.')": {
-        "class": "integrity",
-        "count": 1,
-        "finding": "document_head_attribute_dropped",
-        "test": "tests/contract/document-head-unrepresentable-items.php"
-      },
-      "InvalidArgumentException('Document head context is invalid or exceeds its element budget.')": {
-        "class": "integrity",
-        "count": 1,
-        "finding": "document_head_element_dropped",
-        "test": "tests/contract/document-head-unrepresentable-items.php"
-      },
-      "InvalidArgumentException('Document head data URL exceeds its budget.')": {
-        "class": "integrity",
-        "count": 1,
-        "finding": "document_head_element_dropped",
-        "test": "tests/contract/document-head-unrepresentable-items.php"
-      },
-      "InvalidArgumentException('Document head element is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Document head inline data declaration is invalid or exceeds its budget.')": {
-        "class": "integrity",
-        "count": 1,
-        "finding": "document_head_element_dropped",
-        "test": "tests/contract/document-head-unrepresentable-items.php"
-      },
-      "InvalidArgumentException('Document head inline script lacks a canonical script payload.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Document head link lacks source occurrence provenance.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Document head must declare a unique viewport.')": {
-        "class": "integrity",
-        "count": 1,
-        "finding": "document_head_duplicate_viewport",
-        "test": "tests/contract/document-head-runtime.php"
-      },
-      "InvalidArgumentException('Document head script cannot close its raw-text element.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Document head script must declare inline or external source semantics.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Document head style lacks a canonical CSS write.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Document head style must bind a canonical stylesheet write.')": {
-        "class": "integrity",
-        "count": 1
-      }
-    },
     "src/WordPressSitePlan/DocumentRootContext.php": {
       "InvalidArgumentException('Document root context must be an attribute map.')": {
         "class": "integrity",
@@ -2267,10 +2201,6 @@
         "count": 1,
         "finding": "wordpress_site_plan_unresolved_navigation_link",
         "test": "tests/contract/relative-form-action.php"
-      },
-      "invalidDeclaration('head script declaration','head',$index,$sourcePath,$documentKind,'unbound_script_loading_contract',$element)": {
-        "class": "integrity",
-        "count": 1
       },
       "invalidDeclaration('link declaration','link',$index,$sourcePath,$documentKind,'invalid_order',$row)": {
         "class": "integrity",

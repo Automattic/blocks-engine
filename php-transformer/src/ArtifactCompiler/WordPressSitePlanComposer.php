@@ -52,7 +52,7 @@ final class WordPressSitePlanComposer
             }
         }
         if (null !== $runtimeParity) {
-            $sourceReports['runtime_dependency_parity'] = $runtimeParity($wordpressSitePlan);
+            $sourceReports['runtime_dependency_parity'] = $runtimeParity();
             // A runtime target missing from the emitted markup costs that one
             // block its runtime behavior. The block keeps its static markup and
             // the rest of the site plan stays usable, so it is reported, not fatal.

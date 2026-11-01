@@ -4,8 +4,6 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
@@ -31,7 +29,6 @@ $css = 'main{background:url(/media/bg.svg)}h1{color:#123}';
 $js = 'window.appLoaded = true;';
 $widget = 'document.body.insertAdjacentHTML("beforeend", \'<img src="/media/bg.svg" alt="">\');';
 $artifact = array('entrypoint' => 'index.html', 'files' => array(
-    // The id on <style> makes this page carry a declared head context.
     'index.html' => '<!doctype html><html><head><title>Home</title><meta name="viewport" content="width=device-width, initial-scale=1"><style id="inline-owned">h1{margin:0}</style>'
         . '<link rel="stylesheet" type="text/css" href="/css/site.css" integrity="' . $sri('sha384', $css) . '" crossorigin="anonymous">'
         . '<link rel="preload" as="style" href="/css/site.css" integrity="' . $sri('sha256', $css) . ' ' . $sri('sha512', $css) . '">'
@@ -59,23 +56,11 @@ $assert('' !== $finalCss && $finalCss !== $css, 'The plan rewrites the styleshee
 $assert($js === ($served['assets/js/app.js'] ?? null), 'An asset without references is served byte for byte.');
 $assert(str_contains($served['assets/js/widget.js'] ?? '', 'https://example.test/theme/'), 'A script whose references resolve to the destination theme URI cannot be known before resolution.');
 
-$tags = static function (string $html, string $tag): array {
-    $rows = array();
-    foreach (HtmlTagScanner::scan($html, $tag) as $row) $rows[] = HtmlTagScanner::attributes($row['tag']);
-    return $rows;
-};
-$head = DocumentHeadContext::fromPlan($resolved, 'index.html');
-$links = $tags($head, 'link');
-$assert(5 === count($links) + count($tags($head, 'script')) && 'inline-owned' === ($links[0]['id'] ?? null) && !isset($links[0]['integrity']), 'The head context emits the inline style as a stylesheet link, the three links and the script.');
-array_shift($links);
-$assert($sri('sha384', $finalCss) === ($links[0]['integrity'] ?? null), 'A head stylesheet link carries the sha384 digest of the served stylesheet, not the source digest.');
-$assert($sri('sha256', $finalCss) . ' ' . $sri('sha512', $finalCss) === ($links[1]['integrity'] ?? null), 'A preload link keeps every source algorithm, recomputed over the served bytes.');
-$assert('sha384-externalDigestKept' === ($links[2]['integrity'] ?? null) && 'anonymous' === ($links[2]['crossorigin'] ?? null), 'An external link keeps its source integrity unchanged.');
-$headScripts = $tags($head, 'script');
-$assert($sri('sha384', $js) === ($headScripts[0]['integrity'] ?? null), 'A head script served byte for byte keeps its valid source digest.');
+$index = array_column($resolved['pages'], null, 'source_path')['index.html'];
+$indexLinks = array_column($index['document_metadata']['links'], null, 'rel');
+$assert($sri('sha256', $finalCss) . ' ' . $sri('sha512', $finalCss) === ($indexLinks['preload']['integrity'] ?? null), 'A preload link keeps every source algorithm, recomputed over the served bytes.');
 
 $about = array_column($resolved['pages'], null, 'source_path')['about/index.html'];
-$assert(!isset($about['document_metadata']['head']), 'The about page has no declared head context, so its declarations drive loading.');
 $assert($sri('sha384', $finalCss) === ($about['document_metadata']['links'][0]['integrity'] ?? null), 'Link declarations carry the digest of the served stylesheet for every plan consumer.');
 $assert($sri('sha384', $js) === ($about['document_metadata']['scripts'][0]['integrity'] ?? null), 'An unchanged script declaration keeps its valid digest.');
 $assert(!array_key_exists('integrity', $about['document_metadata']['scripts'][1]), 'A script whose served bytes depend on the destination drops the digest instead of shipping a stale one.');
@@ -88,13 +73,12 @@ $assert(str_contains($bootstrap, "'integrity' => '" . $sri('sha384', $js) . "'")
 $checked = 0;
 foreach ($resolved['pages'] as $page) {
     $rows = array_merge($page['document_metadata']['links'], $page['document_metadata']['scripts']);
-    foreach ($page['document_metadata']['head']['elements'] ?? array() as $element) if (isset($element['attributes']['integrity'])) $rows[] = array('integrity' => $element['attributes']['integrity'], 'asset_reference' => $element['asset_reference'] ?? null);
     foreach ($rows as $row) {
         if (!isset($row['integrity']) || !isset($servedByToken[$row['asset_reference'] ?? ''])) continue;
         $assert($validates($row['integrity'], $servedByToken[$row['asset_reference']]), 'Declared integrity validates against the served bytes: ' . $page['source_path'] . ' ' . $row['integrity']);
         ++$checked;
     }
 }
-$assert(8 === $checked, 'All eight local integrity declarations were checked.');
+$assert(5 === $checked, 'All five local integrity declarations were checked.');
 
 fwrite(STDOUT, "Rewritten asset integrity contract passed: {$passes} assertions\n");

@@ -493,7 +493,7 @@ final class ArtifactCompiler
         $assets = array_merge($beforeAuthorAssets, $manifestAssets, $otherGeneratedAssets, $afterAuthorAssets);
         $assets = array_merge($assets, $wordpressCompatAssets);
         $assets = $this->deduplicateVisualAssets($assets);
-        $assets = $this->coalesceStylesheetAssets($assets, $normalized['files']);
+        $assets = $this->coalesceStylesheetAssets($assets);
         $diagnostics = array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics, $this->omittedPageDiagnostics($omittedPages));
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
@@ -691,7 +691,7 @@ final class ArtifactCompiler
                 'terminal_reduction_count' => 1,
             ),
             $startedAt,
-            fn(?array $plan): array => ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks, $plan)
+            fn(): array => ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks)
         );
     }
 
@@ -944,17 +944,8 @@ final class ArtifactCompiler
      * @param array<int,array<string,mixed>> $assets
      * @return array<int,array<string,mixed>>
      */
-    private function coalesceStylesheetAssets(array $assets, array $files): array
+    private function coalesceStylesheetAssets(array $assets): array
     {
-        // A stylesheet element with a declared head position is a DOM identity,
-        // not merely an adjacent CSS payload. Coalescing destroys both that
-        // target and script/style parser ordering, even when media agrees.
-        $headStyles = array();
-        foreach ($files as $file) {
-            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null)) continue;
-            $head = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext::fromHtml($file['content'], $file['path'], $files);
-            foreach ($head['elements'] ?? array() as $row) if ('style' === $row['tag']) $headStyles[$row['url']] = true;
-        }
         $coalesced = array();
         $run = array();
         $runKey = '';
@@ -986,7 +977,7 @@ final class ArtifactCompiler
             $runKey = '';
         };
         foreach ( $assets as $asset ) {
-            if ( isset($headStyles[$asset['path'] ?? '']) || ! $this->isCoalescibleStylesheetAsset($asset) ) {
+            if ( ! $this->isCoalescibleStylesheetAsset($asset) ) {
                 $flush();
                 $coalesced[] = $asset;
                 continue;
@@ -4399,8 +4390,6 @@ final class ArtifactCompiler
             $rootClasses = array_values(array_filter(preg_split('/\s+/', trim((string) ($metadata['root_attributes']['class'] ?? ''))) ?: array(), static fn(string $class): bool => '' !== $class));
             $metadata['root_attributes']['class'] = implode(' ', array_unique(array_merge($rootClasses, $projectedRootMarkers)));
         }
-        $head = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext::fromHtml($html, $sourcePath, $files);
-        if (null !== $head) $metadata['head'] = $head;
         $comments = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WordPressComments::entities($html, $sourcePath);
         if (array() !== $comments) $metadata['comment_entities'] = $comments;
         return $metadata;

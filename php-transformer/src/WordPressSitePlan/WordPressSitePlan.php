@@ -135,8 +135,6 @@ PHP;
     private array $omittedLinkDeclarations = array();
     /** @var array<string,array<string,bool>> */
     private array $omittedLinkDeclarationPages = array();
-    /** @var array<string,int> Earlier viewport metas dropped per source path. */
-    private array $duplicateViewports = array();
     /** @var array<string,array<string,mixed>> Dropped or rewritten units, keyed by their identity fields. */
     private array $unitFindings = array();
     /** @var array<string,bool> */
@@ -284,7 +282,6 @@ PHP;
         $this->omittedUnresolvedScriptReferenceDiagnostics = 0;
         $this->omittedLinkDeclarations = array();
         $this->omittedLinkDeclarationPages = array();
-        $this->duplicateViewports = array();
         $this->unitFindings = array();
         $this->omittedLinkDeclarationOverflow = array();
         $editabilityPolicy = $input->editabilityPolicy;
@@ -357,18 +354,6 @@ PHP;
             if (is_string($path)) $page['route'] = array('path' => $path, 'parent_path' => self::parentRoutePath($path), 'slug' => self::routeSlug($path));
         }
         unset($page);
-        // Taxonomy projection runs over compiled documents to prove source
-        // membership, while page metadata is where declared head resources are
-        // resolved to canonical asset tokens. Attach that canonical occurrence
-        // only after resource resolution; copying the compiled URL here would
-        // detach the archive proof from its declared write and scope.
-        $canonicalPagesBySource = array_column($pages, null, 'source_path');
-        foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) {
-            $archiveSource = $taxonomyEntity['archive']['source_path'] ?? null;
-            $archiveHead = is_string($archiveSource) ? ($canonicalPagesBySource[$archiveSource]['document_metadata']['head'] ?? null) : null;
-            if (is_array($archiveHead)) $taxonomyEntity['archive']['document_head'] = $archiveHead;
-        }
-        unset($taxonomyEntity);
         $preflightPages = $pages;
         $this->listingQueryContainers = array();
         $preflightPages = $this->materializeListingQueryLoops($preflightPages, $runtimeDeclarations, $taxonomyProjection['entities']);
@@ -679,12 +664,10 @@ PHP;
         $integrity = new SubresourceIntegrity($assetWrites, $tokens);
         $pages = $integrity->documents($pages);
         $parts = $integrity->documents($parts);
-        foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) if (is_array($taxonomyEntity['archive']['document_head'] ?? null)) $taxonomyEntity['archive']['document_head'] = $integrity->head($taxonomyEntity['archive']['document_head']);
-        unset($taxonomyEntity);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
-        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $taxonomyProjection['entities'], $runtimeEmoji), $assetWrites);
+        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $runtimeEmoji), $assetWrites);
         $unitFindings = $this->unitFindingDiagnostics();
-        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->duplicateViewportDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
+        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
         // Declarations still over a byte limit are dropped here with their
@@ -2873,28 +2856,7 @@ PHP;
             foreach ($metadata[$kind] as $index => &$row) $row['order'] = $index;
             unset($row);
         }
-        if (isset($metadata['head'])) {
-            if (is_array($metadata['head'])) {
-                [$metadata['head'], $droppedHead] = DocumentHeadContext::withoutUnrepresentable($metadata['head']);
-                foreach ($droppedHead as $drop) $this->recordDroppedHeadItem(self::value($document, 'source_path'), $drop);
-            }
-            DocumentHeadContext::assertValid($metadata['head'], false, false);
-            [$metadata['head'], $droppedViewports] = DocumentHeadContext::keepLastViewport($metadata['head']);
-            if (0 < $droppedViewports) $this->recordDuplicateViewport(self::value($document, 'source_path'), $droppedViewports);
-            DocumentHeadContext::assertValid($metadata['head'], false);
-            foreach ($metadata['head']['elements'] as &$row) {
-                if (!isset($row['url'])) continue;
-                $reference = $this->documentAssetReference($row['url'], self::value($document, 'source_path'), $references, $routes);
-                if (null !== $reference) { $row['asset_reference'] = $reference; unset($row['url']); }
-                elseif ('link' === $row['tag'] && DocumentHeadContext::isRouteLink($row['attributes']) && null !== ($route = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes))) $row['url'] = $route;
-                elseif ('link' === $row['tag'] && !self::explicitUrl($row['url'])) {
-                    $this->recordOmittedLinkDeclaration(self::value($document, 'source_path'), array('rel' => $row['attributes']['rel'] ?? '', 'url' => $row['url']));
-                    $row = null;
-                }
-            }
-            unset($row);
-            $metadata['head']['elements'] = array_values(array_filter($metadata['head']['elements'], static fn(mixed $row): bool => is_array($row)));
-        }
+        if ('html' === ($metadata['source_context']['kind'] ?? null)) foreach (self::unrenderedHeadItems($metadata) as $drop) $this->recordDroppedHeadItem(self::value($document, 'source_path'), $drop);
         return $metadata;
     }
 
@@ -2965,39 +2927,48 @@ PHP;
     }
     /** @return array<int,array<string,mixed>> */
     private function unitFindingDiagnostics(): array { return array_values($this->unitFindings); }
+    /**
+     * WordPress renders the document head: core owns charset and viewport,
+     * platform fields own route SEO and the site icon, and stylesheets and
+     * executable scripts are enqueued. Any other source head item is a loss.
+     * @param array<string,mixed> $metadata
+     * @return list<array{code:string,reason_code:string,tag:string,name:string}>
+     */
+    private static function unrenderedHeadItems(array $metadata): array
+    {
+        $drops = array();
+        $drop = static function (string $tag, string $name) use (&$drops): void { $drops[] = array('code' => 'document_head_element_dropped', 'reason_code' => 'unrendered', 'tag' => $tag, 'name' => $name); };
+        foreach ($metadata['meta'] ?? array() as $row) {
+            if ('head' !== ($row['placement'] ?? null) || isset($row['charset'])) continue;
+            $equiv = strtolower(trim((string) ($row['http_equiv'] ?? '')));
+            $name = strtolower(trim((string) ($row['name'] ?? $row['property'] ?? '')));
+            if ('' !== $equiv) { if ('content-type' !== $equiv) $drop('meta', 'http-equiv=' . $equiv); continue; }
+            if (in_array($name, array('viewport', 'description', 'robots', 'googlebot', 'bingbot', 'generator'), true) || str_starts_with($name, 'og:') || str_starts_with($name, 'twitter:')) continue;
+            $drop('meta', $name);
+        }
+        foreach ($metadata['links'] ?? array() as $row) {
+            if ('head' !== ($row['placement'] ?? null)) continue;
+            $relations = preg_split('/\s+/', strtolower(trim((string) ($row['rel'] ?? '')))) ?: array();
+            if (array() === array_diff($relations, array('stylesheet', 'icon', 'shortcut', 'apple-touch-icon', 'canonical', 'alternate', 'next', 'prev'))) continue;
+            $drop('link', implode(' ', $relations));
+        }
+        foreach ($metadata['scripts'] ?? array() as $row) {
+            if ('head' === ($row['placement'] ?? null) && 'inline' === ($row['source_kind'] ?? null) && !self::isExecutableScriptType((string) ($row['type'] ?? ''), false)) $drop('script', strtolower((string) ($row['type'] ?? '')));
+        }
+        return $drops;
+    }
     /** @param array{code:string,reason_code:string,tag:string,name:string} $drop */
     private function recordDroppedHeadItem(string $sourcePath, array $drop): void
     {
-        $attribute = 'document_head_attribute_dropped' === $drop['code'];
         $this->recordUnitFinding(array_filter(array(
             'code' => $drop['code'],
             'unit' => 'item',
-            'message' => $attribute ? sprintf('Document head <%s> attribute %s cannot be carried (%s); it was dropped.', $drop['tag'], $drop['name'], $drop['reason_code']) : sprintf('Document head <%s> element cannot be carried (%s); it was dropped.', $drop['tag'], $drop['reason_code']),
+            'message' => sprintf('Document head <%s> %s is not rendered by WordPress (%s); it was dropped.', $drop['tag'], $drop['name'], $drop['reason_code']),
             'source_path' => $sourcePath,
             'reason_code' => $drop['reason_code'],
             'tag' => $drop['tag'],
-            'attribute' => $attribute ? $drop['name'] : '',
+            'name' => $drop['name'],
         ), static fn(string $value): bool => '' !== $value));
-    }
-    private function recordDuplicateViewport(string $sourcePath, int $dropped): void
-    {
-        $this->duplicateViewports[$sourcePath] = ($this->duplicateViewports[$sourcePath] ?? 0) + $dropped;
-    }
-    /** @return array<int,array<string,mixed>> */
-    private function duplicateViewportDiagnostics(): array
-    {
-        $diagnostics = array();
-        foreach ($this->duplicateViewports as $sourcePath => $dropped) {
-            $diagnostics[] = array(
-                'code' => 'document_head_duplicate_viewport',
-                'severity' => 'warning',
-                'message' => self::clipDiagnosticField(sprintf('Document head declared more than one viewport; kept the last and dropped %d earlier.', $dropped)),
-                'source_path' => self::clipDiagnosticField((string) $sourcePath),
-                'omitted_count' => $dropped,
-                'reason_code' => 'duplicate_viewport',
-            );
-        }
-        return $diagnostics;
     }
     /** @return array<int,array<string,mixed>> */
     private function omittedLinkDeclarationDiagnostics(): array
@@ -5381,10 +5352,10 @@ PHP;
     private static function routeSlug(string $path): string { return trim((string) basename($path), '/'); }
 
     /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $templates @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $menus @return array<int,array<string,mixed>> */
-    private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts, array $theme, array $tokens, array $pages = array(), array $menus = array(), array $taxonomyEntities = array(), bool $runtimeEmoji = false): array
+    private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts, array $theme, array $tokens, array $pages = array(), array $menus = array(), bool $runtimeEmoji = false): array
     {
         $writes = array($this->write('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), $this->write('theme_scaffold', 'theme.json', json_encode($theme, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"));
-        $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts, $parts, $tokens, $templates, $pages, $menus, $taxonomyEntities, $runtimeEmoji));
+        $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts, $parts, $tokens, $templates, $pages, $menus, $runtimeEmoji));
         if (DocumentRootContext::needsCanvas($pages)) $writes[] = $this->write('theme_scaffold', 'document-canvas.php', DocumentRootContext::canvas());
         foreach ( $templates as $template ) $writes[] = $this->write('theme_template', $template['target_path'], $template['canonical_block_markup']);
         foreach ( $parts as $part ) $writes[] = $this->write('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
@@ -5392,7 +5363,7 @@ PHP;
     }
 
     /** @param array<int,array<string,mixed>> $assets */
-    private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), array $taxonomyEntities = array(), bool $runtimeEmoji = false): string
+    private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), bool $runtimeEmoji = false): string
     {
         $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY);
         if (!$runtimeEmoji) $lines[] = self::SOURCE_NATIVE_EMOJI;
@@ -5407,8 +5378,6 @@ add_action( 'init', static function (): void {
 PHP;
         $rootContext = DocumentRootContext::bootstrap($pages);
         if ('' !== $rootContext) $lines[] = $rootContext;
-        $headContext = DocumentHeadContext::bootstrap($pages, $assets, $tokens, $taxonomyEntities);
-        if ('' !== $headContext) $lines[] = $headContext;
         $fields = ListingFieldProjection::bootstrap($pages);
         if ('' !== $fields) $lines[] = $fields;
         if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineSocialAnchor'))) $lines[] = SocialLinkSourceAttribution::bootstrap();
@@ -5663,14 +5632,9 @@ PHP;
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-listing-query', false, array(), null ); wp_enqueue_style( 'blocks-engine-listing-query' ); wp_add_inline_style( 'blocks-engine-listing-query', " . var_export(self::LISTING_QUERY_CSS, true) . " ); } );";
         }
         $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export($editorCss, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";
-        $headOwned = DocumentHeadContext::ownedAssets($pages);
-        $headReferencesByTarget = array();
-        foreach ($tokens as $token) $headReferencesByTarget[$token['target_path']] = self::TOKEN_PREFIX . $token['token'] . '}}';
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
             foreach ($script['scopes'] as $scope) {
-                $headReference = isset($headReferencesByTarget[$script['local_target'] ?? '']) ? $headReferencesByTarget[$script['local_target']] . $script['suffix'] : null;
-                if ('head' === $script['placement'] && isset($headOwned[$scope['source_path'] ?? ''][$headReference ?? $script['url'] ?? ''])) continue;
                 $condition = self::bootstrapScopeCondition($scope);
                 $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { if ( {$condition} ) wp_enqueue_script( " . var_export($handle, true) . " ); }, " . (10 + $scope['order']) . " );";
             }
@@ -5684,6 +5648,12 @@ PHP;
             $lines[] = "}, 10, 2 );";
         }
         return implode("\n", $lines) . "\n";
+    }
+    /** Document navigation relationships are routes; subresource links are assets. */
+    private static function isRouteLink(array $attributes): bool
+    {
+        $relations = preg_split('/\s+/', strtolower(trim($attributes['rel'] ?? ''))) ?: array();
+        return array() !== $relations && array() === array_diff($relations, array('canonical', 'alternate', 'next', 'prev', 'author', 'license', 'help')) && !isset($attributes['as']) && !in_array(strtolower($attributes['type'] ?? ''), array('text/css', 'text/javascript'), true);
     }
     // A file-system path and a URL path are different encodings of the same
     // name: browsers request exactly what the bootstrap emits and the server
@@ -6491,7 +6461,7 @@ PHP;
         if (!is_array($theme) || 3 !== ($theme['version'] ?? null) || !is_array($theme['settings'] ?? null) || !is_array($theme['styles'] ?? null)) throw new InvalidArgumentException('WordPress site plan theme.json shape is unsupported.');
         $bootstrap = $writes['functions.php'] ?? null;
         $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations'], $plan['runtime_declarations']);
-        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages'], $plan['menus'], array_merge($plan['taxonomy_entities'], $plan['author_entities']), 'wordpress' === ($plan['theme']['runtime_emoji'] ?? null)) !== ($bootstrap['canonical_payload'] ?? $bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
+        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages'], $plan['menus'], 'wordpress' === ($plan['theme']['runtime_emoji'] ?? null)) !== ($bootstrap['canonical_payload'] ?? $bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
         if (DocumentRootContext::needsCanvas($plan['pages'])) {
             $canvas = $writes['document-canvas.php'] ?? null;
             if (!is_array($canvas) || 'theme_scaffold' !== ($canvas['kind'] ?? null) || 'wordpress-site-plan/document-canvas.php' !== ($canvas['source_path'] ?? null) || DocumentRootContext::canvas() !== ($canvas['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan document canvas is invalid.');
@@ -6620,7 +6590,7 @@ PHP;
                 if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style'), true)) continue;
                 if ('action' === $name && 'form' !== $node['name']) continue;
                 if ('style' === $name) { $assertCss($value, 'style_attribute'); continue; }
-                foreach ('srcset' === $name ? self::srcsetCandidates($value) : array($value) as $candidate) $assertReference($candidate, $name, $node['name'], 'link' === $node['name'] && DocumentHeadContext::isRouteLink($node['attributes']));
+                foreach ('srcset' === $name ? self::srcsetCandidates($value) : array($value) as $candidate) $assertReference($candidate, $name, $node['name'], 'link' === $node['name'] && self::isRouteLink($node['attributes']));
             }
             if ('style' === $node['kind']) $assertCss($node['css'], 'style_block');
             if ('comment' === $node['kind'] && preg_match('~^\s*wp:~i', $node['content'])) {
@@ -6759,21 +6729,6 @@ PHP;
     private static function assertDocumentMetadata(array $metadata, array $tokens, string $sourcePath, string $documentKind): void
     {
         if (array_key_exists('root_attributes', $metadata)) DocumentRootContext::assertValid($metadata['root_attributes']);
-        if (array_key_exists('head', $metadata)) {
-            DocumentHeadContext::assertValid($metadata['head']);
-            foreach ($metadata['head']['elements'] as $row) if (isset($row['asset_reference'])) self::assertTokens($row['asset_reference'], $tokens);
-            foreach ($metadata['head']['elements'] as $index => $element) {
-                if ('script' !== $element['tag']) continue;
-                $reference = $element['asset_reference'] ?? $element['url'] ?? '';
-                $matches = array_filter($metadata['scripts'] ?? array(), static fn(array $script): bool => 'head' === ($script['placement'] ?? null)
-                    && (isset($element['content']) ? (($element['body_hash'] ?? null) === ($script['body_hash'] ?? null) && 'inline' === ($script['source_kind'] ?? null)) : $reference === ($script['asset_reference'] ?? $script['url'] ?? ''))
-                    && strtolower($element['attributes']['type'] ?? '') === strtolower($script['type'] ?? '')
-                    && isset($element['attributes']['async']) === ($script['async'] ?? false)
-                    && isset($element['attributes']['defer']) === ($script['defer'] ?? false)
-                    && isset($element['attributes']['nomodule']) === ($script['nomodule'] ?? false));
-                if (array() === $matches) self::invalidDeclaration('head script declaration', 'head', $index, $sourcePath, $documentKind, 'unbound_script_loading_contract', $element);
-            }
-        }
         if (array_key_exists('body_attributes', $metadata)) DocumentRootContext::assertValid($metadata['body_attributes']);
         if (!is_array($metadata['source_context'] ?? null) || !self::safePath($metadata['source_context']['source_path'] ?? null) || !is_string($metadata['source_context']['kind'] ?? null) || !is_string($metadata['title'] ?? null) || !is_array($metadata['title_declaration'] ?? null) || 0 !== ($metadata['title_declaration']['order'] ?? null) || 'head' !== ($metadata['title_declaration']['placement'] ?? null) || !is_array($metadata['meta'] ?? null) || !is_array($metadata['links'] ?? null) || !is_array($metadata['scripts'] ?? null)) throw new InvalidArgumentException('WordPress site plan document metadata is structurally invalid.');
         foreach ($metadata['meta'] as $index => $row) {
@@ -6904,7 +6859,6 @@ PHP;
             self::unique($slugs, $entity['slug'], 'author nicename');
             $archive = $entity['archive'] ?? null;
             if (!is_array($archive) || !self::safePath($archive['source_path'] ?? null) || ($archive['source_route'] ?? null) !== '/author/' . $entity['slug'] || ($archive['query'] ?? null) !== array('post_type' => 'post', 'author' => $entity['slug']) || !self::validArchivePresentation($archive)) throw new InvalidArgumentException('WordPress site plan author archive is structurally invalid.');
-            if (isset($archive['document_head'])) DocumentHeadContext::assertValid($archive['document_head']);
             $members = $entity['membership_source_paths'] ?? null;
             if (!is_array($members) || !array_is_list($members) || array() === $members || count($members) > 10000) throw new InvalidArgumentException('WordPress site plan author membership list is invalid.');
             $sorted = $members;
@@ -6951,7 +6905,6 @@ PHP;
             } elseif ('category' === $entity['taxonomy'] && preg_match('~(?:^|/)category/[^/]+/[^/]+~', $archive['source_route'])) {
                 throw new InvalidArgumentException('WordPress site plan hierarchical category lacks its parent.');
             }
-            if (isset($archive['document_head'])) DocumentHeadContext::assertValid($archive['document_head']);
             $members = $entity['membership_source_paths'] ?? null;
             if (!is_array($members) || !array_is_list($members) || array() === $members || count($members) > 10000) throw new InvalidArgumentException('WordPress site plan taxonomy membership list is structurally invalid.');
             $memberSet = array();

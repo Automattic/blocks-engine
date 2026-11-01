@@ -14,7 +14,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlAttributeName;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext;
 
 $failures = 0;
 $assert = static function (bool $condition, string $message) use (&$failures): void {
@@ -34,14 +33,6 @@ $run = static function (string $label, callable $callback) use ($assert): mixed 
 $stringKeys = static fn (array $map): bool => array() === array_filter(array_keys($map), static fn (mixed $key): bool => !is_string($key));
 
 // Raw tag scanning does not depend on libxml.
-$head = $run('head context with an integer-named meta attribute', static fn (): ?array => DocumentHeadContext::fromHtml(
-    '<html><head><meta 0="" 512="" name="description" content="Beds" class="seo"></head><body><p>Hi</p></body></html>',
-    'website/index.html',
-    array()
-));
-$meta = is_array($head) ? ($head['elements'][0]['attributes'] ?? null) : null;
-$assert(array('name' => 'description', 'content' => 'Beds', 'class' => 'seo') === $meta, 'head context keeps the named meta attributes and drops the integer names');
-
 $scanned = $run('tag scanner', static fn (): array => HtmlTagScanner::attributes('<svg 0="" 512 viewBox="0 0 1 1" -1="x" data-0="kept" 00="kept">'));
 $assert(is_array($scanned) && $stringKeys($scanned), 'tag scanner returns only string keys');
 $assert(array('viewbox' => '0 0 1 1', 'data-0' => 'kept', '00' => 'kept') === $scanned, 'tag scanner drops only integer names');
