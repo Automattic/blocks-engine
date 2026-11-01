@@ -38,6 +38,7 @@ final class FormControlMetadataBuilder
      * @param Closure(DOMElement): array<string, string>|null $paintStyles Resolved snake_case paint facts
      *     (text colour, background fill) for one element, through the same cascade.
      * @param Closure(DOMElement): string|null $sourceTagMarker Existing source tag identity for a retagging provider.
+     * @param Closure(DOMElement): list<string>|null $controlCarrierClasses Registered author-selector wrapper classes.
      * @param Closure(DOMElement, DOMElement): (array<string, string>|null)|null $hiddenState The declaration
      *     that hides an element below a form boundary, if the source hides it unconditionally.
      * @param Closure(DOMElement): string|null $richTextContent The element's inline content as the RichText HTML
@@ -51,7 +52,8 @@ final class FormControlMetadataBuilder
         private readonly ?Closure $paintStyles = null,
         private readonly ?Closure $hiddenState = null,
         private readonly ?Closure $sourceTagMarker = null,
-        private readonly ?Closure $richTextContent = null
+        private readonly ?Closure $richTextContent = null,
+        private readonly ?Closure $controlCarrierClasses = null
     ) {
     }
 
@@ -66,6 +68,14 @@ final class FormControlMetadataBuilder
                 $marker = null !== $this->sourceTagMarker ? ($this->sourceTagMarker)($control) : '';
                 if ( '' !== $marker ) {
                     $metadata['source_tag_marker'] = $marker;
+                }
+                // Providers lower submit controls into button wrappers. Register
+                // their source identity before the author stylesheet is projected.
+                if ( 'submit' === ($metadata['type'] ?? '') && null !== $this->controlCarrierClasses ) {
+                    $classes = ($this->controlCarrierClasses)($control);
+                    if ( array() !== $classes ) {
+                        $metadata['control_carrier_classes'] = $classes;
+                    }
                 }
                 // A control whose wrapper the source keeps hidden (a conditional
                 // field shown only by script) is not one the reader can fill in.

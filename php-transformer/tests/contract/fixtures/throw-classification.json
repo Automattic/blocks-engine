@@ -815,6 +815,10 @@
       "InvalidArgumentException(sprintf('%s.%d must be an object.',$label,$index))": {
         "class": "integrity",
         "count": 1
+      },
+      "InvalidArgumentException(sprintf('%s control_carrier_classes must be a list of class tokens.',ucfirst($label)))": {
+        "class": "integrity",
+        "count": 1
       }
     },
     "src/Contract/TransformerResult.php": {
