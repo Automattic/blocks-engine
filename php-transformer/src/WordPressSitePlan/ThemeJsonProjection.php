@@ -339,6 +339,11 @@ final class ThemeJsonProjection
     /** @return array<string,string>|null */
     private function target(string $selector): ?string
     {
+        // Control projection partitions an authored type rule into a retained
+        // type arm and carrier arms. The role exclusion is engine-owned, not
+        // author scoping: this arm still supplies the element default. Do not
+        // infer defaults from the carrier arms (or their source class paint).
+        if ('button:not(:where(.blocks-engine-role-control))' === $selector) $selector = 'button';
         if ('body' === $selector) return 'body';
         if ('main' === $selector) return 'layout';
         if (preg_match('/^h([1-6])$/', $selector, $match)) return 'element:h' . $match[1];
