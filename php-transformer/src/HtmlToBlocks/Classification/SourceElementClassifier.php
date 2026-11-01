@@ -577,6 +577,25 @@ final class SourceElementClassifier
         return false;
     }
 
+    /**
+     * A `picture` carries an image candidate when it holds an `img` or a
+     * `source[srcset]` child. Without one it renders nothing as media, and
+     * authors use it as a plain styled container.
+     */
+    public function hasPictureImageCandidate(DOMElement $element): bool
+    {
+        if ( $this->hasDirectChildElement($element, 'img') ) {
+            return true;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'source' === strtolower($child->tagName) && '' !== SourceDom::attr($child, 'srcset') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function hasPictureSourceSelection(DOMElement $element): bool
     {
         $images = $element->getElementsByTagName('img');

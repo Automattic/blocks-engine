@@ -58,6 +58,20 @@ final class FlowContainerElementConverter implements ElementConverter
         return $this->lower($element, strtolower($element->tagName), $fallbacks);
     }
 
+    /**
+     * Lowers a known element whose own semantics yield nothing as the generic
+     * container it instead acts as. A `picture` with no image candidate (no
+     * `img`, no `source[srcset]`) renders no media, so the caller hands it here
+     * and the tag gates inside lower() see `div` semantics. The caller decides
+     * which elements may take this path.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    public function convertGenericContainer(DOMElement $element, array &$fallbacks): ConversionOutcome
+    {
+        return $this->lower($element, 'div', $fallbacks);
+    }
+
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function lower(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
@@ -322,7 +336,7 @@ final class FlowContainerElementConverter implements ElementConverter
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);
             }
-            if ( $this->context->shouldPreserveWrapper($element) || $this->context->isDirectChildOfAuthorOwnedLayout($element) ) {
+            if ( $this->context->shouldPreserveWrapper($element, $tagName) || $this->context->isDirectChildOfAuthorOwnedLayout($element) ) {
                 return ConversionOutcome::handled($this->group($element, $children));
             }
             return ConversionOutcome::handled($children[0]);

@@ -122,7 +122,7 @@ final class FlowContainerElementContext
     public function backgroundImageBlock(DOMElement $element): ?array { return ($this->backgroundImageBlock)($element); }
     /** @param array<string, mixed> $child @return array<string, mixed>|null */
     public function coalescedSingleGroupWrapper(DOMElement $element, array $child): ?array { return ($this->coalescedSingleGroupWrapper)($element, $child); }
-    public function shouldPreserveWrapper(DOMElement $element): bool { return ($this->shouldPreserveWrapper)($element); }
+    public function shouldPreserveWrapper(DOMElement $element, ?string $asTag = null): bool { return ($this->shouldPreserveWrapper)($element, $asTag); }
     /** @return array<string, mixed> */
     public function presentationAttributes(DOMElement $element): array { return $this->presentationResolver->presentationAttributes($element); }
     /** @return array<string, string> */

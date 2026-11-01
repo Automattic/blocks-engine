@@ -1,0 +1,12 @@
+<!--
+A <picture> with no image candidate (no `img`, no `source[srcset]`) renders no
+media. Authors use it as a plain styled box: the frame is CSS-painted and the
+icon inside is drawn with `mask-image`. Reduced from a live import where the
+whole frame subtree was dropped.
+-->
+<style>
+.icon{display:block;width:60px;margin:0 auto}
+.icon__frame{display:block;position:relative;padding-top:100%;border-radius:50%;background:#aaa;overflow:hidden}
+.icon__inner{position:absolute;inset:0;background-color:#fff;mask-image:url(quote.svg);mask-size:60%;mask-repeat:no-repeat;mask-position:center}
+</style>
+<div class="card"><div class="icon"><picture class="icon__frame"><div class="icon__inner"></div></picture></div><p>"A quoted testimonial."</p></div>
