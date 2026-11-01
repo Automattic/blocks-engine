@@ -43,25 +43,8 @@ final class SubresourceIntegrity
                 if (null === $integrity) unset($documents[$index]['document_metadata'][$kind][$row]['integrity']);
                 else $documents[$index]['document_metadata'][$kind][$row]['integrity'] = $integrity;
             }
-            if (is_array($document['document_metadata']['head'] ?? null)) $documents[$index]['document_metadata']['head'] = $this->head($document['document_metadata']['head']);
         }
         return $documents;
-    }
-
-    /**
-     * Integrity applies to fetched links and scripts; an inline head script carries its own body.
-     * @param array<string,mixed> $head
-     * @return array<string,mixed>
-     */
-    public function head(array $head): array
-    {
-        foreach ($head['elements'] ?? array() as $index => $element) {
-            if (!is_string($element['attributes']['integrity'] ?? null) || !('link' === ($element['tag'] ?? null) || ('script' === ($element['tag'] ?? null) && false === ($element['inline'] ?? null)))) continue;
-            $integrity = $this->forReference($element['attributes']['integrity'], $element['asset_reference'] ?? null);
-            if (null === $integrity) unset($head['elements'][$index]['attributes']['integrity']);
-            else $head['elements'][$index]['attributes']['integrity'] = $integrity;
-        }
-        return $head;
     }
 
     /**

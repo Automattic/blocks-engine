@@ -41,7 +41,6 @@ foreach (array(
     $assert(is_array($plan) && 'failed' !== $result['status'] && !isset($result['source_reports']['wordpress_site_plan_diagnostics']), "An unresolved {$label} link no longer fails the site plan.");
     WordPressSitePlan::assertValid($plan);
     $assert(array() === ($plan['pages'][0]['document_metadata']['links'] ?? null), "The unresolved {$label} link is not declared.");
-    $assert(array() === array_filter($plan['pages'][0]['document_metadata']['head']['elements'] ?? array(), static fn (array $row): bool => 'link' === $row['tag']), "The unresolved {$label} link is not carried in the head context.");
     $assert(str_contains((string) $plan['pages'][0]['canonical_block_markup'], 'Kept heading'), "The page body survives the omitted {$label} link.");
     $findings = $omissions($result);
     $assert(1 === count($findings), "The omitted {$label} link is reported once.");

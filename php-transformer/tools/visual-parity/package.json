@@ -18,7 +18,6 @@
     "differential": "node differential/run.mjs",
     "test:navigation-correspondence": "node tests/navigation-source-correspondence.mjs && node tests/navigation-source-correspondence.mjs --conditional-layout && node tests/navigation-source-correspondence.mjs --cross-family-cascade && node tests/navigation-source-correspondence.mjs --cross-family-order && node tests/navigation-source-correspondence.mjs --default-landmark && node tests/wordpress-stylesheet-publication.mjs && node tests/wordpress-shared-chrome-publication.mjs",
     "test:stylesheet-publication": "node tests/wordpress-stylesheet-publication.mjs && node tests/wordpress-shared-chrome-publication.mjs",
-    "test:head": "node tests/document-head-runtime.mjs",
     "test:navigation-cluster-control": "node tests/navigation-cluster-trailing-control.mjs",
     "test:conditional-native-button": "node tests/conditional-native-button.mjs",
     "test:declared-body": "node tests/declared-document-role-button.mjs",

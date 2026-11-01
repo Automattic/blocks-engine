@@ -240,8 +240,6 @@ final class CaptureEvidence
     public const DEVICE_BODY = 'data-blocks-engine-capture-device-body';
     /** On `<html>`: the profile the device-selection runtime selected; written at runtime. */
     public const SELECTED_DOCUMENT = 'data-blocks-engine-capture-selected-document';
-    /** Marker on the `<meta name="viewport">` the device-selection runtime fills. */
-    public const SELECTED_VIEWPORT = 'data-blocks-engine-capture-selected-viewport';
     /** On `<html>`: set at runtime when no captured document applies to the device. */
     public const DOCUMENT_UNAVAILABLE = 'data-blocks-engine-capture-document-unavailable';
     /** On `<style>`/`<link>`: the device profile the stylesheet belongs to. */
@@ -258,7 +256,6 @@ final class CaptureEvidence
         'DEVICE_SELECTION',
         'DEVICE_BODY',
         'SELECTED_DOCUMENT',
-        'SELECTED_VIEWPORT',
         'DOCUMENT_UNAVAILABLE',
         'MEMBER_LOGIN',
         'MEMBER_LOGIN_CLASS_PREFIX',

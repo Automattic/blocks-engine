@@ -86,23 +86,11 @@ $assert(
     && $nickSpeakingMembers === ($nickSpeaking['membership_source_paths'] ?? null),
     'The retained Nick capture href shape with explicit index.html aliases resolves through the compiled source-route table and proves exactly its five reciprocal Speaking members.'
 );
-$nickHeadLinks = array_values(array_filter($nickSpeaking['archive']['document_head']['elements'] ?? array(), static fn(array $element): bool => 'link' === ($element['tag'] ?? null) && 'stylesheet' === ($element['attributes']['rel'] ?? null)));
 $nickHeadAsset = array_values(array_filter($nickIndexHtmlPlan['assets'], static fn(array $asset): bool => 1 === count(array_filter($asset['references'] ?? array(), static fn(array $reference): bool => 'website/writing/category/speaking/index.html' === ($reference['source_path'] ?? null) && 'link:nth-of-type(1)' === ($reference['selector'] ?? null)))));
-$nickBootstrap = '';
-foreach ($nickIndexHtmlPlan['writes'] as $write) if ('functions.php' === ($write['target_path'] ?? null)) $nickBootstrap = (string) ($write['payload']['data'] ?? '');
 $assert(
-    1 === count($nickHeadLinks)
-    && 1 === count($nickHeadAsset)
-    && ($nickHeadLinks[0]['selector'] ?? null) === ($nickHeadAsset[0]['references'][0]['selector'] ?? null)
-    && ($nickHeadLinks[0]['asset_reference'] ?? null) === '{{wordpress-site-plan:asset:' . ($nickHeadAsset[0]['token'] ?? '') . '}}'
-    && !isset($nickHeadLinks[0]['url'])
-    && 'screen' === ($nickHeadLinks[0]['attributes']['media'] ?? null)
-    && 'next' === ($nickHeadLinks[0]['attributes']['data-precedence'] ?? null)
-    && in_array('website/writing/category/speaking/index.html', array_column($nickHeadAsset[0]['scopes'] ?? array(), 'source_path'), true)
-    && str_contains($nickBootstrap, "'taxonomy' => 'category'")
-    && str_contains($nickBootstrap, "'term_slug' => 'speaking'")
-    && str_contains($nickBootstrap, 'data-precedence="next"'),
-    'A proven native archive retains its ordered page-scoped source head stylesheet and the generated theme binds that head to the matching native term query.'
+    1 === count($nickHeadAsset)
+    && in_array('website/writing/category/speaking/index.html', array_column($nickHeadAsset[0]['scopes'] ?? array(), 'source_path'), true),
+    'A proven native archive keeps its page-scoped source head stylesheet as a scoped theme enqueue.'
 );
 $paginatedTaxonomyArtifact = require dirname(__DIR__) . '/fixtures/taxonomy/corroborated-category.php';
 $paginatedTaxonomyArtifact['files'][] = array('path' => 'archives/field-notes-page-two.html', 'content' => '<header><p>Shared header</p></header><main><h1>Field Notes</h1><article><h2><a href="/stories/third">Third story</a></h2><p>Third summary.</p></article><article><h2><a href="/stories/fourth">Fourth story</a></h2><p>Fourth summary.</p></article></main><footer><p>Shared footer</p></footer>', 'metadata' => array('route_path' => '/journal/category/field-notes/page/2'));
@@ -1758,8 +1746,9 @@ $assert(1 === count($jsonDataWriteDiagnostics) && 'warning' === ($jsonDataWriteD
 $headStyleQuoteResult = static fn(string $url, bool $withImage = true): array => (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><title>Home</title><style id="hero-background">.hero{background-image:url(\'' . $url . '\')}</style></head><body><main><h1>Home</h1><div class="hero">Welcome</div></main></body></html>') + ($withImage ? array('images/hero.svg' => '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>') : array())))->toArray();
 $headStyleQuote = $headStyleQuoteResult('images/hero.svg');
 $headStyleQuoteBootstrap = (string) ($writeMap($headStyleQuote['source_reports']['wordpress_site_plan']['writes'] ?? array())['functions.php']['payload']['data'] ?? '');
-$headStyleQuoteCss = (string) ($writeMap($headStyleQuote['source_reports']['wordpress_site_plan']['writes'] ?? array())['assets/inline/' . hash('sha256', "style\0\0.hero{background-image:url('images/hero.svg')}") . '.css']['payload']['data'] ?? '');
-$assert(!isset($headStyleQuote['source_reports']['wordpress_site_plan_diagnostics']) && str_contains($headStyleQuoteCss, "url('" . WordPressSitePlan::TOKEN_PREFIX) && !str_contains($headStyleQuoteBootstrap, '.hero{') && str_contains($headStyleQuoteBootstrap, '<link rel="stylesheet" href="' . WordPressSitePlan::TOKEN_PREFIX), 'A head style with a single-quoted local url() compiles; its written stylesheet carries the token and functions.php only links it: ' . json_encode($headStyleQuote['source_reports']['wordpress_site_plan_diagnostics'] ?? null));
+$headStyleQuoteWrite = array_values(array_filter($headStyleQuote['source_reports']['wordpress_site_plan']['writes'] ?? array(), static fn(array $write): bool => str_starts_with($write['target_path'], 'assets/inline/') && str_contains((string) ($write['payload']['data'] ?? ''), '.hero{')))[0] ?? array();
+$headStyleQuoteCss = (string) ($headStyleQuoteWrite['payload']['data'] ?? '');
+$assert(!isset($headStyleQuote['source_reports']['wordpress_site_plan_diagnostics']) && str_contains($headStyleQuoteCss, "url('" . WordPressSitePlan::TOKEN_PREFIX) && !str_contains($headStyleQuoteBootstrap, '.hero{') && str_contains($headStyleQuoteBootstrap, "get_theme_file_uri( '" . ($headStyleQuoteWrite['target_path'] ?? '') . "' )"), 'A head style with a single-quoted local url() compiles; its written stylesheet carries the token and functions.php only enqueues it: ' . json_encode($headStyleQuote['source_reports']['wordpress_site_plan_diagnostics'] ?? null));
 $assert(true === (static function () use ($headStyleQuote): bool { WordPressSitePlan::assertValid((new WordPressSitePlanResolver())->resolve($headStyleQuote['source_reports']['wordpress_site_plan'], array('theme_uri' => 'https://example.test/wp-content/themes/site'))); return true; })(), 'A PHP write is validated with its var_export() escapes undone, so an escaped quote around a head style token is not misread as a local reference.');
 $headStyleMissing = array_values(array_filter($headStyleQuoteResult('images/missing.svg', false)['source_reports']['wordpress_site_plan']['diagnostics'] ?? array(), static fn(array $row): bool => 'wordpress_site_plan_missing_local_media' === ($row['code'] ?? null)))[0] ?? array();
 $assert('inline/' . hash('sha256', "style\0\0.hero{background-image:url('images/missing.svg')}") . '.css' === ($headStyleMissing['source_path'] ?? null) && 'images/missing.svg' === ($headStyleMissing['value'] ?? null), 'A head style with a missing local image is reported against its written stylesheet, not functions.php: ' . json_encode($headStyleMissing));

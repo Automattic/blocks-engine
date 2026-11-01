@@ -90,16 +90,6 @@ foreach (array(1, 2) as $postCount) {
         $twoAuthorsPlan = (new ArtifactCompiler())->compile($twoAuthors)->toArray()['source_reports']['wordpress_site_plan'];
         $assert(array() === $twoAuthorsPlan['author_entities'] && in_array('wordpress_site_plan_author_membership_ambiguous', array_column($twoAuthorsPlan['diagnostics'], 'code'), true), 'Full compilation withholds conflicting author ownership.');
 
-        $headFixture = require dirname(__DIR__) . '/fixtures/taxonomy/nick-index-html-category.php';
-        foreach ($headFixture['files'] as &$file) {
-            $file['path'] = str_replace('writing/category/speaking', 'author/adam', $file['path']);
-            $file['content'] = str_replace(array('/writing/category/speaking/', 'Speaking'), array('/author/adam/', 'Adam Zieliński'), $file['content']);
-        }
-        unset($file);
-        $headPlan = (new ArtifactCompiler())->compile($headFixture)->toArray()['source_reports']['wordpress_site_plan'];
-        $headBootstrap = array_column($headPlan['writes'], null, 'target_path')['functions.php']['payload']['data'];
-        $assert(isset($headPlan['author_entities'][0]['archive']['document_head']) && str_contains($headBootstrap, "'author_slug' => 'adam'") && str_contains($headBootstrap, 'is_author()'), 'Source head resources bind to the native author query.');
-
         $paginated = $fixture;
         $paginated['files'][] = array('path' => 'archives/page-two.html', 'content' => '<main><h1>Author: <span>Adam Zieliński</span></h1><article><h2><a href="/stories/third">Third story</a></h2><p>Third summary.</p></article></main>', 'metadata' => array('route_path' => '/author/adam/page/2'));
         $paginated['files'][] = array('path' => 'stories/third.html', 'content' => '<article><h1>Third story</h1><p>Third full story.</p><a href="/author/adam">Adam Zieliński</a></article>', 'metadata' => array('post_type' => 'post'));

@@ -56,7 +56,7 @@ foreach ($cases as $name => $case) {
 // An emitted aria-controls whose panel is gone from its source document scope
 // is the same block-level miss, through the same composer path.
 $envelope = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><p>Editable</p></main>')));
-$idref = static fn (?array $plan): array => (new RuntimeDependencyParityReport())->fromArtifact(array(), '<div id="control" role="button" aria-controls="target"></div><div id="target"><p>Panel</p></div>', '<div id="control" role="button" aria-controls="target"></div>', 'index.html', wordpressSitePlan: $plan);
+$idref = static fn (): array => (new RuntimeDependencyParityReport())->fromArtifact(array(), '<div id="control" role="button" aria-controls="target"></div><div id="target"><p>Panel</p></div>', '<div id="control" role="button" aria-controls="target"></div>', 'index.html');
 $composed = (new WordPressSitePlanComposer())->compose($envelope, array(), null, $idref)->toArray();
 $found = $misses($composed['diagnostics']);
 $plan = $composed['source_reports']['wordpress_site_plan'] ?? null;
