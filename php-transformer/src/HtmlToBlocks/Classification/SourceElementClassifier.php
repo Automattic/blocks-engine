@@ -885,7 +885,12 @@ final class SourceElementClassifier
     public function hasCarouselIdentity(DOMElement $element): bool
     {
         if ($element->hasAttribute('data-blocks-engine-slideshow')) return true;
-        if ($element->hasAttribute(CaptureEvidence::GALLERY_STAGE)) return true;
+        // A declared carousel owns its surface; a semantic carousel may still
+        // hold a heading and controls beside its slides, so only its kind
+        // excludes other surfaces here.
+        $surface = InteractiveSurface::classify($element);
+        if (null !== $surface && 'carousel' !== $surface['kind']) return false;
+        if ('evidence' === ($surface['source'] ?? null)) return true;
         $identity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
             $element->tagName,
             SourceDom::attr($element, 'id'),
@@ -1059,6 +1064,11 @@ final class SourceElementClassifier
     public function isExpandedCarouselState(DOMElement $element, DOMElement $root): bool
     {
         for ( $ancestor = $element; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode ) {
+            $surface = InteractiveSurface::classify($ancestor);
+            if (null !== $surface) {
+                if ('dialog' === $surface['kind']) return true;
+                if ('carousel' === $surface['kind']) continue;
+            }
             if ( $ancestor->hasAttribute('hidden') || 'true' === strtolower(trim(SourceDom::attr($ancestor, 'aria-hidden'))) ) {
                 return true;
             }
