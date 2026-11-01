@@ -233,7 +233,7 @@ final class BlockFactory
             // figcaption's class list, but not a real core/image attribute —
             // core's save() never reads it back, so it never belongs in the
             // serialized comment.
-            unset($attrs['captionClassName'], $attrs['linkLabel']);
+            unset($attrs['captionClassName']);
         }
         if ( 'core/media-text' === $name ) {
             // Internal-only: consumed by mediaTextHtml() to build the media
@@ -841,7 +841,6 @@ final class BlockFactory
                 'target'      => (string) ($attrs['linkTarget'] ?? ''),
                 'rel'         => (string) ($attrs['rel'] ?? ''),
                 'class'       => (string) ($attrs['linkClass'] ?? ''),
-                'aria-label'  => (string) ($attrs['linkLabel'] ?? ''),
             );
             $img = '<a' . $this->htmlAttrs($linkAttrs) . '>' . $img . '</a>';
         }

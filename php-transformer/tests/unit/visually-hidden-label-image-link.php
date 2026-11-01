@@ -41,7 +41,10 @@ foreach ( $rows as $index => [$attributes, $label] ) {
         $check(($linked ? '/media/a.webp' : '') === ($images[0]['attrs']['href'] ?? ''), $context . ': destination');
         $check('Original' === ($images[0]['attrs']['alt'] ?? ''), $context . ': original alt');
         if ( $linked && 5 === $index ) {
-            $check(str_contains($images[0]['innerHTML'] ?? '', 'aria-label="Photo"'), $context . ': separate accessible link name');
+            // core/image save() serializes only href/class/target/rel on its link,
+            // so a link aria-label would make the block invalid in the editor.
+            // The image alt is the link's accessible name.
+            $check(!str_contains($images[0]['innerHTML'] ?? '', 'aria-label'), $context . ': link markup stays within core/image save()');
         }
     }
 }

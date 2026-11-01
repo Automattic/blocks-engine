@@ -11888,7 +11888,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $attrs = array(
             'href'            => LinkUrlSanitizer::sanitize($this->attr($link, 'href')),
             'linkDestination' => 'custom',
-            'linkLabel'       => ($image = $link->getElementsByTagName('img')->item(0)) instanceof DOMElement && '' !== trim($this->attr($image, 'alt')) ? $this->imageLinkAccessibleName($link, $image) : '',
             'linkTarget'      => $this->attr($link, 'target'),
             'rel'             => $this->attr($link, 'rel'),
             'linkClass'       => $this->mergeClassNames(
