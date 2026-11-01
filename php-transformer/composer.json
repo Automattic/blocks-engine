@@ -277,6 +277,7 @@
       "@test:unit"
     ],
     "test:unit": [
+      "php tests/unit/interactive-surface-precedence.php",
       "php tests/unit/collection-component.php",
       "php tests/unit/menu-list-container.php",
       "php tests/unit/navigation-positioned-row-layout.php",

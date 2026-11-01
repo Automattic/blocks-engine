@@ -446,7 +446,7 @@ final class CapturedDialogProjector
     {
         $kind = is_string($state['kind'] ?? null) ? $state['kind'] : 'dialog';
 
-        return '' === $kind || 'dialog' === $kind || 'gallery' === $kind;
+        return in_array($kind, array('', 'dialog', 'gallery', 'listbox'), true);
     }
 
     /**
@@ -525,7 +525,7 @@ final class CapturedDialogProjector
             }
 
             $identity = substr(hash('sha256', $sourcePath . "\n" . ($state['trigger']['selector'] ?? '') . "\n" . $dialogHtml), 0, 16);
-            if ('listbox' === strtolower(trim((string) ($dialog['role'] ?? '')))) {
+            if ('listbox' === ($state['kind'] ?? '') || 'listbox' === strtolower(trim((string) ($dialog['role'] ?? '')))) {
                 $key = 'blocks-engine-listbox-' . $identity;
                 foreach ($triggers as $trigger) {
                     $trigger->setAttribute(CaptureEvidence::LISTBOX_TRIGGER, $key);

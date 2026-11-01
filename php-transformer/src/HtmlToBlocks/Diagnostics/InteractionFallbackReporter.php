@@ -104,8 +104,20 @@ final class InteractionFallbackReporter
             $candidates[] = $this->interactionCandidate($element, 'control', $this->controlTrigger($element, $events), $this->controlledTarget($element), $this->controlEvidence($element, $events, $actionDataAttributes), $hasAriaControl ? 'high' : 'medium', 'client_runtime');
         }
 
-        if ( 'dialog' === $tagName || in_array($role, array('dialog', 'alertdialog'), true) || preg_match('/(?:^|[\s_-])(?:modal|dialog|popup|lightbox)(?:$|[\s_-])/', $nameText) ) {
-            $candidates[] = $this->interactionCandidate($element, 'modal', $this->modalTriggerHint($element), $this->targetForElement($element), array_filter(array('modal_like', 'dialog' === $tagName ? 'dialog_element' : '', '' !== $role ? 'role:' . $role : '')), 'medium', 'modal_runtime');
+        $surface = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::classify($element);
+        if (null === $surface) {
+            $kind = match (true) {
+                1 === preg_match('/(?:^|[\s_-])(?:modal|dialog|popup|lightbox)(?:$|[\s_-])/', $nameText) => 'dialog',
+                1 === preg_match('/(?:^|[\s_-])(?:carousel|slider|slideshow|swiper)(?:$|[\s_-])/', $nameText) => 'carousel',
+                default => null,
+            };
+            if (null !== $kind) $surface = array('kind' => $kind, 'source' => 'inference');
+        }
+        if (null !== $surface) {
+            $kind = 'dialog' === $surface['kind'] ? 'modal' : $surface['kind'];
+            $candidate = $this->interactionCandidate($element, $kind, 'modal' === $kind ? $this->modalTriggerHint($element) : $this->carouselTriggerHint($element), $this->targetForElement($element), array($surface['kind'] . '_like'), 'inference' === $surface['source'] ? 'medium' : 'high', $kind . '_runtime');
+            $candidate['classification_source'] = $surface['source'];
+            $candidates[] = $candidate;
         }
 
         if ( in_array($role, array('tablist', 'tab', 'tabpanel'), true) ) {
@@ -114,10 +126,6 @@ final class InteractionFallbackReporter
 
         if ( ( in_array($tagName, array('button', 'a'), true) || '' !== $role ) && ( preg_match('/(?:^|[\s_-])accordion(?:$|[\s_-])/', $nameText) || ( $hasAriaControl && 'tab' !== $role && '' !== trim($this->attr($element, 'aria-expanded')) ) ) ) {
             $candidates[] = $this->interactionCandidate($element, 'accordion', $this->controlTrigger($element, $events), $this->controlledTarget($element), array_filter(array('accordion_like', '' !== $this->attr($element, 'aria-expanded') ? 'aria-expanded' : '', '' !== $this->attr($element, 'aria-controls') ? 'aria-controls' : '')), 'medium', 'accordion_state');
-        }
-
-        if ( preg_match('/(?:^|[\s_-])(?:carousel|slider|slideshow|swiper)(?:$|[\s_-])/', $nameText) ) {
-            $candidates[] = $this->interactionCandidate($element, 'carousel', $this->carouselTriggerHint($element), $this->targetForElement($element), array('carousel_like'), 'medium', 'carousel_runtime');
         }
 
         return $candidates;

@@ -13,6 +13,18 @@ never spells them anywhere else, and
 `tests/contract/capture-evidence-vocabulary.php` keeps this page, the
 constants and their use in `src/` identical.
 
+## Interactive surface precedence
+
+Dialog, listbox and carousel classification reads declared capture evidence,
+then ARIA/native semantics and control bindings, then appearance only when
+neither declares a kind. A declared kind cannot be reclassified by appearance.
+The existing `source_reports.interaction_candidates` surface record includes
+`classification_source`: `evidence`, `semantics`, or `inference`. This is an
+output diagnostic field, not a new producer attribute. Dialogs retain the
+existing diagnostic kind `modal`; listboxes and carousels use `listbox` and
+`carousel`. Component-inventory kinds also take precedence over nested probe
+markup. Hidden semantic slides remain slides rather than expanded dialogs.
+
 ## Namespace
 
 - Every attribute, class, id suffix and probe token starts with

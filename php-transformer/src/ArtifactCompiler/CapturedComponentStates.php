@@ -68,7 +68,12 @@ final class CapturedComponentStates
             }
             foreach ($component['states'] as $state) {
                 if (is_array($state) && is_array($state['evidence'] ?? null)) {
-                    $result[] = $state['evidence'];
+                    // Inventory kind is declared evidence, not a guess from the panel's paint.
+                    $probe = $state['evidence'];
+                    if (in_array($component['kind'], array('dialog', 'listbox', 'carousel'), true)) {
+                        $probe['kind'] = 'carousel' === $component['kind'] && 'gallery' === ($probe['kind'] ?? null) ? 'gallery' : $component['kind'];
+                    }
+                    $result[] = $probe;
                 }
             }
         }

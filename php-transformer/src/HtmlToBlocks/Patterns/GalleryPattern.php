@@ -44,6 +44,8 @@ final class GalleryPattern implements PatternRecognizerInterface
      */
     public function match(DOMElement $element, callable $convertImageElement, callable $convertPictureElement, callable $figureLinkedMediaAnchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock): ?array
     {
+        $surface = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::classify($element);
+        if (null !== $surface && 'carousel' !== $surface['kind']) return null;
         $images = array();
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
