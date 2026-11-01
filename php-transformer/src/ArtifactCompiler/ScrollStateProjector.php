@@ -51,13 +51,7 @@ final class ScrollStateProjector
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_scroll_states_route_map_missing', 'warning', 'Captured scroll states were not projected because the capture receipt route map is unavailable.')), 'projected_count' => 0);
         }
 
-        $routes = array();
-        foreach ($receipt['routes'] as $route) {
-            if (! is_array($route) || ! is_string($route['url'] ?? null) || ! is_string($route['path'] ?? null)) {
-                continue;
-            }
-            $routes[$this->normalizedUrl($route['url'])] = $route['path'];
-        }
+        $routes = CaptureReceiptRoutes::resolve($files, $receipt);
         $documentScopeClasses = $this->documentScopeClasses($receipt['document_scope_classes'] ?? null);
         $fileIndexes = array();
         foreach ($files as $index => $file) {
@@ -425,7 +419,7 @@ final class ScrollStateProjector
 
     private function normalizedUrl(string $url): string
     {
-        return rtrim(trim($url), '/');
+        return CaptureReceiptRoutes::normalizedUrl($url);
     }
 
     /** @param array<string, mixed> $context @return array<string, mixed> */

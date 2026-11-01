@@ -213,12 +213,7 @@ final class CapturedChoiceGroupProjector
         if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
-        $routes = array();
-        foreach ($receipt['routes'] as $route) {
-            if (is_array($route) && is_string($route['url'] ?? null) && is_string($route['path'] ?? null)) {
-                $routes[$this->normalizedUrl($route['url'])] = $route['path'];
-            }
-        }
+        $routes = CaptureReceiptRoutes::resolve($files, $receipt);
         $fileIndexes = array();
         foreach ($files as $index => $file) {
             if (is_string($file['path'] ?? null)) {
@@ -749,7 +744,7 @@ final class CapturedChoiceGroupProjector
 
     private function normalizedUrl(string $url): string
     {
-        return rtrim(trim($url), '/');
+        return CaptureReceiptRoutes::normalizedUrl($url);
     }
 
     /** @param array<string, mixed> $context @return array<string, mixed> */
