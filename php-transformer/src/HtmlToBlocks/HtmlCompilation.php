@@ -9865,10 +9865,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $picture = $this->firstChildElement($anchor, 'picture');
             if ( $picture instanceof DOMElement ) {
                 $image = $this->firstChildElement($picture, 'img');
-                return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture) : null;
+                return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture, $anchor) : null;
             }
             $image = $this->firstChildElement($anchor, 'img');
-            return $image instanceof DOMElement ? $this->convertImageElement($image) : null;
+            return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
         }
         if ( $this->runtimeIslands->isRuntimeDomTarget($anchor)
             || array() !== $this->eventMetadata($anchor)
@@ -10178,6 +10178,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     ++$imageChildren;
                     continue;
                 }
+                if ( $this->isHiddenImageLinkLabel($child) ) {
+                    continue;
+                }
                 // Lightbox links commonly append empty overlay elements beside
                 // their image. They are decoration, not additional link content.
                 if ( '' !== trim($child->textContent ?? '') ) {
@@ -10194,6 +10197,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return 1 === $imageChildren;
     }
 
+    /** Only non-media hidden siblings may be discarded as image-link labels. */
+    private function isHiddenImageLinkLabel(DOMElement $element): bool
+    {
+        if ( 0 < $element->getElementsByTagName('img')->length
+            || 0 < $element->getElementsByTagName('svg')->length
+            || in_array(strtolower($element->tagName), array('img', 'picture', 'svg', 'video', 'audio', 'button', 'input'), true) ) {
+            return false;
+        }
+        $style = $this->styleResolver->resolvedPresentationDeclarations($element);
+        return $element->hasAttribute('hidden')
+            || 1 === preg_match('/(?:^|[\s_-])(?:visually-hidden|sr-only|screen-reader-only|screen-reader-text)(?:$|[\s_-])/', strtolower($this->attr($element, 'class')))
+            || 'none' === strtolower(trim($style['display'] ?? ''))
+            || 1 === preg_match('/^rect\(\s*0(?:px)?[\s,]+0(?:px)?[\s,]+0(?:px)?[\s,]+0(?:px)?\s*\)$/i', trim($style['clip'] ?? ''))
+            || 'inset(50%)' === strtolower(str_replace(' ', '', $style['clip-path'] ?? ''))
+            || in_array(strtolower(trim($style['visibility'] ?? '')), array('hidden', 'collapse'), true);
+    }
+
     /**
      * core/image keeps only the image inside its link, so the image is the
      * link's whole content and its alt is the link's accessible name. When the
@@ -10207,6 +10227,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $link instanceof DOMElement || '' !== trim($alt) ) {
             return $alt;
         }
+        return $this->imageLinkAccessibleName($link, $image) ?: $alt;
+    }
+
+    private function imageLinkAccessibleName(DOMElement $link, DOMElement $image): string
+    {
         $text = '';
         foreach ( $this->textNodesOutside($link, $image) as $node ) {
             $text .= ' ' . $node->textContent;
@@ -10216,7 +10241,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return $name;
             }
         }
-        return $alt;
+        return '';
     }
 
     /** @return list<\DOMText> */
@@ -10416,9 +10441,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // natively, so project it onto the image instead of leaving a link
             // that navigates away from the page. Core ignores its lightbox when
             // the image also carries a link, so the link attributes are dropped.
-            if ( $this->imageLinkOpensNativeLightbox($link) ) {
+            $hasHiddenLabel = false;
+            foreach ( $link->childNodes as $child ) {
+                if ( $child instanceof DOMElement && $this->isHiddenImageLinkLabel($child) ) {
+                    $hasHiddenLabel = true;
+                }
+            }
+            if ( ! $hasHiddenLabel && $this->imageLinkOpensNativeLightbox($link) ) {
                 $attrs['lightbox'] = array( 'enabled' => true );
-            } else {
+            } elseif ( '' !== LinkUrlSanitizer::sanitize($this->attr($link, 'href')) ) {
                 $attrs = array_filter(array_merge($attrs, $this->imageLinkAttributes($link)), static fn ($value): bool => '' !== $value);
             }
         }
@@ -11857,6 +11888,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $attrs = array(
             'href'            => LinkUrlSanitizer::sanitize($this->attr($link, 'href')),
             'linkDestination' => 'custom',
+            'linkLabel'       => ($image = $link->getElementsByTagName('img')->item(0)) instanceof DOMElement && '' !== trim($this->attr($image, 'alt')) ? $this->imageLinkAccessibleName($link, $image) : '',
             'linkTarget'      => $this->attr($link, 'target'),
             'rel'             => $this->attr($link, 'rel'),
             'linkClass'       => $this->mergeClassNames(
