@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssVariableExpander;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 
 /**
@@ -235,7 +236,7 @@ final class ButtonStyleResolver
             if ( 'background' === $name ) {
                 unset($declarations['background-color']);
             }
-            $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+            $value = CssValueInspector::withoutImportant(preg_replace('/\s+/', ' ', $value) ?? $value);
             foreach ( $this->physicalPaddingDeclarations($name, $value) as $physicalName => $physicalValue ) {
                 $declarations[ $physicalName ] = $physicalValue;
             }
@@ -291,43 +292,15 @@ final class ButtonStyleResolver
         }
 
         if ( 1 === preg_match('/^calc\(\s*(.+?)\s*\*\s*([0-9]*\.?[0-9]+)\s*\)$/i', $value, $match) ) {
-            $rem = $this->lengthInRem(trim($match[1]), $declarations);
-            if ( null !== $rem ) {
-                return $this->formatRem($rem * (float) $match[2]);
+            $length = CssVariableExpander::expand(trim($match[1]), static fn (string $name): ?string => $declarations[$name] ?? null);
+            if ( null !== $length && 1 === preg_match('/^([0-9]*\.?[0-9]+)(px|rem)$/i', $length, $parts) ) {
+                // Keep the source unit: px-to-rem conversion assumes a root size.
+                $amount = (float) $parts[1] * (float) $match[2];
+                return 0.0 === $amount ? '0' : rtrim(rtrim(number_format($amount, 4, '.', ''), '0'), '.') . strtolower($parts[2]);
             }
         }
 
         return $value;
     }
 
-    /**
-     * @param array<string, string> $declarations
-     */
-    private function lengthInRem(string $token, array $declarations): ?float
-    {
-        if ( 1 === preg_match('/^var\(\s*(--[a-z0-9_-]+)\s*\)$/i', $token, $match) ) {
-            $resolved = trim((string) ($declarations[ $match[1] ] ?? ''));
-
-            return '' === $resolved ? null : $this->lengthInRem($resolved, $declarations);
-        }
-
-        if ( 1 === preg_match('/^([0-9]*\.?[0-9]+)rem$/i', $token, $match) ) {
-            return (float) $match[1];
-        }
-
-        if ( 1 === preg_match('/^([0-9]*\.?[0-9]+)px$/i', $token, $match) ) {
-            return (float) $match[1] / 16.0;
-        }
-
-        return null;
-    }
-
-    private function formatRem(float $rem): string
-    {
-        if ( abs($rem) < 0.0001 ) {
-            return '0';
-        }
-
-        return rtrim(rtrim(number_format($rem, 4, '.', ''), '0'), '.') . 'rem';
-    }
 }
