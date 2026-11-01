@@ -65,4 +65,17 @@ $chromePlan = $compiler->compile(array('entrypoint' => 'one.html', 'files' => $c
 $assert(is_array($chromePlan), 'A site with shared chrome and a multi-media inline body plans.');
 $inline = array_values(array_filter($chromePlan['assets'], static fn(array $asset): bool => 'inline-style' === ($asset['source'] ?? '')));
 $assert(1 === count($inline) && 3 === count($inline[0]['inline_references']), 'The multi-media inline body is one asset with every occurrence.');
+// Base64 source bypasses text normalization until its inline bodies are
+// compiled. Their content address must still describe the published LF bytes.
+$crlfHtml = "<style>.sample {\r\ncolor: red;\r\n}</style><script>window.one = 1;\r\nwindow.two = 2;</script>";
+$crlfResult = $normalizer->normalize(array('files' => array(array('path' => 'crlf.html', 'content_base64' => base64_encode($crlfHtml)))));
+foreach ($crlfResult['files'] as $file) {
+    if (!in_array($file['source'], array('inline-style', 'inline-script'), true)) continue;
+    $assert(!str_contains($file['content'], "\r") && !str_contains($file['content'], "\n\n"), 'Compiled inline bodies use single LF newlines.');
+    $digest = hash('sha256', $file['intent'] . "\0" . ($file['type'] ?? '') . "\0" . $file['content']);
+    $assert('inline/' . $digest . '.' . $file['kind'] === $file['path'], 'Inline address hashes the published canonical bytes.');
+}
+$crlfAgain = $normalizer->normalize(array('files' => $crlfResult['files']));
+$assert($crlfResult['files'] === $crlfAgain['files'], 'CRLF inline assets are idempotent.');
+$assert($crlfResult['source_hash'] === $crlfAgain['source_hash'], 'CRLF inline source identity is stable.');
 echo "Content-addressed inline assets passed.\n";
