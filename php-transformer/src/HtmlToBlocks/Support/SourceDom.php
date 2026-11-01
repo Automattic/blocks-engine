@@ -1607,7 +1607,11 @@ final class SourceDom
         return false;
     }
 
-    /** Whether a textless custom host contains only passive, nonempty graphics. */
+    /**
+     * Whether a textless custom host contains only nonempty graphics. Its SVG
+     * passes the same safety boundary as a standalone SVG, because the host is
+     * transparent and the SVG converter materializes that SVG either way.
+     */
     public static function staticGraphicOnlyCustomElement(DOMElement $element): bool
     {
         if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') ) {
@@ -1621,7 +1625,7 @@ final class SourceDom
             }
             $tag = strtolower($child->tagName);
             if ( 'svg' === $tag ) {
-                if ( ! self::svgHasDrawableContent($child) || ! self::isSafeInlineSvgMarkup(self::outerHtml($child)) ) {
+                if ( ! self::svgHasDrawableContent($child) || ! self::isSafeSvgContent(self::outerHtml($child)) ) {
                     return false;
                 }
             } elseif ( 'img' === $tag ) {

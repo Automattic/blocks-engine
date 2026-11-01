@@ -36,17 +36,21 @@ $assert(! str_contains((string) ($neutral['serialized_blocks'] ?? ''), '<!-- wp:
 $button = $compile('<button aria-label="Close">' . $svg . '</button>');
 $assert(array() === ($button['fallbacks'] ?? array()) && str_contains((string) ($button['serialized_blocks'] ?? ''), 'Close'), 'native named icon button keeps its existing path');
 // Captured graphics are rendered output, not evidence of a missing runtime.
+// Shadow-DOM captures carry the rendered SVG's own inline sizing.
+$styledSvg = str_replace('<svg ', '<svg style="width: 48px; height: 48px;" ', $svg);
+$flex = 'style="display:flex;align-items:center"';
 foreach ( array(
-    'bare SVG' => array('svg', '', '', false),
-    'span' => array('span', '', '', false),
-    'bare host' => array('icon-graphic', '', '', false),
-    'styled host' => array('icon-graphic', '', '', false),
-    'configured host' => array('icon-graphic', 'data-src="icon.svg" data-color="#FFFFFF"', '', false),
-    'named host' => array('icon-graphic', 'alt="Visit example"', 'Visit example', false),
-    'empty configured host' => array('icon-graphic', 'data-src="icon.svg" data-color="#FFFFFF"', '', true),
-) as $name => [$tag, $attributes, $alt, $empty] ) {
-    $style = 'bare host' === $name ? '' : ' style="display:flex;align-items:center"';
-    $content = 'svg' === $tag ? $svg : '<' . $tag . ' ' . $attributes . $style . '>' . ($empty ? '' : $svg) . '</' . $tag . '>';
+    'bare SVG' => array('svg', '', '', $svg),
+    'span' => array('span', $flex, '', $svg),
+    'bare host' => array('icon-graphic', '', '', $svg),
+    'styled host' => array('icon-graphic', $flex, '', $svg),
+    'host with styled SVG' => array('icon-graphic', $flex, '', $styledSvg),
+    'configured host' => array('icon-graphic', 'data-src="icon.svg" data-color="#FFFFFF" ' . $flex, '', $svg),
+    'named host' => array('icon-graphic', 'alt="Visit example" ' . $flex, 'Visit example', $svg),
+    'empty configured host' => array('icon-graphic', 'data-src="icon.svg" data-color="#FFFFFF"', '', ''),
+) as $name => [$tag, $attributes, $alt, $graphic] ) {
+    $empty = '' === $graphic;
+    $content = 'svg' === $tag ? $graphic : '<' . $tag . ' ' . $attributes . '>' . $graphic . '</' . $tag . '>';
     $result = $compile('<a href="https://example.com/">' . $content . '</a>');
     $blocks = (string) ($result['serialized_blocks'] ?? '');
     if ( $empty ) {
