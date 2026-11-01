@@ -65,10 +65,7 @@ final class CapturedDialogProjector
             || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)) {
             return array('files' => $files, 'projected_count' => 0, 'native_runtime_replacements' => array());
         }
-        $routes = array();
-        foreach ($receipt['routes'] ?? array() as $route) {
-            if (is_string($route['url'] ?? null) && is_string($route['path'] ?? null)) $routes[$this->normalizedUrl($route['url'])] = $route['path'];
-        }
+        $routes = CaptureReceiptRoutes::resolve($files, $receipt);
         foreach (array_slice($report['pages'] ?? array(), 0, self::MAX_PAGES) as $page) {
             $path = $routes[$this->normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
             foreach ($files as &$file) {
@@ -237,13 +234,7 @@ final class CapturedDialogProjector
             return $this->retireOwnedDisclosureWithoutProjection($files, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.')));
         }
 
-        $routes = array();
-        foreach ($receipt['routes'] as $route) {
-            if (! is_array($route) || ! is_string($route['url'] ?? null) || ! is_string($route['path'] ?? null)) {
-                continue;
-            }
-            $routes[$this->normalizedUrl($route['url'])] = $route['path'];
-        }
+        $routes = CaptureReceiptRoutes::resolve($files, $receipt);
         $fileIndexes = array();
         foreach ($files as $index => $file) {
             if (is_string($file['path'] ?? null)) {
@@ -1639,7 +1630,7 @@ final class CapturedDialogProjector
 
     private function normalizedUrl(string $url): string
     {
-        return rtrim(trim($url), '/');
+        return CaptureReceiptRoutes::normalizedUrl($url);
     }
 
     private function xpathLiteral(string $value): string

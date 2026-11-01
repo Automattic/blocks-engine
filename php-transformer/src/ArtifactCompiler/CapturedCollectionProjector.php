@@ -30,17 +30,14 @@ final class CapturedCollectionProjector
             || !is_array($report['pages'] ?? null) || !is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
-        $routes = array();
-        foreach ($receipt['routes'] ?? array() as $route) {
-            if (is_array($route) && is_string($route['url'] ?? null) && is_string($route['path'] ?? null)) $routes[rtrim($route['url'], '/')] = $route['path'];
-        }
+        $routes = CaptureReceiptRoutes::resolve($files, $receipt);
         $count = 0;
         $diagnostics = array();
         $retired = array();
         $consumed = array();
         foreach (array_slice($report['pages'] ?? array(), 0, 128) as $page) {
             if (!is_array($page) || !is_string($page['sourceUrl'] ?? null) || !is_array($page['components'] ?? null)) continue;
-            $index = $indices[$routes[rtrim($page['sourceUrl'] ?? '', '/')] ?? ''] ?? null;
+            $index = $indices[$routes[CaptureReceiptRoutes::normalizedUrl($page['sourceUrl'])] ?? ''] ?? null;
             if (!is_int($index) || !is_string($files[$index]['content'] ?? null)) continue;
             $document = null;
             $pageCount = 0;
