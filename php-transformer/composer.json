@@ -88,6 +88,7 @@
       "php tests/unit/custom-property-asset-url.php",
       "php tests/contract/form-readable-shapes.php",
       "php tests/contract/navigation-current-item-shared-menu.php",
+      "php tests/contract/shared-header-title-level.php",
       "php tests/contract/navigation-equivalent-url-shared-menu.php",
       "php tests/contract/navigation-submenu-current-parent.php",
       "php tests/contract/preset-binding-exact-palette-literal.php",
