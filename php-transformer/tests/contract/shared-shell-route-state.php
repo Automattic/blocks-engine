@@ -40,9 +40,9 @@ $footers = array_values(array_filter($plan['template_parts'], static fn(array $p
 
 $assert(1 === count($headers) && 'extracted' === ($headers[0]['provenance']['decision'] ?? null), 'Mastheads that differ only in authored route state share one header template part: ' . json_encode(array_column($plan['diagnostics'], 'code')));
 $assert(1 === count($footers), 'The nested footer landmark is still shared alongside the unlabeled masthead.');
-// One menu serves the shared header; the route's own masthead keeps its own.
+// Different masthead presentation still shares the same ordered menu items.
 $shared = array_values(array_filter($plan['menus'], static fn(array $menu): bool => str_contains((string) $headers[0]['canonical_block_markup'], '{{wordpress-site-plan:navigation:' . $menu['token'] . '}}')));
-$assert(2 === count($plan['menus']) && 1 === count($shared), 'One navigation entity serves every shared route instead of one copy per page: ' . count($plan['menus']));
+$assert(1 === count($plan['menus']) && 1 === count($shared), 'One navigation entity serves every shared route instead of one copy per page: ' . count($plan['menus']));
 $menuMarkup = (string) $shared[0]['block_markup'];
 $assert(!str_contains($menuMarkup, 'blocks-engine-current-navigation-item') && !str_contains($menuMarkup, '"anchor":"active"') && !str_contains($menuMarkup, 'submenu-current'), 'The shared menu freezes no route selection.');
 preg_match_all('/<!-- wp:navigation-link (\{.*?\}) \/-->/', $menuMarkup, $links);
