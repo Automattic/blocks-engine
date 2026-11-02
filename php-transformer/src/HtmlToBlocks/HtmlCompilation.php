@@ -9055,8 +9055,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function listItems(DOMElement $list, array &$fallbacks): array
     {
         $items = array();
-        foreach ( $list->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+        foreach ( $this->listMemberElements($list) as $child ) {
+            if ( 'li' !== strtolower($child->tagName) ) {
                 continue;
             }
 
@@ -9077,6 +9077,60 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $items;
+    }
+
+    /**
+     * The element members of a list, with presentational item wrappers
+     * flattened. Component libraries emit `ul > div > li` (one div per
+     * carousel or ticker slot); browsers render those items as list items,
+     * so each wrapped `li` is a member of the list like a direct child.
+     *
+     * @return list<DOMElement>
+     */
+    private function listMemberElements(DOMElement $list): array
+    {
+        $members = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( ! $this->isListItemWrapper($child) ) {
+                $members[] = $child;
+                continue;
+            }
+            foreach ( $child->childNodes as $wrapped ) {
+                if ( $wrapped instanceof DOMElement ) {
+                    $members[] = $wrapped;
+                }
+            }
+        }
+
+        return $members;
+    }
+
+    /** Whether a list child is a `div` holding only list items and whitespace. */
+    private function isListItemWrapper(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( 'div' !== strtolower($element->tagName)
+            || ! $parent instanceof DOMElement
+            || ! in_array(strtolower($parent->tagName), array( 'ul', 'ol', 'menu' ), true)
+        ) {
+            return false;
+        }
+        $hasItem = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'li' === strtolower($child->tagName) ) {
+                $hasItem = true;
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            return false;
+        }
+
+        return $hasItem;
     }
 
     /** @return list<DOMElement> */
@@ -9118,7 +9172,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function listContainsStructuralItemContent(DOMElement $list): bool
     {
-        foreach ( $list->childNodes as $child ) {
+        foreach ( $this->listMemberElements($list) as $child ) {
             if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
                 // A source that puts content directly in a list still renders
                 // it. core/list only carries list items, so such a list has to
@@ -9156,6 +9210,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function isStructuralListItem(DOMElement $item): bool
     {
         $list = $item->parentNode;
+        if ( $list instanceof DOMElement && $this->isListItemWrapper($list) ) {
+            $list = $list->parentNode;
+        }
         return $list instanceof DOMElement
             && in_array(strtolower($list->tagName), array( 'ul', 'ol', 'menu' ), true)
             && $this->listContainsStructuralItemContent($list);
@@ -9165,11 +9222,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function decomposeStructuralList(DOMElement $list, array &$fallbacks): array
     {
         $items = array();
-        foreach ( $list->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
+        foreach ( $this->listMemberElements($list) as $child ) {
             if ( 'li' !== strtolower($child->tagName) ) {
                 if ( ! $this->listNonItemChildCarriesContent($child) ) {
                     continue;
