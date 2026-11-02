@@ -159,6 +159,11 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 $attrs['customIconColor'] = $iconColor;
             }
         }
+        // Boxed links need the same paint on core's li as on the source anchor.
+        // Do not replace logos-only paint or collapse per-service brand colors.
+        if ( ! $showLabels && ! $iconOnly ) {
+            $attrs = array_merge($attrs, $this->uniformAnchorColors($linkAnchors, $context));
+        }
         if ( $structuralItems ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-source-social-item-spacing');
         }
@@ -166,7 +171,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             // The row's source box is a div/span, not a list. Retain that box
             // as an editable Group; the inserted native list/items contribute
             // no extra boxes or browser list defaults to its authored layout.
-            $nativeAttrs = array_intersect_key($attrs, array_flip(array('showLabels', 'size', 'iconColorValue', 'customIconColor')));
+            $nativeAttrs = array_intersect_key($attrs, array_flip(array('showLabels', 'size', 'iconColor', 'iconColorValue', 'customIconColor', 'iconBackgroundColor', 'iconBackgroundColorValue', 'customIconBackgroundColor')));
             $nativeAttrs['className'] = 'blocks-engine-social-source-row' . ($iconOnly ? ' is-style-logos-only' : '');
             $native = $context->createBlock('core/social-links', $nativeAttrs, $links);
             return new PatternRecognitionResult($context->createBlock('core/group', $context->presentationAttributes($element), array($native), $element));
@@ -396,6 +401,28 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             }
         }
         return $closest;
+    }
+
+    /** @param array<int,DOMElement> $anchors
+     * @return array<string, string>
+     */
+    private function uniformAnchorColors(array $anchors, PatternContext $context): array
+    {
+        $shared = null;
+        foreach ( $anchors as $anchor ) {
+            $paint = $context->socialAnchorColors($anchor);
+            $pair = array();
+            foreach ( array('text' => 'iconColor', 'background' => 'iconBackgroundColor') as $source => $target ) {
+                $preset = (string) ($paint['text' === $source ? 'textColor' : 'backgroundColor'] ?? '');
+                $value = '' !== $preset ? 'var(--wp--preset--color--' . $preset . ')' : $this->concreteColor((string) ($paint['style']['color'][$source] ?? ''));
+                if ( '' === $value ) return array();
+                $pair[$target . 'Value'] = $value;
+                $pair['' !== $preset ? $target : 'custom' . ucfirst($target)] = '' !== $preset ? $preset : $value;
+            }
+            if ( null !== $shared && $shared !== $pair ) return array();
+            $shared = $pair;
+        }
+        return $shared ?? array();
     }
 
     /** @param array<int,DOMElement> $anchors */

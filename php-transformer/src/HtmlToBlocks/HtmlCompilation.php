@@ -3605,6 +3605,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
+    /** @return array<string, mixed> */
+    private function socialAnchorColors(DOMElement $element): array
+    {
+        $declarations = $this->styleResolver->resolvedPresentationDeclarations($element);
+        if ( '' === trim($declarations['color'] ?? '') ) {
+            $declarations['color'] = $this->styleResolver->authoredInheritedPropertyWinner($element, 'color');
+        }
+        $declarations['color'] = trim((string) preg_replace('/\s*!important\s*$/i', '', $declarations['color']));
+        $mapped = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper())->map(
+            array_intersect_key($declarations, array_flip(array('color', 'background', 'background-color'))),
+            fn (string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element)
+        );
+        return array_merge($mapped['attrs'] ?? array(), array('style' => $mapped['style'] ?? array()));
+    }
+
     private function createPatternContext(): PatternContext
     {
         return new PatternContext(
@@ -3680,7 +3695,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : '',
             fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
             fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->inlineRichTextContent($sourceElement)
+            fn (DOMElement $sourceElement): string => $this->inlineRichTextContent($sourceElement),
+            fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement)
         );
     }
 
@@ -3772,6 +3788,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
              accordionToggle: fn (DOMElement $control, ?DOMElement $row = null): array => $this->disclosureControlPresentation()->accordionToggle($control, $row),
              accordionItemBox: fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
              sourceElementVisuallyClipped: fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
+             socialAnchorColors: fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement),
              authoredIconColor: fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
              assetMetadata: fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array()
          );

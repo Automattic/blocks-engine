@@ -31,6 +31,7 @@ final class PatternContext
      * @param Closure(DOMElement): array<string, string>|null $accordionItemBox
      * @param Closure(DOMElement): bool|null $sourceElementVisuallyClipped
      * @param Closure(DOMElement): string|null $richTextContent
+     * @param Closure(DOMElement): array<string, mixed>|null $socialAnchorColors
      */
     public function __construct(
         private readonly Closure $presentationAttributes,
@@ -54,7 +55,8 @@ final class PatternContext
         private readonly ?Closure $capturedGlyphColor = null,
         private readonly ?Closure $accordionItemBox = null,
         private readonly ?Closure $sourceElementVisuallyClipped = null,
-        private readonly ?Closure $richTextContent = null
+        private readonly ?Closure $richTextContent = null,
+        private readonly ?Closure $socialAnchorColors = null
     ) {
     }
 
@@ -148,6 +150,12 @@ final class PatternContext
     public function sourceElementVisuallyClipped(DOMElement $element): bool
     {
         return null !== $this->sourceElementVisuallyClipped && ($this->sourceElementVisuallyClipped)($element);
+    }
+
+    /** @return array<string, mixed> Resolved anchor paint mapped to native color supports. */
+    public function socialAnchorColors(DOMElement $element): array
+    {
+        return null === $this->socialAnchorColors ? array() : ($this->socialAnchorColors)($element);
     }
 
     public function authoredIconColor(DOMElement $element): string
