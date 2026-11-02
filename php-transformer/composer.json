@@ -832,6 +832,7 @@
       "php tests/unit/social-links-source-context.php",
       "php tests/unit/social-anchor-ancestor-selector.php",
       "php tests/unit/social-links-icon-color.php",
+      "php tests/unit/social-links-source-margins.php",
       "php tests/unit/linked-image-link-name.php",
       "php tests/unit/social-links-hidden-labels.php",
       "php tests/unit/monochrome-glyph-color.php",
@@ -1031,7 +1032,8 @@
     "test:wordpress-integration": [
       "php tests/integration/wordpress-site-plan.php",
       "php tests/integration/design-system-palette.php",
-      "php tests/integration/social-anchor-colors.php"
+      "php tests/integration/social-anchor-colors.php",
+      "php tests/integration/social-links-source-margins.php"
     ],
     "test:packaging": [
       "php tests/packaging/dist-shape.php",
