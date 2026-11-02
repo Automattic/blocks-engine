@@ -1849,6 +1849,7 @@ PHP;
             foreach (self::partRootAnchors((string) ($part['canonical_block_markup'] ?? '')) as $anchor) $rules .= ':where(#' . CssIdent::escape($anchor) . '){z-index:1}';
         }
         $rules .= self::detachedChromeBackdropRules($parts, $assets, $pages);
+        $rules .= self::detachedViewportShellRules($parts, $assets, $pages);
         foreach ($parts as $part) {
             if ('shared_shell' !== ($part['placement']['kind'] ?? null) || !in_array($part['area'] ?? null, array('header', 'footer'), true)) continue;
             if (!self::leftPositionedAncestor($part, $assets, $pages)) continue;
@@ -1982,6 +1983,67 @@ PHP;
             }
         }
         return false;
+    }
+
+    /**
+     * A detached part is no longer included in its ancestor's viewport minimum.
+     * Transport that sizing relationship to the template, not a second viewport
+     * inside post-content. Intermediate document carriers stretch the remaining
+     * space with zero-specificity defaults so authored display rules win.
+     * Unlike a fixed height or viewport subtraction, this also permits long
+     * main content.
+     *
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     */
+    private static function detachedViewportShellRules(array $parts, array $assets, array $pages): string
+    {
+        $classes = $ids = array();
+        foreach ($parts as $part) {
+            if ('shared_shell' !== ($part['placement']['kind'] ?? null)) continue;
+            array_push($classes, ...(array) ($part['ancestor_context']['classes'] ?? array()));
+            array_push($ids, ...(array) ($part['ancestor_context']['ids'] ?? array()));
+        }
+        if (array() === $classes && array() === $ids) return '';
+        $elements = array();
+        foreach ($pages as $page) {
+            $document = new \DOMDocument();
+            $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . ($page['canonical_block_markup'] ?? '') . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+            foreach ((new \DOMXPath($document))->query('//*[@class or @id]') ?: array() as $element) {
+                if (!$element instanceof \DOMElement) continue;
+                $hooks = array_intersect(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), $classes);
+                $id = $element->getAttribute('id');
+                if ('' !== $id && in_array($id, $ids, true)) $hook = '#' . CssIdent::escape($id);
+                elseif (array() !== $hooks) $hook = '.' . CssIdent::escape((string) reset($hooks));
+                else continue;
+                $elements[] = array($element, $hook);
+            }
+        }
+        $result = '';
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            // Transform rather than visit so responsive/media conditions survive.
+            $result .= (new CssStylesheetTransformer())->transformStyleRules($asset['content'], static function (string $selector, string $body) use ($elements): string {
+                if (!preg_match('/(?:^|;)\s*min-height\s*:\s*([^;]*(?:vh|svh|dvh|lvh))\s*(?:;|$)/i', $body, $minimum)
+                    || !preg_match('/(?:^|;)\s*display\s*:\s*flex\s*(?:;|$)/i', $body)
+                    || !preg_match('/(?:^|;)\s*flex-direction\s*:\s*column\s*(?:;|$)/i', $body)) return '';
+                $rules = array();
+                foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $candidate) {
+                    $parsed = CssSelectorMatcher::parse(trim($candidate));
+                    foreach ($elements as [$element, $hook]) {
+                        if (!CssSelectorMatcher::matches($element, $parsed, true)['matches']) continue;
+                        $root = '.wp-site-blocks:has(>.wp-block-post-content ' . $hook . ')';
+                        $post = $root . '>.wp-block-post-content';
+                        $rules[$hook] = $root . '{min-height:' . trim($minimum[1]) . ';display:flex;flex-direction:column}'
+                            . $post . ',' . $post . ' ' . $hook . '{min-height:0}'
+                            . ':where(' . $post . ',' . $post . ' ' . $hook . ',' . $post . ' :has(' . $hook . ')){flex:1;display:flex;flex-direction:column}';
+                    }
+                }
+                return implode('', $rules);
+            });
+        }
+        return $result;
     }
 
     private const BOX_PROPERTIES = '/(?:^|[;{\s])(?:(?:max-)?width|z-index|overflow(?:-[xy])?|inset|top|right|bottom|left)\s*:/i';
