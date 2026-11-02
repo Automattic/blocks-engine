@@ -4721,6 +4721,10 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $tag = strtolower($element->tagName);
         $declarations = array();
+        // HTML maps the obsolete <center> element to centered, inherited text alignment.
+        if ('center' === $tag) {
+            $declarations['text-align'] = 'center';
+        }
         if (in_array($tag, array('div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'td', 'th'), true)) {
             $align = strtolower(trim(SourceDom::attr($element, 'align')));
             if (in_array($align, array('left', 'center', 'right', 'justify'), true)) {

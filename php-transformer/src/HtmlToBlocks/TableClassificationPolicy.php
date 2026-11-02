@@ -81,6 +81,53 @@ final class TableClassificationPolicy
         return false;
     }
 
+    /**
+     * A legacy page shell: a headerless table whose every row holds exactly
+     * one cell and that authors a box for it - a `width` on the table or a
+     * cell, `align="center"`, or an enclosing `<center>`. Its rows are stacked
+     * page regions, not tabular data. A one-column table without that box
+     * geometry keeps data-table classification.
+     */
+    public function isSingleColumnLayoutTable(DOMElement $table): bool
+    {
+        $signals = $this->tableSignals($table);
+        if ( 'table' !== strtolower($table->tagName)
+            || true === $signals['has_descendant_table']
+            || true === $signals['data_signals']
+            || true === $signals['has_colspan']
+            || true === $signals['has_rowspan']
+            || 0 === $signals['row_count'] ) {
+            return false;
+        }
+
+        if ( array() !== array_diff($signals['column_counts'], array( 1 )) ) {
+            return false;
+        }
+
+        return $this->authorsLayoutBox($table);
+    }
+
+    private function authorsLayoutBox(DOMElement $table): bool
+    {
+        if ( $table->hasAttribute('width') || 'center' === strtolower(trim($table->getAttribute('align'))) ) {
+            return true;
+        }
+        for ( $ancestor = $table->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'center' === strtolower($ancestor->tagName) ) {
+                return true;
+            }
+        }
+        foreach ( $this->rowsForTable($table) as $row ) {
+            foreach ( $this->cellsForRow($row) as $cell ) {
+                if ( $cell->hasAttribute('width') ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public function lowersToColumns(DOMElement $table): bool
     {
         return $this->isNestedLayoutTableMember($table)

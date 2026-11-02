@@ -42,6 +42,9 @@ $makeConverter = static function (array $overrides = array()): TableElementConve
         'nested'      => static function (DOMElement $e, array &$f): ?array {
             return array('blockName' => 'core/columns', 'via' => 'nested');
         },
+        'group'       => static function (DOMElement $e, array &$f): ?array {
+            return array('blockName' => 'core/group', 'via' => 'group');
+        },
         'media'       => static function (DOMElement $e, array &$f): ?array {
             return array('blockName' => 'core/columns', 'via' => 'media');
         },
@@ -55,6 +58,7 @@ $makeConverter = static function (array $overrides = array()): TableElementConve
     return new TableElementConverter(new TableElementContext(
         new TableClassificationPolicy(),
         $c['nested'],
+        $c['group'],
         $c['media'],
         $c['preserve'],
         new ElementPresentationResolverFixture($c['presentation']),

@@ -1297,6 +1297,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return $this->nestedLayoutTableColumnsBlock($element, $fallbacks);
             },
             function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->singleColumnLayoutTableGroupBlock($element, $fallbacks);
+            },
+            function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->mediaLayoutTableColumnsBlock($element, $fallbacks);
             },
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
@@ -3288,6 +3291,46 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $unsized && 2 <= $count;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>
+     */
+    private function singleColumnLayoutTableGroupBlock(DOMElement $table, array &$fallbacks): array
+    {
+        $rows = array();
+        $cellWidth = null;
+        foreach ( $table->getElementsByTagName('tr') as $row ) {
+            if ( ! $row instanceof DOMElement || ! SourceDom::belongsToTable($row, $table) ) {
+                continue;
+            }
+            foreach ( $row->childNodes as $cell ) {
+                if ( $cell instanceof DOMElement && in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
+                    $rows[]    = $this->layoutTableCellBlocks($cell, $fallbacks);
+                    $cellWidth = $cellWidth ?? $this->normalizeLayoutTableTrackWidth($this->attr($cell, 'width'));
+                }
+            }
+        }
+
+        // Rows are stacked page regions: one row is the group's content, several keep their own boxes.
+        $children = 1 === count($rows)
+            ? $rows[0]
+            : array_map(fn (array $blocks): array => $this->createBlock('core/group', array(), $blocks, $table), $rows);
+
+        // core/table renders at 100% width, so the table box is carried by core layout instead:
+        // the resolved table (or cell) width becomes the content size, and <center> or
+        // align="center" centers that box; a centered table without a width shrinks to fit.
+        $attrs    = $this->styleResolver->presentationAttributes($table);
+        $width    = $this->normalizeLayoutTableTrackWidth($this->attr($table, 'width')) ?? $cellWidth;
+        $centered = 'center' === strtolower($this->attr($table, 'align')) || null !== $this->ancestorElement($table, 'center');
+        if ( null !== $width ) {
+            $attrs['layout'] = array( 'type' => 'constrained', 'contentSize' => $width, 'justifyContent' => $centered ? 'center' : 'left' );
+        } elseif ( $centered ) {
+            $attrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical', 'justifyContent' => 'center' );
+        }
+
+        return $this->createBlock('core/group', $attrs, $children, $table);
     }
 
     /**
