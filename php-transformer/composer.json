@@ -308,6 +308,7 @@
       "php tests/unit/logo-empty-inline-box.php",
       "php tests/unit/rounded-site-logo.php",
       "php tests/unit/capture-document-trailing-chrome.php",
+      "php tests/unit/shared-footer-trailing-chrome.php",
       "php tests/unit/compact-engine-tokens.php",
       "php tests/unit/taxonomy-hierarchical-single-member.php",
       "php tests/unit/unproven-archive-presentation-keeps-entity.php",
