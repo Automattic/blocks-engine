@@ -2061,7 +2061,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             'tablevalues', 'targetx', 'targety', 'text-anchor', 'text-rendering', 'textlength', 'startoffset',
             'transform', 'type',
             'values', 'vector-effect', 'version', 'viewbox', 'width', 'x', 'x1', 'x2',
-            'xchannelselector', 'xlink:href', 'xml:space', 'y', 'y1', 'y2', 'ychannelselector', 'in', 'in2', 'title',
+            'xchannelselector', 'xlink:href', 'xml:space', 'y', 'y1', 'y2', 'ychannelselector', 'zoomandpan', 'in', 'in2', 'title',
             'xmlns', 'xmlns:xlink',
         ));
 
@@ -2103,6 +2103,18 @@ final class SvgMaterializer implements SvgElementMaterializer
             ));
         }
 
+        // A raster embedded as a data: URI is part of this image document: it
+        // fetches nothing and runs nothing. Any other image reference is not.
+        $embeddedRaster = false;
+        if ( 'image' === strtolower($element->tagName) ) {
+            $href = $element->hasAttribute('href') ? $element->getAttribute('href') : $element->getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+            if ( 1 !== preg_match('~^data:image/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$~iD', trim($href)) ) {
+                return false;
+            }
+            $embeddedRaster = true;
+            $allowedTags['image'] = 1;
+        }
+
         if ( ! isset($allowedTags[strtolower($element->tagName)]) ) {
             return false;
         }
@@ -2117,7 +2129,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute && ! $isInertGroupWeight) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
                 return false;
             }
-            if ( preg_match('/(?:^|:)href$/i', $name) && ! str_starts_with(trim($value), '#') ) {
+            if ( preg_match('/(?:^|:)href$/i', $name) && ! str_starts_with(trim($value), '#') && ! $embeddedRaster ) {
                 return false;
             }
             if ( preg_match('/\burl\s*\((?!\s*["\']?#[-_a-z0-9]+["\']?\s*\))/i', $value) ) {

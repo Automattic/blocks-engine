@@ -27,4 +27,8 @@ $assert('supported' !== StandaloneSvgAsset::inspect(str_replace('url(#paint)', '
 $assert('invalid_svg' === StandaloneSvgAsset::inspect('<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]>' . $svg)['status'], 'Entity declarations must not be resolved');
 $assert('invalid_svg' === StandaloneSvgAsset::inspect('<svg>')['status'], 'Malformed XML must be reported');
 $assert('unresolved_svg_dimensions' === StandaloneSvgAsset::inspect(str_replace(' viewBox="0 0 240 80"', '', $svg))['status'], 'Dimensionless artwork must be reported');
+// Design tools export a photo wrapped in an SVG frame as an embedded data: raster.
+$framed = str_replace('</svg>', '<image width="240" height="80" xlink:href="data:image/jpeg;base64,/9j/4AAQSkZJRg=="/></svg>', str_replace('<svg ', '<svg xmlns:xlink="http://www.w3.org/1999/xlink" zoomAndPan="magnify" ', $svg));
+$assert(StandaloneSvgAsset::inspect($framed) === array('status' => 'supported', 'width' => 240, 'height' => 80), 'An embedded data: raster is self-contained artwork');
+$assert('supported' !== StandaloneSvgAsset::inspect(str_replace('data:image/jpeg;base64,', 'data:image/svg+xml;base64,', $framed))['status'], 'An embedded SVG document must be reported');
 echo "Standalone SVG asset contract passed.\n";
