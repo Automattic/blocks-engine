@@ -4585,6 +4585,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function runtimeAuthoredButton(DOMElement $element): array
     {
         $this->formRuntimeIslandRecorder->recordControl($element);
+        // The authored control saves its descendants as source markup, not
+        // semantic/RichText carriers. Keep author selectors addressing those
+        // actual nodes (including empty CSS-painted icons).
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            $this->session->authorSelectorProjectionState()->markRetainedSourcePath($descendant->getNodePath() ?? '');
+        }
         $generated = $this->authoredFormControlBlockConverter->runtimeButton($element);
         $materialized = $this->createBlock(
             (string) ($generated['blockName'] ?? ''),

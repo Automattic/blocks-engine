@@ -79,7 +79,18 @@ final class ButtonElementConverter implements ElementConverter
                 }
                 continue;
             }
-            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array('img', 'svg'), true) ) {
+            if ( ! $child instanceof DOMElement ) {
+                return false;
+            }
+            // Empty phrasing elements can be the entire visible icon: their
+            // classes paint backgrounds, borders and pseudo-elements. They
+            // need the same native host as image/SVG icons, not core/button's
+            // text-only label (which WordPress suppresses when empty).
+            if ( $this->isEmptyDecoration($child) ) {
+                $hasArtwork = true;
+                continue;
+            }
+            if ( ! in_array(strtolower($child->tagName), array('img', 'svg'), true) ) {
                 return false;
             }
             if ( 'svg' === strtolower($child->tagName)
@@ -92,6 +103,20 @@ final class ButtonElementConverter implements ElementConverter
         }
 
         return $hasArtwork;
+    }
+
+    private function isEmptyDecoration(DOMElement $element): bool
+    {
+        if ( ! in_array(strtolower($element->tagName), array('span', 'i', 'b', 'em', 'strong', 'small'), true)
+            || '' !== trim($element->textContent ?? '') ) {
+            return false;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ! $this->isEmptyDecoration($child) ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function preservesUnsafeInlineHandler(DOMElement $element): bool

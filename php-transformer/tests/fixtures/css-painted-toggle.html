@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><style>
+body { margin: 0; }
+header { display: flex; justify-content: flex-end; padding: 12px; }
+.menu-toggle { display: none; width: 44px; height: 40px; border: 0; background: transparent; align-items: center; justify-content: center; }
+.icon-bars, .icon-bars::before, .icon-bars::after { display: block; width: 18px; height: 3px; background: currentColor; }
+.icon-bars { position: relative; }
+.icon-bars::before, .icon-bars::after { content: ""; position: absolute; left: 0; }
+.icon-bars::before { top: -6px; }
+.icon-bars::after { top: 6px; }
+@media (max-width: 600px) { .menu-toggle { display: flex; } }
+</style></head><body>
+<header><button type="button" id="menu-toggle" class="menu-toggle" aria-label="Open menu" aria-controls="drawer" aria-expanded="false"><span class="icon-bars"></span></button></header>
+<main><p>Welcome</p></main>
+<dialog id="drawer" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="menu-toggle"><a href="#one">One</a><a href="#two">Two</a><a href="#three">Three</a><a href="#four">Four</a><a href="#five">Five</a></dialog>
+</body></html>
