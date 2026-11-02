@@ -227,6 +227,95 @@ final class ShellExtraction
         return $markup;
     }
 
+    /**
+     * Move repeated siblings with a hoisted footer, not with post content.
+     * Evidence comes from the original block-tree siblings in every contributing
+     * route and document scope. Varying or runtime-bound siblings stay per-page.
+     *
+     * @return array{pages:array,parts:array}
+     */
+    public function withSharedFooterTrailingChrome(array $originals, array $pages, array $parts, array $declarations, array $records = array()): array
+    {
+        $this->resolveManifestEntities($declarations, $records);
+        foreach ($parts as $partIndex => $part) {
+            if ('footer' !== ($part['area'] ?? null) || 'shared_shell' !== ($part['placement']['kind'] ?? null)) continue;
+            $sources = array_keys($part['provenance']['sources'] ?? array());
+            $evidence = array();
+            foreach ($originals as $original) {
+                if (!in_array($original['source_path'], $sources, true)) continue;
+                $markup = $original['canonical_block_markup'];
+                $nodes = self::blockNodes($markup);
+                foreach ($this->nestedLandmarkCandidates($markup, '', 'footer') as $row) {
+                    $scope = self::responsiveVariantClass($row) ?? '';
+                    foreach ($nodes as $id => $node) {
+                        if ($node['offset'] !== $row['offset'] || $node['end'] !== $row['offset'] + $row['length']) continue;
+                        $siblings = null === $node['parent'] ? self::topLevelNodeIds($nodes) : $nodes[$node['parent']]['children'];
+                        $position = array_search($id, $siblings, true);
+                        foreach (array_slice($siblings, $position + 1) as $tailPosition => $tailId) {
+                            $tail = $nodes[$tailId];
+                            $range = array('offset' => $tail['offset'], 'length' => $tail['end'] - $tail['offset']);
+                            $bindings = $this->runtimeBindingsInRanges($declarations, $original, array($range));
+                            if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
+                            $content = substr($markup, $range['offset'], $range['length']);
+                            $identity = self::documentChromeIdentity($content);
+                            $evidence[$scope][$tailPosition][$identity][$original['source_path']] = $content;
+                        }
+                    }
+                }
+            }
+            $partMarkup = $part['canonical_block_markup'];
+            $insertions = array();
+            foreach ($this->nestedLandmarkCandidates($partMarkup, '', 'footer') as $row) {
+                $scope = self::responsiveVariantClass($row) ?? '';
+                $trailing = '';
+                foreach ($evidence[$scope] ?? array() as $identities) {
+                    if (1 !== count($identities)) continue;
+                    $contents = reset($identities);
+                    if (count($contents) !== count($sources) || count($sources) < 2) continue;
+                    // Validate all removals before moving any occurrence. Ambiguous
+                    // copies or a retained footer cannot prove ownership.
+                    $removals = array();
+                    foreach ($pages as $index => $page) {
+                        $content = $contents[$page['source_path']] ?? null;
+                        if (null === $content) continue;
+                        $current = $page['canonical_block_markup'];
+                        $matches = array();
+                        $currentNodes = self::blockNodes($current);
+                        foreach ($currentNodes as $nodeId => $node) {
+                            if ($content !== substr($current, $node['offset'], $node['end'] - $node['offset'])) continue;
+                            $classes = '';
+                            for ($parent = $node['parent']; null !== $parent; $parent = $currentNodes[$parent]['parent']) {
+                                $ancestor = $currentNodes[$parent];
+                                $openingEnd = $currentNodes[$ancestor['children'][0]]['offset'];
+                                $classes .= substr($current, $ancestor['offset'], $openingEnd - $ancestor['offset']);
+                            }
+                            if ('' !== $scope && !str_contains($classes, $scope)) continue;
+                            $matches[] = $node['offset'];
+                        }
+                        if (1 !== count($matches)) continue;
+                        $retained = false;
+                        foreach ($this->nestedLandmarkCandidates($current, '', 'footer') as $remaining) {
+                            if ((self::responsiveVariantClass($remaining) ?? '') === $scope) $retained = true;
+                        }
+                        if (!$retained) $removals[$index] = array('offset' => $matches[0], 'content' => $content);
+                    }
+                    if (count($removals) !== count($sources)) continue;
+                    foreach ($removals as $index => $removal) {
+                        $pages[$index]['canonical_block_markup'] = substr_replace($pages[$index]['canonical_block_markup'], '', $removal['offset'], strlen($removal['content']));
+                        $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($pages[$index]['canonical_block_markup']);
+                    }
+                    $trailing .= reset($contents);
+                }
+                if ('' !== $trailing) $insertions[$row['offset'] + $row['length']] = $trailing;
+            }
+            krsort($insertions, SORT_NUMERIC);
+            foreach ($insertions as $offset => $content) $partMarkup = substr_replace($partMarkup, $content, $offset, 0);
+            $parts[$partIndex]['canonical_block_markup'] = $partMarkup;
+            $parts[$partIndex]['content_hash'] = WordPressSitePlan::contentHash($partMarkup);
+        }
+        return array('pages' => $pages, 'parts' => $parts);
+    }
+
     /** @var array<string,array<int,array<string,mixed>>> Entities of this call's manifest declarations, by payload hash. */
     private array $manifestEntities = array();
 
