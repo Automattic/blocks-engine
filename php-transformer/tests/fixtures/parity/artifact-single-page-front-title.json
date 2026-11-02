@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-single-page-front-title",
+  "description": "A single-page site's hero copy does not name its WordPress front page.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-single-page-front-title.json",
+    "notes": "Reduced page from https://github.com/Automattic/static-site-importer/issues/2127."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Artifact page naming has no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": {
+        "index.html": "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Example Productions</title><meta name=\"description\" content=\"Production studio. Los Angeles · Paris · Tokyo.\"></head><body><main><section><h1><span lang=\"en\" style=\"display:block\">Turn an idea into a show.</span><span lang=\"fr\" style=\"display:block\">Transformez une idée en émission.</span></h1><p>Body.</p></section></main></body></html>"
+      }
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
+    { "path": "source_reports.wordpress_site_plan.pages", "assert": "count", "count": 1 },
+    { "path": "source_reports.wordpress_site_plan.pages.0.title", "assert": "equals", "value": "Home" },
+    { "path": "source_reports.wordpress_site_plan.pages.0.slug", "assert": "equals", "value": "home" },
+    { "path": "source_reports.wordpress_site_plan.pages.0.canonical_block_markup", "assert": "contains", "value": "Turn an idea into a show." },
+    { "path": "source_reports.wordpress_site_plan.pages.0.canonical_block_markup", "assert": "contains", "value": "Transformez une idée en émission." }
+  ]
+}

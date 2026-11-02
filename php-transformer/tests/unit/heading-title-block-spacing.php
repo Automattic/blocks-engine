@@ -24,7 +24,7 @@ $title = static function (string $h1, string $lang = ''): string {
     $html = '<html' . ( '' !== $lang ? ' lang="' . $lang . '"' : '' ) . '><head><title>Unrelated | Example</title></head><body><main>' . $h1 . '<p>Copy</p></main></body></html>';
     $plan = ( new ArtifactCompiler() )->compile(array(
         'entrypoint' => 'index.html',
-        'files' => array( 'index.html' => $html ),
+        'files' => array( 'index.html' => $html, 'other.html' => '<main><h1>Other page</h1></main>' ),
     ))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
 
     return (string) ( $plan['pages'][0]['title'] ?? '' );

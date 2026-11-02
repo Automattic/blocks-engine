@@ -35,6 +35,11 @@ $pages = static function (array $files, string $entrypoint = 'index.html'): arra
 $document = static fn (string $title, string $body): string => '<!doctype html><html><head><title>' . $title . '</title></head><body>' . $body . '</body></html>';
 $nav = '<nav><a href="/">Home</a><a href="/about/">About</a></nav>';
 
+$sameName = $pages(array('index.html' => $document('Studio', '<main><h1>Studio</h1></main>')));
+$assert('Studio' === $sameName['index.html']['title'], 'a single page keeps a heading confirmed by its document title');
+$noTitle = $pages(array('index.html' => '<main><h1>Studio</h1></main>'));
+$assert('Studio' === $noTitle['index.html']['title'], 'without a document title, heading naming is unchanged');
+
 $fragmentOnly = $pages(array(
     'index.html' => $document('Acme Youth Org | Springfield', '<nav><a href="/#focus">Area of Focus <span class="icon">expand_more</span></a></nav><main><h1>Welcome</h1></main>'),
     'about/index.html' => $document('About Us | Acme Youth Org', '<nav><a href="/#focus">Area of Focus <span class="icon">expand_more</span></a></nav><main><h1>About</h1></main>'),
