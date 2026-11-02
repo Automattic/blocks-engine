@@ -2049,8 +2049,8 @@ PHP;
 
     /**
      * Auto insets use the hypothetical flow position, which changes when a
-     * header moves ahead of post-content. Pin only source-first absolute boxes
-     * whose static origin can be proved to be their containing block's origin.
+     * chrome is detached from post-content. Pin auto-inset positioned boxes
+     * that preceded the removed chrome in its source ancestor chain.
      * Explicit insets (including responsive overrides) are never rewritten.
      *
      * @param array<int,array<string,mixed>> $parts
@@ -2061,7 +2061,8 @@ PHP;
     {
         $ids = array();
         foreach ($parts as $part) {
-            if ('shared_shell' !== ($part['placement']['kind'] ?? null) || 'header' !== ($part['area'] ?? null)) continue;
+            if (!in_array($part['placement']['kind'] ?? null, array('shared_shell', 'inline_shared_shell'), true)
+                || !in_array($part['area'] ?? null, array('header', 'footer'), true)) continue;
             foreach ($part['ancestor_context']['static_start_ids'] ?? array() as $id) $ids[(string) $id] = true;
         }
         $rules = array();
@@ -2090,26 +2091,14 @@ PHP;
                     foreach (CssRuleAnalyzer::declarations($body, array('position', 'inset', 'inset-block', 'inset-inline', 'inset-block-start', 'inset-block-end', 'inset-inline-start', 'inset-inline-end', 'top', 'bottom', 'left', 'right')) as $declaration) {
                         $value = strtolower(trim($declaration['value']));
                         if ('position' === $declaration['name']) {
-                            if ('absolute' === $value) $absolute = true;
+                            if (in_array($value, array('absolute', 'fixed'), true)) $absolute = true;
                             else $unsafe = true;
                         } elseif ('auto' !== $value) $unsafe = true;
                     }
                 }
                 if (!$absolute || $unsafe) continue;
-                // No preceding flow or spacing may separate the static start
-                // from the containing block. Capture carriers are transparent.
-                for ($node = $element; $node instanceof \DOMElement && 'body' !== $node->tagName; $node = $node->parentNode) {
-                    if ($node !== $element && array() !== array_intersect(preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array(), array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS))) break;
-                    if ($node !== $element) {
-                        $styles = array($node->getAttribute('style'));
-                        foreach ($rules as [$selector, $body]) if (CssSelectorMatcher::matches($node, $selector, true)['matches']) $styles[] = $body;
-                        foreach ($styles as $style) if (preg_match('/(?:^|;)\s*(?:padding(?:-[\w-]+)?|border(?:-[\w-]+)?|margin(?:-[\w-]+)?|display|transform|writing-mode)\s*:\s*(?!0(?:px)?\s*(?:;|$))/', $style)) $unsafe = true;
-                        if (array_filter($styles, static fn(string $style): bool => self::declaresPosition($style))) break;
-                    }
-                    for ($sibling = $node->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling) {
-                        if ($sibling instanceof \DOMElement || ($sibling instanceof \DOMText && '' !== trim($sibling->textContent))) $unsafe = true;
-                    }
-                }
+                // Eligibility comes from source siblings retained during extraction,
+                // not from the post-extraction DOM's first-child position.
                 if (!$unsafe) $result[$hook] = '.wp-site-blocks ' . $hook . '{top:0}';
             }
         }

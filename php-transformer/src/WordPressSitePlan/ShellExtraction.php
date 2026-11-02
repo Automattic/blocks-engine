@@ -1221,8 +1221,8 @@ final class ShellExtraction
     }
 
     /**
-     * First children before the chrome's ancestor branch have a static block
-     * start independent of that chrome. Keep their hooks before removing it.
+     * Preceding siblings at every ancestor level have a static block start
+     * independent of that chrome. Keep their hooks before removing it.
      *
      * @param array<int,array<string,mixed>> $stack
      * @return list<string>
@@ -1234,19 +1234,24 @@ final class ShellExtraction
             $start = (int) ($ancestor['inner_offset'] ?? $ancestor['offset']);
             $end = (int) ($stack[$level + 1]['offset'] ?? $offset);
             $tokens = self::blockCommentTokens(substr($markup, $start, max(0, $end - $start)));
-            $first = $tokens[0] ?? null;
-            if (!is_array($first) || $first['closing']) continue;
-            $attrs = json_decode($first['attributes'], true);
-            $id = (string) ($attrs['anchor'] ?? '');
-            if ('' === $id) foreach (preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class) {
-                $id = (string) EngineMarker::editorAnchorId($class);
-                if ('' !== $id) break;
+            $depth = 0;
+            foreach ($tokens as $token) {
+                if ($token['closing']) { --$depth; continue; }
+                $sibling = 0 === $depth;
+                if (!$token['self_closing']) ++$depth;
+                if (!$sibling) continue;
+                $attrs = json_decode($token['attributes'], true);
+                $id = (string) ($attrs['anchor'] ?? '');
+                if ('' === $id) foreach (preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class) {
+                    $id = (string) EngineMarker::editorAnchorId($class);
+                    if ('' !== $id) break;
+                }
+                if ('' === $id) {
+                    $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+                    if (!empty($classes[0])) $id = '.' . $classes[0];
+                }
+                if ('' !== $id) $ids[] = $id;
             }
-            if ('' === $id) {
-                $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
-                if (!empty($classes[0])) $id = '.' . $classes[0];
-            }
-            if ('' !== $id) $ids[] = $id;
         }
         return array_values(array_unique($ids));
     }
