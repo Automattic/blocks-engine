@@ -2131,7 +2131,11 @@ PHP;
     /** @param array<string,mixed> $attrs */
     private static function isVariantVisibilityGroup(array $attrs): bool
     {
-        return 1 === count($attrs) && is_string($attrs['className'] ?? null) && ShellExtraction::isResponsiveVariantClass($attrs['className']);
+        if (1 !== count($attrs) || !is_string($attrs['className'] ?? null)) return false;
+        foreach (preg_split('/\s+/', trim($attrs['className'])) ?: array() as $class) {
+            if (ShellExtraction::isResponsiveVariantClass($class)) return true;
+        }
+        return false;
     }
 
     /**

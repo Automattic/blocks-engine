@@ -1026,6 +1026,17 @@ final class ShellExtraction
             $role = is_array($attrs) && is_string($attrs['role'] ?? null) ? $attrs['role'] : '';
             $className = is_array($attrs) && is_string($attrs['className'] ?? null) ? $attrs['className'] : '';
             $anchor = is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';
+            $variantScopeClasses = array();
+            $scopeClassNames = array($className);
+            foreach ((array) ($attrs['wrappers'] ?? array()) as $wrapper) {
+                if (is_array($wrapper)) $scopeClassNames[] = (string) ($wrapper['attributes']['class'] ?? '');
+            }
+            foreach ($scopeClassNames as $scopeClassName) {
+                $scopeClasses = array_values(array_filter(preg_split('/\s+/', trim($scopeClassName)) ?: array()));
+                foreach ($scopeClasses as $scopeClass) {
+                    if (self::isResponsiveVariantClass($scopeClass)) $variantScopeClasses[$scopeClass] = $scopeClasses;
+                }
+            }
             $hasShellWrapperContract = false;
             if (is_array($attrs) && is_array($attrs['wrappers'] ?? null)) {
                 $hasShellWrapperContract = true;
@@ -1061,7 +1072,7 @@ final class ShellExtraction
                 $preceded = preg_match_all('/<!--\s*wp:/', $between) > count($stack) || 0 < preg_match_all('/<!--\s*\/wp:/', $between);
                 if ($preceded) $backdropIds = self::backdropAncestorIds($markup, $stack, $offset);
             }
-            if (!$selfClosing) $stack[] = array('document_edge' => $edgeLandmark && (array() !== $mainAncestors || $disallowedAncestor), 'offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'named_footer' => $candidate && $namedFooter, 'document_end' => $stack[0]['document_end'] ?? $documentEnds[$offset] ?? strlen($markup), 'main_ancestors' => $edgeLandmark ? array() : $mainAncestors, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'anchor' => $anchor, 'class_name' => $className);
+            if (!$selfClosing) $stack[] = array('document_edge' => $edgeLandmark && (array() !== $mainAncestors || $disallowedAncestor), 'offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'named_footer' => $candidate && $namedFooter, 'document_end' => $stack[0]['document_end'] ?? $documentEnds[$offset] ?? strlen($markup), 'main_ancestors' => $edgeLandmark ? array() : $mainAncestors, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'anchor' => $anchor, 'class_name' => $className, 'variant_scope_classes' => $variantScopeClasses);
         }
         $rows = array_values(array_filter($rows, static fn(array $row): bool => array() === array_diff($row['main_ancestors'], $shellMains ?? array())));
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
@@ -1154,17 +1165,25 @@ final class ShellExtraction
      * reached it through them need re-anchoring (see WordPressSitePlan).
      *
      * @param array<int,array<string,mixed>> $stack
-     * @return array{ids:array<int,string>,classes:array<int,string>}
+     * @return array{ids:array<int,string>,classes:array<int,string>,variant_classes:array<string,list<string>>}
      */
     private static function ancestorContext(array $stack): array
     {
-        $ids = array(); $classes = array();
+        $ids = array(); $classes = array(); $variantClasses = array();
         foreach ($stack as $ancestor) {
             if (empty($ancestor['candidate']) && '' !== ($ancestor['anchor'] ?? '')) $ids[] = (string) $ancestor['anchor'];
             if (!empty($ancestor['candidate'])) continue;
-            foreach (preg_split('/\s+/', trim((string) ($ancestor['class_name'] ?? ''))) ?: array() as $class) if ('' !== $class) $classes[] = $class;
+            $ancestorClasses = array_values(array_filter(preg_split('/\s+/', trim((string) ($ancestor['class_name'] ?? ''))) ?: array()));
+            foreach ($ancestorClasses as $class) {
+                $classes[] = $class;
+            }
+            // Reuse the specific serialized document wrapper, not classes
+            // merged from other coalesced layout wrappers around post content.
+            foreach ($ancestor['variant_scope_classes'] ?? array() as $scope => $scopeClasses) {
+                $variantClasses[$scope] = $scopeClasses;
+            }
         }
-        return array('ids' => array_values(array_unique($ids)), 'classes' => array_values(array_unique($classes)));
+        return array('ids' => array_values(array_unique($ids)), 'classes' => array_values(array_unique($classes)), 'variant_classes' => $variantClasses);
     }
 
     /**
@@ -2581,7 +2600,8 @@ final class ShellExtraction
             if ('' === trim($inner)) return false;
             if (null === $primaryContext && 0 === self::responsiveVariantRank($class)) $primaryContext = $scoped[0]['ancestor_context'] ?? null;
             foreach ((array) ($scoped[0]['ancestor_context']['backdrop_ids'] ?? array()) as $id) $backdropIds[(string) $id] = true;
-            $pieces[$class] = self::variantVisibilityGroup($class, $inner);
+            $scopeClasses = $scoped[0]['ancestor_context']['variant_classes'][$class] ?? array($class);
+            $pieces[$class] = self::variantVisibilityGroup(implode(' ', $scopeClasses), $inner);
         }
         if (null === $primaryContext) {
             $firstClass = $variantClasses[0];
