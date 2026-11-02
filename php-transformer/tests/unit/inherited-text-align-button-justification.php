@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $failures = 0;
@@ -166,6 +167,24 @@ $assert(
     && 1 === preg_match('/' . preg_quote($leftDefaultMarker, '/') . '\.' . preg_quote($leftDefaultMarker, '/') . '\.wp-block-buttons\{width:max-content;max-width:100%\}/', $leftDefaultCss),
     'a non-centered inline control keeps its intrinsic shrink-to-fit wrapper',
     $leftDefaultCss
+);
+
+// #3953: the control's own alignment styles its label, not its placement.
+$source = (string) file_get_contents(dirname(__DIR__) . '/fixtures/button-label-alignment.html');
+$compiled = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array('index.html' => $source),
+))->toArray();
+$compiledMarkup = (string) ($compiled['serialized_blocks'] ?? '');
+$assert(
+    str_contains($buttonsBlockFor($compiledMarkup, 'Read more'), '"justifyContent":"left"'),
+    'the containing block places a button left even when its own label is centered',
+    $compiledMarkup
+);
+$assert(
+    1 === preg_match('/>\\.wp-block-button__link\\{[^}]*text-align:center!important/', $cssFor($compiled)),
+    'the anchor retains its own centered label styling',
+    $cssFor($compiled)
 );
 
 if ( $failures ) {
