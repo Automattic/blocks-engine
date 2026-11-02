@@ -325,13 +325,23 @@ This is a breaking, lockstep replacement of the retired flat interaction reader.
 Refs Automattic/blocks-engine#3709. This change must ship together with
 Automattic/data-liberation-agent#1039.
 
+### Captured disclosure toggles
+
+| Name | Kind | Value | Meaning |
+| ---- | ---- | ----- | ------- |
+| `data-blocks-engine-capture-component-disclosure` | attribute on toggle | config index (including `0`) | Captured non-native disclosure binding. |
+
+Its presence identifies a bounded disclosure, not
+an application-shell runtime target. A single-item native accordion additionally
+requires an author accordion container signal; the marker alone is insufficient.
+Native details retain their authored open state.
+
 ### Published for downstream importers
 
 Blocks Engine does not read these names. Downstream importers do.
 
 | Name | Kind | Value | Meaning |
 | ---- | ---- | ----- | ------- |
-| `data-blocks-engine-capture-component-disclosure` | attribute | config index | Non-native disclosure replay config binding; native details retain authored open state. |
 | `data-blocks-engine-capture-component-disclosure-runtime` | attribute on `<script>` | ignored | Portable non-native disclosure helper. |
 | `data-blocks-engine-capture-device-selection` | attribute (flag) on `<script>` | ignored | The capture's device-selection bootstrap in `<head>`. |
 | `data-blocks-engine-capture-device-body` | attribute (flag) on `<script>` | ignored | The capture's device-document overlay script at the start of `<body>`. |
