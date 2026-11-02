@@ -150,8 +150,38 @@ final class WordPressSitePlanResolver
             return str_replace('$blocks_engine_template_attachment_ids = array();', '$blocks_engine_template_attachment_ids = ' . var_export($ids, true) . ';', $content);
         }
         if (str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/')) return $content;
+        if (str_ends_with(strtolower($targetPath), '.css')) $content = self::resolveCustomPropertyTokens($content, $tokens, $themeUri, $attachments);
         return self::resolvePayload($content, self::referencesForWrite($tokens, $themeUri, $targetPath, $attachments));
     }
+    /**
+     * A relative url() inside a custom property resolves against the stylesheet
+     * that substitutes the var(), not the one declaring it, so a stylesheet-relative
+     * path breaks whenever the consumer lives elsewhere. These tokens resolve to
+     * the theme's root-relative URL, which survives a host change like the
+     * relative paths do; attachments on another host keep their absolute URL.
+     * @param array<int,array<string,mixed>> $tokens
+     */
+    private static function resolveCustomPropertyTokens(string $css, array $tokens, string $themeUri, array $attachments): string
+    {
+        if (!str_contains($css, WordPressSitePlan::TOKEN_PREFIX)) return $css;
+        $theme = parse_url($themeUri);
+        $themePath = rtrim(is_array($theme) ? (string) ($theme['path'] ?? '') : '', '/');
+        $references = array();
+        foreach ($tokens as $reference) {
+            if (!is_array($reference) || !is_string($reference['token'] ?? null) || !is_string($reference['target_path'] ?? null)) continue;
+            $url = $themePath . '/' . $reference['target_path'];
+            $attachment = $attachments[$reference['token']]['url'] ?? null;
+            if (is_string($attachment)) {
+                $parts = parse_url($attachment);
+                $sameHost = is_array($theme) && is_array($parts) && isset($parts['path']) && ($theme['scheme'] ?? null) === ($parts['scheme'] ?? null) && ($theme['host'] ?? null) === ($parts['host'] ?? null) && ($theme['port'] ?? null) === ($parts['port'] ?? null);
+                $url = $sameHost ? $parts['path'] . (isset($parts['query']) ? '?' . $parts['query'] : '') : $attachment;
+            }
+            $references[WordPressSitePlan::TOKEN_PREFIX . $reference['token'] . '}}'] = $url;
+        }
+        return preg_replace_callback(self::CUSTOM_PROPERTY_DECLARATION, static fn(array $match): string => strtr($match[0], $references), $css) ?? $css;
+    }
+    /** A custom-property declaration up to its terminating `;` or `}`; quoted strings and plan tokens are opaque. */
+    private const CUSTOM_PROPERTY_DECLARATION = '/(?<=[{;\s])--[A-Za-z0-9_-]+\s*:(?:"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|\{\{[^{}]*\}\}|[^;{}"\'])*/';
     /**
      * The bytes `resolveWritePayload()` will publish, when they do not depend on
      * the destination: stylesheets resolve tokens to relative paths, and a write
@@ -163,6 +193,8 @@ final class WordPressSitePlanResolver
     {
         if ('functions.php' === $targetPath || str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/') || !str_contains($content, WordPressSitePlan::TOKEN_PREFIX)) return $content;
         if (!str_ends_with(strtolower($targetPath), '.css')) return null;
+        // Custom-property tokens resolve to the theme's root-relative URL.
+        if (self::resolveCustomPropertyTokens($content, $tokens, '', array()) !== $content) return null;
         $resolved = strtr($content, self::referencesForWrite($tokens, '', $targetPath));
         return str_contains($resolved, WordPressSitePlan::TOKEN_PREFIX) ? null : $resolved;
     }
