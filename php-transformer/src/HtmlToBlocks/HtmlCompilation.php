@@ -3609,7 +3609,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function socialAnchorColors(DOMElement $element): array
     {
         $declarations = $this->styleResolver->resolvedPresentationDeclarations($element);
-        $declarations['color'] = $this->styleResolver->authoredInheritedPropertyWinner($element, 'color');
+        if ( '' === trim($declarations['color'] ?? '') ) {
+            $declarations['color'] = $this->styleResolver->authoredInheritedPropertyWinner($element, 'color');
+        }
+        $declarations['color'] = trim((string) preg_replace('/\s*!important\s*$/i', '', $declarations['color']));
         $mapped = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper())->map(
             array_intersect_key($declarations, array_flip(array('color', 'background', 'background-color'))),
             fn (string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element)

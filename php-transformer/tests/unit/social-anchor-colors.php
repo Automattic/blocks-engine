@@ -38,6 +38,12 @@ foreach (array('customIconColor' => '#5b5b5b', 'iconColorValue' => '#5b5b5b', 'c
 }
 $preset = $compile($html, str_replace(array('#cacaca', '#5b5b5b'), array('var(--wp--preset--color--neutral)', 'var(--wp--preset--color--ink)'), $css));
 if ('ink' !== ($preset['iconColor'] ?? null) || 'neutral' !== ($preset['iconBackgroundColor'] ?? null) || isset($preset['customIconColor'], $preset['customIconBackgroundColor'])) throw new RuntimeException('Preset colors must stay editable as slugs: ' . json_encode($preset));
+$chainedCss = str_replace('background:#cacaca;color:#5b5b5b', '--content:var(--accent-text);background-color:var(--bg);color:var(--content)!important', $css)
+    . 'main{--accent-text:#5b5b5b;--bg:#cacaca}';
+$chained = $compile($html, $chainedCss);
+foreach (array('customIconColor' => '#5b5b5b', 'iconColorValue' => '#5b5b5b', 'customIconBackgroundColor' => '#cacaca', 'iconBackgroundColorValue' => '#cacaca') as $key => $expected) {
+    if (($chained[$key] ?? null) !== $expected) throw new RuntimeException($key . ' must preserve important chained paint: ' . json_encode($chained));
+}
 $brand = $compile($html, $css . '.brand-facebook{background:#0866ff}.brand-instagram{background:#e1306c}');
 if (isset($brand['customIconBackgroundColor'])) throw new RuntimeException('Brand colors must remain per-service');
 $logos = $compile(str_replace('<i aria-hidden="true" class="icon icon-facebook"></i>', '<svg width="16" height="16"></svg>', str_replace('<i aria-hidden="true" class="icon icon-instagram"></i>', '<svg width="16" height="16"></svg>', $html)), $css);
