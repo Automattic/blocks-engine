@@ -10,7 +10,7 @@ $cases = array(
     'unauthored medium' => array('body{font-family:system-ui}', null, '16px'),
     'body size' => array('body{font-size:18px}', 'var:preset|font-size|medium', '18px'),
     'html size' => array('html{font-size:18px}', 'var:preset|font-size|medium', '1rem'),
-    'root size' => array(':root{font-size:18px}', 'var:preset|font-size|medium', '18px'),
+    'root size' => array(':root{font-size:18px}', 'var:preset|font-size|medium', '1rem'),
     'font shorthand' => array('body{font:18px system-ui}', 'var:preset|font-size|medium', '18px'),
     'descendant size only' => array('body{font-family:system-ui}p{font-size:18px}', null, '18px'),
 );

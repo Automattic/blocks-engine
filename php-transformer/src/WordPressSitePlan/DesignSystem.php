@@ -169,7 +169,11 @@ final class DesignSystem
         $rootPx = array();
         foreach ($usageBySource as $usage) {
             $px = (float) ($usage['root_font_size_px'] ?? 16);
-            $rootPx[CssLength::format($px)] = ($rootPx[CssLength::format($px)] ?? 0) + 1;
+            // Older usage payloads lack the evidence flag; retain their explicit
+            // root values, but never let a collector's initial-value fallback vote.
+            if (($usage['root_font_size_authored'] ?? true) && isset($usage['root_font_size_px']) && $px > 0) {
+                $rootPx[CssLength::format($px)] = ($rootPx[CssLength::format($px)] ?? 0) + 1;
+            }
             $documentMass = self::documentMass($usage);
             $documentRuns = self::documentRuns($usage);
             $documentHeadings = array();
@@ -225,7 +229,7 @@ final class DesignSystem
             }
         }
         arsort($rootPx);
-        $rootFontPx = (float) rtrim((string) array_key_first($rootPx), 'px');
+        $rootFontPx = array() === $rootPx ? 16.0 : (float) rtrim((string) array_key_first($rootPx), 'px');
 
         $root = self::unanimousRoot($usageBySource);
         // An explicit pixel size replaces the UA medium keyword, which also

@@ -24,7 +24,9 @@ if (str_starts_with($size, 'var:preset|font-size|')) {
     $sizes = array_column($themeJson['settings']['typography']['fontSizes'], 'size', 'slug');
     $size = $sizes[substr($size, strlen('var:preset|font-size|'))];
 }
-if ('16px' !== $size) throw new RuntimeException('Global Styles must use readable body size, not the rem base.');
+// The source sets :root{font-size:10px}, so the readable 16px body may be authored as 1.6rem;
+// the browser proof asserts the computed 16px. Reject only the rem base itself.
+if (!in_array($size, array('16px', '1.6rem'), true)) throw new RuntimeException('Global Styles must use readable body size, not the rem base.');
 foreach (array('text' => '--ink', 'background' => '--paper') as $field => $variable) {
     if ('var(' . $variable . ')' !== ($themeJson['styles']['color'][$field] ?? null)) throw new RuntimeException('Editor palette must retain the source scheme variable.');
 }

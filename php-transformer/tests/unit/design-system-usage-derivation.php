@@ -31,7 +31,7 @@ $compile = static function (array $artifact): array {
 $readableSizes = array_column($readableTheme['settings']['typography']['fontSizes'], 'size', 'slug');
 $readableSize = $readableTheme['styles']['typography']['fontSize'];
 if (str_starts_with($readableSize, 'var:preset|font-size|')) $readableSize = $readableSizes[substr($readableSize, strlen('var:preset|font-size|'))];
-$assert('16px' === $readableSize, 'builder root: base typography comes from readable body text');
+$assert('1.6rem' === $readableSize, 'builder root: base typography comes from readable body text at the authored 10px root');
 $assert('1.5' === $readableTheme['styles']['typography']['lineHeight'], 'builder root: readable body leading is preserved');
 $assert('var(--ink)' === $readableTheme['styles']['color']['text'] && 'var(--paper)' === $readableTheme['styles']['color']['background'], 'scheme palette: editor root retains live source variables');
 $assert(!isset($readableTheme['styles']['elements']['heading']['color']['text']), 'section heading colours are not global element defaults');
@@ -412,6 +412,13 @@ $assert('.a{--x:var(--be--source--preset--color--old) var(--wp--preset--color--a
 $tenPxUsage = $usage(array($row('#111111', 50, 'body', 10), $row('#111111', 30, 'body', 20)));
 $tenPxUsage['root_font_size_px'] = 10;
 $tenPxSystem = DesignSystem::fromUsage(array('a.html' => $tenPxUsage));
+$noRootUsage = $usage(array());
+$noRootUsage['root_font_size_authored'] = false;
+$unknownRootUsage = $noRootUsage;
+$unknownRootUsage['root_font_size_authored'] = true;
+$unknownRootUsage['root_font_size_px'] = null;
+$assert(10.0 === DesignSystem::fromUsage(array('a.html' => $noRootUsage, 'b.html' => $noRootUsage, 'c.html' => $tenPxUsage, 'd.html' => $unknownRootUsage))?->rootPx, 'fallback and unknown roots do not outvote authored root evidence');
+$assert(16.0 === DesignSystem::fromUsage(array('a.html' => $noRootUsage))?->rootPx, 'without root evidence the site uses the initial root size');
 $tenPxSlug = (string) $tenPxSystem?->fontSizeSlug('10px');
 $tenPxSheet = static fn(string $css): string => (new PresetBinding($tenPxSystem, array(array('kind' => 'css', 'content' => $css))))->bindStylesheet($css);
 $assert('' !== $tenPxSlug && in_array('1rem', array_column($tenPxSystem?->fontSizes ?? array(), 'size'), true), 'a 10px root names its 10px size as 1rem (' . json_encode($tenPxSystem?->fontSizes) . ')');
