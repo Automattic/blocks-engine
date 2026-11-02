@@ -27,9 +27,12 @@ foreach ( array( false, true ) as $direct ) {
             $classes = $link?->parentNode?->attributes?->getNamedItem('class')?->nodeValue ?? '';
             preg_match('/\bblocks-engine-control-[\w-]+/', $classes, $marker);
             $found = false;
+            // Wrapper-owned variable sizes resolve before leaving the source
+            // element's custom-property scope; link-owned sizes stay live.
+            $projectedSize = ! $linkOwned && 'height:var(--control-height,2.25rem)' === $size ? 'height:2.25rem' : $size;
             foreach ( explode('}', $css) as $rule ) {
                 $selector = strstr($rule, '{', true);
-                if ( false !== $selector && isset($marker[0]) && str_contains($selector, ':where(.' . $marker[0] . ')') && str_contains($rule, '{' . $size) ) {
+                if ( false !== $selector && isset($marker[0]) && str_contains($selector, ':where(.' . $marker[0] . ')') && str_contains($rule, '{' . $projectedSize) ) {
                     if ( str_contains($selector, '.wp-block-button__link') === $linkOwned ) {
                         $found = true;
                     }

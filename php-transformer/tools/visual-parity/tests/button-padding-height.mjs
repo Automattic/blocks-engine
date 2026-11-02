@@ -47,6 +47,16 @@ try {
     }
     assert.equal(wrapperBox.padding, '0px', 'wrapper adds no padding');
     assert.equal(wrapperBox.background, 'rgba(0, 0, 0, 0)', 'wrapper adds no paint');
+    const modifierSource = readFileSync(path.join(root, 'tests/fixtures/button-modifier-sizing.html'), 'utf8');
+    for (const fixture of [modifierSource, modifierSource.replace('min-height:var(--h)', 'min-height:40px')]) {
+        const output = transform(fixture);
+        await page.setContent(fixture);
+        const sourceMinimum = await page.locator('a').evaluate(element => getComputedStyle(element).minHeight);
+        await page.setContent(`<!doctype html><style>${wordpressButtonCss}${output.css}</style>${output.html}`);
+        const minimum = await page.locator('.wp-block-button__link').evaluate(element => getComputedStyle(element).minHeight);
+        assert.equal(sourceMinimum, '40px');
+        assert.equal(minimum, sourceMinimum, 'modifier and literal minima must reach the lowered button link');
+    }
     const before = await measure(source, '.row, button');
     const after = await measure(`<!doctype html><style>${wordpressButtonCss}${transformed.css}</style>${transformed.html}`, '.row, .wp-block-buttons, .wp-block-button, .wp-block-button__link');
     console.log(`Padded button geometry: source=${JSON.stringify(before)} transformed=${JSON.stringify(after)}`);
