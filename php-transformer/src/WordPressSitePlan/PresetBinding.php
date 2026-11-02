@@ -39,6 +39,10 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  *   token, the preset attribute and its class are added. Padding is added as
  *   an inline preset variable, which is what core saves for it.
  *
+ * Fonts equal to a projected root or heading default inherit that default,
+ * without a block preset class. Matching source font rules yield on those
+ * targets, so changing the Global Styles font reaches them.
+ *
  * The author class stays on the block, and so does its projected rule: a
  * utility class usually sets more than the bound property (`text-sm` also
  * sets `line-height`). The preset wins without removing it: core's preset
@@ -176,6 +180,8 @@ final class PresetBinding
     /** @var array<string,array<string,list<string>>> Unconditional single-class colour declarations. */
     private array $classColors = array();
     private int $bound = 0;
+    /** Projected font defaults, keyed by the HTML target that inherits them. @var array<string,string> */
+    private array $fontDefaults = array();
     /** Whether an author rule selects `mark` elements, which a span made a mark would join. */
     private bool $markRules = false;
     /** @var array<string,string|false> Root custom properties; false when a value is scoped or conditional. */
@@ -215,6 +221,15 @@ final class PresetBinding
             if (!array_key_exists($name, $this->variables)) $this->variables[$name] = false;
         }
         $this->classStyles = self::mergeClassStyles($usageBySource);
+        $theme = (new ThemeJsonProjection())->project($assets, array_keys($usageBySource), $system)['theme'];
+        $families = array_column($theme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
+        $styles = $theme['styles'] ?? array();
+        foreach (array('body', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) {
+            $value = 'body' === $tag ? ($styles['typography']['fontFamily'] ?? null)
+                : ($styles['elements'][$tag]['typography']['fontFamily'] ?? $styles['elements']['heading']['typography']['fontFamily'] ?? null);
+            if (!is_string($value)) continue;
+            $this->fontDefaults[$tag] = $families[str_replace('var:preset|font-family|', '', $value)] ?? $value;
+        }
     }
 
     /**
@@ -733,8 +748,12 @@ final class PresetBinding
                 if (!self::removeDeclaration($declarations, $property, $literal)) continue;
                 unset($style->typography->{$key});
             }
-            $attributes->{$attribute} = $slug;
-            $addClasses[] = sprintf($presetClass, $slug);
+            // Element defaults own matching fonts; a preset class would pin
+            // the block to the imported font after a Global Styles change.
+            if ('fontFamily' !== $key || !$this->inheritsFont($html, $this->resolve($literal ?? $observed[$property] ?? ''))) {
+                $attributes->{$attribute} = $slug;
+                $addClasses[] = sprintf($presetClass, $slug);
+            }
             ++$bound;
         }
 
@@ -821,6 +840,38 @@ final class PresetBinding
     public function bindStylesheet(string $css): string
     {
         $transformer = new CssStylesheetTransformer();
+        // Split selector arms so a shared utility still owns its font on
+        // non-heading targets. :where keeps the original specificity.
+        $css = $transformer->transform($css, function (string $prelude, string $body, array $ancestors): string|array {
+            foreach ($ancestors as $ancestor) {
+                if (!preg_match('/^@layer(?:\s|$)/', $ancestor)) return $prelude;
+            }
+            $value = self::declared(self::declarations($body), 'font-family');
+            if (null === $value || str_contains($body, '{')) return $prelude;
+            $value = $this->resolve($value);
+            $rules = array();
+            foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
+                $tag = strtolower(trim($selector));
+                if (1 === preg_match('/^(?::root\s+)?body\.editor-styles-wrapper$/', $tag)) $tag = 'body';
+                $kept = $body;
+                if (isset($this->fontDefaults[$tag])) {
+                    $kept = self::declarationText(array_values(array_filter(self::declarations($body), static fn(array $pair): bool => 'font-family' !== $pair[0])));
+                } elseif (preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*$/', trim($selector))) {
+                    $excluded = array();
+                    foreach ($this->fontDefaults as $target => $font) {
+                        if ('body' !== $target && $this->sameFont($value, $font)) $excluded[] = $target;
+                    }
+                    if (array() !== $excluded) {
+                        $other = self::declarationText(array_values(array_filter(self::declarations($body), static fn(array $pair): bool => 'font-family' !== $pair[0])));
+                        if ('' !== $other) $rules[] = array('prelude' => $selector, 'body' => $other);
+                        $kept = 'font-family:' . self::declared(self::declarations($body), 'font-family');
+                        $selector .= ':not(:where(' . implode(',', $excluded) . '))';
+                    }
+                }
+                $rules[] = array('prelude' => $selector, 'body' => $kept);
+            }
+            return $rules;
+        });
         return $transformer->transformStyleRules($css, function (string $prelude, string $body) use ($transformer): string {
             // Only projected button-link rules yield to the element. Variants
             // keep their selectors and the specificity fix from #3188.
@@ -862,6 +913,21 @@ final class PresetBinding
         foreach (self::SPACING_SIDES as $side) if (!$this->matchesButtonElement('padding-' . $side, (string) ($style->spacing->padding->{$side} ?? ''))) return false;
         foreach (array('text' => 'color', 'background' => 'background-color') as $key => $property) if (!$this->matchesButtonElement($property, (string) ($style->color->{$key} ?? ''))) return false;
         return true;
+    }
+
+    /** Compare complete stacks, not just the primary family. */
+    private function sameFont(string $a, string $b): bool
+    {
+        return '' !== DesignSystem::familyKey($a) && DesignSystem::familyKey($a) === DesignSystem::familyKey($b)
+            && strtolower(str_replace(array(' ', '"', "'"), '', $a)) === strtolower(str_replace(array(' ', '"', "'"), '', $b));
+    }
+
+    private function inheritsFont(string $html, string $value): bool
+    {
+        if (!preg_match('/^<(h[1-6]|p|div|ul|ol|li|blockquote)\b/i', $html, $match)) return false;
+        $tag = strtolower($match[1]);
+        $default = $this->fontDefaults[$tag] ?? (str_starts_with($tag, 'h') ? null : ($this->fontDefaults['body'] ?? null));
+        return null !== $default && $this->sameFont($value, $default);
     }
 
     /** Equality only: yielding to Global Styles must never change paint. */
