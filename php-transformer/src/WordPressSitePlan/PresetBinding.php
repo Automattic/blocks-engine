@@ -169,7 +169,7 @@ final class PresetBinding
     /** Core's text-colour format background when none is chosen (format-library `transparentValue`). */
     private const INLINE_TRANSPARENT = 'rgba(0, 0, 0, 0)';
 
-    /** @var array<string,list<array{tokens:list<string>,negated:list<string>}>> `!important` rules per property family. */
+    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>}>> `!important` rules per property family. */
     private array $importantRules = array();
     /** @var array<string,list<array{tokens:list<string>|null,negated:list<string>,fragment:string}>> `[style*=…]` selectors per family; null tokens reach any element. */
     private array $styleTextRules = array();
@@ -1271,6 +1271,12 @@ final class PresetBinding
             foreach ($this->importantRules[$family] ?? array() as $rule) {
                 if (array() !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
                 if (array() !== array_intersect_key(array_flip($rule['negated']), $finalClasses)) continue;
+                if (isset($tokens[self::KNOWN_ATTRIBUTES])) {
+                    foreach ($rule['attributes'] as [$name, $value]) {
+                        if (in_array($name, array('class', 'style'), true)) continue;
+                        if (!isset($tokens['attr:' . $name . (null === $value ? '' : '=' . $value)])) continue 2;
+                    }
+                }
                 return false;
             }
         }
@@ -1434,7 +1440,7 @@ final class PresetBinding
             if (array() === $important) continue;
             $subject = self::subjectTokens($selector);
             if (null === $subject) continue;
-            foreach ($important as $family => $_) $this->importantRules[$family][] = $subject;
+            foreach ($important as $family => $_) $this->importantRules[$family][] = $subject + array('attributes' => self::subjectAttributes($selector));
         }
     }
 
@@ -1612,7 +1618,7 @@ final class PresetBinding
         $families = array();
         foreach (preg_split('/\s+/', strtolower(trim($properties))) ?: array() as $property) {
             if ('color' === $property) $families['color'] = true;
-            elseif ('background' === $property || str_starts_with($property, 'background-')) $families['background'] = true;
+            elseif ('background' === $property || 'background-color' === $property) $families['background'] = true;
             elseif ('font' === $property) $families['font-size'] = $families['font-family'] = true;
             elseif ('font-size' === $property || 'font-family' === $property) $families[$property] = true;
             else foreach (array('padding', 'margin') as $family) if ($property === $family || str_starts_with($property, $family . '-')) $families[$family] = true;
