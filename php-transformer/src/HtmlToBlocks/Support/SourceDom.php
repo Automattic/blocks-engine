@@ -1549,6 +1549,9 @@ final class SourceDom
             if ( 'picture' === $tag && self::pictureHasRenderableSource($descendant) ) {
                 return true;
             }
+            if ( 'iframe' === $tag && '' !== trim(self::attr($descendant, 'src')) ) {
+                return true;
+            }
             if ( in_array($tag, array( 'img', 'video' ), true) ) {
                 if ( '' !== trim(self::attr($descendant, 'src'))
                     || ( 'img' === $tag && '' !== trim(self::attr($descendant, 'srcset')) )
@@ -1569,7 +1572,7 @@ final class SourceDom
     }
 
     /** Whether a subtree holds nothing but native media or media-support
-     * markup (`img`, `video`, `picture`, `source`, `track`) and at least one
+     * markup (`img`, `video`, `picture`, `source`, `track`, `iframe`) and at least one
      * of them carries a captured source, or only passive static graphics,
      * so the host renders all of its content without a script.
      */
@@ -1582,7 +1585,7 @@ final class SourceDom
             return false;
         }
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && ! in_array(strtolower($descendant->tagName), array( 'img', 'video', 'picture', 'source', 'track' ), true) ) {
+            if ( $descendant instanceof DOMElement && ! in_array(strtolower($descendant->tagName), array( 'img', 'video', 'picture', 'source', 'track', 'iframe' ), true) ) {
                 return false;
             }
         }
