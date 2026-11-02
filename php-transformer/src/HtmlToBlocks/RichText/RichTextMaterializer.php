@@ -366,7 +366,7 @@ final class RichTextMaterializer implements RichTextMaterialization
         return $this->stripDecorativeSvg(SourceDom::innerHtml($element));
     }
 
-    public function contentWithMaterializedSvgImages(DOMElement $element, string $content): ?string
+    public function contentWithMaterializedSvgImages(DOMElement $element, string $content, ?\Closure $imageMarkup = null): ?string
     {
         if ( 0 === $element->getElementsByTagName('svg')->length ) {
             return $content;
@@ -381,6 +381,9 @@ final class RichTextMaterializer implements RichTextMaterialization
             if ( null === $image ) {
                 $this->session->assetMaterializationState()->restore($generatedAssets);
                 return null;
+            }
+            if ( null !== $imageMarkup && '' !== $image ) {
+                $image = (string) $imageMarkup($svg, $image);
             }
             // RichText preparation may normalize SVG casing, so DOM serialization
             // is not a stable replacement key.
