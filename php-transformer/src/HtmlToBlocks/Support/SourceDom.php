@@ -273,6 +273,22 @@ final class SourceDom
         return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
     }
 
+    /** Author naming only: capture plumbing must never feed identity heuristics. */
+    public static function authorIdentityAttribute(DOMElement $element, string $name): string
+    {
+        $value = self::attr($element, $name);
+        if ( 'id' === $name ) {
+            return str_starts_with($value, CaptureEvidence::ATTRIBUTE_PREFIX) ? '' : $value;
+        }
+        if ( 'class' !== $name ) {
+            return $value;
+        }
+        return implode(' ', array_values(array_filter(
+            self::classNames($element),
+            static fn (string $class): bool => ! str_starts_with($class, CaptureEvidence::ATTRIBUTE_PREFIX)
+        )));
+    }
+
     public static function safeAnchor(string $id): string
     {
         $id = trim($id);

@@ -78,8 +78,8 @@ final class SourceElementClassifier
         }
 
         $identity = strtolower(implode(' ', array(
-            SourceDom::attr($element, 'id'),
-            SourceDom::attr($element, 'class'),
+            SourceDom::authorIdentityAttribute($element, 'id'),
+            SourceDom::authorIdentityAttribute($element, 'class'),
             SourceDom::attr($element, 'data-role'),
         )));
         if ( 1 === preg_match('/\b(?:clip|mask|overlay)\b/', $identity) ) {
@@ -268,7 +268,7 @@ final class SourceElementClassifier
 
     public function hasMotionStructureToken(DOMElement $element): bool
     {
-        $identity = strtolower(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id'));
+        $identity = strtolower(SourceDom::authorIdentityAttribute($element, 'class') . ' ' . SourceDom::authorIdentityAttribute($element, 'id'));
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:band|carousel|loop|marquee|mask|rail|scroller|slider|ticker|track|viewport)(?:[^a-z0-9]|$)/', $identity);
     }
 
@@ -363,7 +363,7 @@ final class SourceElementClassifier
     public function hasLogoBrandSignal(DOMElement $element): bool
     {
         foreach ( array( 'class', 'id' ) as $attribute ) {
-            foreach ( preg_split('/[^a-z0-9]+/', strtolower(SourceDom::attr($element, $attribute))) ?: array() as $token ) {
+            foreach ( preg_split('/[^a-z0-9]+/', strtolower(SourceDom::authorIdentityAttribute($element, $attribute))) ?: array() as $token ) {
                 if ( in_array($token, array( 'logo', 'brand', 'branding' ), true) ) {
                     return true;
                 }
@@ -402,8 +402,8 @@ final class SourceElementClassifier
     public function hasInlineTokenSignal(DOMElement $element): bool
     {
         $tokens = strtolower(trim(implode(' ', array(
-            SourceDom::attr($element, 'class'),
-            SourceDom::attr($element, 'id'),
+            SourceDom::authorIdentityAttribute($element, 'class'),
+            SourceDom::authorIdentityAttribute($element, 'id'),
             SourceDom::attr($element, 'role'),
             SourceDom::attr($element, 'data-filter'),
             SourceDom::attr($element, 'data-tag'),
@@ -456,17 +456,17 @@ final class SourceElementClassifier
 
     public function isCardLikeElement(DOMElement $element): bool
     {
-        $className = strtolower(SourceDom::attr($element, 'class'));
+        $className = strtolower(SourceDom::authorIdentityAttribute($element, 'class'));
         return 'article' === strtolower($element->tagName) || (bool) preg_match('/(?:^|[\s_-])(?:card|feature|service|provider|resource|post|project|stat|badge|tile|panel|item)(?:$|[\s_-])/', $className);
     }
 
     public function isVisualLayerElement(DOMElement $element): bool
     {
         $semanticContext = strtolower(trim(implode(' ', array(
-            SourceDom::attr($element, 'class'),
+            SourceDom::authorIdentityAttribute($element, 'class'),
             SourceDom::attr($element, 'aria-label'),
         ))));
-        $identifier = strtolower(trim(SourceDom::attr($element, 'id')));
+        $identifier = strtolower(trim(SourceDom::authorIdentityAttribute($element, 'id')));
         $style = strtolower(SourceDom::attr($element, 'style'));
 
         if ( preg_match('/(?:^|[\s_-])(?:hero|decor|decorative|layer|overlay|grain|noise|texture|glow|atmosphere|ambient|aura|orb|blob|backdrop|background|bg)(?:$|[\s_-])/', $semanticContext)
@@ -484,7 +484,7 @@ final class SourceElementClassifier
     public function hasCommerceToken(DOMElement $element, array $tokens): bool
     {
         foreach ( array( 'class', 'id', 'itemprop' ) as $attribute ) {
-            $value = strtolower(SourceDom::attr($element, $attribute));
+            $value = strtolower(SourceDom::authorIdentityAttribute($element, $attribute));
             foreach ( preg_split('/[^a-z0-9]+/', $value) ?: array() as $token ) {
                 if ( in_array($token, $tokens, true) ) {
                     return true;
@@ -843,7 +843,7 @@ final class SourceElementClassifier
 
         return 1 === preg_match(
             '/(?:^|[\s_-])(?:visually-hidden|sr-only|screen-reader-only|screen-reader-text)(?:$|[\s_-])/',
-            strtolower(SourceDom::attr($element, 'class'))
+            strtolower(SourceDom::authorIdentityAttribute($element, 'class'))
         );
     }
 
@@ -912,8 +912,8 @@ final class SourceElementClassifier
         if ('evidence' === ($surface['source'] ?? null)) return true;
         $identity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
             $element->tagName,
-            SourceDom::attr($element, 'id'),
-            SourceDom::attr($element, 'class'),
+            SourceDom::authorIdentityAttribute($element, 'id'),
+            SourceDom::authorIdentityAttribute($element, 'class'),
             SourceDom::attr($element, 'role'),
             SourceDom::attr($element, 'data-hook'),
             SourceDom::attr($element, 'data-testid'),
@@ -932,8 +932,8 @@ final class SourceElementClassifier
 
         $identity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
             $element->tagName,
-            SourceDom::attr($element, 'id'),
-            SourceDom::attr($element, 'class'),
+            SourceDom::authorIdentityAttribute($element, 'id'),
+            SourceDom::authorIdentityAttribute($element, 'class'),
             SourceDom::attr($element, 'data-hook'),
             SourceDom::attr($element, 'data-testid'),
         ))));
@@ -982,7 +982,7 @@ final class SourceElementClassifier
                 && 1 === preg_match('/(?:^|[^a-z])(?:prev|previous|next)(?:[^a-z]|$)/', strtolower(implode(' ', array(
                     SourceDom::attr($element, 'aria-label'),
                     SourceDom::attr($element, 'title'),
-                    SourceDom::attr($element, 'class'),
+                    SourceDom::authorIdentityAttribute($element, 'class'),
                     SourceDom::attr($element, 'data-hook'),
                     SourceDom::attr($element, 'data-testid'),
                 ))))))
@@ -1093,7 +1093,7 @@ final class SourceElementClassifier
             }
             $identity = strtolower(implode(' ', array(
                 $ancestor->tagName,
-                SourceDom::attr($ancestor, 'class'),
+                SourceDom::authorIdentityAttribute($ancestor, 'class'),
                 SourceDom::attr($ancestor, 'role'),
                 SourceDom::attr($ancestor, 'data-hook'),
             )));
@@ -1364,7 +1364,7 @@ final class SourceElementClassifier
 
         $identity = strtolower(implode(' ', array(
             $child->tagName,
-            SourceDom::attr($child, 'class'),
+            SourceDom::authorIdentityAttribute($child, 'class'),
             SourceDom::attr($child, 'data-hook'),
             SourceDom::attr($child, 'data-testid'),
         )));

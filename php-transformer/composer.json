@@ -387,6 +387,7 @@
       "php tests/unit/slideshow-components.php",
       "php tests/unit/gallery-stage-controls.php",
       "php tests/unit/carousel-single-control-owner.php",
+      "php tests/unit/capture-gallery-page.php",
       "php tests/unit/single-slide-carousel-static.php",
       "php tests/unit/carousel-page-navigation-link.php",
       "php tests/unit/carousel-div-controls-rich-slides.php",
