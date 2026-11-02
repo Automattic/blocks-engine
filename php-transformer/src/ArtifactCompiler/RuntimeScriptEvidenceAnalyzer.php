@@ -281,6 +281,26 @@ final class RuntimeScriptEvidenceAnalyzer
         return $events ? $found : array_keys($found);
     }
 
+    /** Whether the known writes to a selected text node only replace text or toggle visibility. */
+    public function hasTextOnlyMutations(string $script, string $selector): bool
+    {
+        $script = $this->withSelectorHelpersInlined($script);
+        $quoted = preg_quote($selector, '/');
+        $found = false;
+        if (preg_match_all('/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:(?:document|[A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*)?querySelector\s*\(\s*(["\'])' . $quoted . '\\2\s*\)/', $script, $assignments, PREG_SET_ORDER)) {
+            foreach ($assignments as $assignment) {
+                $variable = preg_quote($assignment[1], '/');
+                if (preg_match_all('/\b' . $variable . '\s*\.\s*([A-Za-z]+)\s*(?:=(?!=)|\()/',$script, $writes)) {
+                    foreach ($writes[1] as $property) {
+                        if (!in_array($property, array('textContent', 'hidden'), true)) return false;
+                        $found = true;
+                    }
+                }
+            }
+        }
+        return $found;
+    }
+
     /** @return array<int, string> */
     private function mutationSelectors(string $script, array $selectors): array
     {

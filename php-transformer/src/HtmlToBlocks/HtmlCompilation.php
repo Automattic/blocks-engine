@@ -5337,6 +5337,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool
     {
+        if ($this->runtimeIslands->retainsRuntimeTextLeafInRichText($element)) return true;
         if ( $this->isAtomicDirectInlineLayoutItem($element) ) {
             return true;
         }

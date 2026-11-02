@@ -49,4 +49,30 @@ $assert(1 === preg_match('#<p\b[^>]*><span class="count[^"]*" data-count aria-li
 $assert('core/paragraph' === $owner($blocks, 'data-total') && 1 === preg_match('#<span class="total\b[^"]*" data-total aria-live="polite"[^>]*>7 shades</span>#', $page), 'Styled inline text keeps its element, class and hook rather than a restyled mark.');
 $assert('core/html' === $owner($blocks, 'data-badge'), 'An inline element holding other elements keeps its runtime island.');
 
+// A hooked paragraph saves a plain, valid `<p>`; its hook rides in block
+// metadata and the generated theme's render filter puts it on the element.
+$paragraphFor = static function (array $blocks, string $text) use (&$paragraphFor): ?array {
+    foreach ($blocks as $block) {
+        $inner = $paragraphFor($block['innerBlocks'] ?? array(), $text);
+        if (null !== $inner) return $inner;
+        if (str_contains((string) ($block['innerHTML'] ?? ''), $text)) return $block;
+    }
+    return null;
+};
+foreach (array(
+    array('<p class="total" data-total>—</p>', 'var out = document.querySelector("[data-total]"); out.textContent = "4 items";', '—', array('data-total' => ''), '#<p class="[^"]*total[^"]*">—</p>#'),
+    array('<span class="total" id="total" aria-live="polite"></span>', 'var out = document.querySelector("#total"); out.textContent = "4 items";', 'id="total"', array(), '#<p\b[^>]*><span class="total[^"]*" id="total" aria-live="polite"[^>]*></span></p>#'),
+    array('<p class="notice" data-notice>Nothing here.<br>Try again.</p>', 'var out = document.querySelector("[data-notice]"); out.hidden = true;', 'Try again.', array('data-notice' => ''), '#<p class="[^"]*notice[^"]*">Nothing here.<br\s*/?>Try again.</p>#'),
+) as [$source, $script, $needle, $hooks, $savedPattern]) {
+    $html = '<!doctype html><html><head><title>Text</title></head><body><main>' . $source . '</main><script>' . $script . '</script></body></html>';
+    $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
+    $page = (string) (current($result['source_reports']['wordpress_site_plan']['pages'])['canonical_block_markup'] ?? '');
+    $block = $paragraphFor((new Runtime())->parseBlocks($page), $needle);
+    $assert('core/paragraph' === ($block['blockName'] ?? null), 'Text target must belong to a native paragraph, not an HTML island: ' . $page);
+    $assert(1 === preg_match($savedPattern, $page), 'Saved paragraph must keep the source class, content and line breaks: ' . $page);
+    $assert(array_intersect_key($block['attrs']['metadata']['blocksEngineRuntimeAttributes'] ?? array(), $hooks) === $hooks, 'The hook the script finds the paragraph by rides in block metadata: ' . $page);
+    $native = array_filter($result['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'runtime_dom_contract_preserved' === ($diagnostic['code'] ?? '') && 'core/paragraph' === ($diagnostic['block_name'] ?? ''));
+    $assert(array() !== $native, 'Script-addressed text reports native DOM preservation.');
+}
+
 echo "Script-rewritten text leaf paragraph contract passed.\n";
