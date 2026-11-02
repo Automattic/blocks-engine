@@ -1982,8 +1982,9 @@ PHP;
      * A detached part is no longer included in its ancestor's viewport minimum.
      * Transport that sizing relationship to the template, not a second viewport
      * inside post-content. Intermediate document carriers stretch the remaining
-     * space; their authored responsive display:none still wins. Unlike a fixed
-     * height or a viewport subtraction, this also permits long main content.
+     * space with zero-specificity defaults so authored display rules win.
+     * Unlike a fixed height or viewport subtraction, this also permits long
+     * main content.
      *
      * @param array<int,array<string,mixed>> $parts
      * @param array<int,array<string,mixed>> $assets
@@ -2029,7 +2030,7 @@ PHP;
                         $post = $root . '>.wp-block-post-content';
                         $rules[$hook] = $root . '{min-height:' . trim($minimum[1]) . ';display:flex;flex-direction:column}'
                             . $post . ',' . $post . ' ' . $hook . '{min-height:0}'
-                            . $post . ',' . $post . ' ' . $hook . ',' . $post . ' :has(' . $hook . '){flex:1;display:flex;flex-direction:column}';
+                            . ':where(' . $post . ',' . $post . ' ' . $hook . ',' . $post . ' :has(' . $hook . ')){flex:1;display:flex;flex-direction:column}';
                     }
                 }
                 return implode('', $rules);
