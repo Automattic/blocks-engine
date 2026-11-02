@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use InvalidArgumentException;
@@ -150,19 +151,32 @@ final class WordPressSitePlanResolver
             return str_replace('$blocks_engine_template_attachment_ids = array();', '$blocks_engine_template_attachment_ids = ' . var_export($ids, true) . ';', $content);
         }
         if (str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/')) return $content;
-        return self::resolvePayload($content, self::referencesForWrite($tokens, $themeUri, $targetPath, $attachments));
+        $references = self::referencesForWrite($tokens, $themeUri, $targetPath, $attachments);
+        if (str_ends_with(strtolower($targetPath), '.css')) {
+            $independent = self::referencesForWrite($tokens, $themeUri, $targetPath, $attachments, true);
+            $content = CssUrlRewriter::rewrite($content, static fn(string $url): string => $url, static fn(string $url): string => strtr($url, $independent));
+        }
+        return self::resolvePayload($content, $references);
     }
     /**
      * The bytes `resolveWritePayload()` will publish, when they do not depend on
-     * the destination: stylesheets resolve tokens to relative paths, and a write
-     * without tokens is published as is. Other token-bearing writes resolve to
-     * the theme URI, so their bytes are unknown before resolution (null).
+     * the destination: ordinary stylesheet URLs resolve to relative paths, and
+     * a write without tokens is published as is. Custom-property URLs and other
+     * token-bearing writes need the theme URI, so their bytes are unknown (null).
      * @param array<int,array<string,mixed>> $tokens
      */
     public static function destinationIndependentPayload(string $content, array $tokens, string $targetPath): ?string
     {
         if ('functions.php' === $targetPath || str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/') || !str_contains($content, WordPressSitePlan::TOKEN_PREFIX)) return $content;
         if (!str_ends_with(strtolower($targetPath), '.css')) return null;
+        // Custom-property URLs include the destination theme path, since their
+        // eventual consuming stylesheet (and therefore URL base) is unknown.
+        $destinationDependent = false;
+        CssUrlRewriter::rewrite($content, static fn(string $url): string => $url, static function (string $url) use (&$destinationDependent): string {
+            if (str_contains($url, WordPressSitePlan::TOKEN_PREFIX)) $destinationDependent = true;
+            return $url;
+        });
+        if ($destinationDependent) return null;
         $resolved = strtr($content, self::referencesForWrite($tokens, '', $targetPath));
         return str_contains($resolved, WordPressSitePlan::TOKEN_PREFIX) ? null : $resolved;
     }
@@ -248,13 +262,21 @@ final class WordPressSitePlanResolver
     }
     /** @param array<int,array<string,mixed>> $tokens @return array<string,string> */
     public static function references(array $tokens, string $themeUri, array $attachments = array()): array { $references = array(); foreach ($tokens as $reference) if (is_array($reference) && is_string($reference['token'] ?? null) && is_string($reference['target_path'] ?? null)) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = $attachments[$reference['token']]['url'] ?? $themeUri . '/' . $reference['target_path']; return $references; }
-    /** @param array<int,array<string,mixed>> $tokens @return array<string,string> */
-    public static function referencesForWrite(array $tokens, string $themeUri, string $origin, array $attachments = array()): array
+    /**
+     * @param array<int,array<string,mixed>> $tokens
+     * @param bool $locationIndependent Custom-property URLs cannot depend on the defining stylesheet's directory.
+     * @return array<string,string>
+     */
+    public static function referencesForWrite(array $tokens, string $themeUri, string $origin, array $attachments = array(), bool $locationIndependent = false): array
     {
         // Block template files are parsed relative to the rendered page, not this
         // file. Their canonical tokens are resolved by the generated theme runtime.
         if (str_starts_with($origin, 'templates/') || str_starts_with($origin, 'parts/')) return array();
         if (!str_ends_with(strtolower($origin), '.css')) return self::references($tokens, $themeUri, $attachments);
+        if ($locationIndependent) {
+            $themePath = rtrim((string) parse_url($themeUri, PHP_URL_PATH), '/');
+            return self::references($tokens, $themePath, $attachments);
+        }
         $references = array();
         foreach ($tokens as $reference) if (is_array($reference) && is_string($reference['token'] ?? null) && is_string($reference['target_path'] ?? null)) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = isset($attachments[$reference['token']]['url']) ? self::stylesheetAttachmentUrl($attachments[$reference['token']]['url'], $themeUri, $origin) : self::relativePath($origin, $reference['target_path']);
         return $references;

@@ -3,13 +3,23 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\AssetAnalysis;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+
 /** Rewrites bounded CSS url() values without accepting malformed functions. */
 final class CssUrlRewriter
 {
-    /** @param callable(string):string $replace */
-    public static function rewrite(string $content, callable $replace): string
+    /**
+     * @param callable(string):string $replace
+     * @param null|callable(string):string $replaceCustomProperty Location-independent URLs for values substituted in another stylesheet.
+     */
+    public static function rewrite(string $content, callable $replace, ?callable $replaceCustomProperty = null): string
     {
         $offset = 0;
+        $scan = 0;
+        $declarationStart = 0;
+        $customProperty = false;
+        $valueBraces = 0;
+        $state = CssSyntaxScanner::state();
         while (false !== ($start = stripos($content, 'url(', $offset))) {
             if ($start > 0 && preg_match('/[A-Za-z0-9_-]/', $content[$start - 1])) {
                 $offset = $start + 4;
@@ -49,8 +59,29 @@ final class CssUrlRewriter
                 $offset = $start + 4;
                 continue;
             }
+            if (null !== $replaceCustomProperty) {
+                while ($scan < $start) {
+                    $end = CssSyntaxScanner::inertEnd($content, $scan, $state, '{};:');
+                    if ($end > $scan) { $scan = $end; continue; }
+                    $character = $content[$scan];
+                    if (CssSyntaxScanner::isTopLevel($state)) {
+                        if (':' === $character && !$customProperty) {
+                            $name = preg_replace('~/\*.*?\*/~s', '', substr($content, $declarationStart, $scan - $declarationStart)) ?? '';
+                            $customProperty = str_starts_with(trim($name), '--');
+                        } elseif ($customProperty && '{' === $character) {
+                            ++$valueBraces;
+                        } elseif ($customProperty && '}' === $character && $valueBraces > 0) {
+                            --$valueBraces;
+                        } elseif (0 === $valueBraces && str_contains('{};', $character)) {
+                            $declarationStart = $scan + 1;
+                            $customProperty = false;
+                        }
+                    }
+                    $scan = CssSyntaxScanner::consume($content, $scan, $state) ?? ($scan + 1);
+                }
+            }
             $reference = self::unescape($value);
-            $replacement = $replace($reference);
+            $replacement = $customProperty && null !== $replaceCustomProperty ? $replaceCustomProperty($reference) : $replace($reference);
             if ($replacement !== $reference) {
                 $content = substr($content, 0, $valueStart) . $replacement . substr($content, $valueStart + strlen($value));
                 $cursor += strlen($replacement) - strlen($value);
