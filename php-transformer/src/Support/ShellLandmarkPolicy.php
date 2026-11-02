@@ -80,10 +80,27 @@ final class ShellLandmarkPolicy
         if (1 !== $count) return false;
         for ($node = $element; $node !== $root; $node = $node->parentNode) {
             for ($sibling = 'header' === $area ? $node->previousSibling : $node->nextSibling; null !== $sibling; $sibling = 'header' === $area ? $sibling->previousSibling : $sibling->nextSibling) {
-                if ($sibling instanceof \DOMElement || (XML_TEXT_NODE === $sibling->nodeType && '' !== trim($sibling->textContent))) return false;
+                if (self::hasDocumentEdgeContent($sibling)) return false;
             }
         }
         return true;
+    }
+
+    /**
+     * Empty app containers (for example notification outlets) do not move a
+     * landmark away from the document edge. Text, media and controls still do.
+     */
+    private static function hasDocumentEdgeContent(\DOMNode $node): bool
+    {
+        if (XML_TEXT_NODE === $node->nodeType) return '' !== trim($node->textContent);
+        if (!$node instanceof \DOMElement) return false;
+        // Only grouping containers are empty outlets. Keep other elements
+        // (including media, controls and document resources) as boundaries.
+        if (!self::isFlowContainerTag($node->tagName)) return true;
+        foreach ($node->childNodes as $child) {
+            if (self::hasDocumentEdgeContent($child)) return true;
+        }
+        return false;
     }
 
     public static function isSemanticGroupTag(string $tagName): bool
