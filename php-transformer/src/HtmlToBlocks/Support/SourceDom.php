@@ -785,7 +785,7 @@ final class SourceDom
     /** A passive inline mark through which an image can use its native route. */
     public static function isInlineImageMark(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array( 'span', 'strong', 'em', 'b', 'i', 'small', 'mark', 'sub', 'sup', 'u', 's', 'del', 'ins', 'abbr', 'cite', 'code', 'kbd', 'samp', 'time', 'var' ), true)
+        return in_array(strtolower($element->tagName), array( 'span', 'font', 'strong', 'em', 'b', 'i', 'small', 'mark', 'sub', 'sup', 'u', 's', 'del', 'ins', 'abbr', 'cite', 'code', 'kbd', 'samp', 'time', 'var' ), true)
             && ! $element->hasAttribute('role')
             && self::hasOnlySafeFallbackAttributes($element);
     }
