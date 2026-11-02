@@ -2145,6 +2145,13 @@ final class AuthorStylesheetProjector
             if ( array() !== $richTextLeaves && $this->hasClassBoundSubject($parsed) ) {
                 $hasNonProjected = true;
             }
+            // Source analysis marks potential inline carriers before pattern
+            // lowering. A native block can keep that source hook and topology
+            // instead; retain the authored arm wherever emitted markup still
+            // answers it, alongside the possible carrier forms.
+            if ( $inlineLayoutCarriers && $this->matchesEmittedMarkup($parsed, $context->emittedMarkup) ) {
+                $hasNonProjected = true;
+            }
             if ( $hasNonProjected ) {
                 // Control, semantic and RichText carriers also carry their
                 // kind's role class, so the authored arm stays off all of them
@@ -2155,7 +2162,7 @@ final class AuthorStylesheetProjector
                     $selector,
                     $parsed,
                     $context,
-                    ':not(:where(' . implode(',', $exclusion) . '))' . ( $supersededToggles ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION : '' )
+                    ( array() === $exclusion ? '' : ':not(:where(' . implode(',', $exclusion) . '))' ) . ( $supersededToggles ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION : '' )
                 );
             }
             // A context-free subject (`a`, `.btn`, `*`) reaches every control
@@ -2206,6 +2213,28 @@ final class AuthorStylesheetProjector
         }
 
         return $projected;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function matchesEmittedMarkup(array $parsed, string $markup): bool
+    {
+        // Reuse one DOM across rules, retaining only the current output.
+        static $cachedMarkup = null;
+        static $document = null;
+        if ( $cachedMarkup !== $markup ) {
+            $cachedMarkup = $markup;
+            $document = new \DOMDocument();
+            if ( '' !== $markup ) {
+                @$document->loadHTML($markup);
+            }
+        }
+        foreach ( $document?->getElementsByTagName('*') ?? array() as $element ) {
+            $match = CssSelectorMatcher::matches($element, $parsed);
+            if ( $match['supported'] && $match['matches'] ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
