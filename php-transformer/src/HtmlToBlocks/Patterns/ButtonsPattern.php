@@ -326,17 +326,19 @@ final class ButtonsPattern
      * The alignment a synthesized core/buttons wrapper must justify with.
      *
      * `text-align` is an inherited property: the nearest ancestor whose own
-     * cascade declares it decides the value an inline-level control inherits,
+     * cascade declares it decides where an inline-level control is placed,
      * however deeply that control nests under the declaring container. An
      * anchor centered only through an ancestor's `text-align:center` becomes a
      * flex core/buttons whose default main-axis alignment is `left`, so the
      * inherited alignment has to be restated as `layout.justifyContent` or the
      * source's centering is lost. Walking the ancestor chain mirrors the
-     * browser's inheritance; the first explicit declaration wins.
+     * browser's inheritance; the first explicit declaration wins. Start at the
+     * containing element: the control surface's own text-align styles its label,
+     * not its placement in that container.
      */
     private function inheritedTextAlignment(DOMElement $element, ButtonPatternContext $buttons): string
     {
-        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
             $alignment = $this->textAlignment($buttons->resolvedStyle($node));
             if ( '' !== $alignment ) {
                 return $alignment;
