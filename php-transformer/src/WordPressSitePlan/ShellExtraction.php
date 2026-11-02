@@ -2903,6 +2903,16 @@ final class ShellExtraction
     {
         $markup = self::withoutCurrentNavigationState($markup, true);
         $markup = self::withoutScrollStateCarrierIdentity($markup);
+        // Site wordmarks commonly use h1 on home and a paragraph elsewhere.
+        // Compare their content and presentation, not that route's heading level;
+        // the selected shell still emits its original editable block and tag.
+        $markup = preg_replace_callback('/<!-- wp:(heading|paragraph) (\{.*?\}) --><(h1|p)\b([^>]*)>(.*?)<\/\3><!-- \/wp:\1 -->/s', static function (array $match): string {
+            $attrs = json_decode($match[2], true);
+            if (!is_array($attrs) || !preg_match('/(?:^|\s)(?:site-title|site-name|brand|wordmark)(?:\s|$)/', (string) ($attrs['className'] ?? '')) || !preg_match('/<a\b[^>]*href="[^"]+"/i', $match[5])) return $match[0];
+            unset($attrs['level']);
+            $htmlAttrs = preg_replace('/\bwp-block-heading\s*/', '', $match[4]) ?? $match[4];
+            return '<!-- wp:paragraph ' . BlockAttributes::encode($attrs) . ' --><p' . $htmlAttrs . '>' . $match[5] . '</p><!-- /wp:paragraph -->';
+        }, $markup) ?? $markup;
         $markup = preg_replace('/\s*' . EngineMarker::patternBody() . '/', '', $markup) ?? $markup;
         $markup = preg_replace('/\s*(?:' . EngineMarker::specificityPatternBody('specificity-class') . '|blocks-engine-disclosure-summary-[a-f0-9]{6,}(?:-\d+)?)/', '', $markup) ?? $markup;
         // A captured dialog's generated id, and its triggers' ids, carry a per-document hash;
