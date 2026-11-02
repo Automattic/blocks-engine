@@ -6,8 +6,17 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
+foreach (array('combined', 'split', 'trailing-chrome') as $variant) {
 $fixture = require dirname(__DIR__) . '/fixtures/viewport-shell.php';
-foreach (array('combined', 'split') as $variant) {
+if ('trailing-chrome' === $variant) {
+    foreach ($fixture['files'] as &$html) {
+        $html = str_replace('</footer>', '</footer><div class="bottom-spacer"></div>', $html);
+        // Give the empty spacer a box so compilation retains it, without
+        // changing the viewport-shell geometry or footer's bottom edge.
+        $html = str_replace('</style>', 'body{position:relative}.backdrop{position:absolute;inset:0;background:#fff}.page-body{position:relative}.site-footer{background:#f3f3f3}.bottom-spacer{height:1px;position:absolute}</style>', $html);
+    }
+    unset($html);
+}
 if ('split' === $variant) {
     foreach ($fixture['files'] as &$html) $html = str_replace('.page-body{min-height:100vh;display:flex;flex-direction:column}', '.page-body{display:flex;flex-direction:column}.page-body{min-height:100vh}', $html);
     unset($html);
@@ -16,6 +25,11 @@ $plan = (new ArtifactCompiler())->compile($fixture)->toArray()['source_reports']
 $parts = array_column($plan['template_parts'], null, 'slug');
 $assert(isset($parts['header'], $parts['footer']), 'Both shared landmarks are extracted.');
 $css = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === $asset['kind']), 'content'));
+if ('trailing-chrome' === $variant) {
+    $assert(str_contains($parts['footer']['canonical_block_markup'], 'bottom-spacer'), 'Trailing chrome belongs to the multi-root footer part.');
+    $assert((bool) preg_match('/:where\([^)]*\.site-footer(?:[,.\s)]|$)[^{}]*\)\{position:relative\}/', $css), 'The footer root retains its zero-specificity paint-order transport with trailing chrome.');
+    $assert((bool) preg_match('/:where\([^)]*\.bottom-spacer(?:[,.\s)]|$)[^{}]*\)\{position:relative\}/', $css), 'Trailing roots also receive the paint-order transport.');
+}
 $root = '.wp-site-blocks:has(>.wp-block-post-content .page-body)';
 $assert(str_contains($css, $root . '{min-height:100vh;display:flex;flex-direction:column}'), 'The viewport minimum sizes the template containing all three regions.');
 $assert(str_contains($css, '.page-body{min-height:0}'), 'The content copy does not add another viewport minimum.');
@@ -44,12 +58,20 @@ $probe = <<<'JS'
 <script>
 const visible = selector => [...document.querySelectorAll(selector)].filter(el => el.getClientRects().length && getComputedStyle(el).display !== 'none');
 const footers = visible('.site-footer');
+// Probe a blank point inside the footer after scrolling it into view. A
+// covering absolute backdrop wins hit testing even though computed footer
+// background colors alone would still look correct.
+if (footers.length === 1) footers[0].scrollIntoView(false);
+const footerRect = footers.length === 1 ? footers[0].getBoundingClientRect() : null;
+const footerPaints = footerRect ? footers[0].contains(document.elementFromPoint(footerRect.left + 10, footerRect.bottom - 10)) : false;
+window.scrollTo(0, 0);
 document.body.dataset.geometry = JSON.stringify({
     width: innerWidth, height: innerHeight,
     documentHeight: document.documentElement.scrollHeight,
     desktop: visible('.data-blocks-engine-capture-desktop-document:has(main)').length,
     mobile: visible('.data-blocks-engine-capture-mobile-document:has(main)').length,
     mains: visible('main').length,
+    footerPaints,
     footerBottom: footers.length === 1 ? footers[0].getBoundingClientRect().bottom : null
 });
 </script>
@@ -84,6 +106,7 @@ foreach ($plan['pages'] as $page) {
             $assert($width === $actual['width'] && 600 === $actual['height'], 'Browser uses requested viewport: ' . $label);
             $assert((1000 === $width ? 1 : 0) === $actual['desktop'] && (500 === $width ? 1 : 0) === $actual['mobile'], 'Only the selected document variant is visible: ' . $label);
             $assert(1 === $actual['mains'], 'Main content renders once: ' . $label);
+            $assert($actual['footerPaints'], 'Footer paints above the backdrop: ' . $label);
             $assert($actual === $expected, 'Rendered geometry matches the source: ' . $label . ' expected ' . json_encode($expected));
             $tall = 'visit/index.html' === $page['source_path'];
             $assert($tall ? $actual['documentHeight'] > 600 : 600 === $actual['documentHeight'], 'Viewport minimum does not constrain tall pages: ' . $label);
