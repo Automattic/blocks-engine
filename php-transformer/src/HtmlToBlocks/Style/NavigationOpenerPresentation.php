@@ -15,6 +15,16 @@ final class NavigationOpenerPresentation
 
     public function __construct(private readonly StyleResolver $styles, private readonly ?Closure $svgMarkup = null) {}
 
+    /** Whether the control's whole visible content is text, with no artwork. */
+    public static function isTextOnly(DOMElement $control): bool
+    {
+        if ('' === trim($control->textContent ?? '')) return false;
+        foreach ($control->getElementsByTagName('*') as $node) {
+            if (in_array(strtolower($node->tagName), array('svg', 'img', 'picture', 'i', 'canvas', 'video', 'object', 'embed'), true)) return false;
+        }
+        return true;
+    }
+
     /** @return array{artwork:string,button:array<string,array<string,string>>,icon:array<string,array<string,string>>}|null */
     public function source(DOMElement $control): ?array
     {

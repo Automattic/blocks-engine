@@ -24,4 +24,19 @@ foreach (array(
     $assert(!str_contains($markup, 'blocksEngineNavigationOpener'), $name . ' does not justify replacing Core button content');
     $assert(str_contains($markup, 'wp:navigation'), $name . ' retains native menu behavior');
 }
+// Core renders a text opener ("Menu"/"Close") or an icon. A text-labelled
+// source opener keeps the text; an icon opener keeps Core's icon.
+$opener = static function (string $content) use ($compile): string {
+    $markup = '';
+    foreach ($compile('<!doctype html><html><head><style>header{display:flex;gap:20px}.opener{display:none}nav{display:flex;gap:28px}@media(max-width:760px){.opener{display:block}header nav{display:none;flex-direction:column}}</style></head><body>'
+        . '<header><a href="/">Brand</a><button class="opener" type="button" aria-expanded="false" aria-controls="nav" data-blocks-engine-capture-dialog-trigger="nav">' . $content . '</button>'
+        . '<nav id="nav" class="data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown" hidden data-blocks-engine-capture-dialog-panel="nav"><a href="#a">A</a><a href="#b">B</a></nav></header>'
+        . '<main><h1>Home</h1><h2 id="a">A</h2><h2 id="b">B</h2></main></body></html>') as $section) if (is_array($section)) array_walk_recursive($section, static function (mixed $value) use (&$markup): void { if (is_string($value)) $markup .= $value . "\n"; });
+    $found = preg_match('~<!-- wp:navigation \{[^\n]*"overlayMenu":"mobile"[^\n]*?/-->~', $markup, $navigation);
+    return $found ? $navigation[0] : '';
+};
+$text = $opener('Menu');
+$assert(str_contains($text, '"hasIcon":false') && !str_contains($text, 'blocksEngineNavigationOpener'), 'a text-only opener renders Core\'s text opener: ' . $text);
+$icon = $opener('<svg width="20" height="20" viewBox="0 0 20 20"><path d="M2 3h16v2H2z"/></svg>');
+$assert('' !== $icon && !str_contains($icon, '"hasIcon":false'), 'an icon opener keeps Core\'s icon: ' . $icon);
 echo "Navigation source opener contract passed\n";
