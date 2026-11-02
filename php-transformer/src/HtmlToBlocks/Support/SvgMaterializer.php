@@ -2044,7 +2044,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             'diffuseconstant', 'divisor', 'alignment-baseline', 'dominant-baseline', 'dx', 'dy', 'edgemode',
             'elevation', 'enable-background', 'exponent', 'fill', 'fill-opacity', 'fill-rule', 'fillrule', 'flood-color',
             'flood-opacity', 'font-family',
-            'filter', 'filterunits', 'focusable', 'font-size', 'font-style', 'font-weight', 'gradienttransform', 'gradientunits',
+            'filter', 'filterunits', 'focusable', 'font-size', 'font-style', 'font-weight', 'fr', 'fx', 'fy', 'gradienttransform', 'gradientunits',
             'height', 'id', 'image-rendering', 'lengthadjust', 'letter-spacing', 'marker-end', 'marker-mid', 'marker-start',
             'intercept', 'k1', 'k2', 'k3', 'k4', 'kernelmatrix', 'kernelunitlength',
             'lighting-color', 'limitingconeangle', 'markerheight', 'markerunits', 'markerwidth', 'mask',

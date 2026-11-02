@@ -8,6 +8,8 @@ $assert = static function (bool $condition, string $message): void {
     if ( ! $condition ) { throw new RuntimeException($message); }
 };
 $assert(StandaloneSvgAsset::inspect($svg) === array('status' => 'supported', 'width' => 240, 'height' => 80), 'Gradient artwork and viewBox dimensions must survive');
+$focalGradient = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><radialGradient id="g" cx="5" cy="5" r="5" fx="3" fy="3" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0fbc5c"/><stop offset="1" stop-color="#0cba65"/></radialGradient></defs><path fill="url(#g)" d="M0 0h10v10H0z"/></svg>';
+$assert(StandaloneSvgAsset::inspect($focalGradient) === array('status' => 'supported', 'width' => 10, 'height' => 10), 'Radial-gradient focal geometry must remain supported');
 $assert(StandaloneSvgAsset::inspect(str_replace('viewBox=', 'width="120" viewBox=', $svg))['height'] === 40, 'One explicit dimension preserves aspect ratio');
 foreach (array(
     '<script>alert(1)</script>', '<image href="https://example.org/a.png"/>',
