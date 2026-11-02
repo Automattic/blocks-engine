@@ -1016,6 +1016,17 @@ JS;
             return null;
         }
 
+        // Even an explicitly named carousel cannot replace authored sections
+        // outside its slide list. Controls and pagers are excluded by the same
+        // content guard used for enclosing page regions above.
+        $contentList = $this->containsNode($element, $list) ? $list : $localList;
+        if ( $contentList instanceof DOMElement && $contentList !== $element
+            && ! $this->isPagerCollection($contentList, array()) && $this->carouselPaginationCount($contentList) < 2
+            && $this->hasAuthoredContentOutside($element, $contentList, $contentList, $items)
+        ) {
+            return null;
+        }
+
         $slides = array();
         $capturedGallery = $list->hasAttribute(CaptureEvidence::GALLERY_INITIAL);
         if ($capturedGallery) foreach ($items as $item) {
@@ -1581,13 +1592,16 @@ JS;
                     }
                     continue;
                 }
-                if ( ! $child instanceof DOMElement || $child === $owner || in_array($child, $claimed, true) ) {
+                if ( ! $child instanceof DOMElement || $child === $owner || $child === $this->playbackToggleElement($root) || in_array($child, $claimed, true) ) {
                     continue;
                 }
                 $tag = strtolower($child->tagName);
                 if ( in_array($tag, array('script', 'style', 'template', 'svg'), true)
+                    || $this->sourceElementClassifier->isExpandedCarouselState($child, $root)
+                    || ($this->hasPlaybackToggle($root) && 'pause' === strtolower(trim($child->textContent ?? '')))
                     || $this->isNavigationControl($child, $root)
                     || $this->isPaginationControl($child)
+                    || $this->isSlideStatus($child)
                     || $this->isPagerCollection($child, $slideImages)
                 ) {
                     continue;
