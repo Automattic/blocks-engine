@@ -29,10 +29,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: Extra-Chill/homeboy-action@v2.20.4
+      - uses: Extra-Chill/homeboy-action@v2.25.5
         with:
           component: php-transformer
-          version: 0.383.4
+          version: 0.443.4
           commands: git subtree php-transformer ${{ github.sha }} --apply --branch-only
           ssh-key: ${{ secrets.PHP_TRANSFORMER_MIRROR_DEPLOY_KEY }}
           ssh-known-hosts: |
