@@ -1621,9 +1621,12 @@ PHP;
      * @param array{class:array<string,true>,id:array<string,true>} $context
      * @param array<int,string> $roots
      */
-    private static function reanchoredDetachedContextSelector(string $selector, array $context, array $roots): string
+    private static function reanchoredDetachedContextSelector(string $selector, array $context, array $roots, bool $inheritedSubject = false): string
     {
         if (array() === $roots) return $selector;
+        // Reuse the ancestor-run rewrite for declarations on the ancestor
+        // itself. The synthetic leaf is removed below; only its wrapper inherits.
+        if ($inheritedSubject) $selector .= ' .blocks-engine-inherited-context';
         $compounds = array();
         $current = '';
         $depth = 0;
@@ -1674,8 +1677,8 @@ PHP;
             if (!$named) break;
             $run = $index + 1;
         }
-        if ($first === $run) return $selector;
-        $wrappers = array_map(static fn (string $root): string => ':has(> #' . CssIdent::escape($root) . ')', $roots);
+        if ($first === $run) return $inheritedSubject ? '' : $selector;
+        $wrappers = array_values(array_unique(array_map(static fn (string $root): string => ':has(> ' . (in_array($root[0], array('#', '.'), true) ? $root : '#' . CssIdent::escape($root)) . ')', $roots)));
         if (array() !== $scope) {
             // The variant group is the part's own child wrapper (`.data-blocks-engine-capture-mobile-document > #footer`),
             // or an ancestor of the wrapper that holds the chrome.
@@ -1684,6 +1687,10 @@ PHP;
                 array_map(static fn (string $wrapper): string => $scopeClass . $wrapper, $wrappers),
                 array_map(static fn (string $wrapper): string => $scopeClass . ' ' . $wrapper, $wrappers)
             );
+        }
+        if ($inheritedSubject) {
+            if ($run !== count($compounds) - 1) return '';
+            return ':is(' . implode(' ', array_slice($compounds, 0, $run)) . ',:where(' . implode(',', $wrappers) . '))';
         }
         return ':is(' . implode(' ', array_slice($compounds, 0, $run)) . ',:where(' . implode(',', $wrappers) . ')) ' . implode(' ', array_slice($compounds, $run));
     }
@@ -2177,7 +2184,10 @@ PHP;
     }
 
     /**
-     * Extract only generated rules needed by shared template parts. The source
+     * Extract only generated rules needed by shared template parts. Inherited
+     * declarations on detached ancestors also reach the part's parent carrier;
+     * ancestor box declarations stay on the route, and the part's own styles
+     * still take precedence over inheritance. The source
      * stylesheet can contain both those projected rules and route-owned rules;
      * promoting the whole payload changes the cascade on unrelated pages.
      *
@@ -2206,6 +2216,7 @@ PHP;
         $authored = array('class' => array(), 'id' => array());
         $context = array('class' => array(), 'id' => array());
         $detachedRoots = array();
+        $inheritedContexts = array();
         $chromeElements = array();
         $hasSharedNavigation = false;
         foreach ($parts as $part) {
@@ -2246,7 +2257,15 @@ PHP;
             $context['class'] += $ancestors['class'];
             $context['id'] += $ancestors['id'];
             if ('shared_shell' === ($part['placement']['kind'] ?? null) && is_array($part['ancestor_context'] ?? null)) {
-                foreach (self::partRootAnchors($markup) as $root) $detachedRoots[$root] = true;
+                $roots = array();
+                foreach (self::partRootBlocks($markup) as $root) {
+                    $anchor = (string) ($root['attrs']['anchor'] ?? '');
+                    $tokens = preg_split('/\s+/', trim((string) ($root['attrs']['className'] ?? ''))) ?: array();
+                    if ('' !== $anchor) $roots[] = '#' . CssIdent::escape($anchor);
+                    elseif ('' !== ($tokens[0] ?? '')) $roots[] = '.' . implode('.', array_map(array(CssIdent::class, 'escape'), $tokens));
+                }
+                foreach ($roots as $root) $detachedRoots[$root] = true;
+                if (array() !== $roots) $inheritedContexts[] = array($ancestors, $roots);
             }
         }
         // Hooks that route content also uses belong to that content too; rules
@@ -2345,21 +2364,39 @@ PHP;
             $unparseable = false;
             $shared = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
-                static function (string $prelude, string $body) use ($targetsChrome, $reanchor, $liveElementMarkers, &$matched, &$unparseable): string {
+                static function (string $prelude, string $body) use ($targetsChrome, $reanchor, $inheritedContexts, $liveElementMarkers, &$matched, &$unparseable): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) {
                         $unparseable = true;
                         return '';
                     }
+                    $inherited = '';
+                    $declarations = \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($body, array(
+                        '--*', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'font-stretch',
+                        'font-feature-settings', 'font-variation-settings', 'font-kerning', 'direction', 'hyphens', 'letter-spacing',
+                        'line-height', 'tab-size', 'text-align', 'text-indent', 'text-shadow', 'text-transform',
+                        'visibility', 'white-space', 'word-spacing', 'writing-mode',
+                    ));
+                    if (array() !== $declarations) {
+                        $subjects = array();
+                        foreach ($inheritedContexts as [$ancestorHooks, $roots]) foreach ($selectors as $selector) {
+                            $subject = self::reanchoredDetachedContextSelector(trim($selector), $ancestorHooks, $roots, true);
+                            if ('' !== $subject) $subjects[$subject] = true;
+                        }
+                        if (array() !== $subjects) {
+                            $inherited = implode(',', array_keys($subjects)) . '{' . implode(';', array_map(static fn(array $declaration): string => $declaration['name'] . ':' . $declaration['value'], $declarations)) . '}';
+                            $matched = true;
+                        }
+                    }
                     $kept = array_values(array_filter($selectors, $targetsChrome));
-                    if (array() === $kept) return '';
+                    if (array() === $kept) return $inherited;
                     if (null !== $liveElementMarkers) {
                         $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::withoutDeadElementMarkers($selector, $liveElementMarkers), $kept), 'is_string'));
                         // Every selector named only replaced elements: the rule matches nothing.
-                        if (array() === $kept) return '';
+                        if (array() === $kept) return $inherited;
                     }
                     $matched = true;
-                    return implode(',', array_map($reanchor, $kept)) . '{' . $body . '}';
+                    return $inherited . implode(',', array_map($reanchor, $kept)) . '{' . $body . '}';
                 }
             );
             if (!$matched || $unparseable) {
