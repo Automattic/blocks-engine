@@ -1850,6 +1850,7 @@ PHP;
         }
         $rules .= self::detachedChromeBackdropRules($parts, $assets, $pages);
         $rules .= self::detachedViewportShellRules($parts, $assets, $pages);
+        $rules .= self::detachedStaticStartRules($parts, $assets, $pages);
         foreach ($parts as $part) {
             if ('shared_shell' !== ($part['placement']['kind'] ?? null) || !in_array($part['area'] ?? null, array('header', 'footer'), true)) continue;
             if (!self::leftPositionedAncestor($part, $assets, $pages)) continue;
@@ -2044,6 +2045,75 @@ PHP;
             });
         }
         return $result;
+    }
+
+    /**
+     * Auto insets use the hypothetical flow position, which changes when a
+     * header moves ahead of post-content. Pin only source-first absolute boxes
+     * whose static origin can be proved to be their containing block's origin.
+     * Explicit insets (including responsive overrides) are never rewritten.
+     *
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     */
+    private static function detachedStaticStartRules(array $parts, array $assets, array $pages): string
+    {
+        $ids = array();
+        foreach ($parts as $part) {
+            if ('shared_shell' !== ($part['placement']['kind'] ?? null) || 'header' !== ($part['area'] ?? null)) continue;
+            foreach ($part['ancestor_context']['static_start_ids'] ?? array() as $id) $ids[(string) $id] = true;
+        }
+        $rules = array();
+        $transformer = new CssStylesheetTransformer();
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            $transformer->visitStyleRules($asset['content'], static function (string $selector, string $body) use (&$rules): void {
+                foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $item) $rules[] = array(CssSelectorMatcher::parse(trim($item)), $body);
+            });
+        }
+        $result = array();
+        foreach ($pages as $page) {
+            $document = new \DOMDocument();
+            $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . ($page['canonical_block_markup'] ?? '') . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+            foreach ((new \DOMXPath($document))->query('//*[@id or @class]') ?: array() as $element) {
+                if (!$element instanceof \DOMElement) continue;
+                $hook = isset($ids[$element->getAttribute('id')]) ? '#' . CssIdent::escape($element->getAttribute('id')) : '';
+                if ('' === $hook) foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
+                    if (isset($ids['.' . $class])) { $hook = '.' . CssIdent::escape($class); break; }
+                }
+                if ('' === $hook) continue;
+                $bodies = array($element->getAttribute('style'));
+                foreach ($rules as [$selector, $body]) if (CssSelectorMatcher::matches($element, $selector, true)['matches']) $bodies[] = $body;
+                $absolute = false; $unsafe = false;
+                foreach ($bodies as $body) {
+                    foreach (CssRuleAnalyzer::declarations($body, array('position', 'inset', 'inset-block', 'inset-inline', 'inset-block-start', 'inset-block-end', 'inset-inline-start', 'inset-inline-end', 'top', 'bottom', 'left', 'right')) as $declaration) {
+                        $value = strtolower(trim($declaration['value']));
+                        if ('position' === $declaration['name']) {
+                            if ('absolute' === $value) $absolute = true;
+                            else $unsafe = true;
+                        } elseif ('auto' !== $value) $unsafe = true;
+                    }
+                }
+                if (!$absolute || $unsafe) continue;
+                // No preceding flow or spacing may separate the static start
+                // from the containing block. Capture carriers are transparent.
+                for ($node = $element; $node instanceof \DOMElement && 'body' !== $node->tagName; $node = $node->parentNode) {
+                    if ($node !== $element && array() !== array_intersect(preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array(), array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS))) break;
+                    if ($node !== $element) {
+                        $styles = array($node->getAttribute('style'));
+                        foreach ($rules as [$selector, $body]) if (CssSelectorMatcher::matches($node, $selector, true)['matches']) $styles[] = $body;
+                        foreach ($styles as $style) if (preg_match('/(?:^|;)\s*(?:padding(?:-[\w-]+)?|border(?:-[\w-]+)?|margin(?:-[\w-]+)?|display|transform|writing-mode)\s*:\s*(?!0(?:px)?\s*(?:;|$))/', $style)) $unsafe = true;
+                        if (array_filter($styles, static fn(string $style): bool => self::declaresPosition($style))) break;
+                    }
+                    for ($sibling = $node->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling) {
+                        if ($sibling instanceof \DOMElement || ($sibling instanceof \DOMText && '' !== trim($sibling->textContent))) $unsafe = true;
+                    }
+                }
+                if (!$unsafe) $result[$hook] = '.wp-site-blocks ' . $hook . '{top:0}';
+            }
+        }
+        return implode('', $result);
     }
 
     private const BOX_PROPERTIES = '/(?:^|[;{\s])(?:(?:max-)?width|z-index|overflow(?:-[xy])?|inset|top|right|bottom|left)\s*:/i';
