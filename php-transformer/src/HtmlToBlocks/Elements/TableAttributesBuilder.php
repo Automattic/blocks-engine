@@ -52,6 +52,7 @@ final class TableAttributesBuilder
         if ( ! $native ) {
             $this->registerTablePresentationNormalization($table);
         }
+        $this->registerTableWidthHints($table);
         $this->registerTableCellGeometry($table);
         foreach ( array( 'thead' => 'head', 'tbody' => 'body', 'tfoot' => 'foot' ) as $sectionTag => $attrName ) {
             $rows = array();
@@ -178,6 +179,79 @@ final class TableAttributesBuilder
         }
 
         $this->layoutGeometry()->registerRule($marker, implode("\n", $rules));
+    }
+
+    /** Width attributes are hints, not inline styles: keep the entire selector at zero specificity. */
+    private function registerTableWidthHints(DOMElement $table): void
+    {
+        $rules = array();
+        $width = self::widthHint($table);
+        if ( null !== $width ) {
+            $rules['table'] = $width;
+        }
+
+        // core/table has no colgroup save shape. Project column hints onto
+        // unmerged cells instead, accounting for spans in the source grid.
+        $columns = array();
+        foreach ( $table->getElementsByTagName('col') as $col ) {
+            if ( ! SourceDom::belongsToTable($col, $table) ) {
+                continue;
+            }
+            $span = max(1, min(1000, (int) $col->getAttribute('span')));
+            for ( $i = 0; $i < $span; ++$i ) {
+                $columns[] = self::widthHint($col);
+            }
+        }
+        $sectionRows = array( 'thead' => 0, 'tbody' => 0, 'tfoot' => 0 );
+        $occupied = array();
+        foreach ( $table->getElementsByTagName('tr') as $row ) {
+            if ( ! $row instanceof DOMElement || ! SourceDom::belongsToTable($row, $table) ) {
+                continue;
+            }
+            $section = $this->closestTagName($row);
+            $section = isset($sectionRows[$section]) ? $section : 'tbody';
+            $rowIndex = ++$sectionRows[$section];
+            $column = 0;
+            $cellIndex = 0;
+            foreach ( $row->childNodes as $cell ) {
+                if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
+                    continue;
+                }
+                ++$cellIndex;
+                while ( ($occupied[$section][$column] ?? 0) >= $rowIndex ) {
+                    ++$column;
+                }
+                $colspan = max(1, min(1000, (int) $cell->getAttribute('colspan')));
+                $rowspan = max(1, min(65534, (int) $cell->getAttribute('rowspan')));
+                $width = self::widthHint($cell) ?? (1 === $colspan ? ($columns[$column] ?? null) : null);
+                if ( null !== $width ) {
+                    $rules['table>' . $section . '>tr:nth-child(' . $rowIndex . ')>:nth-child(' . $cellIndex . ')'] = $width;
+                }
+                for ( $i = 0; $i < $colspan; ++$i ) {
+                    $occupied[$section][$column++] = $rowIndex + $rowspan - 1;
+                }
+            }
+        }
+        if ( array() === $rules ) {
+            return;
+        }
+        $marker = $this->authorSelectorProjections()->ensureTableMarker(SourceDom::sourceElementIdentity($table), $table);
+        $css = array();
+        foreach ( $rules as $selector => $value ) {
+            $css[] = ':where(.' . $marker . '>' . $selector . '){width:' . $value . '}';
+        }
+        // The first, lowest-priority layer also lets layered author rules win;
+        // zero specificity alone only handles rules in the same layer.
+        $this->layoutGeometry()->appendRule($marker, '@layer blocks-engine-presentational-hints{' . implode("\n", $css) . '}');
+    }
+
+    private static function widthHint(DOMElement $element): ?string
+    {
+        $value = trim($element->getAttribute('width'));
+        if ( 1 !== preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(%|px)?$/i', $value, $match) ) {
+            return null;
+        }
+        return isset($match[1]) ? strtolower($value) : $value . 'px';
     }
 
     private function registerTableCellGeometry(DOMElement $table): void
