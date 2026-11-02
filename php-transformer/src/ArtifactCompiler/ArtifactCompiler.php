@@ -202,6 +202,9 @@ final class ArtifactCompiler
      */
     private array $glyphColorByHash = array();
 
+    /** Counts actual image inspections, not memo lookups. */
+    private int $glyphColorInspectionCount = 0;
+
     private ?PayloadReader $glyphPayloadReader = null;
 
     /** @var array<int, string> */
@@ -4072,6 +4075,7 @@ final class ArtifactCompiler
             $hash = hash('sha256', $bytes);
         }
         if ( ! isset($this->glyphColorByHash[$hash]) ) {
+            ++$this->glyphColorInspectionCount;
             $this->glyphColorByHash[$hash] = MonochromeGlyphColor::inspect($bytes);
         }
 

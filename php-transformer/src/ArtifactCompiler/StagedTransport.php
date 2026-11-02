@@ -17,6 +17,9 @@ use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
  */
 trait StagedTransport
 {
+    /** Deterministic work counters for staged regression tests. */
+    private int $stagePartitionCount = 0;
+
     /**
      * Prepare the immutable, serializable shared portion of an artifact.
      *
@@ -66,6 +69,7 @@ trait StagedTransport
         $plan['shared_reduction'] = array(
             'files_source' => 'artifact',
             'component_facts' => $this->collectComponentFacts($sharedArtifact['files']),
+            'glyph_colors' => $this->sharedGlyphColors($normalized['files'], $partition['pages']),
             'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $artifact),
         );
         $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
@@ -108,9 +112,20 @@ trait StagedTransport
         $this->assertSharedPlan($sharedPlan);
         $artifact = $this->composeInputArtifact($artifact);
         if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
+            [$hydratedArtifact, $references] = $this->hydrateReferencedStage($artifact, 'pages', '', $payloadReader);
+            $partition = $this->stagePartition($hydratedArtifact, 'pages');
+            unset($hydratedArtifact);
             $plans = array();
             foreach ($sharedPlan['analysis']['page_ids'] ?? array() as $pageId) {
-                $plans[$pageId] = $this->prepareReferencedStage($artifact, 'page', (string) $pageId, $payloadReader, (string) $sharedPlan['digest']);
+                $plan = $this->pagePlanFromPartition($partition, $sharedPlan, (string) $pageId);
+                // Preserve the reference-path envelope's serialized key order.
+                $ordered = array();
+                foreach (array('schema', 'artifact', 'limits', 'diagnostics', 'summary', 'compiler_options', 'shared_digest', 'page_id', 'output_schema', 'layout_geometry_proof') as $key) $ordered[$key] = $plan[$key];
+                $plan = $ordered;
+                $this->restorePayloadReferences($plan, $references);
+                $plan['digest'] = $this->planDigest($this->pagePlanDigestInput($plan));
+                $plans[$pageId] = $plan;
+                unset($partition['pages'][$pageId]);
             }
             return $plans;
         }
@@ -201,6 +216,8 @@ trait StagedTransport
     {
         $compiler = new self(beforeDocumentTransform: $this->beforeDocumentTransform);
         $compiler->htmlTransformerAnalysisCache = $this->htmlTransformerAnalysisCache ?? new HtmlTransformerAnalysisCache();
+        $compiler->glyphColorByHash = &$this->glyphColorByHash;
+        $compiler->glyphColorInspectionCount = &$this->glyphColorInspectionCount;
         return $compiler;
     }
 
@@ -217,6 +234,7 @@ trait StagedTransport
         $initialTransformCount = $stageCompiler->htmlDocumentTransformCount;
         if (!$sharedPlanVerified) $this->assertSharedPlan($sharedPlan);
         $this->assertPagePlan($pagePlan, $sharedPlan);
+        $stageCompiler->glyphColorByHash = array_replace($stageCompiler->glyphColorByHash, $sharedPlan['shared_reduction']['glyph_colors'] ?? array());
         $sharedArtifact = array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)));
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
         $pageLayoutGeometryProof = is_array($pagePlan['layout_geometry_proof'] ?? null) ? $pagePlan['layout_geometry_proof'] : array();
@@ -588,6 +606,7 @@ trait StagedTransport
      */
     private function stagePartition(array $artifact, string $scope, string $pageId = ''): array
     {
+        ++$this->stagePartitionCount;
         // Normalize the complete input once so file-level entrypoint flags,
         // roles, rejection diagnostics, and source order have exactly the same
         // meaning as inline compilation before ownership partitions are made.
@@ -723,12 +742,12 @@ trait StagedTransport
     }
 
     /**
-     * Resolve only one ownership partition, then replace the prepared payloads
-     * with their portable references before returning the serializable plan.
+     * Hydrate text for the requested scope, retaining binary references. The
+     * pages scope holds at most the same text payloads as inline preparation.
      *
-     * @return array<string,mixed>
+     * @return array{0:array<string,mixed>,1:array<string,array<string,mixed>>}
      */
-    private function prepareReferencedStage(array $artifact, string $scope, string $pageId, PayloadReader $payloadReader, ?string $sharedDigest): array
+    private function hydrateReferencedStage(array $artifact, string $scope, string $pageId, PayloadReader $payloadReader): array
     {
         $this->assertReferenceLimits($artifact);
         $references = array();
@@ -743,7 +762,7 @@ trait StagedTransport
             // Shared preparation establishes the digest-bound canonical source
             // catalog. Page workers subsequently hydrate only their page plus
             // the shared inputs they need.
-            $required = 'shared' === $scope || 'shared' === $fileScope || ('page' === $scope && $pageId === $filePageId);
+            $required = 'pages' === $scope || 'shared' === $scope || 'shared' === $fileScope || ('page' === $scope && $pageId === $filePageId);
             if (isset($file['payload_reference'])) {
                 $reference = $this->payloadReference($file['payload_reference']);
                 $references[$path] = $reference;
@@ -781,6 +800,13 @@ trait StagedTransport
                 $queue[] = $target;
             }
         }
+        return array($hydratedArtifact, $references);
+    }
+
+    /** Prepare one ownership partition and restore unchanged portable payloads. */
+    private function prepareReferencedStage(array $artifact, string $scope, string $pageId, PayloadReader $payloadReader, ?string $sharedDigest): array
+    {
+        [$hydratedArtifact, $references] = $this->hydrateReferencedStage($artifact, $scope, $pageId, $payloadReader);
         // Reference-backed callers receive the same whole-artifact
         // normalization and captured-dialog projection as inline callers.
         $partition = $this->stagePartition($hydratedArtifact, $scope, $pageId);
@@ -815,6 +841,7 @@ trait StagedTransport
             $plan['shared_reduction'] = array(
                 'files' => $planArtifact['files'],
                 'component_facts' => $this->collectComponentFacts($planArtifact['files']),
+                'glyph_colors' => $this->sharedGlyphColors($planArtifact['files'], $partition['pages'], $payloadReader),
                 'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $hydratedArtifact, $payloadReader),
             );
             $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
@@ -825,15 +852,7 @@ trait StagedTransport
             $plan['output_schema'] = TransformerResult::SCHEMA;
             $plan['layout_geometry_proof'] = $this->pageLayoutGeometryProof($partition['layout_geometry_proof'], $planArtifact['files']);
         }
-        foreach ($plan['artifact']['files'] as &$file) {
-            if (!isset($references[$file['path']])) continue;
-            // Projection changes page HTML. Only retain a portable reference
-            // when its canonical bytes still match the referenced payload.
-            if (!hash_equals($references[$file['path']]['sha256'], hash('sha256', (string) ($file['content'] ?? '')))) continue;
-            unset($file['content'], $file['content_base64']);
-            $file['payload_reference'] = $references[$file['path']];
-        }
-        unset($file);
+        $this->restorePayloadReferences($plan, $references);
         if ('shared' === $scope) {
             foreach ($plan['shared_reduction']['files'] as &$file) {
                 if (!isset($references[$file['path']]) || !isset($file['payload_reference'])) continue;
@@ -846,6 +865,46 @@ trait StagedTransport
         }
         $plan['digest'] = $this->planDigest('shared' === $scope ? $this->sharedPlanDigestInput($plan) : $this->pagePlanDigestInput($plan));
         return $plan;
+    }
+
+    /**
+     * Inspect shared images once; the digest-bound reduction travels to workers.
+     * Keep the captured-colour fast path: if all pages bypass an asset's decoder,
+     * shared preparation must not open that payload either.
+     */
+    private function sharedGlyphColors(array $files, array $pages, ?PayloadReader $payloadReader = null): array
+    {
+        $compiler = $this->preparedPageCompiler();
+        $compiler->glyphPayloadReader = $payloadReader;
+        $compiler->indexFiles($files);
+        $capturedEverywhere = null;
+        foreach ($pages as $pageFiles) {
+            foreach ($pageFiles as $pageFile) {
+                if ('html' !== ($pageFile['kind'] ?? null)) continue;
+                $captured = array_filter($compiler->capturedGlyphAssetPaths((string) ($pageFile['content'] ?? ''), (string) $pageFile['path'], $files));
+                $capturedEverywhere = null === $capturedEverywhere ? $captured : array_intersect_key($capturedEverywhere, $captured);
+            }
+        }
+        $colors = array();
+        foreach ($compiler->imageFiles as $file) {
+            if (isset($capturedEverywhere[$file['path']])) continue;
+            $hash = (string) ($file['raw_sha256'] ?? $file['payload_reference']['sha256'] ?? '');
+            if ('' !== $hash) $colors[$hash] = $compiler->glyphColorForFile($file);
+        }
+        ksort($colors, SORT_STRING);
+        return $colors;
+    }
+
+    /** Restore only unchanged payloads; projections must retain their new bytes. */
+    private function restorePayloadReferences(array &$plan, array $references): void
+    {
+        foreach ($plan['artifact']['files'] as &$file) {
+            if (!isset($references[$file['path']])) continue;
+            if (!hash_equals($references[$file['path']]['sha256'], hash('sha256', (string) ($file['content'] ?? '')))) continue;
+            unset($file['content'], $file['content_base64']);
+            $file['payload_reference'] = $references[$file['path']];
+        }
+        unset($file);
     }
 
     /** Reject unbounded reference declarations before a reader can allocate. */
@@ -963,6 +1022,15 @@ trait StagedTransport
         $hasFiles = is_array($sharedPlan['shared_reduction']['files'] ?? null) || 'artifact' === $filesSource;
         if (!$hasFiles || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
             throw new \InvalidArgumentException('A staged shared plan requires a valid digest-bound shared reduction.');
+        }
+        if (array_key_exists('glyph_colors', $sharedPlan['shared_reduction'])) {
+            $colors = $sharedPlan['shared_reduction']['glyph_colors'];
+            if (!is_array($colors)) throw new \InvalidArgumentException('Shared glyph colours must be keyed by raw sha256.');
+            foreach ($colors as $hash => $glyph) {
+                if (!is_string($hash) || !preg_match('/^[a-f0-9]{64}$/', $hash) || !is_array($glyph) || !is_string($glyph['color'] ?? null) || !is_bool($glyph['undecodable'] ?? null)) {
+                    throw new \InvalidArgumentException('Shared glyph colours require raw sha256 keys and inspection results.');
+                }
+            }
         }
         if (!$this->compatibleReceiptOptions($sharedPlan['compiler_options'] ?? null)) {
             throw new \InvalidArgumentException('A staged shared plan was prepared with incompatible compiler options.');
