@@ -341,6 +341,8 @@ final class ProjectedNavigationConverter implements ElementConverter
         if (!$toggle instanceof DOMElement) return $attrs;
         $source = (new NavigationOpenerPresentation($this->styleResolver, $this->svgMarkup))->source($toggle);
         if (null !== $source) $attrs['metadata'][NavigationOpenerPresentation::METADATA_KEY] = array('svg' => $source['artwork']);
+        // A text-only opener is Core's text opener ("Menu"/"Close"), not its icon.
+        elseif (NavigationOpenerPresentation::isTextOnly($toggle)) $attrs['hasIcon'] = false;
         return $attrs;
     }
 
