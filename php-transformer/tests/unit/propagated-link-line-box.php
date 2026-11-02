@@ -1,17 +1,7 @@
 <?php
 declare(strict_types=1);
 
-/**
- * Unit tests for the anchor a content-wrapping link is pushed into.
- *
- * Plain-PHP test script — no PHPUnit. When a source link wraps content that
- * has to become blocks, the link is pushed down onto inline carriers and the
- * resulting anchor exists only to hold the href. It has no presentation of its
- * own, but as a block box it establishes a line box from the inherited font, so
- * text the source sized smaller than its surroundings is measured against that
- * instead of its own line height. A stacked brand lockup grew by the difference
- * on every line.
- */
+/** CSS-stacked phrasing stays inside its source link, without extra line boxes. */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
@@ -39,17 +29,17 @@ foreach ( $result['assets'] ?? array() as $asset ) {
 }
 
 $assert(
-    str_contains($blocks, 'blocks-engine-inline-layout-carrier'),
-    'the wrapping link is pushed onto inline carriers',
+    str_contains($blocks, '<a href="#top" class="lockup">'),
+    'the stacked phrasing retains its source anchor and class',
     $blocks
 );
 $assert(
-    str_contains($css, ':where(p.blocks-engine-inline-layout-carrier>a){display:contents}'),
-    'the introduced anchor contributes no box of its own',
+    !str_contains($blocks, 'blocks-engine-propagated-link'),
+    'no synthetic anchor is inserted inside the source layout',
     $css
 );
 $assert(
-    str_contains($css, ':where(p.blocks-engine-inline-layout-carrier){display:contents'),
+    str_contains($css, ':where(p.blocks-engine-synthetic-paragraph:not(.blocks-engine-source-box-paragraph):has(>a)){display:contents}'),
     'the carrier paragraph itself still contributes no box',
     $css
 );

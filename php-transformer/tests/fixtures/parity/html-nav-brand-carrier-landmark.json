@@ -28,7 +28,7 @@
   },
   {
    "path": "blocks.0.innerBlocks.0",
-   "name": "core/group"
+   "name": "core/paragraph"
   },
   {
    "path": "blocks.0.innerBlocks.1",
@@ -74,7 +74,7 @@
   {
    "path": "serialized_blocks",
    "assert": "contains",
-   "value": "<div class=\"wp-block-group wordmark\""
+   "value": "<a class=\"wordmark\" href=\"/\">"
   },
   {
    "path": "serialized_blocks",

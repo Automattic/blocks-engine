@@ -5,13 +5,8 @@ declare(strict_types=1);
  * A header brand lockup that is a link around stacked text spans stays a link
  * with its two-line structure.
  *
- * The Eloisa Calvinato header authors `<a href="#inicio">` around a serif name
- * span and a tracked uppercase role span, stacked by a column flex utility. The
- * import flattened the lockup into one synthetic paragraph carrying both runs:
- * the lines merged, the per-line typography was lost to the paragraph's own, and
- * the site title stopped being a link. The lockup is a link wrapper, so it must
- * convert like one — a group carrying the anchor's box, holding one linked text
- * block per authored line.
+ * Keep one source anchor around the styled inline children; its CSS owns
+ * stacking without splitting the destination across separate text blocks.
  *
  * The utility classes only stack because the captured page ships the stylesheet
  * that defines them, so the fixtures include the equivalent declarations.
@@ -74,21 +69,21 @@ $blocks = is_array($lockup['blocks'] ?? null) ? $lockup['blocks'] : array();
 $syntheticParagraphs = $syntheticParagraphsOf($blocks);
 
 $assert(
-    array() === array_values(array_filter(
+    1 === count(array_filter(
         $syntheticParagraphs,
         static fn (array $block): bool => str_contains($blockHtml($block), 'Studio Name')
             && str_contains($blockHtml($block), 'ROLE')
     )),
-    'no single synthetic paragraph carries both text runs',
+    'one transparent host carries both text runs',
     $markup
 );
 $assert(
-    2 === substr_count($markup, '<a href="#home">'),
+    1 === substr_count($markup, '<a class="flex flex-col" href="#home">'),
     'the lockup link survives on both saved lines',
     $markup
 );
 $assert(
-    2 === preg_match_all('/<a href="#home">[^<]*<span[^>]*>(?:Studio Name|ROLE)<\/span><\/a>/', $markup),
+    2 === preg_match_all('/<mark[^>]*>(?:Studio Name|ROLE)<\/mark>/', $markup),
     'each authored line keeps its own text run inside the link',
     $markup
 );
@@ -98,8 +93,8 @@ $assert(
     $markup
 );
 $assert(
-    2 === count(array_filter($findBlocks($blocks, 'core/paragraph'), static fn (array $block): bool => str_contains($blockHtml($block), 'href="#home"'))),
-    'both lines are separate text blocks that each carry the link',
+    1 === count(array_filter($findBlocks($blocks, 'core/paragraph'), static fn (array $block): bool => str_contains($blockHtml($block), 'href="#home"'))),
+    'both lines share one link host',
     $markup
 );
 
@@ -111,17 +106,17 @@ $blockSpans = $transform(
 $blockSpanMarkup = (string) ($blockSpans['serialized_blocks'] ?? '');
 $blockSpanBlocks = is_array($blockSpans['blocks'] ?? null) ? $blockSpans['blocks'] : array();
 $assert(
-    2 === substr_count($blockSpanMarkup, '<a href="/">'),
+    1 === substr_count($blockSpanMarkup, '<a class="lockup" href="/">'),
     'block-level span lines each keep the lockup link',
     $blockSpanMarkup
 );
 $assert(
-    array() === array_values(array_filter(
+    1 === count(array_filter(
         $syntheticParagraphsOf($blockSpanBlocks),
         static fn (array $block): bool => str_contains($blockHtml($block), 'Studio Name')
             && str_contains($blockHtml($block), 'ROLE')
     )),
-    'block-level span lockups are not flattened into one synthetic paragraph',
+    'CSS-stacked spans stay in one intact link',
     $blockSpanMarkup
 );
 

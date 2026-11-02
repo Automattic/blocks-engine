@@ -1,0 +1,14 @@
+<!doctype html><html><head><style>
+@font-face{font-family:icons;src:url(icons.woff2) format("woff2")}
+.bar{display:flex;background:#eee;position:fixed;bottom:0;left:0;right:0;height:75px}
+.bar a{color:#f7f5f0}
+.bar--light .bar__item{color:#333}
+.bar__item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-decoration:none}
+.bar__icon{font-size:18px}
+.icon-mail:before,.icon-chat:before{font-family:icons;content:"\e600"}
+.icon-chat:before{content:"\e601"}
+</style></head><body><main><p>Body</p></main>
+<div class="bar bar--light">
+<a class="bar__item" href="mailto:hello@example.com"><span class="bar__icon"><span class="icon-mail"></span></span><span class="bar__label">Mail</span></a>
+<a class="bar__item" href="https://example.com/chat"><span class="bar__icon"><span class="icon-chat"></span></span><span class="bar__label">Chat</span></a>
+</div></body></html>
