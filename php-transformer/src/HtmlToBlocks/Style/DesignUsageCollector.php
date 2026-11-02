@@ -426,14 +426,13 @@ final class DesignUsageCollector
      * property, so the site plan can bind class-driven values to presets
      * (see PresetBinding). Only the element's own declarations count, not
      * inherited ones. An observation is the resting value in a comparable
-     * form (opaque hex colour, pixel length, cleaned family stack), followed
+     * form (colour, pixel length, cleaned family stack), followed
      * by `;`-separated values the property takes under media conditions. It
      * is empty when the element does not declare the property, and `!` and
-     * the reason when the value cannot be bound: `!important`, `!alpha` (a
-     * translucent colour), `!transparent` (paints nothing), `!state` (a `:hover`/`:focus` style changes it),
+     * the reason when the value cannot be bound: `!important`, `!transparent` (paints nothing), `!state` (a `:hover`/`:focus` style changes it),
      * `!breakpoint` (a media condition changes it in a way an observation
      * cannot record, or it reads a custom property one redefines) or
-     * `!value` (not a plain opaque colour, absolute length or family stack).
+     * `!value` (not a plain colour, absolute length or family stack).
      *
      * @param array<string,string> $declarations
      */
@@ -526,7 +525,7 @@ final class DesignUsageCollector
         $color = CssColor::parse($value);
         if (null === $color) return '!value';
         if ($color[3] <= 0.0) return '!transparent';
-        if ($color[3] < 1.0) return '!alpha';
+        if ($color[3] < 1.0) return trim($value);
         return (string) CssColor::hex($value);
     }
 

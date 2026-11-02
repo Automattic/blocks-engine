@@ -251,6 +251,29 @@ final class DesignSystem
         $layout = self::layout($widthRows);
 
         $system = new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors);
+        // Only observed tints of exact palette colours become additional presets.
+        // Keeping color-mix in the palette (rather than inline style) lets core
+        // serialize ordinary preset classes and the editor display a named value.
+        $tints = array();
+        foreach ($usageBySource as $usage) {
+            $values = array_column($usage['text'] ?? array(), 'color');
+            array_push($values, ...array_column($usage['backgrounds'] ?? array(), 'color'));
+            foreach ($usage['class_styles'] ?? array() as $row) {
+                foreach (array('color', 'background-color') as $property) {
+                    foreach ($row['properties'][$property] ?? array() as $observation) {
+                        array_push($values, ...explode(';', $observation));
+                    }
+                }
+            }
+            foreach ($values as $value) {
+                $tint = $system->translucentColor($value);
+                if (null === $tint) continue;
+                $slug = $tint['slug'] . '-alpha-' . $tint['percent'];
+                $tints[$slug] = array('slug' => $slug, 'name' => ucwords(str_replace('-', ' ', $tint['slug'])) . ' ' . $tint['percent'] . '%', 'color' => 'color-mix(in srgb, var(--wp--preset--color--' . $tint['slug'] . ') ' . $tint['percent'] . '%, transparent)', 'role' => $slug, 'weight' => 0);
+            }
+        }
+        ksort($tints, SORT_STRING);
+        array_push($colors, ...array_values($tints));
         if (array() !== $buttonLook && (null === $system->colorSlug($buttonLook['background']) || null === $system->colorSlug($buttonLook['color']) || null === $system->fontFamilySlug($buttonLook['font_family']) || null === $system->fontSizeSlug($buttonLook['font_size']))) $buttonLook = array();
         return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, $root, array_replace(self::unanimousElements($usageBySource, $system), array() === $buttonLook ? array() : array('button' => $buttonLook)), $system->rootPx, $system->documentCount, $literalColors);
     }
@@ -260,11 +283,17 @@ final class DesignSystem
      * one colour binding rule: block attributes, stylesheet bindings and
      * element styles all bind through this method, and only to a token
      * that paints the same 8-bit colour, so binding never changes what
-     * renders. Translucent colours never bind here; see translucentColor().
+     * renders. Observed translucent colours bind to derived tint presets;
+     * see translucentColor().
      */
     public function colorSlug(string $value): ?string
     {
-        if (!CssColor::opaque($value)) return null;
+        if (!CssColor::opaque($value)) {
+            $tint = $this->translucentColor($value);
+            if (null === $tint) return null;
+            $slug = $tint['slug'] . '-alpha-' . $tint['percent'];
+            return in_array($slug, array_column($this->colors, 'slug'), true) ? $slug : null;
+        }
         $hex = CssColor::hex($value);
         if (null === $hex) return null;
         foreach ($this->colors as $color) if ($hex === CssColor::hex($color['color'])) return $color['slug'];
@@ -286,7 +315,7 @@ final class DesignSystem
         $color = CssColor::parse($value);
         if (null === $color || $color[3] >= 1.0 || $color[3] <= 0.0) return null;
         $percent = (int) round($color[3] * 100);
-        if (abs($color[3] * 100 - $percent) > 0.2) return null;
+        if (round(abs($color[3] * 100 - $percent), 6) > 0.2) return null;
         $slug = $this->colorSlug(sprintf('#%02x%02x%02x', (int) round($color[0]), (int) round($color[1]), (int) round($color[2])));
         return null === $slug ? null : array('slug' => $slug, 'percent' => $percent);
     }
