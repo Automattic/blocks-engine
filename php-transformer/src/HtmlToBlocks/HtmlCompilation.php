@@ -4297,6 +4297,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $innerBlocks,
             $sourceElement
         );
+        // layout-shell's save function reads wrappers only, not className.
+        // Source block creation can add projected selector carriers, so retain
+        // those on the outer wrapper in both the save attributes and HTML.
+        if (isset($elements[0])) {
+            $wrappers[0] = $this->layoutShellWrapper($elements[0], $fieldBox, (string) ($block['attrs']['className'] ?? ''));
+            $block['attrs']['wrappers'][0]['attributes'] = $wrappers[0]['attributes'];
+        }
         $opening = implode('', array_column($wrappers, 'opening'));
         $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
         $block['innerHTML'] = $opening . $closing;
@@ -4314,7 +4321,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      *
      * @return array{tagName: string, attributes: array<string, mixed>, opening: string, closing: string}
      */
-    private function layoutShellWrapper(DOMElement $element, bool $fieldBox = false): array
+    private function layoutShellWrapper(DOMElement $element, bool $fieldBox = false, string $className = ''): array
     {
         $sourceTagName = strtolower($element->tagName);
         $tagName = str_contains($sourceTagName, '-') || ($fieldBox && 'label' === $sourceTagName) ? 'div' : $sourceTagName;
@@ -4322,7 +4329,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ($fieldBox && 'label' === $sourceTagName) {
             unset($attributes['for']);
         }
-        $className = $this->layoutShellClassName($element);
+        $className = SourceDom::mergeClassNames($this->layoutShellClassName($element), $className);
         if ( '' === $className ) {
             unset($attributes['class']);
         } else {
