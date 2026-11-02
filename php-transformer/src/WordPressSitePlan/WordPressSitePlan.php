@@ -2118,12 +2118,21 @@ PHP;
                 || !in_array($part['area'] ?? null, array('header', 'footer'), true)) continue;
             foreach ($part['ancestor_context']['static_start_ids'] ?? array() as $id) $ids[(string) $id] = true;
         }
+        if (array() === $ids) return '';
+        $properties = array('position', 'inset', 'inset-block', 'inset-inline', 'inset-block-start', 'inset-block-end', 'inset-inline-start', 'inset-inline-end', 'top', 'bottom', 'left', 'right');
+        // Only inspected declarations affect the verdict; route projections repeat
+        // the same rules, so parse and match each distinct rule just once.
         $rules = array();
         $transformer = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            $transformer->visitStyleRules($asset['content'], static function (string $selector, string $body) use (&$rules): void {
-                foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $item) $rules[] = array(CssSelectorMatcher::parse(trim($item)), $body);
+            $transformer->visitStyleRules($asset['content'], static function (string $selector, string $body) use (&$rules, $properties): void {
+                $declarations = CssRuleAnalyzer::declarations($body, $properties);
+                if (array() === $declarations) return;
+                foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $item) {
+                    $key = trim($item) . "\0" . $body;
+                    if (!isset($rules[$key])) $rules[$key] = array(CssSelectorMatcher::parse(trim($item)), $declarations);
+                }
             });
         }
         $result = array();
@@ -2137,11 +2146,11 @@ PHP;
                     if (isset($ids['.' . $class])) { $hook = '.' . CssIdent::escape($class); break; }
                 }
                 if ('' === $hook) continue;
-                $bodies = array($element->getAttribute('style'));
-                foreach ($rules as [$selector, $body]) if (CssSelectorMatcher::matches($element, $selector, true)['matches']) $bodies[] = $body;
+                $declarationSets = array(CssRuleAnalyzer::declarations($element->getAttribute('style'), $properties));
+                foreach ($rules as [$selector, $declarations]) if (CssSelectorMatcher::matches($element, $selector, true)['matches']) $declarationSets[] = $declarations;
                 $absolute = false; $unsafe = false;
-                foreach ($bodies as $body) {
-                    foreach (CssRuleAnalyzer::declarations($body, array('position', 'inset', 'inset-block', 'inset-inline', 'inset-block-start', 'inset-block-end', 'inset-inline-start', 'inset-inline-end', 'top', 'bottom', 'left', 'right')) as $declaration) {
+                foreach ($declarationSets as $declarations) {
+                    foreach ($declarations as $declaration) {
                         $value = strtolower(trim($declaration['value']));
                         if ('position' === $declaration['name']) {
                             if (in_array($value, array('absolute', 'fixed'), true)) $absolute = true;
