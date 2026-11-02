@@ -94,6 +94,7 @@
       "php tests/contract/navigation-current-item-shared-menu.php",
       "php tests/contract/shared-header-title-level.php",
       "php tests/contract/detached-auto-inset-backdrop.php",
+      "php tests/contract/detached-static-start-rules.php",
       "php tests/contract/navigation-non-li-cta-shared-header.php",
       "php tests/contract/navigation-equivalent-url-shared-menu.php",
       "php tests/contract/navigation-submenu-current-parent.php",
