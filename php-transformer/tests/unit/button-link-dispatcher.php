@@ -291,8 +291,8 @@ $logoIgnored = $makeDispatcher(array(
 ));
 $assert('core/html' === ($logoIgnored->convertAnchor($elementFrom('<a href="/" class="logo"><button type="submit" class="cta">Go</button></a>'), $fallbacks)['blockName'] ?? ''), 'pattern-recognition-precedes-linked-logo-leftover');
 
-// A brand lockup whose spans stack (column flex link) converts as a link
-// wrapper group instead of a paragraph host that merges its two lines.
+// CSS stacking does not turn phrasing into flow content. Keep the source
+// anchor in RichText so its classes continue to own the layout and cascade.
 $declarationsFor = static fn (array $map): Closure => static function (DOMElement $e) use ($map): array {
     return $map[$e->getAttribute('class')] ?? array();
 };
@@ -307,8 +307,8 @@ $stacked = $makeDispatcher(array(
     ),
 ));
 $assert(
-    'core/group' === ($stacked->convertAnchor($elementFrom('<a class="flex flex-col" href="#home"><span>Name</span><span>Role</span></a>'), $fallbacks)['blockName'] ?? ''),
-    'column-flex-brand-lockup-converts-as-link-wrapper'
+    'core/paragraph' === ($stacked->convertAnchor($elementFrom('<a class="flex flex-col" href="#home"><span>Name</span><span>Role</span></a>'), $fallbacks)['blockName'] ?? ''),
+    'column-flex-phrasing-retains-source-anchor'
 );
 
 // A row flex link keeps its items on one line, so it stays a paragraph host.
@@ -327,8 +327,7 @@ $assert(
     'row-flex-link-stays-paragraph-host'
 );
 
-// Without a navigable href there is no link to propagate, so a stacked lockup
-// keeps today's paragraph host rather than a wrapper group it cannot fill.
+// An unlinked stacked phrasing container also keeps the paragraph host.
 $unlinked = $makeDispatcher(array(
     'structural'  => $declarationsFor(array(
         'flex flex-col' => array( 'display' => 'flex', 'flex-direction' => 'column' ),
@@ -344,7 +343,7 @@ $assert(
     'stacked-anchor-without-href-stays-paragraph-host'
 );
 
-// A stacked lockup whose wrapper conversion yields nothing still falls back to
+// A stacked lockup does not need wrapper conversion; it stays in
 // the paragraph host instead of dropping.
 $unavailable = $makeDispatcher(array(
     'structural'  => $declarationsFor(array(
@@ -356,7 +355,7 @@ $assert(
     'stacked-anchor-without-wrapper-block-falls-back-to-paragraph-host'
 );
 
-// Block-level spans stack in plain flow: the lockup converts as a wrapper.
+// CSS block-level spans are still valid phrasing inside the source anchor.
 $blockSpans = $makeDispatcher(array(
     'structural'  => $declarationsFor(array(
         'lockup-name' => array( 'display' => 'block' ),
@@ -369,8 +368,8 @@ $blockSpans = $makeDispatcher(array(
     ),
 ));
 $assert(
-    'core/group' === ($blockSpans->convertAnchor($elementFrom('<a href="/"><span class="lockup-name">Name</span><span class="lockup-role">Role</span></a>'), $fallbacks)['blockName'] ?? ''),
-    'block-level-span-lockup-converts-as-link-wrapper'
+    'core/paragraph' === ($blockSpans->convertAnchor($elementFrom('<a href="/"><span class="lockup-name">Name</span><span class="lockup-role">Role</span></a>'), $fallbacks)['blockName'] ?? ''),
+    'css-block-span-phrasing-retains-source-anchor'
 );
 
 // A single span child never stacks, whatever its container displays.

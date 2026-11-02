@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InlineStackingClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonAnchorPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPattern;
@@ -113,12 +112,10 @@ final class ButtonLinkDispatcher
             return $linkedContent;
         }
 
-        // Tag-wise inline children can still stack: a linked brand lockup whose
-        // spans render as block boxes keeps two authored lines that a paragraph
-        // host would merge and de-link. Convert it like a link wrapper.
-        // Phrasing media (text plus an inline SVG/img) is valid paragraph
-        // RichText, not a card-style wrapper — splitting it creates two links.
-        if ( $this->hasLinkWrapperChildren($element) || $this->stacksLinkedInlineChildren($element) ) {
+        // Only flow children need inner blocks. Phrasing children, even when
+        // CSS stacks them, belong inside the original RichText anchor: its
+        // classes own both the layout and the cascade on the link itself.
+        if ( $this->hasLinkWrapperChildren($element) ) {
             $linkWrapper = $this->context->convertLinkWrapperGroup($element, $fallbacks);
             if ( null !== $linkWrapper ) {
                 return $linkWrapper;
@@ -174,23 +171,6 @@ final class ButtonLinkDispatcher
         }
 
         return false;
-    }
-
-    /**
-     * Whether a linked anchor's tag-wise inline children render as stacked
-     * block boxes.
-     *
-     * Only linked anchors qualify: an anchor without a navigable href has no
-     * link to propagate onto inner blocks, and its inline runs flatten
-     * harmlessly on one line.
-     */
-    private function stacksLinkedInlineChildren(DOMElement $anchor): bool
-    {
-        if ( '' === $this->context->safeLinkUrl(SourceDom::attr($anchor, 'href')) ) {
-            return false;
-        }
-
-        return InlineStackingClassifier::stacksInlineChildren($anchor, $this->context->structuralPresentationDeclarations(...));
     }
 
     /**

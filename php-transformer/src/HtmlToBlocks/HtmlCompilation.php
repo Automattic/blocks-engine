@@ -6993,7 +6993,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     public function retainsEmptyRichTextInline(DOMElement $sourceInline): bool
     {
-        return $this->runtimeIslands->isRuntimeDomTarget($sourceInline) || $this->shouldPreserveEmptyVisualElement($sourceInline);
+        return $this->runtimeIslands->isRuntimeDomTarget($sourceInline)
+            || $this->shouldPreserveEmptyVisualElement($sourceInline)
+            || $this->hasStaticPseudoElementRule($sourceInline);
     }
 
     private function hasSubstantiveSourceDescendant(DOMElement $element): bool
