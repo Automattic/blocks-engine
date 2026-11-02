@@ -315,7 +315,7 @@ final class DesignSystem
         $color = CssColor::parse($value);
         if (null === $color || $color[3] >= 1.0 || $color[3] <= 0.0) return null;
         $percent = (int) round($color[3] * 100);
-        if (abs($color[3] * 100 - $percent) > 0.200001) return null;
+        if (round(abs($color[3] * 100 - $percent), 6) > 0.2) return null;
         $slug = $this->colorSlug(sprintf('#%02x%02x%02x', (int) round($color[0]), (int) round($color[1]), (int) round($color[2])));
         return null === $slug ? null : array('slug' => $slug, 'percent' => $percent);
     }
