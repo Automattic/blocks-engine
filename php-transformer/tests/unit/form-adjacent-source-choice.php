@@ -151,13 +151,18 @@ foreach (array(
     'visible authored panel' => 'choice',
     'no native value carrier' => 'choice',
 ) as $case => $panelKey) {
+    // A hidden panel its linked trigger owns is popup chrome whether or not a
+    // native value carrier follows (blocks-engine#3930); unlinked or visible
+    // panels keep their controls authored.
+    $expectAuthored = 'no native value carrier' !== $case;
     $document = new DOMDocument();
     $document->loadHTML('<form><button type="button" role="combobox" data-blocks-engine-capture-listbox-trigger="choice">Pick</button>'
         . '<div ' . ('visible authored panel' === $case ? '' : 'hidden ') . 'data-blocks-engine-capture-listbox-panel="' . $panelKey . '"><button type="button">Keep</button></div>'
         . ('no native value carrier' === $case ? '' : '<select hidden><option value="source">Source</option></select>') . '</form>');
     $portalButton = $document->getElementsByTagName('button')->item(1);
     $check($portalButton instanceof DOMElement
-        && ! Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier::isNonAuthoredControl($portalButton), $case . ' control stays authored');
+        && $expectAuthored !== Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier::isNonAuthoredControl($portalButton),
+        $case . ( $expectAuthored ? ' control stays authored' : ' control is popup chrome' ));
 }
 
 if ( $failures ) {
