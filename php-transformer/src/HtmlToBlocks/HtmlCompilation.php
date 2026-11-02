@@ -3876,7 +3876,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     foreach (array('text', 'background') as $paint) {
                         if (isset($attrs['style']['color'][$paint])) continue;
                         for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
-                            $context = $this->styleResolver->presentationAttributes($ancestor);
+                            // Read resolved source paint before class-owned backgrounds
+                            // are deferred to selectors that won't follow the detached part.
+                            $context = $this->styleResolver->styleAttributeMapper()->map(
+                                $this->styleResolver->presentationDeclarations($ancestor),
+                                fn (string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $ancestor)
+                            );
                             if (!isset($context['style']['color'][$paint])) continue;
                             $attrs['style']['color'][$paint] = $context['style']['color'][$paint];
                             break;

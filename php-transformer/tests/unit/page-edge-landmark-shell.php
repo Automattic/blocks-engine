@@ -40,4 +40,38 @@ foreach ($cases as $label => $html) {
         }
     }
 }
+// Class-authored ancestor paint must survive detachment just like inline paint.
+$classFixture = file_get_contents(dirname(__DIR__) . '/fixtures/page-edge-class-section-footer.html');
+foreach (array(
+    'class backdrop' => $classFixture,
+    'inline backdrop' => str_replace('class="dark"', 'style="background:#1a1c1e;color:#f0f3f5"', $classFixture),
+) as $label => $html) {
+    $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
+    $plan = (new WordPressSitePlan())->fromResult($result);
+    $parts = array_column($plan['template_parts'], null, 'area');
+    $footer = $parts['footer']['canonical_block_markup'] ?? '';
+    preg_match('/<!-- wp:group (\{.*?\}) -->/', $footer, $match);
+    $attrs = json_decode($match[1] ?? '{}', true);
+    $assert('footer' === ($attrs['tagName'] ?? null) && str_contains($footer, '© 2026 Brand'), "$label: footer must survive as a template part group");
+    $assert('base' === ($attrs['textColor'] ?? null), "$label: footer must keep the section text color: " . json_encode($attrs));
+    $assert('contrast' === ($attrs['backgroundColor'] ?? null), "$label: footer must keep the section backdrop: " . json_encode($attrs));
+}
+// Empty trailing app containers must not send the footer down a colourless
+// late-extraction path. Both source shapes must preserve the same paint.
+$trailingFixture = file_get_contents(dirname(__DIR__) . '/fixtures/page-edge-empty-trailing-section-footer.html');
+foreach (array(
+    'empty trailing section' => $trailingFixture,
+    'no trailing section' => str_replace('<section></section>', '', $trailingFixture),
+    'nested empty trailing section' => str_replace('<section></section>', '<section aria-label="Notifications"><div> </div></section>', $trailingFixture),
+) as $label => $html) {
+    $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
+    $plan = (new WordPressSitePlan())->fromResult($result);
+    $parts = array_column($plan['template_parts'], null, 'area');
+    $footer = $parts['footer']['canonical_block_markup'] ?? '';
+    preg_match('/<!-- wp:group (\{.*?\}) -->/', $footer, $match);
+    $attrs = json_decode($match[1] ?? '{}', true);
+    $assert('footer' === ($attrs['tagName'] ?? null) && str_contains($footer, '© 2026'), "$label: footer must survive as a template part group");
+    $assert('base' === ($attrs['textColor'] ?? null), "$label: footer must keep the section text color: " . json_encode($attrs));
+    $assert('accent-1' === ($attrs['backgroundColor'] ?? null), "$label: footer must keep the section backdrop: " . json_encode($attrs));
+}
 fwrite(STDOUT, "Page-edge landmark shell tests passed\n");
