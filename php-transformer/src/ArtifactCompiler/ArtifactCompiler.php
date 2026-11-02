@@ -878,7 +878,16 @@ final class ArtifactCompiler
                 $existingOwnership = $assets[$index]['compilation'] ?? null;
                 $assetOwnership = $asset['compilation'] ?? null;
                 if ( $existingOwnership !== $assetOwnership ) {
+                    // Sharing bytes does not make document-owned rules site-wide.
+                    // Retain every consumer; only an actually shared compilation
+                    // may erase that bounded set of document owners.
+                    $sources = static fn(array $owner): array => 'page' === ($owner['scope'] ?? null) ? array($owner['id']) : ($owner['source_paths'] ?? array());
+                    $existingSources = $sources($existingOwnership ?? array());
+                    $assetSources = $sources($assetOwnership ?? array());
                     $assets[$index]['compilation'] = array('scope' => 'shared');
+                    if (array() !== $existingSources && array() !== $assetSources) {
+                        $assets[$index]['compilation']['source_paths'] = array_values(array_unique(array_merge($existingSources, $assetSources)));
+                    }
                 }
             }
         };

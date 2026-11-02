@@ -1409,7 +1409,16 @@ PHP;
                 continue;
             }
             if ('shared' === ($compilation['scope'] ?? null)) {
-                $asset['scopes'] = array(array('kind' => 'global'));
+                $sources = $compilation['source_paths'] ?? null;
+                $consumers = is_array($sources) ? array_intersect_key($pagesBySource, array_fill_keys($sources, true)) : array();
+                // A deduplicated document payload is shared only by its
+                // consumers, not by every route. Truly site-wide support and
+                // isolated shared-shell compilations keep their global scope.
+                $canonicalPages = array_filter($pagesBySource, static fn(array $page): bool => empty($page['synthetic']));
+                $asset['scopes'] = null === $sources || count($consumers) === count($canonicalPages)
+                    ? array(array('kind' => 'global'))
+                    : array_values(array_map(self::stylesheetPageScope(...), $consumers));
+                if (array() === $asset['scopes']) $asset['scopes'] = array(array('kind' => 'global'));
                 continue;
             }
             if (null === $compilation) {
@@ -2857,7 +2866,9 @@ PHP;
         $heads = array();
         foreach ($assets as $index => $asset) {
             $source = (string) ($asset['source_path'] ?? '');
-            $pages = 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) && !isset($asset['payload_reference']) && !isset($asset['content_base64']) && empty($asset['frame_fallback']) && !isset($parents[$source]) && !isset($named[(string) ($asset['token'] ?? '')]) && !isset($named[strtolower(basename((string) ($asset['target_path'] ?? '')))]) && !isset($named[strtolower(basename($source))]) ? $pagesOf($asset) : null;
+            // Projection can empty distinct generated resources. Empty bytes
+            // are not evidence that those resource identities are equivalent.
+            $pages = 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) && '' !== trim($asset['content']) && !isset($asset['payload_reference']) && !isset($asset['content_base64']) && empty($asset['frame_fallback']) && !isset($parents[$source]) && !isset($named[(string) ($asset['token'] ?? '')]) && !isset($named[strtolower(basename((string) ($asset['target_path'] ?? '')))]) && !isset($named[strtolower(basename($source))]) ? $pagesOf($asset) : null;
             if (null === $pages || array() === $pages) {
                 $merged[] = $asset;
                 continue;
