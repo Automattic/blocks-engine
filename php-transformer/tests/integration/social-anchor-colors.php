@@ -15,7 +15,7 @@ $markup = '<!-- wp:social-links ' . wp_json_encode($attrs) . ' -->'
     . '<!-- wp:social-link {"url":"https://facebook.com/example","service":"facebook"} /-->'
     . '</ul><!-- /wp:social-links -->';
 $rendered = do_blocks($markup);
-if (!preg_match('/<li[^>]*style="[^"]*color:\s*#5b5b5b;\s*background-color:\s*#cacaca;/i', $rendered)) {
+if (!preg_match('/<li[^>]*style="[^"]*color:\s*#5b5b5b;\s*background-color:\s*#cacaca(?:;|")/i', $rendered)) {
     throw new RuntimeException('Dynamic social-link li must render the source pair: ' . $rendered);
 }
 echo "Social anchor WordPress render passed.\n";
