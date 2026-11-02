@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
@@ -381,7 +382,7 @@ final class ButtonsPattern
             },
             $html
         ) ?? $html;
-        $html = $buttons->materializeSvgImages($element, $html) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html);
+        $html = $buttons->materializeSvgImages($element, $html, $this->outOfFlowDecorationImage($element, $buttons)) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html);
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
         $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
         $html = $this->unwrapPresentationalSpan(trim($html));
@@ -390,6 +391,54 @@ final class ButtonsPattern
         }
 
         return '';
+    }
+
+    /**
+     * Block-level wrappers are unwrapped from the label, so an SVG inside a
+     * text-free, out-of-flow wrapper (a decoration layer such as a hover fill)
+     * would otherwise land in label flow. Its image keeps the wrapper's
+     * resolved out-of-flow box; the projected control wrapper stays its
+     * positioned containing block.
+     *
+     * @return \Closure(DOMElement, string): string
+     */
+    private function outOfFlowDecorationImage(DOMElement $control, ButtonPatternContext $buttons): \Closure
+    {
+        return static function (DOMElement $svg, string $image) use ($control, $buttons): string {
+            for ( $node = $svg->parentNode; $node instanceof DOMElement && $node !== $control; $node = $node->parentNode ) {
+                if ( '' !== trim($node->textContent ?? '') ) {
+                    return $image;
+                }
+                if ( 1 !== preg_match('/^(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $node->tagName) ) {
+                    continue;
+                }
+                $declarations = $buttons->resolvedDeclarations($node);
+                $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+                if ( ! in_array($position, array( 'absolute', 'fixed' ), true) ) {
+                    continue;
+                }
+                $box = array( 'position' => $position );
+                $inset = isset($declarations['inset']) ? CssValueInspector::expandBoxShorthand(CssValueInspector::withoutImportant($declarations['inset'])) : array();
+                foreach ( array( 'top', 'right', 'bottom', 'left' ) as $index => $side ) {
+                    $value = CssValueInspector::withoutImportant((string) ($declarations[$side] ?? $inset[$index] ?? ''));
+                    if ( '' !== $value ) {
+                        $box[$side] = $value;
+                    }
+                }
+                foreach ( array( 'z-index', 'pointer-events' ) as $property ) {
+                    if ( isset($declarations[$property]) ) {
+                        $box[$property] = CssValueInspector::withoutImportant($declarations[$property]);
+                    }
+                }
+                $css = implode(';', array_map(static fn (string $property, string $value): string => $property . ':' . $value, array_keys($box), $box));
+                $escaped = htmlspecialchars($css, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $styled = preg_replace_callback('/\sstyle\s*=\s*"([^"]*)"/i', static fn (array $match): string => ' style="' . rtrim($match[1], '; ') . ('' === trim($match[1]) ? '' : ';') . $escaped . '"', $image, 1, $count);
+
+                return is_string($styled) && 1 === $count ? $styled : (preg_replace('/^<img\b/i', '<img style="' . $escaped . '"', $image, 1) ?? $image);
+            }
+
+            return $image;
+        };
     }
 
     private function buttonHtml(DOMElement $anchor, ButtonPatternContext $buttons): string

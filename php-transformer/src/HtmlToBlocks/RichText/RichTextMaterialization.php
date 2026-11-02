@@ -30,7 +30,11 @@ interface RichTextMaterialization
 
     public function contentWithoutDecorativeSvg(DOMElement $element): string;
 
-    public function contentWithMaterializedSvgImages(DOMElement $element, string $content): ?string;
+    /**
+     * @param (\Closure(DOMElement, string): string)|null $imageMarkup Adjusts each
+     *        materialized image's markup, given its source svg.
+     */
+    public function contentWithMaterializedSvgImages(DOMElement $element, string $content, ?\Closure $imageMarkup = null): ?string;
 
     /**
      * When every `<button>` descendant of `$element` is inline-safe (see

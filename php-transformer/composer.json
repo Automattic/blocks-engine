@@ -116,6 +116,7 @@
       "php tests/contract/grid-item-button-link-box.php",
       "php tests/contract/button-link-margin-once.php",
       "php tests/contract/button-inline-paint.php",
+      "php tests/contract/button-out-of-flow-decoration.php",
       "php tests/contract/fixed-cta-bar-single-button.php",
       "php tests/contract/button-richtext-marker-subject-identity.php",
       "php tests/contract/linked-button-author-rules.php",

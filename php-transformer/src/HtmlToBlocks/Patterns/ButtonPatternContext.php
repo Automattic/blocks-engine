@@ -97,6 +97,12 @@ final class ButtonPatternContext
         );
     }
 
+    /** @return array<string, string> */
+    public function resolvedDeclarations(DOMElement $element): array
+    {
+        return $this->styleResolver?->cssDeclarations($this->resolvedStyle($element)) ?? array();
+    }
+
     public function controlSurfaceStyle(DOMElement $element): string
     {
         if ( ! $this->styleResolver instanceof StyleResolver ) {
@@ -137,9 +143,10 @@ final class ButtonPatternContext
         return $this->richTextMaterializer?->content($element) ?? SourceDom::innerHtml($element);
     }
 
-    public function materializeSvgImages(DOMElement $element, string $content): ?string
+    /** @param (\Closure(DOMElement, string): string)|null $imageMarkup */
+    public function materializeSvgImages(DOMElement $element, string $content, ?\Closure $imageMarkup = null): ?string
     {
-        return $this->richTextMaterializer?->contentWithMaterializedSvgImages($element, $content);
+        return $this->richTextMaterializer?->contentWithMaterializedSvgImages($element, $content, $imageMarkup);
     }
 
     public function attribute(DOMElement $element, string $name): string
