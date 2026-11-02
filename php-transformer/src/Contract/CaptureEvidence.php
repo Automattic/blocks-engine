@@ -251,7 +251,6 @@ final class CaptureEvidence
 
     /** Constants above that are published for downstream importers only. */
     public const PUBLISHED_FOR_DOWNSTREAM = array(
-        'COMPONENT_DISCLOSURE',
         'COMPONENT_DISCLOSURE_RUNTIME',
         'DEVICE_SELECTION',
         'DEVICE_BODY',

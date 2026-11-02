@@ -24,7 +24,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         }
 
         $itemElements = $this->accordionItemElements($element);
-        if ( count($itemElements) < 2 ) {
+        if ( array() === $itemElements ) {
             return null;
         }
 
@@ -36,10 +36,6 @@ final class AccordionPattern implements PatternRecognizerInterface
                 return null;
             }
             $items[] = $item;
-        }
-
-        if ( count($items) < 2 ) {
-            return null;
         }
 
         $attributes = $presentationAttributes($element);
@@ -239,6 +235,15 @@ final class AccordionPattern implements PatternRecognizerInterface
     {
         $signalRoots = array( $element );
         $children = $this->directChildElements($element);
+        // Do not descend into a lone item's heading and panel as though they
+        // were sibling items. A singleton needs stronger proof than a group.
+        $candidates = $children;
+        while ( 1 === count($candidates) ) {
+            if ( $this->isCapturedSingleDisclosure($element, $candidates[0]) ) {
+                return $candidates;
+            }
+            $candidates = $this->directChildElements($candidates[0]);
+        }
         if ( 1 === count($children) ) {
             $signalRoots[] = $children[0];
             $nested = $this->directChildElements($children[0]);
@@ -258,6 +263,32 @@ final class AccordionPattern implements PatternRecognizerInterface
         }
 
         return array();
+    }
+
+    /** A lone item needs both an author container signal and a captured toggle. */
+    private function isCapturedSingleDisclosure(DOMElement $root, DOMElement $item): bool
+    {
+        $title = $this->titleElement($item);
+        if ( ! $title instanceof DOMElement || ! $this->isAccordionItemElement($item) ) {
+            return false;
+        }
+
+        $control = $this->isItemLevelDisclosure($item, $title) ? $item : $this->disclosureControlElement($title);
+        if ( ! $control->hasAttribute(CaptureEvidence::COMPONENT_DISCLOSURE) ) {
+            return false;
+        }
+
+        // Only containers on the path to the recognized root count; an item
+        // class or a nested panel must not supply the independent author signal.
+        $hasSignal = false;
+        for ( $node = $item->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $hasSignal = $hasSignal || $this->hasAccordionSignal($node);
+            if ( $node->isSameNode($root) ) {
+                return $hasSignal;
+            }
+        }
+
+        return false;
     }
 
     private function hasAccordionSignal(DOMElement $element): bool

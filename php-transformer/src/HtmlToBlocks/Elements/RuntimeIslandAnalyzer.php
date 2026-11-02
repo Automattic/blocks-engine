@@ -160,7 +160,8 @@ final class RuntimeIslandAnalyzer
      * document scope is a rendered snapshot whose runtime is declared through
      * attribute bindings; native owners retain those attributes element by
      * element (authored buttons, layout shells, captured dialogs), so such a
-     * binding is not evidence that a script owns the whole subtree.
+     * binding is not evidence that a script owns the whole subtree. Captured
+     * disclosure toggles likewise own bounded panels, not the surrounding page.
      */
     private function appShellRuntimeTargetCount(DOMElement $element, int $limit): int
     {
@@ -170,6 +171,7 @@ final class RuntimeIslandAnalyzer
                 || ( $this->isRuntimeDomTarget($descendant)
                     && ! $this->isCapturedAttributeRuntimeBinding($descendant)
                     && ! $this->isCapturedDialogRuntimeBinding($descendant)
+                    && ! $descendant->hasAttribute(CaptureEvidence::COMPONENT_DISCLOSURE)
                 )
             ) {
                 if ( ++$count >= $limit ) {
