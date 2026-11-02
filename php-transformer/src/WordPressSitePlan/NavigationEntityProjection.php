@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use InvalidArgumentException;
 
 /** Owns navigation content sharing and exact document occurrences. */
@@ -24,7 +25,7 @@ final class NavigationEntityProjection
                     // Provider-owned ancestors and descendants keep their exact
                     // anchors. Unrelated navigation in the same document can share.
                     if (self::overlapsBinding($block, $protected[$source] ?? array())) continue;
-                    $inner = ShellExtraction::withoutCurrentNavigationState($block['inner']);
+                    $inner = self::normalizeLabels(ShellExtraction::withoutCurrentNavigationState($block['inner']));
                     $identity = self::contentIdentity($inner);
                     $clusters[$identity][] = array(
                         'kind' => $kind, 'index' => $index, 'block' => $block,
@@ -51,7 +52,7 @@ final class NavigationEntityProjection
             $slug = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', '-', $title), '-')) ?: 'navigation';
             if (isset($usedSlugs[$slug])) $slug .= '-' . substr($contentIdentity, 0, 16);
             $usedSlugs[$slug] = true;
-            $identity = WordPressSitePlan::identity('menu', $canonical['source_path'], $slug);
+            $identity = hash('sha256', 'navigation:' . $contentIdentity);
             $token = 'navigation-' . substr($identity, 0, 16);
             $entities[] = array(
                 'kind' => 'menu', 'source_path' => $canonical['source_path'],
@@ -141,20 +142,53 @@ final class NavigationEntityProjection
         return preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)(?=[\s{\/])/', $markup);
     }
 
-    /** JSON escape spelling and object key order are transport, not paint. */
+    /** Ordered item semantics, not source carriers or placement presentation. */
     private static function contentIdentity(string $markup): string
     {
-        $canonical = preg_replace_callback('/<!--\s*wp:([^\s]+)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match): string {
-            $attrs = json_decode($match[2], true);
-            if (!is_array($attrs)) return $match[0];
-            $normalize = static function (array &$value) use (&$normalize): void {
-                if (!array_is_list($value)) ksort($value);
-                foreach ($value as &$child) if (is_array($child)) $normalize($child);
-            };
-            $normalize($attrs);
-            return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR) . ' ' . ($match[3] ?? '') . '-->';
-        }, $markup);
-        return hash('sha256', $canonical ?? $markup);
+        $items = static function (array $blocks) use (&$items): array {
+            $result = array();
+            foreach ($blocks as $block) {
+                $attrs = $block['attrs'] ?? array();
+                $children = $items($block['innerBlocks'] ?? array());
+                if (in_array($block['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)) {
+                    $result[] = array(
+                        'block' => $block['blockName'],
+                        'label' => self::labelText((string) ($attrs['label'] ?? '')),
+                        'url' => (string) ($attrs['url'] ?? ''),
+                        'kind' => (string) ($attrs['kind'] ?? 'custom'),
+                        'type' => (string) ($attrs['type'] ?? ''),
+                        'opensInNewTab' => (bool) ($attrs['opensInNewTab'] ?? false),
+                        'rel' => (string) ($attrs['rel'] ?? ''),
+                        'children' => $children,
+                    );
+                } else {
+                    array_push($result, ...$children);
+                }
+            }
+            return $result;
+        };
+        return hash('sha256', json_encode($items((new Runtime())->parseBlocks($markup)), JSON_THROW_ON_ERROR));
+    }
+
+    private static function labelText(string $label): string
+    {
+        return trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($label), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? $label);
+    }
+
+    /** Unwrap inert spans, retaining inline formatting and semantic attributes. */
+    private static function normalizeLabels(string $markup): string
+    {
+        return preg_replace_callback('/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match): string {
+            $attrs = json_decode($match[1], true);
+            if (!is_array($attrs) || !is_string($attrs['label'] ?? null)) return $match[0];
+            $label = $attrs['label'];
+            do {
+                $before = $label;
+                $label = preg_replace('/<span(?:\s+class\s*=\s*(?:"\s*"|\'\s*\'))?\s*>((?:(?!<span\b|<\/span>).)*)<\/span>/si', '$1', $label) ?? $label;
+            } while ($before !== $label);
+            $attrs['label'] = trim($label);
+            return str_replace($match[1], BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR), $match[0]);
+        }, $markup) ?? $markup;
     }
 
     /** @return list<array{offset:int,length:int,inner:string,attrs:array,items:int}> */

@@ -23,7 +23,7 @@ $assert($projected['pages'][0]['content_hash'] === hash('sha256', $markup), 'Occ
 $different = NavigationEntityProjection::project(array(array('source_path' => 'index.html', 'canonical_block_markup' =>
     $nav($link('one'), 'a') . $nav($link('two'), 'b') . $nav($nested, 'c') . $nav($flat, 'd')
     . $nav($link('one', ',"opensInNewTab":true'), 'e') . $nav($link('one', ',"className":"paint-red"'), 'f'))), array(), array());
-$assert(6 === count($different['menus']), 'Fragments, submenu hierarchy, link behavior, and item paint remain distinct.');
+$assert(5 === count($different['menus']), 'Fragments, submenu hierarchy, and link behavior remain distinct; item paint does not create another entity.');
 $protected = NavigationEntityProjection::project(array(array('source_path' => 'index.html', 'canonical_block_markup' => $inner)), array(), array(), array(array('payload' => array('entities' => array(array('bindings' => array(array('source_path' => 'index.html', 'position' => array('offset' => 0, 'length' => strlen($inner))))))))));
 $assert($protected['pages'][0]['canonical_block_markup'] === $inner && array() === $protected['menus'], 'Provider-owned anchors remain exact rather than being detached by navigation factoring.');
 
