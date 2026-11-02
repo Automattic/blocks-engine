@@ -300,6 +300,20 @@ $assert($bound === $binding->bind($bound), 'binding is idempotent');
 $importantBound = (new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => 'main p{color:red!important}'))))->bind($paragraph);
 $assert(!str_contains($importantBound, 'textColor') && str_contains($importantBound, '"fontSize":"large"'), 'an !important author colour on the same subject keeps the literal colour but not the unrelated size');
 $assert(!str_contains((new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => '[style*="color"]{outline:0}'))))->bind($paragraph), 'textColor'), 'a selector reading the inline style text keeps the literal colour');
+// Important subjects must reach this element and override the bound property.
+foreach (array(
+    'attribute absent' => array('[data-w-cloak]{color:#0000!important}', 'paragraph', 'p', '', 'text', 'color', 'textColor', true),
+    'attribute present' => array('[data-w-cloak]{color:#0000!important}', 'paragraph', 'p', ' data-w-cloak=""', 'text', 'color', 'textColor', false),
+    'unrelated background longhand' => array('.x{background-attachment:scroll!important}', 'group', 'div', '', 'background', 'background-color', 'backgroundColor', true),
+    'universal subject' => array('*{color:#0000!important}', 'paragraph', 'p', '', 'text', 'color', 'textColor', false),
+) as $case => [$css, $block, $tag, $extra, $key, $property, $preset, $binds]) {
+    $markup = '<!-- wp:' . $block . ' {"className":"x","style":{"color":{"' . $key . '":"#e11d48"}}} --><' . $tag . ' class="x"' . $extra . ' style="' . $property . ':#e11d48">Hi</' . $tag . '><!-- /wp:' . $block . ' -->';
+    $guard = new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => $css)));
+    $result = $guard->bind($markup);
+    $assert($binds === str_contains($result, '"' . $preset . '":"' . $slug . '"'), $case . ': only reachable important overrides refuse a preset');
+    $assert(($binds ? 0 : 1) === $guard->refusals(array($result))['important'], $case . ': important refusal accounting follows reachability');
+    $assert($binds ? !str_contains($result, $property . ':#e11d48') : $result === $markup, $case . ': binding removes the literal, refusal preserves markup');
+}
 $mismatch = '<!-- wp:paragraph {"style":{"color":{"text":"#e11d48"}}} --><p class="has-text-color" style="color:#E11D48">Hi</p><!-- /wp:paragraph -->';
 $assert($mismatch === $binding->bind($mismatch), 'markup whose inline style was not serialized from the attributes is left alone');
 
