@@ -197,7 +197,7 @@ final class FormControlClassifier
         }
         $insideNativeForm = false;
         for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( null !== self::sourceSelectAfterCapturedPanel($parent) ) {
+            if ( self::isTriggerOwnedCapturedPanel($parent) ) {
                 return true;
             }
             if ( 'form' === strtolower($parent->tagName) ) {
@@ -378,23 +378,36 @@ final class FormControlClassifier
     }
 
     /**
-     * A capture-only popup is bounded by its linked visible trigger and the
-     * immediately following hidden native value carrier. Only its descendants
-     * leave provider control topology; the panel remains in the page replay.
+     * A capture-only popup is a hidden keyed listbox panel owned by its linked
+     * visible trigger. Its descendants (a search box, option rows) are popup
+     * chrome, so they leave provider control topology whether or not a hidden
+     * native value carrier follows; the panel remains in the page replay.
      */
-    public static function sourceSelectAfterCapturedPanel(DOMElement $panel): ?DOMElement
+    public static function isTriggerOwnedCapturedPanel(DOMElement $panel): bool
     {
         $key = trim($panel->getAttribute(CaptureEvidence::LISTBOX_PANEL));
         if ( '' === $key || ! $panel->hasAttribute('hidden') ) {
-            return null;
+            return false;
         }
         $trigger = $panel->previousElementSibling;
+
+        return $trigger instanceof DOMElement && 'button' === strtolower($trigger->tagName)
+            && $key === trim($trigger->getAttribute(CaptureEvidence::LISTBOX_TRIGGER))
+            && ( 'combobox' === strtolower(trim($trigger->getAttribute('role')))
+                || 'listbox' === strtolower(trim($trigger->getAttribute('aria-haspopup'))) );
+    }
+
+    /**
+     * The hidden native value carrier immediately following a trigger-owned
+     * captured popup, when the source paired one with it.
+     */
+    public static function sourceSelectAfterCapturedPanel(DOMElement $panel): ?DOMElement
+    {
+        if ( ! self::isTriggerOwnedCapturedPanel($panel) ) {
+            return null;
+        }
         $select = $panel->nextElementSibling;
-        if ( ! $trigger instanceof DOMElement || 'button' !== strtolower($trigger->tagName)
-            || $key !== trim($trigger->getAttribute(CaptureEvidence::LISTBOX_TRIGGER))
-            || ( 'combobox' !== strtolower(trim($trigger->getAttribute('role')))
-                && 'listbox' !== strtolower(trim($trigger->getAttribute('aria-haspopup'))) )
-            || ! $select instanceof DOMElement || 'select' !== strtolower($select->tagName)
+        if ( ! $select instanceof DOMElement || 'select' !== strtolower($select->tagName)
             || ( ! $select->hasAttribute('hidden')
                 && ! ( 'true' === strtolower(trim($select->getAttribute('aria-hidden')))
                     && '-1' === trim($select->getAttribute('tabindex')) ) )

@@ -128,6 +128,52 @@ $assert(
     json_encode($orphanDiagnostics)
 );
 
+// A search box inside a trigger-owned hidden captured panel is popup chrome,
+// not an authored field, even with no hidden native select after the panel.
+// Deeply nested, it would otherwise truncate the control topology and decline
+// the runtime form declaration. See blocks-engine#3930.
+$search = '<main><form aria-label="Contact form"><label for="n">Name</label><input id="n" type="text" required><div>'
+    . '<button type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Select a country code" data-blocks-engine-capture-listbox-trigger="0">+1</button>'
+    . '<div hidden data-blocks-engine-capture-listbox-panel="0">' . str_repeat('<div>', 15)
+    . '<input role="combobox" aria-expanded="true" aria-controls="cc" type="text" aria-label="Search" placeholder="Search">' . str_repeat('</div>', 15)
+    . '<div role="listbox" id="cc">' . $optionRows(4) . '</div></div>'
+    . '<input type="tel" aria-label="Phone"></div><button type="submit">Send</button></form></main>';
+$searchResult = $compile($search);
+$searchFallback = current(array_filter(
+    $searchResult['fallbacks'] ?? array(),
+    static fn (array $fallback): bool => 'html_form_fallback' === ( $fallback['diagnostic_code'] ?? null )
+));
+$searchControls = is_array($searchFallback) ? ( $searchFallback['controls'] ?? array() ) : array();
+$searchLabels = array_map(static fn (array $control): string => (string) ( $control['label'] ?? $control['aria_label'] ?? '' ), $searchControls);
+$assert(
+    4 === count($searchControls) && ! in_array('Search', $searchLabels, true),
+    'a search box inside a trigger-owned captured listbox panel is not an authored control',
+    json_encode($searchLabels)
+);
+$assert(
+    is_array($searchFallback) && false === ( $searchFallback['control_topology']['truncated'] ?? null ),
+    'popup chrome does not deepen the control topology into truncation',
+    json_encode($searchFallback['control_topology']['truncated'] ?? null)
+);
+$assert(
+    array() === array_values(array_filter($searchResult['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_form_declaration_declined' === ( $diagnostic['code'] ?? null ))),
+    'the form runtime declaration is not declined'
+);
+$searchDeclaration = current(array_filter(
+    $searchResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(),
+    static fn (array $declaration): bool => 'forms' === ( $declaration['type'] ?? null )
+));
+$searchEntityTrigger = current(array_filter(
+    is_array($searchDeclaration) ? ( $searchDeclaration['payload']['entities'][0]['controls'] ?? array() ) : array(),
+    static fn (array $control): bool => 'listbox' === ( $control['aria_haspopup'] ?? null )
+));
+$assert(
+    is_array($searchDeclaration) && is_array($searchEntityTrigger) && 4 === count($searchEntityTrigger['options'] ?? array())
+        && 'Country name 0 region+90' === ( $searchEntityTrigger['options'][0]['label'] ?? null ),
+    'the form is declared and the trigger keeps its panel options',
+    json_encode($searchEntityTrigger)
+);
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "form listbox option context FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);
