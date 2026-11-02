@@ -636,6 +636,14 @@
         "class": "integrity",
         "count": 1
       },
+      "InvalidArgumentException('Shared glyph colours must be keyed by raw sha256.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Shared glyph colours require raw sha256 keys and inspection results.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('A staged shared plan requires a valid digest-bound shared reduction.')": {
         "class": "integrity",
         "count": 1
