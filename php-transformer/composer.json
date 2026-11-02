@@ -285,6 +285,7 @@
       "php tests/contract/header-link-cluster-navigation.php",
       "php tests/contract/empty-visual-figure.php",
       "php tests/contract/font-wrapped-inline-image.php",
+      "php tests/contract/single-column-layout-table-group.php",
       "php tests/contract/empty-layer-conditional-custom-property-paint.php",
       "php tests/contract/linked-image-inline-custom-properties.php",
       "php tests/contract/linked-flex-images.php",

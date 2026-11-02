@@ -35,6 +35,10 @@ final class TableElementConverter implements ElementConverter
 
         $policy = $this->context->classificationPolicy();
 
+        if ( $policy->isSingleColumnLayoutTable($element) ) {
+            return ConversionOutcome::handled($this->context->singleColumnLayoutTableGroupBlock($element, $fallbacks));
+        }
+
         if ( $policy->isNestedLayoutTableMember($element) ) {
             return ConversionOutcome::handled($this->context->nestedLayoutTableColumnsBlock($element, $fallbacks));
         }
