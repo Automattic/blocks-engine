@@ -445,6 +445,12 @@ PHP;
         foreach ($bindingTemplates as &$template) if (isset($surfaceMarkup[$template['source_path'] ?? ''])) $template['_projected_source_block_markup'] = $surfaceMarkup[$template['source_path']];
         unset($template);
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $bindingTemplates, $paginationOwners);
+        // A form provider rebuilds a form from its fallback's readable blocks.
+        foreach ($data['fallbacks'] as &$fallback) {
+            $source = is_array($fallback) ? ($fallback['source_path'] ?? $fallback['source'] ?? null) : null;
+            if (is_string($source) && is_array($fallback['readable_blocks'] ?? null)) $fallback = self::mapEntityMarkup($fallback, fn(string $markup): string => $this->routeLinks($references->content($markup, $source), $source, $routeMap));
+        }
+        unset($fallback);
         $pages = $this->pageHierarchy($pages, $routeMap);
         $templateOwners = array();
         foreach ($pages as $page) if (empty($page['entrypoint'])) $templateOwners[self::routeTemplateKey($page)][] = $page['source_path'];
@@ -6157,7 +6163,7 @@ PHP;
                     continue;
                 }
                 if (is_string($entity['source_path'] ?? null)) {
-                    $entity = self::mapItemTemplateMarkup($entity, fn(string $markup): string => $this->routeLinks($references->content($markup, $entity['source_path']), $entity['source_path'], $routes));
+                    $entity = self::mapEntityMarkup($entity, fn(string $markup): string => $this->routeLinks($references->content($markup, $entity['source_path']), $entity['source_path'], $routes));
                 }
                 foreach ( $entity['bindings'] as &$binding ) {
                     if ( is_array($binding) && is_string($binding['search_block_markup'] ?? null) && is_string($binding['source_path'] ?? null) ) {
@@ -6435,7 +6441,7 @@ PHP;
      * @param callable(string):string $map
      * @return array<string,mixed>
      */
-    public static function mapItemTemplateMarkup(array $entity, callable $map): array
+    public static function mapEntityMarkup(array $entity, callable $map): array
     {
         if (is_string($entity['item_template']['block_markup'] ?? null)) $entity['item_template']['block_markup'] = $map($entity['item_template']['block_markup']);
         foreach (is_array($entity['items'] ?? null) ? $entity['items'] : array() as $itemIndex => $item) {
@@ -6443,7 +6449,35 @@ PHP;
                 if (is_string($slot['markup'] ?? null)) $entity['items'][$itemIndex]['slots'][$slotId]['markup'] = $map($slot['markup']);
             }
         }
+        // A provider rebuilds a form from its readable blocks, so their media
+        // must reference published assets exactly as the page does.
+        if (is_array($entity['readable_blocks'] ?? null)) $entity['readable_blocks'] = self::mapBlockTreeMarkup($entity['readable_blocks'], $map);
         return $entity;
+    }
+
+    /**
+     * Map every markup string of a parsed block tree. Attributes travel as
+     * their serialized block comment, the form markup mappers already read.
+     *
+     * @param array<int|string,mixed> $blocks
+     * @return array<int|string,mixed>
+     */
+    private static function mapBlockTreeMarkup(array $blocks, callable $map): array
+    {
+        foreach ($blocks as $index => $block) {
+            if (!is_array($block) || !is_string($block['blockName'] ?? null)) continue;
+            if (is_array($block['attrs'] ?? null) && array() !== $block['attrs']) {
+                $comment = $map('<!-- wp:' . $block['blockName'] . ' ' . BlockAttributes::encode($block['attrs'], JSON_INVALID_UTF8_SUBSTITUTE) . ' /-->');
+                if (preg_match('~^<!-- wp:\S+ (\{.*\}) /-->$~s', $comment, $match) && is_array($attrs = json_decode($match[1], true))) $block['attrs'] = $attrs;
+            }
+            if (is_string($block['innerHTML'] ?? null)) $block['innerHTML'] = $map($block['innerHTML']);
+            foreach (is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array() as $contentIndex => $content) {
+                if (is_string($content)) $block['innerContent'][$contentIndex] = $map($content);
+            }
+            if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = self::mapBlockTreeMarkup($block['innerBlocks'], $map);
+            $blocks[$index] = $block;
+        }
+        return $blocks;
     }
 
     /** @internal Exposed for ShellExtraction, which canonicalizes shell-candidate links through the same route table as page content. @param array<int,array<string,mixed>> $routes */
