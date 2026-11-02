@@ -6474,9 +6474,36 @@ final class StyleResolver implements ElementPresentationResolver
             : $this->expandCssVariableReferences($declared, $this->cascadedCustomProperties($element));
     }
 
+    /** SVG text layout and presentation properties a standalone image must carry. */
+    public const SVG_TEXT_CASCADE_PROPERTIES = array(
+        'alignment-baseline', 'baseline-shift', 'dominant-baseline',
+        'font-family', 'font-weight', 'font-style', 'font-size', 'letter-spacing', 'text-anchor',
+    );
+
+    /**
+     * Lowercased, unquoted family names the author stylesheets declare through
+     * `@font-face`. These faces exist only in the page document.
+     *
+     * @return array<string, true>
+     */
+    public function authorFontFaceFamilies(): array
+    {
+        $families = array();
+        if ( preg_match_all('/@font-face\s*\{[^{}]*?font-family\s*:\s*([^;{}]+)/i', $this->context->sourceStyles()->formLayoutCss(), $matches) ) {
+            foreach ( $matches[1] as $family ) {
+                $family = strtolower(trim(preg_replace('/\s*!\s*important\s*$/i', '', trim($family)) ?? '', " \t\n\r\"'"));
+                if ( '' !== $family ) {
+                    $families[$family] = true;
+                }
+            }
+        }
+
+        return $families;
+    }
+
     public function specificityResolvedSvgCascadeValue(DOMElement $element, string $property): ?string
     {
-        if ( ! in_array($property, array('alignment-baseline', 'baseline-shift', 'dominant-baseline'), true) ) {
+        if ( ! in_array($property, self::SVG_TEXT_CASCADE_PROPERTIES, true) ) {
             return null;
         }
 

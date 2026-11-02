@@ -1359,29 +1359,33 @@ final class SvgMaterializer implements SvgElementMaterializer
     }
 
     /**
-     * Text baseline rules from the host stylesheet cannot cross the standalone
-     * SVG image boundary. Preserve the resolved per-node layout in source order.
+     * Text layout and presentation rules from the host stylesheet cannot cross
+     * the standalone SVG image boundary. Preserve the resolved per-node values
+     * in source order. `<textPath>` only carries its own values: it already
+     * inherits from its `<text>`, and re-baking inherited relative sizes would
+     * compound them.
      */
     private function bakeCascadedSvgTextLayout(string $html, DOMElement $element): string
     {
         $sourceTexts = array_values(array_filter(
-            iterator_to_array($element->getElementsByTagName('text')),
-            static fn (DOMNode $node): bool => $node instanceof DOMElement
+            iterator_to_array($element->getElementsByTagName('*')),
+            static fn (DOMNode $node): bool => $node instanceof DOMElement && in_array(strtolower($node->localName), array('text', 'textpath'), true)
         ));
         if ( array() === $sourceTexts || false === stripos($html, '<text') ) {
             return $html;
         }
 
         $index = 0;
-        return preg_replace_callback('/<text\b[^>]*>/i', function (array $match) use ($element, $sourceTexts, &$index): string {
+        return preg_replace_callback('/<text(?:path)?\b[^>]*>/i', function (array $match) use ($sourceTexts, &$index): string {
             $source = $sourceTexts[$index++] ?? null;
             if ( ! $source instanceof DOMElement ) {
                 return $match[0];
             }
 
+            $inherit = 'text' === strtolower($source->localName);
             $declarations = array();
-            foreach ( array('dominant-baseline', 'alignment-baseline', 'baseline-shift') as $property ) {
-                $value = $this->resolvedCascadedSvgTextLayout($source, $property);
+            foreach ( StyleResolver::SVG_TEXT_CASCADE_PROPERTIES as $property ) {
+                $value = $this->resolvedCascadedSvgTextLayout($source, $property, $inherit);
                 if ( '' !== $value && 1 !== preg_match('/(?:var\s*\(|url\s*\(|[<>])/i', $value) ) {
                     $declarations[$property] = $value;
                 }
@@ -1391,9 +1395,9 @@ final class SvgMaterializer implements SvgElementMaterializer
         }, $html) ?? $html;
     }
 
-    private function resolvedCascadedSvgTextLayout(DOMElement $element, string $property): string
+    private function resolvedCascadedSvgTextLayout(DOMElement $element, string $property, bool $inherit = true): string
     {
-        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+        for ( $current = $element; $current instanceof DOMElement; $current = $inherit && $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
             $value = trim((string) ($this->styleResolver->specificityResolvedSvgCascadeValue($current, $property) ?? ''));
             if ( '' !== $value ) {
                 if ( false !== strpos($value, 'var(') ) {
@@ -1639,8 +1643,35 @@ final class SvgMaterializer implements SvgElementMaterializer
         if ( preg_match('/\s(?:href|xlink:href)\s*=\s*(["\'])(?!#)[^"\']+\1/i', $html) ) {
             return false;
         }
+        if ( $this->usesAuthorFontFace($html) ) {
+            return false;
+        }
 
         return true;
+    }
+
+    /**
+     * An SVG image document cannot load page web fonts, so text set in a family
+     * that only exists through an author `@font-face` needs the inline document.
+     */
+    private function usesAuthorFontFace(string $html): bool
+    {
+        if ( false === stripos($html, 'font-family') ) {
+            return false;
+        }
+        $faces = $this->styleResolver->authorFontFaceFamilies();
+        if ( array() === $faces || ! preg_match_all('/font-family\s*(?::|=\s*["\'])\s*((?:&[a-z0-9#]+;|[^;"\'<>])*)/i', $html, $matches) ) {
+            return false;
+        }
+        foreach ( $matches[1] as $stack ) {
+            foreach ( explode(',', html_entity_decode($stack, ENT_QUOTES | ENT_HTML5, 'UTF-8')) as $family ) {
+                if ( isset($faces[strtolower(trim($family, " \t\n\r\"'"))]) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function hasPageCssAnimatedDescendant(DOMElement $element): bool

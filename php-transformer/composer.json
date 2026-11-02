@@ -894,6 +894,7 @@
       "php tests/unit/classed-wrapper-linked-svg.php",
       "php tests/unit/svg-current-color-reference-cascade.php",
       "php tests/unit/materialized-svg-custom-property-carry.php",
+      "php tests/unit/materialized-svg-text-font.php",
       "php tests/unit/inset-positioned-parent-fill-svg.php",
       "php tests/unit/media-scoped-inset-parent-fill-svg.php",
       "php tests/unit/percentage-width-svg-intrinsic-size.php",
