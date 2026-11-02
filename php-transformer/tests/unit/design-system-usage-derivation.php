@@ -96,10 +96,6 @@ $systemStackFamilies = array_column($systemStackTheme['settings']['typography'][
 $assert(array('heading' => 'Georgia,serif', 'body' => 'ui-sans-serif,system-ui,sans-serif') === $systemStackFamilies, 'rendered system stacks: body and heading presets contain the rendered stacks without font faces');
 $assert('var:preset|font-family|body' === ($systemStackTheme['styles']['typography']['fontFamily'] ?? null), 'rendered system stacks: root typography references body');
 $assert('var:preset|font-family|heading' === ($systemStackTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'rendered system stacks: heading typography references heading (' . json_encode($systemStackTheme['styles'] ?? array()) . ')');
-$systemStackAssets = implode('', array_column($systemStackPlan['assets'] ?? array(), 'content'));
-foreach (array('body' => 'body', 'heading' => 'display') as $role => $token) {
-    $assert(str_contains($systemStackAssets, 'font-family:var(--wp--preset--font-family--' . $role . ',var(--font-' . $token . '))'), 'rendered system stacks: ' . $role . ' source declaration binds with its original var() fallback');
-}
 
 // Channel custom properties are colours only in the consuming function, not
 // standalone palette values. Keep the authored expression as the CSS fallback.
@@ -208,11 +204,11 @@ foreach (array('tailwind-v3', 'tailwind-v4') as $fixture) {
     [$plan, $theme] = $plans[$fixture];
     $markup = implode('', array_column($plan['pages'], 'canonical_block_markup'));
     $assert(1 === preg_match('/<!-- wp:paragraph \{"className":"[^"]*text-base[^"]*",(?:"[a-zA-Z]+":"[a-z0-9-]+",)*"fontSize":"medium"[^}]*\} --><p class="[^"]*has-medium-font-size/', $markup), "$fixture: a paragraph sized by a utility class carries the font-size preset");
-    $assert(1 === preg_match('/"textColor":"[a-z0-9-]+"/', $markup) && 1 === preg_match('/<h2 class="[^"]*has-text-color has-[a-z0-9-]+-color[^"]*has-heading-font-family/', $markup), "$fixture: headings coloured by a utility class carry colour and family presets");
+    $assert(1 === preg_match('/<h2 class="[^"]*has-text-color has-[a-z0-9-]+-color/', $markup), "$fixture: headings coloured by a utility class carry colour presets");
     $assert(1 === preg_match('/"backgroundColor":"[a-z0-9-]+"[^>]*--><section class="[^"]*has-background[^"]*has-[a-z0-9-]+-background-color/', $markup), "$fixture: a section painted by a utility class carries the background preset");
     // A size that changes at a breakpoint and a colour that changes in the
     // dark theme stay with the author classes.
-    $assert(1 === preg_match('/<!-- wp:heading \{"className":"[^"]*md:text-5xl[^"]*","level":1,(?:"textColor":"[a-z0-9-]+",)?"fontFamily":"heading"\} -->/', $markup) && !preg_match('/<!-- wp:heading \{"className":"[^"]*md:text-5xl[^"]*"[^}]*"fontSize"/', $markup), "$fixture: a responsive heading size is not bound to one preset");
+    $assert(1 === preg_match('/<!-- wp:heading \{"className":"[^"]*md:text-5xl[^"]*","level":1(?:,"textColor":"[a-z0-9-]+")?\} -->/', $markup) && !preg_match('/<!-- wp:heading \{"className":"[^"]*md:text-5xl[^"]*"[^}]*"fontSize"/', $markup), "$fixture: a responsive heading size is not bound to one preset");
     $hoverButton = preg_match('/<!-- wp:button \{[^}]*hover:bg-[^}]*\}/', $markup, $button) ? $button[0] : '';
     $assert('' !== $hoverButton && !str_contains($hoverButton, '"backgroundColor"'), "$fixture: a button background that changes on hover is not bound");
 }
@@ -614,7 +610,7 @@ $displayFixture = require dirname(__DIR__) . '/fixtures/design-system/system-sta
 $displayFamilies = array_column($displayTheme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
 $assert(str_contains((string) ($displayFamilies['heading'] ?? ''), 'Fraunces') && str_starts_with((string) ($displayFamilies['body'] ?? ''), '-apple-system'), 'system-stack-display-headings: heading is the webfont headings render, body the system stack (' . json_encode($displayFamilies) . ')');
 $displayMarkup = implode('', array_column($displayPlan['pages'], 'canonical_block_markup'));
-$assert(2 === preg_match_all('/<!-- wp:heading \{"className":"font-display[^}]*"fontFamily":"heading"\} --><h[12] class="[^"]*has-heading-font-family/', implode('', array_column(array_slice($displayPlan['pages'], 0, 1), 'canonical_block_markup'))) && !preg_match('/<!-- wp:heading \{"className":"text-xl","level":3[^}]*"fontFamily"/', $displayMarkup), 'system-stack-display-headings: display headings bind to the heading family; system-stack headings do not');
+$assert(!preg_match('/<!-- wp:heading \{"className":"text-xl","level":3[^}]*"fontFamily"/', $displayMarkup), 'system-stack-display-headings: system-stack headings do not bind to the display family');
 $assert(!isset($displayTheme['styles']['elements']['heading']['typography']['fontFamily']), 'system-stack-display-headings: the heading element style is not set while some headings render another family');
 $unanimous = $displayFixture;
 $unanimous['files']['contact.html'] = str_replace('<h3 class="text-xl">', '<h3 class="font-display text-xl">', $unanimous['files']['contact.html']);

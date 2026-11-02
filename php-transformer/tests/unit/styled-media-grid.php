@@ -28,6 +28,13 @@ foreach ( array( 'grid-template-columns:1.25fr 1fr', 'gap:48px', 'border-radius:
 // strings. A neutral intrinsic image avoids depending on a network asset.
 $chrome = getenv('CHROME_PATH') ?: trim((string) shell_exec('command -v chromium || command -v google-chrome || true'));
 if ( '' !== $chrome ) {
+    $theme = array_values(array_filter($plan['writes'], static fn(array $write): bool => 'theme.json' === ($write['target_path'] ?? '')));
+    $theme = json_decode($theme[0]['payload']['data'], true);
+    $family = $theme['styles']['typography']['fontFamily'] ?? 'serif';
+    foreach ($theme['settings']['typography']['fontFamilies'] ?? array() as $preset) {
+        if ('var:preset|font-family|' . $preset['slug'] === $family) $family = $preset['fontFamily'];
+    }
+    $css = ':root :where(body){font-family:' . $family . '}' . $css;
     $core = '.wp-block-image{margin:0 0 1em}.wp-block-image img{box-sizing:border-box;height:auto;max-width:100%;vertical-align:bottom}';
     $probe = '<script>addEventListener("load",()=>{parent.document.body.dataset.boxes=JSON.stringify([".body",".photo",".photo img"].map(s=>{const e=document.querySelector(s),r=e.getBoundingClientRect(),c=getComputedStyle(e);return {rect:[r.x,r.y,r.width,r.height],radius:c.borderRadius,shadow:c.boxShadow,ratio:c.aspectRatio,overflow:c.overflow}}))});</script>';
     $image = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%221000%22 height=%22500%22/%3E';
