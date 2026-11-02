@@ -1842,6 +1842,23 @@ PHP;
             foreach (self::partRootAnchors((string) ($part['canonical_block_markup'] ?? '')) as $anchor) $rules .= ':where(#' . CssIdent::escape($anchor) . '){z-index:1}';
         }
         $rules .= self::detachedChromeBackdropRules($parts, $assets, $pages);
+        foreach ($parts as $part) {
+            if ('shared_shell' !== ($part['placement']['kind'] ?? null) || !in_array($part['area'] ?? null, array('header', 'footer'), true)) continue;
+            if (!self::leftPositionedAncestor($part, $assets, $pages)) continue;
+            $selectors = array();
+            foreach (self::partRootBlocks((string) ($part['canonical_block_markup'] ?? '')) as $root) {
+                $anchor = $root['attrs']['anchor'] ?? '';
+                if (is_string($anchor) && '' !== $anchor) $selectors[] = '#' . CssIdent::escape($anchor);
+                else {
+                    $classes = preg_split('/\s+/', trim((string) ($root['attrs']['className'] ?? ''))) ?: array();
+                    if (array() !== $classes && '' !== $classes[0]) $selectors[] = '.' . implode('.', array_map(array(CssIdent::class, 'escape'), $classes));
+                }
+            }
+            // Unlike backdrop containment transfer, restoring the root's paint
+            // layer needs no ancestor id and does not change the backdrop box.
+            // Zero specificity preserves authored sticky/absolute positioning.
+            if (array() !== $selectors) $rules .= ':where(' . implode(',', array_unique($selectors)) . '){position:relative}';
+        }
         $template = null;
         foreach ($assets as $asset) {
             if ('css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) && '' !== trim($asset['content'])) {
@@ -1918,6 +1935,46 @@ PHP;
         return ':where(.wp-site-blocks){position:relative}'
             . implode(',', array_map(static fn(int|string $id): string => '.wp-site-blocks ' . $escape((string) $id), array_keys($backdrop))) . '{position:static}'
             . ':where(' . implode(',', array_map($escape, array_values(array_unique($roots)))) . '){position:relative}';
+    }
+
+    /**
+     * Resolve the retained ancestor hooks against route markup, where their
+     * inline styles and selector context still exist. Only actual matching
+     * positioning rules count; a positioned sibling is not evidence.
+     *
+     * @param array<string,mixed> $part
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     */
+    private static function leftPositionedAncestor(array $part, array $assets, array $pages): bool
+    {
+        $context = $part['ancestor_context'] ?? array();
+        $classes = (array) ($context['classes'] ?? array());
+        $ids = (array) ($context['ids'] ?? array());
+        if (array() === $classes && array() === $ids) return false;
+        $rules = array();
+        $transformer = new CssStylesheetTransformer();
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            $transformer->visitStyleRules($asset['content'], static function (string $prelude, string $body) use (&$rules): void {
+                if (!self::declaresPosition($body)) return;
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) $rules[] = CssSelectorMatcher::parse(trim($selector));
+            });
+        }
+        foreach ($pages as $page) {
+            $sourcePaths = $part['placement']['source_paths'] ?? array();
+            if (array() !== $sourcePaths && !in_array($page['source_path'] ?? '', $sourcePaths, true)) continue;
+            $document = new \DOMDocument();
+            $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . (string) ($page['canonical_block_markup'] ?? '') . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+            foreach ((new \DOMXPath($document))->query('//*[@class or @id]') ?: array() as $element) {
+                if (!$element instanceof \DOMElement) continue;
+                $elementClasses = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+                if (!in_array($element->getAttribute('id'), $ids, true) && array() === array_intersect($elementClasses, $classes)) continue;
+                if (self::declaresPosition($element->getAttribute('style'))) return true;
+                foreach ($rules as $rule) if (CssSelectorMatcher::matches($element, $rule, true)['matches']) return true;
+            }
+        }
+        return false;
     }
 
     private const BOX_PROPERTIES = '/(?:^|[;{\s])(?:(?:max-)?width|z-index|overflow(?:-[xy])?|inset|top|right|bottom|left)\s*:/i';
@@ -2044,6 +2101,17 @@ PHP;
      */
     private static function partRootAnchors(string $markup): array
     {
+        $anchors = array();
+        foreach (self::partRootBlocks($markup) as $root) {
+            $anchor = $root['attrs']['anchor'] ?? null;
+            if (is_string($anchor) && '' !== $anchor) $anchors[$anchor] = true;
+        }
+        return array_keys($anchors);
+    }
+
+    /** @return list<array{attrs:array<string,mixed>,inner_offset:int,inner_end:int}> */
+    private static function partRootBlocks(string $markup): array
+    {
         $roots = self::topLevelBlocks($markup, 0, strlen($markup));
         $partitioned = array() !== $roots && array() === array_filter($roots, static fn(array $block): bool => !self::isVariantVisibilityGroup($block['attrs']));
         if (!$partitioned) {
@@ -2057,12 +2125,7 @@ PHP;
             }
             $roots = $inner;
         }
-        $anchors = array();
-        foreach ($roots as $root) {
-            $anchor = $root['attrs']['anchor'] ?? null;
-            if (is_string($anchor) && '' !== $anchor) $anchors[$anchor] = true;
-        }
-        return array_keys($anchors);
+        return $roots;
     }
 
     /** @param array<string,mixed> $attrs */
