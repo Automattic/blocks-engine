@@ -1083,7 +1083,7 @@ final class ShellExtraction
                 // A section/div named footer is the route's footer only when no
                 // block follows it in its top-level document block.
                 if (!empty($open['named_footer']) && 1 === preg_match('/<!--\s*wp:/', substr($markup, $offset + strlen($token['token']), $open['document_end'] - $offset - strlen($token['token'])))) continue;
-                $rows[] = array('document_edge' => $open['document_edge'], 'main_ancestors' => $open['main_ancestors'], 'area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'document_level' => empty($stack), 'wrapper_contract_shell' => !empty($open['wrapper_contract_shell']), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])) + (array() !== ($open['backdrop_ids'] ?? array()) ? array('backdrop_ids' => $open['backdrop_ids']) : array()));
+                $rows[] = array('document_edge' => $open['document_edge'], 'main_ancestors' => $open['main_ancestors'], 'area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'document_level' => empty($stack), 'wrapper_contract_shell' => !empty($open['wrapper_contract_shell']), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])) + (array() !== ($open['backdrop_ids'] ?? array()) ? array('backdrop_ids' => $open['backdrop_ids']) : array()) + array('static_start_ids' => $open['static_start_ids'] ?? array()));
                 continue;
             }
             $name = $token['name']; $attributes = $token['attributes']; $attrs = '' === $attributes ? array() : json_decode($attributes, true);
@@ -1161,7 +1161,7 @@ final class ShellExtraction
                 $preceded = preg_match_all('/<!--\s*wp:/', $between) > count($stack) || 0 < preg_match_all('/<!--\s*\/wp:/', $between);
                 if ($preceded) $backdropIds = self::backdropAncestorIds($markup, $stack, $offset);
             }
-            if (!$selfClosing) $stack[] = array('document_edge' => $edgeLandmark && (array() !== $mainAncestors || $disallowedAncestor), 'offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'named_footer' => $candidate && $namedFooter, 'document_end' => $stack[0]['document_end'] ?? $documentEnds[$offset] ?? strlen($markup), 'main_ancestors' => $edgeLandmark ? array() : $mainAncestors, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'anchor' => $anchor, 'class_name' => $className, 'variant_scope_classes' => $variantScopeClasses);
+            if (!$selfClosing) $stack[] = array('document_edge' => $edgeLandmark && (array() !== $mainAncestors || $disallowedAncestor), 'offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'named_footer' => $candidate && $namedFooter, 'document_end' => $stack[0]['document_end'] ?? $documentEnds[$offset] ?? strlen($markup), 'main_ancestors' => $edgeLandmark ? array() : $mainAncestors, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'static_start_ids' => $candidate ? self::precedingStaticStartIds($markup, $stack, $offset) : array(), 'anchor' => $anchor, 'class_name' => $className, 'variant_scope_classes' => $variantScopeClasses);
         }
         $rows = array_values(array_filter($rows, static fn(array $row): bool => array() === array_diff($row['main_ancestors'], $shellMains ?? array())));
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
@@ -1305,6 +1305,42 @@ final class ShellExtraction
                 }
             }
             if ('' !== $id) $ids[] = $id;
+        }
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * Preceding siblings at every ancestor level have a static block start
+     * independent of that chrome. Keep their hooks before removing it.
+     *
+     * @param array<int,array<string,mixed>> $stack
+     * @return list<string>
+     */
+    private static function precedingStaticStartIds(string $markup, array $stack, int $offset): array
+    {
+        $ids = array();
+        foreach ($stack as $level => $ancestor) {
+            $start = (int) ($ancestor['inner_offset'] ?? $ancestor['offset']);
+            $end = (int) ($stack[$level + 1]['offset'] ?? $offset);
+            $tokens = self::blockCommentTokens(substr($markup, $start, max(0, $end - $start)));
+            $depth = 0;
+            foreach ($tokens as $token) {
+                if ($token['closing']) { --$depth; continue; }
+                $sibling = 0 === $depth;
+                if (!$token['self_closing']) ++$depth;
+                if (!$sibling) continue;
+                $attrs = json_decode($token['attributes'], true);
+                $id = (string) ($attrs['anchor'] ?? '');
+                if ('' === $id) foreach (preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class) {
+                    $id = (string) EngineMarker::editorAnchorId($class);
+                    if ('' !== $id) break;
+                }
+                if ('' === $id) {
+                    $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+                    if (!empty($classes[0])) $id = '.' . $classes[0];
+                }
+                if ('' !== $id) $ids[] = $id;
+            }
         }
         return array_values(array_unique($ids));
     }
@@ -2680,6 +2716,7 @@ final class ShellExtraction
         $pieces = array();
         $primaryContext = null;
         $backdropIds = array();
+        $staticStartIds = array();
         $sourceIndex = $dominant['indexes'][0];
         foreach ($variantClasses as $class) {
             $scoped = $byPage[$sourceIndex][$class];
@@ -2689,6 +2726,7 @@ final class ShellExtraction
             if ('' === trim($inner)) return false;
             if (null === $primaryContext && 0 === self::responsiveVariantRank($class)) $primaryContext = $scoped[0]['ancestor_context'] ?? null;
             foreach ((array) ($scoped[0]['ancestor_context']['backdrop_ids'] ?? array()) as $id) $backdropIds[(string) $id] = true;
+            foreach ((array) ($scoped[0]['ancestor_context']['static_start_ids'] ?? array()) as $id) $staticStartIds[(string) $id] = true;
             $scopeClasses = $scoped[0]['ancestor_context']['variant_classes'][$class] ?? array($class);
             $pieces[$class] = self::variantVisibilityGroup(implode(' ', $scopeClasses), $inner);
         }
@@ -2707,6 +2745,7 @@ final class ShellExtraction
         // variant document are detached from it.
         $context = is_array($primaryContext) ? $primaryContext : array();
         if (array() !== $backdropIds) $context['backdrop_ids'] = array_map('strval', array_keys($backdropIds));
+        if (array() !== $staticStartIds) $context['static_start_ids'] = array_map('strval', array_keys($staticStartIds));
         return array('pages' => $cleaned, 'markup' => implode("\n", $pieces), 'identities' => $identities, 'ancestor_context' => $context);
     }
 
