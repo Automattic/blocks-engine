@@ -20,6 +20,7 @@ use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug;
+use Automattic\BlocksEngine\PhpTransformer\Css\DeclarationCascade;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -2024,19 +2025,53 @@ PHP;
                 $elements[] = array($element, $hook);
             }
         }
+        // Resolve layout from all matching declarations, including declarations
+        // in other assets. Conditional rules only contribute in the same context.
+        $layoutRules = array();
+        $transformer = new CssStylesheetTransformer();
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            $transformer->visitStyleRules($asset['content'], static function (string $selector, string $body, array $context) use (&$layoutRules): void {
+                $declarations = CssRuleAnalyzer::declarations($body, array('display', 'flex-direction'));
+                if (array() === $declarations) return;
+                foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $candidate) {
+                    $parsed = CssSelectorMatcher::parse(trim($candidate));
+                    $layoutRules[] = array($parsed, array_values(CssSelectorMatcher::specificityCounts($parsed)), $declarations, $context);
+                }
+            });
+        }
         $result = '';
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             // Transform rather than visit so responsive/media conditions survive.
-            $result .= (new CssStylesheetTransformer())->transformStyleRules($asset['content'], static function (string $selector, string $body) use ($elements): string {
-                if (!preg_match('/(?:^|;)\s*min-height\s*:\s*([^;]*(?:vh|svh|dvh|lvh))\s*(?:;|$)/i', $body, $minimum)
-                    || !preg_match('/(?:^|;)\s*display\s*:\s*flex\s*(?:;|$)/i', $body)
-                    || !preg_match('/(?:^|;)\s*flex-direction\s*:\s*column\s*(?:;|$)/i', $body)) return '';
+            $result .= (new CssStylesheetTransformer())->transformStyleRules($asset['content'], static function (string $selector, string $body, array $context) use ($elements, $layoutRules): string {
+                if (!preg_match('/(?:^|;)\s*min-height\s*:\s*([^;]*(?:vh|svh|dvh|lvh))\s*(?:;|$)/i', $body, $minimum)) return '';
                 $rules = array();
                 foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $candidate) {
                     $parsed = CssSelectorMatcher::parse(trim($candidate));
                     foreach ($elements as [$element, $hook]) {
                         if (!CssSelectorMatcher::matches($element, $parsed, true)['matches']) continue;
+                        $layout = array();
+                        $order = 0;
+                        foreach ($layoutRules as [$layoutSelector, $specificity, $declarations, $ruleContext]) {
+                            if (array() !== $ruleContext && $ruleContext !== $context) continue;
+                            if (!CssSelectorMatcher::matches($element, $layoutSelector, true)['matches']) continue;
+                            foreach ($declarations as $declaration) {
+                                $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
+                                DeclarationCascade::apply($layout, $declaration['name'], array(
+                                    'value' => strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', $declaration['value']))),
+                                    'important' => $important, 'specificity' => $specificity, 'order' => $order++,
+                                ));
+                            }
+                        }
+                        foreach (CssRuleAnalyzer::declarations($element->getAttribute('style'), array('display', 'flex-direction')) as $declaration) {
+                            DeclarationCascade::apply($layout, $declaration['name'], array(
+                                'value' => strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', $declaration['value']))),
+                                'important' => 1 === preg_match('/\s*!important\s*$/i', $declaration['value']),
+                                'inline' => true, 'specificity' => array(0, 0, 0), 'order' => $order++,
+                            ));
+                        }
+                        if ('flex' !== ($layout['display']['value'] ?? null) || 'column' !== ($layout['flex-direction']['value'] ?? null)) continue;
                         $root = '.wp-site-blocks:has(>.wp-block-post-content ' . $hook . ')';
                         $post = $root . '>.wp-block-post-content';
                         $rules[$hook] = $root . '{min-height:' . trim($minimum[1]) . ';display:flex;flex-direction:column}'

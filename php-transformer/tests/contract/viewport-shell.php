@@ -7,6 +7,11 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
 $fixture = require dirname(__DIR__) . '/fixtures/viewport-shell.php';
+foreach (array('combined', 'split') as $variant) {
+if ('split' === $variant) {
+    foreach ($fixture['files'] as &$html) $html = str_replace('.page-body{min-height:100vh;display:flex;flex-direction:column}', '.page-body{display:flex;flex-direction:column}.page-body{min-height:100vh}', $html);
+    unset($html);
+}
 $plan = (new ArtifactCompiler())->compile($fixture)->toArray()['source_reports']['wordpress_site_plan'];
 $parts = array_column($plan['template_parts'], null, 'slug');
 $assert(isset($parts['header'], $parts['footer']), 'Both shared landmarks are extracted.');
@@ -86,4 +91,23 @@ foreach ($plan['pages'] as $page) {
         }
     }
 }
+}
+// Isolate cascade and media eligibility independently of extraction.
+$shellRules = new ReflectionMethod(\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::class, 'detachedViewportShellRules');
+$resolve = static function (array $styles) use ($shellRules): string {
+    return $shellRules->invoke(null,
+        array(array('placement' => array('kind' => 'shared_shell'), 'ancestor_context' => array('classes' => array('page-body')))),
+        array_map(static fn(string $css): array => array('kind' => 'css', 'content' => $css), $styles),
+        array(array('canonical_block_markup' => '<div class="page-body"><main>Content</main></div>'))
+    );
+};
+$assert(str_contains($resolve(array('.page-body{display:flex}', '.page-body{flex-direction:column}', '.page-body{min-height:100vh}')), $root), 'Layout declarations can come from different CSS assets.');
+$assert('' === $resolve(array('.page-body{display:flex;flex-direction:column}.page-body{display:block;min-height:100vh}')), 'Later display overrides prevent a shell.');
+$assert(str_contains($resolve(array('.page-body{display:flex!important;flex-direction:column}.page-body{display:block;min-height:100vh}')), $root), 'Important display wins over later normal declarations.');
+$assert('' === $resolve(array('div.page-body{display:block}.page-body{display:flex;flex-direction:column;min-height:100vh}')), 'More specific display overrides prevent a shell.');
+$media = '@media (min-width:700px)';
+$assert(str_contains($resolve(array('.page-body{display:flex;flex-direction:column}', $media . '{.page-body{min-height:100vh}}')), $media . '{' . $root), 'Unconditional layout contributes inside the minimum media context.');
+$assert(str_contains($resolve(array($media . '{.page-body{display:flex;flex-direction:column}}', $media . '{.page-body{min-height:100vh}}')), $media . '{' . $root), 'Same-media declarations contribute across assets.');
+$assert(!str_contains($resolve(array($media . '{.page-body{display:flex;flex-direction:column}}', '.page-body{min-height:100vh}')), $root), 'Conditional layout does not qualify an unconditional minimum.');
+$assert(!str_contains($resolve(array('@media (max-width:699px){.page-body{display:flex;flex-direction:column}}', $media . '{.page-body{min-height:100vh}}')), $root), 'Unrelated media layout does not qualify the minimum.');
 echo "viewport-shell: ok\n";
