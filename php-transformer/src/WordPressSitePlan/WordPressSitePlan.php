@@ -1865,7 +1865,7 @@ PHP;
             if ('shared_shell' !== ($part['placement']['kind'] ?? null) || !in_array($part['area'] ?? null, array('header', 'footer'), true)) continue;
             if (!self::leftPositionedAncestor($part, $assets, $pages)) continue;
             $selectors = array();
-            foreach (self::partRootBlocks((string) ($part['canonical_block_markup'] ?? '')) as $root) {
+            foreach (self::partAllRootBlocks((string) ($part['canonical_block_markup'] ?? '')) as $root) {
                 $anchor = $root['attrs']['anchor'] ?? '';
                 if (is_string($anchor) && '' !== $anchor) $selectors[] = '#' . CssIdent::escape($anchor);
                 else {
@@ -2298,6 +2298,25 @@ PHP;
             $roots = $inner;
         }
         return $roots;
+    }
+
+    /**
+     * Every top-level root needs its paint layer restored, including trailing
+     * chrome. Unwrap only variant visibility groups, never ordinary roots.
+     * Unlike partRootBlocks(), this transport does not require a single root.
+     *
+     * @return list<array{attrs:array<string,mixed>,inner_offset:int,inner_end:int}>
+     */
+    private static function partAllRootBlocks(string $markup): array
+    {
+        $roots = self::topLevelBlocks($markup, 0, strlen($markup));
+        $partitioned = array() !== $roots && array() === array_filter($roots, static fn(array $block): bool => !self::isVariantVisibilityGroup($block['attrs']));
+        if (!$partitioned) return $roots;
+        $inner = array();
+        foreach ($roots as $group) {
+            foreach (self::topLevelBlocks($markup, $group['inner_offset'], $group['inner_end']) as $root) $inner[] = $root;
+        }
+        return $inner;
     }
 
     /** @param array<string,mixed> $attrs */
