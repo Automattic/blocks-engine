@@ -3380,7 +3380,8 @@ final class ArtifactCompiler
         foreach ( $documentScripts as $script ) {
             foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
                 $selector = (string) $dependency['selector'];
-                if ( ! $hasDeclaredScriptFiles && ! str_contains($selector, '[data-') ) {
+                if ( ! $hasDeclaredScriptFiles && ! str_contains($selector, '[data-')
+                    && ! $this->runtimeScriptEvidenceAnalyzer->hasTextOnlyMutations($script, $selector) ) {
                     continue;
                 }
                 if ( true === $dependency['presentation_only'] ) {

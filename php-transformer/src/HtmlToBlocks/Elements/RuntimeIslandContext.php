@@ -50,6 +50,12 @@ final class RuntimeIslandContext
         return $this->session->runtimeSelectorState();
     }
 
+    /** @return array<int, array<string, mixed>> */
+    public function runtimeScriptAssets(): array
+    {
+        return $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets();
+    }
+
     public function generatedBlockName(string $localName): string
     {
         return $this->session->generatedBlockRegistry()?->blockName($localName) ?? '';

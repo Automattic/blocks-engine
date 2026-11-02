@@ -74,7 +74,7 @@ final class InlineContentElementConverter implements ElementConverter
             // Inline text a script finds by its hooks is saved verbatim in
             // paragraph rich text (RuntimeIslandAnalyzer::retainsRuntimeTextLeafInRichText()).
             if ( $this->context->retainsRuntimeTextLeafInRichText($element) ) {
-                return ConversionOutcome::handled($this->sourceElementParagraph($element, SourceDom::outerHtml($element)));
+                return ConversionOutcome::handled($this->context->createBlock('core/paragraph', array('content' => SourceDom::outerHtml($element)), array(), $element));
             }
             return ConversionOutcome::handled($this->context->htmlPreservationBlock($element));
         }

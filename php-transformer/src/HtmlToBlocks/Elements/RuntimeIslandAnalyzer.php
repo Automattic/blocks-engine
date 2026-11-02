@@ -411,6 +411,7 @@ final class RuntimeIslandAnalyzer
         return $this->isDataAttributeRuntimeTarget($element)
             && ! $this->retainsDataAttributeRuntimeTargetInShell($element)
             && ! $this->retainsRuntimeTextLeafInRichText($element)
+            && ! $this->retainsRuntimeParagraph($element)
             // An image-only custom element host belongs to the media path, which
             // keeps a non-inert host verbatim as responsive media.
             && null === SourceDom::imageOnlyCustomElement($element);
@@ -526,7 +527,9 @@ final class RuntimeIslandAnalyzer
      */
     public function runtimeAttributesCarriedBy(DOMElement $element, string $blockName): array
     {
-        if ('core/navigation' !== $blockName || 'nav' !== strtolower($element->tagName) || ! $this->isRuntimeDomTarget($element)) return array();
+        if (! ('core/navigation' === $blockName && 'nav' === strtolower($element->tagName))
+            && ! ('core/paragraph' === $blockName && $this->retainsRuntimeParagraph($element))) return array();
+        if (! $this->isRuntimeDomTarget($element)) return array();
         $attributes = array();
         foreach ($element->attributes ?? array() as $attribute) {
             $name = strtolower($attribute->nodeName);
@@ -551,18 +554,40 @@ final class RuntimeIslandAnalyzer
         return false;
     }
 
-    /**
-     * Inline text a script finds only by its `data-*` hooks and rewrites, such
-     * as a live result count. Paragraph rich text saves the element verbatim
-     * with those hooks, which nothing rewrites, so the script finds the same
-     * node in an editable block. Text addressed by class or id keeps its island.
-     */
+    /** Inline text saves its script-addressed source element verbatim in rich text. */
     public function retainsRuntimeTextLeafInRichText(DOMElement $element): bool
     {
         return $this->context->isInlineContentElement(strtolower($element->tagName))
-            && SourceDom::isStandaloneTextLeaf($element)
             && $this->isRuntimeDomTarget($element)
-            && $this->isAddressedOnlyByAttributes($element);
+            && ((SourceDom::isStandaloneTextLeaf($element) && $this->isAddressedOnlyByAttributes($element))
+                || $this->hasTextOnlyRuntimeContent($element));
+    }
+
+    public function retainsRuntimeParagraph(DOMElement $element): bool
+    {
+        return 'p' === strtolower($element->tagName)
+            && $element->hasChildNodes()
+            && $this->isRuntimeDomTarget($element)
+            && $this->hasTextOnlyRuntimeContent($element);
+    }
+
+    private function hasTextOnlyRuntimeContent(DOMElement $element): bool
+    {
+        if (array() !== SourceDom::eventMetadata($element)) return false;
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement && 'br' !== strtolower($child->tagName)) return false;
+        }
+        $scripts = array_column($this->context->runtimeScriptAssets(), 'content');
+        foreach ($element->ownerDocument?->getElementsByTagName('script') ?? array() as $script) {
+            $scripts[] = $script->textContent;
+        }
+        $analyzer = new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeScriptEvidenceAnalyzer();
+        $hasMutation = false;
+        foreach ($this->runtimeDomSelectorsForElement($element) as $selector) {
+            if (! $analyzer->hasTextOnlyMutations(implode("\n", $scripts), (string) $selector)) return false;
+            $hasMutation = true;
+        }
+        return $hasMutation;
     }
 
     private function isAddressedOnlyByAttributes(DOMElement $element): bool
