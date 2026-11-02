@@ -4732,6 +4732,16 @@ final class ArtifactCompiler
                     return $documentTitle;
                 }
             }
+            // With only one page, the document title cannot be separated into
+            // site and page names by comparison with other routes. A different
+            // hero heading is not evidence of a page name; use the conventional
+            // WordPress front-page label instead.
+            if ( $path === $entryPath && null !== $titleDeclaration
+                && '' !== $normalize($titleDeclaration['content'])
+                && $normalize($titleDeclaration['content']) !== $contentHeading
+                && 1 === count(array_filter($files, fn (array $file): bool => 'html' === ($file['kind'] ?? '') && ! $this->isTemplatePartFile($file))) ) {
+                return 'Home';
+            }
             if ( $path !== $entryPath && $contentHeading === $entryTitle
                 && null !== $titleDeclaration ) {
                 $documentTitle = $normalize($titleDeclaration['content']);
