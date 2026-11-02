@@ -588,6 +588,43 @@ final class AuthorStylesheetProjector
                 $colon = strpos($declaration, ':');
                 $groups = array( array(), array() );
                 $name = false === $colon ? '' : strtolower(trim(substr($declaration, 0, $colon)));
+                // Bare variable sizes need the same length/keyword classification
+                // as literals. Math expressions already retain their sizing chain;
+                // link-owned declarations keep their source variable scope intact.
+                if ( in_array($name, array( 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' ), true)
+                    && 1 === preg_match('/^var\(/', trim(substr($declaration, $colon + 1)))
+                ) {
+                    $subjects ??= $this->buttonSizeSubjects($prelude, $context);
+                    $value = trim(substr($declaration, $colon + 1));
+                    $resolvedGroups = array();
+                    foreach ( $subjects as $element ) {
+                        $resolved = $this->isButtonControlBoxSize($name, $value, array( $element ))
+                            ? $value
+                            : $this->styleResolver->resolveCssVariablesInValue($value, $element);
+                        $resolvedGroups[$resolved][] = $element;
+                    }
+                    // Resolve at the source element, before its custom properties
+                    // and geometry are distributed across different block boxes.
+                    // Keep non-controls in the original rule's variable scope.
+                    if ( array() !== array_diff(array_keys($resolvedGroups), array( $value )) ) {
+                        if ( array() !== $rest ) {
+                            $partitioned .= $this->rewriteStyleRule($prelude, implode(';', $rest), $context, $inConditional);
+                            $rest = array();
+                        }
+                        foreach ( $resolvedGroups as $resolved => $group ) {
+                            $partitioned .= $this->rewriteStyleRule($prelude, $name . ':' . $resolved, $context, $inConditional, $group);
+                        }
+                        $projected = $this->rewriteSelectorPrelude($prelude, $context, false, false, true);
+                        $nonControls = $this->withoutButtonPresentationProjectionSelectors($projected, implode(',', array_map(
+                            static fn (DOMElement $element): string => ':where(.' . $context->selectorProjections->controlMarker($element->getNodePath() ?? '') . ')',
+                            $subjects
+                        )));
+                        if ( '' !== $nonControls ) {
+                            $partitioned .= $nonControls . '{' . $declaration . '}';
+                        }
+                        continue;
+                    }
+                }
                 if ( in_array($name, array( 'height', 'min-height', 'max-height' ), true) ) {
                     $subjects ??= $this->buttonSizeSubjects($prelude, $context);
                     $value = trim(substr($declaration, $colon + 1));
