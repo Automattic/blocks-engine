@@ -22,10 +22,13 @@ foreach ($plan['writes'] as $write) {
 $assert(is_array($theme), 'Compiled theme.json is present');
 $assert('var:preset|font-family|body' === $theme['styles']['typography']['fontFamily'], 'Body font is a root Global Styles default');
 $assert('var:preset|font-family|heading' === $theme['styles']['elements']['heading']['typography']['fontFamily'], 'Heading font is an element Global Styles default');
-$assert(!str_contains($markup, '"fontFamily"') && !str_contains($markup, 'has-heading-font-family'), 'Inherited fonts are not pinned by block attributes or preset classes');
+preg_match('/<!-- wp:heading\b.*?<!-- \/wp:heading -->.*?<!-- wp:paragraph\b.*?<!-- \/wp:paragraph -->/s', $markup, $inherited);
+$assert(isset($inherited[0]) && !str_contains($inherited[0], '"fontFamily"') && !str_contains($inherited[0], 'has-heading-font-family'), 'Inherited fonts are not pinned by block attributes or preset classes');
 
 // Emulate core's Global Styles output from the public theme.json contract.
 // Source CSS and compiled markup are otherwise used verbatim in the browser.
+// Put source CSS last so equal-specificity utilities cannot pass by source order.
+$assert(str_contains($css, '.font-heading:not(:where(.blocks-engine-role-semantic,.blocks-engine-role-richtext)):not(:where(h1,h2,h3,h4,h5,h6))'), 'Role-scoped source utility yields its matching font on headings');
 $globalCss = static function (array $theme): string {
     $css = ':root{';
     foreach ($theme['settings']['typography']['fontFamilies'] as $font) $css .= '--wp--preset--font-family--' . $font['slug'] . ':' . $font['fontFamily'] . ';';
@@ -60,7 +63,7 @@ if ('' !== $chrome) {
     try {
         foreach (array(390, 768, 1440) as $width) {
             $fonts = array();
-            foreach (array($source, '<style>' . $css . $globalCss($theme) . '</style>' . $markup, '<style>' . $css . $globalCss($changed) . '</style>' . $markup, '<style>' . $sharedCss . $globalCss($sharedTheme) . '</style>' . $sharedMarkup) as $page) {
+            foreach (array($source, '<style>' . $globalCss($theme) . $css . '</style>' . $markup, '<style>' . $globalCss($changed) . $css . '</style>' . $markup, '<style>' . $globalCss($sharedTheme) . $sharedCss . '</style>' . $sharedMarkup) as $page) {
                 $probe = '<script>parent.document.body.dataset.fonts=JSON.stringify(["p","h2"].map(s=>getComputedStyle(document.querySelector(s)).fontFamily))</script>';
                 file_put_contents($file, '<!doctype html><body><iframe style="width:' . $width . 'px" srcdoc="' . htmlspecialchars($page . $probe, ENT_QUOTES) . '"></iframe>');
                 $output = shell_exec(escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --dump-dom --virtual-time-budget=1000 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');

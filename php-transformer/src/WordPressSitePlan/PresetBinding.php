@@ -841,7 +841,9 @@ final class PresetBinding
     {
         $transformer = new CssStylesheetTransformer();
         // Split selector arms so a shared utility still owns its font on
-        // non-heading targets. :where keeps the original specificity.
+        // non-heading targets, including class arms that AuthorStylesheetProjector
+        // scoped away from engine roles. Keep that exclusion; :where preserves
+        // the original specificity.
         $css = $transformer->transform($css, function (string $prelude, string $body, array $ancestors): string|array {
             foreach ($ancestors as $ancestor) {
                 if (!preg_match('/^@layer(?:\s|$)/', $ancestor)) return $prelude;
@@ -856,7 +858,7 @@ final class PresetBinding
                 $kept = $body;
                 if (isset($this->fontDefaults[$tag])) {
                     $kept = self::declarationText(array_values(array_filter(self::declarations($body), static fn(array $pair): bool => 'font-family' !== $pair[0])));
-                } elseif (preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*$/', trim($selector))) {
+                } elseif (preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*(?::not\(:where\(\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . ')(?:\s*,\s*\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . '))*\)\))?$/', trim($selector))) {
                     $excluded = array();
                     foreach ($this->fontDefaults as $target => $font) {
                         if ('body' !== $target && $this->sameFont($value, $font)) $excluded[] = $target;
