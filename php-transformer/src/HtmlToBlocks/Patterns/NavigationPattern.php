@@ -2379,8 +2379,26 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            if ( ! $item instanceof DOMElement || 'li' !== strtolower($item->tagName) ) {
+            if ( ! $item instanceof DOMElement ) {
                 return array();
+            }
+            if ( 'li' !== strtolower($item->tagName) ) {
+                // Malformed but common authored menus put a link wrapper directly
+                // in the list. Only a navigation landmark vouches for this shape;
+                // ordinary content lists must keep their native conversion. Use
+                // the same item lowering and selector projection as an li so its
+                // box styles (notably auto margins) stay on Core's rendered item.
+                $landmark = $list->parentNode;
+                while ( $landmark instanceof DOMElement && ! in_array(strtolower($landmark->tagName), array( 'nav', 'main', 'article', 'section' ), true) ) {
+                    $landmark = $landmark->parentNode;
+                }
+                $link = $this->soleMeaningfulChild($item);
+                if ( ! $landmark instanceof DOMElement || 'nav' !== strtolower($landmark->tagName)
+                    || ! in_array(strtolower($item->tagName), array( 'div', 'span' ), true)
+                    || ! $link instanceof DOMElement || 'a' !== strtolower($link->tagName)
+                ) {
+                    return array();
+                }
             }
 
             $wrappedList = $this->toggleWrappedList($item);
