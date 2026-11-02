@@ -658,7 +658,7 @@ $assert($carrier('<mark style="color:#e11d48">b</mark> c') !== $inlineBinding->b
 // Translucent colours bind in stylesheets as the token mixed with transparency.
 $assert('.a{color:color-mix(in srgb, var(--wp--preset--color--' . $slug . ',#e11d48) 50%, transparent)}' === $sheet('.a{color:rgb(225 29 72 / .5)}'), 'a translucent token colour binds as color-mix() with the token');
 $assert('.a{color:rgb(225 29 72 / .333)}' === $sheet('.a{color:rgb(225 29 72 / .333)}') && '.a{color:rgb(0 255 0 / .5)}' === $sheet('.a{color:rgb(0 255 0 / .5)}'), 'an alpha that is not a whole percentage, or a colour that is no token, keeps its bytes');
-$assert(str_contains((string) json_encode(array_column($displayPlan['assets'], 'content')), 'color-mix(in srgb, var(--wp--preset--color--contrast,#f5f1e8) 70%, transparent)'), 'system-stack-display-headings: the translucent navigation link colour reads the contrast token');
+$assert(str_contains((string) json_encode(array_column($displayPlan['assets'], 'content')), 'var(--wp--preset--color--contrast-alpha-70,'), 'system-stack-display-headings: the translucent navigation link colour reads the contrast token');
 
 // Navigation and button labels bind through the attributes core supports.
 $roseNav = static fn(string $second): string => '<!-- wp:navigation {"className":"menu"} --><!-- wp:navigation-link {"className":"text-rose","label":"A","url":"/a","kind":"custom"} /-->' . $second . '<!-- /wp:navigation -->';
@@ -694,7 +694,7 @@ $assert(array('unsupported_block' => 1) === $refusalsOf(array('<!-- wp:cover {"s
 $assert(array('inline_format_unsupported' => 1) === $refusalsOf(array($inline('<a href="/x" style="color:#e11d48">b</a>'))), 'a link colour in rich text is refused as inline_format_unsupported');
 $assert(array() === $refusalsOf(array($inlineBinding->bind($inline('<mark style="color:#e11d48">b</mark>')), $classBound)), 'bound values are not refusals');
 $displayMetrics = $displayPlan['theme']['design_system']['metrics'] ?? array();
-$assert(PresetBinding::REFUSAL_REASONS === array_keys($displayMetrics['refusal_reasons'] ?? array()) && ($displayMetrics['refusal_reasons']['alpha'] ?? 0) > 0 && array_sum($displayMetrics['refusal_reasons']) === ($displayMetrics['refused_value_count'] ?? null), 'system-stack-display-headings: metrics break refusals down by every reason (' . json_encode($displayMetrics['refusal_reasons'] ?? null) . ')');
+$assert(PresetBinding::REFUSAL_REASONS === array_keys($displayMetrics['refusal_reasons'] ?? array()) && 0 === ($displayMetrics['refusal_reasons']['alpha'] ?? null) && array_sum($displayMetrics['refusal_reasons']) === ($displayMetrics['refused_value_count'] ?? null), 'system-stack-display-headings: metrics break refusals down by every reason (' . json_encode($displayMetrics['refusal_reasons'] ?? null) . ')');
 $assert(1.0 === ($displayMetrics['restyle_coverage'] ?? null), 'system-stack-display-headings: every rendered colour follows the palette (' . json_encode($displayMetrics['restyle_coverage'] ?? null) . ')');
 
 // Issue #3043: a preset binding never changes a painted colour. Every colour

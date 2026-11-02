@@ -121,10 +121,10 @@ final class PresetBinding
      * Why a text or background colour stays a literal (see refusals()):
      *
      * - `no_matching_token`: an opaque colour no palette token represents;
-     * - `alpha`: a translucent colour; block supports cannot express
-     *   `color-mix()` (kses strips it from `style` attributes), so it binds
-     *   only in stylesheets (see bindStylesheet()) and the block attribute
-     *   stays unset;
+     * - `alpha`: a translucent colour with no derived palette preset (its
+     *   opaque colour is unmatched, or its alpha cannot be restated by
+     *   translucentColor()); observed palette tints use ordinary preset
+     *   attributes, keeping color-mix() out of inline styles;
      * - `important`: an `!important` rule could reach the element;
      * - `state_variant`: a `:hover`/`:focus` rule changes the property;
      * - `breakpoint_variant`: a media condition gives it another token or a
