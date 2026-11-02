@@ -80,19 +80,19 @@ final class WordPressSitePlanResolver
                 $name = $block['blockName'];
                 $field = 'core/media-text' === $name ? 'mediaUrl' : ('core/video' === $name ? 'src' : 'url');
                 $url = $attrs[$field] ?? '';
-                if ('core/image' === $name && preg_match('/<img\b[^>]*\bsrc=["\']([^"\']*)["\']/i', $block['innerHTML'], $match)) $url = html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5);
+                if (in_array($name, array('core/image', 'core/media-text'), true) && preg_match('/<img\b[^>]*\bsrc=["\']([^"\']*)["\']/i', $block['innerHTML'], $match)) $url = html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5);
                 if ('core/video' === $name && preg_match('/<video\b[^>]*\bsrc=["\']([^"\']*)["\']/i', $block['innerHTML'], $match)) $url = html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5);
                 foreach ($attachments as $token => $attachment) {
                     $canonical = WordPressSitePlan::TOKEN_PREFIX . $token . '}}';
                     if ($url === $canonical && in_array($name, array('core/image', 'core/cover', 'core/media-text', 'core/video'), true)) {
                         $attrs['core/media-text' === $name ? 'mediaId' : 'id'] = $attachment['id'];
                         $attrs[$field] = $canonical;
-                        if ('core/image' === $name) {
-                            $addClass = static fn(string $html): string => (string) preg_replace_callback('/<img\b[^>]*>/i', static function (array $match) use ($attachment): string {
-                                $tag = (string) preg_replace('/\bwp-image-\d+\b/', '', $match[0]);
-                                if (preg_match('/\bclass=(["\'])(.*?)\1/s', $tag)) return (string) preg_replace('/\bclass=(["\'])(.*?)\1/s', 'class=$1$2 wp-image-' . $attachment['id'] . '$1', $tag, 1);
-                                return substr($tag, 0, 4) . ' class="wp-image-' . $attachment['id'] . '"' . substr($tag, 4);
-                            }, $html, 1);
+                        if (in_array($name, array('core/image', 'core/cover'), true) || ('core/media-text' === $name && 'image' === ($attrs['mediaType'] ?? null))) {
+                            $classes = array('wp-image-' . $attachment['id']);
+                            if ('core/media-text' === $name) $classes[] = 'size-' . (($attrs['mediaSizeSlug'] ?? '') ?: 'full');
+                            // Cover innerHTML/innerContent exclude inner blocks; only its background image owns this ID.
+                            $selector = 'core/cover' === $name ? 'wp-block-cover__image-background' : null;
+                            $addClass = static fn(string $html): string => self::bindImageClasses($html, $classes, $selector, 'core/media-text' === $name);
                             $block['innerHTML'] = $addClass($block['innerHTML']);
                             foreach ($block['innerContent'] as &$piece) if (is_string($piece)) $piece = $addClass($piece);
                             unset($piece);
@@ -111,6 +111,21 @@ final class WordPressSitePlanResolver
         };
         $bound = $runtime->serializeBlocks($visit($runtime->parseBlocks($markup)));
         return $preserveTokens ? $bound : self::resolvePayload($bound, $references);
+    }
+
+    /** @param array<int,string> $classes */
+    private static function bindImageClasses(string $html, array $classes, ?string $selector, bool $replaceSize): string
+    {
+        return (string) preg_replace_callback('/<img\b[^>]*>/i', static function (array $match) use ($classes, $selector, $replaceSize): string {
+            $tag = $match[0];
+            $hasClass = preg_match('/\bclass=(["\'])(.*?)\1/s', $tag, $attribute);
+            $existing = $hasClass ? preg_split('/\s+/', trim($attribute[2]), -1, PREG_SPLIT_NO_EMPTY) : array();
+            if (null !== $selector && !in_array($selector, $existing, true)) return $tag;
+            $existing = array_values(array_filter($existing, static fn(string $class): bool => !preg_match('/^wp-image-\d+$/', $class) && (!$replaceSize || !str_starts_with($class, 'size-'))));
+            $value = implode(' ', array_merge($existing, $classes));
+            if ($hasClass) return (string) preg_replace_callback('/\bclass=(["\'])(.*?)\1/s', static fn(array $attribute): string => 'class=' . $attribute[1] . $value . $attribute[1], $tag, 1);
+            return substr($tag, 0, 4) . ' class="' . $value . '"' . substr($tag, 4);
+        }, $html);
     }
 
     /**
