@@ -648,7 +648,7 @@ final class ShellExtraction
             foreach (array_slice($rows, 1) as $extra) $additional[] = array('offset' => $extra['offset'], 'length' => $extra['length'], 'markup' => $extra['markup']);
             // The candidate's own block-tree offset is carried forward so removal
             // never needs to re-derive its position by searching for its bytes.
-            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null);
+            $candidates[] = array('document_edge' => $row['document_edge'] ?? false, 'area' => $area, 'markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null);
         }
         return $candidates;
     }
@@ -972,13 +972,20 @@ final class ShellExtraction
     /** @return array<int,array<string,mixed>> */
     private function nestedLandmarkCandidates(string $markup, string $sourcePath, string $area): array
     {
-        // A <main> that also holds the page's header (its first eligible header
-        // landmark) wraps the whole page shell rather than a content region, so
-        // it does not disqualify header/footer candidates; article, aside and
-        // section ancestors still do.
+        // Keep the existing shell-main rule, with an exception for a unique
+        // document-edge landmark inside main/section. Article/aside landmarks
+        // remain content even when they happen to sit at a document edge.
+        $tokens = self::blockCommentTokens($markup);
+        $landmarks = array();
+        foreach ($tokens as $token) {
+            if ($token['closing']) continue;
+            $attrs = json_decode($token['attributes'], true);
+            if (is_array($attrs) && $area === ShellLandmarkPolicy::landmarkKind((string) ($attrs['tagName'] ?? ''), (string) ($attrs['role'] ?? ''))) $landmarks[] = $token['offset'];
+        }
+        $uniqueLandmark = 1 === count($landmarks) ? $landmarks[0] : null;
         $rows = array(); $stack = array(); $shellMains = null; $documentEnds = array();
         foreach (self::topLevelBlockRanges($markup) as $range) $documentEnds[$range['offset']] = $range['offset'] + $range['length'];
-        foreach (self::blockCommentTokens($markup) as $token) {
+        foreach ($tokens as $token) {
             $offset = $token['offset']; $closing = $token['closing']; $selfClosing = $token['self_closing'];
             if ($closing) {
                 $open = array_pop($stack);
@@ -987,10 +994,29 @@ final class ShellExtraction
                 // A section/div named footer is the route's footer only when no
                 // block follows it in its top-level document block.
                 if (!empty($open['named_footer']) && 1 === preg_match('/<!--\s*wp:/', substr($markup, $offset + strlen($token['token']), $open['document_end'] - $offset - strlen($token['token'])))) continue;
-                $rows[] = array('main_ancestors' => $open['main_ancestors'], 'area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'document_level' => empty($stack), 'wrapper_contract_shell' => !empty($open['wrapper_contract_shell']), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])) + (array() !== ($open['backdrop_ids'] ?? array()) ? array('backdrop_ids' => $open['backdrop_ids']) : array()));
+                $rows[] = array('document_edge' => $open['document_edge'], 'main_ancestors' => $open['main_ancestors'], 'area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'document_level' => empty($stack), 'wrapper_contract_shell' => !empty($open['wrapper_contract_shell']), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])) + (array() !== ($open['backdrop_ids'] ?? array()) ? array('backdrop_ids' => $open['backdrop_ids']) : array()));
                 continue;
             }
             $name = $token['name']; $attributes = $token['attributes']; $attrs = '' === $attributes ? array() : json_decode($attributes, true);
+            $edgeLandmark = $offset === $uniqueLandmark;
+            if ($edgeLandmark) {
+                foreach ($stack as $ancestor) {
+                    if (in_array($ancestor['tag_name'] ?? '', array('article', 'aside', 'nav'), true)) $edgeLandmark = false;
+                }
+                if ('header' === $area) {
+                    $edgeLandmark = $edgeLandmark && count($stack) === count(array_filter($tokens, static fn(array $t): bool => $t['offset'] < $offset));
+                } else {
+                    // After the landmark closes, only enclosing block closings
+                    // may remain: it ends the document, not merely a section.
+                    $depth = 0; $ended = false;
+                    foreach ($tokens as $following) {
+                        if ($following['offset'] < $offset) continue;
+                        if ($ended && !$following['closing']) { $edgeLandmark = false; break; }
+                        if (!$following['self_closing']) $depth += $following['closing'] ? -1 : 1;
+                        if (0 === $depth) $ended = true;
+                    }
+                }
+            }
             $disallowedAncestor = false; $mainAncestors = array();
             foreach ($stack as $ancestor) {
                 if ('main' === ($ancestor['tag_name'] ?? null)) $mainAncestors[] = $ancestor['offset'];
@@ -1025,7 +1051,7 @@ final class ShellExtraction
             $tagName = $landmark ?: ($footerClass ?? $tagName);
             $kind = $namedFooter ? 'footer' : $tagName;
             if (null === $shellMains && !$disallowedAncestor && 'header' === $landmark && self::isShellLandmarkBlock($name)) $shellMains = $mainAncestors;
-            $candidate = ('header' === $area || 0 < count($stack)) && !$disallowedAncestor && $area === $kind && (self::isShellLandmarkBlock($name) || ('footer' === $area && $hasShellWrapperContract && 'footer' === $footerClass));
+            $candidate = ('header' === $area || 0 < count($stack)) && (!$disallowedAncestor || $edgeLandmark) && $area === $kind && (self::isShellLandmarkBlock($name) || ('footer' === $area && $hasShellWrapperContract && 'footer' === $footerClass));
             // Whether page content precedes the landmark inside its ancestors: a
             // block other than the enclosing openings started or ended before it.
             $preceded = false;
@@ -1035,7 +1061,7 @@ final class ShellExtraction
                 $preceded = preg_match_all('/<!--\s*wp:/', $between) > count($stack) || 0 < preg_match_all('/<!--\s*\/wp:/', $between);
                 if ($preceded) $backdropIds = self::backdropAncestorIds($markup, $stack, $offset);
             }
-            if (!$selfClosing) $stack[] = array('offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'named_footer' => $candidate && $namedFooter, 'document_end' => $stack[0]['document_end'] ?? $documentEnds[$offset] ?? strlen($markup), 'main_ancestors' => $mainAncestors, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'anchor' => $anchor, 'class_name' => $className);
+            if (!$selfClosing) $stack[] = array('document_edge' => $edgeLandmark && (array() !== $mainAncestors || $disallowedAncestor), 'offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'named_footer' => $candidate && $namedFooter, 'document_end' => $stack[0]['document_end'] ?? $documentEnds[$offset] ?? strlen($markup), 'main_ancestors' => $edgeLandmark ? array() : $mainAncestors, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'anchor' => $anchor, 'class_name' => $className);
         }
         $rows = array_values(array_filter($rows, static fn(array $row): bool => array() === array_diff($row['main_ancestors'], $shellMains ?? array())));
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
@@ -1403,7 +1429,9 @@ final class ShellExtraction
             // Shared ownership does not imply detached placement. When any
             // occurrence is nested, bind every occurrence at its source position
             // and leave route-owned ancestors and sibling order intact.
-            $inlineShell = (bool) array_filter($cluster['indexes'], fn(int $index): bool => $this->hasLayoutAncestor($pages[$index]['canonical_block_markup'], $candidates[$index][0], $area));
+            // A single document's newly recognized page-edge landmark belongs
+            // in every template; established multi-route layout bindings stay put.
+            $inlineShell = (bool) array_filter($cluster['indexes'], fn(int $index): bool => (count($applicable) > 1 || empty($candidates[$index][0]['document_edge'])) && $this->hasLayoutAncestor($pages[$index]['canonical_block_markup'], $candidates[$index][0], $area));
             // A heterogeneous responsive bundle has its own visibility owner.
             // Nesting that bundle beneath one viewport would hide the other;
             // retain the existing partition contract for those bundles.

@@ -59,6 +59,33 @@ final class ShellLandmarkPolicy
         return in_array(strtolower($tagName), array( 'article', 'aside', 'section' ), true);
     }
 
+    /**
+     * A unique landmark at the document edge can be page chrome even inside
+     * main or a top-level section. Article/aside landmarks remain content.
+     */
+    public static function isDocumentEdgeLandmark(\DOMElement $element): bool
+    {
+        $area = self::landmarkKind($element->tagName, $element->getAttribute('role'));
+        if (!in_array($area, array('header', 'footer'), true)) return false;
+        $root = $element;
+        for ($ancestor = $element->parentNode; $ancestor instanceof \DOMElement; $ancestor = $ancestor->parentNode) {
+            if (in_array(strtolower($ancestor->tagName), array('article', 'aside', 'nav', 'blockquote', 'figure'), true)) return false;
+            $root = $ancestor;
+            if ('body' === strtolower($ancestor->tagName)) break;
+        }
+        $count = 0;
+        foreach ($root->getElementsByTagName('*') as $node) {
+            if (self::landmarkKind($node->tagName, $node->getAttribute('role')) === $area) ++$count;
+        }
+        if (1 !== $count) return false;
+        for ($node = $element; $node !== $root; $node = $node->parentNode) {
+            for ($sibling = 'header' === $area ? $node->previousSibling : $node->nextSibling; null !== $sibling; $sibling = 'header' === $area ? $sibling->previousSibling : $sibling->nextSibling) {
+                if ($sibling instanceof \DOMElement || (XML_TEXT_NODE === $sibling->nodeType && '' !== trim($sibling->textContent))) return false;
+            }
+        }
+        return true;
+    }
+
     public static function isSemanticGroupTag(string $tagName): bool
     {
         return in_array(strtolower($tagName), self::SEMANTIC_GROUP_TAGS, true);

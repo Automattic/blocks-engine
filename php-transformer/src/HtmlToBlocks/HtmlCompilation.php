@@ -3848,11 +3848,25 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             && ! $this->hasAncestorTag($element, array('main', 'section', 'aside', 'nav'));
         if ( $this->session->preservesShellLandmarks()
             && in_array(ShellLandmarkPolicy::landmarkKind($tagName, $this->attr($element, 'role')), array('header', 'footer'), true)
-            && ('body' === strtolower($element->parentNode?->nodeName ?? '') || $this->hasAncestorTag($element, array('article')) || $documentFooter)
+            && ('body' === strtolower($element->parentNode?->nodeName ?? '') || $this->hasAncestorTag($element, array('article')) || $documentFooter || ($this->hasAncestorTag($element, array('main', 'section')) && ShellLandmarkPolicy::isDocumentEdgeLandmark($element)))
         ) {
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
-                return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
+                $attrs = $this->styleResolver->presentationAttributes($element);
+                if ($this->hasAncestorTag($element, array('main', 'section')) && ShellLandmarkPolicy::isDocumentEdgeLandmark($element)) {
+                    // Hoisting loses inherited text colour and the transparent
+                    // landmark's ancestor backdrop. Keep that paint on the part.
+                    foreach (array('text', 'background') as $paint) {
+                        if (isset($attrs['style']['color'][$paint])) continue;
+                        for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+                            $context = $this->styleResolver->presentationAttributes($ancestor);
+                            if (!isset($context['style']['color'][$paint])) continue;
+                            $attrs['style']['color'][$paint] = $context['style']['color'][$paint];
+                            break;
+                        }
+                    }
+                }
+                return $this->createBlock('core/group', $attrs, $children, $element);
             }
         }
 
