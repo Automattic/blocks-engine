@@ -2171,11 +2171,17 @@ final class ArtifactCompiler
         $payloads = array();
         foreach ( $stylesheets as $stylesheet ) {
             if (!StylesheetActivation::active($stylesheet)) continue;
-            $content = (string) ($stylesheet['content'] ?? '');
+            // Analysis must see imported rules at their authored occurrence,
+            // with import media/supports/layer qualifiers still attached.
+            $content = $this->compatibilityStylesheetContent(
+                (string) ($stylesheet['content'] ?? ''),
+                (string) ($stylesheet['path'] ?? $sourcePath),
+                $files
+            );
             if ( '' !== trim($content) ) {
                 $payloads[] = array(
                     'content' => $this->artifactRelativeStylesheetContent($content, (string) ($stylesheet['source_path'] ?? $sourcePath), $files),
-                    'source_hash' => (string) ($stylesheet['source_hash'] ?? hash('sha256', $content)),
+                    'source_hash' => hash('sha256', $content),
                     'media' => (string) ($stylesheet['media'] ?? ''),
                 );
             }

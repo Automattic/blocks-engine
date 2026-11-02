@@ -3621,44 +3621,64 @@ final class StyleResolver implements ElementPresentationResolver
 
         $root = $document->documentElement;
         if ( ! $root instanceof DOMElement || 'html' !== strtolower($root->tagName) ) {
-            if ( ! $this->hasRootFontSizeRule() ) {
-                return 16.0;
-            }
-            $this->detachedDocumentRoots ??= new \WeakMap();
-            $root = $this->detachedDocumentRoots[$document] ??= $document->createElement('html');
+            $root = $this->analysisDocumentRoot($document);
+        }
+        if (!$this->hasRootFontSizeRule($root) && !isset($this->cssDeclarations(SourceDom::attr($root, 'style'))['font-size'])) {
+            return 16.0;
         }
         $declarations = $this->structuralPresentationDeclarations($root);
         $fontSize = trim(CssValueInspector::withoutImportant((string) ($declarations['font-size'] ?? '')));
 
-        return self::rootFontSizePx($fontSize);
+        if ('' !== $fontSize) {
+            return self::rootFontSizePx($fontSize);
+        }
+
+        // Without an unconditional declaration there is no viewport to choose.
+        // Only a consensus of all conditional declarations is safe for rem.
+        $resolved = null;
+        foreach ($this->matchingStyleRules($root, 'conditional') as $rule) {
+            if (!isset($rule['declarations']['font-size'])) continue;
+            $value = self::rootFontSizePx(trim(CssValueInspector::withoutImportant($rule['declarations']['font-size'])));
+            if (null === $value || (null !== $resolved && abs($value - $resolved) > 0.000001)) return null;
+            $resolved = $value;
+        }
+        return $resolved ?? 16.0;
     }
 
     /** Root author evidence, including html/:root rules in body-only analysis documents. */
     public function hasAuthoredHtmlFontSize(DOMElement $body): bool
     {
-        if (!$this->hasRootFontSizeRule()) return false;
         $document = $body->ownerDocument;
         if (null === $document) return false;
         $root = $document->documentElement;
         if (!$root instanceof DOMElement || 'html' !== strtolower($root->tagName)) {
-            $this->detachedDocumentRoots ??= new \WeakMap();
-            $root = $this->detachedDocumentRoots[$document] ??= $document->createElement('html');
+            $root = $this->analysisDocumentRoot($document);
         }
-        return isset($this->structuralPresentationDeclarations($root)['font-size']);
+        if (isset($this->cssDeclarations(SourceDom::attr($root, 'style'))['font-size'])) return true;
+        return $this->hasRootFontSizeRule($root);
     }
 
-    /** Whether any static rule that can select a bare `html` element declares a font size. */
-    private function hasRootFontSizeRule(): bool
+    /** Whether a matching root rule declares a font size, under any conditions. */
+    private function hasRootFontSizeRule(DOMElement $root): bool
     {
-        $cache = $this->context->sourceStyles();
-        $index = $cache->ruleCandidateIndexes['static'] ??= $this->styleRuleCandidateIndex('static');
-        foreach ( array_merge($index['tags']['html'] ?? array(), $index['universal']) as $entry ) {
-            if ( isset($entry['rule']['declarations']['font-size']) ) {
-                return true;
-            }
+        foreach ($this->matchingStyleRules($root, 'static-conditional') as $rule) {
+            if (isset($rule['declarations']['font-size'])) return true;
         }
-
         return false;
+    }
+
+    private function analysisDocumentRoot(\DOMDocument $document): DOMElement
+    {
+        $this->detachedDocumentRoots ??= new \WeakMap();
+        if (!isset($this->detachedDocumentRoots[$document])) {
+            // Give the stand-in its own document so :root has its normal DOM
+            // meaning without reparenting or mutating the body-only source.
+            $standIn = new \DOMDocument();
+            $root = $standIn->createElement('html');
+            $standIn->appendChild($root);
+            $this->detachedDocumentRoots[$document] = $root;
+        }
+        return $this->detachedDocumentRoots[$document];
     }
 
     /**

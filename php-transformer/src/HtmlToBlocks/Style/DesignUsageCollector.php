@@ -106,7 +106,8 @@ final class DesignUsageCollector
         $this->text = $this->backgrounds = $this->spacing = $this->widths = $this->classStyles = array();
         $this->elements = 0;
         $this->headingTypography = $this->buttonLooks = array();
-        $this->rootPx = $this->resolver->documentRootFontSize($body) ?? 16.0;
+        $resolvedRootPx = $this->resolver->documentRootFontSize($body);
+        $this->rootPx = $resolvedRootPx ?? 16.0;
         $html = $body->parentNode instanceof DOMElement && 'html' === strtolower($body->parentNode->tagName) ? $body->parentNode : null;
         $htmlDeclarations = null !== $html ? $this->declarations($html) : array();
         $bodyDeclarations = $this->declarations($body);
@@ -151,7 +152,8 @@ final class DesignUsageCollector
 
         return array(
             'schema' => self::SCHEMA,
-            'root_font_size_px' => self::number($this->rootPx),
+            'root_font_size_px' => null !== $resolvedRootPx ? self::number($resolvedRootPx) : null,
+            'root_font_size_authored' => $this->resolver->hasAuthoredHtmlFontSize($body),
             'root' => $root,
             'text' => self::rows($this->text),
             'backgrounds' => self::rows($this->backgrounds),
