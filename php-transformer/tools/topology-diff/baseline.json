@@ -255,22 +255,20 @@
             "retagged svg>img": 6
         },
         "22-fast-beautiful-website": {
-            "added a": 2,
             "added div [blocks-engine-control]": 4,
             "added figure [blocks-engine-synthetic-image-figure]": 5,
             "added img": 5,
             "added mark": 2,
-            "added p [blocks-engine-inline-layout-carrier]": 18,
-            "added p [blocks-engine-synthetic-paragraph]": 8,
+            "added p [blocks-engine-inline-layout-carrier]": 16,
+            "added p [blocks-engine-synthetic-paragraph]": 9,
             "removed button": 1,
             "removed nav": 1,
             "removed svg": 5,
             "removed ul": 3,
-            "retagged a>div [wp-block-group]": 1,
             "retagged div>p": 2,
             "retagged nav>div [wp-block-group]": 3,
             "retagged span>div [blocks-engine-semantic]": 3,
-            "retagged span>mark": 4,
+            "retagged span>mark": 6,
             "retagged span>mark [blocks-engine-attribute]": 3,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 4
         },
@@ -646,13 +644,12 @@
             "retagged span>p [blocks-engine-synthetic-paragraph]": 11
         },
         "42-immersive-product-launch": {
-            "added a": 2,
             "added div [blocks-engine-attribute]": 4,
             "added figure [blocks-engine-synthetic-image-figure]": 1,
             "added img": 1,
             "added mark": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 12,
-            "added p [blocks-engine-synthetic-paragraph]": 27,
+            "added p [blocks-engine-inline-layout-carrier]": 10,
+            "added p [blocks-engine-synthetic-paragraph]": 28,
             "added p [blocks-engine-synthetic-svg-paragraph]": 3,
             "added ul [blocks-engine-social-source-cluster]": 1,
             "removed a": 3,
@@ -660,35 +657,30 @@
             "removed i": 2,
             "removed nav": 1,
             "removed svg": 1,
-            "retagged a>div [wp-block-group]": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 6,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 1,
-            "retagged span>mark": 8,
+            "retagged span>mark": 10,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 18,
             "retagged svg>img": 3
         },
         "43-interactive-space-explorer": {
-            "added a": 2,
             "added div [blocks-engine-attribute]": 4,
             "added figure [blocks-engine-synthetic-image-figure]": 1,
             "added img": 1,
             "added mark": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 2,
-            "added p [blocks-engine-synthetic-paragraph]": 18,
+            "added p [blocks-engine-synthetic-paragraph]": 19,
             "added p [blocks-engine-synthetic-svg-paragraph]": 3,
             "added ul [blocks-engine-social-source-cluster]": 1,
             "removed a": 3,
             "removed button": 1,
             "removed i": 1,
             "removed nav": 1,
-            "removed span": 4,
             "removed svg": 1,
-            "retagged a>div [wp-block-group]": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 6,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 4,
-            "retagged span>mark": 13,
+            "retagged span>mark": 19,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 17,
             "retagged svg>img": 3
         },
@@ -752,11 +744,10 @@
             "retagged span>mark": 4
         },
         "49-terminal-text-adventure": {
-            "added a": 2,
-            "added p [blocks-engine-inline-layout-carrier]": 3,
-            "added p [blocks-engine-synthetic-paragraph]": 1,
+            "added p [blocks-engine-inline-layout-carrier]": 1,
+            "added p [blocks-engine-synthetic-paragraph]": 2,
             "removed nav": 1,
-            "retagged a>div [wp-block-group]": 1
+            "retagged span>mark": 2
         },
         "5-documentation-knowledge-base": {
             "added div [blocks-engine-control]": 68,
@@ -799,13 +790,12 @@
             "retagged svg>img": 1
         },
         "52-css-3d-world": {
-            "added a": 2,
-            "added p [blocks-engine-inline-layout-carrier]": 2,
+            "added p [blocks-engine-synthetic-paragraph]": 1,
             "removed button": 1,
             "removed h2": 1,
             "removed nav": 1,
-            "retagged a>div [wp-block-group]": 1,
-            "retagged p>div [wp-block-group]": 4
+            "retagged p>div [wp-block-group]": 4,
+            "retagged span>mark": 2
         },
         "53-live-ops-dashboard": [],
         "54-physics-sandbox": {
@@ -838,18 +828,15 @@
             "retagged svg>img": 1
         },
         "57-webgl-shader-gallery": {
-            "added a": 2,
             "added div [blocks-engine-control]": 2,
             "added mark": 4,
-            "added p [blocks-engine-inline-layout-carrier]": 2,
-            "added p [blocks-engine-synthetic-paragraph]": 3,
+            "added p [blocks-engine-synthetic-paragraph]": 4,
             "removed button": 1,
             "removed nav": 1,
             "removed ul": 3,
-            "retagged a>div [wp-block-group]": 1,
             "retagged div>p": 1,
             "retagged nav>div [wp-block-group]": 3,
-            "retagged span>mark": 4
+            "retagged span>mark": 7
         },
         "58-infinite-whiteboard": {
             "added div [blocks-engine-control]": 6,
@@ -878,21 +865,18 @@
             "retagged svg>img": 1
         },
         "6-editorial-magazine": {
-            "added a": 2,
             "added div [blocks-engine-control]": 8,
             "added figure [blocks-engine-synthetic-image-figure]": 2,
             "added img": 7,
             "added mark": 1,
-            "added p [blocks-engine-inline-layout-carrier]": 2,
-            "added p [blocks-engine-synthetic-paragraph]": 8,
+            "added p [blocks-engine-synthetic-paragraph]": 9,
             "removed button": 1,
             "removed div": 1,
             "removed nav": 1,
             "removed svg": 7,
             "removed ul": 3,
-            "retagged a>div [wp-block-group]": 1,
             "retagged span>div [blocks-engine-semantic]": 5,
-            "retagged span>mark": 6,
+            "retagged span>mark": 8,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 24
         },
         "60-node-editor": {
@@ -995,19 +979,17 @@
             "retagged svg>img": 1
         },
         "71-beyond-the-block": {
-            "added a": 2,
             "added div [blocks-engine-control]": 6,
             "added mark": 13,
-            "added p [blocks-engine-inline-layout-carrier]": 14,
-            "added p [blocks-engine-synthetic-paragraph]": 3,
+            "added p [blocks-engine-inline-layout-carrier]": 12,
+            "added p [blocks-engine-synthetic-paragraph]": 4,
             "removed a": 1,
             "removed button": 1,
             "removed nav": 1,
             "removed ul": 3,
-            "retagged a>div [wp-block-group]": 1,
             "retagged div>p": 1,
             "retagged nav>div [wp-block-group]": 3,
-            "retagged span>mark": 6,
+            "retagged span>mark": 8,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 1
         },
         "72-why-wordpress": {
