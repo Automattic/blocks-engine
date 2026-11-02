@@ -412,6 +412,12 @@ final class EngineSupportCss
     public function generatedMarkupRepairCss(string $serializedBlocks): array
     {
         $parts = array();
+        if (str_contains($serializedBlocks, 'blocks-engine-social-source-non-list')) {
+            // Lowering a div/span to ul must not introduce UA list margins.
+            // Zero specificity leaves every authored margin (including type
+            // selectors and conditional rules) in control of the source box.
+            $parts[] = ':where(ul.blocks-engine-social-source-non-list){margin-top:0;margin-bottom:0}';
+        }
         if ( str_contains($serializedBlocks, self::SLIDESHOW_GALLERY_CLASS) ) {
             $gap = '16px';
             $parts[] = ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.has-nested-images{display:flex;flex-wrap:wrap;gap:' . $gap . '}'

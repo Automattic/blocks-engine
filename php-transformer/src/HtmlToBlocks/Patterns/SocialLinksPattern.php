@@ -176,6 +176,9 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             $native = $context->createBlock('core/social-links', $nativeAttrs, $links);
             return new PatternRecognitionResult($context->createBlock('core/group', $context->presentationAttributes($element), array($native), $element));
         }
+        if (!in_array(strtolower($element->tagName), array('ul', 'ol'), true)) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-social-source-non-list');
+        }
         return new PatternRecognitionResult($context->createBlock('core/social-links', $attrs, $links, $element));
     }
 
