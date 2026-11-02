@@ -417,6 +417,10 @@ final class EngineSupportCss
             // Zero specificity leaves every authored margin (including type
             // selectors and conditional rules) in control of the source box.
             $parts[] = ':where(ul.blocks-engine-social-source-non-list){margin-top:0;margin-bottom:0}';
+            // Blockify the anchor as in the source flex cluster, without an
+            // inline line box from Core's 24px social-link font. Outrank Core's
+            // three-class inline-block item rule, including when it loads later.
+            $parts[] = 'ul.blocks-engine-social-source-non-list.wp-block-social-links > li.wp-block-social-link{display:flex}';
         }
         if ( str_contains($serializedBlocks, self::SLIDESHOW_GALLERY_CLASS) ) {
             $gap = '16px';
