@@ -1497,10 +1497,11 @@ final class NavigationStyleProjector
                 $content = '.wp-block-navigation-item.' . $class . '>.wp-block-navigation-item__content';
                 if (isset($attrs['metadata']['blocksEngineNavigationAnchor'])) {
                     $content = '.wp-block-navigation-item.' . $class . ' .wp-block-navigation-item__content';
-                    $declarations = preg_replace('/(?:^|;)(?:display|font-size|line-height|color):[^;]*/', '', $declarations) ?? $declarations;
+                    $declarations = preg_replace('/(?:^|;)(?:font-size|line-height|color):[^;]*/', '', $declarations) ?? $declarations;
                     $rules[$class . ':label'] = $content . '>.wp-block-navigation-item__label{font-size:0;line-height:0}';
                 }
-                $rules[$class] = $content . '{' . $declarations . '}';
+                $rules[$class] = $content . '{' . $declarations . '}'
+                    . $this->context->generatedSupportStyles()->navigationIconBoxRules($class, $content);
             }
         }
 
@@ -1628,7 +1629,8 @@ final class NavigationStyleProjector
                     continue;
                 }
                 $content = '.wp-block-navigation-item.' . $class . '>.wp-block-navigation-item__content';
-                $rules[$class] = $content . '::before{' . $declarations . '}';
+                $rules[$class] = $content . '::before{' . $declarations . '}'
+                    . $this->context->generatedSupportStyles()->navigationIconBoxRules($class, $content . '::before');
             }
         }
 
