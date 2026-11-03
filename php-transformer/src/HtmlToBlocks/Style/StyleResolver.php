@@ -817,6 +817,21 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function tableCellBoxLayering(DOMElement $cell): array
     {
+        return $this->authorPropertyFamilyLayering($cell, array(
+            'padding' => '/^padding(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-(?:width|style|color))?$/',
+            'border' => '/^border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-(?:width|style|color))?$/',
+        ));
+    }
+
+    /**
+     * Whether every matching non-state author rule for each family is layered.
+     * Absent families are omitted; an unlayered declaration vetoes the family.
+     *
+     * @param array<string, string> $propertyFamilies Family => property-name regex.
+     * @return array<string, bool>
+     */
+    public function authorPropertyFamilyLayering(DOMElement $element, array $propertyFamilies): array
+    {
         $authorStyles = $this->context->authorStyles();
         $selectorCache = $authorStyles->selectorMatchCache();
         $families = array();
@@ -824,8 +839,10 @@ final class StyleResolver implements ElementPresentationResolver
             $set = array();
             foreach ( array_keys(is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array()) as $property ) {
                 $property = strtolower((string) $property);
-                if ( 1 === preg_match('/^(padding|border)(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-(?:width|style|color))?$/', $property, $family) ) {
-                    $set[ $family[1] ] = true;
+                foreach ( $propertyFamilies as $family => $pattern ) {
+                    if ( 1 === preg_match($pattern, $property) ) {
+                        $set[ $family ] = true;
+                    }
                 }
             }
             if ( array() === $set ) {
@@ -837,7 +854,7 @@ final class StyleResolver implements ElementPresentationResolver
                 if ( '' === $selector || $this->selectorCarriesPseudoState($selector) ) {
                     continue;
                 }
-                $match = $selectorCache->matches($cell, $selector, is_array($record['parsed'] ?? null) ? $record['parsed'] : array());
+                $match = $selectorCache->matches($element, $selector, is_array($record['parsed'] ?? null) ? $record['parsed'] : array());
                 if ( ( $match['supported'] ?? false ) && ( $match['matches'] ?? false ) ) {
                     $matched = true;
                     break;
