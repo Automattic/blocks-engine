@@ -28,11 +28,26 @@ sizes or pretty-printed checkpoints. Baseline is the checkout before this fix.
 | Full staged inline compose, complete site plan | 3 | 5 / 60,808 | 5 / 57,972 |
 | Same staged compose | 6 | 8 / 92,256 | 8 / 80,915 |
 
-The full staged fixture's simple rules are lowered into editor static-state
-assets, so duplicate page-delta assets are not visible in its asset count; the
-plan still shrinks when repeated inline occurrence projections disappear. It
-asserts exactly one source-path projection and partition-order-independent
-output. The projection-boundary fixture forces page deltas with `@namespace`,
+The original staged fixture's simple rules were lowered into editor static-state
+assets. It now uses image bridge rules plus `@namespace` to force non-lowered
+page deltas and generates the complete theme bootstrap. Before the ownership
+fix, each delta inherited every route's occurrences from its shared parent.
+Page-file creation now filters occurrence records to the owner, and explicit
+page compilation ownership takes precedence over inline references in plan
+scoping. The shared parent retains every route's occurrences.
+
+| Forced-delta staged fixture | Before functions.php bytes | After functions.php bytes | Before / after enqueue lines | Before / after presentation entries |
+| --- | ---: | ---: | ---: | ---: |
+| 3 routes | 25,779 | 22,023 | 12 / 8 | 14 / 10 |
+| 6 routes | 55,551 | 32,076 | 39 / 14 | 44 / 19 |
+
+These measurements compare the deduplicated compose checkout before the
+ownership fix with the same fixture after it. Assertions require exactly one
+owner scope, occurrence, instance, presentation entry and frontend enqueue per
+delta, all parent occurrences, linear bootstrap counts, one source-path
+projection, and partition-order-independent output.
+
+The projection-boundary fixture forces page deltas with `@namespace`,
 asserts exactly one shared sheet plus one delta per owner, and compares output
 byte-for-byte against a single source file regardless of duplicate count.
 

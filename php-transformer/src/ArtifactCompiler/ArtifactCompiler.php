@@ -2842,6 +2842,13 @@ final class ArtifactCompiler
                     continue;
                 }
                 $pageFile = $this->projectedStylesheetFile($file, $this->pageStylesheetPath($path, (string) $owner, $reserved), implode('', $preambles) . $delta);
+                // A delta borrows the parent's bytes contract, not its other
+                // routes' occurrences. Keep the shared file's inventory intact.
+                foreach (array('inline_references', 'references', 'stylesheet_instances') as $key) {
+                    if (isset($pageFile[$key])) {
+                        $pageFile[$key] = array_values(array_filter($pageFile[$key], static fn(array $reference): bool => ($reference['source_path'] ?? null) === (string) $owner));
+                    }
+                }
                 $pageFile['metadata']['compilation'] = array( 'scope' => 'page', 'id' => (string) $owner );
                 $pageFile['metadata']['page_stylesheet_of'] = $path;
                 $pageNative = $native;
