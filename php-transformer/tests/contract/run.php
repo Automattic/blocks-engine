@@ -1884,6 +1884,16 @@ $assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'passive meaningful i
 $inlineSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inlineSvgArtwork['assets'] ?? array()));
 $assert(str_contains($inlineSvgMarkup, 'be-inline-geometry-') && ! str_contains($inlineSvgMarkup, 'line-height:0') && str_contains($inlineSvgCss, '>img{display:inline;vertical-align:baseline;width:100%;height:auto}'), 'default-inline SVG core/image restores the source baseline over WordPress image alignment');
 
+foreach ( array( '512 512', '800 800', '448 512' ) as $shareViewBox ) {
+    $shareSvg = ( new HtmlTransformer() )->transform(
+        '<p><span style="display:flex;width:16px;height:16px;justify-content:center"><svg viewBox="0 0 ' . $shareViewBox . '"><path fill="#fff" d="M0 0h448v512H0z"/></svg></span></p>'
+    )->toArray();
+    $shareMarkup = (string) ($shareSvg['serialized_blocks'] ?? '');
+    $shareCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $shareSvg['assets'] ?? array()));
+    $assert(! str_contains($shareMarkup, 'height:512px') && ! str_contains($shareMarkup, 'height:800px'), 'flex SVG does not pin viewBox pixels: ' . $shareViewBox);
+    $assert(str_contains($shareCss, 'width:auto;height:100%'), 'flex SVG transfers the stretched cross size through its intrinsic ratio: ' . $shareViewBox);
+}
+
 $externallyAnimatedSvg = ( new HtmlTransformer() )->transform(
     '<style>.steam{animation:steamRise 3s infinite}@keyframes steamRise{to{transform:translateY(-10px);opacity:0}}</style><svg viewBox="0 0 20 20" aria-hidden="true"><path class="steam" d="M10 18V2"/></svg>'
 )->toArray();

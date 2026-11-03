@@ -105,7 +105,7 @@ final class ButtonElementConverter implements ElementConverter
             // classes paint backgrounds, borders and pseudo-elements. They
             // need the same native host as image/SVG icons, not core/button's
             // text-only label (which WordPress suppresses when empty).
-            if ( $this->isEmptyDecoration($child) ) {
+            if ( $this->isEmptyDecoration($child) || $this->isWrappedArtwork($child) ) {
                 $hasArtwork = true;
                 continue;
             }
@@ -121,6 +121,29 @@ final class ButtonElementConverter implements ElementConverter
             $hasArtwork = true;
         }
 
+        return $hasArtwork;
+    }
+
+    private function isWrappedArtwork(DOMElement $element): bool
+    {
+        if (!in_array(strtolower($element->tagName), array('span', 'i', 'b', 'em', 'strong', 'small'), true)
+            || '' !== trim($element->textContent ?? '')) {
+            return false;
+        }
+        $hasArtwork = false;
+        foreach ($element->childNodes as $child) {
+            if (!$child instanceof DOMElement) continue;
+            if (in_array(strtolower($child->tagName), array('svg', 'img'), true)) {
+                if ('svg' === strtolower($child->tagName)
+                    && ('' === trim(SourceDom::attr($child, 'viewbox'))
+                        || 0 === SourceDom::childElementCount($child))) return false;
+                $hasArtwork = true;
+            } elseif ($this->isWrappedArtwork($child)) {
+                $hasArtwork = true;
+            } elseif (!$this->isEmptyDecoration($child)) {
+                return false;
+            }
+        }
         return $hasArtwork;
     }
 
