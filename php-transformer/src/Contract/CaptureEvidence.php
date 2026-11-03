@@ -47,6 +47,8 @@ final class CaptureEvidence
     public const VARIANT_ID_SUFFIX_PREFIX = '--data-blocks-engine-capture-';
     /** On `<style>`/`<link>`: the authored media condition, independent of the serialized `media` activation state. */
     public const SOURCE_MEDIA = 'data-blocks-engine-capture-source-media';
+    /** On the document root: `BackCompat` when the source rendered in quirks mode. */
+    public const COMPAT_MODE = 'data-blocks-engine-capture-compat-mode';
 
     // Dialogs, dropdowns and their runtime state.
 

@@ -75,6 +75,7 @@ Two audiences read this vocabulary:
 | `data-blocks-engine-capture-responsive-source` | attribute | source id | Source identity of a responsive counterpart; ignored when comparing shared chrome. |
 | `data-blocks-engine-capture-device-style` | attribute on `<style>`/`<link>` | space-separated profile ids | Device profiles that activate the stylesheet. Document occurrences and their projected slices retain these keys in generated frontend links. |
 | `data-blocks-engine-capture-source-media` | attribute on `<style>`/`<link>` | media query | The authored media condition, independent of a serialized `media` that only records the inactive document's activation. |
+| `data-blocks-engine-capture-compat-mode` | attribute on `<html>` | `BackCompat` | The source rendered in quirks mode. A block whose text is one sized `<font>` run takes the run's size, so its standards-mode lines keep the source's tight line boxes. |
 
 ### Dialogs and dropdowns
 
