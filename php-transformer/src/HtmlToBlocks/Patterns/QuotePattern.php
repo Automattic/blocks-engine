@@ -115,7 +115,10 @@ final class QuotePattern implements PatternRecognizerInterface
             }
             $innerBlocks[] = $createBlock('core/paragraph', array_merge($context->presentationAttributes($child), array( 'content' => $content )), array(), $child);
         }
-        $innerBlocks = array_merge($innerBlocks, $converter->childrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' )));
+        $innerBlocks = array_merge($innerBlocks, $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes));
+        if ( array() === $innerBlocks ) {
+            $innerBlocks = $converter->childrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' ));
+        }
         if ( array() === $innerBlocks ) {
             $innerBlocks[] = $createBlock('core/paragraph', array( 'content' => $value ));
         }

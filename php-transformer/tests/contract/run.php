@@ -3794,6 +3794,12 @@ $assert(2 === count($breadcrumbSemanticParity['navigation_menus']['blocks'] ?? a
 $assert(true === ($breadcrumbSemanticParity['navigation_menus']['blocks'][0]['represented_as_native_group_navigation'] ?? false), 'semantic parity identifies a direct-anchor nav Group representation');
 $assert(array('label' => 'Guide', 'url' => '#guide') === (($breadcrumbSemanticParity['navigation_menus']['blocks'][0]['items'] ?? array())[1] ?? array()), 'semantic parity extracts direct-anchor nav Group items in document order');
 
+$figureQuoteTextSeams = ( new HtmlTransformer() )->transform(
+    '<main><figure><blockquote>“<!-- -->Quote text.<!-- -->”</blockquote><figcaption>Pat Q.</figcaption></figure></main>'
+)->toArray();
+$figureQuoteTextSeamsSerialized = (string) ($figureQuoteTextSeams['serialized_blocks'] ?? '');
+$assert(1 === substr_count($figureQuoteTextSeamsSerialized, '"className":"blocks-engine-synthetic-paragraph"') && str_contains($figureQuoteTextSeamsSerialized, '<p class="blocks-engine-synthetic-paragraph">“<mark style="background-color:transparent;color:inherit" role="none">Quote text.</mark>”</p>'), 'figure blockquote comment-separated text runs remain a single synthetic paragraph');
+
 $quoteCitationFooter = ( new HtmlTransformer() )->transform(
     '<main><section><blockquote><p>Lovely dinner.</p><footer>Local Guide</footer></blockquote></section></main><footer>Restaurant footer</footer>'
 )->toArray();
