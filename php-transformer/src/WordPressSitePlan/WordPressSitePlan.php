@@ -4562,7 +4562,7 @@ PHP;
             if ($range['offset'] > $cursor) {
                 $template .= substr($markup, $cursor, $range['offset'] - $cursor);
             }
-            $transformed = $this->transformPostChromeRange($markup, $range, $post, $route, $shared, $featuredOffset);
+            $transformed = $this->transformPostChromeRange($markup, $range, $post, $route, $shared, false, $featuredOffset);
             $template .= $transformed['template'];
             $body .= $transformed['body'];
             $title = $title || $transformed['title'];
@@ -4583,7 +4583,7 @@ PHP;
      * @param array<string,true> $shared
      * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool,retained:array<int,array{offset:int,length:int}>}
      */
-    private function transformPostChromeRange(string $markup, array $range, array $post, string $route, array $shared, ?int $featuredOffset = null): array
+    private function transformPostChromeRange(string $markup, array $range, array $post, string $route, array $shared, bool $dateContext = false, ?int $featuredOffset = null): array
     {
         $slice = substr($markup, $range['offset'], $range['length']);
         $empty = array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array());
@@ -4598,7 +4598,9 @@ PHP;
             return $empty;
         }
         $identity = ShellExtraction::identityMarkup($slice);
-        if ('' !== $identity && isset($shared[$identity])) {
+        // Shared markup is not proof of chrome ownership for media, including
+        // serialized responsive media inside a shared wrapper.
+        if ('' !== $identity && isset($shared[$identity]) && !preg_match('/<(?:img|video|picture|audio)\b/i', str_replace('\\u003c', '<', $slice))) {
             return array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => true, 'content' => false, 'retained' => array());
         }
         // A closed dialog opens on demand, so it can neither host the post
@@ -4608,13 +4610,6 @@ PHP;
             return array('template' => '', 'body' => $slice, 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array(array('offset' => $range['offset'], 'length' => $range['length'])));
         }
         $children = self::childBlockRanges($markup, $range);
-        // A date wrapper may be the sole owner of the date class. Recognize
-        // that complete slot before descending into its unmarked text leaf.
-        if (1 === count($children) && self::isVisibleDateElement('div', array('class' => $className)) && 'date' === $this->classifyPostChromeBlock($slice, $post, $route) && self::parseVisiblePublicationTimestamp(ListingExcerptProjection::text($slice)) === ($post['publication_timestamp'] ?? null)) {
-            $empty['template'] = self::postDateMarkup($slice);
-            $empty['date'] = true;
-            return $empty;
-        }
         if (array() === $children) {
             $kind = $this->classifyPostChromeBlock($slice, $post, $route);
             if ($dateContext && is_string($post['publication_timestamp'] ?? null)
@@ -4646,7 +4641,7 @@ PHP;
             && ListingExcerptProjection::text($slice) === ListingExcerptProjection::text(substr($markup, $children[0]['offset'], $children[0]['length']))
             && ($dateContext || 'date' === $this->classifyPostChromeBlock($slice, $post, $route));
         foreach ($children as $child) {
-            $transformed = $this->transformPostChromeRange($markup, $child, $post, $route, $shared, $featuredOffset);
+            $transformed = $this->transformPostChromeRange($markup, $child, $post, $route, $shared, $childDateContext, $featuredOffset);
             $foundShared = $foundShared || $transformed['shared'];
             $body .= $transformed['body'];
             $retained = array_merge($retained, $transformed['retained']);

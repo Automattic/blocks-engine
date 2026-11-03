@@ -29,4 +29,15 @@ foreach ($posts as $post) {
     $assert($slug . ' image' === ($post['metadata']['featured_image']['alt'] ?? null), 'The image handoff preserves alt text.');
     $assert(str_contains($post['canonical_block_markup'], 'Unique body for ' . $slug) && !preg_match('/<(?:img|picture|h1)\b|March [123], 2024/i', $post['canonical_block_markup']), 'Only the article body remains in post content.');
 }
+foreach (array('/unowned/', 'https://example.org/unowned/') as $prefix) {
+    $unowned = $files;
+    foreach (array('first', 'second', 'third') as $slug) {
+        unset($unowned['media/' . $slug . '.png']);
+        $unowned[$slug . '.html'] = str_replace(array('/media/' . $slug . '.png', $slug . ' image'), array($prefix . 'lead.png', ''), $unowned[$slug . '.html']);
+    }
+    $fallback = (new WordPressSitePlan())->fromCompilerResult((new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $unowned))->toArray());
+    $single = array_values(array_filter($fallback['templates'], static fn(array $template): bool => 'single' === $template['slug']))[0]['canonical_block_markup'];
+    $posts = array_values(array_filter($fallback['pages'], static fn(array $page): bool => 'post' === $page['post_type']));
+    $assert(!preg_match('/<(?:img|picture)\b|wp:post-featured-image/i', $single) && 3 === count(array_filter($posts, static fn(array $post): bool => str_contains($post['canonical_block_markup'], 'wp:custom/responsive-media') && str_contains($post['canonical_block_markup'], 'Unique body for ' . basename($post['source_path'], '.html')) && !isset($post['metadata']['featured_image']))), 'Lead images without plan-owned assets stay in each post body, never as constants in single or featured-image bindings.');
+}
 fwrite(STDOUT, "single-responsive-lead-image: ok\n");
