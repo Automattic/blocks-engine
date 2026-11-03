@@ -3932,7 +3932,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
             fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
             fn (DOMElement $sourceElement): string => $this->inlineRichTextContent($sourceElement),
-            fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement)
+            fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement),
+            fn (DOMElement $sourceElement): array => $this->styleResolver->resolvedPresentationDeclarations($sourceElement)
         );
     }
 
@@ -4025,6 +4026,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
              accordionItemBox: fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
              sourceElementVisuallyClipped: fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
              socialAnchorColors: fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement),
+             socialPresentationDeclarations: fn (DOMElement $sourceElement): array => $this->styleResolver->resolvedPresentationDeclarations($sourceElement),
              authoredIconColor: fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
              assetMetadata: fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array()
          );
