@@ -4553,6 +4553,21 @@ $artifactToggleNavigationCss = implode("\n", array_map(static fn (array $asset):
 $assert(str_contains($artifactToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'an authored hamburger control promotes its associated menu to native responsive navigation');
 $assert(str_contains($artifactToggleNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}'), 'only authored responsive navigation receives the after-author visible-host bridge');
 
+foreach (array('blur' => true, '' => false) as $headerClass => $expectsOverlayReset) {
+    $overlayAncestorArtifact = $compiler->compile(array(
+        'entry' => 'index.html',
+        'files' => array('index.html' => '<style>@layer utilities{.blur{backdrop-filter:blur(8px)}.hidden{display:none}@media(min-width:768px){.md\\:flex{display:flex}.md\\:hidden{display:none}}}</style><header class="' . $headerClass . '"><a href="/">Brand</a><nav class="hidden md:flex"><a href="/a">A</a><a href="/b">B</a></nav><button class="md:hidden" aria-label="Open menu"></button></header><main><p>x</p></main>'),
+    ))->toArray();
+    $overlayAncestorMarkup = (string) ($overlayAncestorArtifact['serialized_blocks'] ?? '');
+    $overlayAncestorCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $overlayAncestorArtifact['assets'] ?? array()));
+    $hasOverlayReset = 1 === preg_match('/:root \\.([a-zA-Z0-9_-]+):has\\(\\.wp-block-navigation__responsive-container\\.is-menu-open\\)\\{backdrop-filter:none\\}/', $overlayAncestorCss, $overlayAncestorMatch);
+    $headerHasMarker = $hasOverlayReset && 1 === preg_match('/<header\\b[^>]*class="[^"]*\\b' . preg_quote($overlayAncestorMatch[1], '/') . '\\b/', $overlayAncestorMarkup);
+    // At the rule's start, no @layer block (or other grouping rule) may still be open.
+    $rulePrefix = $hasOverlayReset ? substr($overlayAncestorCss, 0, (int) strpos($overlayAncestorCss, $overlayAncestorMatch[0])) : '';
+    $unlayered = substr_count($rulePrefix, '{') === substr_count($rulePrefix, '}');
+    $assert(str_contains($overlayAncestorMarkup, 'blocks-engine-native-responsive-navigation') && ($expectsOverlayReset ? $hasOverlayReset && $headerHasMarker && $unlayered : !str_contains($overlayAncestorCss, ':has(.wp-block-navigation__responsive-container.is-menu-open)')), 'native responsive overlays release only authored containing-block ancestors while open (' . ($headerClass ?: 'plain') . ')', $overlayAncestorCss);
+}
+
 $artifactSummaryToggleNavigation = $compiler->compile(
     array(
         'entry' => 'index.html',
