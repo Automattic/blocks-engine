@@ -3555,7 +3555,7 @@ PHP;
             $headline = $postHeadlines[$index] ?? '';
             if ('' === $headline || count($headlineRoutes[mb_strtolower($headline, 'UTF-8')] ?? array()) > 1) continue;
             // Preserve equivalent existing labels (including their casing).
-            if ('' !== $headline && 0 !== strcasecmp($headline, (string) ($document['title'] ?? ''))) $document['title'] = $headline;
+            if ('' !== $headline && $headline !== (string) ($document['title'] ?? '')) $document['title'] = $headline;
         }
         unset($document);
         return $documents;

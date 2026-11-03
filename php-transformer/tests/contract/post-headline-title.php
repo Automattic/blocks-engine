@@ -12,13 +12,14 @@ $rows = array(
     'index' => array('Welcome', 'Publication', 'page'),
     'first' => array('Research methods', 'A guide to research &amp; discovery', 'post'),
     'second' => array('Planning tips', 'How to plan a useful study', 'post'),
+    'case-only' => array('How Many Research Questions Should You Have?', 'How many research questions should you have?', 'post'),
     'about' => array('About the publication', 'Meet the team', 'page'),
     'untitled' => array('Field notes', '', 'post'),
     'ambiguous' => array('Collected notes', 'First topic</h1><h1>Second topic', 'post'),
     'site-name' => array('Journal updates', '', 'post'),
 );
 foreach ($rows as $slug => [$seo, $headline, $type]) {
-    $realShape = in_array($slug, array('first', 'second', 'site-name'), true);
+    $realShape = in_array($slug, array('first', 'second', 'case-only', 'site-name'), true);
     $artifact['files'][] = array(
         'path' => $slug . '.html',
         'metadata' => array('post_type' => $type),
@@ -31,9 +32,9 @@ foreach ($rows as $slug => [$seo, $headline, $type]) {
     );
 }
 $compiler = new ArtifactCompiler();
-// The two-post acceptance fixture must lift the headline into the single template.
+// All three posts, including the case-only title mismatch, must lift their headlines.
 $postsArtifact = $artifact;
-$postsArtifact['files'] = array_slice($artifact['files'], 0, 3);
+$postsArtifact['files'] = array_slice($artifact['files'], 0, 4);
 $plan = $compiler->compile($postsArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
 $assert(array() !== $plan, 'Compilation produces a site plan.');
 WordPressSitePlan::assertValid($plan);
