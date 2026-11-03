@@ -1,0 +1,49 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../../vendor/autoload.php';
+
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+
+// Each page envelope re-extracts the same inline sheet. Terminal reduction
+// must merge its occurrence records instead of projecting the path N times.
+// Image bridge rules remain authored CSS; @namespace forces page deltas.
+$bootstrapCounts = array();
+foreach (array(3, 6) as $count) {
+    $files = array();
+    for ($i = 0; $i < $count; ++$i) {
+        $files[] = array('path' => "page-$i.html", 'metadata' => array('compilation' => array('scope' => 'page', 'id' => "page-$i.html")), 'content' => '<html><head><style>@namespace svg url(http://www.w3.org/2000/svg);.note{color:red}#note-0{width:41px}#note-1{width:42px}#note-2{width:43px}#note-3{width:44px}#note-4{width:45px}#note-5{width:46px}</style></head><body><main><img src="photo.png" alt="Photo" id="note-' . $i . '" class="note"></main></body></html>');
+    }
+    $artifact = array('entrypoint' => 'page-0.html', 'files' => $files);
+    $compiler = new ArtifactCompiler();
+    $shared = $compiler->prepareShared($artifact);
+    $pages = $compiler->preparePages($artifact, $shared);
+    $receipts = $compiler->compilePreparedPages($shared, $pages);
+    $result = $compiler->compose($shared, array_values($receipts))->toArray();
+    $plan = $result['source_reports']['wordpress_site_plan'];
+    $css = array_values(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')));
+    $bootstrap = array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'];
+    echo $count . ' routes: ' . count($plan['assets']) . ' assets, ' . strlen(json_encode($plan, JSON_THROW_ON_ERROR)) . ' plan bytes, ' . strlen($bootstrap) . ' bootstrap bytes, ' . substr_count($bootstrap, 'wp_enqueue_style(') . ' enqueue lines, ' . substr_count($bootstrap, "'target_path' =>") . " presentation entries\n";
+    $work = new ReflectionProperty(ArtifactCompiler::class, 'authorStylesheetProjectionCount');
+    if (1 !== $work->getValue($compiler)) throw new RuntimeException('Shared stylesheet was projected more than once.');
+    $inline = array_filter($css, static fn(array $asset): bool => str_starts_with($asset['source_path'], 'inline/'));
+    if ($count !== count($inline)) throw new RuntimeException('Expected one shared inline asset and one delta per non-primary owner.');
+    $deltas = array_filter($inline, static fn(array $asset): bool => isset($asset['stylesheet_parent']));
+    if ($count - 1 !== count($deltas)) throw new RuntimeException('Fixture must force per-owner page deltas.');
+    foreach ($deltas as $delta) {
+        $owner = $delta['inline_references'][0]['source_path'] ?? '';
+        if ('' === $owner || 1 !== count($delta['inline_references']) || 1 !== count($delta['scopes']) || 1 !== count($delta['stylesheet_instances'])) throw new RuntimeException('A page delta must retain exactly its owner occurrence, scope and instance.');
+        if ($owner !== $delta['scopes'][0]['source_path'] || $owner !== $delta['stylesheet_instances'][0]['source_path']) throw new RuntimeException('Page delta scope and instance must match its owner.');
+        if (1 !== substr_count($bootstrap, "get_theme_file_uri( '" . $delta['target_path'] . "' )") || 1 !== substr_count($bootstrap, "'target_path' => '" . $delta['target_path'] . "'")) throw new RuntimeException('A page delta must have one frontend enqueue and one presentation entry.');
+    }
+    $parents = array_values(array_filter($inline, static fn(array $asset): bool => !isset($asset['stylesheet_parent'])));
+    if (1 !== count($parents) || $count !== count($parents[0]['inline_references']) || $count !== count($parents[0]['stylesheet_instances'])) throw new RuntimeException('The shared parent must retain all route occurrences.');
+    $bootstrapCounts[$count] = array('enqueues' => substr_count($bootstrap, 'wp_enqueue_style('), 'presentation' => substr_count($bootstrap, "'target_path' =>"));
+    $reversed = $compiler->compose($shared, array_reverse(array_values($receipts)))->toArray();
+    if ($plan !== $reversed['source_reports']['wordpress_site_plan']) throw new RuntimeException('Partition order changed output.');
+    $paths = array_column($css, 'source_path');
+    if (count($paths) !== count(array_unique($paths))) throw new RuntimeException('Duplicate stylesheet output paths.');
+}
+// Fixed bootstrap overhead plus two enqueue lines and three presentation
+// entries per route, rather than one per (delta x route).
+if (array('enqueues' => 8, 'presentation' => 10) !== $bootstrapCounts[3] || array('enqueues' => 14, 'presentation' => 19) !== $bootstrapCounts[6]) throw new RuntimeException('Bootstrap stylesheet delivery must scale linearly from three to six routes.');

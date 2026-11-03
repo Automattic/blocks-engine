@@ -2630,6 +2630,9 @@ final class ArtifactCompiler
         return $path;
     }
 
+    /** Number of distinct source paths projected by the latest compose. */
+    private int $authorStylesheetProjectionCount = 0;
+
     /**
      * @param array<int, array<string, mixed>> $files
      * @param array<int, array<string, mixed>> $projections
@@ -2639,6 +2642,9 @@ final class ArtifactCompiler
      */
     private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = '', array $pageMarkup = array(), array &$projectionDiagnostics = array(), string $sharedMarkup = ''): array
     {
+        $this->authorStylesheetProjectionCount = 0;
+        // Asset identity is its path, not the number of partition occurrences.
+        $files = array_values(array_column($files, null, 'path'));
         $attributeStateMarkers = array();
         foreach ($projections as $projection) {
             $markers = $projection['attribute_state_markers'] ?? null;
@@ -2725,6 +2731,7 @@ final class ArtifactCompiler
                 $output[] = $file;
                 continue;
             }
+            ++$this->authorStylesheetProjectionCount;
             $pages = $pageByPath[$path] ?? array();
             $authoritativeContent = array_keys($primaryByPath[$path] ?? array());
             // The site-wide copy is the projection most pages produced, not
@@ -2835,6 +2842,13 @@ final class ArtifactCompiler
                     continue;
                 }
                 $pageFile = $this->projectedStylesheetFile($file, $this->pageStylesheetPath($path, (string) $owner, $reserved), implode('', $preambles) . $delta);
+                // A delta borrows the parent's bytes contract, not its other
+                // routes' occurrences. Keep the shared file's inventory intact.
+                foreach (array('inline_references', 'references', 'stylesheet_instances') as $key) {
+                    if (isset($pageFile[$key])) {
+                        $pageFile[$key] = array_values(array_filter($pageFile[$key], static fn(array $reference): bool => ($reference['source_path'] ?? null) === (string) $owner));
+                    }
+                }
                 $pageFile['metadata']['compilation'] = array( 'scope' => 'page', 'id' => (string) $owner );
                 $pageFile['metadata']['page_stylesheet_of'] = $path;
                 $pageNative = $native;

@@ -1401,7 +1401,8 @@ PHP;
             // another route. Its link occurrences, rather than shared chrome
             // ownership, determine where each activation variant is delivered.
             if (isset($asset['stylesheet_activation'], $stylesheetSets[$stylesheetSource ?? '']) && 'page' !== ($compilation['scope'] ?? null)) $compilation = null;
-            if (isset($asset['inline_references'])) {
+            // Explicit page ownership wins over inherited occurrence records.
+            if (isset($asset['inline_references']) && 'page' !== ($compilation['scope'] ?? null)) {
                 $referencedPages = array();
                 foreach ($asset['inline_references'] as $reference) if (isset($pagesBySource[$reference['source_path']])) $referencedPages[$reference['source_path']] = $pagesBySource[$reference['source_path']];
                 $asset['scopes'] = array_values(array_map(static fn(array $page): array => array('kind' => 'post' === $page['post_type'] ? 'post' : 'page', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'), 'reconciliation_identity' => $page['reconciliation_identity'], 'front_page' => '/' === $page['route']['path']), $referencedPages));
