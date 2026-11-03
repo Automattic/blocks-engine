@@ -482,7 +482,32 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function hasConditionalGridTemplateColumns(DOMElement $element): bool
     {
-        return $this->hasConditionalDeclarationForProperties($element, array( 'grid-template-columns' ));
+        $properties = array('grid-template-columns');
+        $declarations = $this->structuralPresentationDeclarations($element);
+        $pending = array('grid-template-columns');
+        while (array() !== $pending) {
+            $property = array_pop($pending);
+            foreach (array_keys($this->customPropertiesReferencedByValues(array($property => $declarations[$property] ?? ''))) as $reference) {
+                if (!in_array($reference, $properties, true)) {
+                    $properties[] = $reference;
+                    $pending[] = $reference;
+                }
+            }
+        }
+        if ($this->hasConditionalDeclarationForProperties($element, $properties)) {
+            return true;
+        }
+        $authorStyles = $this->context->authorStyles();
+        $selectorCache = $authorStyles->selectorMatchCache();
+        foreach ($selectorCache->styleRuleCandidates($element, 'author-structural', $authorStyles->styleRuleCandidateIndex()) as $rule) {
+            if (array() === ($rule['conditions'] ?? array()) || !$selectorCache->matches($element, (string) ($rule['selector'] ?? ''), $rule['parsed'] ?? array(), true)['matches']) {
+                continue;
+            }
+            if (array() !== array_intersect($properties, array_keys($rule['declarations'] ?? array()))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -3604,7 +3629,33 @@ final class StyleResolver implements ElementPresentationResolver
         }
         ++$this->analysisCache->sourceStructuralDeclarationBuilds;
 
+        // Linked author sheets can be absent from the presentation stream.
+        // Only unconditional resting rules belong in structural analysis.
         $declarations = array();
+        $authorStyles = $this->context->authorStyles();
+        $selectorCache = $authorStyles->selectorMatchCache();
+        foreach ($selectorCache->styleRuleCandidates($element, 'author-structural', $authorStyles->styleRuleCandidateIndex()) as $rule) {
+            if (!in_array(CssValueInspector::comparable((string) ($rule['declarations']['display'] ?? '')), array('grid', 'inline-grid'), true)
+                || array_filter($rule['conditions'] ?? array(), fn (string $condition): bool => !$this->conditionResolvesStatically($condition))
+                || !$selectorCache->matches($element, (string) ($rule['selector'] ?? ''), $rule['parsed'] ?? array(), true)['matches']) {
+                continue;
+            }
+            $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations'] ?? array());
+        }
+        if (array() !== $declarations) {
+            foreach ($selectorCache->styleRuleCandidates($element, 'author-structural', $authorStyles->styleRuleCandidateIndex()) as $rule) {
+                if (array_filter($rule['conditions'] ?? array(), fn (string $condition): bool => !$this->conditionResolvesStatically($condition))
+                    || !$selectorCache->matches($element, (string) ($rule['selector'] ?? ''), $rule['parsed'] ?? array(), true)['matches']) {
+                    continue;
+                }
+                $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations'] ?? array());
+            }
+        }
+        // Expand the structural stream for grid ownership only. Other author
+        // declarations retain their existing presentation-boundary contract.
+        if (!in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array('grid', 'inline-grid'), true)) {
+            $declarations = array();
+        }
         foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
             $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
         }

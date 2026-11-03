@@ -150,7 +150,7 @@ $explicitTrue = array(
 );
 foreach ( $explicitTrue as $className ) {
     $assert((bool) $hasExplicit->invoke($geometry, $classFrom($className)), 'explicit-grid-token:' . $className);
-    $assert(array( 'type' => 'grid' ) === $geometry->layoutAttribute($classFrom($className)), 'explicit-grid-layout:' . $className);
+    $assert(array( 'type' => 'grid', 'minimumColumnWidth' => '12rem' ) === $geometry->layoutAttribute($classFrom($className)), 'explicit-grid-layout:' . $className);
 }
 
 $explicitFalse = array(

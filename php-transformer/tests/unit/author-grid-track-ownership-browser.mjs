@@ -21,6 +21,10 @@ echo json_encode(array('html' => $html, 'styles' => $styles));
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 try {
     const page = await browser.newPage();
+    await page.route('https://fixture.test/**', route => {
+        const name = new URL(route.request().url()).pathname.slice(1);
+        return route.fulfill({ contentType: 'text/css', body: fixture.linkedStylesheets[name] || '' });
+    });
     for (const [width, count] of [[1440, 2], [800, 1]]) {
         await page.setViewportSize({ width, height: 1000 });
         const measurements = {};
@@ -28,7 +32,7 @@ try {
             source: fixture.source,
             compiled: `<style>${fixture.css}</style>${rendered.styles}${rendered.html}`,
         })) {
-            await page.setContent(html);
+            await page.setContent(`<base href="https://fixture.test/">${html}`);
             measurements[name] = await page.locator('.posts-grid').evaluate(element => {
                 const tracks = getComputedStyle(element).gridTemplateColumns;
                 const rules = Array.from(document.styleSheets).flatMap(sheet => {

@@ -1026,7 +1026,10 @@ final class InlineGeometry
             $decoded = json_decode($declared, true);
             $type = is_array($decoded) ? (string) ($decoded['type'] ?? '') : $declared;
             if ( in_array($type, array( 'constrained', 'flex', 'flow', 'grid' ), true) ) {
-                return array( 'type' => $type );
+                if ('grid' !== $type) {
+                    return array( 'type' => $type );
+                }
+                // Grid hints still need author ownership analysis below.
             }
         }
 
@@ -1097,6 +1100,10 @@ final class InlineGeometry
             return array();
         }
 
+        if ($this->hasOwnStyleHook($element) && array() !== array_intersect_key($structuralDeclarations, array_flip(array('display', 'grid-template-columns', 'grid-template', 'grid')))) {
+            return array();
+        }
+
         // An explicit grid class token (`grid`, `grid-3`, `footer-grid`,
         // `card-grid`, …) is a deterministic CSS-grid signal on its own. When the
         // container holds more than one element child, emit grid layout so the
@@ -1104,11 +1111,11 @@ final class InlineGeometry
         // wrappers rather than recognized card markup. Without this the grid
         // collapses to a vertical stack and loses visual parity.
         if ( $this->hasExplicitGridClass($element) && 1 < SourceDom::directElementChildCount($element) ) {
-            return array( 'type' => 'grid' );
+            return array( 'type' => 'grid', 'minimumColumnWidth' => '12rem' );
         }
 
         if ( $this->hasGridLikeClass($element) && 1 < $this->context->cardLikeChildCount($element) ) {
-            return array( 'type' => 'grid' );
+            return array( 'type' => 'grid', 'minimumColumnWidth' => '12rem' );
         }
 
         return array();

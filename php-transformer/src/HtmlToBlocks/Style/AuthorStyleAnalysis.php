@@ -576,7 +576,7 @@ final class AuthorStyleAnalysis
                 $entry = array(
                     'order' => $rule['order'],
                     'sequence' => $sequence++,
-                    'rule' => array_merge($selector, array('declarations' => $rule['declarations'], 'rule_order' => $rule['order'], 'key' => $rule['order'] . ':' . $selectorIndex, 'source_path' => $rule['source_path'] ?? '', 'source_hash' => $rule['source_hash'] ?? '')),
+                    'rule' => array_merge($selector, array('declarations' => $rule['declarations'], 'rule_order' => $rule['order'], 'key' => $rule['order'] . ':' . $selectorIndex, 'source_path' => $rule['source_path'] ?? '', 'source_hash' => $rule['source_hash'] ?? '', 'conditions' => $rule['conditions'] ?? array())),
                 );
                 if ( 'universal' === $target ) {
                     $index['universal'][] = $entry;

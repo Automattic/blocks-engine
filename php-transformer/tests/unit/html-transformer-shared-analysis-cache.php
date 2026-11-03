@@ -150,8 +150,8 @@ $selectorCache = new HtmlTransformerAnalysisCache();
 $selectorHtml = '<style>.card{color:red}.card.featured[data-state="ready"]{color:green}.card .title{font-weight:700}.card.featured .title{color:blue}</style><section class="card featured" data-state="ready"><h2 class="title">One</h2></section><section class="card featured" data-state="ready"><h2 class="title">Two</h2></section>';
 (new HtmlTransformer(analysisCache: $selectorCache))->transform($selectorHtml);
 $assert(4 === $selectorCache->authorSelectorClassTokenBuilds, 'Author selector matching tokenizes each immutable source element class list once.');
-$assert(8 === $selectorCache->authorSelectorClassTokenHits, 'Author selector matching reuses class tokens across repeated selector checks.');
-$assert(6 === $selectorCache->authorSelectorAttributeReads, 'Author selector matching records cached common-attribute reads deterministically.');
+$assert(11 === $selectorCache->authorSelectorClassTokenHits, 'Author selector matching reuses class tokens across repeated selector checks.');
+$assert(8 === $selectorCache->authorSelectorAttributeReads, 'Author selector matching records cached common-attribute reads deterministically.');
 $assert(4 === $selectorCache->authorSelectorMatchResultBuilds && $selectorCache->authorSelectorMatchResultHits >= 12, 'Author selector result lists are built once and reused by later discovery passes.');
 
 $sourceSelectorCache = new HtmlTransformerAnalysisCache();
@@ -166,7 +166,7 @@ $assert(6 === $sourceSelectorCache->sourceSelectorMatchExecutions && 1 === $sour
 $assert(5 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 16 === $sourceSelectorCache->sourceSelectorClassTokenHits && 12 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
 // Grid ownership consults the same cached structural declarations during
 // presentation and parent-placement resolution; it must not rebuild them.
-$assert(4 === $sourceSelectorCache->sourceStructuralDeclarationBuilds && 12 === $sourceSelectorCache->sourceStructuralDeclarationHits, 'Structural declaration resolution builds each source state once and reuses repeated element results.');
+$assert(4 === $sourceSelectorCache->sourceStructuralDeclarationBuilds && 14 === $sourceSelectorCache->sourceStructuralDeclarationHits, 'Structural declaration resolution builds each source state once and reuses repeated element results.');
 // style_rule_candidate_cache_hits is one higher than before native grid
 // child placement (Automattic/blocks-engine#2139 step 1): resolving whether
 // the `<p>` child's parent is a core grid container looks up the parent

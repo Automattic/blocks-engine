@@ -16,7 +16,7 @@
     "content": "<div class=\"hero-grid\"><div class=\"hero-text\"><h1>Fresh Bread Daily</h1><p>Baked every morning.</p></div><figure class=\"hero-plate\"><img src=\"https://example.com/bread.jpg\" alt=\"Bread\"/></figure></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hero-grid", "layout": { "type": "grid" } } }
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hero-grid", "layout": { "type": "grid", "minimumColumnWidth": "12rem" } } }
   ],
   "expected_fallbacks": [],
   "expect": [

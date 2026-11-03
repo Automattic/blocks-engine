@@ -27,7 +27,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 4 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "{\"className\":\"footer-grid\",\"layout\":{\"type\":\"grid\"}}" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "{\"className\":\"footer-grid\",\"layout\":{\"type\":\"grid\",\"minimumColumnWidth\":\"12rem\"}}" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"className\":\"footer-col\"" }
   ]
 }
