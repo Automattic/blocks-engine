@@ -3307,7 +3307,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
             foreach ( $row->childNodes as $cell ) {
                 if ( $cell instanceof DOMElement && in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
-                    $rows[]    = $this->layoutTableCellBlocks($cell, $fallbacks);
+                    $blocks = $this->layoutTableCellBlocks($cell, $fallbacks);
+                    // An empty, height-sized cell is a vertical spacer between page regions.
+                    $height = $this->normalizeLayoutTableTrackWidth($this->attr($cell, 'height'));
+                    if ( array() === $blocks && null !== $height && ! str_ends_with($height, '%') ) {
+                        $blocks = array( $this->createBlock('core/spacer', array( 'height' => $height ), array(), $cell) );
+                    }
+                    $rows[]    = $blocks;
                     $cellWidth = $cellWidth ?? $this->normalizeLayoutTableTrackWidth($this->attr($cell, 'width'));
                 }
             }
@@ -3319,15 +3325,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             : array_map(fn (array $blocks): array => $this->createBlock('core/group', array(), $blocks, $table), $rows);
 
         // core/table renders at 100% width, so the table box is carried by core layout instead:
-        // the resolved table (or cell) width becomes the content size, and <center> or
-        // align="center" centers that box; a centered table without a width shrinks to fit.
-        $attrs    = $this->styleResolver->presentationAttributes($table);
-        $width    = $this->normalizeLayoutTableTrackWidth($this->attr($table, 'width')) ?? $cellWidth;
-        $centered = 'center' === strtolower($this->attr($table, 'align')) || null !== $this->ancestorElement($table, 'center');
+        // the resolved table (or cell) width becomes the content size, and the box aligns
+        // to the edge its `align`, <center> or <div align> names; an aligned table without
+        // a width shrinks to fit.
+        $attrs     = $this->styleResolver->presentationAttributes($table);
+        $width     = $this->normalizeLayoutTableTrackWidth($this->attr($table, 'width')) ?? $cellWidth;
+        $alignment = TableClassificationPolicy::boxAlignment($table);
         if ( null !== $width ) {
-            $attrs['layout'] = array( 'type' => 'constrained', 'contentSize' => $width, 'justifyContent' => $centered ? 'center' : 'left' );
-        } elseif ( $centered ) {
-            $attrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical', 'justifyContent' => 'center' );
+            $attrs['layout'] = array( 'type' => 'constrained', 'contentSize' => $width, 'justifyContent' => $alignment ?? 'left' );
+        } elseif ( null !== $alignment ) {
+            $attrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical', 'justifyContent' => $alignment );
         }
 
         return $this->createBlock('core/group', $attrs, $children, $table);

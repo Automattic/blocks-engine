@@ -182,13 +182,17 @@ final class TableAttributesBuilder
         $this->layoutGeometry()->registerRule($marker, implode("\n", $rules));
     }
 
-    /** `width` and `bgcolor` are hints, not inline styles: keep the entire selector at zero specificity. */
+    /** `width`, `height` and `bgcolor` are hints, not inline styles: keep the entire selector at zero specificity. */
     private function registerTablePresentationalHints(DOMElement $table): void
     {
         $rules = array();
         $width = self::widthHint($table);
         if ( null !== $width ) {
             $rules['table'][] = 'width:' . $width;
+        }
+        $height = self::lengthHint($table, 'height');
+        if ( null !== $height ) {
+            $rules['table'][] = 'height:' . $height;
         }
         $background = self::backgroundHint($table);
         if ( null !== $background ) {
@@ -216,9 +220,14 @@ final class TableAttributesBuilder
             $section = $this->closestTagName($row);
             $section = isset($sectionRows[$section]) ? $section : 'tbody';
             $rowIndex = ++$sectionRows[$section];
+            $rowSelector = 'table>' . $section . '>tr:nth-child(' . $rowIndex . ')';
+            $rowHeight = self::lengthHint($row, 'height');
+            if ( null !== $rowHeight ) {
+                $rules[$rowSelector][] = 'height:' . $rowHeight;
+            }
             $rowBackground = self::backgroundHint($row);
             if ( null !== $rowBackground ) {
-                $rules['table>' . $section . '>tr:nth-child(' . $rowIndex . ')'][] = $rowBackground;
+                $rules[$rowSelector][] = $rowBackground;
             }
             $column = 0;
             $cellIndex = 0;
@@ -236,6 +245,10 @@ final class TableAttributesBuilder
                 $cellSelector = 'table>' . $section . '>tr:nth-child(' . $rowIndex . ')>:nth-child(' . $cellIndex . ')';
                 if ( null !== $width ) {
                     $rules[$cellSelector][] = 'width:' . $width;
+                }
+                $cellHeight = self::lengthHint($cell, 'height');
+                if ( null !== $cellHeight ) {
+                    $rules[$cellSelector][] = 'height:' . $cellHeight;
                 }
                 $cellBackground = self::backgroundHint($cell);
                 if ( null !== $cellBackground ) {
@@ -267,7 +280,12 @@ final class TableAttributesBuilder
 
     private static function widthHint(DOMElement $element): ?string
     {
-        $value = trim($element->getAttribute('width'));
+        return self::lengthHint($element, 'width');
+    }
+
+    private static function lengthHint(DOMElement $element, string $attribute): ?string
+    {
+        $value = trim($element->getAttribute($attribute));
         if ( 1 !== preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(%|px)?$/i', $value, $match) ) {
             return null;
         }
