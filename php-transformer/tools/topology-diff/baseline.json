@@ -820,8 +820,7 @@
             "added div [blocks-engine-control]": 4,
             "added p [blocks-engine-inline-layout-carrier]": 3,
             "added span [blocks-engine-copy-to-clipboard__status]": 1,
-            "removed span": 1,
-            "retagged span>div [blocks-engine-empty-visual-group]": 2,
+            "retagged span>div [blocks-engine-empty-visual-group]": 3,
             "retagged span>p [blocks-engine-inline-layout-carrier]": 3,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 4,
             "retagged svg>img": 1
@@ -840,7 +839,7 @@
         "58-infinite-whiteboard": {
             "added div [blocks-engine-control]": 6,
             "removed input": 1,
-            "removed span": 2,
+            "retagged span>div [blocks-engine-empty-visual-group]": 2,
             "retagged span>p [blocks-engine-inline-layout-carrier]": 1
         },
         "59-spreadsheet": {
@@ -854,10 +853,10 @@
             "removed button": 2,
             "removed input": 1,
             "removed nav": 1,
-            "removed span": 1,
             "removed svg": 6,
             "retagged div>p [blocks-engine-editor-anchor-cellAddr]": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 3,
+            "retagged span>div [blocks-engine-empty-visual-group]": 1,
             "retagged span>mark": 1,
             "retagged span>p [blocks-engine-inline-layout-carrier]": 1,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 1,
@@ -911,7 +910,7 @@
         "66-regex-tester": {
             "added p [blocks-engine-inline-layout-carrier]": 2,
             "removed nav": 1,
-            "removed span": 1,
+            "retagged span>div [blocks-engine-empty-visual-group]": 1,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 3,
             "retagged svg>img": 1
         },
@@ -938,7 +937,7 @@
         "69-markdown-editor": {
             "added p [blocks-engine-inline-layout-carrier]": 3,
             "removed button": 2,
-            "removed span": 1,
+            "retagged span>div [blocks-engine-empty-visual-group]": 1,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged svg>img": 1
         },

@@ -7007,6 +7007,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return true;
         }
 
+        if ( $this->isEmptyLayoutItemSpacer($element) ) {
+            return true;
+        }
+
         if ( $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName)) ) {
             return $this->runtimeIslands->isRuntimeDomTarget($element)
                 || in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true)
@@ -7039,6 +7043,49 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->isEmptyVisualInlineCandidate($element);
+    }
+
+    /** Empty in-flow flex items can reserve space without painting anything (#4065). */
+    private function isEmptyLayoutItemSpacer(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement || 0 !== $this->childElementCount($element) ) {
+            return false;
+        }
+        $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
+        $display = CssValueInspector::comparable((string) ($parentDeclarations['display'] ?? ''));
+        if ( ! in_array($display, array( 'flex', 'inline-flex' ), true) ) {
+            return false;
+        }
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true)
+            || in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'none', 'contents' ), true)
+        ) {
+            return false;
+        }
+
+        $column = in_array(CssValueInspector::comparable((string) ($parentDeclarations['flex-direction'] ?? '')), array( 'column', 'column-reverse' ), true);
+        $properties = $column ? array( 'height', 'min-height', 'flex-basis' ) : array( 'width', 'min-width', 'flex-basis' );
+        $hasSize = fn (string $value): bool => $this->sourceElementClassifier->isPositiveCssLength($value)
+            || (1 === preg_match('/^\+?(\d+(?:\.\d+)?|\.\d+)%$/', trim($value), $matches) && 0 < (float) $matches[1]);
+        foreach ( $properties as $property ) {
+            $value = $this->styleResolver->resolveCssVariablesInValue((string) ($declarations[$property] ?? ''), $element);
+            if ( $hasSize($value) ) {
+                return true;
+            }
+        }
+        // Positive growth reserves free space even with a zero basis. A
+        // shrink factor alone (including the default 0 1 auto) does not.
+        $grow = CssValueInspector::comparable((string) ($declarations['flex-grow'] ?? ''));
+        if ( is_numeric($grow) && 0 < (float) $grow ) {
+            return true;
+        }
+        $flex = $this->styleResolver->resolveCssVariablesInValue((string) ($declarations['flex'] ?? ''), $element);
+        $parts = preg_split('/\s+/', trim($flex)) ?: array();
+        $basis = (string) (count($parts) >= 3 ? $parts[2] : (count($parts) === 2 && ! is_numeric($parts[1]) ? $parts[1] : ($parts[0] ?? '')));
+        return 'auto' === $flex
+            || (isset($parts[0]) && is_numeric($parts[0]) && 0 < (float) $parts[0])
+            || $hasSize($basis);
     }
 
     /**
