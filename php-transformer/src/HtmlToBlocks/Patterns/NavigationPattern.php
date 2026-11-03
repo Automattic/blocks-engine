@@ -164,7 +164,9 @@ final class NavigationPattern implements PatternRecognizerInterface
     {
         $result = $this->recognizeNavigation($element, $context);
         if (null !== $result) {
-            $context->navigationContext()?->recordNavigationSubjects(array($result->block()), $element);
+            $blocks = array($result->block());
+            $context->navigationContext()?->recordNavigationSubjects($blocks, $element);
+            $result = new PatternRecognitionResult($blocks[0], $result->fallbacks());
         }
         return $result;
     }

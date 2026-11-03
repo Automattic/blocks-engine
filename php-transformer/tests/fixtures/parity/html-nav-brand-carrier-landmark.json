@@ -34,7 +34,7 @@
    "path": "blocks.0.innerBlocks.1",
    "name": "core/navigation",
    "attrs": {
-    "className": "navlinks blocks-engine-list-navigation",
+    "className": "navlinks blocks-engine-list-navigation blocks-engine-navigation-instance-2ff230f42e7c-0",
     "overlayMenu": "never"
    }
   }

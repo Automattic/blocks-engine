@@ -34,9 +34,9 @@ foreach (array('div', 'li') as $tag) {
     $css = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null)), 'content'));
     preg_match('/blocks-engine-navigation-item-[a-z0-9-]+/', $menu, $identity);
     $assert(isset($identity[0]), $tag . ': CTA has projected item identity');
-    $selector = preg_quote($identity[0], '/');
-    $assert((bool) preg_match('/\.wp-block-navigation-item\.' . $selector . '[^{}]*\{[^{}]*display:flex;align-items:center/', $css), $tag . ': flex layout targets rendered CTA item');
-    $assert((bool) preg_match('/\.wp-block-navigation-item\.' . $selector . '[^{}]*\{[^{}]*margin:0 0 0 auto/', $css), $tag . ': auto margin targets rendered CTA item');
+    $selector = '\\.wp-block-navigation-item:nth-child\\(2\\)';
+    $assert((bool) preg_match('/' . $selector . '[^{}]*\{[^{}]*display:flex;align-items:center/', $css), $tag . ': flex layout targets rendered CTA item');
+    $assert((bool) preg_match('/' . $selector . '[^{}]*\{[^{}]*margin:0 0 0 auto/', $css), $tag . ': auto margin targets rendered CTA item');
 }
 $ordinary = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<html><head><style>.extra{display:flex;align-items:center;margin:0 0 0 auto}</style></head><body><main><ul><li><a href="/">Reference</a></li><div class="extra"><a href="/book/">Book now</a></div></ul></main></body></html>')))->toWordPressSitePlanView()['wordpress_site_plan'];
 $content = $ordinary['pages'][0]['canonical_block_markup'];

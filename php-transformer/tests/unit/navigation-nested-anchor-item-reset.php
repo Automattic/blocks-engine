@@ -26,8 +26,8 @@ $anchorOwns = static function (array $result) use ($link, $css): bool {
     $attrs = $link($result);
     preg_match('/blocks-engine-navigation-anchor-[a-f0-9]{12}-\d+/', $attrs['className'] ?? '', $match);
     if (!isset($match[0])) return false;
-    return 1 === preg_match('/' . preg_quote($match[0], '/') . '[^{]*:where\(\.wp-block-navigation-item__content\)[^{]*\{padding:10px\}/', $css($result))
-        && 1 === preg_match('/' . preg_quote($match[0], '/') . '[^{]*:where\(\.wp-block-navigation-item__content\)[^{]*\{margin:4px 6px\}/', $css($result));
+    return 1 === preg_match('/nth-child\(1\)[^{]*:where\(\.wp-block-navigation-item__content\)[^{]*\{padding:10px\}/', $css($result))
+        && 1 === preg_match('/nth-child\(1\)[^{]*:where\(\.wp-block-navigation-item__content\)[^{]*\{margin:4px 6px\}/', $css($result));
 };
 
 $nested = (new HtmlTransformer())->transform($document('item-container'))->toArray();
@@ -35,21 +35,21 @@ $nestedAttrs = $link($nested);
 $assert($anchorOwns($nested), 'The actual emitted anchor subject owns both authored padding and margin.');
 $assert('menu-item' === ($nestedAttrs['metadata']['blocksEngineNavigationAnchor']['className'] ?? '') && !preg_match('/(?:^|\s)menu-item(?:\s|$)/', $nestedAttrs['className'] ?? ''), 'Anchor identity is retained on the native anchor and absent from the Core item.');
 $boxes = $nestedAttrs['metadata']['blocksEngineNavigationAnchor']['boxes'] ?? array();
-$assert(1 === count($boxes) && 'div' === $boxes[0]['tag'] && str_contains($css($nested), '.' . $boxes[0]['marker']), 'The original passive wrapper survives as its own stylesheet-addressable native box.');
+$assert(1 === count($boxes) && 'div' === $boxes[0]['tag'] && str_contains($css($nested), '.wp-block-navigation-item:nth-child(1)>div'), 'The original passive wrapper survives as its own stylesheet-addressable native box.');
 
 $classed = (new HtmlTransformer())->transform($document('item-container menu-item'))->toArray();
 $classedBoxes = $link($classed)['metadata']['blocksEngineNavigationAnchor']['boxes'] ?? array();
 $assert($anchorOwns($classed), 'An anchor keeps its authored box when its wrapper also matches the same rule.');
-$assert(1 === count($classedBoxes) && 1 === preg_match('/' . preg_quote($classedBoxes[0]['marker'], '/') . '[^{]*\{padding:10px\}/', $css($classed)), 'A wrapper sharing the styling class keeps its independent source paint.');
+$assert(1 === count($classedBoxes) && 1 === preg_match('/' . 'nth-child\\(1\\)>div' . '[^{]*\{padding:10px\}/', $css($classed)), 'A wrapper sharing the styling class keeps its independent source paint.');
 
 $painted = (new HtmlTransformer())->transform($document('item-container', '.item-container{padding:2px}'))->toArray();
 $paintedBoxes = $link($painted)['metadata']['blocksEngineNavigationAnchor']['boxes'] ?? array();
 $assert($anchorOwns($painted), 'A painted wrapper does not consume the anchor padding or margin.');
-$assert(1 === count($paintedBoxes) && 1 === preg_match('/' . preg_quote($paintedBoxes[0]['marker'], '/') . '[^{]*\{padding:2px\}/', $css($painted)), 'Overlapping wrapper padding stays independently owned without a scalar reset.');
+$assert(1 === count($paintedBoxes) && 1 === preg_match('/' . 'nth-child\\(1\\)>div' . '[^{]*\{padding:2px\}/', $css($painted)), 'Overlapping wrapper padding stays independently owned without a scalar reset.');
 
 $flat = (new HtmlTransformer())->transform($document('', '', false))->toArray();
 $assert($anchorOwns($flat) && !isset($link($flat)['metadata']['blocksEngineNavigationAnchor']['boxes']), 'A direct anchor retains the same subject contract and introduces no wrapper.');
 $compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $document('item-container'))))->toArray();
 $compiledCss = $css($compiled);
-$assert(str_contains($compiledCss, 'blocks-engine-navigation-anchor-') && str_contains($compiledCss, 'blocks-engine-navigation-box-') && str_contains($compiledCss, '{padding:10px}'), 'The canonical artifact import entry point projects the same independent anchor and wrapper subjects.');
+$assert(str_contains($compiledCss, '.wp-block-navigation-item__content') && str_contains($compiledCss, 'nth-child(1)>div') && str_contains($compiledCss, '{padding:10px}'), 'The canonical artifact import entry point projects the same independent anchor and wrapper subjects.');
 echo "Navigation nested anchor subject ownership passed: 9 assertions\n";

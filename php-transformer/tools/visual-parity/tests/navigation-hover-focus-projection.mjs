@@ -18,6 +18,7 @@ const link = result.blocks.flatMap((block) => block.innerBlocks ?? []).find((blo
 assert.ok(link, 'source navigation is saved as a native navigation link');
 assert.ok(!result.serialized_blocks.includes('core/html'), 'navigation conversion has no fallback block');
 const itemClasses = link.attrs.className;
+const navigationClasses = result.blocks.find((block) => block.blockName === 'core/navigation').attrs.className;
 const css = result.assets.filter((asset) => asset.kind === 'css').map((asset) => asset.content).join('\n');
 // Source-subject projection may use an opaque native marker and retain the
 // authored cascade layer. The browser assertions below prove that the native
@@ -44,7 +45,7 @@ try {
 		const sourceFocus = await sourceAnchor.evaluate((element) => getComputedStyle(element).color);
 
 		const target = await browser.newPage({ viewport, hasTouch: viewport.width < 600, isMobile: viewport.width < 600 });
-		await target.setContent(`<style>${css}</style><nav class="wp-block-navigation blocks-engine-list-navigation"><ul class="wp-block-navigation__container"><li class="wp-block-navigation-item wp-block-navigation-link ${itemClasses}"><a class="wp-block-navigation-item__content" href="/"><span class="wp-block-navigation-item__label">Home</span></a></li></ul></nav>`);
+		await target.setContent(`<style>${css}</style><nav class="wp-block-navigation ${navigationClasses}"><ul class="wp-block-navigation__container"><li class="wp-block-navigation-item wp-block-navigation-link ${itemClasses}"><a class="wp-block-navigation-item__content" href="/"><span class="wp-block-navigation-item__label">Home</span></a></li></ul></nav>`);
 		const targetAnchor = target.locator('.wp-block-navigation-item__content');
 		assert.equal(await targetAnchor.evaluate((element) => getComputedStyle(element).color), sourceNormal, `normal paint matches at ${viewport.width}px`);
 		await targetAnchor.hover();
@@ -59,7 +60,7 @@ try {
 		assert.equal(await targetAnchor.evaluate((element) => getComputedStyle(element).transitionDuration), '0.15s', `transition is retained at ${viewport.width}px`);
 
 		const editorShape = await browser.newPage({ viewport, hasTouch: viewport.width < 600, isMobile: viewport.width < 600 });
-		await editorShape.setContent(`<style>.wp-block-navigation-item__content{color:inherit}${css}</style><div class="editor-styles-wrapper"><nav class="wp-block-navigation"><ul class="wp-block-navigation__container"><li class="wp-block-navigation-item wp-block-navigation-link ${itemClasses}"><a class="wp-block-navigation-item__content" href="/"><span class="wp-block-navigation-item__label">Home</span></a></li></ul></nav></div>`);
+		await editorShape.setContent(`<style>.wp-block-navigation-item__content{color:inherit}${css}</style><div class="editor-styles-wrapper"><nav class="wp-block-navigation ${navigationClasses}"><ul class="wp-block-navigation__container"><li class="wp-block-navigation-item wp-block-navigation-link ${itemClasses}"><a class="wp-block-navigation-item__content" href="/"><span class="wp-block-navigation-item__label">Home</span></a></li></ul></nav></div>`);
 		const editorAnchor = editorShape.locator('.wp-block-navigation-item__content');
 		assert.equal(await editorAnchor.evaluate((element) => getComputedStyle(element).color), sourceNormal, `editor wrapper resting paint matches at ${viewport.width}px`);
 		await editorAnchor.hover();
