@@ -18,7 +18,7 @@ $assert(1 === preg_match('/[^{}]*\.blocks-engine-subject-class-[^{}]*\{[^}]*widt
 $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? ''), 'The carrier remains editor-valid.');
 $assert(!str_contains($markup, '<!-- wp:html'), 'The carrier uses native blocks, not raw HTML.');
 
-// The same policy handles both axes and grid, without retaining inert leaves.
+// The policy handles both flex axes, without retaining grid or inert leaves.
 foreach (array(
     array('display:flex', 'width:44px', true),
     array('display:inline-flex;flex-direction:column', 'height:44px', true),
@@ -26,7 +26,8 @@ foreach (array(
     array('display:flex', 'flex:0 44px', true),
     array('display:flex', 'width:25%', true),
     array('display:flex', 'flex:1 1 0%', true),
-    array('display:grid', 'width:44px', true),
+    array('display:grid', 'width:44px', false),
+    array('display:inline-grid', 'height:44px', false),
     array('display:flex', 'width:0;flex:0 1 auto', false),
     array('display:flex', 'height:44px', false),
     array('display:flex', 'width:44px;position:absolute', false),

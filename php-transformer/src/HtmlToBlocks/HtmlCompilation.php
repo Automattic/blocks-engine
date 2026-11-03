@@ -7045,7 +7045,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $this->isEmptyVisualInlineCandidate($element);
     }
 
-    /** Empty in-flow items can reserve space without painting anything (#4065). */
+    /** Empty in-flow flex items can reserve space without painting anything (#4065). */
     private function isEmptyLayoutItemSpacer(DOMElement $element): bool
     {
         $parent = $element->parentNode;
@@ -7054,8 +7054,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
         $display = CssValueInspector::comparable((string) ($parentDeclarations['display'] ?? ''));
-        $isFlex = in_array($display, array( 'flex', 'inline-flex' ), true);
-        if ( ! $isFlex && ! in_array($display, array( 'grid', 'inline-grid' ), true) ) {
+        if ( ! in_array($display, array( 'flex', 'inline-flex' ), true) ) {
             return false;
         }
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
@@ -7066,9 +7065,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $column = in_array(CssValueInspector::comparable((string) ($parentDeclarations['flex-direction'] ?? '')), array( 'column', 'column-reverse' ), true);
-        $properties = $isFlex
-            ? ($column ? array( 'height', 'min-height', 'flex-basis' ) : array( 'width', 'min-width', 'flex-basis' ))
-            : array( 'width', 'min-width', 'height', 'min-height' );
+        $properties = $column ? array( 'height', 'min-height', 'flex-basis' ) : array( 'width', 'min-width', 'flex-basis' );
         $hasSize = fn (string $value): bool => $this->sourceElementClassifier->isPositiveCssLength($value)
             || (1 === preg_match('/^\+?(\d+(?:\.\d+)?|\.\d+)%$/', trim($value), $matches) && 0 < (float) $matches[1]);
         foreach ( $properties as $property ) {
@@ -7077,10 +7074,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return true;
             }
         }
-        if ( ! $isFlex ) {
-            return false;
-        }
-
         // Positive growth reserves free space even with a zero basis. A
         // shrink factor alone (including the default 0 1 auto) does not.
         $grow = CssValueInspector::comparable((string) ($declarations['flex-grow'] ?? ''));
