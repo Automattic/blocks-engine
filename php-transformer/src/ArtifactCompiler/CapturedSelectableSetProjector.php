@@ -82,7 +82,7 @@ final class CapturedSelectableSetProjector
             return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => 0);
         }
 
-        $receipt = $this->jsonFile($files, 'capture-receipt.json');
+        $receipt = CaptureReceiptReport::read($files);
         if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array_merge($diagnostics, array($this->diagnostic('captured_selectable_set_route_map_missing', 'warning', 'Captured selectable sets were not projected because the capture receipt route map is unavailable.'))), 'projected_count' => 0);
         }
@@ -132,7 +132,7 @@ final class CapturedSelectableSetProjector
     private function projectComponentTabs(array $files): array
     {
         $report = CapturedInteractionReport::read($files);
-        $receipt = $this->jsonFile($files, 'capture-receipt.json');
+        $receipt = CaptureReceiptReport::read($files);
         $count = 0;
         $retired = array();
         if (!CapturedInteractionReport::valid($report)
@@ -1206,18 +1206,6 @@ final class CapturedSelectableSetProjector
     }
 
     /** @param array<int, array<string, mixed>> $files @return array<string, mixed>|null */
-    private function jsonFile(array $files, string $path): ?array
-    {
-        foreach ($files as $file) {
-            if ($path !== ($file['path'] ?? null) || ! is_string($file['content'] ?? null) || strlen($file['content']) > 2 * 1024 * 1024) {
-                continue;
-            }
-            $decoded = json_decode($file['content'], true);
-            return is_array($decoded) ? $decoded : null;
-        }
-        return null;
-    }
-
     private function normalizedUrl(string $url): string
     {
         return CaptureReceiptRoutes::normalizedUrl($url);

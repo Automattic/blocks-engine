@@ -57,11 +57,11 @@ final class CapturedDialogProjector
     private function projectComponentCarousels(array $files): array
     {
         $report = CapturedInteractionReport::read($files);
-        $receipt = $this->jsonFile($files, 'capture-receipt.json');
+        $receipt = CaptureReceiptReport::read($files);
         $count = 0;
         $diagnostics = array();
         $assets = array();
-        foreach (($this->jsonFile($files, 'asset-evidence.json')['assets'] ?? array()) as $asset) {
+        foreach (($this->assetEvidence($files)['assets'] ?? array()) as $asset) {
             if ('included' === ($asset['portable'] ?? null) && is_string($asset['id'] ?? null) && is_string($asset['path'] ?? null)
                 && !preg_match('~(^/|\.\.|^[a-z]+:)~i', $asset['path'])) {
                 foreach ($files as $candidate) if (($candidate['path'] ?? null) === $asset['path']) $assets[$asset['id']] = $asset['path'];
@@ -234,7 +234,7 @@ final class CapturedDialogProjector
             return $this->retireOwnedDisclosureWithoutProjection($files, $diagnostics);
         }
 
-        $receipt = $this->jsonFile($files, 'capture-receipt.json');
+        $receipt = CaptureReceiptReport::read($files);
         if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
             return $this->retireOwnedDisclosureWithoutProjection($files, array_merge($diagnostics, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.'))));
         }
@@ -1606,10 +1606,10 @@ final class CapturedDialogProjector
     }
 
     /** @param array<int, array<string, mixed>> $files @return array<string, mixed>|null */
-    private function jsonFile(array $files, string $path): ?array
+    private function assetEvidence(array $files): ?array
     {
         foreach ($files as $file) {
-            if ($path !== ($file['path'] ?? null) || ! is_string($file['content'] ?? null) || strlen($file['content']) > 2 * 1024 * 1024) continue;
+            if ('asset-evidence.json' !== ($file['path'] ?? null) || ! is_string($file['content'] ?? null) || strlen($file['content']) > 2 * 1024 * 1024) continue;
             $decoded = json_decode($file['content'], true);
             return is_array($decoded) ? $decoded : null;
         }

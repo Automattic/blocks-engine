@@ -215,7 +215,7 @@ final class CapturedChoiceGroupProjector
         $diagnostics = array();
         $report['pages'] = CapturedComponentStates::boundPages($report['pages'], self::MAX_PAGES, 'captured_choice_group_limit_exceeded', self::class, $diagnostics);
 
-        $receipt = $this->jsonFile($files, 'capture-receipt.json');
+        $receipt = CaptureReceiptReport::read($files);
         if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => 0);
         }
@@ -736,17 +736,6 @@ final class CapturedChoiceGroupProjector
     }
 
     /** @param array<int, array<string, mixed>> $files @return array<string, mixed>|null */
-    private function jsonFile(array $files, string $path): ?array
-    {
-        foreach ($files as $file) {
-            if ($path === ($file['path'] ?? null) && is_string($file['content'] ?? null) && strlen($file['content']) <= 2 * 1024 * 1024) {
-                $decoded = json_decode($file['content'], true);
-                return is_array($decoded) ? $decoded : null;
-            }
-        }
-        return null;
-    }
-
     private function normalizedUrl(string $url): string
     {
         return CaptureReceiptRoutes::normalizedUrl($url);

@@ -24,13 +24,12 @@ final class CapturedCollectionProjector
     private function projectReportFiles(array $files): array
     {
         $report = CapturedInteractionReport::read($files);
-        $receipt = null;
+        $receipt = CaptureReceiptReport::read($files);
         $indices = array();
         foreach ($files as $index => $file) {
             $path = $file['path'] ?? '';
             if (!is_string($path)) continue;
             $indices[$path] = $index;
-            if ('capture-receipt.json' === basename($path)) $receipt = json_decode($file['content'] ?? '', true);
         }
         if (!CapturedInteractionReport::valid($report)
             || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)

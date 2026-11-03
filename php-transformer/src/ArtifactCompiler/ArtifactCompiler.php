@@ -124,16 +124,11 @@ final class ArtifactCompiler
     /** @param array<int, array<string, mixed>> $files */
     private function hasUnreproducedSourceMotion(array $files): bool
     {
-        foreach ($files as $file) {
-            if ('capture-receipt.json' !== ($file['path'] ?? null) || !is_string($file['content'] ?? null) || strlen($file['content']) > 2 * 1024 * 1024) continue;
-            $receipt = json_decode($file['content'], true);
-            return is_array($receipt)
-                && CaptureEvidence::CAPTURE_RECEIPT_SCHEMA === ($receipt['schema'] ?? null)
-                && CaptureEvidence::SOURCE_INTERACTIVITY_SCHEMA === ($receipt['sourceInteractivity']['schema'] ?? null)
-                && is_int($receipt['sourceInteractivity']['unreproduced_route_count'] ?? null)
-                && $receipt['sourceInteractivity']['unreproduced_route_count'] > 0;
-        }
-        return false;
+        $receipt = CaptureReceiptReport::read($files);
+        return null !== $receipt
+            && CaptureEvidence::SOURCE_INTERACTIVITY_SCHEMA === ($receipt['sourceInteractivity']['schema'] ?? null)
+            && is_int($receipt['sourceInteractivity']['unreproduced_route_count'] ?? null)
+            && $receipt['sourceInteractivity']['unreproduced_route_count'] > 0;
     }
 
     /** @return array<string, int> */
@@ -389,6 +384,28 @@ final class ArtifactCompiler
         );
         $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
         $allFallbacks = $entryBlocks['fallbacks'];
+        foreach (array_merge(CaptureReceiptReport::diagnostics($normalized['files']), CaptureReceiptReport::normalizationDiagnostics($normalized['diagnostics'])) as $receiptDiagnostic) {
+            if (!in_array($receiptDiagnostic, $diagnostics, true)) $diagnostics[] = $receiptDiagnostic;
+            $lostControls = array();
+            foreach (CapturedInteractionReport::read($normalized['files'])['pages'] ?? array() as $page) {
+                foreach ($page['components'] ?? array() as $component) {
+                    if (is_array($component)) $lostControls[] = array('source_url' => $page['sourceUrl'] ?? null, 'component' => $component['id'] ?? null);
+                }
+            }
+            // A rejected receipt is a loss even when the interaction sidecar is
+            // absent or unreadable; never turn unknown control loss into success.
+            if (array() === $lostControls) $lostControls[] = array();
+            foreach ($lostControls as $control) $allFallbacks[] = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic::build(array(
+                'diagnostic_code' => $receiptDiagnostic['code'],
+                'severity' => 'error',
+                'summary' => $receiptDiagnostic['message'],
+                'source' => $receiptDiagnostic['context']['path'],
+                'context' => array_merge($receiptDiagnostic['context'], $control),
+                'conversion_classification' => 'unsupported',
+                'loss_class' => 'content_loss',
+                'diagnostic_class' => 'content_loss',
+            ));
+        }
         $allGeneratedBlocks = $entryBlocks['generated_blocks'];
         $allGutenbergGaps = $entryBlocks['gutenberg_gaps'];
         $coreHtmlFallbackEvidence = array($entryBlocks['core_html_fallback_evidence']);

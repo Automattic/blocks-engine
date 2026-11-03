@@ -14,9 +14,8 @@ use DOMElement;
  * HtmlCompilation's scroll-state dispatch.
  *
  * The report and receipt sidecars are consumed structurally: this projector
- * validates the shape and value types it actually reads and does not assume
- * any particular capture tool produced them, so it carries no vendor schema
- * identity or capture-tool-specific attribute/class names. A capture tool
+ * validates the shape and value types it actually reads. Receipt identity is
+ * validated by the shared reader. A capture tool
  * that marks one side of a responsive document pair with its own class
  * tokens (beyond this engine's own `ResponsiveDocumentVariants`-composed
  * `site-document-variant-*` classes) declares those tokens itself via the
@@ -35,7 +34,14 @@ final class ScrollStateProjector
      */
     public function project(array $files): array
     {
-        $report = $this->jsonFile($files, 'scroll-states.json');
+        $result = $this->projectReportFiles($files);
+        $result['diagnostics'] = array_merge(CaptureReceiptReport::diagnostics($files), $result['diagnostics']);
+        return $result;
+    }
+
+    private function projectReportFiles(array $files): array
+    {
+        $report = $this->scrollReport($files);
         if (null === $report) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
@@ -46,7 +52,7 @@ final class ScrollStateProjector
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_scroll_states_limit_exceeded', 'warning', 'The captured scroll-state report exceeded the page limit.', array('max_pages' => self::MAX_PAGES))), 'projected_count' => 0);
         }
 
-        $receipt = $this->jsonFile($files, 'capture-receipt.json');
+        $receipt = CaptureReceiptReport::read($files);
         if (null === $receipt || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_scroll_states_route_map_missing', 'warning', 'Captured scroll states were not projected because the capture receipt route map is unavailable.')), 'projected_count' => 0);
         }
@@ -405,10 +411,10 @@ final class ScrollStateProjector
     }
 
     /** @param array<int, array<string, mixed>> $files @return array<string, mixed>|null */
-    private function jsonFile(array $files, string $path): ?array
+    private function scrollReport(array $files): ?array
     {
         foreach ($files as $file) {
-            if ($path !== ($file['path'] ?? null) || ! is_string($file['content'] ?? null) || strlen($file['content']) > 2 * 1024 * 1024) {
+            if ('scroll-states.json' !== ($file['path'] ?? null) || ! is_string($file['content'] ?? null) || strlen($file['content']) > 2 * 1024 * 1024) {
                 continue;
             }
             $decoded = json_decode($file['content'], true);
