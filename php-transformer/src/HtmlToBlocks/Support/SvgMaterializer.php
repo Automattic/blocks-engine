@@ -670,6 +670,10 @@ final class SvgMaterializer implements SvgElementMaterializer
     /** @return array<string, string> */
     private function svgImageLinkAttributes(DOMElement $element): array
     {
+        if ( $this->ancestorProjectsAsAnchor($element) ) {
+            return array();
+        }
+
         $parent = $element->parentNode;
         if ( ! $parent instanceof DOMElement || 'a' !== strtolower($parent->tagName) ) {
             return array();
@@ -686,6 +690,25 @@ final class SvgMaterializer implements SvgElementMaterializer
             'rel' => trim(SourceDom::attr($parent, 'rel')),
             'aria-label' => trim(SourceDom::attr($parent, 'aria-label')),
         ), static fn (string $value): bool => '' !== $value);
+    }
+
+    /**
+     * Whether an ancestor already projects as the anchor around the
+     * materialized image. A flow-content anchor stays the layout shell's
+     * clickable container (tagName `a`) with every block it holds inside it,
+     * so its link already covers the image; wrapping the image in its own
+     * `<a href>` again nests anchor inside anchor, and the HTML parser closes
+     * the outer anchor at the inner one, dropping the wrapped button's label.
+     */
+    private function ancestorProjectsAsAnchor(DOMElement $element): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $this->context->isFlowContentAnchor($node) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function svgNeedsPhrasingHost(DOMElement $element): bool

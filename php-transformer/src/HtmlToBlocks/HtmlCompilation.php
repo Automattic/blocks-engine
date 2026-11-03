@@ -12146,7 +12146,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     public function convertLinkWrapperGroup(DOMElement $anchor, array &$fallbacks): ?array
     {
-        $children = $this->convertChildren($anchor, $fallbacks, true, $this->sourceElementClassifier->hasBlockLevelDescendant($anchor) && '' !== trim($anchor->textContent));
+        $children = $this->convertChildren($anchor, $fallbacks, true, $this->sourceElementClassifier->isFlowContentAnchor($anchor));
         if ( array() === $children ) {
             return null;
         }
@@ -12162,7 +12162,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // Keep a flow-content anchor as one clickable container. The existing
         // layout shell saves exact wrapper attributes around editable blocks;
         // unlike link propagation it also retains ancestor selectors and hitbox.
-        if ( $this->sourceElementClassifier->hasBlockLevelDescendant($anchor) && '' !== trim($anchor->textContent) ) {
+        if ( $this->sourceElementClassifier->isFlowContentAnchor($anchor) ) {
             $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
             if ( '' === $href ) {
                 $anchor->removeAttribute('href');
