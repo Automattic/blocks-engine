@@ -101,9 +101,10 @@ final class ButtonElementConverter implements ElementConverter
             if ( ! $child instanceof DOMElement ) {
                 return false;
             }
-            // Empty phrasing elements can be the entire visible icon: their
-            // classes paint backgrounds, borders and pseudo-elements. They
-            // need the same native host as image/SVG icons, not core/button's
+            // Empty phrasing and container elements can be the entire visible
+            // icon: their classes paint backgrounds, borders and pseudo-elements
+            // (a hamburger drawn as stacked empty <div> bars, say). They need
+            // the same native host as image/SVG icons, not core/button's
             // text-only label (which WordPress suppresses when empty).
             if ( $this->isEmptyDecoration($child) || $this->isWrappedArtwork($child) ) {
                 $hasArtwork = true;
@@ -149,7 +150,7 @@ final class ButtonElementConverter implements ElementConverter
 
     private function isEmptyDecoration(DOMElement $element): bool
     {
-        if ( ! in_array(strtolower($element->tagName), array('span', 'i', 'b', 'em', 'strong', 'small'), true)
+        if ( ! in_array(strtolower($element->tagName), array('div', 'span', 'i', 'b', 'em', 'strong', 'small'), true)
             || '' !== trim($element->textContent ?? '') ) {
             return false;
         }
