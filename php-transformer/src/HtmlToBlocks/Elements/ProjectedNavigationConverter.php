@@ -279,7 +279,10 @@ final class ProjectedNavigationConverter implements ElementConverter
                 $slotDeclarations[] = $property . ':' . $value . '!important';
             }
         }
-        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . implode(';', $slotDeclarations) . $extra . (null === $source ? '' : serialize($source)) . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary ) . ( '' === $absentAbove ? '' : ';absent:' . $absentAbove )), 0, 12);
+        $buttonPresentation = 'button' === strtolower($toggle->tagName)
+            ? $this->styleResolver->authoredControlPresentation($toggle, array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-radius', 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-left-radius', 'border-bottom-right-radius', 'background', 'background-color'))
+            : array();
+        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', (array() === $buttonPresentation ? '' : serialize($buttonPresentation)) . implode(';', $openDeclarations) . implode(';', $slotDeclarations) . $extra . (null === $source ? '' : serialize($source)) . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary ) . ( '' === $absentAbove ? '' : ';absent:' . $absentAbove )), 0, 12);
         $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation.' . $marker;
         $hostRule = $host . '{' . implode(';', array_merge($this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations, array() !== $placement), $slotDeclarations)) . '}';
         // Core repeats source list classes on its inner container. Neither
@@ -292,12 +295,20 @@ final class ProjectedNavigationConverter implements ElementConverter
             $openRule .= $this->nativeNavigationTogglePlacementEditorReset($host, $placement);
         }
         $extraRules = '';
+        if ('button' === strtolower($toggle->tagName)) {
+            // Core resets native button paint and padding. Restore the native
+            // defaults first, then replay author rules (including shorthands
+            // and conditional rules) on the actual replacement control.
+            $open = $host . '>.wp-block-navigation__responsive-container-open';
+            $extraRules .= $open . '{background-color:ButtonFace!important;border-radius:0!important;padding:1px 6px!important}';
+            $extraRules .= $presentation->css($open, $buttonPresentation, $toggle);
+        }
         if (null !== $source) {
             $open = $host . '>.wp-block-navigation__responsive-container-open';
             // Native defaults supply a different box; intrinsic source SVG
             // sizing remains on the child, with margin/transform on the leaf
             // button so Core's overlay does not gain a transformed ancestor.
-            $extraRules .= $open . '{min-width:0!important;min-height:0!important;padding:0!important;border:0!important;width:auto!important;height:auto!important}';
+            $extraRules .= $open . '{min-width:0!important;min-height:0!important;' . ('button' === strtolower($toggle->tagName) ? '' : 'padding:0!important;') . 'border:0!important;width:auto!important;height:auto!important}';
             $extraRules .= $presentation->css($open, $source['button'], $toggle);
             $extraRules .= $presentation->css($open . '>svg', $source['icon'], $toggle->getElementsByTagName('svg')->item(0));
         }
@@ -328,9 +339,9 @@ final class ProjectedNavigationConverter implements ElementConverter
         if ( $always ) {
             $rule = $hostRule . $openRule . $extraRules;
         } elseif ( '' === $collapseBoundary ) {
-            $rule = '@media(max-width:' . ( self::CORE_OVERLAY_BREAKPOINT - 1 ) . 'px){' . $hostRule . $openRule . $drawerRules . $panelRule . '}';
+            $rule = '@media(max-width:' . ( self::CORE_OVERLAY_BREAKPOINT - 1 ) . 'px){' . $hostRule . $openRule . $extraRules . $drawerRules . $panelRule . '}';
         } else {
-            $rule = '@media(max-width:' . $collapseBoundary . '){' . $hostRule . $openRule . $drawerRules . $panelRule . '}'
+            $rule = '@media(max-width:' . $collapseBoundary . '){' . $hostRule . $openRule . $extraRules . $drawerRules . $panelRule . '}'
                 . $this->sourceBoundaryOverlayCss($host, $collapseBoundary);
         }
         if ( '' !== $absentAbove ) {
