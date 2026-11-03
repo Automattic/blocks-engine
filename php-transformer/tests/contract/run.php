@@ -472,6 +472,11 @@ $assert(
         && ! str_contains($responsiveSrcsetMarkup, 'blob:'),
     'responsive core/html fallback strips unsafe srcset candidates while retaining safe URLs and descriptors'
 );
+$styledGenericFigure = (new HtmlTransformer())->transform('<style>.cap{font-weight:600;color:#715f53}</style><main><figure><div>Intro</div><figcaption class="cap">Pat Q.</figcaption></figure></main>')->toArray();
+$assert(
+    'cap' === ($styledGenericFigure['blocks'][0]['innerBlocks'][1]['attrs']['className'] ?? null),
+    'generic figure caption paragraph retains its presentation class'
+);
 $responsiveGallery = ( new HtmlTransformer() )->transform('<div class="gallery"><figure><img src="one.jpg" srcset="one-2x.jpg 2x"></figure><figure><img src="two.jpg"></figure></div>')->toArray();
 $assert(
     'custom/responsive-media' === ($responsiveGallery['blocks'][0]['blockName'] ?? null)
