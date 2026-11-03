@@ -96,11 +96,11 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             return null;
         }
 
-        // A service URL proves intent, not artwork parity. Core renders its
-        // own SVG for dynamic social-link blocks; it cannot save source paths.
-        // Keep authored SVG clusters with the ordinary icon-link converter.
-        // Empty SVG placeholders can still request core's service artwork.
-        $authoredSvg = false;
+        // Core's filled service glyph cannot reproduce stroked artwork or a
+        // separately captured glyph paint. Keep those links as live inline
+        // SVG, not an isolated image (which would freeze currentColor).
+        $sourceArtwork = false;
+        $capturedPaint = array();
         foreach ($anchors as $anchor) {
             foreach ($anchor->getElementsByTagName('svg') as $svg) {
                 $hasArtwork = false;
@@ -108,17 +108,33 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                     if ($child instanceof DOMElement && !in_array(strtolower($child->tagName), array('title', 'desc'), true)) $hasArtwork = true;
                 }
                 if (!$hasArtwork) continue;
-                $authoredSvg = true;
                 $color = $context->capturedGlyphColor($svg);
-                if ('' !== $color) {
-                    // The generic icon-link path retains this SVG (possibly
-                    // as an isolated image). Carry capture paint into that
-                    // visual rather than allowing tile color to become fill.
-                    $svg->setAttribute('style', rtrim($svg->getAttribute('style'), "; \t\n\r") . ';color:' . $color . ';fill:' . $color);
+                $service = self::serviceForUrl($anchor->getAttribute('href')) ?? $this->serviceFromLabel($anchor->getAttribute('aria-label'));
+                if (!$this->matchesCoreArtwork($svg, $service) || ('' !== $color && $color !== $this->concreteColor($context->authoredIconColor($anchor)))) {
+                    $sourceArtwork = true;
+                }
+                // Never freeze authored currentColor: it must keep responding
+                // to hover/focus. Capture paint is only a missing-paint fallback.
+                if ('' !== $color && $color !== $this->concreteColor($context->authoredIconColor($anchor)) && !preg_match('/currentcolor/i', $svg->ownerDocument->saveHTML($svg) ?: '')) {
+                    $capturedPaint[] = array($svg, $color);
                 }
             }
         }
-        if ($authoredSvg) return null;
+        if ($sourceArtwork && null !== $context->markupContext()) {
+            // Retain the source selectors on every descendant. The sanitized
+            // HTML block is the native owner of a > (source artwork); no
+            // synthetic paragraph, list, or unlinked image is introduced.
+            foreach ($capturedPaint as [$svg, $color]) {
+                $svg->setAttribute('style', rtrim($svg->getAttribute('style'), "; \t\n\r") . ';fill:' . $color);
+            }
+            $context->buttonContext()?->retainSourceDescendants($element);
+            return new PatternRecognitionResult($context->createBlock(
+                'core/html',
+                array('content' => $context->markupContext()->safeFallbackHtml($element)),
+                array(),
+                $element
+            ));
+        }
 
         $links = array();
         $linkAnchors = array();
@@ -204,6 +220,33 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-social-source-non-list');
         }
         return new PatternRecognitionResult($context->createBlock('core/social-links', $attrs, $links, $element));
+    }
+
+    /** Core's icon snapshot is evidence of geometry parity, not URL identity. */
+    private function matchesCoreArtwork(DOMElement $svg, ?string $service): bool
+    {
+        static $icons = null;
+        $icons ??= json_decode((string) file_get_contents(dirname(__DIR__, 3) . '/resources/wordpress-social-link-icons.json'), true);
+        if (null === $service || !isset($icons[$service])) return false;
+        $core = new \DOMDocument();
+        $core->loadXML($icons[$service]);
+        $signature = static function (DOMElement $element): string {
+            $parts = array();
+            foreach ($element->getElementsByTagName('*') as $child) {
+                if (in_array(strtolower($child->tagName), array('title', 'desc'), true)) continue;
+                $attrs = array();
+                foreach ($child->attributes as $attr) {
+                    $attrs[$attr->name] = preg_replace('/[\s,]+/', '', $attr->value);
+                }
+                ksort($attrs);
+                $parts[] = array(strtolower($child->tagName), $attrs);
+            }
+            return json_encode($parts, JSON_THROW_ON_ERROR);
+        };
+        return 'none' !== strtolower($svg->getAttribute('fill'))
+            && '' === $svg->getAttribute('stroke')
+            && ($svg->getAttribute('viewBox') ?: $svg->getAttribute('viewbox')) === $core->documentElement->getAttribute('viewBox')
+            && $signature($svg) === $signature($core->documentElement);
     }
 
     /**
