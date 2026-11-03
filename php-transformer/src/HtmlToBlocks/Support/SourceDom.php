@@ -476,6 +476,9 @@ final class SourceDom
             return false;
         }
 
+        $index = DocumentReferenceIndex::forDocument($element->ownerDocument);
+        if (null !== $index) return $index->referencesFragment($element, $id);
+
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($element) ) {
                 continue;
@@ -1492,6 +1495,8 @@ final class SourceDom
         if ( '' === $id || null === $document ) {
             return false;
         }
+        $index = DocumentReferenceIndex::forDocument($document);
+        if (null !== $index) return $index->bindsDialogControl($binding, $id);
         foreach ( $document->getElementsByTagName('*') as $dialog ) {
             if ( $dialog instanceof DOMElement
                 && 'true' === self::attr($dialog, 'data-blocks-engine-captured-dialog')

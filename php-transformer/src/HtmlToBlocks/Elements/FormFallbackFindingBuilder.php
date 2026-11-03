@@ -121,13 +121,22 @@ final class FormFallbackFindingBuilder
     private function identifyChoiceGroups(array $blocks, array $groups): array
     {
         foreach ($blocks as &$block) {
-            if (isset($block['_form_field_box'])) {
-                // The field's box encloses the control: a substituted field keeps it.
-                $shell = $block['_form_field_box'];
-                unset($block['_form_field_box']);
-                $shell['innerBlocks'] = array($block);
-                $shell['innerContent'] = array($shell['innerContent'][0] ?? '', null, $shell['innerContent'][1] ?? '');
-                $block = $shell;
+            // The field's box encloses the control: a substituted field keeps
+            // it. The control's own frames enclose just the control, inside
+            // the field box.
+            $fieldShell = $block['_form_field_box'] ?? null;
+            $controlShell = $block['_form_control_box'] ?? null;
+            if (null !== $fieldShell || null !== $controlShell) {
+                unset($block['_form_field_box'], $block['_form_control_box']);
+                if (null !== $controlShell) {
+                    // Marked so a provider can present the control's own
+                    // frames on its control instead of around its caption.
+                    $controlShell['form_control_box'] = $block['form_control_index'];
+                    $block = $this->encloseInBox($block, $controlShell);
+                }
+                if (null !== $fieldShell) {
+                    $block = $this->encloseInBox($block, $fieldShell);
+                }
                 continue;
             }
             foreach ($groups as $index => $group) {
@@ -173,6 +182,21 @@ final class FormFallbackFindingBuilder
         }
         unset($block);
         return $blocks;
+    }
+
+    /**
+     * Nest the block inside an empty box shell, keeping one innerContent slot
+     * for it.
+     *
+     * @param array<string, mixed> $block
+     * @param array<string, mixed> $shell
+     * @return array<string, mixed>
+     */
+    private function encloseInBox(array $block, array $shell): array
+    {
+        $shell['innerBlocks'] = array($block);
+        $shell['innerContent'] = array($shell['innerContent'][0] ?? '', null, $shell['innerContent'][1] ?? '');
+        return $shell;
     }
 
     /** @return array<int, array<string, mixed>> */

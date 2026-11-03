@@ -21,6 +21,13 @@ use DOMText;
  *   cell, onto a wrapper of the run): the block's strut then matches the run,
  *   and the lines keep their source height. Text beside the run (`　<font>`)
  *   does give its line a full strut, so it keeps the default size it had.
+ * - Beyond that, a cell or `body` whose lines hold smaller `<font size>`
+ *   runs among its own text keeps the run's line height there too (the
+ *   "line height calculation quirk"): the container's strut is dropped
+ *   (`line-height:0` on a carrier, as for a lifted run), and its own content
+ *   keeps `line-height:normal`, its loose text in a span. A line with the
+ *   container's own text still gets its full height, a run's line no more
+ *   than the run's. Author line heights on the way are left alone.
  * - A table does not inherit `text-align`: an aligned wrapper places the table
  *   box, while the text inside starts at the start edge.
  * - The default margins of a block at the edge of `body` or a cell are dropped
@@ -55,6 +62,7 @@ final class QuirksModeSource
             }
         }
         self::liftFontRuns($root, $authorDeclares);
+        self::dropStruts($root, $authorDeclares);
         self::dropEdgeMargins($root, $authorDeclares);
     }
 
@@ -143,6 +151,66 @@ final class QuirksModeSource
                 $block->removeChild($font);
             }
         }
+    }
+
+    /** @param callable(DOMElement, list<string>): bool $authorDeclares */
+    private static function dropStruts(DOMElement $root, callable $authorDeclares): void
+    {
+        $containers = array( $root );
+        foreach ( array( 'td', 'th' ) as $tagName ) {
+            foreach ( $root->getElementsByTagName($tagName) as $cell ) {
+                $containers[] = $cell;
+            }
+        }
+        foreach ( $containers as $container ) {
+            if ( ! self::hasSmallerRun($container) || ! self::hasDefaultSize($container, $authorDeclares) || self::setsLineHeight($container, $authorDeclares) ) {
+                continue;
+            }
+            $document = $container->ownerDocument;
+            $carrier  = $document->createElement('div');
+            $carrier->setAttribute('style', 'line-height:0');
+            foreach ( iterator_to_array($container->childNodes) as $child ) {
+                if ( $child instanceof DOMText && 1 === preg_match('/[^ \t\n\r\f]/', $child->data) ) {
+                    $span = $document->createElement('span');
+                    $span->setAttribute('style', 'line-height:normal');
+                    $span->appendChild($child);
+                    $child = $span;
+                } elseif ( $child instanceof DOMElement && ! self::setsLineHeight($child, $authorDeclares, false) ) {
+                    $style = trim($child->getAttribute('style'));
+                    $child->setAttribute('style', 'line-height:normal' . ('' === $style ? '' : ';' . $style));
+                }
+                $carrier->appendChild($child);
+            }
+            $container->appendChild($carrier);
+        }
+    }
+
+    /** Whether a `<font size>` run among the container's own content is smaller than the default size. */
+    private static function hasSmallerRun(DOMElement $container): bool
+    {
+        foreach ( $container->childNodes as $child ) {
+            $size = $child instanceof DOMElement && 'font' === strtolower($child->tagName) ? self::size($child->getAttribute('size')) : '';
+            if ( '' !== $size && (int) $size < (int) self::DEFAULT_SIZE ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether an inline style or author rule sets the line height on the
+     * element or, with `$inherited`, on an ancestor it inherits from.
+     *
+     * @param callable(DOMElement, list<string>): bool $authorDeclares
+     */
+    private static function setsLineHeight(DOMElement $element, callable $authorDeclares, bool $inherited = true): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $inherited ? $node->parentNode : null ) {
+            if ( 1 === preg_match('/(?:^|;)\s*(?:line-height|font)\s*:/i', $node->getAttribute('style')) || $authorDeclares($node, array( 'line-height', 'font' )) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The px size of a legacy `<font size>` value, relative values counting from the default 3. */

@@ -147,12 +147,26 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 break;
             }
         }
+        $rowStyle = $context->socialPresentationDeclarations($element);
+        $justification = trim((string) preg_replace('/\s*!important\s*$/i', '', $rowStyle['justify-content'] ?? ''));
+        if ( in_array($justification, array('flex-start', 'start', 'left', 'center', 'flex-end', 'end', 'right', 'space-between'), true) ) {
+            $attrs['layout']['type'] = 'flex';
+            $attrs['layout']['justifyContent'] = match ($justification) {
+                'flex-start', 'start' => 'left',
+                'flex-end', 'end' => 'right',
+                default => $justification,
+            };
+            $attrs['justifyContent'] = $attrs['layout']['justifyContent'];
+        } elseif ( isset($attrs['justifyContent']) ) {
+            $attrs['layout']['type'] = 'flex';
+            $attrs['layout']['justifyContent'] = $attrs['justifyContent'];
+        }
         if ( $showLabels ) {
             $attrs['showLabels'] = true;
         }
         if ( $iconOnly ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-logos-only');
-            $attrs['size'] = $this->iconSize($anchors) ?? 'small';
+            $attrs['size'] = $this->iconSize($anchors, $element, $context) ?? 'small';
             $iconColor = $this->uniformIconColor($linkAnchors, $context);
             if ( '' !== $iconColor ) {
                 $attrs['iconColorValue'] = $iconColor;
@@ -171,7 +185,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             // The row's source box is a div/span, not a list. Retain that box
             // as an editable Group; the inserted native list/items contribute
             // no extra boxes or browser list defaults to its authored layout.
-            $nativeAttrs = array_intersect_key($attrs, array_flip(array('showLabels', 'size', 'iconColor', 'iconColorValue', 'customIconColor', 'iconBackgroundColor', 'iconBackgroundColorValue', 'customIconBackgroundColor')));
+            $nativeAttrs = array_intersect_key($attrs, array_flip(array('layout', 'showLabels', 'size', 'iconColor', 'iconColorValue', 'customIconColor', 'iconBackgroundColor', 'iconBackgroundColorValue', 'customIconBackgroundColor')));
             $nativeAttrs['className'] = 'blocks-engine-social-source-row' . ($iconOnly ? ' is-style-logos-only' : '');
             $native = $context->createBlock('core/social-links', $nativeAttrs, $links);
             return new PatternRecognitionResult($context->createBlock('core/group', $context->presentationAttributes($element), array($native), $element));
@@ -373,14 +387,28 @@ final class SocialLinksPattern implements PatternRecognizerInterface
     }
 
     /** @param array<int,DOMElement> $anchors */
-    private function iconSize(array $anchors): ?string
+    private function iconSize(array $anchors, DOMElement $cluster, PatternContext $context): ?string
     {
         $dimensions = array();
         foreach ( $anchors as $anchor ) {
+            // The clickable item is the rendered social icon, not necessarily
+            // the smaller glyph inside it (or an SVG's intrinsic viewport).
+            foreach ( array($this->structuralItem($anchor, $cluster), $anchor) as $item ) {
+                $size = $this->cssBoxSize($item, $context);
+                if ( null !== $size ) {
+                    $dimensions[] = $size;
+                    continue 2;
+                }
+            }
             foreach ( array( 'img', 'svg' ) as $tagName ) {
                 $icon = $anchor->getElementsByTagName($tagName)->item(0);
                 if ( ! $icon instanceof DOMElement ) {
                     continue;
+                }
+                $size = $this->cssBoxSize($icon, $context);
+                if ( null !== $size ) {
+                    $dimensions[] = $size;
+                    break;
                 }
                 $width = HtmlDimensionAttribute::pixels($this->attr($icon, 'width')) ?? 0.0;
                 $height = HtmlDimensionAttribute::pixels($this->attr($icon, 'height')) ?? 0.0;
@@ -404,6 +432,20 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             }
         }
         return $closest;
+    }
+
+    private function cssBoxSize(DOMElement $element, PatternContext $context): ?float
+    {
+        $style = $context->socialPresentationDeclarations($element);
+        $dimensions = array();
+        foreach ( array('width', 'height') as $property ) {
+            $value = trim((string) preg_replace('/\s*!important\s*$/i', '', $style[$property] ?? ''));
+            if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)px$/i', $value, $match) || (float) $match[1] <= 0 ) {
+                return null;
+            }
+            $dimensions[] = (float) $match[1];
+        }
+        return min($dimensions);
     }
 
     /** @param array<int,DOMElement> $anchors

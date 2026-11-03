@@ -22,7 +22,13 @@ final class NavigationOpenerPresentation
         foreach ($control->getElementsByTagName('*') as $node) {
             if (in_array(strtolower($node->tagName), array('svg', 'img', 'picture', 'i', 'canvas', 'video', 'object', 'embed'), true)) return false;
         }
-        return true;
+        // A hamburger drawn as a character — U+2630 (☰), or its U+2261 (≡)
+        // stand-in, optionally with a variation selector — is an icon-only
+        // opener, not a text label: Core keeps its own icon instead of
+        // rendering a "Menu" word the source never showed.
+        $glyphs = preg_replace('/[\s\x{FE0E}\x{FE0F}]/u', '', $control->textContent ?? '');
+        if ('' === $glyphs) return false;
+        return !preg_match('/^[\x{2630}\x{2261}]+$/u', $glyphs);
     }
 
     /** @return array{artwork:string,button:array<string,array<string,string>>,icon:array<string,array<string,string>>}|null */

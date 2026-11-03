@@ -19,6 +19,9 @@ final class AuthorStylesheetProjectionContext
         public readonly ContentBoxRestatements $contentBoxRestatements = new ContentBoxRestatements(),
         // A fragment compiled apart from its pages (a shared shell) owns only
         // the rules reaching its own elements; each page projects the rest.
-        public readonly bool $onlyMatchedRules = false
+        public readonly bool $onlyMatchedRules = false,
+        // Site plans restore route-owned body attributes; standalone block
+        // fragments have no native document metadata consumer.
+        public readonly bool $nativeDocumentContext = false
     ) {}
 }

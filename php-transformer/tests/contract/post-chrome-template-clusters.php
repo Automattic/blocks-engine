@@ -13,6 +13,11 @@ foreach (array('en' => 'Read stories', 'fr' => 'Lire les articles', 'en/audio' =
         $title = $section . ' ' . $slug;
         $day = 'first' === $slug ? '1' : '2';
         $article = '<h1>' . $title . '</h1><p><time datetime="2024-03-0' . $day . '">March ' . $day . ', 2024</time></p><p>Unique body for ' . $title . '.</p>';
+        if ('en' === $section) {
+            $image = 'media/' . $slug . '.png';
+            $article = str_replace('<p>Unique body', '<div class="lead-media"><img src="/' . $image . '" alt="' . $title . '"></div><p>Unique body', $article);
+            $artifact['files'][] = array('path' => $image, 'content' => base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='));
+        }
         if ('en/audio' === $section) $article = '<div class="episode-layout"><section class="episode-details">' . $article . '</section></div>';
         $artifact['files'][] = array('path' => $section . '/' . $slug . '.html', 'metadata' => array('post_type' => 'post'), 'content' => '<html><head><title>' . $title . '</title><meta property="article:published_time" content="2024-03-0' . $day . 'T00:00:00Z"></head><body><header><a href="/index.html">' . $label . '</a></header><main><article>' . $article . '</article></main><footer><p>Publication footer</p></footer></body></html>');
     }
@@ -31,6 +36,7 @@ foreach ($plan['pages'] as $post) {
     $assert(!str_contains($post['canonical_block_markup'], '<h1'), 'Lifted headlines no longer remain in post content.');
     $episode = str_starts_with($post['source_path'], 'en/audio/');
     $assert($episode === str_contains($markup, 'episode-layout'), 'Each layout retains only its own article wrappers.');
+    if ('en' === dirname($post['source_path'])) $assert('assets/media/' . basename($post['source_path'], '.html') . '.png' === ($post['metadata']['featured_image']['target_path'] ?? null), 'The lead-image group resolves each post\'s own featured asset.');
     $bindings[$post['source_path']] = $slug;
 }
 $assert(6 === count($bindings), 'All six posts survive.');

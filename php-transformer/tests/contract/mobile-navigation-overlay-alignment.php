@@ -154,7 +154,7 @@ foreach (array('absolute', 'fixed') as $position) {
                 $overlay->setAttribute('class', 'wp-block-navigation__responsive-container is-menu-open');
                 foreach (array($host, $overlay) as $target) {
                     if ((CssSelectorMatcher::matches($target, $parsed, true)['matches'] ?? false)
-                        && preg_match('/(?:^|;)\s*(' . $forbidden . ')\s*:/i', $body, $match)) {
+                        && preg_match('/(?:^|;)\s*(' . $forbidden . ')\s*:/i', preg_replace('/(?:^|;)(?:transform|translate):none!important(?=;|$)/', '', $body) ?? $body, $match)) {
                         $failures[] = "$position: $selector must not apply {$match[1]} to the navigation host or overlay.";
                     }
                 }

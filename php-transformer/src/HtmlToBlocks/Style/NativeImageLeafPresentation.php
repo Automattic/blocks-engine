@@ -28,7 +28,9 @@ final class NativeImageLeafPresentation
 
     public static function isPlacementProperty(string $property): bool
     {
-        return in_array($property, array('translate', 'rotate', 'scale', 'transform', '-webkit-transform', 'transform-origin', 'offset'), true)
+        // Margins position the sized image, not its full-width synthetic figure.
+        return in_array($property, array('margin', 'translate', 'rotate', 'scale', 'transform', '-webkit-transform', 'transform-origin', 'offset'), true)
+            || str_starts_with($property, 'margin-')
             || str_starts_with($property, 'offset-');
     }
 }

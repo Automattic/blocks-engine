@@ -219,6 +219,65 @@ final class NavigationPatternContext
         return $this->styleResolver?->cssDeclarations($this->resolvedStyle($element)) ?? array();
     }
 
+    /** The element's own presentation as block style attributes (colors, spacing, border). */
+    public function resolvedStyleAttributes(DOMElement $element): array
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) {
+            return array();
+        }
+
+        return $this->styleResolver->styleAttributeMapper()->map($this->resolvedDeclarations($element))['style'] ?? array();
+    }
+
+    /**
+     * The generated content (`::before`/`::after`) a source rule paints on this
+     * element: unquoted, escape-decoded, and empty when nothing paints.
+     */
+    public function generatedPseudoContent(DOMElement $element, string $pseudo): string
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver || null === $this->session ) {
+            return '';
+        }
+
+        foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
+            if ( strtolower($pseudo) !== strtolower((string) ($rule['pseudo'] ?? '')) ) {
+                continue;
+            }
+            $content = trim((string) ($rule['declarations']['content'] ?? ''));
+            if ( '' === $content || in_array(strtolower($content), array( 'none', 'normal' ), true) ) {
+                continue;
+            }
+            if ( ! $this->styleResolver->matchesCssSelector($element, (string) ($rule['selector'] ?? '')) ) {
+                continue;
+            }
+            return self::decodeCssContent($content);
+        }
+
+        return '';
+    }
+
+    /** The source path of the document being compiled, for route-relative resolution. */
+    public function sourcePath(): string
+    {
+        return $this->session?->sourcePath() ?? '';
+    }
+
+    private static function decodeCssContent(string $value): string
+    {
+        if ( 1 === preg_match('/^([\'"])(.*)\1$/s', $value, $match) ) {
+            $value = $match[2];
+        }
+
+        return (string) preg_replace_callback(
+            '/\\\\([0-9a-fA-F]{1,6})(?:\r\n|[ \t\r\n\f])?/',
+            static function (array $match): string {
+                $code = hexdec($match[1]);
+                return $code > 0 && $code < 0x110000 ? mb_chr($code, 'UTF-8') : '';
+            },
+            $value
+        );
+    }
+
     /** Horizontal border-box extent of a content-free box; unknown lengths refuse carry. */
     public function emptyBoxWidth(DOMElement $element): ?float
     {
@@ -1008,21 +1067,31 @@ final class NavigationPatternContext
             return '';
         }
 
+        $responsiveBoxes = array();
+        foreach ($this->styleResolver->inheritedBoxMediaConditions($svg) as $conditions) {
+            $responsiveBox = $this->navigationLinkIconBox($svg, $conditions);
+            if ('' !== $responsiveBox && $responsiveBox !== $box) {
+                $responsiveBoxes[] = array('conditions' => $conditions, 'box' => $responsiveBox);
+            }
+        }
+
         $background = ';background-image:url("data:image/svg+xml,' . rawurlencode($markup) . '")'
             . ';background-repeat:no-repeat;background-position:center;background-size:contain';
 
         if ( '' === trim($element->textContent ?? '') ) {
             $declarations = 'display:inline-block;' . $box . $background . ';font-size:0;line-height:0;color:transparent';
-            $marker = 'blocks-engine-navigation-link-icon-' . substr(hash('sha256', $declarations), 0, 12);
+            $marker = 'blocks-engine-navigation-link-icon-' . substr(hash('sha256', $declarations . json_encode($responsiveBoxes)), 0, 12);
             $this->session->generatedSupportStylesheetState()->registerNavigationLinkIcon($marker, $declarations);
+            $this->session->generatedSupportStylesheetState()->registerNavigationIconBoxes($marker, $responsiveBoxes);
 
             return $marker;
         }
 
         $gap = $this->navigationLinkLeadingIconGap($svg);
         $declarations = 'content:"";display:inline-block;vertical-align:middle;margin-inline-end:' . $gap . ';' . $box . $background;
-        $marker = 'blocks-engine-navigation-link-leading-icon-' . substr(hash('sha256', $declarations), 0, 12);
+        $marker = 'blocks-engine-navigation-link-leading-icon-' . substr(hash('sha256', $declarations . json_encode($responsiveBoxes)), 0, 12);
         $this->session->generatedSupportStylesheetState()->registerNavigationLinkLeadingIcon($marker, $declarations);
+        $this->session->generatedSupportStylesheetState()->registerNavigationIconBoxes($marker, $responsiveBoxes);
 
         return $marker;
     }
@@ -1095,13 +1164,16 @@ final class NavigationPatternContext
     }
 
     /** Resolve the rendered box of a navigation icon from its source geometry. */
-    private function navigationLinkIconBox(DOMElement $svg): string
+    private function navigationLinkIconBox(DOMElement $svg, ?array $conditions = null): string
     {
         if ( ! $this->styleResolver instanceof StyleResolver ) {
             return '';
         }
 
-        $declarations = $this->styleResolver->resolvedPresentationDeclarations($svg);
+        $presentation = fn (DOMElement $node): array => null === $conditions
+            ? $this->styleResolver->resolvedPresentationDeclarations($node)
+            : $this->styleResolver->conditionedBoxPresentation($node, $conditions);
+        $declarations = $presentation($svg);
         $dimensions = array();
         foreach ( array( 'width', 'height' ) as $property ) {
             $value = trim((string) ($declarations[$property] ?? ''));
@@ -1111,6 +1183,29 @@ final class NavigationPatternContext
             }
             if ( '' === $value || 1 === preg_match('/^(?:0|auto|none)$/i', $value) ) {
                 return '';
+            }
+            // Percentages belong to the SVG's source containing box, not the
+            // replacement anchor (whose size would then depend on itself).
+            $node = $svg;
+            $scale = 1.0;
+            while ( 1 === preg_match('/^(\d+(?:\.\d+)?)%$/', $value, $percentage) ) {
+                $node = $node->parentNode;
+                if ( ! $node instanceof DOMElement ) {
+                    return '';
+                }
+                $parentDeclarations = $presentation($node);
+                if ( 'contents' === ($parentDeclarations['display'] ?? '') ) {
+                    continue;
+                }
+                $parentValue = trim((string) ($parentDeclarations[$property] ?? ''));
+                if ( '' === $parentValue || preg_match('/[{}<>;]/', $parentValue) || in_array(strtolower($parentValue), array( 'auto', 'none' ), true) ) {
+                    return '';
+                }
+                $scale *= (float) $percentage[1] / 100;
+                $value = $parentValue;
+            }
+            if ( 1.0 !== $scale ) {
+                $value = 'calc(' . $value . ' * ' . $scale . ')';
             }
             $dimensions[] = $property . ':' . $value;
         }

@@ -132,7 +132,19 @@ $builder = new ReadableFormBlockBuilder(
             'media' => '',
         ),
     ),
-    static fn (): string => $rowCss
+    static fn (): string => $rowCss,
+    // The production flow converter declines standalone controls; stray copy
+    // converts as ordinary flow content.
+    static function (DOMElement $element, array &$fallbacks): array {
+        if ( in_array(strtolower($element->tagName), array( 'input', 'select', 'textarea', 'button' ), true) ) {
+            return array();
+        }
+        return array( array(
+            'blockName' => 'core/paragraph',
+            'attrs' => array( 'content' => trim($element->textContent) ),
+            'innerBlocks' => array(),
+        ) );
+    }
 );
 
 $assert(null === $builder->build($formFrom('<form></form>')), 'empty-form-declines-block');
@@ -211,19 +223,32 @@ $assert('core/html' === ($runtimeForm['innerBlocks'][0]['blockName'] ?? ''), 'ru
 $assert(array() !== $recorded && 'runtime_dom_target' === ($recorded[0]['reason'] ?? ''), 'runtime-control-records-island');
 
 // A wrapping label that owns its control (the default Framer field shape)
-// frames it outermost first: the walk shells the shared row, and the field
-// box renders the label then the wrapper, so no frame of a control ever
-// stands below its own descendant (`row > lab > wrap`, never `row > wrap > lab`).
+// frames it outermost first: the walk shells the shared row, the field box
+// ends at the caption label, and the wrapper between the caption level and
+// the control rides separately as the control's own box — so no frame of a
+// control ever stands below its own descendant (`row > lab > wrap`, never
+// `row > wrap > lab`).
 $framer = $builder->build($formFrom('<form><div class="row"><label class="lab"><div class="cap"><p>Nom</p></div><div class="wrap"><input name="nom"></div></label><label class="lab"><div class="cap"><p>Mail</p></div><div class="wrap"><input name="mail"></div></label></div></form>'));
+$wrapperClasses = static fn (array $block): array => array_map(
+    static fn (array $wrapper): string => $wrapper['attributes']['class'] ?? '',
+    $block['attrs']['wrappers'] ?? array()
+);
 $frames = array();
-$frameWalk = static function (array $blocks, array $classes) use (&$frameWalk, &$frames): void {
+$boxes = array();
+$frameWalk = static function (array $blocks, array $classes) use (&$frameWalk, &$frames, &$boxes, $wrapperClasses): void {
     foreach ( $blocks as $block ) {
-        $own = array_map(static fn (array $wrapper): string => $wrapper['attributes']['class'] ?? '', $block['attrs']['wrappers'] ?? array());
+        $own = $wrapperClasses($block);
         if ( isset($block['form_control_index']) ) {
-            $frames[ $block['form_control_index'] ] = array_merge($classes, $own, array_map(
-                static fn (array $wrapper): string => $wrapper['attributes']['class'] ?? '',
-                $block['_form_field_box']['attrs']['wrappers'] ?? array()
-            ));
+            $boxes[ $block['form_control_index'] ] = array(
+                'field' => $wrapperClasses($block['_form_field_box'] ?? array()),
+                'control' => $wrapperClasses($block['_form_control_box'] ?? array()),
+            );
+            $frames[ $block['form_control_index'] ] = array_merge(
+                $classes,
+                $own,
+                $boxes[ $block['form_control_index'] ]['field'],
+                $boxes[ $block['form_control_index'] ]['control']
+            );
         }
         $frameWalk($block['innerBlocks'] ?? array(), array_merge($classes, $own));
     }
@@ -231,6 +256,45 @@ $frameWalk = static function (array $blocks, array $classes) use (&$frameWalk, &
 $frameWalk($framer['innerBlocks'] ?? array(), array());
 $assert(array( 'row', 'lab', 'wrap' ) === ($frames[0] ?? null), 'row-field-frames-keep-source-order');
 $assert(array( 'row', 'lab', 'wrap' ) === ($frames[1] ?? null), 'second-row-field-frames-keep-source-order');
+$assert(array( 'field' => array( 'lab' ), 'control' => array( 'wrap' ) ) === ($boxes[0] ?? null), 'caption-frame-bounds-the-field-box-and-the-wrapper-is-the-control-box');
+$assert(array( 'field' => array( 'lab' ), 'control' => array( 'wrap' ) ) === ($boxes[1] ?? null), 'second-caption-frame-bounds-the-field-box-and-the-wrapper-is-the-control-box');
+
+// A field whose control carries no inner wrapper keeps its whole box: the
+// label is the caption level and frames the field, and no control box exists.
+$flat = $builder->build($formFrom('<form><label class="lab"><span class="cap">Nom</span><input name="nom"></label></form>'));
+$flatBoxes = array();
+$boxWalk = static function (array $blocks) use (&$boxWalk, &$flatBoxes, $wrapperClasses): void {
+    foreach ( $blocks as $block ) {
+        if ( isset($block['form_control_index']) ) {
+            $flatBoxes[ $block['form_control_index'] ] = array(
+                'field' => $wrapperClasses($block['_form_field_box'] ?? array()),
+                'control' => $wrapperClasses($block['_form_control_box'] ?? array()),
+            );
+        }
+        $boxWalk($block['innerBlocks'] ?? array());
+    }
+};
+$boxWalk($flat['innerBlocks'] ?? array());
+$assert(array( 'field' => array( 'lab' ), 'control' => array() ) === ($flatBoxes[0] ?? null), 'a-field-without-an-inner-control-wrapper-keeps-its-field-box');
+
+// A caption beside its control (the associated-label shape) bounds the field
+// box at the exclusive frame holding both; the control row between that
+// frame and the control is the control's own box.
+$split = $builder->build($formFrom('<form><div class="field"><div class="cap"><label for="mail">Mail</label></div><div class="wrap"><input id="mail" name="mail"></div></div></form>'));
+$splitBoxes = array();
+$splitWalk = static function (array $blocks) use (&$splitWalk, &$splitBoxes, $wrapperClasses): void {
+    foreach ( $blocks as $block ) {
+        if ( isset($block['form_control_index']) ) {
+            $splitBoxes[ $block['form_control_index'] ] = array(
+                'field' => $wrapperClasses($block['_form_field_box'] ?? array()),
+                'control' => $wrapperClasses($block['_form_control_box'] ?? array()),
+            );
+        }
+        $splitWalk($block['innerBlocks'] ?? array());
+    }
+};
+$splitWalk($split['innerBlocks'] ?? array());
+$assert(array( 'field' => array( 'field' ), 'control' => array( 'wrap' ) ) === ($splitBoxes[0] ?? null), 'an-associated-caption-bounds-the-field-box-at-the-frame-holding-both');
 
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
