@@ -64,6 +64,8 @@ final class CaptureEvidence
     public const RESTING_PANEL = 'data-blocks-engine-capture-resting-panel';
     /** JSON list of ancestor attribute bindings toggled with the panel, on the trigger. */
     public const DIALOG_ANCESTOR_STATE = 'data-blocks-engine-capture-dialog-ancestor-state';
+    /** Class-token deltas addressed relative to the authored dialog trigger. */
+    public const DIALOG_TRIGGER_STATE = 'data-blocks-engine-capture-dialog-trigger-state';
     /** Reason the ancestor bindings could not be verified (for example `ancestor-limit`); carried onto the native dialog. */
     public const DIALOG_ANCESTOR_UNVERIFIED = 'data-blocks-engine-capture-dialog-ancestor-unverified';
     /** Presence: the panel was observed in place rather than in a portal. */
@@ -213,6 +215,8 @@ final class CaptureEvidence
 
     /** The site-independent disclosure interpreter (DISCLOSURE_RUNTIME). */
     public const DISCLOSURE_RUNTIME_SHA256 = '086fc8248547e7c1109e0f6a28e691cea966f7057b3e36eaa8ccad177d2cf737';
+    /** Disclosure interpreter with trigger-subtree class-token replay. */
+    public const DISCLOSURE_RUNTIME_TRIGGER_SHA256 = '5dd2db81c39f8f39c3756df8f8588fec6fe84e4a2ea2186fdf81b019f1aa2d6e';
     /** The gallery helper (GALLERY_RUNTIME) that may coexist with a replaced disclosure interpreter. */
     public const GALLERY_RUNTIME_SHA256 = '456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b';
     /** The choice-group runtime (CHOICE_GROUP_RUNTIME) with an empty config list (`var configs=[];`). */
@@ -228,6 +232,7 @@ final class CaptureEvidence
     public static function isRecognizedRuntime(string $content, ?string $marker = null): bool
     {
         $digest = hash('sha256', trim($content));
+        if ((null === $marker || self::DISCLOSURE_RUNTIME === $marker) && self::DISCLOSURE_RUNTIME_TRIGGER_SHA256 === $digest) return true;
         return null === $marker ? in_array($digest, self::RECOGNIZED_RUNTIMES, true)
             : $digest === (self::RECOGNIZED_RUNTIMES[$marker] ?? null);
     }

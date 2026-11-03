@@ -25,6 +25,7 @@ const snapshot = page => page.evaluate(rows => {
   for (let node = control.parentElement; node; node = node.parentElement) ancestorTags.push(node);
   return {
     expanded: control.getAttribute('aria-expanded'),
+    icon: { base: control.querySelector('.icon').classList.contains('icon'), opened: control.querySelector('.icon').classList.contains('icon--open') },
     ancestors: rows.map(row => {
       // Nearest ancestor with the tag whose classes hold the row's first
       // identifying token (a token both states keep), else just the tag.
@@ -63,7 +64,9 @@ for (const step of steps) {
   const [sourceState, nativeState] = [await snapshot(source), await snapshot(native)];
   assert.deepEqual(nativeState.ancestors, sourceState.ancestors, `${step}: native ancestor class tokens match the capture runtime`);
   assert.equal(nativeState.expanded, sourceState.expanded, `${step}: native aria-expanded matches the capture runtime`);
-  checks += 2;
+  assert.deepEqual(nativeState.icon, { base: true, opened: ['open', 'reopen'].includes(step) }, `${step}: the authored icon keeps unrelated tokens and replays the open token`);
+  assert.deepEqual(nativeState.icon, sourceState.icon, `${step}: trigger subtree matches producer runtime`);
+  checks += 4;
 }
 const opened = await (async () => {
   await source.locator('[aria-controls="site-menu-panel"]').click();
