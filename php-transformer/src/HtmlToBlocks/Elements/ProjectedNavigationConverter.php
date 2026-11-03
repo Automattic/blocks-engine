@@ -324,12 +324,13 @@ final class ProjectedNavigationConverter implements ElementConverter
         // dropdown's header-bound geometry. Other mobile-only drawers retain
         // their existing panel projection within the collapsed range.
         $drawerRules = ! $always && $bindsPanel ? $this->nativeNavigationBoundPanelCss($host, $navigation) : '';
+        $panelRule = $always ? '' : $this->collapsePanelVisibilityRule($host, $navigation);
         if ( $always ) {
             $rule = $hostRule . $openRule . $extraRules;
         } elseif ( '' === $collapseBoundary ) {
-            $rule = '@media(max-width:' . ( self::CORE_OVERLAY_BREAKPOINT - 1 ) . 'px){' . $hostRule . $openRule . $drawerRules . '}';
+            $rule = '@media(max-width:' . ( self::CORE_OVERLAY_BREAKPOINT - 1 ) . 'px){' . $hostRule . $openRule . $drawerRules . $panelRule . '}';
         } else {
-            $rule = '@media(max-width:' . $collapseBoundary . '){' . $hostRule . $openRule . $drawerRules . '}'
+            $rule = '@media(max-width:' . $collapseBoundary . '){' . $hostRule . $openRule . $drawerRules . $panelRule . '}'
                 . $this->sourceBoundaryOverlayCss($host, $collapseBoundary);
         }
         if ( '' !== $absentAbove ) {
@@ -582,6 +583,80 @@ final class ProjectedNavigationConverter implements ElementConverter
             . $host . '>.wp-block-navigation__responsive-container-open{display:flex!important}'
             . $host . ' .wp-block-navigation__responsive-container:not(.is-menu-open){display:none!important}'
             . '}';
+    }
+
+    /**
+     * Put the native navigation into the header row across the collapsed
+     * range when its source collapse panel also holds content beside it, or
+     * '' when nothing must be restated.
+     *
+     * A source disclosure panel that also holds content beside the menu (a
+     * CTA, a search box) keeps its own wrapper in the projection, and with it
+     * the author closed state (`display:none` until the source boundary) that
+     * once hid the whole panel. A panel holding only the menu is absorbed into
+     * the navigation block, whose toggle rules already neutralize that state
+     * on the host itself; the wrapper case reaches neither of them, and the
+     * closed state then hides Core's open button along with the menu, leaving
+     * collapsed-viewport visitors without a way to open it.
+     *
+     * The native overlay replaces the panel's collapse behaviour, so across
+     * the range where this occurrence's toggle shows, the wrapper's box is
+     * dissolved: the host — carrying the dropped toggle's authored slot —
+     * joins the header row in that toggle's place, the same slot replacement
+     * a dropped burger gets, while the wrapper's other content keeps the
+     * source closed state, hidden as it was while the source hid the whole
+     * panel. Revealing the panel's own box instead would also reveal that
+     * content in the header and stack the toggle on a second row behind it.
+     */
+    private function collapsePanelVisibilityRule(string $host, DOMElement $navigation): string
+    {
+        $chain = $this->collapsedPanelChain($navigation);
+        // The innermost wrapper that keeps rendered content beside the chain
+        // is the one the projection keeps around the navigation block; outer
+        // wrappers never parent it directly.
+        $panel = null;
+        for ( $i = count($chain) - 2; $i >= 0; --$i ) {
+            if ( $this->collapsePanelKeepsHost($chain[$i], $chain[$i + 1]) ) {
+                $panel = $chain[$i];
+                break;
+            }
+        }
+        // The occurrence's own parent is not on the chain unless the collapsed
+        // cascade hid it out of flow; when the chain kept no wrapper above the
+        // list, that parent is the panel projected around the navigation.
+        if ( null === $panel ) {
+            $candidate = $navigation->parentNode;
+            if ( $candidate instanceof DOMElement && $this->collapsePanelKeepsHost($candidate, $navigation) ) {
+                $panel = $candidate;
+            }
+        }
+        if ( null === $panel || ! $this->hiddenAtCollapsedViewport($panel) ) {
+            return '';
+        }
+        $wrapper = '.wp-block-group:has(> ' . $host . ')';
+
+        return $wrapper . '{display:contents!important}'
+            . $wrapper . '>:not(' . $host . '){display:none!important}';
+    }
+
+    /** Whether the collapsed cascade hides the panel with `display:none` at the reference viewport. */
+    private function hiddenAtCollapsedViewport(DOMElement $panel): bool
+    {
+        $display = strtolower(CssValueInspector::withoutImportant(trim((string) ( $this->styleResolver->collapsedViewportAuthorDeclarations($panel, array( 'display' ))['display'] ?? '' ))));
+
+        return 'none' === $display;
+    }
+
+    /** Whether the panel keeps rendered content beside the navigation, so the projection keeps it as a wrapper instead of absorbing it into the navigation block. */
+    private function collapsePanelKeepsHost(DOMElement $panel, DOMElement $navigation): bool
+    {
+        foreach ( $panel->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ! $child->isSameNode($navigation) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasNavigationHeader(DOMElement $navigation): bool
