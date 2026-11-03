@@ -33,6 +33,13 @@ final class CapturedDialogProjector
      */
     public function project(array $files): array
     {
+        $result = $this->projectReportFiles($files);
+        $result['diagnostics'] = array_merge(CapturedInteractionReport::diagnostics($files), $result['diagnostics']);
+        return $result;
+    }
+
+    private function projectReportFiles(array $files): array
+    {
         $components = $this->projectComponentCarousels($files);
         $popovers = $this->adoptSourcePopovers($components['files']);
         $result = $this->projectCapturedStates($popovers['files']);
@@ -49,7 +56,7 @@ final class CapturedDialogProjector
      */
     private function projectComponentCarousels(array $files): array
     {
-        $report = $this->jsonFile($files, 'interaction-states.json');
+        $report = CapturedInteractionReport::read($files);
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
         $count = 0;
         $diagnostics = array();
@@ -61,7 +68,7 @@ final class CapturedDialogProjector
             }
         }
         $retired = array();
-        if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null)
+        if (!CapturedInteractionReport::valid($report)
             || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)) {
             return array('files' => $files, 'projected_count' => 0, 'native_runtime_replacements' => array());
         }
@@ -215,11 +222,11 @@ final class CapturedDialogProjector
     private function projectCapturedStates(array $files): array
     {
         $diagnostics = array();
-        $report = $this->jsonFile($files, 'interaction-states.json');
+        $report = CapturedInteractionReport::read($files);
         if (null === $report) {
             return $this->retireOwnedDisclosureWithoutProjection($files, array());
         }
-        if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
+        if (!CapturedInteractionReport::valid($report) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_invalid', 'warning', 'The captured interaction report has an unsupported schema or pages shape.')), 'projected_count' => 0);
         }
         $report['pages'] = CapturedComponentStates::boundPages($report['pages'], self::MAX_PAGES, 'captured_interactions_limit_exceeded', self::class, $diagnostics);

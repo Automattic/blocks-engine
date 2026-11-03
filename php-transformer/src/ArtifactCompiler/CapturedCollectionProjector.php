@@ -16,16 +16,23 @@ final class CapturedCollectionProjector
 {
     public function project(array $files): array
     {
-        $report = $receipt = null;
+        $result = $this->projectReportFiles($files);
+        $result['diagnostics'] = array_merge(CapturedInteractionReport::diagnostics($files), $result['diagnostics']);
+        return $result;
+    }
+
+    private function projectReportFiles(array $files): array
+    {
+        $report = CapturedInteractionReport::read($files);
+        $receipt = null;
         $indices = array();
         foreach ($files as $index => $file) {
             $path = $file['path'] ?? '';
             if (!is_string($path)) continue;
             $indices[$path] = $index;
-            if ('interaction-states.json' === basename($path)) $report = json_decode($file['content'] ?? '', true);
             if ('capture-receipt.json' === basename($path)) $receipt = json_decode($file['content'] ?? '', true);
         }
-        if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null)
+        if (!CapturedInteractionReport::valid($report)
             || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)
             || !is_array($report['pages'] ?? null) || !is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);

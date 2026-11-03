@@ -40,6 +40,13 @@ final class CapturedSelectableSetProjector
      */
     public function project(array $files, array $consumedBindings = array()): array
     {
+        $result = $this->projectReportFiles($files, $consumedBindings);
+        $result['diagnostics'] = array_merge(CapturedInteractionReport::diagnostics($files), $result['diagnostics']);
+        return $result;
+    }
+
+    private function projectReportFiles(array $files, array $consumedBindings = array()): array
+    {
         $semantic = $this->projectComponentTabs($files);
         $result = $this->projectEvidence($semantic['files'], $consumedBindings);
         $result['projected_count'] += $semantic['projected_count'];
@@ -50,11 +57,11 @@ final class CapturedSelectableSetProjector
     private function projectEvidence(array $files, array $consumedBindings): array
     {
         $diagnostics = array();
-        $report = $this->jsonFile($files, 'interaction-states.json');
+        $report = CapturedInteractionReport::read($files);
         if (null === $report) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
-        if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
+        if (!CapturedInteractionReport::valid($report) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
         $report['pages'] = CapturedComponentStates::boundPages($report['pages'], self::MAX_PAGES, 'captured_selectable_set_limit_exceeded', self::class, $diagnostics);
@@ -124,11 +131,11 @@ final class CapturedSelectableSetProjector
     /** Semantic tabs have observed panel HTML, not popup probe evidence. */
     private function projectComponentTabs(array $files): array
     {
-        $report = $this->jsonFile($files, 'interaction-states.json');
+        $report = CapturedInteractionReport::read($files);
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
         $count = 0;
         $retired = array();
-        if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null)
+        if (!CapturedInteractionReport::valid($report)
             || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)) {
             return array('files' => $files, 'projected_count' => 0, 'native_runtime_replacements' => array());
         }

@@ -188,7 +188,15 @@ See [Native control state](../native-control-state.md).
 
 | Name | Kind | Meaning |
 | ---- | ---- | ------- |
-| `blocks-engine-capture/captured-interactions/v2` | `interaction-states.json` `schema` | Component-owned interaction states and replay evidence (see below). |
+| `blocks-engine-capture/captured-interactions/v2` | `interaction-states.json` `schema` | Legacy inline component-owned interaction states; still accepted. |
+| `blocks-engine-capture/captured-interactions/v3` | `interaction-states.json` `schema` | Component-owned states with optional `sharedComponents` and ordered `{ "ref": "<id>" }` page entries. |
+
+The v3 writer stores identical components appearing on two or more pages once in
+`sharedComponents`, keyed by a stable canonical-content hash. Other components stay
+inline. Page schema fields follow the report schema; totals retain their expanded
+per-route meaning. `CapturedInteractionReport` accepts both versions, resolves refs
+without rewriting the sidecar, and caches by report content. Missing references
+are skipped with one structured warning, not a fatal error.
 | `blocks-engine-capture/capture-receipt/v1` | capture receipt `schema` | Routes the report pages to captured documents. |
 | `blocks-engine-capture/source-interactivity/v1` | receipt `sourceInteractivity.schema` | Source interactivity summary. |
 | `blocks-engine-capture/finite-bootstrap/v1` | filter `finiteBootstrap.schema` | Finite collection bootstrap record. |
