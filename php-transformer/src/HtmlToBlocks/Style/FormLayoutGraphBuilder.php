@@ -1044,7 +1044,7 @@ final class FormLayoutGraphBuilder
             $parts = CssValueSplitter::splitTopLevelWhitespace($value);
             if ('margin' === $name && count($parts) >= 1 && count($parts) <= 4) {
                 foreach (array_combine(array('top', 'right', 'bottom', 'left'), CssValueInspector::expandBoxShorthand($value)) as $side => $part) $expanded[] = array('name' => 'margin-' . $side, 'value' => $part . $important);
-            } elseif ('flex-flow' === $name && null !== ($flow = self::flexFlow($parts))) {
+            } elseif ('flex-flow' === $name && null !== ($flow = FlexFlowParser::parse($parts))) {
                 // `flex-flow` resets both longhands; an omitted one is its initial value.
                 $expanded[] = array('name' => 'flex-direction', 'value' => $flow[0] . $important);
                 $expanded[] = array('name' => 'flex-wrap', 'value' => $flow[1] . $important);
@@ -1061,27 +1061,6 @@ final class FormLayoutGraphBuilder
             }
         }
         return $expanded;
-    }
-
-    /**
-     * @param list<string> $parts
-     * @return array{0: string, 1: string}|null Direction and wrap, or null when a token is not a keyword.
-     */
-    private static function flexFlow(array $parts): ?array
-    {
-        $direction = null;
-        $wrap = null;
-        foreach ( $parts as $part ) {
-            $token = strtolower(trim($part));
-            if ( null === $direction && in_array($token, array( 'row', 'row-reverse', 'column', 'column-reverse' ), true) ) {
-                $direction = $token;
-            } elseif ( null === $wrap && in_array($token, array( 'nowrap', 'wrap', 'wrap-reverse' ), true) ) {
-                $wrap = $token;
-            } else {
-                return null;
-            }
-        }
-        return array() === $parts || count($parts) > 2 ? null : array( $direction ?? 'row', $wrap ?? 'nowrap' );
     }
 
         /** @param array<string, mixed> $node @param array<string, array<string, mixed>> $nodes @return array<string, string>|null */
