@@ -3537,7 +3537,37 @@ PHP;
                 $documents[$index]['content_decision']['evidence'][] = array('source' => 'site:dated-post-routes');
             }
         }
+        foreach ($documents as &$document) {
+            if ('post' !== ($document['metadata']['post_type'] ?? null)) continue;
+            $headline = self::postContentHeadline((string) ($document['html'] ?? ''));
+            // Preserve equivalent existing labels (including their casing).
+            if ('' !== $headline && 0 !== strcasecmp($headline, (string) ($document['title'] ?? ''))) $document['title'] = $headline;
+        }
+        unset($document);
         return $documents;
+    }
+
+    /** A single visible lead H1 names a post, independently of its SEO title. */
+    private static function postContentHeadline(string $html): string
+    {
+        if ('' === trim($html)) return '';
+        $dom = new \DOMDocument();
+        @$dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        $xpath = new \DOMXPath($dom);
+        foreach ($xpath->query('//*[@hidden or translate(@aria-hidden, "TRUE", "true") = "true"] | //template | //dialog[not(@open)] | //nav | //footer | //aside') ?: array() as $hidden) {
+            $hidden->parentNode?->removeChild($hidden);
+        }
+        $scope = $xpath->query('//main')->item(0) ?? $xpath->query('//body')->item(0);
+        if (!$scope instanceof \DOMElement) return '';
+        $articles = $xpath->query('.//article', $scope);
+        if (false !== $articles && 1 === $articles->length) $scope = $articles->item(0);
+        $headings = $xpath->query('.//h1', $scope);
+        if (false === $headings || 1 !== $headings->length) return '';
+        $heading = $headings->item(0);
+        // A heading after body copy is not the article's lead headline.
+        $lead = $xpath->query('.//h1 | .//h2 | .//h3 | .//p', $scope);
+        if (false === $lead || $lead->item(0) !== $heading) return '';
+        return trim(preg_replace('/\s+/u', ' ', str_replace("\u{00A0}", ' ', $heading->textContent)) ?? '');
     }
     /** @return array<string,mixed>|null */
     private function templateSurface(mixed $surface, string $sourcePath): ?array
