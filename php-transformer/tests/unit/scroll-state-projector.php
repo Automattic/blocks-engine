@@ -61,11 +61,9 @@ $files = static function (array $pages, array $togglesByUrl, array $documentScop
         $pageRows[] = array('path' => $path, 'content' => $html);
         $reportPages[] = array('sourceUrl' => $url, 'toggles' => $togglesByUrl[$url] ?? array());
     }
-    // The schema/vendor fields below are producer-shaped test evidence proving
-    // the engine ignores unknown/mismatched schema identities and only reads
-    // the shape it needs (routes, pages) plus the generic, consumer-declared
-    // document_scope_classes list — never a hardcoded capture-tool name.
-    $receipt = array('schema' => 'example-capture-tool/capture-receipt/v1', 'routes' => $routes);
+    // Receipt identity is validated by the shared reader; scroll report
+    // payloads continue to be consumed structurally.
+    $receipt = array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => $routes);
     if (array() !== $documentScopeClasses) {
         $receipt['document_scope_classes'] = $documentScopeClasses;
     }
@@ -158,7 +156,7 @@ $assert(0 === ($noSidecar['projected_count'] ?? -1) && array() === $noSidecar['d
 $anySchema = $project($files(array('https://example.test/any-schema' => $idHtml), array('https://example.test/any-schema' => array(
     $toggle(array('selector' => '#site-header', 'tag' => 'header', 'id' => 'site-header')),
 ))));
-$assert(1 === ($anySchema['projected_count'] ?? 0), 'a report and receipt with an unrecognized, non-vendor-specific schema string still project by shape alone');
+$assert(1 === ($anySchema['projected_count'] ?? 0), 'a scroll report with an unrecognized schema projects with a valid shared receipt');
 
 $malformedShape = $project(array(
     array('path' => 'website/index.html', 'content' => '<html><body></body></html>'),

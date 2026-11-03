@@ -36,18 +36,19 @@ final class CapturedInteractionReport
 
     public static function diagnostics(array $files): array
     {
-        return self::read($files)['_reader_diagnostics'] ?? array();
+        return array_merge(CaptureReceiptReport::diagnostics($files), self::read($files)['_reader_diagnostics'] ?? array());
     }
 
     /** Merge projector findings, reporting the shared reader warning only once. */
     public static function mergeDiagnostics(array ...$groups): array
     {
         $result = array();
-        $readerSeen = false;
+        $readerSeen = array();
         foreach ($groups as $group) foreach ($group as $diagnostic) {
-            if ('captured_interaction_ref_unresolved' === ($diagnostic['code'] ?? null)) {
-                if ($readerSeen) continue;
-                $readerSeen = true;
+            $code = $diagnostic['code'] ?? '';
+            if (in_array($code, array('captured_interaction_ref_unresolved', 'capture_receipt_rejected'), true)) {
+                if (isset($readerSeen[$code])) continue;
+                $readerSeen[$code] = true;
             }
             $result[] = $diagnostic;
         }

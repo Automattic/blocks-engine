@@ -74,6 +74,42 @@ $assert(1 === ($binding['projected_count'] ?? 0), 'declarative bindings still pr
 $assert(! in_array('captured_dialog_trigger_unmatched', $codes($binding), true), 'declarative bindings do not emit unmatched diagnostics');
 $assert(str_contains((string) $binding['files'][0]['content'], 'data-blocks-engine-captured-dialog="true"'), 'declarative bindings inject a captured dialog');
 
+$largeFiles = $files(array('https://example.test/' => $bindingHtml), array('https://example.test/' => array($state($bindingTrigger))));
+$largeReceipt = json_decode($largeFiles[1]['content'], true);
+for ($route = 0; $route < 24000; ++$route) {
+    $largeReceipt['routes'][] = array('url' => 'https://example.test/additional-route-' . $route, 'path' => 'website/additional-route-' . $route . '/index.html');
+}
+$largeFiles[1]['content'] = json_encode($largeReceipt, JSON_UNESCAPED_SLASHES);
+$assert(strlen($largeFiles[1]['content']) > 2 * 1024 * 1024, 'large receipt fixture exceeds the former 2 MiB cutoff');
+$largeProjection = $project($largeFiles);
+// The source-owned receipt is deliberately unchanged; compare all projected output.
+$largeProjection['files'][1] = $binding['files'][1];
+$assert($binding === $largeProjection, 'large and small receipt dialog projections are identical');
+
+$rejectedFiles = $largeFiles;
+$rejectedFiles[1]['content'] = '{broken';
+foreach ($rejectedFiles as &$rejectedFile) $rejectedFile['kind'] = str_ends_with($rejectedFile['path'], '.html') ? 'html' : 'json';
+unset($rejectedFile);
+$receiptReader = \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CaptureReceiptReport::class;
+$rejectedDiagnostics = $receiptReader::diagnostics($rejectedFiles);
+$assert(null === $receiptReader::read($rejectedFiles) && 'capture_receipt_rejected' === ($rejectedDiagnostics[0]['code'] ?? ''), 'invalid receipt is rejected explicitly');
+$assert(7 === ($rejectedDiagnostics[0]['context']['bytes'] ?? null) && str_contains($rejectedDiagnostics[0]['message'], 'capture-receipt.json'), 'rejection identifies receipt path and actual byte size');
+$rejectedResult = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $rejectedFiles))->toArray();
+$receiptLosses = array_values(array_filter($rejectedResult['fallbacks'], static fn(array $finding): bool => 'capture_receipt_rejected' === ($finding['diagnostic_code'] ?? null)));
+$assert(1 === count($receiptLosses) && 'content_loss' === ($receiptLosses[0]['loss_class'] ?? ''), 'receipt rejection enters countable conversion loss findings');
+$hostRejected = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array(
+    'entrypoint' => 'website/index.html',
+    'reports' => array('capture-receipt.json'),
+    'limits' => array('max_report_file_bytes' => 1),
+    'files' => $rejectedFiles,
+))->toArray();
+$hostLosses = array_values(array_filter($hostRejected['fallbacks'], static fn(array $finding): bool => 'capture_receipt_rejected' === ($finding['diagnostic_code'] ?? null)));
+$assert(1 === count($hostLosses) && 7 === ($hostLosses[0]['context']['bytes'] ?? null), 'receipt rejected by a smaller host report budget remains a counted loss with byte size');
+$oversizedFiles = array(array('path' => 'capture-receipt.json', 'content' => str_repeat(' ', \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer::MAX_REPORT_FILE_BYTES + 1)));
+$assert('report_budget_exceeded' === ($receiptReader::diagnostics($oversizedFiles)[0]['context']['reason'] ?? ''), 'receipt reader uses the host report ceiling');
+$invalidSchemaFiles = array(array('path' => 'capture-receipt.json', 'content' => '{"schema":"unknown","routes":[]}'));
+$assert(null === $receiptReader::read($invalidSchemaFiles), 'receipt reader rejects unknown schemas');
+
 $overlaySource = '<html><body><header><button id="menu" type="button" aria-controls="overlay" aria-label="Open menu" aria-expanded="false" data-blocks-engine-capture-disclosure-label="Open menu" data-blocks-engine-capture-dialog-trigger="overlay" aria-haspopup="dialog"><span></span><span></span><span></span></button><div class="data-blocks-engine-capture-dialog" role="dialog" aria-modal="true" hidden id="overlay" data-blocks-engine-capture-dialog-panel="overlay"><div><button type="button">Close</button><nav><a href="/social">Social</a><a href="mailto:hello@example.test">Contact</a></nav></div></div></header></body></html>';
 $overlayDialog = '<div><nav><a href="/social">Social</a><a href="mailto:hello@example.test">Contact</a></nav></div>';
 $overlayState = array(
