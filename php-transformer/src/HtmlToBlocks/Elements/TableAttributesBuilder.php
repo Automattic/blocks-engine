@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
@@ -52,7 +53,7 @@ final class TableAttributesBuilder
         if ( ! $native ) {
             $this->registerTablePresentationNormalization($table);
         }
-        $this->registerTableWidthHints($table);
+        $this->registerTablePresentationalHints($table);
         $this->registerTableCellGeometry($table);
         foreach ( array( 'thead' => 'head', 'tbody' => 'body', 'tfoot' => 'foot' ) as $sectionTag => $attrName ) {
             $rows = array();
@@ -181,13 +182,17 @@ final class TableAttributesBuilder
         $this->layoutGeometry()->registerRule($marker, implode("\n", $rules));
     }
 
-    /** Width attributes are hints, not inline styles: keep the entire selector at zero specificity. */
-    private function registerTableWidthHints(DOMElement $table): void
+    /** `width` and `bgcolor` are hints, not inline styles: keep the entire selector at zero specificity. */
+    private function registerTablePresentationalHints(DOMElement $table): void
     {
         $rules = array();
         $width = self::widthHint($table);
         if ( null !== $width ) {
-            $rules['table'] = $width;
+            $rules['table'][] = 'width:' . $width;
+        }
+        $background = self::backgroundHint($table);
+        if ( null !== $background ) {
+            $rules['table'][] = $background;
         }
 
         // core/table has no colgroup save shape. Project column hints onto
@@ -211,6 +216,10 @@ final class TableAttributesBuilder
             $section = $this->closestTagName($row);
             $section = isset($sectionRows[$section]) ? $section : 'tbody';
             $rowIndex = ++$sectionRows[$section];
+            $rowBackground = self::backgroundHint($row);
+            if ( null !== $rowBackground ) {
+                $rules['table>' . $section . '>tr:nth-child(' . $rowIndex . ')'][] = $rowBackground;
+            }
             $column = 0;
             $cellIndex = 0;
             foreach ( $row->childNodes as $cell ) {
@@ -224,8 +233,13 @@ final class TableAttributesBuilder
                 $colspan = max(1, min(1000, (int) $cell->getAttribute('colspan')));
                 $rowspan = max(1, min(65534, (int) $cell->getAttribute('rowspan')));
                 $width = self::widthHint($cell) ?? (1 === $colspan ? ($columns[$column] ?? null) : null);
+                $cellSelector = 'table>' . $section . '>tr:nth-child(' . $rowIndex . ')>:nth-child(' . $cellIndex . ')';
                 if ( null !== $width ) {
-                    $rules['table>' . $section . '>tr:nth-child(' . $rowIndex . ')>:nth-child(' . $cellIndex . ')'] = $width;
+                    $rules[$cellSelector][] = 'width:' . $width;
+                }
+                $cellBackground = self::backgroundHint($cell);
+                if ( null !== $cellBackground ) {
+                    $rules[$cellSelector][] = $cellBackground;
                 }
                 for ( $i = 0; $i < $colspan; ++$i ) {
                     $occupied[$section][$column++] = $rowIndex + $rowspan - 1;
@@ -237,12 +251,18 @@ final class TableAttributesBuilder
         }
         $marker = $this->authorSelectorProjections()->ensureTableMarker(SourceDom::sourceElementIdentity($table), $table);
         $css = array();
-        foreach ( $rules as $selector => $value ) {
-            $css[] = ':where(.' . $marker . '>' . $selector . '){width:' . $value . '}';
+        foreach ( $rules as $selector => $declarations ) {
+            $css[] = ':where(.' . $marker . '>' . $selector . '){' . implode(';', $declarations) . '}';
         }
         // The first, lowest-priority layer also lets layered author rules win;
         // zero specificity alone only handles rules in the same layer.
         $this->layoutGeometry()->appendRule($marker, '@layer blocks-engine-presentational-hints{' . implode("\n", $css) . '}');
+    }
+
+    private static function backgroundHint(DOMElement $element): ?string
+    {
+        $color = CssColor::legacy($element->getAttribute('bgcolor'));
+        return null === $color ? null : 'background-color:' . $color;
     }
 
     private static function widthHint(DOMElement $element): ?string

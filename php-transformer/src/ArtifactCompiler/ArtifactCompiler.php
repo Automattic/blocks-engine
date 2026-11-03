@@ -484,6 +484,8 @@ final class ArtifactCompiler
         }
         $rootInlineAsset = $this->documentInlineStyleAsset($normalized['files']);
         if (null !== $rootInlineAsset) $generatedAssets[] = $rootInlineAsset;
+        $presentationalHintAsset = $this->documentPresentationalHintAsset($normalized['files']);
+        if (null !== $presentationalHintAsset) $generatedAssets[] = $presentationalHintAsset;
         $projectedAdminBarAsset = $this->projectedViewportChromeAsset($normalized['files']);
         if (null !== $projectedAdminBarAsset) {
             $generatedAssets[] = $projectedAdminBarAsset;
@@ -3278,6 +3280,30 @@ final class ArtifactCompiler
             $sources[] = array('path' => (string) ($file['path'] ?? 'css:input'), 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])));
         }
         return self::sortedByPath($sources);
+    }
+
+    /**
+     * Legacy `<body bgcolor>` hints, scoped to their route. They rank beneath
+     * every author rule, so the zero-specificity route scope adds only the
+     * `body` type selector and the asset loads before authored stylesheets.
+     */
+    private function documentPresentationalHintAsset(array $files): ?array
+    {
+        $rules = array();
+        foreach ($files as $file) {
+            if ('html' !== ($file['kind'] ?? '')) continue;
+            $declarations = \Automattic\BlocksEngine\PhpTransformer\Support\BodyPresentationalHints::declarations((string) ($file['content'] ?? ''));
+            if ('' === $declarations) continue;
+            $source = (string) $file['path'];
+            $identity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
+            $class = $this->routeClasses[$identity] ?? \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($identity);
+            $rules[] = ':where(html.' . $class . ') body{' . $declarations . '}';
+        }
+        if (array() === $rules) return null;
+        $content = implode("\n", $rules) . "\n";
+        $hash = hash('sha256', $content);
+        $path = 'assets/css/document-presentational-hints-' . substr($hash, 0, 16) . '.css';
+        return array('source' => 'engine-support', 'path' => $path, 'target_path' => $path, 'kind' => 'css', 'role' => 'stylesheet', 'stylesheet_placement' => 'before-author', 'stylesheet_target' => 'frontend', 'mime_type' => 'text/css', 'media_type' => 'text/css', 'bytes' => strlen($content), 'encoding' => 'utf-8', 'binary' => false, 'content' => $content, 'hash' => $hash, 'source_hash' => $hash);
     }
 
     /** Front-end-only document mechanics; never part of the editor carrier. */

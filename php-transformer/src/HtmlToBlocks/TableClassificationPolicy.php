@@ -100,11 +100,34 @@ final class TableClassificationPolicy
             return false;
         }
 
-        if ( array() !== array_diff($signals['column_counts'], array( 1 )) ) {
+        if ( array() !== array_diff($signals['column_counts'], array( 1 )) || $this->paintsBackgroundHint($table) ) {
             return false;
         }
 
         return $this->authorsLayoutBox($table);
+    }
+
+    /**
+     * A full-width constrained Group cannot paint a box at the table's width,
+     * so a table that paints a `bgcolor` keeps core/table, which carries it.
+     */
+    private function paintsBackgroundHint(DOMElement $table): bool
+    {
+        if ( $table->hasAttribute('bgcolor') ) {
+            return true;
+        }
+        foreach ( $this->rowsForTable($table) as $row ) {
+            if ( $row->hasAttribute('bgcolor') ) {
+                return true;
+            }
+            foreach ( $this->cellsForRow($row) as $cell ) {
+                if ( $cell->hasAttribute('bgcolor') ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function authorsLayoutBox(DOMElement $table): bool
