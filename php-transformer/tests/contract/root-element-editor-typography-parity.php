@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
@@ -46,10 +47,17 @@ foreach ($theme['settings']['typography']['fontFamilies'] ?? array() as $family)
 $assert('Georgia,serif' === $bodyFamily, 'The projected body preset keeps the source typeface.');
 
 // Root-element declarations keep root semantics: the authored root rule rides
-// the shared stylesheet into the editor document, so its declarations stay on
-// the editor document root and reach the canvas as the inherited default.
+// the shared stylesheet into the editor document, and its presentation is
+// re-stated onto the canvas through a restatement wholly wrapped in :where(),
+// so the canvas inherits it as the document default without the restatement
+// ever weighing more than the body-level styles that must outrank it.
 $assert(str_contains($editorCss, 'html{font-family:sans-serif;line-height:1.15}'), 'The source root rule keeps its authored form as the editor document root default.');
-$assert(!str_contains($editorCss, 'html .editor-styles-wrapper{'), 'Root-element declarations are not re-stated onto the canvas body, where they would override body-level styles.');
+$restatedSelector = ':where(html .editor-styles-wrapper)';
+$assert(str_contains($editorCss, $restatedSelector . '{font-family:sans-serif;line-height:1.15}'), 'Root-element presentation is re-stated onto the canvas so inherited defaults still arrive.');
+$parsedRestatement = CssSelectorMatcher::parse($restatedSelector);
+$assert($parsedRestatement['supported'] && 0 === CssSelectorMatcher::specificity($parsedRestatement), 'The restated root selector weighs (0,0,0), so no body-level style can lose to it.');
+$parsedBodyCarrier = CssSelectorMatcher::parse(':root body.editor-styles-wrapper');
+$assert(CssSelectorMatcher::specificity($parsedBodyCarrier) > CssSelectorMatcher::specificity($parsedRestatement), 'Body-level presentation keeps its canvas-scoped carrier and outranks the inherited default.');
 $assert(str_contains($editorCss, ':root body.editor-styles-wrapper{'), 'Body-level presentation keeps its canvas-scoped carrier.');
 
 // The canvas resolves the body typeface, exactly as the frontend does. Core
