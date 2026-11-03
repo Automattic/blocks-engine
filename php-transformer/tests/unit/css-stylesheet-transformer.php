@@ -305,6 +305,20 @@ foreach (array(
     $assert(array('safe') === $result['scoped'] && array('unsafe' => $reason, 'unsafe-again' => $reason) === $result['reasons'], 'probe cache preserves route-local failures and successful validation');
 }
 
+// Warm a body at root, then reuse it beneath distinct conditional ancestors.
+$cached = new CssStylesheetTransformer();
+$body = '.cached{color:red}';
+$cached->concatenateWithoutRedundantRules(array($body));
+$nested = '@media screen{@supports (display:grid){' . $body . '}}@media print{' . $body . '}';
+$assert($nested === $cached->concatenateWithoutRedundantRules(array($nested)), 'cached units retain caller-specific nested contexts');
+$assert($body === $cached->concatenateWithoutRedundantRules(array($body)), 'nested reuse does not mutate cached root context');
+$assert('' === $cached->rulesAbsentFrom(array($nested), array($nested)), 'absence queries reuse units without mutating the cache');
+$assert($nested === $cached->concatenateWithoutRedundantRules(array($nested)), 'deduplication and absence queries leave cached bytes intact');
+$empty = '   ';
+$assert('' === $cached->concatenateWithoutRedundantRules(array($empty, $empty)), 'empty unit lists are reusable');
+$malformed = '.broken{';
+$assert($malformed === $cached->concatenateWithoutRedundantRules(array($malformed)), 'malformed fallback remains byte-identical');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssStylesheetTransformer unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

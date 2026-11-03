@@ -9,6 +9,15 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
 final class CssStylesheetTransformer
 {
     /**
+     * Source-keyed, instance-local units. The compose projection pass shares one
+     * transformer across routes; nothing survives into the next compose. Keep
+     * relative contexts here so nested groups cannot inherit another caller's
+     * ancestors. PHP copy-on-write keeps consumers from mutating cached units.
+     *
+     * @var array<string, list<array{context: list<string>, text: string, dedupable: bool}>>
+     */
+    private array $ruleUnitsByStylesheet = array();
+    /**
      * Transform selector preludes in style rules, retaining all other source bytes.
      *
      * The callback receives the complete prelude, including its original whitespace
@@ -896,6 +905,25 @@ final class CssStylesheetTransformer
      * @param list<array{context: list<string>, text: string, dedupable: bool}> $units
      */
     private function collectRuleUnits(string $css, array $context, array &$units): void
+    {
+        if ( ! isset($this->ruleUnitsByStylesheet[$css]) ) {
+            $collected = array();
+            $this->scanRuleUnits($css, array(), $collected);
+            $this->ruleUnitsByStylesheet[$css] = $collected;
+        }
+        foreach ( $this->ruleUnitsByStylesheet[$css] as $unit ) {
+            if ( array() !== $context ) {
+                $unit['context'] = array_merge($context, $unit['context']);
+            }
+            $units[] = $unit;
+        }
+    }
+
+    /**
+     * @param list<string> $context
+     * @param list<array{context: list<string>, text: string, dedupable: bool}> $units
+     */
+    private function scanRuleUnits(string $css, array $context, array &$units): void
     {
         $offset = 0;
         $length = strlen($css);
