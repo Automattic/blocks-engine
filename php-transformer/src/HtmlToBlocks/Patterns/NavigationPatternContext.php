@@ -1016,8 +1016,11 @@ final class NavigationPatternContext
             }
         }
 
-        $background = ';background-image:url("data:image/svg+xml,' . rawurlencode($markup) . '")'
-            . ';background-repeat:no-repeat;background-position:center;background-size:contain';
+        // This background is replacement DOM artwork, not an authored anchor
+        // background. Projected anchor resets (including shared route styles)
+        // must not erase the SVG that Core cannot persist in its label.
+        $background = ';background-image:url("data:image/svg+xml,' . rawurlencode($markup) . '")!important'
+            . ';background-repeat:no-repeat!important;background-position:center!important;background-size:contain!important';
 
         if ( '' === trim($element->textContent ?? '') ) {
             $declarations = 'display:inline-block;' . $box . $background . ';font-size:0;line-height:0;color:transparent';
