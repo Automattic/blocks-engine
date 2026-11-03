@@ -22,7 +22,7 @@ $result = (new HtmlTransformer())->transform($html)->toArray();
 $css = implode("\n", array_column(array_filter($result['assets'] ?? array(), static fn(array $asset): bool => 'editor' !== ($asset['stylesheet_target'] ?? 'both')), 'content'));
 $size = 'max(0.5px,0.0615385 * (clamp(0px,100 * 1vw * 1,min(9999px,1920px)) - 0px))';
 if (!str_contains($result['serialized_blocks'] ?? '', 'wp:navigation-link')
-    || !preg_match('/@media \(max-width:1023px\)\{[^{}]*wp-block-navigation-item__content\{width:' . preg_quote($size, '/') . ';height:' . preg_quote($size, '/') . '\}/', $css)) {
+    || !preg_match('/@media \(max-width:1023px\)\{[^{}]*wp-block-navigation-item__content(?::not\(#[a-zA-Z0-9_-]+\))+\{width:' . preg_quote($size, '/') . ';height:' . preg_quote($size, '/') . '\}/', $css)) {
     throw new RuntimeException('Navigation artwork must retain its wrapper size and ancestor variable chain under the source media condition.');
 }
 echo "Social navigation icon variable chain passed.\n";
