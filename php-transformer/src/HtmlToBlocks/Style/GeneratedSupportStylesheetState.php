@@ -270,6 +270,26 @@ final class GeneratedSupportStylesheetState
         $this->disclosureControlConditionalPresentation[$className] = $rules;
     }
 
+    /** @var array<string, list<array{conditions:list<string>,box:string}>> */
+    private array $navigationIconBoxes = array();
+
+    /** @param list<array{conditions:list<string>,box:string}> $boxes */
+    public function registerNavigationIconBoxes(string $className, array $boxes): void
+    {
+        $this->navigationIconBoxes[$className] = $boxes;
+    }
+
+    public function navigationIconBoxRules(string $className, string $selector): string
+    {
+        $rules = '';
+        foreach ($this->navigationIconBoxes[$className] ?? array() as $box) {
+            $css = $selector . '{' . $box['box'] . '}';
+            foreach (array_reverse($box['conditions']) as $condition) $css = $condition . '{' . $css . '}';
+            $rules .= $css;
+        }
+        return $rules;
+    }
+
     public function registerNavigationLinkIcon(string $className, string $declarations): void
     {
         $this->navigationLinkIcons[$className] = $declarations;

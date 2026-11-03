@@ -5303,6 +5303,44 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Media stacks that can change an element's box, including inherited
+     * custom properties on wrappers which native lowering may discard.
+     *
+     * @return list<list<string>>
+     */
+    public function inheritedBoxMediaConditions(DOMElement $element): array
+    {
+        $stacks = array();
+        for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode) {
+            foreach ($this->matchingStyleRules($node, 'conditional') as $rule) {
+                $conditions = $rule['conditions'] ?? array();
+                if (!preg_grep('/^@media\\b/i', $conditions)) continue;
+                $stacks[implode("\n", $conditions)] = $conditions;
+            }
+        }
+        return array_values($stacks);
+    }
+
+    /**
+     * Resolve a source box under one author condition stack, keeping variable
+     * substitution in the source scope rather than the replacement's scope.
+     *
+     * @param list<string> $conditions
+     * @return array<string,string>
+     */
+    public function conditionedBoxPresentation(DOMElement $element, array $conditions): array
+    {
+        $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($element));
+        foreach ($this->mediaConditionedBoxDeclarations($element, array('width', 'height', 'display')) as $entry) {
+            if ($entry['conditions'] === $conditions) $declarations[$entry['property']] = $entry['value'];
+        }
+        foreach ($declarations as $property => $value) {
+            $declarations[$property] = $this->expandCssVariableReferences($value, $this->conditionedCustomProperties($value, $element, $conditions));
+        }
+        return $declarations;
+    }
+
+    /**
      * Custom properties a value reads, defined on the element or an ancestor
      * by a rule under exactly these conditions, nearest definition first.
      *
