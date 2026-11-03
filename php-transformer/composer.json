@@ -681,6 +681,7 @@
       "php tests/unit/inline-author-override-carrier.php",
       "php tests/unit/inline-unsupported-declaration-carrier.php",
       "php tests/unit/auto-fit-grid-carrier.php",
+      "php tests/unit/author-grid-track-ownership.php",
       "php tests/unit/responsive-grid-track-container-safety.php",
       "php tests/unit/css-owned-grid-item-min-width-safety.php",
       "php tests/unit/propagated-link-layout-transparency.php",

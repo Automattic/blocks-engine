@@ -164,15 +164,19 @@ $assert(6 === $sourceSelectorCache->sourceSelectorMatchExecutions && 1 === $sour
 // Candidate lists are keyed by each element's selector signature, which
 // reads its cached class tokens once more per element (Automattic/blocks-engine#3102).
 $assert(5 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 16 === $sourceSelectorCache->sourceSelectorClassTokenHits && 12 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
-$assert(4 === $sourceSelectorCache->sourceStructuralDeclarationBuilds && 8 === $sourceSelectorCache->sourceStructuralDeclarationHits, 'Structural declaration resolution builds each source state once and reuses repeated element results.');
+// Grid ownership consults the same cached structural declarations during
+// presentation and parent-placement resolution; it must not rebuild them.
+$assert(4 === $sourceSelectorCache->sourceStructuralDeclarationBuilds && 12 === $sourceSelectorCache->sourceStructuralDeclarationHits, 'Structural declaration resolution builds each source state once and reuses repeated element results.');
 // style_rule_candidate_cache_hits is one higher than before native grid
 // child placement (Automattic/blocks-engine#2139 step 1): resolving whether
 // the `<p>` child's parent is a core grid container looks up the parent
 // `<section>`'s static-rule candidates once, an additional cache-eligible
 // lookup the parent's own presentation resolution had not already primed.
+// CSS-owned grids with no representable tracks also inspect conditional
+// margins in their children: two additional candidate-cache hits.
 // Conditional-only source margins also inspect the root's conditional candidates:
 // one extra candidate lookup reuses its immutable class tokens without rebuilding.
-$assert(1 === ($sourceSelectorResult['metrics']['selector_match_cache_hits'] ?? null) && 6 === ($sourceSelectorResult['metrics']['selector_match_cache_misses'] ?? null) && 0 === ($sourceSelectorResult['metrics']['selector_match_cache_evictions'] ?? null) && 3 === ($sourceSelectorResult['metrics']['selector_match_cache_peak_entries'] ?? null) && 2 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_hits'] ?? null) && 10 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_misses'] ?? null), 'Transform metrics expose selector and candidate-cache hit, miss, eviction, and peak counters without changing canonical blocks.');
+$assert(1 === ($sourceSelectorResult['metrics']['selector_match_cache_hits'] ?? null) && 6 === ($sourceSelectorResult['metrics']['selector_match_cache_misses'] ?? null) && 0 === ($sourceSelectorResult['metrics']['selector_match_cache_evictions'] ?? null) && 3 === ($sourceSelectorResult['metrics']['selector_match_cache_peak_entries'] ?? null) && 4 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_hits'] ?? null) && 10 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_misses'] ?? null), 'Transform metrics expose selector and candidate-cache hit, miss, eviction, and peak counters without changing canonical blocks.');
 
 $candidateCache = new HtmlTransformerAnalysisCache();
 $noiseRules = array();
@@ -233,7 +237,8 @@ $assert(
     && 0 === ($pressureMetrics['selector_match_cache_evictions'] ?? null)
     && 2 === ($pressureMetrics['selector_match_cache_peak_entries'] ?? null)
     && 4099 === $pressureCache->sourceStructuralDeclarationBuilds
-    && 8201 === $pressureCache->sourceStructuralDeclarationHits,
+    // Layout ownership adds one cached structural lookup per presentation.
+    && 12301 === $pressureCache->sourceStructuralDeclarationHits,
     'Read-only conversion retains selector and structural declaration results across repeated passes.'
 );
 $assert(

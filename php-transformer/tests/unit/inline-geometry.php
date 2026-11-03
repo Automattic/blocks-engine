@@ -79,7 +79,7 @@ $geometry = new InlineGeometry(
     static fn (DOMElement $element, array $declarations, array $excluded): array => array(),
     static fn (DOMElement $element, array $declarations, array $values): array => array(),
     static fn (DOMElement $element): string => 'div:1',
-    static fn (DOMElement $element): array => array(),
+    static fn (DOMElement $element): array => $parseDeclarations($element->getAttribute('style')),
     static fn (DOMElement $element, string $family): bool => false,
     static fn (string $property): string => $property,
     static fn (DOMElement $element): bool => false,
@@ -94,6 +94,11 @@ $assert(array( 'type' => 'flex' ) === $flex, 'data-layout-flex');
 $column = $geometry->layoutAttribute($elementFrom('<div style="display:flex;flex-direction:column"></div>'));
 $assert('flex' === ($column['type'] ?? null), 'inline-flex-layout-type');
 $assert('vertical' === ($column['orientation'] ?? null), 'inline-flex-column-orientation');
+
+$variableGrid = $geometry->layoutAttribute($elementFrom('<div style="display:grid;grid-template-columns:repeat(var(--per-row),minmax(0,1fr));--per-row:2"></div>'));
+$assert(array() === $variableGrid, 'variable-grid-tracks-never-become-bare-core-grid');
+$literalGrid = $geometry->layoutAttribute($elementFrom('<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr))"></div>'));
+$assert(array( 'type' => 'grid', 'columnCount' => 2 ) === $literalGrid, 'literal-grid-tracks-retain-native-contract');
 
 $unstyled = $geometry->className($elementFrom('<div></div>'));
 $assert('' === $unstyled, 'unstyled-element-mints-no-carrier');

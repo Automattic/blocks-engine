@@ -1064,21 +1064,26 @@ final class InlineGeometry
 
             return array( 'type' => 'flex' );
         }
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
-            $trackList = (string) ($mergedDeclarations['grid-template-columns'] ?? $inlineDeclarations['grid-template-columns'] ?? '');
+        // Presentation filtering can remove class-owned responsive layout
+        // declarations. Decide grid ownership from the author's structural
+        // declarations, not that filtered map (or a grid-like class fallback).
+        $structuralDeclarations = ($this->structuralPresentationDeclarations)($element);
+        $gridDisplay = CssValueInspector::comparable((string) ($structuralDeclarations['display'] ?? ''));
+        if ( in_array($gridDisplay, array( 'grid', 'inline-grid' ), true) ) {
+            $trackList = (string) ($structuralDeclarations['grid-template-columns'] ?? '');
+            $hasConditionalTracks = ($this->hasConditionalGridTemplateColumns)($element);
             $minimumColumnWidth = $this->autoRepeatMinimumColumnWidth($trackList);
-            if ( '' !== $minimumColumnWidth ) {
+            if ( '' !== $minimumColumnWidth && ! $hasConditionalTracks ) {
                 return array( 'type' => 'grid', 'minimumColumnWidth' => $minimumColumnWidth );
             }
             $columnCount = $this->equalFlexibleTrackColumnCount($trackList);
-            if ( 0 < $columnCount && ! ($this->hasConditionalGridTemplateColumns)($element) ) {
+            if ( 0 < $columnCount && ! $hasConditionalTracks ) {
                 return array( 'type' => 'grid', 'columnCount' => $columnCount );
             }
-            if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $inlineStyle) && $this->hasOwnStyleHook($element) ) {
-                return array();
-            }
-
-            return array( 'type' => 'grid' );
+            // A bare core grid has an implicit 12rem auto-fill contract; it
+            // is not an unspecified track list. Unsupported source tracks
+            // must stay on the CSS-owned layout path instead.
+            return array();
         }
 
         $inlineOwnsLayout = false;
