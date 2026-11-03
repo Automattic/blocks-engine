@@ -90,6 +90,31 @@ final class CssColor
         return $color;
     }
 
+    /**
+     * The HTML "rules for parsing a legacy colour value" used by presentational
+     * attributes such as `bgcolor`: canonical `#rrggbb`, or null when the
+     * attribute yields no colour (empty or `transparent`).
+     */
+    public static function legacy(string $value): ?string
+    {
+        $value = trim($value, " \t\n\f\r");
+        $lower = strtolower($value);
+        if ('' === $value || 'transparent' === $lower) return null;
+        if (isset(self::NAMED[$lower])) return '#' . self::NAMED[$lower];
+        if (1 === preg_match('/^#[0-9a-f]{3}$/i', $value)) return (string) self::hex($value);
+        $value = (string) preg_replace('/[\x{10000}-\x{10FFFF}]/u', '00', $value);
+        $value = mb_substr($value, 0, 128);
+        if (str_starts_with($value, '#')) $value = substr($value, 1);
+        $value = (string) preg_replace('/[^0-9a-f]/iu', '0', $value);
+        while ('' === $value || 0 !== strlen($value) % 3) $value .= '0';
+        $components = str_split($value, intdiv(strlen($value), 3));
+        if (strlen($components[0]) > 8) $components = array_map(static fn(string $part): string => substr($part, -8), $components);
+        while (strlen($components[0]) > 2 && '0' === $components[0][0] && '0' === $components[1][0] && '0' === $components[2][0]) {
+            $components = array_map(static fn(string $part): string => substr($part, 1), $components);
+        }
+        return '#' . strtolower(implode('', array_map(static fn(string $part): string => str_pad(substr($part, 0, 2), 2, '0', STR_PAD_LEFT), $components)));
+    }
+
     /** Canonical lowercase `#rrggbb` (or `#rrggbbaa` when translucent), or null. */
     public static function hex(string $value): ?string
     {
