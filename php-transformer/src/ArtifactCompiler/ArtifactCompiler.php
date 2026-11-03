@@ -2450,7 +2450,7 @@ final class ArtifactCompiler
             if ('' === $reference || preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $reference)) return $reference;
             preg_match('/^([^?#]*)(.*)$/s', $reference, $parts);
             $path = str_starts_with($parts[1] ?? '', '/')
-                ? ArtifactPath::safeRelativePath(ltrim((string) ($parts[1] ?? ''), '/'))
+                ? ArtifactPath::resolveRelativePath(ltrim((string) ($parts[1] ?? ''), '/'))
                 : ArtifactPath::resolveRelativePath((string) ($parts[1] ?? ''), $stylesheetPath);
             return '' !== $path && isset($paths[$path]) ? $path . ($parts[2] ?? '') : $reference;
         });
@@ -2603,7 +2603,9 @@ final class ArtifactCompiler
     /** @param array<string, true> $paths */
     private function artifactRootRelativePath(string $reference, string $sourcePath, array $paths): string
     {
-        $relative = ArtifactPath::safeRelativePath(ltrim($reference, '/'));
+        // Root-relative URLs need the same segment decoding and traversal checks
+        // as document-relative references, before exact or suffix lookup.
+        $relative = ArtifactPath::resolveRelativePath(ltrim($reference, '/'));
         if ( '' === $relative || isset($paths[$relative]) ) {
             return $relative;
         }
