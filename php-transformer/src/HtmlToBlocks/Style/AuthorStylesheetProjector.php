@@ -136,6 +136,19 @@ final class AuthorStylesheetProjector
     /** @param list<string> $ancestors @param list<string> $outerConditions */
     private function projectStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false, array $ancestors = array(), array $outerConditions = array()): string
     {
+        if ( ! $context->nativeDocumentContext ) {
+            // A standalone block fragment cannot restore source body classes.
+            // Do not activate a source-false negative gate on its host body.
+            // Native site plans must retain these selectors: route metadata
+            // (including an authoritative empty body) owns their truth there.
+            $selectors = CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude);
+            $classes = preg_split('/\s+/', trim($context->authorStyles->sourceBody()->getAttribute('class'))) ?: array();
+            $selectors = array_filter($selectors, static fn (string $selector): bool =>
+                !preg_match('/^body:not\(\.([A-Za-z0-9_-]+)\)(?=\s|>|\+|~)/', trim($selector), $predicate)
+                || !in_array($predicate[1], $classes, true));
+            if ( array() === $selectors ) return '';
+            $prelude = implode(',', $selectors);
+        }
         if ( $context->onlyMatchedRules ) {
             $prelude = $this->matchedSelectorPrelude($prelude, $context);
             if ( '' === $prelude ) {

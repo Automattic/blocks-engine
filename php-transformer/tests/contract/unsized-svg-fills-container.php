@@ -59,4 +59,16 @@ $sized = $rule($carrier($images[1]));
 $assert(1 !== preg_match('/(?:^|;)width:100%(?:;|$)/', $sized), 'An SVG sized by its own attributes keeps that size: ' . $sized);
 $assert(1 === preg_match('/(?:^|;)width:auto(?:;|$)/', $sized), 'The sized SVG image keeps its own width: ' . $sized);
 
+// RichText icons take the same geometry path without a core/image figure.
+$inline = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer())->transform(
+    '<p><span style="display:block;width:32px"><svg viewBox="0 0 448 512"><path d="M0 0h448v512H0z"/></svg></span></p>'
+    . '<p><span style="display:block;width:32px"><svg width="24" height="24" viewBox="0 0 512 512"><path d="M0 0h512v512H0z"/></svg></span></p>'
+)->toArray();
+$inlineMarkup = $inline['serialized_blocks'];
+$inlineCss = implode("\n", array_column($inline['assets'], 'content'));
+$assert(2 === substr_count($inlineMarkup, '<img'), 'Both inline icons become native RichText images.');
+$assert(! str_contains($inlineMarkup, 'width:448px') && ! str_contains($inlineMarkup, 'height:512px'), 'ViewBox dimensions never become inline used size.');
+$assert(str_contains($inlineCss, 'width:100%;height:auto'), 'The unsized inline icon fills its block container.');
+$assert(str_contains($inlineMarkup, 'width:24px;height:24px'), 'Explicit icon dimensions remain 24 by 24.');
+
 echo "Unsized SVG fills container contract passed.\n";

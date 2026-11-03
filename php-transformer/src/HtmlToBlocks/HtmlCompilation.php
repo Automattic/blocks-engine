@@ -414,6 +414,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private bool $projectsOnlyMatchedAuthorRules = false;
 
+    private bool $nativeDocumentContext = false;
+
     private const SYNTHETIC_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS;
     private const SYNTHETIC_SVG_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_SVG_PARAGRAPH_CLASS;
 
@@ -1629,6 +1631,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->session->installSourcePath($this->currentSourcePath);
         $this->sharedStylesheetPaths = array();
         $this->projectsOnlyMatchedAuthorRules = ! empty($options['project_only_matched_author_rules']);
+        $this->nativeDocumentContext = ! empty($options['native_document_context']);
         foreach ( is_array($options['shared_stylesheet_paths'] ?? null) ? $options['shared_stylesheet_paths'] : array() as $path ) {
             if ( is_string($path) && '' !== $path ) {
                 $this->sharedStylesheetPaths[$path] = true;
@@ -1748,13 +1751,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->reusableComponents()->installRecognition($this->reusableComponentRecognizer->recognize($body));
 
         $fallbacks   = array();
-        $interactionCandidates = $this->interactionFallbackReporter->interactionCandidates($body);
-        $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
-        $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
-        $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
-        $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
-        $this->collectGeneratedComponentCandidates($body);
-        $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates(), $this->transformationProvenance()->sourceCollapsedWrapperHiddenStates());
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::install($document);
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::indexDocument($document);
+        try {
+            $interactionCandidates = $this->interactionFallbackReporter->interactionCandidates($body);
+            $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
+            $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
+            $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
+            $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
+            $this->collectGeneratedComponentCandidates($body);
+            $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates(), $this->transformationProvenance()->sourceCollapsedWrapperHiddenStates());
+        } finally {
+            \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::releaseDocument($document);
+            \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::release($document);
+        }
         $blocks = $this->compressProjectedGroupChains($blocks);
         if (null === $this->deepMediaBoundaryPaths) {
             $blocks = $this->captureDeepMediaLayoutBoundaries($blocks);
@@ -2880,7 +2890,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $bindings,
                 $this->emittedStyleMarkup,
                 $contentBoxRestatements ?? new ContentBoxRestatements(),
-                $this->projectsOnlyMatchedAuthorRules
+                $this->projectsOnlyMatchedAuthorRules,
+                $this->nativeDocumentContext
             ),
             '' === $media ? array() : array( '@media ' . $media )
         );
@@ -3368,7 +3379,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                         $blocks = array( $this->createBlock('core/spacer', array( 'height' => $height ), array(), $cell) );
                     }
                     $cellPadding = $spacer || array() !== array_intersect_key($this->styleResolver->resolvedPresentationDeclarations($cell), array_flip(array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ))) ? 0 : $padding;
-                    $rows[]    = array( $blocks, $cellPadding );
+                    // A taller cell keeps its height and places its content the way
+                    // the cell aligns it: in the middle unless `valign` says otherwise.
+                    $boxHeight = ! $spacer && null !== $height && str_ends_with($height, 'px') ? $height : null;
+                    $rows[]    = array( $blocks, $cellPadding, $boxHeight, $this->layoutTableCellAlignment($cell) );
                     $cellWidth = $cellWidth ?? $this->normalizeLayoutTableTrackWidth($this->attr($cell, 'width'));
                 }
             }
@@ -3377,18 +3391,28 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // Rows are stacked page regions: one row is the group's content, several keep their own boxes.
         $boxPadding = static fn (int $inset): array => array( 'top' => $inset . 'px', 'right' => $inset . 'px', 'bottom' => $inset . 'px', 'left' => $inset . 'px' );
         $single     = 1 === count($rows);
-        $children   = $single
+        $children   = $single && null === $rows[0][2]
             ? $rows[0][0]
             : array_map(
-                function (array $row, int $index) use ($boxPadding, $spacing, $table): array {
-                    $box = array();
-                    if ( 0 < $row[1] ) {
-                        $box['padding'] = $boxPadding($row[1]);
+                function (array $row, int $index) use ($boxPadding, $spacing, $table, $single): array {
+                    $attrs = array();
+                    if ( 0 < $row[1] && ! $single ) {
+                        $attrs['style']['spacing']['padding'] = $boxPadding($row[1]);
                     }
                     if ( 0 < $index ) {
-                        $box['margin'] = array( 'top' => $spacing . 'px' );
+                        $attrs['style']['spacing']['margin'] = array( 'top' => $spacing . 'px' );
                     }
-                    return $this->createBlock('core/group', array() === $box ? array() : array( 'style' => array( 'spacing' => $box ) ), $row[0], $table);
+                    $blocks = $row[0];
+                    if ( null !== $row[2] ) {
+                        // The cell height includes the padding, which a single row's table box carries.
+                        $attrs['style']['dimensions']['minHeight'] = CssLength::format(max(0.0, (float) $row[2] - ( $single ? 2 * $row[1] : 0 )));
+                        if ( 'top' !== $row[3] ) {
+                            // A vertical flex box places the content; it stays one flow box, so inline runs keep flowing.
+                            $attrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical', 'justifyContent' => 'stretch', 'verticalAlignment' => $row[3] );
+                            $blocks          = array( $this->createBlock('core/group', array(), $blocks, $table) );
+                        }
+                    }
+                    return $this->createBlock('core/group', $attrs, $blocks, $table);
                 },
                 $rows,
                 array_keys($rows)
@@ -3418,6 +3442,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->createBlock('core/group', $attrs, $children, $table);
+    }
+
+    /** Where a cell places its content vertically: `top`, `center` (the default) or `bottom`. */
+    private function layoutTableCellAlignment(DOMElement $cell): string
+    {
+        $valign = $this->resolvedDeclaration($cell, 'vertical-align');
+        if ( '' === $valign && $cell->parentNode instanceof DOMElement ) {
+            $valign = $this->resolvedDeclaration($cell->parentNode, 'vertical-align');
+        }
+        return match ( $valign ) {
+            'top', 'baseline', 'text-top' => 'top',
+            'bottom', 'text-bottom' => 'bottom',
+            default => 'center',
+        };
     }
 
     /** The table's border spacing in px: `cellspacing` (2 by default), unless author CSS sets it. */
@@ -3894,7 +3932,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
             fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
             fn (DOMElement $sourceElement): string => $this->inlineRichTextContent($sourceElement),
-            fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement)
+            fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement),
+            fn (DOMElement $sourceElement): array => $this->styleResolver->resolvedPresentationDeclarations($sourceElement)
         );
     }
 
@@ -3987,6 +4026,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
              accordionItemBox: fn (DOMElement $item): array => $this->disclosureControlPresentation()->accordionItemBox($item),
              sourceElementVisuallyClipped: fn (DOMElement $sourceElement): bool => $this->styleResolver->isVisuallyClippedBox($sourceElement),
              socialAnchorColors: fn (DOMElement $sourceElement): array => $this->socialAnchorColors($sourceElement),
+             socialPresentationDeclarations: fn (DOMElement $sourceElement): array => $this->styleResolver->resolvedPresentationDeclarations($sourceElement),
              authoredIconColor: fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
              assetMetadata: fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array()
          );
@@ -6136,7 +6176,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($wrapper, 'class'));
             $wrapperStyle   = trim($this->attr($wrapper, 'style'));
             if ( '' !== $wrapperStyle ) {
-                $hoistedDeclarations = array_merge($hoistedDeclarations, $this->styleResolver->cssDeclarations($wrapperStyle));
+                // On an inline wrapper these values restate the parent's size;
+                // on the block they would instead inherit from its parent and
+                // erase an outer span's size (or a stylesheet heading size).
+                $size = strtolower(CssValueInspector::withoutImportant((string) ($wrapperDeclarations['font-size'] ?? '')));
+                if ( in_array($size, array( 'inherit', 'unset' ), true)
+                    || 1 === preg_match('/^(?:100(?:\.0+)?%|1(?:\.0+)?em)$/', $size) ) {
+                    unset($wrapperDeclarations['font-size']);
+                }
+                $hoistedDeclarations = array_merge($hoistedDeclarations, $wrapperDeclarations);
             }
             $this->unwrapElement($wrapper);
         }
@@ -6162,6 +6210,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( array() !== $mapped ) {
                 $existing       = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
                 $attrs['style'] = array_replace_recursive($mapped, $existing);
+                // A size on the content overrides the host's size in the source
+                // cascade too, even when the host carries a reset such as 100%.
+                if ( isset($mapped['typography']['fontSize']) ) {
+                    $attrs['style']['typography']['fontSize'] = $mapped['typography']['fontSize'];
+                }
             }
         }
 
@@ -12671,6 +12724,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // A synthetic figure must not inherit the image's preferred ratio:
         // imageBoxConstraintClassName() carries it on the painting leaf instead.
         $attrs = $this->styleResolver->presentationAttributes($figure ?? $image, $figure instanceof DOMElement ? array() : array_merge($inlineImagePlacement, $imageBoxProperties, array('aspect-ratio')));
+        if ( ! $figure instanceof DOMElement ) {
+            // Native spacing is serialized on the figure even when geometry
+            // excludes it. Source image margins are carried on the leaf instead.
+            unset($attrs['style']['spacing']['margin']);
+        }
         if ( $syntheticLinkedFigure ) {
             // The figure replaces the link in its parent's layout. The image's
             // percentage box and crop still belong to the leaf inside that link.

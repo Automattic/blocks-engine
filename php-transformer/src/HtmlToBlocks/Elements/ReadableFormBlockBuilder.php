@@ -114,6 +114,10 @@ final class ReadableFormBlockBuilder
             if ( ($this->isRuntimeDomTarget)($control) ) {
                 $this->runtimeIslandRecorder->recordControl($control);
             }
+            // The walk reads each box before it reaches the control, so a
+            // wrapper below a frame stays unshelled and the box keeps the
+            // whole exclusive chain in source order.
+            $this->fieldBoxes[$index] = $this->fieldBox($control, $label);
         }
 
         $contentBlocks = $this->groupedContentBlocks($form, $fallbacks);
@@ -215,7 +219,12 @@ final class ReadableFormBlockBuilder
             }
             $ownedLabel = 'label' === strtolower($element->tagName) && '' !== $this->metadataBuilder->labelText($element);
             $isFieldset = 'fieldset' === strtolower($element->tagName);
-            $ownsShell = ! $ownedLabel && ($isFieldset || $element->hasAttributes() || isset($graphNodes[$entry['id']]));
+            // A wrapper below a frame of the control's field box belongs to
+            // that box: shelling it would stand the walk's shell above the
+            // box's own frame (the control's label), inverting the source
+            // nesting the provider substitutes its field into.
+            $inFieldBox = $this->isBelowFieldBoxFrame($entry['id'], $element, $children);
+            $ownsShell = ! $ownedLabel && ! $inFieldBox && ($isFieldset || $element->hasAttributes() || isset($graphNodes[$entry['id']]));
             $elements = array($element);
             $descendants = $children[$entry['id']] ?? array();
             // One layout-shell can retain a consecutive source wrapper chain.
@@ -259,7 +268,7 @@ final class ReadableFormBlockBuilder
             }
             // A one-control container can own paint, inherited variables and sizing.
             // Text-bearing labels are already represented by the authored control.
-            if ( 2 <= count($inner) || $ownsShell ) {
+            if ( ( 2 <= count($inner) && ! $inFieldBox ) || $ownsShell ) {
                 if ( 1 === count($inner) ) {
                     $inner = array($this->withoutShelledFieldBox($inner[0], $elements));
                 }
@@ -311,6 +320,49 @@ final class ReadableFormBlockBuilder
         return false;
     }
 
+    /**
+     * @param array<string, list<array<string, mixed>>> $children
+     * @return array<string, mixed>|null The single control entry below the element, or null when it holds several.
+     */
+    private function soleControlEntry(string $id, array $children): ?array
+    {
+        $sole = null;
+        foreach ( $children[$id] ?? array() as $child ) {
+            $control = 'control' === $child['kind'] ? $child : $this->soleControlEntry($child['id'], $children);
+            if ( null === $control ) {
+                continue;
+            }
+            if ( null !== $sole ) {
+                return null;
+            }
+            $sole = $control;
+        }
+        return $sole;
+    }
+
+    /**
+     * A field box frames its control outermost first. A container the walk
+     * would shell that sits below one of those frames must stay unshelled, so
+     * the box the finding encloses the control in renders the frames in
+     * source order instead of below its own descendant.
+     *
+     * @param array<string, list<array<string, mixed>>> $children
+     */
+    private function isBelowFieldBoxFrame(string $id, DOMElement $element, array $children): bool
+    {
+        $control = $this->soleControlEntry($id, $children);
+        if ( null === $control ) {
+            return false;
+        }
+        $index = $this->controlIndices[(string) $control['element']->getNodePath()] ?? null;
+        foreach ( $this->fieldBoxes[$index] ?? array() as $frame ) {
+            if ( ! $frame->isSameNode($element) && $this->contains($frame, $element) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** @return array<string, mixed>|null */
     private function convertDataEntryControl(DOMElement $control): ?array
     {
@@ -342,8 +394,7 @@ final class ReadableFormBlockBuilder
             'kind' => 'control',
             'label' => null !== $label ? $this->controlBlockConverter->labelMarkup($label) : '',
         );
-        $box = $this->fieldBox($control, $label);
-        $this->fieldBoxes[$readableControlBlock['form_control_index']] = $box;
+        $box = $this->fieldBoxes[$readableControlBlock['form_control_index']] ?? array();
         $shell = array() === $box ? null : ($this->fieldBoxShell)($box);
         if (null !== $shell) {
             $readableControlBlock['_form_field_box'] = $shell;

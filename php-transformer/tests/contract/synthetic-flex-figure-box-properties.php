@@ -37,7 +37,7 @@ foreach (array('svg', 'img') as $tag) {
             // A declaration on the figure alone is insufficient: require an
             // image-leaf selector attached to this very figure's identity.
             foreach (explode(',', $rule[1]) as $selector) {
-                if (!preg_match('/>\s*img\s*$/', trim($selector))) continue;
+                if (!preg_match('/>\s*img(?:\)|:not\([.#a-z0-9-]+\))*\s*$/i', trim($selector))) continue;
                 foreach (explode(' ', $figure[1]) as $class) {
                     if ('indicator' !== $class && !str_starts_with($class, 'be-inline-geometry-')) continue;
                     if (!str_contains($selector, '.' . $class)) continue;

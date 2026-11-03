@@ -16,7 +16,7 @@
     "content": "<svg viewBox=\"0 0 110 110\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><circle cx=\"55\" cy=\"55\" r=\"50\" stroke=\"rgba(184,137,58,0.55)\" stroke-width=\"1.5\" stroke-dasharray=\"4 3\"/><defs><path id=\"ct\" d=\"M 55,55 m -36,0 a 36,36 0 1,1 72,0 a 36,36 0 1,1 -72,0\"/></defs><text font-family=\"monospace\" font-size=\"9\" fill=\"rgba(184,137,58,0.65)\" letter-spacing=\"3.5\"><textPath href=\"#ct\">HAND ROASTED</textPath></text><text x=\"55\" y=\"62\" text-anchor=\"middle\" font-family=\"Georgia, serif\" font-size=\"22\" fill=\"rgba(184,137,58,0.5)\">DR</text></svg>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "width": "110px", "height": "110px" } }
+    { "path": "blocks.0", "name": "core/image" }
   ],
   "expected_fallbacks": [],
   "expect": [

@@ -109,7 +109,20 @@ $builder = new ReadableFormBlockBuilder(
     $presentationAttributes,
     $createBlock,
     $layoutShellBlockForElements,
-    static fn (array $elements): array => array('blockName' => 'test/layout-shell', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => '', 'innerContent' => array('<div>', '</div>')),
+    static fn (array $elements): array => array(
+        'blockName' => 'test/layout-shell',
+        'attrs' => array(
+            'wrappers' => array_map(static function (DOMElement $element): array {
+                return array(
+                    'tagName' => strtolower($element->tagName),
+                    'attributes' => array('class' => $element->getAttribute('class')),
+                );
+            }, $elements),
+        ),
+        'innerBlocks' => array(),
+        'innerHTML' => '',
+        'innerContent' => array('<div>', '</div>'),
+    ),
     static fn (): array => array(
         array(
             'path' => 'style.css',
@@ -196,6 +209,28 @@ $recorded = array();
 $runtimeForm = $builder->build($formFrom('<form><input data-runtime name="email"></form>'));
 $assert('core/html' === ($runtimeForm['innerBlocks'][0]['blockName'] ?? ''), 'runtime-control-is-preserved');
 $assert(array() !== $recorded && 'runtime_dom_target' === ($recorded[0]['reason'] ?? ''), 'runtime-control-records-island');
+
+// A wrapping label that owns its control (the default Framer field shape)
+// frames it outermost first: the walk shells the shared row, and the field
+// box renders the label then the wrapper, so no frame of a control ever
+// stands below its own descendant (`row > lab > wrap`, never `row > wrap > lab`).
+$framer = $builder->build($formFrom('<form><div class="row"><label class="lab"><div class="cap"><p>Nom</p></div><div class="wrap"><input name="nom"></div></label><label class="lab"><div class="cap"><p>Mail</p></div><div class="wrap"><input name="mail"></div></label></div></form>'));
+$frames = array();
+$frameWalk = static function (array $blocks, array $classes) use (&$frameWalk, &$frames): void {
+    foreach ( $blocks as $block ) {
+        $own = array_map(static fn (array $wrapper): string => $wrapper['attributes']['class'] ?? '', $block['attrs']['wrappers'] ?? array());
+        if ( isset($block['form_control_index']) ) {
+            $frames[ $block['form_control_index'] ] = array_merge($classes, $own, array_map(
+                static fn (array $wrapper): string => $wrapper['attributes']['class'] ?? '',
+                $block['_form_field_box']['attrs']['wrappers'] ?? array()
+            ));
+        }
+        $frameWalk($block['innerBlocks'] ?? array(), array_merge($classes, $own));
+    }
+};
+$frameWalk($framer['innerBlocks'] ?? array(), array());
+$assert(array( 'row', 'lab', 'wrap' ) === ($frames[0] ?? null), 'row-field-frames-keep-source-order');
+$assert(array( 'row', 'lab', 'wrap' ) === ($frames[1] ?? null), 'second-row-field-frames-keep-source-order');
 
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
