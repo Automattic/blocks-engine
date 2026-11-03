@@ -35,6 +35,16 @@ $assert(str_contains($custom['serialized_blocks'], 'M0 0h12v12z'), 'Wrong core a
 $assert(str_contains($custom['serialized_blocks'], '<a '), 'Uncaptured custom artwork remains linked.');
 $unsafe = (new HtmlTransformer())->transform('<div class="social"><a href="javascript:alert(1)" aria-label="Facebook" onclick="alert(1)"><svg viewBox="0 0 24 24" onload="alert(1)"><script>alert(1)</script><path d="M0 0h12v12z"/></svg></a></div>')->toArray();
 $assert(!preg_match('/javascript:|onclick=|onload=|<script/i', $unsafe['serialized_blocks']), 'Source artwork uses sanitized markup, not raw source HTML.');
+// Mixed dropdown panels and navigation keep their prior native social blocks.
+$iconLink = '<div class="social"><a aria-label="Social" href="https://example.test/social"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M2 4h16M2 10h16M2 16h16" stroke="currentColor"></path></svg></a></div>';
+foreach (array('<nav>%s</nav>', '<div role="navigation">%s</div>', '<div data-blocks-engine-capture-dialog-panel="menu">%s</div>', '<div class="data-blocks-engine-capture-dropdown">%s</div>', '<div class="data-blocks-engine-capture-dialog">%s</div>') as $container) {
+    $native = (new HtmlTransformer())->transform(sprintf($container, $iconLink))->toArray();
+    $assert(!str_contains($native['serialized_blocks'], 'wp:html'), 'Navigation social artwork must not introduce Custom HTML blocks.');
+    $assert(str_contains($native['serialized_blocks'], 'wp:social-link ') || str_contains($native['serialized_blocks'], 'wp:navigation-link '), 'Navigation retains native link output.');
+    $assert(str_contains($native['serialized_blocks'], 'https://example.test/social'), 'Navigation social links retain their targets.');
+}
+$dropdown = (new HtmlTransformer())->transform(require dirname(__DIR__) . '/fixtures/scoped-mixed-dropdown.php')->toArray();
+$assert(!str_contains($dropdown['serialized_blocks'], 'wp:html'), 'Both scoped dropdown copies contain only native blocks.');
 if (in_array('--json', $argv, true)) {
     echo json_encode(array('source' => $source, 'result' => $result), JSON_THROW_ON_ERROR);
     exit;

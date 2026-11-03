@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAtt
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMElement;
 
 /** Lowers explicit social-profile clusters to the core social-links family. */
@@ -120,7 +121,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 }
             }
         }
-        if ($sourceArtwork && null !== $context->markupContext()) {
+        if ($sourceArtwork && !$this->hasNavigationAncestor($element) && null !== $context->markupContext()) {
             // Retain the source selectors on every descendant. The sanitized
             // HTML block is the native owner of a > (source artwork); no
             // synthetic paragraph, list, or unlinked image is introduced.
@@ -220,6 +221,25 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-social-source-non-list');
         }
         return new PatternRecognitionResult($context->createBlock('core/social-links', $attrs, $links, $element));
+    }
+
+    /**
+     * Navigation and captured panels require editable native descendants. Keep
+     * their existing social-link conversion rather than introducing Custom HTML
+     * into a navigation tree, including mixed-content dropdown panels.
+     */
+    private function hasNavigationAncestor(DOMElement $element): bool
+    {
+        for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if ('nav' === strtolower($ancestor->tagName)
+                || 'navigation' === strtolower($ancestor->getAttribute('role'))
+                || $ancestor->hasAttribute(CaptureEvidence::DIALOG_PANEL)
+                || in_array(CaptureEvidence::DROPDOWN_CLASS, preg_split('/\s+/', $ancestor->getAttribute('class')) ?: array(), true)
+                || in_array(CaptureEvidence::DIALOG_CLASS, preg_split('/\s+/', $ancestor->getAttribute('class')) ?: array(), true)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Core's icon snapshot is evidence of geometry parity, not URL identity. */
