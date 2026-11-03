@@ -87,7 +87,7 @@ foreach ( preg_split('/}\s*/', $candidateCss) ?: array() as $rule ) {
         array_push($typedSelectors, ...array_map('trim', explode(',', substr(trim($rule), 0, -strlen('{display:block')))));
     }
 }
-$native = array_filter($typedSelectors, static fn (string $selector): bool => 1 === preg_match('/^:root :where\(\[data-be-d="mobile"\]\) \.wp-block-navigation \.wp-block-navigation-item\.blocks-engine-navigation-item-[a-f0-9]{12}-\d+:not\(/', $selector));
+$native = array_filter($typedSelectors, static fn (string $selector): bool => 1 === preg_match('/^:root :where\(\[data-be-d="mobile"\]\) \.wp-block-navigation\.blocks-engine-navigation-instance-[a-f0-9]{12}-\d+ \.wp-block-navigation__container>\.wp-block-navigation-item:nth-child\([123]\):not\(/', $selector));
 $assert(
     3 === count($native),
     'each rendered item takes the scoped native subject baseline',

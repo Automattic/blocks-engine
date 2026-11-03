@@ -30,7 +30,7 @@ $assertions = array(
     array(str_contains($markup, 'blocks-engine-current-navigation-item'), 'current-item classes survive without source-only attributes'),
     // The current item renders through the same anchor subject as its resting
     // peers; its CTA paint is the item's own, so no route state gates it.
-    array(1 === preg_match('/\.wp-block-navigation-item\.(blocks-engine-navigation-anchor-[a-f0-9]+-\d+) :where\(\.wp-block-navigation-item__content\)[^{,]*\{background:#111;color:#fff\}/', $css, $ctaSubject) && str_contains($markup, $ctaSubject[1]), 'anchor-owned CTA CSS projects from provenance onto the rendered anchor'),
+    array(1 === preg_match('/\.(blocks-engine-navigation-instance-[a-f0-9]+-\d+) \.wp-block-navigation__container>\.wp-block-navigation-item:nth-child\(1\) :where\(\.wp-block-navigation-item__content\)[^{,]*\{background:#111;color:#fff\}/', $css, $ctaSubject) && str_contains($markup, $ctaSubject[1]), 'anchor-owned CTA CSS projects from provenance onto the rendered anchor'),
     array('dropdown-panel' === ($submenuOwnership[0]['navigation_source_ownership']['submenu']['class_name'] ?? null), 'submenu source ownership is retained in the stable source report'),
     array('cta current' === ($anchorOwnership[0]['navigation_source_ownership']['anchor']['class_name'] ?? null), 'anchor source ownership is retained in the stable source report'),
 );

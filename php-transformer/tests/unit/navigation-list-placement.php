@@ -132,7 +132,7 @@ $assert(
 );
 $linkColor = $selectorsDeclaring($floatedRules, 'color:#666');
 $assert(
-    4 === count($linkColor) && array() === array_filter($linkColor, static fn(string $selector): bool => !str_contains($selector, '.wp-block-navigation-item.blocks-engine-navigation-anchor-') || !str_contains($selector, ':where(.wp-block-navigation-item__content)') || 2 !== substr_count($selector, ':not(#be-i-0)')),
+    4 === count($linkColor) && array() === array_filter($linkColor, static fn(string $selector): bool => !str_contains($selector, '.wp-block-navigation-item:nth-child(') || !str_contains($selector, ':where(.wp-block-navigation-item__content)') || 2 !== substr_count($selector, ':not(#be-i-0)')),
     'an anchor rule under the list reaches exactly its four native anchor subjects with the source ancestor specificity',
     json_encode($linkColor)
 );
@@ -158,7 +158,7 @@ $rowRules = $rules($rowCss['author']);
 preg_match('/<!--\s*wp:navigation\s+(\{.*?\})\s*-->/s', $row['serialized_blocks'] ?? '', $rowMatch);
 $rowAttrs = json_decode($rowMatch[1] ?? '{}', true);
 foreach (array($renderedNav, $renderedRow) as $counterpart) $counterpart->setAttribute('class', $counterpart->getAttribute('class') . ' ' . ($rowAttrs['className'] ?? ''));
-$rowLayout = array_values(array_filter($rowRules, static fn (array $rule): bool => str_contains($rule['body'], 'flex-wrap:nowrap')));
+$rowLayout = array_values(array_filter($rowRules, static fn (array $rule): bool => str_contains($rule['body'], 'flex-wrap:nowrap') && !str_contains($rule['selector'], 'blocks-engine-navigation-list-box-')));
 $assert(
     1 === count($rowLayout) && str_contains($rowLayout[0]['body'], 'align-items:flex-end') && str_contains($rowLayout[0]['selector'], $wrapper) && ! str_contains($rowLayout[0]['selector'], '__container'),
     'flex-wrap and align-items stay in one rule on core\'s block class, with no container exclusion',
