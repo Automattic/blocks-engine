@@ -2045,13 +2045,17 @@ final class ShellExtraction
     {
         $base = 0; $depth = 0;
         $ranges = self::topLevelBlockRanges($markup);
-        // Descend through a sole wrapper: the app frame around chrome and main.
-        while (1 === count($ranges)) {
-            $block = substr($markup, $base + $ranges[0]['offset'], $ranges[0]['length']);
+        // Empty embed holders beside the app frame stay page-owned and do
+        // not count against its sole rendering wrapper.
+        while (true) {
+            $rendering = array_values(array_filter($ranges, static fn(array $range): bool => !self::hasEmptyContent(substr($markup, $base + $range['offset'], $range['length']))));
+            if (1 !== count($rendering)) break;
+            $wrapper = $rendering[0];
+            $block = substr($markup, $base + $wrapper['offset'], $wrapper['length']);
             if (!self::isGroupBlock($block) || preg_match('/^<!--\s*wp:group\s+\{[^}]*"tagName":"main"/', $block)) return array();
             $children = self::directChildBlockRanges($block);
             if (array() === $children) return array();
-            $base += $ranges[0]['offset'];
+            $base += $wrapper['offset'];
             $ranges = $children;
             ++$depth;
         }
@@ -2086,11 +2090,18 @@ final class ShellExtraction
         if (1 === preg_match('/<!--\s*wp:navigation\b/', $block)) return true;
         $html = preg_replace('/<!--.*?-->/s', '', $block) ?? '';
         if (1 !== preg_match('/<([a-z][a-z0-9-]*)\b([^>]*)>/i', $html, $tag)) return false;
-        if ('' === trim(html_entity_decode(strip_tags($html))) && 1 !== preg_match('/<(?:img|picture|video|audio|iframe|svg|canvas|object|embed|input|select|textarea|button)\b/i', $html)) return true;
+        if (self::hasEmptyContent($block)) return true;
         if (in_array(strtolower($tag[1]), array('nav', 'dialog'), true)) return true;
         $attributes = $tag[2];
         if (1 === preg_match('/\srole=["\']?(?:dialog|alertdialog|navigation|menu)\b/i', $attributes)) return true;
         return 1 === preg_match('/\saria-(?:hidden=["\']?true|modal=["\']?true)\b|\shidden(?:[\s=>]|$)/i', $attributes);
+    }
+
+    private static function hasEmptyContent(string $block): bool
+    {
+        if (1 === preg_match('/<!--\s*wp:navigation\b/', $block)) return false;
+        $html = preg_replace('/<!--.*?-->/s', '', $block) ?? '';
+        return '' === trim(html_entity_decode(strip_tags($html))) && 1 !== preg_match('/<(?:img|picture|video|audio|iframe|svg|canvas|object|embed|input|select|textarea|button)\b/i', $html);
     }
 
     private static function edgeBlockIdentity(string $block): string

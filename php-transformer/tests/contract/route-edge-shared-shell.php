@@ -206,4 +206,51 @@ $assert(!str_contains($soleVariantHome, 'Harbor home') && !str_contains($soleVar
 $assert(2 === substr_count($soleVariantHome . $soleVariantFront, '<!-- wp:template-part'), "The front page renders its own header and footer variants: {$soleVariantFront}");
 $assert(array('Footer (Home)', 'Header (Home)') === array_values(array_intersect(array('Footer (Home)', 'Header (Home)'), array_column($soleVariantPlan['template_parts'], 'title'))), 'The home variants are named after the route: ' . json_encode(array_column($soleVariantPlan['template_parts'], 'title')));
 
+// Embed-only siblings do not count against the sole rendering app frame.
+// They remain page-owned while its non-landmark navbar becomes shared chrome.
+$embedFiles = array();
+foreach (array('index' => 'Home', 'about' => 'About', 'visit' => 'Visit') as $slug => $title) {
+    $embedFiles[$slug . '.html'] = '<!doctype html><html><body>'
+        . '<div class="global-style"><div class="w-embed"><style>.page-content{color:#123}</style></div></div>'
+        . '<div class="page-content"><div class="navbar"><a class="brand" href="index.html">Harbor Studio</a><div class="menu"><a href="index.html">Home</a><a href="about.html">About</a><a href="visit.html">Visit</a></div></div>'
+        . '<div class="section"><h1>' . $title . '</h1><p>' . $title . ' body copy.</p></div>'
+        . '<div class="footer"><p>Harbor Studio, 1 Shore Road</p></div></div><script>void 0;</script></body></html>';
+}
+$embedResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $embedFiles))->toArray();
+// The HTML compiler can prune inert embed holders. Retain the captured
+// compiled shape explicitly so this contract exercises the shell partitioner.
+$embedHolder = '<!-- wp:group {"className":"global-style"} --><div class="wp-block-group global-style"><!-- wp:group {"className":"w-embed"} --><div class="wp-block-group w-embed"></div><!-- /wp:group --></div><!-- /wp:group -->';
+foreach ($embedResult['source_reports']['compiled_site']['pages'] as &$embedPage) {
+    unset($embedPage['html']);
+    $embedPage['block_markup'] = $embedHolder . $embedPage['block_markup'];
+}
+unset($embedPage);
+// Check the edge partition directly as well: later shell fallbacks must not
+// hide a failure to descend through this captured shape.
+$edgePages = array();
+foreach ($embedResult['source_reports']['compiled_site']['pages'] as $row) {
+    $edgePages[] = $row + array('post_type' => 'page', 'canonical_block_markup' => $row['block_markup'], 'shell_candidates' => array());
+}
+$edgeExtraction = new Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction(new WordPressSitePlan());
+$edgePartition = $edgeExtraction->edgeShells($edgePages, array(), array());
+foreach ($edgePartition['pages'] as $row) {
+    $edgeHeaders = array_values(array_filter($row['shell_candidates'], static fn(array $candidate): bool => 'header' === $candidate['area']));
+    $assert(1 === count($edgeHeaders) && str_contains($edgeHeaders[0]['markup'], 'navbar') && !str_contains($edgeHeaders[0]['markup'], 'global-style'), 'The rendering frame exposes the navbar as the header edge on ' . $row['source_path']);
+}
+$embedResult['source_reports']['compiled_site']['template_parts'] = array();
+$embedPlan = (new WordPressSitePlan())->fromResult($embedResult);
+WordPressSitePlan::assertValid($embedPlan);
+$embedParts = array_column($embedPlan['template_parts'], null, 'area');
+$embedPages = array_column($embedPlan['pages'], null, 'source_path');
+$navbarSources = array_keys(array_filter($embedPages, static fn(array $row): bool => str_contains((string) $row['canonical_block_markup'], 'navbar')));
+$embedEvidence = json_encode(array('parts' => array_column($embedPlan['template_parts'], 'slug'), 'navbar_in_content' => $navbarSources));
+$embedHeader = (string) ($embedParts['header']['canonical_block_markup'] ?? '');
+$assert('header' === ($embedParts['header']['slug'] ?? null) && str_contains($embedHeader, 'navbar') && str_contains($embedHeader, '{{wordpress-site-plan:navigation:'), 'The app frame yields parts/header.html with navbar and navigation: ' . $embedEvidence);
+$assert(isset($embedParts['footer']), 'The footer remains extracted: ' . $embedEvidence);
+$assert(array() === $navbarSources, 'No route keeps the navbar in content: ' . $embedEvidence);
+foreach ($embedPages as $source => $row) {
+    $markup = (string) $row['canonical_block_markup'];
+    $assert(str_contains($markup . implode('', array_column($embedPlan['templates'], 'canonical_block_markup')), 'global-style') && str_contains($markup, 'body copy.') && !str_contains($markup, '<!-- wp:navigation '), "{$source} retains its embed holder in the page frame and its content, not navigation.");
+}
+
 fwrite(STDOUT, "Route edge shared shell contract passed.\n");
