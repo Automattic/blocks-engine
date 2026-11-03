@@ -1046,6 +1046,7 @@
       "php tests/unit/navigation-open-button-source-placement.php",
       "php tests/unit/navigation-collapsed-cascade.php",
       "php tests/unit/columns-sidebar-partner-desktop-layout.php",
+      "php tests/unit/columns-sidebar-content-vertical-page-stack.php",
       "php tests/unit/columns-row-stacking-from-source.php",
       "php tests/unit/column-inline-flex-basis.php",
       "php tests/unit/rich-text-whitespace-inline.php",

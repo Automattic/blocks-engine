@@ -244,26 +244,63 @@ final class ColumnsPattern implements PatternRecognizerInterface
 
     /**
      * A sidebar-named child and a content-named child suggest a two-pane
-     * layout only when both are laid out beside each other at the desktop
-     * reference viewport. A phone-only sticky bar (`<aside>` that is
-     * `display:none` from the tablet breakpoint up and `position:fixed` to the
-     * viewport edge) is never a pane, so it cannot vouch for columns; counting
-     * it turns the page wrapper into a row of equal columns. The layout is read
-     * from the resting cascade WITH media-conditional rules, so a mobile-first
-     * sidebar hidden at the base viewport and revealed by a `min-width` rule
-     * still counts.
+     * layout only when the container actually is a two-pane shell at the
+     * desktop reference viewport:
+     *
+     *  - both named children are laid out beside each other in flow there. A
+     *    phone-only sticky bar (`<aside>` that is `display:none` from the
+     *    tablet breakpoint up and `position:fixed` to the viewport edge) is
+     *    never a pane, so it cannot vouch for columns; counting it turns the
+     *    page wrapper into a row of equal columns.
+     *  - a sidebar-named pane renders content in that flow. A sidebar whose
+     *    whole subtree is empty or hangs off an out-of-flow wrapper (an
+     *    in-flow carrier for an absolutely positioned widget) holds no pane
+     *    box and cannot vouch for columns either.
+     *  - the named panes are the container's only in-flow element children.
+     *    A sidebar/content naming pair among many stacked children — a
+     *    vertical page stack whose footer class happens to contain
+     *    "-content" — is normal-flow stacking, not a split layout, and
+     *    core/columns would lay those sections out side by side.
+     *
+     * The layout is read from the resting cascade WITH media-conditional
+     * rules, so a mobile-first sidebar hidden at the base viewport and
+     * revealed by a `min-width` rule still counts.
      *
      * @param callable(DOMElement): string $referenceViewportStyle
      */
     private function hasSidebarAndContentChildren(DOMElement $element, callable $referenceViewportStyle): bool
     {
-        $named = array();
         $namesSidebar = false;
         $namesContent = false;
         foreach ( $element->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
+
+            $name = strtolower(trim($child->tagName . ' ' . $this->attr($child, 'class') . ' ' . $this->attr($child, 'id') . ' ' . $this->attr($child, 'role')));
+            $namesSidebar = $namesSidebar || (bool) preg_match('/(?:^|[\s_-])(?:aside|sidebar|toc|table[\s_-]+of[\s_-]+contents)(?:$|[\s_-])/', $name);
+            $namesContent = $namesContent || in_array(strtolower($child->tagName), array( 'article', 'form', 'main' ), true)
+                || (bool) preg_match('/(?:^|[\s_-])(?:main|content|article|form|docs?[\s_-]+content|documentation[\s_-]+content)(?:$|[\s_-])/', $name);
+        }
+
+        if ( ! $namesSidebar || ! $namesContent ) {
+            return false;
+        }
+
+        // Names alone would promote; resolve the desktop layout only now.
+        // $flowPanes counts the in-flow children whose names take part in the
+        // decision, $flowChildren every in-flow element child: the names only
+        // promise a split layout when the two counts meet.
+        $hasSidebar = false;
+        $hasContent = false;
+        $flowChildren = 0;
+        $flowPanes = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || ! $this->isLaidOutInFlow($child, $referenceViewportStyle($child)) ) {
+                continue;
+            }
+
+            ++$flowChildren;
 
             $name = strtolower(trim($child->tagName . ' ' . $this->attr($child, 'class') . ' ' . $this->attr($child, 'id') . ' ' . $this->attr($child, 'role')));
             $sidebar = (bool) preg_match('/(?:^|[\s_-])(?:aside|sidebar|toc|table[\s_-]+of[\s_-]+contents)(?:$|[\s_-])/', $name);
@@ -273,29 +310,56 @@ final class ColumnsPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            $named[] = array( $child, $sidebar, $content );
-            $namesSidebar = $namesSidebar || $sidebar;
-            $namesContent = $namesContent || $content;
-        }
-
-        if ( ! $namesSidebar || ! $namesContent ) {
-            return false;
-        }
-
-        // Names alone would promote; resolve the desktop layout only now, and
-        // only for the children whose names take part in the decision.
-        $hasSidebar = false;
-        $hasContent = false;
-        foreach ( $named as [ $child, $sidebar, $content ] ) {
-            if ( ! $this->isLaidOutInFlow($child, $referenceViewportStyle($child)) ) {
+            // A sidebar pane holds a rendered box in the flow beside its
+            // partner. A sidebar-named carrier whose subtree is empty or
+            // entirely out of flow is a positioning context, not a pane, so
+            // it cannot vouch for the sidebar half of the split.
+            if ( ! $content && ! $this->hasInFlowRenderedContent($child, $referenceViewportStyle) ) {
                 continue;
             }
 
+            ++$flowPanes;
             $hasSidebar = $hasSidebar || $sidebar;
             $hasContent = $hasContent || $content;
         }
 
-        return $hasSidebar && $hasContent;
+        if ( ! $hasSidebar || ! $hasContent ) {
+            return false;
+        }
+
+        // A vertical page stack keeps every child in flow regardless of
+        // naming; promoting it to core/columns would render its full-width
+        // sections side by side.
+        return $flowPanes === $flowChildren;
+    }
+
+    /**
+     * Whether the element renders anything in the normal flow: direct text,
+     * or a descendant element that is itself rendered and in flow at the
+     * reference viewport. Subtrees below a `display:none` or out-of-flow
+     * (`position:absolute|fixed`) descendant do not count: an aside whose
+     * only descendants hang off an absolutely positioned wrapper carries no
+     * in-flow pane content.
+     *
+     * @param callable(DOMElement): string $referenceViewportStyle
+     */
+    private function hasInFlowRenderedContent(DOMElement $element, callable $referenceViewportStyle): bool
+    {
+        foreach ( $element->childNodes as $node ) {
+            if ( XML_TEXT_NODE === $node->nodeType && '' !== trim($node->textContent ?? '') ) {
+                return true;
+            }
+
+            if ( ! $node instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( $this->isLaidOutInFlow($node, $referenceViewportStyle($node)) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
