@@ -222,16 +222,14 @@ final class CapturedDialogProjector
         if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_invalid', 'warning', 'The captured interaction report has an unsupported schema or pages shape.')), 'projected_count' => 0);
         }
-        if (count($report['pages']) > self::MAX_PAGES) {
-            return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_limit_exceeded', 'warning', 'The captured interaction report exceeded the page limit.', array('max_pages' => self::MAX_PAGES))), 'projected_count' => 0);
-        }
+        $report['pages'] = CapturedComponentStates::boundPages($report['pages'], self::MAX_PAGES, 'captured_interactions_limit_exceeded', self::class, $diagnostics);
         if (! $this->hasDialogStates($report['pages'])) {
-            return $this->retireOwnedDisclosureWithoutProjection($files, array());
+            return $this->retireOwnedDisclosureWithoutProjection($files, $diagnostics);
         }
 
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
         if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
-            return $this->retireOwnedDisclosureWithoutProjection($files, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.')));
+            return $this->retireOwnedDisclosureWithoutProjection($files, array_merge($diagnostics, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.'))));
         }
 
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);

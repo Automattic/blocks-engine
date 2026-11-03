@@ -9,6 +9,22 @@ use DOMDocument;
 /** State-owned probe evidence from the v2 component inventory. */
 final class CapturedComponentStates
 {
+    /** Bound report work before inspecting component evidence, reporting the skipped remainder once. */
+    public static function boundPages(array $pages, int $maxPages, string $code, string $source, array &$diagnostics): array
+    {
+        $skipped = count($pages) - $maxPages;
+        if (0 < $skipped) {
+            $diagnostics[] = array(
+                'code' => $code,
+                'severity' => 'warning',
+                'message' => sprintf('The captured interaction report exceeded the page limit; %d pages were skipped.', $skipped),
+                'source' => $source,
+                'context' => array('max_pages' => $maxPages, 'skipped_pages' => $skipped),
+            );
+        }
+        return array_slice($pages, 0, $maxPages);
+    }
+
     /** Retire only an exact recognized helper whose complete inventory was projected. */
     public static function retireRuntime(DOMDocument $document, string $marker, array $selectors): array
     {
