@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// A quirks-mode capture keeps its tight small-font lines, start-aligned table text and edge margins (#4026, #4051).
+// A quirks-mode capture keeps its tight small-font lines, start-aligned table text and edge margins, and lines no taller than their runs (#4026, #4051, #4110).
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
@@ -12,6 +12,8 @@ $transform = static fn (string $root, string $body): string => (string) ((new Ht
 $quirksRoot = ' data-blocks-engine-capture-compat-mode="BackCompat"';
 $quirks = $transform($quirksRoot, $body);
 $standards = $transform('', $body);
+$runs = '<table width="300"><tr><td><font size="+4">Big</font><font size="-1"><br>small<br><font size="-2">tiny</font></font>　<br></td></tr><tr><td style="line-height:20px"><font size="-1">One</font><br>two</td></tr></table>';
+$lines = $transform($quirksRoot, $runs);
 $margins = $transform($quirksRoot, '<p>First</p><p>Second</p><table><tr><td> <p>Cell</p> </td><td><p class="k">Authored</p>tail</td></tr></table>');
 
 $checks = array(
@@ -23,6 +25,11 @@ $checks = array(
     'evidence stays out of content' => array($quirks, 'compat-mode', false),
     'body edge drops the top margin' => array($margins, '<p style="margin-top:0">First</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>Second</p>', true),
     'sole cell paragraph drops both' => array($margins, '<p style="margin-bottom:0;margin-top:0">Cell</p>', true),
+    'cell strut is dropped'          => array($lines, '<p class="blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph" style="line-height:0"><mark style="line-height:normal;font-size:48px', true),
+    'smaller run keeps its lines'    => array($lines, '<mark style="line-height:normal;font-size:13px;background-color:transparent;color:inherit" role="none"><br>small<br><mark style="font-size:10px', true),
+    'own text keeps its strut'       => array($lines, '<mark style="line-height:normal;background-color:transparent;color:inherit" role="none">　</mark>', true),
+    'author line height wins'        => array($lines, '<p class="blocks-engine-synthetic-paragraph"><mark style="font-size:13px;background-color:transparent;color:inherit" role="none">One</mark>', true),
+    'standards lines are unchanged'  => array($transform('', $runs), 'line-height:0', false),
     'author margin wins'             => array($margins, '<p class="k">Authored</p>', true),
 );
 foreach ($checks as $label => [$markup, $needle, $present]) {
