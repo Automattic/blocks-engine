@@ -92,6 +92,7 @@
       "php tests/unit/custom-property-asset-url.php",
       "php tests/contract/form-readable-shapes.php",
       "php tests/contract/navigation-current-item-shared-menu.php",
+      "php tests/contract/shared-navigation-item-layout.php",
       "php tests/contract/shared-header-title-level.php",
       "php tests/contract/detached-auto-inset-backdrop.php",
       "php tests/contract/detached-static-start-rules.php",

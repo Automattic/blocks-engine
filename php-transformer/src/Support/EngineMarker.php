@@ -82,6 +82,7 @@ final class EngineMarker
         'native-button',
         'navigation-anchor',
         'navigation-item',
+        'navigation-instance',
         'navigation-box',
         'navigation-list-box',
         'navigation-artwork',

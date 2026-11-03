@@ -72,9 +72,13 @@ $nativePresentation = static function (string $source, array $result, string $la
     return $rows;
 };
 $sourceAnchorMarker = static function (array $result, string $class) use (&$findBlocks): string {
-    foreach ($findBlocks($result['blocks'] ?? array(), 'core/navigation-link') as $link) {
-        $classes = preg_split('/\s+/', trim((string) ($link['attrs']['metadata']['blocksEngineNavigationAnchor']['className'] ?? ''))) ?: array();
-        if (in_array($class, $classes, true) && preg_match('/blocks-engine-navigation-anchor-[a-f0-9]{12}-\d+/', $link['attrs']['className'] ?? '', $match)) return $match[0];
+    foreach ($findBlocks($result['blocks'] ?? array(), 'core/navigation') as $navigation) {
+        foreach ($navigation['innerBlocks'] ?? array() as $index => $link) {
+            $classes = preg_split('/\s+/', trim((string) ($link['attrs']['metadata']['blocksEngineNavigationAnchor']['className'] ?? ''))) ?: array();
+            if (in_array($class, $classes, true) && preg_match('/blocks-engine-navigation-instance-[a-f0-9]{12}-\d+/', $navigation['attrs']['className'] ?? '', $match)) {
+                return $match[0] . ' .wp-block-navigation__container>.wp-block-navigation-item:nth-child(' . ($index + 1) . ')';
+            }
+        }
     }
     return '';
 };
@@ -394,7 +398,7 @@ $ctaCss = implode("\n", array_map(
 
 $ctaMarker = $sourceAnchorMarker($ctaResult, 'nav-cta');
 $contentSelector = '';
-if (preg_match('/(:root \.wp-block-navigation \.wp-block-navigation-item\.' . preg_quote($ctaMarker, '/') . '[^{]+)\{background:#FFD400/', $ctaCss, $match)) $contentSelector = $match[1];
+if (preg_match('/(:root \.wp-block-navigation\.' . preg_quote($ctaMarker, '/') . '[^{]+)\{background:#FFD400/', $ctaCss, $match)) $contentSelector = $match[1];
 
 $assert(
     str_contains($ctaCss, $contentSelector . '{'),

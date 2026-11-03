@@ -59,7 +59,9 @@ $assert(!str_contains($plan['menus'][0]['block_markup'], 'item-content-wrapper--
 // attributes. No source active class is replayed: Core owns aria-current.
 $html = '<!doctype html><style>.wp-block-navigation-item__content{color:inherit;text-decoration:none}';
 foreach ($plan['assets'] as $asset) if ('css' === ($asset['kind'] ?? '')) $html .= $asset['content'];
-$html .= '</style><nav class="wp-block-navigation"><ul>';
+preg_match('/<!-- wp:navigation (\{.*?\}) \/-->/', $headers[0]['canonical_block_markup'], $host);
+$hostAttrs = json_decode($host[1], true);
+$html .= '</style><nav class="wp-block-navigation ' . htmlspecialchars($hostAttrs['className'] ?? '') . '"><ul class="wp-block-navigation__container">';
 preg_match_all('/<!-- wp:navigation-link (\{.*?\}) \/-->/', $plan['menus'][0]['block_markup'], $items);
 foreach ($items[1] as $index => $json) {
     $attrs = json_decode($json, true);

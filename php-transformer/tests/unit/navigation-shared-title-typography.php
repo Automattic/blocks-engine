@@ -47,7 +47,7 @@ $nativeTypography = false;
 $nativeSize = false;
 (new CssStylesheetTransformer())->visitStyleRules($css, static function (string $prelude, string $body, array $conditions) use (&$plainTypography, &$plainSize, &$nativeTypography, &$nativeSize): void {
     $plain = in_array('.shared-title', CssStylesheetTransformer::splitSelectorList($prelude) ?? array(), true);
-    $native = str_contains($prelude, '.wp-block-navigation ') && str_contains($prelude, 'blocks-engine-navigation-box-');
+    $native = str_contains($prelude, '.wp-block-navigation.blocks-engine-navigation-instance-') && str_contains($prelude, 'nth-child(1)>div');
     if (str_contains($body, 'letter-spacing:.18em') && str_contains($body, 'text-transform:uppercase')) {
         $plainTypography = $plainTypography || $plain;
         $nativeTypography = $nativeTypography || $native;

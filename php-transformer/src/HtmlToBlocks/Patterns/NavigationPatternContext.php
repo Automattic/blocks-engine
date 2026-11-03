@@ -494,21 +494,65 @@ final class NavigationPatternContext
      *
      * @param list<array<string, mixed>> $blocks
      */
-    public function recordNavigationSubjects(array $blocks, DOMElement $source): void
+    public function recordNavigationSubjects(array &$blocks, DOMElement $source): void
     {
-        $markup = (string) json_encode($blocks);
-        $root = $source->getNodePath() ?? '';
-        foreach ($this->pendingNavigationSubjects as $path => $subject) {
-            if ($path !== $root && !str_starts_with($path, $root . '/')) continue;
-            $marker = $subject['marker'];
-            if (1 !== preg_match('/(?<![A-Za-z0-9_-])' . preg_quote($marker, '/') . '(?![A-Za-z0-9_-])/', $markup)) continue;
-            $this->session?->authorSelectorProjectionState()->installNavigationSubject($path, $subject['target']);
-            if (isset($subject['source'])) {
-                // Restore the source anchor's initial stacking below authored
-                // paint, but only when Core really supplies its replacement.
-                $this->sourceTargetProjection?->record($subject['source'], '.wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)', 'z-index:auto');
+        // Item classes live in a shared wp_navigation post; they cannot name
+        // a particular placement. Address each item by its ordered position
+        // under a per-reference host instead, including nested submenu items.
+        $targets = array();
+        $collect = static function (array $items, string $parent) use (&$collect, &$targets): void {
+            $position = 0;
+            foreach ($items as $block) {
+                if (!in_array($block['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)) continue;
+                $item = $parent . '>.wp-block-navigation-item:nth-child(' . (++$position) . ')';
+                foreach (preg_split('/\s+/', trim($block['attrs']['className'] ?? '')) ?: array() as $marker) {
+                    if (str_starts_with($marker, 'blocks-engine-navigation-')) $targets[$marker][] = $item;
+                }
+                $boxTarget = $item;
+                foreach ($block['attrs']['metadata']['blocksEngineNavigationAnchor']['boxes'] ?? array() as $box) {
+                    $boxTarget .= '>' . $box['tag'];
+                    $targets[$box['marker']][] = $boxTarget;
+                }
+                $collect($block['innerBlocks'] ?? array(), $item . '>.wp-block-navigation__submenu-container');
+            }
+        };
+        foreach ($blocks as &$block) {
+            if ('core/navigation' !== ($block['blockName'] ?? '')) {
+                if (!empty($block['innerBlocks'])) {
+                    $this->recordNavigationSubjects($block['innerBlocks'], $source);
+                }
+                continue;
+            }
+            $targets = array();
+            $collect($block['innerBlocks'] ?? array(), '');
+            if (array() === $targets) continue;
+            $scope = $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', ($source->getNodePath() ?? '') . json_encode($targets));
+            $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
+            $markup = (string) json_encode($block);
+            $root = $source->getNodePath() ?? '';
+            foreach ($this->pendingNavigationSubjects as $path => $subject) {
+                if ($path !== $root && !str_starts_with($path, $root . '/')) continue;
+                $marker = $subject['marker'];
+                if (1 !== preg_match('/(?<![A-Za-z0-9_-])' . preg_quote($marker, '/') . '(?![A-Za-z0-9_-])/', $markup)) continue;
+                $target = $subject['target'];
+                if (isset($targets[$marker])) {
+                    $itemTargets = array_map(static fn(string $path): string => '.wp-block-navigation.' . $scope . ' .wp-block-navigation__container' . $path, array_unique($targets[$marker]));
+                    $itemTarget = count($itemTargets) > 1 ? ':is(' . implode(',', $itemTargets) . ')' : $itemTargets[0];
+                    // Anchor subjects add Core's content anchor to the item target;
+                    // projected source boxes already have their structural path.
+                    $target = str_contains($target, '.wp-block-navigation-item__content')
+                        ? $itemTarget . ' :where(.wp-block-navigation-item__content)'
+                        : $itemTarget;
+                }
+                $this->session?->authorSelectorProjectionState()->installNavigationSubject($path, $target);
+                if (isset($subject['source'])) {
+                    // Restore the source anchor's initial stacking below authored
+                    // paint, but only when Core really supplies its replacement.
+                    $this->sourceTargetProjection?->record($subject['source'], $target, 'z-index:auto');
+                }
             }
         }
+        unset($block);
     }
 
     /** The source anchor remains a distinct CSS subject inside Core's item. */
