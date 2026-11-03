@@ -130,15 +130,28 @@ final class TableClassificationPolicy
         return false;
     }
 
+    /**
+     * The edge a table box aligns to: its own `align`, else the nearest
+     * `<center>` or `<div align>` around it. Null is the default left edge.
+     */
+    public static function boxAlignment(DOMElement $table): ?string
+    {
+        $align = strtolower(trim($table->getAttribute('align')));
+        for ( $ancestor = $table->parentNode; '' === $align && $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $tag = strtolower($ancestor->tagName);
+            if ( in_array($tag, array( 'td', 'th' ), true) ) {
+                break;
+            }
+            $align = 'center' === $tag ? 'center' : ( 'div' === $tag ? strtolower(trim($ancestor->getAttribute('align'))) : '' );
+        }
+
+        return in_array($align, array( 'center', 'right' ), true) ? $align : null;
+    }
+
     private function authorsLayoutBox(DOMElement $table): bool
     {
-        if ( $table->hasAttribute('width') || 'center' === strtolower(trim($table->getAttribute('align'))) ) {
+        if ( $table->hasAttribute('width') || null !== self::boxAlignment($table) ) {
             return true;
-        }
-        for ( $ancestor = $table->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            if ( 'center' === strtolower($ancestor->tagName) ) {
-                return true;
-            }
         }
         foreach ( $this->rowsForTable($table) as $row ) {
             foreach ( $this->cellsForRow($row) as $cell ) {

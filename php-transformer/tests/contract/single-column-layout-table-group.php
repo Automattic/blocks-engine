@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// Single-column layout tables lower to a core/group carrying the table box; data tables stay core/table (#3986).
+// Single-column layout tables lower to a core/group carrying the table box; data tables stay core/table (#3986, #4025).
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
@@ -11,6 +11,8 @@ $cases = array(
     'left table cell width'   => array('<table><tr><td width="300">Cell</td></tr></table>', '"layout":{"type":"constrained","contentSize":"300px","justifyContent":"left"}'),
     'centered shrink-to-fit'  => array('<table align="center"><tr><td>Cell</td></tr></table>', '"layout":{"type":"flex","orientation":"vertical","justifyContent":"center"}'),
     'stacked page regions'    => array('<table width="600"><tr><td>Header</td></tr><tr><td>Body</td></tr></table>', '<!-- wp:group {"layout":{"type":"constrained","contentSize":"600px","justifyContent":"left"}} --><div class="wp-block-group is-layout-constrained wp-block-group-is-layout-constrained"><!-- wp:group -->'),
+    'right-aligned div box'   => array('<div align="right"><table><tr><td>Top</td></tr><tr><td>Bottom</td></tr></table></div>', '"layout":{"type":"flex","orientation":"vertical","justifyContent":"right"}'),
+    'empty sized cell spacer' => array('<table width="600"><tr><td>Top</td></tr><tr><td height="642"></td></tr><tr><td>Bottom</td></tr></table>', '<!-- wp:spacer {"height":"642px"} -->'),
     'centered paragraph'      => array('<center><p>Para</p></center>', '<!-- wp:paragraph {"align":"center"} -->'),
     'data table stays native' => array('<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>', '<!-- wp:table'),
     'unboxed one-column table stays native' => array('<table><tr><td>Ada</td></tr><tr><td>Grace</td></tr></table>', '<!-- wp:table'),
