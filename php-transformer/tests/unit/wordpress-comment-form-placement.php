@@ -20,7 +20,8 @@ foreach ($cases as $name => $case) {
     $files = array('index.html' => '<html><head><title>Home</title></head><body><main><h1>Home</h1><a href="/first/">First</a><a href="/second/">Second</a></main></body></html>');
     foreach (array('first', 'second') as $slug) {
         $after = !empty($case['only_second']) && 'first' === $slug ? '' : $case['after'];
-        $body = '<main><article><h1>' . ucfirst($slug) . '</h1><p>' . str_repeat($slug . ' story text. ', 30) . '</p>' . $form . $after . '</article></main>';
+        // Multiple H1s keep article-title lifting out of this form-placement contract.
+        $body = '<main><article><h1>' . ucfirst($slug) . '</h1><h1>Comments for ' . $slug . '</h1><p>' . str_repeat($slug . ' story text. ', 30) . '</p>' . $form . $after . '</article></main>';
         if ($case['split']) $body = '<div class="desktop">' . $body . '</div><div class="phone">' . $body . '</div>';
         $files[$slug . '/index.html'] = '<html><head><title>' . $slug . '</title><meta property="og:type" content="article"><meta property="article:published_time" content="2024-03-01T00:00:00Z"></head><body>' . $body . '</body></html>';
     }

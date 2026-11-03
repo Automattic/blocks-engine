@@ -85,6 +85,7 @@
       "@test:packaging"
     ],
     "test:canonical": [
+      "php tests/contract/post-headline-title.php",
       "php tests/contract/component-interactions.php",
       "php tests/unit/capture-inert-control.php",
       "php tests/unit/button-modifier-sizing.php",

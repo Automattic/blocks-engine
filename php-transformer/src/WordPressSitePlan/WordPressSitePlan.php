@@ -3542,7 +3542,51 @@ PHP;
                 $documents[$index]['content_decision']['evidence'][] = array('source' => 'site:dated-post-routes');
             }
         }
+        // Shared H1 text is chrome, even when its wrappers are plain divs.
+        // Count routes rather than occurrences so duplicate captures cannot vote.
+        $headlineRoutes = array();
+        $postHeadlines = array();
+        foreach ($documents as $index => $document) {
+            $html = (string) ($document['html'] ?? '');
+            foreach (self::visibleH1s($html, false) as $heading) {
+                $headlineRoutes[mb_strtolower($heading, 'UTF-8')][$routes[$index]] = true;
+            }
+            if ('post' === ($document['metadata']['post_type'] ?? null)) {
+                $headings = self::visibleH1s($html, true);
+                if (1 === count($headings)) $postHeadlines[$index] = $headings[0];
+            }
+        }
+        foreach ($documents as $index => &$document) {
+            $headline = $postHeadlines[$index] ?? '';
+            if ('' === $headline || count($headlineRoutes[mb_strtolower($headline, 'UTF-8')] ?? array()) > 1) continue;
+            // Preserve equivalent existing labels (including their casing).
+            if ('' !== $headline && $headline !== (string) ($document['title'] ?? '')) $document['title'] = $headline;
+        }
+        unset($document);
         return $documents;
+    }
+
+    /** @return list<string> Visible H1 text, optionally scoped to post content. */
+    private static function visibleH1s(string $html, bool $contentOnly): array
+    {
+        if ('' === trim($html)) return array();
+        $dom = new \DOMDocument();
+        @$dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        $xpath = new \DOMXPath($dom);
+        foreach ($xpath->query('//*[@hidden or translate(@aria-hidden, "TRUE", "true") = "true"] | //template | //dialog[not(@open)] | //nav | //footer | //aside') ?: array() as $hidden) {
+            $hidden->parentNode?->removeChild($hidden);
+        }
+        $scope = ($contentOnly ? $xpath->query('//main')->item(0) : null) ?? $xpath->query('//body')->item(0);
+        if (!$scope instanceof \DOMElement) return array();
+        if ($contentOnly) {
+            $articles = $xpath->query('.//article', $scope);
+            if (false !== $articles && 1 === $articles->length) $scope = $articles->item(0);
+        }
+        $headings = array();
+        foreach ($xpath->query('.//h1', $scope) ?: array() as $heading) {
+            $headings[] = trim(preg_replace('/\s+/u', ' ', str_replace("\u{00A0}", ' ', $heading->textContent)) ?? '');
+        }
+        return $headings;
     }
     /** @return array<string,mixed>|null */
     private function templateSurface(mixed $surface, string $sourcePath): ?array
