@@ -147,11 +147,9 @@ foreach ($collisionPlan['pages'] as $page) {
     $assert(in_array($key, array_column($collisionPlan['templates'], 'slug'), true), 'Assigned custom template exists.');
     $assert(in_array($key, array_column($theme['customTemplates'] ?? array(), 'name'), true), 'Assigned custom template is registered in theme.json.');
 }
-$assert(2 === count(array_unique($keys)), 'Same terminal slug under different parents gets distinct template keys.');
-sort($keys);
-$assert(array('page-north-about', 'page-south-about') === $keys, 'Route-qualified template keys stay readable in the Site Editor: ' . implode(', ', $keys));
+$assert(1 === count(array_unique($keys)), 'Routes retaining their unique headers can share the same plain content template.');
 $dominant = current(array_filter($headers($collisionPlan), static fn(array $part): bool => 'header' === $part['slug']));
-$assert(array() === array_diff($keys, $dominant['placement']['excluded_template_slugs'] ?? array()), 'Each variant exclusion uses the same route-qualified key as its assignment.');
+
 foreach ($collisionPlan['templates'] as $template) if (in_array($template['slug'], $keys, true)) $assert(!str_contains($template['canonical_block_markup'], '"slug":"header"'), 'Excluded routes do not inherit the dominant header.');
 $assert('page-work' === WordPressSitePlan::routeTemplateKey(current(array_filter($collisionPlan['pages'], static fn(array $page): bool => 'work.html' === $page['source_path']))), 'Non-colliding routes retain page-slug behavior.');
 

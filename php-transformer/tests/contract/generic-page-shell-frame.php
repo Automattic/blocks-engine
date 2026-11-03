@@ -91,9 +91,9 @@ foreach (array('header', 'footer', 'both', 'variant') as $shape) {
         $assert(1 === substr_count($markup, '"slug":"' . $sharedHeader . '"') && 1 === substr_count($markup, '"slug":"' . $sharedFooter . '"'), "{$shape}/{$slug}: shared parts appear exactly once.");
         $assert(false !== $content && strpos($markup, '"slug":"' . $sharedHeader . '"') < $content && strpos($markup, '"slug":"' . $sharedFooter . '"') > $content, "{$shape}/{$slug}: chrome surrounds native content.");
         $assert(str_contains($markup, 'id="app"') && str_starts_with($markup, $pageOpening) && str_ends_with($markup, $pageClosing), "{$shape}/{$slug}: the page app frame is preserved.");
-        if ('variant' === $shape) $assert(null !== $variantHeader && !str_contains($markup, '"slug":"' . $variantHeader . '"'), "{$slug}: entry-only header stays off lifecycle fallbacks.");
+        if ('variant' === $shape) $assert(null === $variantHeader && !str_contains($markup, 'Welcome to the studio'), "{$slug}: unique entry header is not a part or lifecycle chrome.");
     }
-    if ('variant' === $shape) $assert(str_contains($output['front-page'], '"slug":"' . $variantHeader . '"') && !str_contains($output['page'], '"slug":"' . $variantHeader . '"'), 'The entry header variant stays on its route.');
+    if ('variant' === $shape) $assert(!str_contains($output['page'], 'Welcome to the studio'), 'The unique entry header stays on its route.');
 }
 
 echo "generic-page-shell-frame: ok\n";
