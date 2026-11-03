@@ -17,6 +17,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapp
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedMenuDialogFold;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use DOMElement;
 
 final class NavigationPattern implements PatternRecognizerInterface
@@ -180,6 +181,14 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
             return null;
+        }
+
+        // A breadcrumb trail is the route's own ancestry, not one site menu:
+        // core renders it from the page hierarchy, so the trail becomes one
+        // hierarchy-driven block that needs no menu entity of its own.
+        $breadcrumb = $this->breadcrumbTrail($element, $createBlock, $navigationContext);
+        if ( null !== $breadcrumb ) {
+            return $breadcrumb;
         }
 
         // A landmark can own layout around a separate, deeply nested list and
@@ -410,6 +419,215 @@ final class NavigationPattern implements PatternRecognizerInterface
         return new PatternRecognitionResult(
             $createBlock('core/group', array_merge($presentationAttributes($element), array( 'tagName' => 'div' )), array( $labelBlock, $navigation ), $element)
         );
+    }
+
+    /**
+     * A recognized breadcrumb trail: a breadcrumb-labeled ordered list of
+     * links whose items walk one ancestor chain and end at the current
+     * document. Core renders that trail from the page hierarchy, so the
+     * source trail maps onto the block's own attributes instead of becoming
+     * a menu entity per document.
+     *
+     * @param callable $createBlock
+     */
+    private function breadcrumbTrail(DOMElement $element, callable $createBlock, ?NavigationPatternContext $navigationContext): ?PatternRecognitionResult
+    {
+        if ( null === $navigationContext || $navigationContext->isRuntimeDomTarget($element) ) {
+            return null;
+        }
+
+        $tag = strtolower($element->tagName);
+        $list = null;
+        if ( 'ol' === $tag ) {
+            $list = $element;
+        } else {
+            $lists = array();
+            foreach ( $element->childNodes as $child ) {
+                if ( $child instanceof DOMElement && 'ol' === strtolower($child->tagName) ) {
+                    $lists[] = $child;
+                }
+            }
+            // The landmark must hold the trail and nothing else: anything
+            // beside it has no home in the single core block.
+            $list = 1 === count($lists) && $this->soleElementChild($element, $lists[0]) ? $lists[0] : null;
+        }
+        if ( null === $list || ( ! $this->hasBreadcrumbSignal($element) && ! $this->hasBreadcrumbSignal($list) ) ) {
+            return null;
+        }
+
+        $items = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( 'li' !== strtolower($child->tagName) ) {
+                return null;
+            }
+            $items[] = $child;
+        }
+        if ( count($items) < 2 ) {
+            return null;
+        }
+
+        // One link per item: separators live in generated content, not in
+        // source nodes, and a label cannot nest another link.
+        $links = array();
+        foreach ( $items as $item ) {
+            $children = array();
+            foreach ( $item->childNodes as $child ) {
+                if ( $child instanceof DOMElement ) {
+                    $children[] = $child;
+                }
+            }
+            if ( 1 !== count($children) || 'a' !== strtolower($children[0]->tagName) ) {
+                return null;
+            }
+            $anchor = $children[0];
+            $href = trim(SourceDom::attr($anchor, 'href'));
+            if ( '' === $href || '' === trim($anchor->textContent ?? '') || 0 !== $anchor->getElementsByTagName('a')->length ) {
+                return null;
+            }
+            $links[] = array( 'item' => $item, 'anchor' => $anchor, 'href' => $href );
+        }
+
+        // The trail is recognized only when its items walk one ancestor
+        // chain that ends at the current document; anything else stays on
+        // the ordinary menu path.
+        $document = $navigationContext->sourcePath();
+        $routes = array();
+        foreach ( $links as $link ) {
+            $route = self::trailRoute((string) $link['href'], $document);
+            if ( null === $route ) {
+                return null;
+            }
+            $routes[] = $route;
+        }
+        for ( $depth = 1; $depth < count($routes); $depth++ ) {
+            if ( ! str_starts_with($routes[$depth], $routes[$depth - 1]) || strlen($routes[$depth]) <= strlen($routes[$depth - 1]) ) {
+                return null;
+            }
+        }
+        if ( ! $navigationContext->targetsCurrentDocument((string) $links[count($links) - 1]['href']) ) {
+            return null;
+        }
+
+        $attributes = array();
+        $className = SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), SourceDom::attr($list, 'class'));
+        if ( '' !== $className ) {
+            $attributes['className'] = $className;
+        }
+        $separator = $this->trailSeparator($items, $navigationContext);
+        if ( '' !== $separator && '/' !== $separator ) {
+            $attributes['separator'] = $separator;
+        }
+        if ( '/' !== $routes[0] ) {
+            $attributes['showHomeItem'] = false;
+        }
+        $style = $this->trailStyleAttributes($list, $links[0]['anchor'], $navigationContext);
+        if ( array() !== $style ) {
+            $attributes['style'] = $style;
+        }
+
+        return new PatternRecognitionResult($createBlock('core/breadcrumbs', $attributes, array(), $element));
+    }
+
+    /** Whether the trail list is the element's only element child. */
+    private function soleElementChild(DOMElement $element, DOMElement $child): bool
+    {
+        foreach ( $element->childNodes as $sibling ) {
+            if ( $sibling instanceof DOMElement && $sibling !== $child ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function hasBreadcrumbSignal(DOMElement $element): bool
+    {
+        if ( 1 === preg_match('/breadcrumb/i', SourceDom::attr($element, 'aria-label')) ) {
+            return true;
+        }
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $token ) {
+            if ( 1 === preg_match('/breadcrumb/i', $token) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** The separator source rules paint between the trail's items. */
+    private function trailSeparator(array $items, NavigationPatternContext $navigationContext): string
+    {
+        for ( $depth = 1; $depth < count($items); $depth++ ) {
+            $separator = $navigationContext->generatedPseudoContent($items[$depth], 'before');
+            if ( '' !== $separator ) {
+                return $separator;
+            }
+        }
+        for ( $depth = 0; $depth < count($items) - 1; $depth++ ) {
+            $separator = $navigationContext->generatedPseudoContent($items[$depth], 'after');
+            if ( '' !== $separator ) {
+                return $separator;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * The trail's own presentation that the block's style attributes keep:
+     * the list's surface, and the links' color as the block's link color.
+     *
+     * @param array<int, array<string, mixed>> $links
+     * @return array<string, mixed>
+     */
+    private function trailStyleAttributes(DOMElement $list, DOMElement $anchor, NavigationPatternContext $navigationContext): array
+    {
+        $style = array();
+        $trail = $navigationContext->resolvedStyleAttributes($list);
+        if ( isset($trail['color']['background']) ) {
+            $style['color']['background'] = $trail['color']['background'];
+        }
+        if ( isset($trail['spacing']['padding']) ) {
+            $style['spacing']['padding'] = $trail['spacing']['padding'];
+        }
+        $linkColor = trim((string) ( $navigationContext->resolvedDeclarations($anchor)['color'] ?? '' ));
+        if ( '' !== $linkColor ) {
+            $style['color']['link'] = $linkColor;
+        }
+
+        return $style;
+    }
+
+    /** The site-rooted route an href names, in `/segment/` form; null when unresolvable. */
+    private static function trailRoute(string $href, string $document): ?string
+    {
+        $href = ArtifactPath::stripQueryAndFragment($href);
+        if ( '' === $href || 1 === preg_match('~^(?:[a-z][a-z0-9+.-]*:|//)~i', $href) ) {
+            return null;
+        }
+        $rooted = str_starts_with($href, '/');
+        $path = ArtifactPath::resolveRelativePath($rooted ? ltrim($href, '/') : $href, $rooted ? '' : $document);
+        if ( '' === $path ) {
+            return $rooted ? '/' : null;
+        }
+        if ( str_ends_with($path, '/index.html') ) {
+            $path = substr($path, 0, -strlen('/index.html'));
+        } elseif ( str_ends_with($path, '.html') ) {
+            $path = substr($path, 0, -strlen('.html'));
+        } else {
+            $path = rtrim($path, '/');
+        }
+        if ( '' === $path ) {
+            return '/';
+        }
+        if ( str_contains($path, '.') ) {
+            return null;
+        }
+
+        return '/' . $path . '/';
     }
 
     public function recognizeLabeledSection(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
