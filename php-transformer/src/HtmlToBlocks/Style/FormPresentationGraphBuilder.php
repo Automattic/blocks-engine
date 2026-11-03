@@ -89,7 +89,7 @@ final class FormPresentationGraphBuilder
         'text-align', 'text-decoration', 'text-indent', 'text-transform', 'vertical-align', 'width',
         'align-self', 'bottom', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'inset', 'justify-self',
         'left', 'margin-block', 'margin-inline', 'order', 'position', 'right', 'top', 'transform', 'z-index',
-        'flex-direction', 'align-items', 'justify-content', 'gap'
+        'flex-direction', 'flex-wrap', 'flex-flow', 'align-items', 'justify-content', 'gap'
     );
 
     private array $diagnostics = array();
@@ -1301,13 +1301,15 @@ final class FormPresentationGraphBuilder
             if ( ! $match['matches'] ) continue;
             if ( $matched++ >= self::MAX_RULES_PER_ROLE ) { $this->truncated = true; $this->diagnostics[] = 'rules_per_role_limit'; break; }
             foreach ( $rule['declarations'] as $declarationOrder => $declaration ) {
-                if ( ! in_array($declaration['name'], self::PROPERTIES, true) ) continue;
-                $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
-                $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
-                $fact = array( 'value' => $value, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'declaration_order' => $declarationOrder, 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
-                $encoded = null === $rule['condition'] ? null : json_encode($rule['condition']);
-                if ( null === $encoded ) $target =& $base; else { $conditional[$encoded] ??= array(); $target =& $conditional[$encoded]; }
-                CssCascade::apply($target, $declaration['name'], $fact); unset($target);
+                foreach ( $this->flexFlowLonghands($declaration) as $name => $value ) {
+                    if ( ! in_array($name, self::PROPERTIES, true) ) continue;
+                    $important = 1 === preg_match('/\s*!important\s*$/i', $value);
+                    $resolved = preg_replace('/\s*!important\s*$/i', '', $value) ?? $value;
+                    $fact = array( 'value' => $resolved, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'declaration_order' => $declarationOrder, 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
+                    $encoded = null === $rule['condition'] ? null : json_encode($rule['condition']);
+                    if ( null === $encoded ) $target =& $base; else { $conditional[$encoded] ??= array(); $target =& $conditional[$encoded]; }
+                    CssCascade::apply($target, $name, $fact); unset($target);
+                }
             }
         }
         $base = $this->fontCascade($base);
@@ -1329,6 +1331,28 @@ final class FormPresentationGraphBuilder
             unset($facts[$property]);
         }
         return $facts;
+    }
+
+    /**
+     * One source declaration as the longhand facts the shared cascade consumes.
+     * The `flex-flow` shorthand is expanded into its `flex-direction` and
+     * `flex-wrap` longhands — an omitted token is its initial value, a same-rule
+     * longhand authored after it still wins, and an unparseable flow (a custom
+     * property, say) names its gap without discarding the rest of the graph.
+     *
+     * @return array<string, string>
+     */
+    private function flexFlowLonghands(array $declaration): array
+    {
+        if ( 'flex-flow' !== $declaration['name'] ) {
+            return array( $declaration['name'] => $declaration['value'] );
+        }
+        $flow = FlexFlowParser::parse(CssValueSplitter::splitTopLevelWhitespace($declaration['value']));
+        if ( null === $flow ) {
+            $this->diagnostics[] = 'unsupported_flex_flow';
+            return array();
+        }
+        return array( 'flex-direction' => $flow[0], 'flex-wrap' => $flow[1] );
     }
 
     private function effectiveConditional(array $conditional, array $base): array
