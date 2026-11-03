@@ -1112,6 +1112,29 @@ final class NavigationPatternContext
             if ( '' === $value || 1 === preg_match('/^(?:0|auto|none)$/i', $value) ) {
                 return '';
             }
+            // Percentages belong to the SVG's source containing box, not the
+            // replacement anchor (whose size would then depend on itself).
+            $node = $svg;
+            $scale = 1.0;
+            while ( 1 === preg_match('/^(\d+(?:\.\d+)?)%$/', $value, $percentage) ) {
+                $node = $node->parentNode;
+                if ( ! $node instanceof DOMElement ) {
+                    return '';
+                }
+                $parentDeclarations = $this->styleResolver->resolvedPresentationDeclarations($node);
+                if ( 'contents' === ($parentDeclarations['display'] ?? '') ) {
+                    continue;
+                }
+                $parentValue = trim((string) ($parentDeclarations[$property] ?? ''));
+                if ( '' === $parentValue || preg_match('/[{}<>;]/', $parentValue) || in_array(strtolower($parentValue), array( 'auto', 'none' ), true) ) {
+                    return '';
+                }
+                $scale *= (float) $percentage[1] / 100;
+                $value = $parentValue;
+            }
+            if ( 1.0 !== $scale ) {
+                $value = 'calc(' . $value . ' * ' . $scale . ')';
+            }
             $dimensions[] = $property . ':' . $value;
         }
 
