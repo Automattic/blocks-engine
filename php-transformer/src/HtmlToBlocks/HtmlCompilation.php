@@ -3539,12 +3539,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $blocks = array();
         $unsupportedRuntimeMediaOwner = null;
         $ownerFallbackIndex = null;
+        // The inline paragraph a following `<br>` ends a line of.
+        $lineIndex = null;
 
         foreach ( $parent->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType ) {
                 $text = trim($child->textContent ?? '');
                 if ( '' !== $text ) {
                     $blocks = array_merge($blocks, $this->convertText($text));
+                    $lineIndex = $this->inlineParagraphIndex($blocks);
                 }
                 continue;
             }
@@ -3552,6 +3555,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
+            if ( 'br' === strtolower($child->tagName) && null !== $lineIndex && $this->breakEndsInlineLine($child) ) {
+                $blocks[$lineIndex] = self::endLine($blocks[$lineIndex]);
+                continue;
+            }
+            $lineIndex = null;
+            $blockCount = count($blocks);
 
             if ( $unsupportedRuntimeMediaOwner instanceof DOMElement
                 && 'svg' === strtolower($child->tagName)
@@ -3596,6 +3605,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $block['attrs']['className'] = trim(($block['attrs']['className'] ?? '') . ' wp-block-post-content');
                 }
                 $blocks[] = $block;
+                $lineIndex = $blockCount + 1 === count($blocks) ? $this->inlineParagraphIndex($blocks) : null;
             } elseif ( $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($child) ) {
                 $ownerSelector = $this->elementSelector($child);
                 for ( $index = $fallbackOffset; $index < count($fallbacks); ++$index ) {
@@ -3620,6 +3630,49 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      *
      * @return list<array<string, mixed>>|null
      */
+    /**
+     * The index of the last block when it is a synthetic paragraph standing
+     * for inline source content: it renders inline, so a `<br>` after the
+     * source run it stands for has to end the line inside it.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     */
+    private function inlineParagraphIndex(array $blocks): ?int
+    {
+        $index = array_key_last($blocks);
+        $block = null === $index ? null : $blocks[$index];
+        if ( ! is_array($block) || 'core/paragraph' !== ($block['blockName'] ?? null) || ! str_ends_with((string) ($block['innerHTML'] ?? ''), '</p>') || array() !== ($block['innerBlocks'] ?? array()) ) {
+            return null;
+        }
+        $classes = preg_split('/\s+/', (string) ($block['attrs']['className'] ?? '')) ?: array();
+        return in_array(self::SYNTHETIC_PARAGRAPH_CLASS, $classes, true) && ! in_array(SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS, $classes, true)
+            ? $index
+            : null;
+    }
+
+    /**
+     * @param array<string, mixed> $paragraph
+     * @return array<string, mixed>
+     */
+    private static function endLine(array $paragraph): array
+    {
+        $html = substr((string) $paragraph['innerHTML'], 0, -4) . '<br></p>';
+        $paragraph['innerHTML'] = $html;
+        $paragraph['innerContent'] = array( $html );
+        if ( isset($paragraph['attrs']['content']) ) {
+            $paragraph['attrs']['content'] .= '<br>';
+        }
+        return $paragraph;
+    }
+
+    /** A `<br>` breaks a line only in flow: a flex or grid parent blockifies each run into its own item. */
+    private function breakEndsInlineLine(DOMElement $break): bool
+    {
+        $parent = $break->parentNode;
+        $display = $parent instanceof DOMElement ? strtolower($this->styleResolver->resolvedPresentationDeclarations($parent)['display'] ?? 'block') : 'block';
+        return ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+    }
+
     private function standaloneBreakBlocks(DOMElement $break): ?array
     {
         $parent = $break->parentNode;
