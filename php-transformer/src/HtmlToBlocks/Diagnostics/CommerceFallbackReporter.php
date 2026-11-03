@@ -811,19 +811,14 @@ final class CommerceFallbackReporter
             if ( SourceDom::hasNonAuthoredAncestor($element) || ListingControlsRecognizer::inSearchContext($element) ) {
                 continue;
             }
-            if ( in_array(strtolower($element->tagName), array('main', 'header', 'footer', 'nav', 'form'), true) ) {
+            if ( in_array(strtolower($element->tagName), array('main', 'header', 'footer', 'nav', 'form'), true) || $this->insideChromeOrForm($element) ) {
                 continue;
-            }
-            for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-                if ( in_array(strtolower($ancestor->tagName), array('form', 'header', 'footer', 'nav'), true) ) {
-                    continue 2;
-                }
             }
             if ( $element->getElementsByTagName('form')->length > 0 ) {
                 continue;
             }
             $control = $this->recognizer->cartControlElement($element);
-            if ( null === $control || $control->hasAttribute('form') || SourceDom::hasNonAuthoredAncestor($control) ) {
+            if ( null === $control || $control->hasAttribute('form') || SourceDom::hasNonAuthoredAncestor($control) || $this->insideChromeOrForm($control) ) {
                 continue;
             }
             $hasOptions = false;
@@ -874,6 +869,23 @@ final class CommerceFallbackReporter
                 'binding' => $this->blockBinding(array(), 'commerce_add_to_cart_form', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element),
             ), $this->provenance->fallback());
         }
+    }
+
+    /**
+     * Whether `$node` sits inside page chrome or a form, which never owns a
+     * purchase region. A wrapper that encloses a header's cart link resolves
+     * to that chrome control, so the resolved control needs the same check as
+     * the candidate wrapper itself.
+     */
+    private function insideChromeOrForm(DOMElement $node): bool
+    {
+        for ( $ancestor = $node->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( in_array(strtolower($ancestor->tagName), array('form', 'header', 'footer', 'nav'), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
