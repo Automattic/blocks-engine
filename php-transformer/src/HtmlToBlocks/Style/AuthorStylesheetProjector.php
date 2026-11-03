@@ -2547,11 +2547,21 @@ final class AuthorStylesheetProjector
         return array_values(array_unique($rewritten));
     }
 
+    /**
+     * Re-state document-root presentation onto the editor canvas.
+     *
+     * Body-subject rules receive the canvas scope: the editor establishes an
+     * explicit canvas presentation context, so authored body declarations
+     * must target that body directly to keep speaking there. Rules whose
+     * subject is the document root itself (`html`, `:root`) stay as authored:
+     * the same stylesheet serves the editor document, so their declarations
+     * remain on that document's root and reach the canvas as the inherited
+     * default rather than overriding body-level styles.
+     */
     private function editorDocumentRootRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         $editorSelectors = array();
-        $root = $context->authorStyles->sourceBody()->ownerDocument?->documentElement;
         foreach ($selectors ?? array() as $selector) {
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if (!($parsed['supported'] ?? false) || null !== ($parsed['pseudo_state_suffix_span'] ?? null)) continue;
@@ -2566,8 +2576,6 @@ final class AuthorStylesheetProjector
                 $sourceParsed = $context->sourceStyles->parsedSelector($sourceSelector);
                 $end = (int) $sourceParsed['rightmost_rewrite_end'];
                 $editorSelectors[] = ':root ' . substr($sourceSelector, 0, $end) . '.editor-styles-wrapper' . substr($sourceSelector, $end);
-            } elseif ($root instanceof DOMElement && CssSelectorMatcher::matches($root, $parsed)['matches']) {
-                $editorSelectors[] = $this->projectSourceClassSelector($selector, $context) . ' .editor-styles-wrapper';
             }
         }
         if (array() === $editorSelectors) {
