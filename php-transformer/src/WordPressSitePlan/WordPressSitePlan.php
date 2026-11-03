@@ -4406,12 +4406,29 @@ PHP;
             }
         }
         $shared = $this->sharedPostChromeIdentities($posts);
+        // Only promote a common lead-image slot when every post owns one
+        // ahead of its body, and the asset actually varies between posts.
+        $documents = array();
+        $leadImages = array();
+        foreach ($posts as $postIndex => $post) {
+            $route = (string) ($post['route']['path'] ?? '');
+            $documents[$postIndex] = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $route, $shared);
+            $retained = $documents[$postIndex]['retained'];
+            if (count($retained) < 2) continue;
+            $lead = $retained[0];
+            $image = self::listingCardImage(substr($post['canonical_block_markup'], $lead['offset'], $lead['length']));
+            if (null !== $image) $leadImages[$postIndex] = $image;
+        }
+        $promoteLead = count($leadImages) === count($posts) && count(array_unique(array_column($leadImages, 'asset_token'))) > 1;
         $single = null;
         $singleMenus = array();
         $bodies = array();
         foreach ($posts as $postIndex => $post) {
             $route = is_string($post['route']['path'] ?? null) ? $post['route']['path'] : '';
-            $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $route, $shared);
+            $transformed = $documents[$postIndex];
+            if ($promoteLead) {
+                $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $route, $shared, $transformed['retained'][0]['offset']);
+            }
             if (!$transformed['title'] || (!$transformed['date'] && !$transformed['shared']) || '' === trim($transformed['body']) || !str_contains($transformed['template'], '<!-- wp:post-content')) {
                 return array('pages' => $pages, 'single' => null);
             }
@@ -4440,6 +4457,7 @@ PHP;
         foreach ($bodies as $index => $body) {
             $pages[$index]['canonical_block_markup'] = $body;
             $pages[$index]['content_hash'] = self::contentHash($body);
+            if ($promoteLead) $pages[$index]['metadata']['featured_image'] = $leadImages[array_search($index, $indexes, true)];
         }
         return array('pages' => $pages, 'single' => $single);
     }
@@ -4520,7 +4538,7 @@ PHP;
      * @param array<string,true> $shared
      * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool,retained:array<int,array{offset:int,length:int}>}
      */
-    private function transformPostChromeDocument(string $markup, array $post, string $route, array $shared): array
+    private function transformPostChromeDocument(string $markup, array $post, string $route, array $shared, ?int $featuredOffset = null): array
     {
         $top = array();
         foreach (self::blockRanges($markup) as $range) {
@@ -4544,7 +4562,7 @@ PHP;
             if ($range['offset'] > $cursor) {
                 $template .= substr($markup, $cursor, $range['offset'] - $cursor);
             }
-            $transformed = $this->transformPostChromeRange($markup, $range, $post, $route, $shared);
+            $transformed = $this->transformPostChromeRange($markup, $range, $post, $route, $shared, $featuredOffset);
             $template .= $transformed['template'];
             $body .= $transformed['body'];
             $title = $title || $transformed['title'];
@@ -4565,10 +4583,14 @@ PHP;
      * @param array<string,true> $shared
      * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool,retained:array<int,array{offset:int,length:int}>}
      */
-    private function transformPostChromeRange(string $markup, array $range, array $post, string $route, array $shared): array
+    private function transformPostChromeRange(string $markup, array $range, array $post, string $route, array $shared, ?int $featuredOffset = null): array
     {
         $slice = substr($markup, $range['offset'], $range['length']);
         $empty = array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array());
+        if ($range['offset'] === $featuredOffset) {
+            $empty['template'] = self::postFeaturedImageMarkup($slice);
+            return $empty;
+        }
         $attrs = self::listingBlockAttributes($slice);
         $className = (string) ($attrs['className'] ?? '');
         $anchor = (string) ($attrs['anchor'] ?? '');
@@ -4586,6 +4608,13 @@ PHP;
             return array('template' => '', 'body' => $slice, 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array(array('offset' => $range['offset'], 'length' => $range['length'])));
         }
         $children = self::childBlockRanges($markup, $range);
+        // A date wrapper may be the sole owner of the date class. Recognize
+        // that complete slot before descending into its unmarked text leaf.
+        if (1 === count($children) && self::isVisibleDateElement('div', array('class' => $className)) && 'date' === $this->classifyPostChromeBlock($slice, $post, $route) && self::parseVisiblePublicationTimestamp(ListingExcerptProjection::text($slice)) === ($post['publication_timestamp'] ?? null)) {
+            $empty['template'] = self::postDateMarkup($slice);
+            $empty['date'] = true;
+            return $empty;
+        }
         if (array() === $children) {
             $kind = $this->classifyPostChromeBlock($slice, $post, $route);
             if ('title' === $kind) {
@@ -4607,7 +4636,7 @@ PHP;
         $retained = array();
         $replacements = array();
         foreach ($children as $child) {
-            $transformed = $this->transformPostChromeRange($markup, $child, $post, $route, $shared);
+            $transformed = $this->transformPostChromeRange($markup, $child, $post, $route, $shared, $featuredOffset);
             $foundShared = $foundShared || $transformed['shared'];
             $body .= $transformed['body'];
             $retained = array_merge($retained, $transformed['retained']);
@@ -5023,6 +5052,9 @@ PHP;
                 return array('markup' => '<!-- wp:post-excerpt ' . BlockAttributes::encode($attrs) . ' /-->', 'title' => false, 'content' => false);
             }
             $kind = $this->classifyListingCardBlock($slice, $post, $route);
+            // An unbound media leaf cannot be replaced by post-content: the
+            // card may own media which the article body does not render.
+            if ('body' === $kind && !in_array(self::listingBlockName($slice), array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true) && preg_match('/<(?:img|video|picture|audio)\b/i', $slice . (string) (self::listingBlockAttributes($slice)['content'] ?? ''))) $kind = 'chrome';
             if ($linkedContainer && 'heading' === self::listingBlockName($slice)) {
                 $kind = 'title';
             } elseif ($linkedContainer && 'image' === self::listingBlockName($slice) && null !== self::listingCardImage($slice)) {
@@ -5160,7 +5192,7 @@ PHP;
         if ('image' === $name && $hasRouteLink && null !== self::listingCardImage($slice)) {
             return 'featured-image';
         }
-        if (in_array($name, array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true)) {
+        if (in_array($name, array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true) || preg_match('/<(?:img|video|picture|audio)\b/i', $slice . (string) (self::listingBlockAttributes($slice)['content'] ?? ''))) {
             return 'body';
         }
         $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '', " \t\n\r\0\x0B\xC2\xA0");
@@ -5186,6 +5218,7 @@ PHP;
      */
     private static function listingCardImage(string $slice): ?array
     {
+        $slice .= (string) (self::listingBlockAttributes($slice)['content'] ?? '');
         $images = array_values(array_filter(HtmlMarkupParser::htmlMarkupNodes($slice), static fn(array $node): bool => 'tag' === ($node['kind'] ?? null) && 'img' === strtolower((string) ($node['name'] ?? ''))));
         if (1 !== count($images)) return null;
         $attributes = is_array($images[0]['attributes'] ?? null) ? $images[0]['attributes'] : array();
