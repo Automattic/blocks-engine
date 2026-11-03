@@ -42,6 +42,8 @@ if ( count($downstream) !== count(array_unique($downstream)) ) {
 $namePattern = '/(?:data-)?blocks-engine-capture(?:-|\/)/';
 
 $uses = array_fill_keys(array_keys($constants), 0);
+// Both disclosure revisions are consumed by identity recognition inside the vocabulary.
+++$uses['DISCLOSURE_RUNTIME_TRIGGER_SHA256'];
 // Shared runtime identity consumes its component constants inside the vocabulary.
 foreach (array_keys(CaptureEvidence::RECOGNIZED_RUNTIMES) as $marker) {
     ++$uses[array_search($marker, $constants, true)];
@@ -119,6 +121,7 @@ if ('086fc8248547e7c1109e0f6a28e691cea966f7057b3e36eaa8ccad177d2cf737' !== $cons
 
 $runtimes = array(
     'DISCLOSURE_RUNTIME_SHA256' => 'capture-disclosure-runtime.js',
+    'DISCLOSURE_RUNTIME_TRIGGER_SHA256' => 'capture-disclosure-trigger-runtime.js',
     'GALLERY_RUNTIME_SHA256' => 'capture-gallery-runtime.js',
     'CHOICE_RUNTIME_SHA256' => 'capture-choice-runtime.js',
 );

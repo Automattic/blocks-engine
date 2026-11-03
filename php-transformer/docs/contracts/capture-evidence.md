@@ -86,6 +86,7 @@ Two audiences read this vocabulary:
 | `data-blocks-engine-capture-dialog-panel-state` | attribute on the trigger | JSON | Snapshot of the opened panel state. |
 | `data-blocks-engine-capture-existing-panel` | attribute on an existing panel | JSON `{resting, opened}` snapshots | Preserves resting and opened `style`, `class`, and `hidden` values, and optionally resting `html`; consumers restore the resting values before static projection and after open/close replay. |
 | `data-blocks-engine-capture-resting-panel` | attribute on an existing panel | presence | Replay has exposed the resting presentation. Together with a native navigation container and its resting class snapshot, proves that Core can replace the captured controls. |
+| `data-blocks-engine-capture-dialog-trigger-state` | attribute on the trigger | JSON list of `{selector, tag, closed, opened, classTokensOnly: true}` | Relative selectors address the authored trigger's descendants (empty selector addresses the trigger). Replay only changed class tokens on open and close, preserving unrelated classes. |
 | `data-blocks-engine-capture-dialog-ancestor-state` | attribute on the trigger | JSON list of `{selector, tag, depth, closed, opened}` | Ancestor attributes toggled with the panel. |
 | `data-blocks-engine-capture-dialog-ancestor-unverified` | attribute | reason, e.g. `ancestor-limit` | Ancestor bindings could not be verified. Carried onto the native dialog block. |
 | `data-blocks-engine-capture-observed-placement` | attribute (flag) | ignored | The dropdown panel was observed in place; the native dialog stays there. |
@@ -216,6 +217,7 @@ allowed.
 
 | Name | Kind | Meaning |
 | ---- | ---- | ------- |
+| `5dd2db81c39f8f39c3756df8f8588fec6fe84e4a2ea2186fdf81b019f1aa2d6e` | sha256 of the disclosure interpreter with trigger-state replay | Exact producer output from `static-dialogs.ts` on `fix/issue-1194-data-liberation-agent`: [`tests/fixtures/capture-disclosure-trigger-runtime.js`](../../tests/fixtures/capture-disclosure-trigger-runtime.js). Both disclosure revisions remain recognized. |
 | `086fc8248547e7c1109e0f6a28e691cea966f7057b3e36eaa8ccad177d2cf737` | sha256 of the disclosure interpreter | Body: [`tests/fixtures/capture-disclosure-runtime.js`](../../tests/fixtures/capture-disclosure-runtime.js), marker `data-blocks-engine-capture-disclosure-runtime` (value `true`), in `<head>`. |
 | `456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b` | sha256 of the gallery helper | Body: [`tests/fixtures/capture-gallery-runtime.js`](../../tests/fixtures/capture-gallery-runtime.js), marker `data-blocks-engine-capture-gallery-runtime`, in `<head>`. |
 | `82806634d813434b72ca5cbc9532c88f26aa4bd3cec880c2e6c12580dd6849eb` | sha256 of the choice-group runtime | Body: [`tests/fixtures/capture-choice-runtime.js`](../../tests/fixtures/capture-choice-runtime.js) with the JSON config list in place of its empty config list (`var configs=[];`); the digest covers the body with the empty list, marker `data-blocks-engine-capture-choice-runtime` (value `true`), in `<head>`. |
