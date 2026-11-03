@@ -109,14 +109,17 @@ final class LinkWrapperPropagator
      * restores the source's painted colour, whatever it is, because the block
      * that inherits from still carries the source's own styling hooks.
      *
-     * The wrapper's own colour is deliberately not counted. It has no painting
-     * element inside the anchor to lose: source rules that reach the anchor by
-     * type still reach the rebuilt one, and no repaint is owed. Text sitting
-     * directly in the anchor is likewise unpainted from within, so a wrapper
-     * that holds any is left exactly as it is today.
+     * The wrapper's own colour counts only when it is owned by the wrapper's
+     * identity (an inline style, a class, id or attribute selector). That
+     * identity stays on the container block the wrapper became, so the rebuilt
+     * bare anchor loses it; a colour reaching the wrapper by type alone still
+     * reaches the rebuilt anchor, and no repaint is owed. Text sitting directly
+     * in the anchor is unpainted from within, so a wrapper that holds any is
+     * left exactly as it is.
      */
     private function linkWrapperPaintsAuthoredTextColor(DOMElement $anchor): bool
     {
+        $wrapperOwnsColor = $this->wrapperIdentityOwnsTextColor($anchor);
         $textOwners = array();
         foreach ( array_merge(array( $anchor ), SourceDom::descendantElements($anchor)) as $element ) {
             foreach ( $element->childNodes as $node ) {
@@ -132,12 +135,43 @@ final class LinkWrapperPropagator
         }
 
         foreach ( $textOwners as $textOwner ) {
-            if ( ! $this->paintsTextColorBelow($textOwner, $anchor) ) {
+            if ( $textOwner->isSameNode($anchor) ) {
+                return false;
+            }
+            if ( ! $wrapperOwnsColor && ! $this->paintsTextColorBelow($textOwner, $anchor) ) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    /**
+     * Whether the wrapper anchor's text colour comes from its own inline style
+     * or from a rule selecting it by class, id or attribute.
+     */
+    private function wrapperIdentityOwnsTextColor(DOMElement $anchor): bool
+    {
+        $inline = $this->styleResolver->cssDeclarations($this->attr($anchor, 'style'));
+        if ( $this->isPaintedColor((string) ($inline['color'] ?? '')) ) {
+            return true;
+        }
+        $declarations = $this->styleResolver->cssDeclarations(
+            $this->styleResolver->controlSurfaceResolvedStyle($anchor)
+        );
+        if ( ! $this->isPaintedColor((string) ($declarations['color'] ?? '')) ) {
+            return false;
+        }
+        list( $ids, $classes ) = $this->styleResolver->authorNormalDeclarationSpecificity($anchor, array( 'color' ));
+
+        return $ids > 0 || $classes > 0;
+    }
+
+    private function isPaintedColor(string $color): bool
+    {
+        $color = strtolower(trim($color));
+
+        return '' !== $color && ! in_array($color, array( 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'currentcolor' ), true);
     }
 
     /**
@@ -161,8 +195,7 @@ final class LinkWrapperPropagator
             $declarations = $this->styleResolver->cssDeclarations(
                 $this->styleResolver->controlSurfaceResolvedStyle($node)
             );
-            $color = strtolower(trim((string) ($declarations['color'] ?? '')));
-            if ( '' !== $color && ! in_array($color, array( 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'currentcolor' ), true) ) {
+            if ( $this->isPaintedColor((string) ($declarations['color'] ?? '')) ) {
                 return true;
             }
         }
