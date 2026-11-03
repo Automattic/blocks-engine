@@ -7048,6 +7048,36 @@ PHP;
             $format = $first > 12 && $second <= 12 ? '!j/n/Y' : '!n/j/Y';
             return self::utcFromFormat($format, $first . '/' . $second . '/' . $match[3]);
         }
+        // A closed vocabulary, not locale/strtotime guessing. All aliases in a
+        // row denote the same month across fr, es, de, it, pt and nl.
+        $months = array(
+            'Jan' => 'jan january janvier janv enero ene januar gennaio gen janeiro januari',
+            'Feb' => 'feb febr february fevrier fevr febrero februar febbraio fevereiro fev februari',
+            'Mar' => 'mar march mars marzo marz maerz mrz marco maart mrt',
+            'Apr' => 'apr april avril avr abril abr aprile',
+            'May' => 'may mai mayo maggio mag maio mei',
+            'Jun' => 'jun june juin junio juni giugno giu junho',
+            'Jul' => 'jul july juillet juil juill julio juli luglio lug julho',
+            'Aug' => 'aug august aout agosto ago augustus',
+            'Sep' => 'sep sept september septembre septiembre setiembre settembre set setembro',
+            'Oct' => 'oct october octobre octubre oktober okt ottobre ott outubro out',
+            'Nov' => 'nov november novembre noviembre novembro',
+            'Dec' => 'dec december decembre diciembre dic dezember dez dicembre dezembro',
+        );
+        $folded = strtr(mb_strtolower($value, 'UTF-8'), array('é' => 'e', 'û' => 'u', 'ä' => 'a', 'ç' => 'c'));
+        // Also accept decomposed accents, without relying on intl or a locale.
+        $folded = preg_replace('/(?<=[a-z])\p{M}+/u', '', $folded) ?? $folded;
+        $match = array();
+        $dayFirst = 1 === preg_match('/^(\d{1,2})(?:\. ?| )(?:de )?([a-z]{3,12})\.? (?:de )?(\d{4})$/', $folded, $match);
+        if ($dayFirst || preg_match('/^([a-z]{3,12})\.? (\d{1,2}), (\d{4})$/', $folded, $match)) {
+            $token = $match[$dayFirst ? 2 : 1];
+            foreach ($months as $month => $aliases) {
+                if (in_array($token, explode(' ', $aliases), true)) {
+                    $value = $dayFirst ? $match[1] . ' ' . $month . ' ' . $match[3] : $month . ' ' . $match[2] . ', ' . $match[3];
+                    break;
+                }
+            }
+        }
         foreach (array('!F j, Y', '!M j, Y', '!j F Y', '!j M Y') as $format) {
             $parsed = self::utcFromFormat($format, $value);
             if (null !== $parsed) return $parsed;
