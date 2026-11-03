@@ -20,7 +20,8 @@ final class ButtonElementContext
         private readonly SourceBlockCreator $createBlock,
         private readonly Closure $convertButton,
         private readonly ?Closure $isRuntimeDomTarget = null,
-        private readonly ?Closure $runtimeButton = null
+        private readonly ?Closure $runtimeButton = null,
+        private readonly ?Closure $convertButtonWrapperGroup = null
     ) {
     }
 
@@ -37,6 +38,17 @@ final class ButtonElementContext
     public function isRichTextButtonLabel(DOMElement $element): bool
     {
         return $this->sourceElementClassifier->isRichTextButtonLabel($element);
+    }
+
+    public function hasBlockLevelDescendant(DOMElement $element): bool
+    {
+        return $this->sourceElementClassifier->hasBlockLevelDescendant($element);
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
+    public function convertButtonWrapperGroup(DOMElement $element, array &$fallbacks): ?array
+    {
+        return $this->convertButtonWrapperGroup instanceof Closure ? ($this->convertButtonWrapperGroup)($element, $fallbacks) : null;
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
