@@ -201,6 +201,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\OwnSaveShapeInverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphColor;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\QuirksModeSource;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
@@ -1649,6 +1650,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->restoreCapturedExistingPanelRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
         $this->capturedGlyphColors = CapturedGlyphColor::detach($body);
+        if ( QuirksModeSource::isQuirksMode($html) ) {
+            QuirksModeSource::normalize($body);
+        }
 
         if ( array() !== $sourceBodyClasses ) {
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
