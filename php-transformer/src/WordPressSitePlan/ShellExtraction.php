@@ -1444,6 +1444,8 @@ final class ShellExtraction
             }
             $candidates = array(); $clusters = array(); $excluded = array(); $overrides = array();
             $templateSlugs = array(); $excludedTemplateSlugs = array();
+            // Aligned edges have already replaced equivalent wrapper contracts.
+            // Distinct authored wrappers still need the inner-copy fallback.
             if ('footer' === $area && array_reduce($pages, static fn(bool $found, array $page): bool => $found || (bool) array_filter($page['shell_candidates'] ?? array(), static fn(array $candidate): bool => 'footer' === ($candidate['area'] ?? null) && !empty($candidate['wrapper_contract_shell'])), false)) {
                 $diagnostics[] = array('code' => 'wordpress_site_plan_shell_wrapper_variant_retained', 'severity' => 'info', 'message' => 'The footer wrapper contract remains route-owned while identical footer copy is factored into a shared inner template part.', 'area' => 'footer');
                 continue;
@@ -1792,10 +1794,10 @@ final class ShellExtraction
             foreach ($applicable as $index => $page) {
                 $rows = array_values(array_filter($page['shell_candidates'] ?? array(), static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
                 if (count($rows) > 1 && substr_count((string) $page['canonical_block_markup'], '"tagName":"main"') > 1) continue 2;
-                // Wrapper, legacy and responsive-copy candidates own placement
+                // Legacy and responsive-copy candidates own placement
                 // contracts an edge does not reproduce.
                 foreach ($rows as $row) {
-                    if (!empty($row['wrapper_contract_shell']) || array() !== ($row['additional_ranges'] ?? array())) continue 3;
+                    if (array() !== ($row['additional_ranges'] ?? array())) continue 3;
                     if (isset($row['legacy_content_markup']) || isset($row['legacy_container_opening'])) {
                         if (count($rows) > 1) continue 3;
                         continue 2;
@@ -1851,13 +1853,16 @@ final class ShellExtraction
                 if (null !== $landmarkEnd && $landmarkEnd !== $at + 1) continue 2;
                 $landmarkEnd = $at + 1;
             }
-            // An edge that is only the landmark, or wrappers around it, leaves
-            // the landmark in charge: its path keeps wrapper context such as
-            // responsive visibility.
+            // A complete landmark can keep its context-aware placement only
+            // when every route has one at the same depth. Mixed depths, missing
+            // top-level candidates and wrapper contracts need the aligned edge
+            // to own the cluster rather than splitting it by discovery path.
             $length = $landmarkEnd ?? $group['length'];
             $first = $group['indexes'][0];
             while ($length < $group['length'] && self::isOutOfFlowChrome(substr((string) $pages[$first]['canonical_block_markup'], $edges[$first][$length]['offset'], $edges[$first][$length]['length']))) ++$length;
-            if (null !== $landmarkEnd && 1 === $length) continue;
+            if (null !== $landmarkEnd && 1 === $length
+                && count(array_unique(array_map(static fn(int $index): bool => $edges[$index][0]['nested'], $group['indexes']))) === 1
+                && !array_filter($group['indexes'], static fn(int $index): bool => empty($landmarks[$index]) || !empty($landmarks[$index][0]['wrapper_contract_shell']))) continue;
             $nested = !empty($edges[$group['indexes'][0]][0]['nested']);
             $identity = hash('sha256', implode("\0", array_column(array_slice($edges[$group['indexes'][0]], 0, $length), 'identity')));
             foreach ($group['indexes'] as $index) {
@@ -2052,6 +2057,7 @@ final class ShellExtraction
     {
         if (1 === preg_match('/<!--\s*wp:navigation\b/', $block)) return false;
         $html = preg_replace('/<!--.*?-->/s', '', $block) ?? '';
+        $html = preg_replace('#<(script|style)\b[^>]*>.*?</\1\s*>#is', '', $html) ?? $html;
         return '' === trim(html_entity_decode(strip_tags($html))) && 1 !== preg_match('/<(?:img|picture|video|audio|iframe|svg|canvas|object|embed|input|select|textarea|button)\b/i', $html);
     }
 
