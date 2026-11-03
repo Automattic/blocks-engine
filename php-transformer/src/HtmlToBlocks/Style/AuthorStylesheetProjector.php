@@ -92,6 +92,35 @@ final class AuthorStylesheetProjector
         return CssSelectorListCompactor::stylesheet($projected);
     }
 
+    /**
+     * Core's unlayered element-button defaults otherwise hide layered source
+     * paint, including hover. Keep the escape in support CSS, outside @layer,
+     * and never promote paint to native button attributes/inline styles.
+     */
+    public function controlCarrierLayerRevertRule(DOMElement $element, string $marker): string
+    {
+        $families = array(
+            'background-color' => '/^background(?:-.*)?$/',
+            'color' => '/^color$/',
+            'padding' => '/^padding(?:-.*)?$/',
+            'border-width' => '/^border(?:-(?:width|top|right|bottom|left|block|inline)(?:-(?:start|end))?(?:-width)?)?$/',
+            'font-size' => '/^font(?:-size)?$/',
+            'font-family' => '/^font(?:-family)?$/',
+            'font-style' => '/^font(?:-style)?$/',
+            'font-weight' => '/^font(?:-weight)?$/',
+            'letter-spacing' => '/^letter-spacing$/',
+            'text-transform' => '/^text-transform$/',
+            'line-height' => '/^(?:font|line-height)$/',
+            'text-decoration' => '/^text-decoration(?:-.*)?$/',
+        );
+        $reverted = array_keys(array_filter($this->styleResolver->authorPropertyFamilyLayering($element, $families)));
+        if ( array() === $reverted ) {
+            return '';
+        }
+
+        return ':root .' . $marker . '>.wp-block-button__link{' . implode(';', array_map(static fn (string $property): string => $property . ':revert-layer', $reverted)) . '}';
+    }
+
     /** @param list<string> $ancestors */
     private static function ancestorsAreConditional(array $ancestors): bool
     {

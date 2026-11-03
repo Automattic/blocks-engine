@@ -1341,6 +1341,32 @@ $assert(false === ($contextual['context']['allow_fallbacks'] ?? null), 'HTML tra
 $assert('fixture:contextual-html' === ($contextual['provenance'][0]['source'] ?? ''), 'HTML provenance exposes generic source metadata');
 $assert('contract-test' === ($contextual['provenance'][0]['scope'] ?? ''), 'HTML provenance exposes generic scope metadata');
 
+$controlLayerCases = array(
+    'layered background' => array('@layer utilities{.paint{background-color:#df6c32}.alt{background-color:#2a6fdb}}', array('background-color')),
+    'layered colors' => array('@layer utilities{.paint{background-color:#df6c32;color:white}.alt{background-color:#2a6fdb}}', array('background-color', 'color')),
+    'unlayered colors' => array('.paint{background-color:#df6c32;color:white}.alt{background-color:#2a6fdb}', array()),
+    'mixed background' => array('@layer utilities{.paint{background-color:#df6c32;color:white}.alt{background-color:#2a6fdb}}.paint{background-color:orange}', array('color')),
+);
+$controlLayerChecks = array();
+foreach ( $controlLayerCases as $case => [$css, $properties] ) {
+    $controlLayerFixture = '<!doctype html><html><head><meta charset="utf-8"><title>S</title><style>' . $css . '</style></head><body><main><p><button class="alt">Other action</button></p><form><input><button class="paint">Send message</button></form></main></body></html>';
+    $controlLayerResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $controlLayerFixture)))->toArray();
+    $controls = $controlLayerResult['fallbacks'][0]['controls'] ?? array();
+    $submit = array_values(array_filter($controls, static fn (array $control): bool => 'submit' === ($control['type'] ?? '')))[0] ?? array();
+    preg_match('/\bblocks-engine-control-[\w-]+/', implode(' ', $submit['control_carrier_classes'] ?? array()), $marker);
+    $emittedCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $controlLayerResult['assets'] ?? array()));
+    $expected = array() === $properties ? '' : ':root .' . ($marker[0] ?? '') . '>.wp-block-button__link{' . implode(';', array_map(static fn (string $property): string => $property . ':revert-layer', $properties)) . '}';
+    // Read top-level rules only: a revert inside @layer cannot beat Core.
+    $topLevelRules = array();
+    (new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer())->visitStyleRules($emittedCss, static function (string $selector, string $body, array $ancestors = array()) use (&$topLevelRules): void {
+        if ( array() === $ancestors ) {
+            $topLevelRules[] = trim($selector) . '{' . $body . '}';
+        }
+    });
+    $controlLayerChecks[$case] = isset($marker[0]) && ('' === $expected ? !str_contains($emittedCss, ':revert-layer') : in_array($expected, $topLevelRules, true));
+}
+$assert(!in_array(false, $controlLayerChecks, true), 'provider submit layered paint escapes Core defaults through unlayered marker-scoped revert-layer, without reverting unlayered author families', json_encode($controlLayerChecks));
+
 $formFallback = ( new HtmlTransformer() )->transform(
     '<main><form action="/contact" method="post" data-action="contact-submit"><label class="field-label" for="email">Email</label><input id="email" class="field-input" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
 )->toArray();
