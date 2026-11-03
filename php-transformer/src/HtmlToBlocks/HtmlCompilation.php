@@ -11684,7 +11684,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return preg_replace('/<link\b[^>]*\/?\s*>/i', '', SourceDom::safeFallbackHtml(
             $element,
             $this->authorSelectorProjections()->tagMarkers(),
-            fn (DOMElement $node): array => $this->authorSelectorProjections()->semanticMarkersForPath($node->getNodePath() ?? '')
+            fn (DOMElement $node): array => $this->authorSelectorProjections()->sourceProjectionMarkersForPath($node->getNodePath() ?? '')
         )) ?? '';
     }
 

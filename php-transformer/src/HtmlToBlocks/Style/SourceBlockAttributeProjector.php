@@ -377,10 +377,7 @@ final class SourceBlockAttributeProjector
         if ( '' !== $sourceTagMarker ) {
             $className = SourceDom::mergeClassNames($className, $sourceTagMarker);
         }
-        $semanticMarkers = array_merge(
-            $context->selectorProjections->semanticMarkersForPath($element->getNodePath() ?? ''),
-            $context->selectorProjections->ancestorAttributeStateMarkers($element->getNodePath() ?? '')
-        );
+        $semanticMarkers = $context->selectorProjections->sourceProjectionMarkersForPath($element->getNodePath() ?? '');
         if ( array() !== $semanticMarkers ) {
             $className = SourceDom::mergeClassNames($className, ...$semanticMarkers);
         }
