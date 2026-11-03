@@ -330,8 +330,11 @@ final class NavigationStyleProjector
      * restated there. The selector is self-limiting: it matches only an element
      * that is both a promoted list navigation and carries the authored class.
      *
-     * Only `auto` is carried. An authored length is left to the author rule,
-     * which core does not contest on the host.
+     * Specificity 0,2,0 beats core's 0,1,1 reset while yielding to projected
+     * ancestor-qualified author rules (0,3,0). Keep the list marker in :where()
+     * and never make the repair important. Preserve the source
+     * condition stack so a viewport-only auto never becomes a global margin.
+     * Only `auto` is carried, together with its opposite inline side.
      *
      * Part of the list-navigation repair set — tagged {@see CascadeLayer::LIST_NAVIGATION_REPAIR}.
      *
@@ -349,7 +352,7 @@ final class NavigationStyleProjector
         }
 
         $rules = array();
-        foreach ( array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules()) as $rule ) {
+        foreach ( $this->navigationAuthorStyleRules() as $rule ) {
             $selector = trim((string) ($rule['selector'] ?? ''));
             if ( 1 !== preg_match('/^\.([A-Za-z_][A-Za-z0-9_-]*)$/', $selector, $match) ) {
                 continue;
@@ -371,11 +374,15 @@ final class NavigationStyleProjector
 
             $declarations = array();
             foreach ( $margins as $side => $value ) {
-                $declarations[] = 'margin-' . $side . ':' . $value . '!important';
+                $declarations[] = 'margin-' . $side . ':' . $value;
             }
 
-            $selectorText = '.wp-block-navigation.blocks-engine-list-navigation.' . $class;
-            $rules[$selectorText] = $selectorText . '{' . implode(';', $declarations) . '}';
+            $selectorText = '.wp-block-navigation:where(.blocks-engine-list-navigation).' . $class;
+            $css = $selectorText . '{' . implode(';', $declarations) . '}';
+            foreach ( array_reverse($rule['conditions']) as $condition ) {
+                $css = $condition . '{' . $css . '}';
+            }
+            $rules[] = $css;
         }
 
         return array_map(
@@ -886,7 +893,7 @@ final class NavigationStyleProjector
     }
 
     /**
-     * Ordered authored rules used only by navigation anchor compatibility CSS.
+     * Ordered authored rules used by navigation compatibility CSS.
      *
      * The canonical author analysis retains rule identity, condition stack,
      * pseudo suffix, and source order. Navigation adds only its compatibility
