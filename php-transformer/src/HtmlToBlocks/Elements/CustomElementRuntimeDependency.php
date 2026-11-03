@@ -271,6 +271,13 @@ final class CustomElementRuntimeDependency
      */
     public function hasConfigurationAttribute(DOMElement $element, bool $outputCaptured = false): bool
     {
+        // A captured iframe is an embed's complete rendered output, so host
+        // attributes (including lifecycle state an embed script writes, such
+        // as `loading="done"`) only parameterize content already captured.
+        // A poster image is not complete output and keeps the checks below.
+        if ( $outputCaptured && SourceDom::hasCapturedIframe($element) ) {
+            return false;
+        }
         foreach ( $element->attributes ?? array() as $attribute ) {
             $name = strtolower($attribute->name);
             if ( '' === trim((string) $attribute->value) ) {
