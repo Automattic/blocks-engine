@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAn
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\SourceTargetProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedMenuDialogFold;
@@ -890,7 +891,35 @@ final class NavigationPatternContext
 
     public function responsiveOverlayMarker(DOMElement $element): string
     {
+        $this->releaseResponsiveOverlayContainingBlocks($element);
         return $this->projectedNavigation?->responsiveNavigationOverlayMarker($element) ?? '';
+    }
+
+    /** Keep fixed native overlays viewport-sized, without changing closed headers. */
+    private function releaseResponsiveOverlayContainingBlocks(DOMElement $element): void
+    {
+        if (null === $this->styleResolver || null === $this->session) return;
+
+        $properties = array('backdrop-filter', '-webkit-backdrop-filter', 'filter', 'transform', 'translate', 'rotate', 'scale', 'perspective', 'contain', 'will-change');
+        for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            $author = $this->styleResolver->referenceViewportAuthorDeclarations($ancestor, $properties);
+            $resets = array();
+            foreach ($author as $property => $value) {
+                $value = strtolower(trim($value));
+                if (in_array($value, array('', 'none', 'normal', 'auto', 'initial', 'inherit', 'unset', 'revert', 'revert-layer'), true)) continue;
+                if ('contain' === $property && !preg_match('/\b(?:paint|layout|strict|content)\b/', $value)) continue;
+                if ('will-change' === $property && !array_intersect(preg_split('/[\s,]+/', $value) ?: array(), array_diff($properties, array('will-change')))) continue;
+                // will-change has no `none` value; auto removes its containing block.
+                $resets[$property] = 'will-change' === $property ? 'auto' : 'none';
+            }
+            if (array() === $resets) continue;
+
+            $marker = $this->session->authorSelectorProjectionState()->ensureSemanticMarker($ancestor->getNodePath() ?? '');
+            $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay(
+                $marker,
+                EngineSupportCss::responsiveOverlayContainingBlockRule($marker, $resets)
+            );
+        }
     }
 
     /**

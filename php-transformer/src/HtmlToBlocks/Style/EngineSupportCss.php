@@ -23,6 +23,16 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
  */
 final class EngineSupportCss
 {
+    /** @param array<string, string> $resets Only containing-block properties the ancestor authors. */
+    public static function responsiveOverlayContainingBlockRule(string $marker, array $resets): string
+    {
+        $declarations = array();
+        foreach ($resets as $property => $value) {
+            $declarations[] = $property . ':' . $value;
+        }
+        return ':root .' . $marker . ':has(.wp-block-navigation__responsive-container.is-menu-open){' . implode(';', $declarations) . '}';
+    }
+
     private const BACKGROUND_IMAGE_CLASS = 'blocks-engine-background-image';
 
     private const BACKGROUND_IMAGE_SCALE_CLASS_PREFIX = 'blocks-engine-background-image-';
