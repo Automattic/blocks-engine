@@ -3368,7 +3368,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                         $blocks = array( $this->createBlock('core/spacer', array( 'height' => $height ), array(), $cell) );
                     }
                     $cellPadding = $spacer || array() !== array_intersect_key($this->styleResolver->resolvedPresentationDeclarations($cell), array_flip(array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ))) ? 0 : $padding;
-                    $rows[]    = array( $blocks, $cellPadding );
+                    // A taller cell keeps its height and places its content the way
+                    // the cell aligns it: in the middle unless `valign` says otherwise.
+                    $boxHeight = ! $spacer && null !== $height && str_ends_with($height, 'px') ? $height : null;
+                    $rows[]    = array( $blocks, $cellPadding, $boxHeight, $this->layoutTableCellAlignment($cell) );
                     $cellWidth = $cellWidth ?? $this->normalizeLayoutTableTrackWidth($this->attr($cell, 'width'));
                 }
             }
@@ -3377,18 +3380,28 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // Rows are stacked page regions: one row is the group's content, several keep their own boxes.
         $boxPadding = static fn (int $inset): array => array( 'top' => $inset . 'px', 'right' => $inset . 'px', 'bottom' => $inset . 'px', 'left' => $inset . 'px' );
         $single     = 1 === count($rows);
-        $children   = $single
+        $children   = $single && null === $rows[0][2]
             ? $rows[0][0]
             : array_map(
-                function (array $row, int $index) use ($boxPadding, $spacing, $table): array {
-                    $box = array();
-                    if ( 0 < $row[1] ) {
-                        $box['padding'] = $boxPadding($row[1]);
+                function (array $row, int $index) use ($boxPadding, $spacing, $table, $single): array {
+                    $attrs = array();
+                    if ( 0 < $row[1] && ! $single ) {
+                        $attrs['style']['spacing']['padding'] = $boxPadding($row[1]);
                     }
                     if ( 0 < $index ) {
-                        $box['margin'] = array( 'top' => $spacing . 'px' );
+                        $attrs['style']['spacing']['margin'] = array( 'top' => $spacing . 'px' );
                     }
-                    return $this->createBlock('core/group', array() === $box ? array() : array( 'style' => array( 'spacing' => $box ) ), $row[0], $table);
+                    $blocks = $row[0];
+                    if ( null !== $row[2] ) {
+                        // The cell height includes the padding, which a single row's table box carries.
+                        $attrs['style']['dimensions']['minHeight'] = CssLength::format(max(0.0, (float) $row[2] - ( $single ? 2 * $row[1] : 0 )));
+                        if ( 'top' !== $row[3] ) {
+                            // A vertical flex box places the content; it stays one flow box, so inline runs keep flowing.
+                            $attrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical', 'justifyContent' => 'stretch', 'verticalAlignment' => $row[3] );
+                            $blocks          = array( $this->createBlock('core/group', array(), $blocks, $table) );
+                        }
+                    }
+                    return $this->createBlock('core/group', $attrs, $blocks, $table);
                 },
                 $rows,
                 array_keys($rows)
@@ -3418,6 +3431,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->createBlock('core/group', $attrs, $children, $table);
+    }
+
+    /** Where a cell places its content vertically: `top`, `center` (the default) or `bottom`. */
+    private function layoutTableCellAlignment(DOMElement $cell): string
+    {
+        $valign = $this->resolvedDeclaration($cell, 'vertical-align');
+        if ( '' === $valign && $cell->parentNode instanceof DOMElement ) {
+            $valign = $this->resolvedDeclaration($cell->parentNode, 'vertical-align');
+        }
+        return match ( $valign ) {
+            'top', 'baseline', 'text-top' => 'top',
+            'bottom', 'text-bottom' => 'bottom',
+            default => 'center',
+        };
     }
 
     /** The table's border spacing in px: `cellspacing` (2 by default), unless author CSS sets it. */
