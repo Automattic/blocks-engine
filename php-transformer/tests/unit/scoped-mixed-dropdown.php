@@ -54,12 +54,15 @@ foreach (array(
     str_replace('</head>', '<script>document.querySelector("[data-blocks-engine-capture-dialog-trigger]").addEventListener("click",function(){window.sourceAction=true;});</script></head>', $html),
     str_replace('</head>', '<script src="https://example.test/native-control.js"></script></head>', $html),
     str_replace('role="button"', 'role="region"', $html),
-    str_replace('<div id="mobile-menu-panel"', '<div id="mobile-menu-panel"></div><div id="mobile-menu-panel"', $html),
     str_replace('Ordinary action</button>', 'Ordinary action</button><button onclick="window.sourceAction=true">Source action</button>', $html),
 ) as $negative) {
     $projected = $projector->project($files($negative));
     $assert(0 === $projected['projected_count'] && str_contains($projected['files'][0]['content'], 'function triggers()'), 'unknown/competing runtime, non-control, ambiguous endpoint and native JS controls are not falsely adopted');
 }
+$ambiguousScope = str_replace('<div id="mobile-menu-panel"', '<div id="mobile-menu-panel"></div><div id="mobile-menu-panel"', $html);
+$partial = $projector->project($files($ambiguousScope));
+$assert(1 === $partial['projected_count'], 'An ambiguous mobile endpoint does not veto the independent desktop scope.');
+
 $duplicateCopies = str_replace(array('desktop-menu-panel', 'mobile-menu-panel'), 'shared-menu-panel', $html);
 $duplicateResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $files($duplicateCopies)))->toArray();
 $duplicateDom = new DOMDocument();

@@ -21,10 +21,18 @@ final class NavigationEntityProjection
         foreach (array('part' => $parts, 'page' => $pages) as $kind => $documents) {
             foreach ($documents as $index => $document) {
                 $source = (string) ($document['source_path'] ?? '');
-                foreach (self::navigationBlocks((string) ($document['canonical_block_markup'] ?? '')) as $block) {
+                $markup = (string) ($document['canonical_block_markup'] ?? '');
+                // In-place panels retain source-owned item style subjects. A
+                // semantically equal entity can carry another scope's classes.
+                $sourcePanels = array_values(array_filter(WordPressSitePlan::blockRanges($markup), static function (array $range) use ($markup): bool {
+                    $block = substr($markup, $range['offset'], $range['length']);
+                    return 1 === preg_match('/^<!--\s*wp:[^\s]+\/captured-dialog\s+(\{.*?\})\s*-->/s', $block, $match)
+                        && 'in-place' === (json_decode($match[1], true)['placement'] ?? null);
+                }));
+                foreach (self::navigationBlocks($markup) as $block) {
                     // Provider-owned ancestors and descendants keep their exact
                     // anchors. Unrelated navigation in the same document can share.
-                    if (self::overlapsBinding($block, $protected[$source] ?? array())) continue;
+                    if (self::overlapsBinding($block, $protected[$source] ?? array()) || self::overlapsBinding($block, $sourcePanels)) continue;
                     $inner = self::normalizeLabels(ShellExtraction::withoutCurrentNavigationState($block['inner']));
                     $identity = self::contentIdentity($inner);
                     $clusters[$identity][] = array(
