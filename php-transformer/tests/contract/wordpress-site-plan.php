@@ -1100,7 +1100,7 @@ $assert(str_contains($markerCurrentMarkup, ' aria-current="page"'), 'The static 
 // this, a slug rename, reparenting, or importer slug dedupe silently drops the
 // page's authored CSS in the editor while the front end (which still matches by
 // route_path in wp_enqueue_scripts) stays correct.
-$pageScopeIdentityFirstCondition = "if ( 'page' === \$scope['kind'] && 'page' === \$post->post_type ) { \$identity = get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ); if ( '' !== \$identity ? \$scope['reconciliation_identity'] === \$identity : ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; } }";
+$pageScopeIdentityFirstCondition = "if ( 'page' === \$scope['kind'] ) { \$identity = get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ); if ( '' !== \$identity ? \$scope['reconciliation_identity'] === \$identity : 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; } }";
 $legacyUnguardedPageCondition = "'page' === \$scope['kind'] && 'page' === \$post->post_type && ( ( \$scope['front_page']";
 $assert(str_contains($bootstrap, $pageScopeIdentityFirstCondition) && !str_contains($bootstrap, $legacyUnguardedPageCondition), 'The editor presentation matcher resolves a page scope by persisted reconciliation identity before falling back to route path, matching the post scope identity-first behavior.');
 if (!class_exists('WP_Post')) {

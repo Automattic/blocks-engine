@@ -114,14 +114,14 @@ if (!function_exists('is_singular')) {
     function is_singular(): bool
     {
         global $frontendScopeQuery;
-        return (bool) $frontendScopeQuery['page'];
+        return (bool) ($frontendScopeQuery['singular'] ?? $frontendScopeQuery['page']);
     }
 }
 if (!function_exists('get_post_type')) {
     function get_post_type(int $postId = 0): string|false
     {
         global $frontendScopeQuery;
-        return in_array($postId, array((int) $frontendScopeQuery['queried_id'], (int) ($frontendScopeQuery['document_id'] ?? 0)), true) && 0 !== $postId ? 'page' : false;
+        return in_array($postId, array((int) $frontendScopeQuery['queried_id'], (int) ($frontendScopeQuery['document_id'] ?? 0)), true) && 0 !== $postId ? (string) ($frontendScopeQuery['post_type'] ?? 'page') : false;
     }
 }
 if (!function_exists('apply_filters')) {
@@ -216,6 +216,12 @@ $assert($routeOnly($served), 'A materialized page whose stored URI was normalize
 // The same durability covers any rename or reparenting once identity meta exists.
 $served = $serveFrontendRequest(array('front_page' => false, 'page' => true, 'queried_id' => $numericPageId), array($numericPageId => array('_blocks_engine_reconciliation_identity' => $routeIdentity)), array($numericPageId => 'renamed/elsewhere'));
 $assert($routeOnly($served), 'A renamed or reparented page with identity meta still activates its route-owned assets.', json_encode($served));
+
+// A non-page document can carry the page's identity, but cannot use its URI fallback.
+$nonPageQuery = array('front_page' => false, 'page' => false, 'singular' => true, 'queried_id' => $numericPageId, 'post_type' => 'custom_document');
+$identifiedNonPage = $serveFrontendRequest($nonPageQuery, array($numericPageId => array('_blocks_engine_reconciliation_identity' => $routeIdentity)), array($numericPageId => 'guides/2048'));
+$unidentifiedNonPage = $serveFrontendRequest($nonPageQuery, array(), array($numericPageId => 'guides/2048'));
+$assert($routeOnly($identifiedNonPage) && array($globalStylePath) === $unidentifiedNonPage['styles'] && array() === $unidentifiedNonPage['scripts'], 'A non-page document activates page-scoped assets only through its matching reconciliation identity, never through a matching URI.', json_encode(array($identifiedNonPage, $unidentifiedNonPage)));
 
 // Identity is authoritative: a coincidentally matching route must not activate
 // a different page's assets.
