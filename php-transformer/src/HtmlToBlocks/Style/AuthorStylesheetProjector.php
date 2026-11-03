@@ -2560,10 +2560,27 @@ final class AuthorStylesheetProjector
         return array_values(array_unique($rewritten));
     }
 
+    /**
+     * Re-state document-root presentation onto the editor canvas.
+     *
+     * Body-subject rules receive the canvas scope: the editor establishes an
+     * explicit canvas presentation context, so authored body declarations
+     * must target that body directly to keep speaking there. Rules whose
+     * subject is the document root itself (`html`, `:root`) reach the canvas
+     * through a restatement, because the editor iframe's root does not carry
+     * the source identity until the canvas runtime reconciles it. That
+     * restatement never speaks over a body-level style: inherited
+     * presentation restates wholly inside `:where()`, weighing (0,0,0), so it
+     * stays the inherited default that any body rule — the source's own
+     * body rule or theme.json body typography — outranks, while root-owned
+     * custom properties are tokens no body-level style competes with and
+     * carry on the canvas-body carrier the reconciled canvas root
+     * satisfies.
+     */
     private function editorDocumentRootRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        $editorSelectors = array();
+        $bodySelectors = $rootSelectors = array();
         $root = $context->authorStyles->sourceBody()->ownerDocument?->documentElement;
         foreach ($selectors ?? array() as $selector) {
             $parsed = $context->sourceStyles->parsedSelector($selector);
@@ -2578,14 +2595,13 @@ final class AuthorStylesheetProjector
                 $sourceSelector = $this->projectSourceClassSelector($selector, $context);
                 $sourceParsed = $context->sourceStyles->parsedSelector($sourceSelector);
                 $end = (int) $sourceParsed['rightmost_rewrite_end'];
-                $editorSelectors[] = ':root ' . substr($sourceSelector, 0, $end) . '.editor-styles-wrapper' . substr($sourceSelector, $end);
+                $bodySelectors[] = ':root ' . substr($sourceSelector, 0, $end) . '.editor-styles-wrapper' . substr($sourceSelector, $end);
             } elseif ($root instanceof DOMElement && CssSelectorMatcher::matches($root, $parsed)['matches']) {
-                $editorSelectors[] = $this->projectSourceClassSelector($selector, $context) . ' .editor-styles-wrapper';
+                $rootSelectors[] = $this->projectSourceClassSelector($selector, $context);
             }
         }
-        if (array() === $editorSelectors) {
-            return '';
-        }
+        $bodySelectors = array_values(array_unique($bodySelectors));
+        $rootSelectors = array_values(array_unique($rootSelectors));
 
         // Gutenberg establishes an explicit canvas presentation context, so
         // document-level body inheritance cannot otherwise win in the editor.
@@ -2602,8 +2618,38 @@ final class AuthorStylesheetProjector
                 || in_array($name, $inheritedProperties, true),
             ARRAY_FILTER_USE_KEY
         );
-        $css = $this->styleResolver->cssDeclarationString($declarations);
-        return '' === $css ? '' : implode(',', $editorSelectors) . '{' . $css . '}';
+        if (array() === $declarations) {
+            return '';
+        }
+
+        $css = array() === $bodySelectors ? '' : implode(',', $bodySelectors) . '{' . $this->styleResolver->cssDeclarationString($declarations) . '}';
+        if (array() === $rootSelectors) {
+            return $css;
+        }
+
+        // The root restatement carries disjoint declarations on two arms.
+        // Presentation restates wholly inside :where() and weighs (0,0,0): it
+        // acts as the inherited default and every body-level rule — theme.json
+        // body typography or the source's own body rule — outranks it, exactly
+        // as it does on the frontend where the declaration stays on the root.
+        // Custom properties are route-scoped tokens rather than presentation,
+        // so they carry on the canvas-body carrier without any body-level
+        // style to outrank.
+        $tokens = array_filter(
+            $declarations,
+            static fn (string $name): bool => str_starts_with($name, '--'),
+            ARRAY_FILTER_USE_KEY
+        );
+        $default = $this->styleResolver->cssDeclarationString(array_diff_key($declarations, $tokens));
+        $carrier = $this->styleResolver->cssDeclarationString($tokens);
+        $carrierSelectors = implode(',', $rootSelectors);
+        $defaultSelectors = implode(',', array_map(
+            static fn (string $selector): string => $selector . ' .editor-styles-wrapper',
+            $rootSelectors
+        ));
+        return $css
+            . ('' === $default ? '' : ':where(' . $defaultSelectors . '){' . $default . '}')
+            . ('' === $carrier ? '' : ':where(' . $carrierSelectors . ') .editor-styles-wrapper{' . $carrier . '}');
     }
 
     /** @return list<string>|null */
