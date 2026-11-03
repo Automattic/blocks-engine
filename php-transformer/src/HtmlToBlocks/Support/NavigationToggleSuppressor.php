@@ -1572,6 +1572,22 @@ final class NavigationToggleSuppressor
 
     private function concreteToggleControl(DOMElement $toggle): DOMElement
     {
+        // A checkbox stores state; its bound label paints the opener. Prefer
+        // the icon-bearing label over an empty backdrop bound to the same input.
+        if ( 'input' === strtolower($toggle->tagName) && $this->isCheckboxWithEmptyBoundLabel($toggle) ) {
+            $fallback = null;
+            foreach ( $toggle->ownerDocument->getElementsByTagName('label') as $label ) {
+                if ( $label instanceof DOMElement
+                    && SourceDom::attr($toggle, 'id') === trim(SourceDom::attr($label, 'for'))
+                    && $this->isCheckboxBoundEmptyLabel($label) ) {
+                    if ( 0 < $label->childElementCount ) {
+                        return $label;
+                    }
+                    $fallback ??= $label;
+                }
+            }
+            return $fallback ?? $toggle;
+        }
         if ( 'details' === strtolower($toggle->tagName) ) {
             $summary = $toggle->getElementsByTagName('summary')->item(0);
             if ( $summary instanceof DOMElement ) {
