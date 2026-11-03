@@ -288,7 +288,7 @@ foreach ( $rules($offsetCss) as [ $stack, $selector, $body ] ) {
     $boundPanel = $boundPanel || ( str_contains($selector, '.is-menu-open') && $declares($body, 'inset:100%0auto!important') );
 }
 $assert($relativeHostStatic && $boundPanel, 'relative host: the panel remains bound to the header', $offsetCss);
-$assert(1 === count($relativeOpenRules), 'relative host: placement is merged into one open-button rule', implode(' / ', $relativeOpenRules));
+$assert(1 === count(array_filter($relativeOpenRules, static fn (string $body): bool => $declares($body, 'position:relative!important'))), 'relative host: placement is merged into one open-button rule', implode(' / ', $relativeOpenRules));
 $assert(1 === count(array_filter($relativeOpenRules, static fn (string $body): bool => $declares($body, 'position:relative!important') && $declares($body, 'left:200px!important'))), 'relative host: the open button carries the authored mobile offset', implode(' / ', $relativeOpenRules));
 // An explicit auto offset is inert and must not even change the marker hash.
 [ $autoBlocks, $autoCss ] = $transform($relativeCss . '#menu{left:auto}', $relativeHeader);

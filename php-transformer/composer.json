@@ -1030,6 +1030,7 @@
       "php tests/unit/linked-responsive-content.php",
       "php tests/unit/empty-destination-anchor.php",
       "php tests/unit/button-element-converter.php",
+      "php tests/unit/header-button-box.php",
       "php tests/unit/block-content-button-not-richtext.php",
       "php tests/unit/button-heading-label.php",
       "php tests/unit/block-link-cards.php",
