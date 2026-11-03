@@ -876,6 +876,7 @@
       "php tests/unit/social-links-source-context.php",
       "php tests/unit/social-anchor-ancestor-selector.php",
       "php tests/unit/social-links-icon-color.php",
+      "php tests/unit/social-links-alignment-size.php",
       "php tests/unit/social-links-source-margins.php",
       "php tests/unit/social-profile-flex-cluster.php",
       "php tests/unit/linked-image-link-name.php",

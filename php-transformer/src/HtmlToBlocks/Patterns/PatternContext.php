@@ -31,6 +31,7 @@ final class PatternContext
      * @param Closure(DOMElement): array<string, string>|null $accordionItemBox
      * @param Closure(DOMElement): bool|null $sourceElementVisuallyClipped
      * @param Closure(DOMElement): string|null $richTextContent
+     * @param Closure(DOMElement): array<string, string>|null $socialPresentationDeclarations
      * @param Closure(DOMElement): array<string, mixed>|null $socialAnchorColors
      */
     public function __construct(
@@ -56,7 +57,8 @@ final class PatternContext
         private readonly ?Closure $accordionItemBox = null,
         private readonly ?Closure $sourceElementVisuallyClipped = null,
         private readonly ?Closure $richTextContent = null,
-        private readonly ?Closure $socialAnchorColors = null
+        private readonly ?Closure $socialAnchorColors = null,
+        private readonly ?Closure $socialPresentationDeclarations = null
     ) {
     }
 
@@ -156,6 +158,12 @@ final class PatternContext
     public function socialAnchorColors(DOMElement $element): array
     {
         return null === $this->socialAnchorColors ? array() : ($this->socialAnchorColors)($element);
+    }
+
+    /** @return array<string, string> Resolved source CSS for social row layout and sizing. */
+    public function socialPresentationDeclarations(DOMElement $element): array
+    {
+        return null === $this->socialPresentationDeclarations ? array() : ($this->socialPresentationDeclarations)($element);
     }
 
     public function authoredIconColor(DOMElement $element): string
