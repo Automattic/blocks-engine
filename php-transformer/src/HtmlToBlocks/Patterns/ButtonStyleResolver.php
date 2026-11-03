@@ -144,6 +144,8 @@ final class ButtonStyleResolver
     }
 
     /**
+     * Out-of-flow controls own their definite height: their auto-height
+     * carriers cannot supply a percentage-height resolution chain.
      * Padding/borders impose a floor under border-box, but add to a
      * content-box height. Either case requires the padded link to own the size.
      * Reuse native attribute mapping for physical/logical padding and borders.
@@ -155,6 +157,11 @@ final class ButtonStyleResolver
     {
         if ( ! is_finite($height) ) {
             return false;
+        }
+        // A collapsed wrapper is still placement geometry (for example a
+        // zero-sized skip-link carrier), not a positive link height to preserve.
+        if ( $height > 0 && in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'fixed', 'absolute' ), true) ) {
+            return true;
         }
         $css = '';
         foreach ( $declarations as $name => $value ) {
