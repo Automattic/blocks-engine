@@ -378,6 +378,7 @@
       "php tests/unit/responsive-media-block.php",
       "php tests/unit/image-link-anchor.php",
       "php tests/unit/image-transform-reference-box.php",
+      "php tests/unit/image-auto-margin-centering.php",
       "php tests/unit/figure-media-frame.php",
       "php tests/unit/image-class-figure-carrier.php",
       "php tests/unit/image-figcaption-author-styling.php",

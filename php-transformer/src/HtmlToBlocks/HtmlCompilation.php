@@ -12724,6 +12724,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // A synthetic figure must not inherit the image's preferred ratio:
         // imageBoxConstraintClassName() carries it on the painting leaf instead.
         $attrs = $this->styleResolver->presentationAttributes($figure ?? $image, $figure instanceof DOMElement ? array() : array_merge($inlineImagePlacement, $imageBoxProperties, array('aspect-ratio')));
+        if ( ! $figure instanceof DOMElement ) {
+            // Native spacing is serialized on the figure even when geometry
+            // excludes it. Source image margins are carried on the leaf instead.
+            unset($attrs['style']['spacing']['margin']);
+        }
         if ( $syntheticLinkedFigure ) {
             // The figure replaces the link in its parent's layout. The image's
             // percentage box and crop still belong to the leaf inside that link.
