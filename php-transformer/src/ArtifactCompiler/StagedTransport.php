@@ -552,6 +552,11 @@ trait StagedTransport
             $blockTypes = array_merge($blockTypes, $reduction['block_types'] ?? array());
             if (is_array($reduction['entry_blocks'] ?? null)) $entryBlocks = $reduction['entry_blocks'];
         }
+        // Page normalization re-extracts inline assets also carried by the
+        // shared plan. Merge their occurrence records here, just as compose's
+        // validation assembly does; terminal reduction must use that identity.
+        $files = (new ArtifactNormalizer())->contentAddressInlineFiles($files);
+        $this->assertUniqueComposedPaths($files);
         $sourcePaths = is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array();
         $files = self::sortedBySourcePaths($files, $sourcePaths);
         $documents['documents'] = self::sortedBySourcePaths($documents['documents'], $sourcePaths, 'source_path');

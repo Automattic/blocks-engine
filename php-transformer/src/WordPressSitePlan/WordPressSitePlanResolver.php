@@ -45,7 +45,8 @@ final class WordPressSitePlanResolver
         $resolvedTargets = array();
         foreach ($plan['assets'] as $asset) if (isset($attachments[$asset['token']])) $resolvedTargets[$asset['target_path']] = true;
         $plan['writes'] = array_values(array_filter($plan['writes'], static fn(array $write): bool => !isset($resolvedTargets[$write['target_path']])));
-        foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) { $write['canonical_payload'] = $write['payload']['data']; $write['canonical_payload_hash'] = WordPressSitePlan::contentHash($write['canonical_payload']); $write['payload']['data'] = self::resolveWritePayload($write['canonical_payload'], $plan['reference_tokens'], $themeUri, $write['target_path'], $attachments); $write['payload_hash'] = WordPressSitePlan::contentHash($write['payload']['data']); }
+        $tokensById = array_column($plan['reference_tokens'], null, 'token');
+        foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) { $write['canonical_payload'] = $write['payload']['data']; $write['canonical_payload_hash'] = WordPressSitePlan::contentHash($write['canonical_payload']); $write['payload']['data'] = self::resolveIndexedWritePayload($write['canonical_payload'], $tokensById, $themeUri, $write['target_path'], $attachments); $write['payload_hash'] = WordPressSitePlan::contentHash($write['payload']['data']); }
         unset($write);
         foreach (array('pages', 'template_parts') as $documents) foreach ($plan[$documents] as &$document) foreach (array('links', 'scripts') as $kind) { if (!is_array($document['document_metadata'][$kind] ?? null)) continue; foreach ($document['document_metadata'][$kind] as &$declaration) if (is_string($declaration['asset_reference'] ?? null)) $declaration['resolved_url'] = self::resolvePayload($declaration['asset_reference'], $references); }
         unset($declaration, $document);
@@ -156,6 +157,12 @@ final class WordPressSitePlanResolver
     /** @param array<int,array<string,mixed>> $tokens */
     public static function resolveWritePayload(string $content, array $tokens, string $themeUri, string $targetPath, array $attachments = array()): string
     {
+        return self::resolveIndexedWritePayload($content, array_column($tokens, null, 'token'), $themeUri, $targetPath, $attachments);
+    }
+    /** Resolve only references actually used by this write. @param array<string,array<string,mixed>> $tokensById */
+    private static function resolveIndexedWritePayload(string $content, array $tokensById, string $themeUri, string $targetPath, array $attachments = array()): string
+    {
+        $tokens = self::tokensInPayload($content, $tokensById);
         if (array() !== $attachments && (str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/'))) return self::resolveMarkup($content, array(), $attachments, true);
         if ('functions.php' === $targetPath) {
             if (array() === $attachments) return $content;
@@ -195,6 +202,14 @@ final class WordPressSitePlanResolver
         }
         return preg_replace_callback(self::CUSTOM_PROPERTY_DECLARATION, static fn(array $match): string => strtr($match[0], $references), $css) ?? $css;
     }
+    /** @param array<string,array<string,mixed>> $tokensById @return array<int,array<string,mixed>> */
+    private static function tokensInPayload(string $content, array $tokensById): array
+    {
+        preg_match_all('/' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '([^{}]+)\}\}/', $content, $matches);
+        $used = array();
+        foreach (array_unique($matches[1]) as $id) if (isset($tokensById[$id])) $used[] = $tokensById[$id];
+        return $used;
+    }
     /** A custom-property declaration up to its terminating `;` or `}`; quoted strings and plan tokens are opaque. */
     private const CUSTOM_PROPERTY_DECLARATION = '/(?<=[{;\s])--[A-Za-z0-9_-]+\s*:(?:"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|\{\{[^{}]*\}\}|[^;{}"\'])*/';
     /**
@@ -208,6 +223,7 @@ final class WordPressSitePlanResolver
     {
         if ('functions.php' === $targetPath || str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/') || !str_contains($content, WordPressSitePlan::TOKEN_PREFIX)) return $content;
         if (!str_ends_with(strtolower($targetPath), '.css')) return null;
+        $tokens = self::tokensInPayload($content, array_column($tokens, null, 'token'));
         // Custom-property tokens resolve to the theme's root-relative URL.
         if (self::resolveCustomPropertyTokens($content, $tokens, '', array()) !== $content) return null;
         $resolved = strtr($content, self::referencesForWrite($tokens, '', $targetPath));
@@ -341,9 +357,10 @@ final class WordPressSitePlanResolver
     /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $tokens @param array<int,array<string,mixed>> $writes @return array<int,array<string,mixed>> */
     public static function publicationReferences(array $declarations, array $tokens, array $writes, string $themeUri, array $attachments = array()): array
     {
+        $tokensById = array_column($tokens, null, 'token');
         $writesByIdentity = array_column($writes, null, 'reconciliation_identity');
         $resolved = array();
-        foreach ($declarations as $declaration) if ('asset_publication' === ($declaration['kind'] ?? null)) foreach ($declaration['reference_targets'] as $target) { $canonical = WordPressSitePlan::TOKEN_PREFIX . $target['token'] . '}}'; $write = $writesByIdentity[$target['write_reconciliation_identity']] ?? null; $references = is_array($write) && is_string($write['target_path'] ?? null) ? self::referencesForWrite($tokens, $themeUri, $write['target_path'], $attachments) : array(); $url = $references[$canonical] ?? null; if (!is_string($url)) throw new InvalidArgumentException('Asset publication reference token is not declared.'); $resolved[] = array('declaration_reconciliation_identity' => $declaration['reconciliation_identity'], 'target_path' => $target['target_path'], 'write_reconciliation_identity' => $target['write_reconciliation_identity'], 'canonical_token' => $canonical, 'count' => $target['count'], 'context' => $target['context'], 'expected_resolved_url' => $url); }
+        foreach ($declarations as $declaration) if ('asset_publication' === ($declaration['kind'] ?? null)) foreach ($declaration['reference_targets'] as $target) { $canonical = WordPressSitePlan::TOKEN_PREFIX . $target['token'] . '}}'; $write = $writesByIdentity[$target['write_reconciliation_identity']] ?? null; $references = is_array($write) && is_string($write['target_path'] ?? null) ? self::referencesForWrite(isset($tokensById[$target['token']]) ? array($tokensById[$target['token']]) : array(), $themeUri, $write['target_path'], $attachments) : array(); $url = $references[$canonical] ?? null; if (!is_string($url)) throw new InvalidArgumentException('Asset publication reference token is not declared.'); $resolved[] = array('declaration_reconciliation_identity' => $declaration['reconciliation_identity'], 'target_path' => $target['target_path'], 'write_reconciliation_identity' => $target['write_reconciliation_identity'], 'canonical_token' => $canonical, 'count' => $target['count'], 'context' => $target['context'], 'expected_resolved_url' => $url); }
         return $resolved;
     }
 }
