@@ -96,6 +96,30 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // A service URL proves intent, not artwork parity. Core renders its
+        // own SVG for dynamic social-link blocks; it cannot save source paths.
+        // Keep authored SVG clusters with the ordinary icon-link converter.
+        // Empty SVG placeholders can still request core's service artwork.
+        $authoredSvg = false;
+        foreach ($anchors as $anchor) {
+            foreach ($anchor->getElementsByTagName('svg') as $svg) {
+                $hasArtwork = false;
+                foreach ($svg->childNodes as $child) {
+                    if ($child instanceof DOMElement && !in_array(strtolower($child->tagName), array('title', 'desc'), true)) $hasArtwork = true;
+                }
+                if (!$hasArtwork) continue;
+                $authoredSvg = true;
+                $color = $context->capturedGlyphColor($svg);
+                if ('' !== $color) {
+                    // The generic icon-link path retains this SVG (possibly
+                    // as an isolated image). Carry capture paint into that
+                    // visual rather than allowing tile color to become fill.
+                    $svg->setAttribute('style', rtrim($svg->getAttribute('style'), "; \t\n\r") . ';color:' . $color . ';fill:' . $color);
+                }
+            }
+        }
+        if ($authoredSvg) return null;
+
         $links = array();
         $linkAnchors = array();
         $showLabels = false;

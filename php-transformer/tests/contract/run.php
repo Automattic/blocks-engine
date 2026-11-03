@@ -938,6 +938,8 @@ $assert('small' === ($spanSocialBlock['attrs']['size'] ?? null), 'icon-font soci
 $assert(! str_contains((string) ($spanSocialResult['serialized_blocks'] ?? ''), '<mark'), 'icon-font inner spans are not lowered to mark');
 
 $placeholderSocialSource = '<style>.footer-social{display:flex;gap:14px}.footer-social a{display:inline-flex;width:32px;height:32px}</style><div class="footer-social"><a href="#" aria-label="LinkedIn"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="X / Twitter"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="YouTube"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="GitHub"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a></div>';
+// Empty SVGs request core artwork; authored paths are covered by the SVG parity tests.
+$placeholderSocialSource = str_replace('<path d="M0 0h1v1z"/>', '', $placeholderSocialSource);
 $placeholderSocialResult = ( new HtmlTransformer() )->transform($placeholderSocialSource)->toArray();
 $placeholderSocialBlock = $placeholderSocialResult['blocks'][0] ?? array();
 $placeholderSocialServices = array_map(static fn(array $link): string => (string) ($link['attrs']['service'] ?? ''), $placeholderSocialBlock['innerBlocks'] ?? array());
@@ -950,6 +952,7 @@ $assert(array( 'LinkedIn', 'X / Twitter', 'YouTube', 'GitHub' ) === $placeholder
 $assert(str_contains((string) ($placeholderSocialBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'labeled SVG placeholders retain logos-only presentation');
 
 $descriptiveSocialSource = '<div class="footer-socials"><a href="#" aria-label="Driftwood Roasters on Instagram"><svg><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="Driftwood Roasters on X / Twitter"><svg><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="Driftwood Roasters on Facebook"><svg><path d="M0 0h1v1z"/></svg></a></div>';
+$descriptiveSocialSource = str_replace('<path d="M0 0h1v1z"/>', '', $descriptiveSocialSource);
 $descriptiveSocialResult = ( new HtmlTransformer() )->transform($descriptiveSocialSource)->toArray();
 $descriptiveSocialServices = array_map(static fn(array $link): string => (string) ($link['attrs']['service'] ?? ''), $descriptiveSocialResult['blocks'][0]['innerBlocks'] ?? array());
 $assert(array( 'instagram', 'x', 'facebook' ) === $descriptiveSocialServices, 'descriptive accessible labels resolve complete social service tokens, including one-character aliases', json_encode($descriptiveSocialServices));

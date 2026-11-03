@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 // A social link names itself through an SVG <title> and a screen-reader-only
 // label; only text a reader sees makes the row print visible labels.
 $link = static fn (string $service, string $label): string => '<li><a href="https://www.' . $service . '.com/example/" title="' . ucfirst($service) . '">'
-    . '<svg role="img" viewBox="0 0 24 24"><title>' . ucfirst($service) . ' icon</title><path d="M0 0h24v24H0z"/></svg>' . $label . '</a></li>';
+    . '<svg role="img" viewBox="0 0 24 24"><title>' . ucfirst($service) . ' icon</title></svg>' . $label . '</a></li>';
 $cases = array(
     'clipped label' => array('<span class="hidden-label">%s</span>', false),
     'visible label' => array('<span>%s</span>', true),

@@ -33,7 +33,7 @@ if (in_array('--fixture', $argv, true)) {
 if (0 !== $result['metrics']['fallback_count'] || 'pass' !== $result['source_reports']['wp_block_validity']['status']) {
     throw new RuntimeException('Mixed native social context must remain valid without fallback.');
 }
-if (!str_contains($result['serialized_blocks'], '"service":"chain"')) {
-    throw new RuntimeException('An unknown profile endpoint keeps the existing generic service rather than fabricating a brand.');
+if (str_contains($result['serialized_blocks'], 'wp:social-link')) {
+    throw new RuntimeException('A mixed cluster with authored SVG artwork must retain its source links rather than fabricate service artwork.');
 }
 echo "Social-links source context passed\n";
