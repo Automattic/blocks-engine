@@ -321,9 +321,22 @@ final class TableAttributesBuilder
                 if ( '' !== $width && preg_match('/^(?:\d+(?:\.\d+)?(?:%|px|em|rem|vw|ch)|calc\(.+\)|var\(.+\))$/i', $width) ) {
                     $geometry[] = 'width:' . $width . '!important';
                 }
-                foreach ( array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ) as $property ) {
+                $padding = array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' );
+                foreach ( $padding as $property ) {
                     $value = trim((string) ($declarations[$property] ?? ''));
                     if ( '' !== $value && preg_match('/^(?:-?\d+(?:\.\d+)?(?:px|em|rem|%|vw|vh|ch)?)(?:\s+-?\d+(?:\.\d+)?(?:px|em|rem|%|vw|vh|ch)?){0,3}$/i', $value) ) {
+                        $geometry[] = $property . ':' . $value . '!important';
+                    }
+                }
+                // core/table cells have no style attribute: the rest of the
+                // cell's inline presentation keeps its inline precedence here.
+                $presentation = $this->styleResolver->safeVisualDeclarations($declarations);
+                if ( isset($declarations['vertical-align']) ) {
+                    $presentation['vertical-align'] = $declarations['vertical-align'];
+                }
+                foreach ( array_diff_key($presentation, array_flip(array_merge(array( 'width' ), $padding))) as $property => $value ) {
+                    $value = trim((string) preg_replace('/\s*!\s*important\s*$/i', '', (string) $value));
+                    if ( '' !== $value && 1 !== preg_match('/[{};<>]/', $value) ) {
                         $geometry[] = $property . ':' . $value . '!important';
                     }
                 }
