@@ -1813,6 +1813,7 @@ final class ShellExtraction
                 $edge = $this->routeEdge((string) $pages[$index]['canonical_block_markup'], $pages[$index], $area, $runtimeDeclarations);
                 if (array() !== $edge) $edges[$index] = $edge;
             }
+            $edges = self::normalizeEdgeLinks($edges, $pages);
             $groups = self::edgeGroups($edges, $pages);
             $largestCluster = max(array_map('count', $clusters) ?: array(0));
             // Variants are distinct designs: they differ from their first
@@ -1878,7 +1879,7 @@ final class ShellExtraction
             foreach ($group['indexes'] as $index) {
                 $range = self::edgeRange($edges[$index], $length);
                 $markup = substr((string) $pages[$index]['canonical_block_markup'], $range['offset'], $range['length']);
-                $candidate = array('area' => $area, 'markup' => $markup, 'template_part_markup' => self::landmarkPartMarkup(self::withoutCurrentNavigationState($markup), $area), 'identity_markup' => 'route-edge:' . $identity, 'source_path' => $pages[$index]['source_path'], 'offset' => $range['offset'], 'length' => $range['length'], 'route_edge' => true);
+                $candidate = array('area' => $area, 'markup' => $markup, 'template_part_markup' => self::landmarkPartMarkup(self::withoutEdgeCurrentState($markup, $pages[$index]), $area), 'identity_markup' => 'route-edge:' . $identity, 'source_path' => $pages[$index]['source_path'], 'offset' => $range['offset'], 'length' => $range['length'], 'route_edge' => true);
                 if ($nested) $candidate += array('nested_shell' => true, 'additional_ranges' => array());
                 $pages[$index]['shell_candidates'] = array_merge(array_values(array_filter($pages[$index]['shell_candidates'] ?? array(), static fn(array $row): bool => $area !== ($row['area'] ?? null))), array($candidate));
             }
@@ -1918,7 +1919,7 @@ final class ShellExtraction
                 if (array() !== $this->runtimeBindingsInRanges($runtimeDeclarations, $pages[$index], array($ranges[$index]))['refs']) continue 2;
             }
             $first = $group['indexes'][0];
-            $markup = self::landmarkPartMarkup(self::withoutCurrentNavigationState(substr((string) $pages[$first]['canonical_block_markup'], $ranges[$first]['offset'], $ranges[$first]['length'])), $area);
+            $markup = self::landmarkPartMarkup(self::withoutEdgeCurrentState(substr((string) $pages[$first]['canonical_block_markup'], $ranges[$first]['offset'], $ranges[$first]['length']), $pages[$first]), $area);
             $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"' . $area . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
             // Replace from the end of each page so earlier offsets stay valid.
             foreach ($group['indexes'] as $index) {
@@ -2102,6 +2103,93 @@ final class ShellExtraction
         if (1 === preg_match('/<!--\s*wp:navigation\b/', $block)) return false;
         $html = preg_replace('/<!--.*?-->/s', '', $block) ?? '';
         return '' === trim(html_entity_decode(strip_tags($html))) && 1 !== preg_match('/<(?:img|picture|video|audio|iframe|svg|canvas|object|embed|input|select|textarea|button)\b/i', $html);
+    }
+
+    /**
+     * Plain anchors do not have core/navigation's current-item machinery.
+     * Infer author state tokens only from self links, never from a name such
+     * as "active" alone. Engine paint/geometry classes remain intact.
+     *
+     * @param array<string,mixed> $page
+     */
+    private static function withoutEdgeCurrentState(string $markup, array $page): string
+    {
+        $self = array(); $rest = array();
+        preg_match_all('/<a\b[^>]*>/i', $markup, $anchors);
+        foreach ($anchors[0] as $anchor) {
+            if (!preg_match('/\bhref="([^"]*)"/', $anchor, $href)) continue;
+            preg_match('/\sclass="([^"]*)"/', $anchor, $classes);
+            $tokens = preg_split('/\s+/', trim($classes[1] ?? '')) ?: array();
+            $current = html_entity_decode($href[1], ENT_QUOTES | ENT_HTML5, 'UTF-8') === ($page['route']['path'] ?? null);
+            foreach ($tokens as $token) {
+                if ($current && str_contains($anchor, 'aria-current=')) $self[$token] = true;
+                else $rest[$token] = true;
+            }
+        }
+        $state = array_diff_key($self, $rest);
+        foreach (array_keys($state) as $token) if ('' === $token || str_starts_with($token, 'blocks-engine-') || str_starts_with($token, 'be-') || str_starts_with($token, 'wp-')) unset($state[$token]);
+        $markup = preg_replace_callback('/<a\b[^>]*>/i', static function (array $match) use ($page, $state): string {
+            $anchor = $match[0];
+            if (!preg_match('/\bhref="([^"]*)"/', $anchor, $href) || html_entity_decode($href[1], ENT_QUOTES | ENT_HTML5, 'UTF-8') !== ($page['route']['path'] ?? null)) return $anchor;
+            $anchor = preg_replace('/\saria-current="[^"]*"/', '', $anchor) ?? $anchor;
+            return preg_replace_callback('/\sclass="([^"]*)"/', static function (array $classes) use ($state): string {
+                $tokens = array_values(array_filter(preg_split('/\s+/', trim($classes[1])) ?: array(), static fn(string $token): bool => !isset($state[$token])));
+                return array() === $tokens ? '' : ' class="' . implode(' ', $tokens) . '"';
+            }, $anchor) ?? $anchor;
+        }, $markup) ?? $markup;
+        // layout-shell attributes duplicate the anchor's author class list.
+        $markup = preg_replace_callback('/"className":"([^"]*)"/', static function (array $match) use ($state): string {
+            return '"className":"' . implode(' ', array_filter(explode(' ', $match[1]), static fn(string $token): bool => !isset($state[$token]))) . '"';
+        }, $markup) ?? $markup;
+        return self::withoutCurrentNavigationState($markup);
+    }
+
+    /**
+     * Compare blocks with the same shape before allowing a small minority of
+     * link destinations to vary. HTML anchors and layout-shell href copies
+     * are not parallel arrays: text anchors have no wrapper. Build a value
+     * set per cluster and replace those values in both representations.
+     * Fixed links that are self on just one route must normalize on every
+     * route, including their non-self copies.
+     *
+     * @param array<int,array> $edges
+     * @param array<int,array> $pages
+     * @return array<int,array>
+     */
+    private static function normalizeEdgeLinks(array $edges, array $pages): array
+    {
+        $clusters = array();
+        $hrefPattern = '/(?<=\\bhref=")[^"]*|(?<="href":")[^"]*/';
+        foreach ($edges as $index => $edge) foreach ($edge as $position => $range) {
+            $markup = self::withoutEdgeCurrentState(substr((string) $pages[$index]['canonical_block_markup'], $range['offset'], $range['length']), $pages[$index]);
+            $shape = self::edgeBlockIdentity(preg_replace($hrefPattern, 'edge-link', $markup) ?? $markup);
+            $clusters[$position . ':' . $shape][$index] = array('position' => $position, 'markup' => $markup);
+        }
+        foreach ($clusters as $cluster) {
+            if (count($cluster) < 2) continue;
+            $links = array(); $values = array();
+            foreach ($cluster as $index => $row) {
+                preg_match_all('/<a\\b[^>]*\\bhref="([^"]*)"/i', $row['markup'], $matches);
+                $links[$index] = $matches[1];
+            }
+            $first = reset($links);
+            if (array() === $first) continue;
+            $varying = 0;
+            foreach ($first as $slot => $href) {
+                $targets = array_unique(array_column($links, $slot));
+                if (count($targets) > 1) {
+                    ++$varying;
+                    foreach ($targets as $target) $values[$target] = true;
+                }
+                foreach ($links as $index => $routeLinks) if (html_entity_decode($routeLinks[$slot], ENT_QUOTES | ENT_HTML5, 'UTF-8') === ($pages[$index]['route']['path'] ?? null)) $values[$routeLinks[$slot]] = true;
+            }
+            if (0 === $varying || $varying > min(3, intdiv(count($first), 3))) continue;
+            foreach ($cluster as $index => $row) {
+                $markup = preg_replace_callback($hrefPattern, static fn(array $match): string => isset($values[$match[0]]) ? 'edge-link' : $match[0], $row['markup']) ?? $row['markup'];
+                $edges[$index][$row['position']]['identity'] = self::edgeBlockIdentity($markup);
+            }
+        }
+        return $edges;
     }
 
     private static function edgeBlockIdentity(string $block): string

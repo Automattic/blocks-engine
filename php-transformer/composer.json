@@ -203,6 +203,8 @@
       "php tests/contract/block-comment-attribute-escaping.php",
       "php tests/contract/shared-header-control-routes.php",
       "php tests/contract/route-edge-shared-shell.php",
+      "php tests/contract/route-edge-plain-link-state.php",
+      "php tests/contract/route-edge-varying-links.php",
       "php tests/contract/route-edge-inward-chrome.php",
       "php tests/contract/navigation-current-item-shape.php",
       "php tests/contract/navigation-submenu-icon-geometry.php",
