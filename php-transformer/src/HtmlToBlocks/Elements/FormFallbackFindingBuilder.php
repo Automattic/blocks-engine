@@ -129,6 +129,9 @@ final class FormFallbackFindingBuilder
             if (null !== $fieldShell || null !== $controlShell) {
                 unset($block['_form_field_box'], $block['_form_control_box']);
                 if (null !== $controlShell) {
+                    // Marked so a provider can present the control's own
+                    // frames on its control instead of around its caption.
+                    $controlShell['form_control_box'] = $block['form_control_index'];
                     $block = $this->encloseInBox($block, $controlShell);
                 }
                 if (null !== $fieldShell) {

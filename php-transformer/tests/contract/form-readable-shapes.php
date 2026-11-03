@@ -135,6 +135,7 @@ foreach ([0, 1] as $index) {
     $controlWalk($form['readable_blocks']);
     $wrapper = $enclosing['attrs']['wrappers'][0] ?? [];
     $assert(1 === count($enclosing['innerBlocks'] ?? []) && 'wrap' === ($wrapper['attributes']['class'] ?? ''), 'Control ' . $index . ' is enclosed alone by its own wrapper shell.');
+    $assert($index === ($enclosing['form_control_box'] ?? null), 'Control ' . $index . "'s own wrapper shell is marked as its control box.");
 }
 // Types without prose degradations still paint as native inputs, even unstyled.
 foreach (['date','time','datetime-local','month','week','color'] as $type) {

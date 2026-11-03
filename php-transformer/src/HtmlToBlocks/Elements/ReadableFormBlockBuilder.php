@@ -30,9 +30,10 @@ use DOMElement;
  *   swaps its field in for the control keeps the field's box.
  * - `_form_control_box`: a control's own frames, the exclusive wrappers
  *   between that caption level and the control, with the same shell shape.
- *   The finding encloses the control in them inside the field box, so a
- *   provider rendering caption and control can present these frames around
- *   (or onto) its control rather than around its caption.
+ *   The finding encloses the control in them inside the field box, marking
+ *   that shell `form_control_box` with the control's index, so a provider
+ *   rendering caption and control can present these frames around (or onto)
+ *   its control rather than around its caption.
  * - `_form_legend`: marks the block a legend lowered to on the page, so the
  *   finding can state the legend once, as its group's label.
  */
