@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMDocument;
 use DOMElement;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 
 /** State-owned probe evidence from the v2 component inventory. */
 final class CapturedComponentStates
@@ -80,7 +81,16 @@ final class CapturedComponentStates
     {
         if (!$node instanceof DOMElement) return array($node->nodeType, $node->nodeValue);
         $attributes = array();
-        foreach ($node->attributes as $attribute) $attributes[$attribute->name] = $attribute->value;
+        foreach ($node->attributes as $attribute) {
+            if ('style' === $attribute->name) {
+                $declarations = CssRuleAnalyzer::declarations($attribute->value, array('*'));
+                // Stable property sorting preserves the order of repeated declarations.
+                usort($declarations, static fn(array $a, array $b): int => strcmp($a['name'], $b['name']));
+                if ($declarations) $attributes['style'] = $declarations;
+                continue;
+            }
+            $attributes[$attribute->name] = $attribute->value;
+        }
         ksort($attributes);
         $children = array();
         foreach ($node->childNodes as $child) {

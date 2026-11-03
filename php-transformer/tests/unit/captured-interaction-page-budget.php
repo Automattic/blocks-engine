@@ -61,13 +61,14 @@ foreach ($cases as [$projector, $evidence, $code, $marker]) {
 // Only route one observed the mobile toggle. All later routes contain the same
 // source header, while the negative control merely reuses the selector.
 $pages = $routes = $files = array();
-$header = '<header><nav><button id="open" aria-haspopup="dialog">Open</button></nav></header>';
+$header = '<header><nav style="--mobile-buffer-y: 0px;--menu-scrollbar-width: 0px;--mobile-offset-x: -0px"><button id="open" aria-haspopup="dialog"><span style="">Open</span></button></nav></header>';
+$otherHeader = str_replace(array('--menu-scrollbar-width: 0px;--mobile-offset-x: -0px', ' style=""'), array('--mobile-offset-x: -0px;--menu-scrollbar-width: 0px', ''), $header);
 for ($i = 0; $i < 140; ++$i) {
     $url = 'https://example.test/route-' . $i;
     $path = 'website/route-' . $i . '.html';
     $pages[] = array('sourceUrl' => $url, 'components' => 0 === $i ? captured_components($cases[0][1]) : array());
     $routes[] = array('url' => $url, 'path' => $path);
-    $files[] = array('path' => $path, 'content' => '<html><body>' . (139 === $i ? str_replace('Open</button>', 'Different</button>', $header) : $header) . '<main><p>Route ' . $i . '</p></main></body></html>');
+    $files[] = array('path' => $path, 'content' => '<html><body>' . (139 === $i ? str_replace('Open</span>', 'Different</span>', $otherHeader) : (0 === $i ? $header : $otherHeader)) . '<main><p>Route ' . $i . '</p></main></body></html>');
 }
 $files[] = array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => $routes)));
 $files[] = array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v2', 'pages' => $pages)));

@@ -269,7 +269,9 @@ final class CssRuleAnalyzer
         }
     }
 
-    /** @return list<array{name: string, value: string}> */
+    /** Properties may include '*' to retain every declaration.
+     * @return list<array{name: string, value: string}>
+     */
     public static function declarations(string $body, array $properties): array
     {
         $declarations = array();
@@ -291,7 +293,7 @@ final class CssRuleAnalyzer
                         $name = strtolower($name);
                     }
                     $value = trim(substr($declaration, $colon + 1));
-                    if ( ( in_array($name, $properties, true) || ( in_array('--*', $properties, true) && str_starts_with($name, '--') ) ) && '' !== $value ) {
+                    if ( ( in_array('*', $properties, true) || in_array($name, $properties, true) || ( in_array('--*', $properties, true) && str_starts_with($name, '--') ) ) && '' !== $value ) {
                         $declarations[] = array( 'name' => $name, 'value' => preg_replace('/\s+/', ' ', $value) ?? $value );
                     }
                 }
