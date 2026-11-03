@@ -302,6 +302,7 @@
       "php tests/contract/single-column-layout-table-group.php",
       "php tests/contract/quirks-mode-source.php",
       "php tests/contract/body-presentational-hints.php",
+      "php tests/contract/css-ident-type-selector-not-element.php",
       "php tests/contract/inline-run-line-breaks.php",
       "php tests/contract/empty-layer-conditional-custom-property-paint.php",
       "php tests/contract/linked-image-inline-custom-properties.php",
