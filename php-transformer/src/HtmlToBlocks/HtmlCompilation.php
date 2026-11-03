@@ -6174,7 +6174,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($wrapper, 'class'));
             $wrapperStyle   = trim($this->attr($wrapper, 'style'));
             if ( '' !== $wrapperStyle ) {
-                $hoistedDeclarations = array_merge($hoistedDeclarations, $this->styleResolver->cssDeclarations($wrapperStyle));
+                // On an inline wrapper these values restate the parent's size;
+                // on the block they would instead inherit from its parent and
+                // erase an outer span's size (or a stylesheet heading size).
+                $size = strtolower(CssValueInspector::withoutImportant((string) ($wrapperDeclarations['font-size'] ?? '')));
+                if ( in_array($size, array( 'inherit', 'unset' ), true)
+                    || 1 === preg_match('/^(?:100(?:\.0+)?%|1(?:\.0+)?em)$/', $size) ) {
+                    unset($wrapperDeclarations['font-size']);
+                }
+                $hoistedDeclarations = array_merge($hoistedDeclarations, $wrapperDeclarations);
             }
             $this->unwrapElement($wrapper);
         }
@@ -6200,6 +6208,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( array() !== $mapped ) {
                 $existing       = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
                 $attrs['style'] = array_replace_recursive($mapped, $existing);
+                // A size on the content overrides the host's size in the source
+                // cascade too, even when the host carries a reset such as 100%.
+                if ( isset($mapped['typography']['fontSize']) ) {
+                    $attrs['style']['typography']['fontSize'] = $mapped['typography']['fontSize'];
+                }
             }
         }
 
