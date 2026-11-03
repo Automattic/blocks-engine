@@ -1,0 +1,79 @@
+<?php
+declare(strict_types=1);
+
+namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
+
+use DOMDocument;
+use DOMElement;
+use WeakMap;
+
+/** Reverse references in the stable source DOM, scoped to child conversion. */
+final class DocumentReferenceIndex
+{
+    /** @var WeakMap<DOMDocument, self>|null */
+    private static ?WeakMap $documents = null;
+    /** @var array<string, list<DOMElement>> */
+    private array $fragments = array();
+    /** @var array<string, list<DOMElement>> */
+    private array $ids = array();
+    /** @var array<string, array<string, true>> */
+    private array $dialogControls = array();
+
+    public static function install(DOMDocument $document): void
+    {
+        $index = new self();
+        foreach ($document->getElementsByTagName('*') as $candidate) {
+            $identity = trim(SourceDom::attr($candidate, 'id'));
+            if ('' !== $identity) $index->ids[$identity][] = $candidate;
+            $ids = array();
+            $href = SourceDom::attr($candidate, 'href');
+            $hash = strpos($href, '#');
+            if (false !== $hash) $ids[] = SourceDom::anchorAttributeValue(rawurldecode(substr($href, $hash + 1)));
+            foreach (array('aria-labelledby', 'aria-describedby', 'aria-controls') as $attribute) {
+                foreach (preg_split('/\s+/', trim(SourceDom::attr($candidate, $attribute))) ?: array() as $id) $ids[] = $id;
+            }
+            $ids[] = SourceDom::attr($candidate, 'for');
+            foreach (array_unique($ids) as $id) {
+                if ('' !== $id) $index->fragments[$id][] = $candidate;
+            }
+            if ('true' === SourceDom::attr($candidate, 'data-blocks-engine-captured-dialog')) {
+                foreach (array('data-blocks-engine-triggers', 'data-blocks-engine-closers') as $binding) {
+                    foreach (preg_split('/\s+/', trim(SourceDom::attr($candidate, $binding))) ?: array() as $id) {
+                        if ('' !== $id) $index->dialogControls[$binding][$id] = true;
+                    }
+                }
+            }
+        }
+        self::$documents ??= new WeakMap();
+        self::$documents[$document] = $index;
+    }
+
+    public static function release(DOMDocument $document): void
+    {
+        if (null !== self::$documents) unset(self::$documents[$document]);
+    }
+
+    public static function forDocument(?DOMDocument $document): ?self
+    {
+        return null === $document ? null : (self::$documents[$document] ?? null);
+    }
+
+    /** @return list<DOMElement> */
+    public function elementsWithId(string $id): array
+    {
+        return $this->ids[$id] ?? array();
+    }
+
+    public function referencesFragment(DOMElement $element, string $id): bool
+    {
+        foreach ($this->fragments[$id] ?? array() as $candidate) {
+            if (!$candidate->isSameNode($element)) return true;
+        }
+        return false;
+    }
+
+    public function bindsDialogControl(string $binding, string $id): bool
+    {
+        return isset($this->dialogControls[$binding][$id]);
+    }
+}

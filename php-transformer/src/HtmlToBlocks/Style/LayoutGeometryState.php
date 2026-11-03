@@ -95,9 +95,11 @@ final class LayoutGeometryState
 
     public function cssForSerializedBlocks(string $serializedBlocks): string
     {
+        // Same token boundaries as the per-rule regex, scanned only once.
+        $tokens = array_fill_keys(preg_split('/[^a-zA-Z0-9_-]+/', $serializedBlocks, -1, PREG_SPLIT_NO_EMPTY) ?: array(), true);
         $usedRules = array();
         foreach ($this->rules as $className => $rule) {
-            if (preg_match('/(?:^|[^a-zA-Z0-9_-])' . preg_quote($className, '/') . '(?:$|[^a-zA-Z0-9_-])/', $serializedBlocks)) {
+            if (isset($tokens[$className])) {
                 $usedRules[] = $rule;
             }
         }

@@ -1748,13 +1748,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->reusableComponents()->installRecognition($this->reusableComponentRecognizer->recognize($body));
 
         $fallbacks   = array();
-        $interactionCandidates = $this->interactionFallbackReporter->interactionCandidates($body);
-        $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
-        $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
-        $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
-        $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
-        $this->collectGeneratedComponentCandidates($body);
-        $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates(), $this->transformationProvenance()->sourceCollapsedWrapperHiddenStates());
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::install($document);
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::indexDocument($document);
+        try {
+            $interactionCandidates = $this->interactionFallbackReporter->interactionCandidates($body);
+            $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
+            $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
+            $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
+            $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
+            $this->collectGeneratedComponentCandidates($body);
+            $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates(), $this->transformationProvenance()->sourceCollapsedWrapperHiddenStates());
+        } finally {
+            \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::releaseDocument($document);
+            \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::release($document);
+        }
         $blocks = $this->compressProjectedGroupChains($blocks);
         if (null === $this->deepMediaBoundaryPaths) {
             $blocks = $this->captureDeepMediaLayoutBoundaries($blocks);

@@ -996,7 +996,11 @@ JS;
             }
         }
         if ( count($items) < 2 ) {
-            foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $counterpart ) {
+            $index = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::forDocument($element->ownerDocument);
+            $counterparts = null !== $index
+                ? $index->elementsWithId(trim(SourceDom::attr($element, 'id')))
+                : ($element->ownerDocument?->getElementsByTagName('*') ?? array());
+            foreach ( $counterparts as $counterpart ) {
                 if ( ! $counterpart instanceof DOMElement || $counterpart === $element || ! $this->sharesCarouselIdentity($element, $counterpart) ) {
                     continue;
                 }
