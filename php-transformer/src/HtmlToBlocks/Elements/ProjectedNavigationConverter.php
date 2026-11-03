@@ -294,9 +294,10 @@ final class ProjectedNavigationConverter implements ElementConverter
         $hostRule = $host . '{' . implode(';', array_merge($hostDeclarations, $slotDeclarations)) . '}';
         // Core repeats source list classes on its inner container. Neither
         // that list nor the replacement toggle host is the source drawer:
-        // retaining its translation moves the closed menu out of the viewport
-        // and makes the host a containing block for Core's fixed overlay.
-        $hostRule .= $host . ',' . $host . ' .wp-block-navigation__container{transform:none!important;translate:none!important}';
+        // retaining its translation (or a transform hint) moves the closed
+        // menu out of the viewport and makes the host a containing block for
+        // Core's fixed overlay and a viewport-fixed opener.
+        $hostRule .= $host . ',' . $host . ' .wp-block-navigation__container{transform:none!important;translate:none!important;will-change:auto!important}';
         $openRule = $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $openDeclarations) . '}';
         if ( array() !== $placement ) {
             $openRule .= $this->nativeNavigationTogglePlacementEditorReset($host, $placement);

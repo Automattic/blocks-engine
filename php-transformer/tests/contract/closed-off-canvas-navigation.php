@@ -19,7 +19,7 @@ $html = '<style>.cs-menu-items{list-style:none;display:flex}'
 $result = (new HtmlTransformer())->transform($html)->toArray();
 $css = implode("\n", array_column($result['assets'], 'content'));
 $assert(str_contains(json_encode($result['blocks']), 'blocks-engine-native-responsive-navigation'), 'the native overlay replaces the source drawer');
-$assert(1 === preg_match('/@media\(max-width:[^{}]+\)\{([^{}]+)\{([^{}]+)\}([^{}]+)\{transform:none!important;translate:none!important\}/', $css, $repair), 'the transform reset is inside the collapsed breakpoint');
+$assert(1 === preg_match('/@media\(max-width:[^{}]+\)\{([^{}]+)\{([^{}]+)\}([^{}]+)\{transform:none!important;translate:none!important;will-change:auto!important\}/', $css, $repair), 'the transform reset is inside the collapsed breakpoint');
 $host = trim($repair[1]);
 $assert($repair[3] === $host . ',' . $host . ' .wp-block-navigation__container', 'both the host and repeated source list classes lose the stale translation');
 $assert(str_contains($css, 'transform:translateX(370px)'), 'authored rules remain available outside the native collapsed range');

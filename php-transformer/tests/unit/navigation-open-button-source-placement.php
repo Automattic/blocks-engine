@@ -310,7 +310,7 @@ $checkboxCss = '.cs-menu .cs-menu-button{display:none;padding:17px}.cs-menu-item
     . '@media only screen and (max-width:767px){'
     . '.cs-section .cs-menu{position:fixed;top:0;right:0;bottom:0;z-index:3}'
     . '.cs-section .cs-menu .cs-menu-button{z-index:2;background:#fff;cursor:pointer;display:block;height:56px;width:56px;position:absolute;top:0;right:0;transform:translate(0,0)}'
-    . '.cs-section .cs-menu .cs-menu-items{width:370px;transform:translateX(370px)}'
+    . '.cs-section .cs-menu .cs-menu-items{width:370px;transform:translateX(370px);will-change:transform}'
     . '.cs-menu input:checked~.cs-menu-button{transform:translate(-250px,0)}}';
 $checkboxHtml = '<section class="cs-section"><div class="cs-box"><div class="cs-widgets"><div class="cs-widget cs-menu-widget">'
     . '<nav class="cs-menu cs-menu-theme-9 cs-menu-horizontal cs-menu-center" role="navigation" aria-label="Menu">'
@@ -344,7 +344,7 @@ foreach ( $rules($drawerOutput) as [ $stack, $selector, $body ] ) {
 }
 $assert($drawerFixed, $case . ': native opener retains viewport edge placement and drawer stacking', $drawerOutput);
 $assert($drawerEmpty, $case . ': collapsed host adds no layout row', $drawerOutput);
-$assert(str_contains($drawerOutput, '{transform:none!important;translate:none!important}'), $case . ': drawer transform reset survives', $drawerOutput);
+$assert(str_contains($drawerOutput, '{transform:none!important;translate:none!important;will-change:auto!important}'), $case . ': drawer transform reset survives', $drawerOutput);
 }
 
 if ( 0 < $failures ) {
