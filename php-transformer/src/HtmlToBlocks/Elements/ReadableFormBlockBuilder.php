@@ -24,8 +24,16 @@ use DOMElement;
  *   links and emphasis kept.
  * - `_form_field_box`: a control's field box, the label and wrappers holding
  *   only that control and its label, as an empty layout shell carrying their
- *   presentation. The finding encloses the control in it, so a provider that
+ *   presentation. It ends at the frame that holds the caption: the control's
+ *   label, or the outermost exclusive frame containing both caption and
+ *   control. The finding encloses the control in it, so a provider that
  *   swaps its field in for the control keeps the field's box.
+ * - `_form_control_box`: a control's own frames, the exclusive wrappers
+ *   between that caption level and the control, with the same shell shape.
+ *   The finding encloses the control in them inside the field box, marking
+ *   that shell `form_control_box` with the control's index, so a provider
+ *   rendering caption and control can present these frames around (or onto)
+ *   its control rather than around its caption.
  * - `_form_legend`: marks the block a legend lowered to on the page, so the
  *   finding can state the legend once, as its group's label.
  */
@@ -47,6 +55,9 @@ final class ReadableFormBlockBuilder
 
     /** @var array<int, list<DOMElement>> Each control's field box frames the tree has not shelled yet. */
     private array $fieldBoxes = array();
+
+    /** @var array<int, list<DOMElement>> Each control's own frames, between its caption level and the control. */
+    private array $controlBoxes = array();
 
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
@@ -100,6 +111,7 @@ final class ReadableFormBlockBuilder
             $this->honeypotCopy[(string) $element->getNodePath()] = true;
         }
         $this->fieldBoxes = array();
+        $this->controlBoxes = array();
         $this->form = $form;
         foreach ( FormControlClassifier::controlElements($form) as $index => $control ) {
             $this->controlIndices[(string) $control->getNodePath()] = $index;
@@ -115,9 +127,11 @@ final class ReadableFormBlockBuilder
                 $this->runtimeIslandRecorder->recordControl($control);
             }
             // The walk reads each box before it reaches the control, so a
-            // wrapper below a frame stays unshelled and the box keeps the
+            // wrapper below a frame stays unshelled and the boxes keep the
             // whole exclusive chain in source order.
-            $this->fieldBoxes[$index] = $this->fieldBox($control, $label);
+            $boxes = $this->fieldAndControlBoxes($control, $label);
+            $this->fieldBoxes[$index] = $boxes['field'];
+            $this->controlBoxes[$index] = $boxes['control'];
         }
 
         $contentBlocks = $this->groupedContentBlocks($form, $fallbacks);
@@ -219,11 +233,11 @@ final class ReadableFormBlockBuilder
             }
             $ownedLabel = 'label' === strtolower($element->tagName) && '' !== $this->metadataBuilder->labelText($element);
             $isFieldset = 'fieldset' === strtolower($element->tagName);
-            // A wrapper below a frame of the control's field box belongs to
-            // that box: shelling it would stand the walk's shell above the
-            // box's own frame (the control's label), inverting the source
-            // nesting the provider substitutes its field into.
-            $inFieldBox = $this->isBelowFieldBoxFrame($entry['id'], $element, $children);
+            // A wrapper below a frame of the control's field box or of its
+            // own box belongs to that box: shelling it would stand the walk's
+            // shell above the box's own frame, inverting the source nesting
+            // the provider substitutes its field into.
+            $inFieldBox = $this->isBelowBoxFrame($entry['id'], $element, $children);
             $ownsShell = ! $ownedLabel && ! $inFieldBox && ($isFieldset || $element->hasAttributes() || isset($graphNodes[$entry['id']]));
             $elements = array($element);
             $descendants = $children[$entry['id']] ?? array();
@@ -341,21 +355,22 @@ final class ReadableFormBlockBuilder
     }
 
     /**
-     * A field box frames its control outermost first. A container the walk
-     * would shell that sits below one of those frames must stay unshelled, so
-     * the box the finding encloses the control in renders the frames in
-     * source order instead of below its own descendant.
+     * A field box frames its control outermost first, and the control's own
+     * frames stack the same way inside it. A container the walk would shell
+     * that sits below one of those frames must stay unshelled, so the boxes
+     * the finding encloses the control in render the frames in source order
+     * instead of below their own descendant.
      *
      * @param array<string, list<array<string, mixed>>> $children
      */
-    private function isBelowFieldBoxFrame(string $id, DOMElement $element, array $children): bool
+    private function isBelowBoxFrame(string $id, DOMElement $element, array $children): bool
     {
         $control = $this->soleControlEntry($id, $children);
         if ( null === $control ) {
             return false;
         }
         $index = $this->controlIndices[(string) $control['element']->getNodePath()] ?? null;
-        foreach ( $this->fieldBoxes[$index] ?? array() as $frame ) {
+        foreach ( array_merge($this->fieldBoxes[$index] ?? array(), $this->controlBoxes[$index] ?? array()) as $frame ) {
             if ( ! $frame->isSameNode($element) && $this->contains($frame, $element) ) {
                 return true;
             }
@@ -394,18 +409,33 @@ final class ReadableFormBlockBuilder
             'kind' => 'control',
             'label' => null !== $label ? $this->controlBlockConverter->labelMarkup($label) : '',
         );
-        $box = $this->fieldBoxes[$readableControlBlock['form_control_index']] ?? array();
-        $shell = array() === $box ? null : ($this->fieldBoxShell)($box);
-        if (null !== $shell) {
-            $readableControlBlock['_form_field_box'] = $shell;
-        }
+        $index = $readableControlBlock['form_control_index'];
+        $this->annotateBox($readableControlBlock, '_form_field_box', $this->fieldBoxes[$index] ?? array());
+        $this->annotateBox($readableControlBlock, '_form_control_box', $this->controlBoxes[$index] ?? array());
         return $readableControlBlock;
     }
 
     /**
+     * State one box once: an empty layout shell of the styled frames, or
+     * nothing when none of them carries presentation.
+     *
+     * @param array<string, mixed> $block
+     * @param list<DOMElement>     $frames
+     */
+    private function annotateBox(array &$block, string $annotation, array $frames): void
+    {
+        $shell = array() === $frames ? null : ($this->fieldBoxShell)($frames);
+        if ( null !== $shell ) {
+            $block[$annotation] = $shell;
+        } else {
+            unset($block[$annotation]);
+        }
+    }
+
+    /**
      * A wrapper the tree shells around one control is already part of that
-     * control's field box, so the box the finding encloses it in keeps only
-     * the frames still unshelled.
+     * control's field box or of its own box, so each box the finding
+     * encloses it in keeps only the frames still unshelled.
      *
      * @param array<string, mixed> $block The shelled block, or a shell around it.
      * @param list<DOMElement>     $elements The wrapper chain the tree shells.
@@ -421,29 +451,44 @@ final class ReadableFormBlockBuilder
             return $block;
         }
         $index = $block['form_control_index'];
-        $remaining = array_values(array_filter($this->fieldBoxes[$index] ?? array(), static fn (DOMElement $frame): bool => array() === array_filter($elements, static fn (DOMElement $shelled): bool => $shelled->isSameNode($frame))));
-        if ( count($remaining) === count($this->fieldBoxes[$index] ?? array()) ) {
-            return $block;
+        $fieldFrames = $this->unshelledFrames($this->fieldBoxes[$index] ?? array(), $elements);
+        if ( count($fieldFrames) !== count($this->fieldBoxes[$index] ?? array()) ) {
+            $this->fieldBoxes[$index] = $fieldFrames;
+            $this->annotateBox($block, '_form_field_box', $fieldFrames);
         }
-        $this->fieldBoxes[$index] = $remaining;
-        unset($block['_form_field_box']);
-        $shell = array() === $remaining ? null : ($this->fieldBoxShell)($remaining);
-        if ( null !== $shell ) {
-            $block['_form_field_box'] = $shell;
+        $controlFrames = $this->unshelledFrames($this->controlBoxes[$index] ?? array(), $elements);
+        if ( count($controlFrames) !== count($this->controlBoxes[$index] ?? array()) ) {
+            $this->controlBoxes[$index] = $controlFrames;
+            $this->annotateBox($block, '_form_control_box', $controlFrames);
         }
         return $block;
     }
 
     /**
-     * The elements that frame one field, outermost first: each ancestor that
-     * holds only this control and its label. The shell keeps the styled ones. A fieldset groups fields, so it
-     * bounds the box; so does any ancestor holding other content.
-     *
+     * @param list<DOMElement> $frames
+     * @param list<DOMElement> $elements
      * @return list<DOMElement>
      */
-    private function fieldBox(DOMElement $control, ?DOMElement $label): array
+    private function unshelledFrames(array $frames, array $elements): array
     {
-        $box = array();
+        return array_values(array_filter($frames, static fn (DOMElement $frame): bool => array() === array_filter($elements, static fn (DOMElement $shelled): bool => $shelled->isSameNode($frame))));
+    }
+
+    /**
+     * The elements that frame one field, outermost first, split at the caption
+     * level: the field box carries each ancestor that holds only this control
+     * and its label, ending at the frame that holds the caption — the
+     * control's label, or the outermost exclusive frame containing both.
+     * Frames between the caption level and the control hold the control
+     * alone, so they are its own box. A fieldset groups fields, so it bounds
+     * both boxes; so does any ancestor holding other content.
+     *
+     * @return array{field: list<DOMElement>, control: list<DOMElement>}
+     */
+    private function fieldAndControlBoxes(DOMElement $control, ?DOMElement $label): array
+    {
+        $field = array();
+        $own = array();
         $path = $control;
         for ($node = $control->parentNode; $node instanceof DOMElement && ! $node->isSameNode($this->form); $node = $node->parentNode) {
             if ('fieldset' === strtolower($node->tagName) || 1 !== count(FormControlClassifier::controlElements($node))) {
@@ -458,10 +503,14 @@ final class ReadableFormBlockBuilder
                     break 2;
                 }
             }
-            array_unshift($box, $node);
+            if ( null !== $label && ( $node->isSameNode($label) || $this->contains($node, $label) ) ) {
+                array_unshift($field, $node);
+            } else {
+                array_unshift($own, $node);
+            }
             $path = $node;
         }
-        return $box;
+        return array('field' => $field, 'control' => $own);
     }
 
     private function contains(DOMElement $ancestor, DOMElement $node): bool

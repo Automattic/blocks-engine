@@ -98,9 +98,10 @@ foreach ([0 => 'half', 1 => 'half', 2 => 'group'] as $index => $class) {
 }
 $assert(str_contains(json_encode($form['readable_blocks']), '"Name"'), 'A caption label that names no control stays in the tree.');
 // A wrapping label that owns its control (the default Framer field shape)
-// frames it outermost first: the walk shells the shared row, and the field
-// box renders label then wrapper, so no frame ever stands below its own
-// descendant (`row > lab > wrap`, never `row > wrap > lab`).
+// frames it outermost first: the walk shells the shared row, the field box
+// ends at the caption label, and the wrapper between the caption level and
+// the control rides separately as the control's own box, enclosing just the
+// control inside the field box (`row > lab > wrap`, never `row > wrap > lab`).
 $framerHtml = '<html><head><style>.row{display:flex;gap:16px}.lab{flex:1 0 0px;width:1px}.wrap{width:100%}.cap{padding:4px}</style></head><body><form><div class="row">'
     . '<label class="lab"><div class="cap"><p>Nom</p></div><div class="wrap"><input name="nom"></div></label>'
     . '<label class="lab"><div class="cap"><p>Mail</p></div><div class="wrap"><input name="mail"></div></label>'
@@ -118,6 +119,23 @@ $frameWalk = static function (array $blocks, array $classes) use (&$frameWalk, &
 $frameWalk($form['readable_blocks'], []);
 foreach ([0, 1] as $index) {
     $assert(['row', 'lab', 'wrap'] === ($frames[$index] ?? null), 'Control ' . $index . ' keeps its frames in source order: row > lab > wrap.');
+}
+// The caption level bounds the field box: the field shell holds one inner
+// block, the control's own wrapper shell, which alone holds the control.
+foreach ([0, 1] as $index) {
+    $enclosing = null;
+    $controlWalk = static function (array $blocks) use (&$controlWalk, &$enclosing, $index): void {
+        foreach ($blocks as $block) {
+            foreach ($block['innerBlocks'] ?? [] as $inner) {
+                if (($inner['form_control_index'] ?? null) === $index) $enclosing = $block;
+                $controlWalk([$inner]);
+            }
+        }
+    };
+    $controlWalk($form['readable_blocks']);
+    $wrapper = $enclosing['attrs']['wrappers'][0] ?? [];
+    $assert(1 === count($enclosing['innerBlocks'] ?? []) && 'wrap' === ($wrapper['attributes']['class'] ?? ''), 'Control ' . $index . ' is enclosed alone by its own wrapper shell.');
+    $assert($index === ($enclosing['form_control_box'] ?? null), 'Control ' . $index . "'s own wrapper shell is marked as its control box.");
 }
 // Types without prose degradations still paint as native inputs, even unstyled.
 foreach (['date','time','datetime-local','month','week','color'] as $type) {
