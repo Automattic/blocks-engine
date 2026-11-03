@@ -25,6 +25,20 @@ A modal is a distinct interaction contract. Details dispatch declines a dialog
 target, dialog popup declaration, or modal panel; it retains the existing source
 target and close/focus behavior instead of converting the modal into disclosure.
 
+## Source-placed dropdowns
+
+Disclosure adoption is decided independently for each document scope. Panels
+marked `data-blocks-engine-capture-existing-panel` or
+`data-blocks-engine-capture-observed-placement` may use any element tag and sit
+anywhere within their owning scope, not just beside the trigger. Local identity,
+size, runtime ownership and executable-content checks still apply. A scope
+without a local panel can use the interaction report without rebinding triggers
+already adopted by another scope.
+
+In-place captured panels keep their navigation children inline in the site plan.
+Their source-owned item classes and style subjects must not be replaced by those
+of an otherwise semantically identical shared navigation entity.
+
 ## Authored media and activation
 
 `data-blocks-engine-capture-source-media` declares the authored media condition. A serialized

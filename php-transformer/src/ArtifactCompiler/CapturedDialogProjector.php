@@ -495,7 +495,8 @@ final class CapturedDialogProjector
                 $diagnostics[] = $this->diagnostic('captured_dialog_trigger_unmatched', 'warning', 'A captured dialog trigger did not match a bounded source element set.', array('source_path' => $sourcePath, 'selector' => (string) ($state['trigger']['selector'] ?? '')));
                 continue;
             }
-            if (array() !== $triggers && array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isAdopted($adopted, $trigger))) {
+            $triggers = array_values(array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isAdopted($adopted, $trigger)));
+            if (array() === $triggers) {
                 continue;
             }
             // A navigation button with its dropdown panel of links stays in place:
@@ -659,7 +660,7 @@ final class CapturedDialogProjector
     private function appendProjectedDialog(DOMDocument $document, array $fragment, array $triggers, array $triggerIds, string $identity, bool $dropdown, ?DOMElement $sourcePlace = null, bool $scopedPanel = false, array $resting = array()): DOMElement
     {
         $dialogId = 'blocks-engine-dialog-' . $identity;
-        // A scoped nonmodal panel retains its source tag and mount slot. This
+        // A scoped nonmodal panel retains its source mount slot. This
         // keeps type/child selectors and the source containing block intact.
         // A panel adopted with its resting presentation is wrapped whole, so
         // the wrapper is a box-less div rather than a dialog.
@@ -757,7 +758,7 @@ final class CapturedDialogProjector
 
     /**
      * A capture that already wired its dialogs in the exported document keeps
-     * each trigger (`data-blocks-engine-capture-dialog-trigger`) beside an in-place hidden panel
+     * each trigger (`data-blocks-engine-capture-dialog-trigger`) bound to a local panel
      * (`data-blocks-engine-capture-dialog-panel`). Adopt that panel as the native dialog bound to
      * its trigger, so the wiring runtime is retired like any other projected
      * dialog instead of leaving an unbound trigger target behind.
@@ -770,11 +771,11 @@ final class CapturedDialogProjector
         $adopted = array();
         $count = 0;
         $scopes = $this->documentScopes($document);
-        $nativeScopedWiring = $this->canReplaceScopedDisclosure($document, $scopes);
         if (count($scopes) > self::MAX_STATES_PER_PAGE) {
             return array('triggers' => array(), 'count' => 0);
         }
         foreach ($scopes as $scopeIndex => $scope) {
+            $nativeScopedWiring = $this->canReplaceScopedDisclosure($document, $scope);
             $groups = array();
             foreach ($xpath->query('.//*[@' . CaptureEvidence::DIALOG_TRIGGER . ']', $scope) ?: array() as $trigger) {
                 if (! $trigger instanceof DOMElement || $this->insideProjectedDialog($trigger)) continue;
@@ -827,7 +828,7 @@ final class CapturedDialogProjector
                 // The producer marks an in-place dropdown panel with `data-blocks-engine-capture-dropdown`.
                 // A panel the source already rendered in place (an existing-panel
                 // snapshot) is a dropdown too, whatever it rests as.
-                $dropdown = array() !== $resting || in_array(CaptureEvidence::DROPDOWN_CLASS, preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), true);
+                $dropdown = array() !== $resting || $panel->hasAttribute(CaptureEvidence::OBSERVED_PLACEMENT) || in_array(CaptureEvidence::DROPDOWN_CLASS, preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), true);
                 // The producer placed a dropdown panel where the source rendered
                 // it (`data-blocks-engine-capture-observed-placement`); the dialog stays there.
                 $scopedPanel = array() === $resting && $nativeScopedWiring && $scope->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && $dropdown;
@@ -860,10 +861,8 @@ final class CapturedDialogProjector
         return array('triggers' => $adopted, 'count' => $count);
     }
 
-    /** All generated bindings must have one local, bounded native endpoint.
-     * @param list<DOMElement> $scopes
-     */
-    private function canReplaceScopedDisclosure(DOMDocument $document, array $scopes): bool
+    /** Each document's generated bindings must have local, bounded native endpoints. */
+    private function canReplaceScopedDisclosure(DOMDocument $document, DOMElement $scope): bool
     {
         $known = false;
         foreach ($document->getElementsByTagName('script') as $script) {
@@ -878,35 +877,34 @@ final class CapturedDialogProjector
                 return false;
             }
         }
-        if (!$known || count($scopes) > self::MAX_STATES_PER_PAGE) return false;
+        if (!$known) return false;
         $xpath = new DOMXPath($document);
-        foreach ($scopes as $scope) {
-            $triggers = $xpath->query('.//*[@' . CaptureEvidence::DIALOG_TRIGGER . ']', $scope);
-            if (!$triggers || $triggers->length > self::MAX_STATES_PER_PAGE) return false;
-            $snapshots = array();
-            foreach ($triggers as $trigger) {
-                if (!$trigger instanceof DOMElement) return false;
-                $key = $trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER);
-                if (1 !== preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key) || $key !== $trigger->getAttribute('aria-controls')) return false;
-                $panels = $xpath->query('.//*[@id=' . $this->xpathLiteral($key) . ']', $scope);
-                $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
-                $gallery = $panel instanceof DOMElement && $this->isNativeGalleryPanel($panel);
-                if (!$gallery && !in_array(strtolower($trigger->tagName), array('button', 'a', 'summary'), true) && 'button' !== strtolower($trigger->getAttribute('role'))) return false;
-                if (!$panel instanceof DOMElement || 'div' !== strtolower($panel->tagName)
-                    || $key !== $panel->getAttribute(CaptureEvidence::DIALOG_PANEL)
-                    || (!$gallery && !SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS))
-                    || !$panel->hasAttribute('hidden')
-                    || (!$gallery && !$trigger->parentNode?->isSameNode($panel->parentNode))
-                    || strlen((string) $document->saveHTML($panel)) > self::MAX_DIALOG_BYTES
-                    || 0 < $panel->getElementsByTagName('script')->length
-                ) return false;
-                foreach (array_merge(array($trigger, $panel), iterator_to_array($panel->getElementsByTagName('*'))) as $node) {
-                    if (array() !== SourceDom::eventMetadata($node) || $node->hasAttribute('jsaction')) return false;
-                }
-                $snapshot = $trigger->getAttribute(CaptureEvidence::DIALOG_PANEL_STATE);
-                if (isset($snapshots[$key]) && $snapshots[$key] !== $snapshot) return false;
-                $snapshots[$key] = $snapshot;
+        $triggers = $xpath->query('.//*[@' . CaptureEvidence::DIALOG_TRIGGER . ']', $scope);
+        if (!$triggers || $triggers->length > self::MAX_STATES_PER_PAGE) return false;
+        $snapshots = array();
+        foreach ($triggers as $trigger) {
+            if (!$trigger instanceof DOMElement) return false;
+            $key = $trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER);
+            if (1 !== preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key) || $key !== $trigger->getAttribute('aria-controls')) return false;
+            $panels = $xpath->query('.//*[@id=' . $this->xpathLiteral($key) . ']', $scope);
+            $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
+            $gallery = $panel instanceof DOMElement && $this->isNativeGalleryPanel($panel);
+            if (!$gallery && !in_array(strtolower($trigger->tagName), array('button', 'a', 'summary'), true) && 'button' !== strtolower($trigger->getAttribute('role'))) return false;
+            $sourcePlaced = $panel instanceof DOMElement && ($panel->hasAttribute(CaptureEvidence::EXISTING_PANEL) || $panel->hasAttribute(CaptureEvidence::OBSERVED_PLACEMENT));
+            if (!$panel instanceof DOMElement || (!$sourcePlaced && 'div' !== strtolower($panel->tagName))
+                || $key !== $panel->getAttribute(CaptureEvidence::DIALOG_PANEL)
+                || (!$gallery && !$sourcePlaced && !SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS))
+                || (!$sourcePlaced && !$panel->hasAttribute('hidden'))
+                || (!$gallery && !$sourcePlaced && !$trigger->parentNode?->isSameNode($panel->parentNode))
+                || strlen((string) $document->saveHTML($panel)) > self::MAX_DIALOG_BYTES
+                || 0 < $panel->getElementsByTagName('script')->length
+            ) return false;
+            foreach (array_merge(array($trigger, $panel), iterator_to_array($panel->getElementsByTagName('*'))) as $node) {
+                if (array() !== SourceDom::eventMetadata($node) || $node->hasAttribute('jsaction')) return false;
             }
+            $snapshot = $trigger->getAttribute(CaptureEvidence::DIALOG_PANEL_STATE);
+            if (isset($snapshots[$key]) && $snapshots[$key] !== $snapshot) return false;
+            $snapshots[$key] = $snapshot;
         }
         return true;
     }
