@@ -310,7 +310,8 @@ final class SvgMaterializer implements SvgElementMaterializer
                 )
                 || $this->fillsInsetPinnedParent($element, $sourceWidth, $sourceHeight, $parentPresentation)
             );
-        $isResponsiveFillSvg = $fillsSizedParent || (
+        $containerSize = $this->containerResolvedSvgSize($element, $html, $presentation, $parentPresentation);
+        $isResponsiveFillSvg = (! $richTextImage && '100%' === ($containerSize['height'] ?? '')) || $fillsSizedParent || (
             (
             ($isFlexOrGridItem && $parent instanceof DOMElement && $this->declarationsOwnMediaBox($parentPresentation))
             || ($isPositionedMediaBox && in_array($sourceObjectFit, array( 'contain', 'cover', 'fill', 'none', 'scale-down' ), true))
@@ -329,7 +330,8 @@ final class SvgMaterializer implements SvgElementMaterializer
             // after theme styles. Include the native wrapper class so the fill
             // rule wins without forcing intrinsic media outside this explicit
             // parent-fill path.
-            $imgRule = '>img{width:100%;height:100%;-o-object-fit:' . $objectFit . ';object-fit:' . $objectFit . '}';
+            $resolvedSize = array() === $containerSize ? 'width:100%;height:100%' : 'width:' . $containerSize['width'] . ';height:' . $containerSize['height'] . ';max-width:100%;max-height:100%';
+            $imgRule = '>img{' . $resolvedSize . ';-o-object-fit:' . $objectFit . ';object-fit:' . $objectFit . '}';
             // A media query that gives the SVG another size must still win
             // under its condition, at the fill rule's specificity, instead of
             // the fill forcing 100% at every viewport.
@@ -357,13 +359,12 @@ final class SvgMaterializer implements SvgElementMaterializer
         // An SVG with a viewBox but no size of its own fills its containing
         // block, even when its display is inline (including RichText icons).
         // The viewBox supplies an aspect ratio, not a used pixel size.
-        $fillsContainingBlockWidth = ($preserveBlockDisplay || $preserveInlineGeometry || $richTextImage)
-            && $this->fillsContainingBlockWidth($element, $html, $presentation, $parentPresentation);
+        $fillsContainingBlockWidth = array() !== $containerSize;
         if ( $fillsContainingBlockWidth ) {
             $dimensions = array();
         }
         $geometryClass = '';
-        if ( $richTextImage || $preserveInlineGeometry || $preserveBlockDisplay ) {
+        if ( $richTextImage || $preserveInlineGeometry || $preserveBlockDisplay || $fillsContainingBlockWidth ) {
             $imageDisplay = $preserveBlockDisplay ? 'block' : ('' === $sourceDisplay ? 'inline' : $sourceDisplay);
             $mediaBox = '';
             foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $property ) {
@@ -372,7 +373,10 @@ final class SvgMaterializer implements SvgElementMaterializer
                 }
             }
             if ( $fillsContainingBlockWidth ) {
-                $mediaBox .= ';width:100%;height:auto';
+                $mediaBox .= ';width:' . $containerSize['width'] . ';height:' . $containerSize['height'];
+                if ( $isFlexOrGridItem ) {
+                    $mediaBox .= ';max-width:100%;max-height:100%';
+                }
             } elseif ( array() === $dimensions ) {
                 $mediaBox .= $this->unsizedMediaAxisDeclarations($presentation);
             }
@@ -826,40 +830,63 @@ final class SvgMaterializer implements SvgElementMaterializer
      * @param array<string, string> $presentation
      */
     /**
-     * Whether a source SVG sizes to its containing block's width:
-     * it has a viewBox (an aspect ratio), no width, height, or height limit
-     * from its attributes or CSS, and its parent is a block box in normal
-     * flow, whose width is definite.
+     * Resolve container-owned sizing for a viewBox-only SVG. The viewBox
+     * contributes a ratio, never fixed CSS pixels. A sole flex item in a
+     * definite box shrinks on the main axis and stretches on the cross axis;
+     * normal block flow instead derives its height from the intrinsic ratio.
      *
      * @param array<string, string> $presentation
      * @param array<string, string> $parentPresentation
+     * @return array{width?: string, height?: string}
      */
-    private function fillsContainingBlockWidth(DOMElement $element, string $html, array $presentation, array $parentPresentation): bool
+    private function containerResolvedSvgSize(DOMElement $element, string $html, array $presentation, array $parentPresentation): array
     {
         if ( '' !== trim(SourceDom::attr($element, 'width')) || '' !== trim(SourceDom::attr($element, 'height')) ) {
-            return false;
+            return array();
         }
         if ( $this->cssDefinesMediaSize($element) ) {
-            return false;
+            return array();
         }
         // A height limit transfers through the aspect ratio only to an auto
         // width, so a limited SVG keeps the auto width.
         foreach ( array( 'width', 'height', 'aspect-ratio', 'min-height', 'max-height' ) as $property ) {
             $value = strtolower(trim((string) ($presentation[$property] ?? '')));
             if ( '' !== $value && 'auto' !== $value ) {
-                return false;
+                return array();
             }
         }
         if ( 1 !== preg_match('/\sviewBox\s*=\s*(["\'])\s*[-\d.]+[\s,]+[-\d.]+[\s,]+[\d.]*[1-9][\d.]*[\s,]+[\d.]*[1-9][\d.]*\s*\1/i', $html) ) {
-            return false;
+            return array();
         }
         $parentDisplay = CssValueInspector::comparable((string) ($parentPresentation['display'] ?? ''));
         $parentPosition = strtolower(trim((string) ($parentPresentation['position'] ?? '')));
         $parentFloat = strtolower(trim((string) ($parentPresentation['float'] ?? '')));
 
+        if ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true) ) {
+            $parent = $element->parentNode;
+            $parentStyle = $this->styleResolver->cssDeclarationString($parentPresentation);
+            $alignment = CssValueInspector::comparable((string) ($presentation['align-self'] ?? 'auto'));
+            if ( 'auto' === $alignment ) {
+                $alignment = CssValueInspector::comparable((string) ($parentPresentation['align-items'] ?? 'stretch'));
+            }
+            if ( $parent instanceof DOMElement && 1 === SourceDom::directElementChildCount($parent)
+                && CssValueInspector::hasDefiniteWidth($parentStyle) && CssValueInspector::hasDefiniteHeight($parentStyle)
+                && in_array($alignment, array( 'stretch', 'normal' ), true)
+                && ! isset($presentation['flex']) && ! isset($presentation['flex-shrink'])
+            ) {
+                $direction = CssValueInspector::comparable((string) ($parentPresentation['flex-direction'] ?? 'row'));
+                return in_array($direction, array( 'column', 'column-reverse' ), true)
+                    ? array( 'width' => '100%', 'height' => 'auto' )
+                    : array( 'width' => 'auto', 'height' => '100%' );
+            }
+
+            return array( 'width' => 'auto', 'height' => 'auto' );
+        }
+
         return in_array($parentDisplay, array( '', 'block', 'flow-root', 'list-item' ), true)
             && ! in_array($parentPosition, array( 'absolute', 'fixed' ), true)
-            && in_array($parentFloat, array( '', 'none' ), true);
+            && in_array($parentFloat, array( '', 'none' ), true)
+            ? array( 'width' => '100%', 'height' => 'auto' ) : array();
     }
 
     private function unsizedMediaAxisDeclarations(array $presentation): string
