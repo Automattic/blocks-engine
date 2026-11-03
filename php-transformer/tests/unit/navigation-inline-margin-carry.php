@@ -68,12 +68,12 @@ $endAligned = $stylesheets(
     . '<nav aria-label="Primary"><a class="mark" href="/"><span>Harbor</span><span>Pilots</span></a>' . $list . '</nav>'
 );
 $assert(
-    str_contains($endAligned['after'], '.wp-block-navigation.blocks-engine-list-navigation.navlinks{margin-left:auto!important'),
+    str_contains($endAligned['after'], '.wp-block-navigation:where(.blocks-engine-list-navigation).navlinks{margin-left:auto;'),
     'an authored auto inline margin is restated on the navigation host after author CSS',
     substr($endAligned['after'], 0, 260)
 );
 $assert(
-    str_contains($endAligned['after'], 'margin-right:0!important'),
+    str_contains($endAligned['after'], 'margin-right:0}'),
     'the opposite side rides along so a one-sided auto cannot read as centring',
     substr($endAligned['after'], 0, 260)
 );
@@ -97,7 +97,7 @@ $explicitLength = $stylesheets(
     . '<nav aria-label="Primary">' . $list . '</nav>'
 );
 $assert(
-    ! str_contains($explicitLength['all'], 'blocks-engine-list-navigation.navlinks{margin'),
+    ! str_contains($explicitLength['all'], 'blocks-engine-list-navigation).navlinks{margin'),
     'an authored length margin is not restated, only auto is',
     substr($explicitLength['all'], -260)
 );
@@ -109,7 +109,7 @@ $plain = $stylesheets(
     . '<nav aria-label="Primary">' . $list . '</nav>'
 );
 $assert(
-    ! str_contains($plain['all'], 'blocks-engine-list-navigation.navlinks{margin'),
+    ! str_contains($plain['all'], 'blocks-engine-list-navigation).navlinks{margin'),
     'a menu with no authored inline margin emits no margin rule',
     substr($plain['all'], -260)
 );
