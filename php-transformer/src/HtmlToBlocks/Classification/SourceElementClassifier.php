@@ -715,6 +715,20 @@ final class SourceElementClassifier
     }
 
     /**
+     * Whether an anchor holds flow content, so it stays one clickable container
+     * instead of dissolving into inline content: the lowering keeps it as the
+     * layout shell's wrapper with tagName `a` around the blocks it converts to.
+     * Everything the source anchor wraps therefore already sits inside that
+     * output anchor — including a materialized inline SVG's image object.
+     */
+    public function isFlowContentAnchor(DOMElement $element): bool
+    {
+        return 'a' === strtolower($element->tagName)
+            && '' !== trim($element->textContent)
+            && $this->hasBlockLevelDescendant($element);
+    }
+
+    /**
      * Whether the subtree carries flow content that inline RichText cannot hold.
      *
      * core/button stores its label as RichText, so a block-level descendant is

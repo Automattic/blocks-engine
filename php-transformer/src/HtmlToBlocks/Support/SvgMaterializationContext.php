@@ -58,6 +58,16 @@ final class SvgMaterializationContext
         return $this->sourceElementClassifier->isInlineContentElement($tagName);
     }
 
+    /**
+     * Whether a source element is an anchor the lowering retains as the
+     * output's clickable container (a `custom/layout-shell` wrapper with
+     * tagName `a`), so content inside it already projects inside an anchor.
+     */
+    public function isFlowContentAnchor(DOMElement $element): bool
+    {
+        return $this->sourceElementClassifier->isFlowContentAnchor($element);
+    }
+
     public function isVisualLayerElement(DOMElement $element): bool
     {
         return $this->sourceElementClassifier->isVisualLayerElement($element);
