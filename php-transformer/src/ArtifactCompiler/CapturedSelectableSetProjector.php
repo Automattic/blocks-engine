@@ -57,9 +57,7 @@ final class CapturedSelectableSetProjector
         if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
-        if (count($report['pages']) > self::MAX_PAGES) {
-            return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_selectable_set_limit_exceeded', 'warning', 'The captured interaction report exceeded the page limit.', array('max_pages' => self::MAX_PAGES))), 'projected_count' => 0);
-        }
+        $report['pages'] = CapturedComponentStates::boundPages($report['pages'], self::MAX_PAGES, 'captured_selectable_set_limit_exceeded', self::class, $diagnostics);
 
         $hasSelectableSets = false;
         foreach ($report['pages'] as $page) {
@@ -74,12 +72,12 @@ final class CapturedSelectableSetProjector
             }
         }
         if (! $hasSelectableSets) {
-            return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
+            return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => 0);
         }
 
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
         if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
-            return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_selectable_set_route_map_missing', 'warning', 'Captured selectable sets were not projected because the capture receipt route map is unavailable.')), 'projected_count' => 0);
+            return array('files' => $files, 'diagnostics' => array_merge($diagnostics, array($this->diagnostic('captured_selectable_set_route_map_missing', 'warning', 'Captured selectable sets were not projected because the capture receipt route map is unavailable.'))), 'projected_count' => 0);
         }
 
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);

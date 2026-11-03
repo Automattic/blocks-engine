@@ -205,13 +205,12 @@ final class CapturedChoiceGroupProjector
         if (null === $report || CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
-        if (count($report['pages']) > self::MAX_PAGES) {
-            return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_choice_group_limit_exceeded', 'warning', 'The captured interaction report exceeded the page limit.')), 'projected_count' => 0);
-        }
+        $diagnostics = array();
+        $report['pages'] = CapturedComponentStates::boundPages($report['pages'], self::MAX_PAGES, 'captured_choice_group_limit_exceeded', self::class, $diagnostics);
 
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
         if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
-            return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
+            return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => 0);
         }
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);
         $fileIndexes = array();
@@ -221,7 +220,6 @@ final class CapturedChoiceGroupProjector
             }
         }
 
-        $diagnostics = array();
         $projected = 0;
         foreach ($report['pages'] as $page) {
             if (! is_array($page) || ! is_string($page['sourceUrl'] ?? null) || ! is_array($page['components'] ?? null)) {
