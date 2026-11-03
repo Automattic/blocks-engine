@@ -97,6 +97,28 @@ foreach ([0 => 'half', 1 => 'half', 2 => 'group'] as $index => $class) {
     $assert(1 === count(array_keys($paths[$index] ?? [], $class)), 'Control ' . $index . ' sits in its .' . $class . ' field box once.');
 }
 $assert(str_contains(json_encode($form['readable_blocks']), '"Name"'), 'A caption label that names no control stays in the tree.');
+// A wrapping label that owns its control (the default Framer field shape)
+// frames it outermost first: the walk shells the shared row, and the field
+// box renders label then wrapper, so no frame ever stands below its own
+// descendant (`row > lab > wrap`, never `row > wrap > lab`).
+$framerHtml = '<html><head><style>.row{display:flex;gap:16px}.lab{flex:1 0 0px;width:1px}.wrap{width:100%}.cap{padding:4px}</style></head><body><form><div class="row">'
+    . '<label class="lab"><div class="cap"><p>Nom</p></div><div class="wrap"><input name="nom"></div></label>'
+    . '<label class="lab"><div class="cap"><p>Mail</p></div><div class="wrap"><input name="mail"></div></label>'
+    . '</div></form></body></html>';
+$form = null;
+$find((new ArtifactCompiler())->compile(['entrypoint'=>'index.html','files'=>['index.html'=>$framerHtml]])->toArray());
+$frames = [];
+$frameWalk = static function (array $blocks, array $classes) use (&$frameWalk, &$frames): void {
+    foreach ($blocks as $block) {
+        $own = array_map(static fn (array $wrapper): string => $wrapper['attributes']['class'] ?? '', $block['attrs']['wrappers'] ?? []);
+        if (isset($block['form_control_index'])) $frames[$block['form_control_index']] = array_merge($classes, $own);
+        $frameWalk($block['innerBlocks'] ?? [], array_merge($classes, $own));
+    }
+};
+$frameWalk($form['readable_blocks'], []);
+foreach ([0, 1] as $index) {
+    $assert(['row', 'lab', 'wrap'] === ($frames[$index] ?? null), 'Control ' . $index . ' keeps its frames in source order: row > lab > wrap.');
+}
 // Types without prose degradations still paint as native inputs, even unstyled.
 foreach (['date','time','datetime-local','month','week','color'] as $type) {
     $typed = (new ArtifactCompiler())->compile(['entrypoint'=>'index.html','files'=>['index.html'=>'<html><body><form><label>Value<input type="' . $type . '"></label><button type="submit">Send</button></form></body></html>']])->toArray();
