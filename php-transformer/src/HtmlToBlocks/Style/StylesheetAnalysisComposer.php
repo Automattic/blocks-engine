@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\InlineBodyStyle;
 
@@ -369,7 +370,9 @@ final class StylesheetAnalysisComposer
                 }
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
                     $tagName = strtolower($typeSpan['name']);
-                    if ( in_array($tagName, array('div', 'figure', 'form', 'label', 'li', 'mark', 'nav', 'p'), true) || str_contains($tagName, '-') ) {
+                    // A hyphenated name is a custom element only when it can name an
+                    // HTML element; CSS also accepts idents like `--sxs` that no element has.
+                    if ( in_array($tagName, array('div', 'figure', 'form', 'label', 'li', 'mark', 'nav', 'p'), true) || ( str_contains($tagName, '-') && EngineMarker::isDeclaredKind('source-' . $tagName) ) ) {
                         $sourceTags[$tagName] = true;
                     }
                 }
