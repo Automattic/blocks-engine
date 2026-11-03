@@ -3537,9 +3537,23 @@ PHP;
                 $documents[$index]['content_decision']['evidence'][] = array('source' => 'site:dated-post-routes');
             }
         }
-        foreach ($documents as &$document) {
-            if ('post' !== ($document['metadata']['post_type'] ?? null)) continue;
-            $headline = self::postContentHeadline((string) ($document['html'] ?? ''));
+        // Shared H1 text is chrome, even when its wrappers are plain divs.
+        // Count routes rather than occurrences so duplicate captures cannot vote.
+        $headlineRoutes = array();
+        $postHeadlines = array();
+        foreach ($documents as $index => $document) {
+            $html = (string) ($document['html'] ?? '');
+            foreach (self::visibleH1s($html, false) as $heading) {
+                $headlineRoutes[mb_strtolower($heading, 'UTF-8')][$routes[$index]] = true;
+            }
+            if ('post' === ($document['metadata']['post_type'] ?? null)) {
+                $headings = self::visibleH1s($html, true);
+                if (1 === count($headings)) $postHeadlines[$index] = $headings[0];
+            }
+        }
+        foreach ($documents as $index => &$document) {
+            $headline = $postHeadlines[$index] ?? '';
+            if ('' === $headline || count($headlineRoutes[mb_strtolower($headline, 'UTF-8')] ?? array()) > 1) continue;
             // Preserve equivalent existing labels (including their casing).
             if ('' !== $headline && 0 !== strcasecmp($headline, (string) ($document['title'] ?? ''))) $document['title'] = $headline;
         }
@@ -3547,27 +3561,27 @@ PHP;
         return $documents;
     }
 
-    /** A single visible lead H1 names a post, independently of its SEO title. */
-    private static function postContentHeadline(string $html): string
+    /** @return list<string> Visible H1 text, optionally scoped to post content. */
+    private static function visibleH1s(string $html, bool $contentOnly): array
     {
-        if ('' === trim($html)) return '';
+        if ('' === trim($html)) return array();
         $dom = new \DOMDocument();
         @$dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
         $xpath = new \DOMXPath($dom);
         foreach ($xpath->query('//*[@hidden or translate(@aria-hidden, "TRUE", "true") = "true"] | //template | //dialog[not(@open)] | //nav | //footer | //aside') ?: array() as $hidden) {
             $hidden->parentNode?->removeChild($hidden);
         }
-        $scope = $xpath->query('//main')->item(0) ?? $xpath->query('//body')->item(0);
-        if (!$scope instanceof \DOMElement) return '';
-        $articles = $xpath->query('.//article', $scope);
-        if (false !== $articles && 1 === $articles->length) $scope = $articles->item(0);
-        $headings = $xpath->query('.//h1', $scope);
-        if (false === $headings || 1 !== $headings->length) return '';
-        $heading = $headings->item(0);
-        // A heading after body copy is not the article's lead headline.
-        $lead = $xpath->query('.//h1 | .//h2 | .//h3 | .//p', $scope);
-        if (false === $lead || $lead->item(0) !== $heading) return '';
-        return trim(preg_replace('/\s+/u', ' ', str_replace("\u{00A0}", ' ', $heading->textContent)) ?? '');
+        $scope = ($contentOnly ? $xpath->query('//main')->item(0) : null) ?? $xpath->query('//body')->item(0);
+        if (!$scope instanceof \DOMElement) return array();
+        if ($contentOnly) {
+            $articles = $xpath->query('.//article', $scope);
+            if (false !== $articles && 1 === $articles->length) $scope = $articles->item(0);
+        }
+        $headings = array();
+        foreach ($xpath->query('.//h1', $scope) ?: array() as $heading) {
+            $headings[] = trim(preg_replace('/\s+/u', ' ', str_replace("\u{00A0}", ' ', $heading->textContent)) ?? '');
+        }
+        return $headings;
     }
     /** @return array<string,mixed>|null */
     private function templateSurface(mixed $surface, string $sourcePath): ?array
