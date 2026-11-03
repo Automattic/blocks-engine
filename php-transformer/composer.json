@@ -151,6 +151,7 @@
       "php tests/contract/data-attribute-grid-projection.php",
       "php tests/contract/finding-contract.php",
       "php tests/contract/wordpress-site-plan.php",
+      "php tests/contract/wrapper-class-post-date.php",
       "php tests/contract/wordpress-site-plan-plan-identity-depth.php",
       "php tests/contract/frontend-page-identity-scope.php",
       "php tests/contract/document-support-stylesheet-scope.php",

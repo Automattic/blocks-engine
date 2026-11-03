@@ -4565,7 +4565,7 @@ PHP;
      * @param array<string,true> $shared
      * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool,retained:array<int,array{offset:int,length:int}>}
      */
-    private function transformPostChromeRange(string $markup, array $range, array $post, string $route, array $shared): array
+    private function transformPostChromeRange(string $markup, array $range, array $post, string $route, array $shared, bool $dateContext = false): array
     {
         $slice = substr($markup, $range['offset'], $range['length']);
         $empty = array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array());
@@ -4588,6 +4588,10 @@ PHP;
         $children = self::childBlockRanges($markup, $range);
         if (array() === $children) {
             $kind = $this->classifyPostChromeBlock($slice, $post, $route);
+            if ($dateContext && is_string($post['publication_timestamp'] ?? null)
+                && self::parseVisiblePublicationTimestamp(ListingExcerptProjection::text($slice)) === $post['publication_timestamp']) {
+                $kind = 'date';
+            }
             if ('title' === $kind) {
                 return array('template' => self::postTitleMarkup($slice), 'body' => '', 'title' => true, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array());
             }
@@ -4606,8 +4610,14 @@ PHP;
         $body = '';
         $retained = array();
         $replacements = array();
+        // A date identity may belong to a shell rather than its bare text
+        // leaf. Carry it only through single-content wrappers, retaining the
+        // shell in the template instead of replacing it with the date block.
+        $childDateContext = 1 === count($children)
+            && ListingExcerptProjection::text($slice) === ListingExcerptProjection::text(substr($markup, $children[0]['offset'], $children[0]['length']))
+            && ($dateContext || 'date' === $this->classifyPostChromeBlock($slice, $post, $route));
         foreach ($children as $child) {
-            $transformed = $this->transformPostChromeRange($markup, $child, $post, $route, $shared);
+            $transformed = $this->transformPostChromeRange($markup, $child, $post, $route, $shared, $childDateContext);
             $foundShared = $foundShared || $transformed['shared'];
             $body .= $transformed['body'];
             $retained = array_merge($retained, $transformed['retained']);
