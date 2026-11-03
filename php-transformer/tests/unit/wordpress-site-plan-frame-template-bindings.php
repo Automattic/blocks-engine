@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 // A site with two header variants and one shared footer gets a frame template
 // per page whose chrome differs from the generic page frame, and a frame
-// template with no shells for a page that keeps its chrome in its content.
+// template for heading-led content even without a main landmark.
 // The producer puts the shared footer into every frame template; the plan
 // validator must count the same templates as bound, including frames whose
 // shell list is empty. Before, it rejected the plan with "WordPress site plan
@@ -33,8 +33,7 @@ $files = array(
     'about/index.html' => $page('About', $headerA),
     'services/index.html' => $page('Services', $headerB),
     'contact/index.html' => $page('Contact', $headerB),
-    // No main landmark between the shells, so this page is not split and
-    // renders through a frame template with no shells.
+    // A page heading identifies content even without a main landmark.
     'legal/index.html' => $document('Legal', $headerB . '<div class="legal"><h1>Legal</h1><p>Legal notice text.</p></div>' . $footer),
 );
 
@@ -54,8 +53,10 @@ if (is_array($plan)) {
 
     $templates = array_column($plan['templates'], null, 'slug');
     $assert(array() !== ($templates['page-about']['shell_frame'] ?? array()), 'the variant A inner page gets a frame template with shells');
-    $assert(array() === ($templates['page-legal']['shell_frame'] ?? null), 'the unsplit page gets a frame template with no shells');
-    foreach (array('page-about', 'page-legal') as $slug) {
+    $legal = current(array_filter($plan['pages'], static fn(array $page): bool => 'legal/index.html' === $page['source_path']));
+    $legalTemplate = $legal['route_template'] ?? 'page';
+    $assert(array() !== ($templates[$legalTemplate]['shell_frame'] ?? array()), 'A page heading exposes legal content for frame splitting even without main.');
+    foreach (array('page-about', $legalTemplate) as $slug) {
         $assert(1 === substr_count((string) ($templates[$slug]['canonical_block_markup'] ?? ''), '"slug":"footer"'), $slug . ' references the shared footer once');
     }
 }

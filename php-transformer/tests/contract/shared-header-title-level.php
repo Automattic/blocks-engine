@@ -38,7 +38,8 @@ foreach ($plan['pages'] as $page) {
 $distinctFiles = $files;
 $distinctFiles['index.html'] = str_replace('Garden Studio', 'Meadow Studio', $distinctFiles['index.html']);
 $distinct = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $distinctFiles))->toWordPressSitePlanView()['wordpress_site_plan'];
-$assert(2 === count(array_filter($distinct['template_parts'], static fn(array $part): bool => 'header' === $part['area'])), 'Different title content must not merge.');
+$distinctHeaders = array_values(array_filter($distinct['template_parts'], static fn(array $part): bool => 'header' === $part['area']));
+$assert(1 === count($distinctHeaders) && !str_contains($distinctHeaders[0]['canonical_block_markup'], 'Meadow Studio'), 'The unique wordmark must not merge or become a single-use part.');
 $section = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<html><body><main><article><header><h1>Article title</h1></header><p>Article body</p></article></main></body></html>')))->toWordPressSitePlanView()['wordpress_site_plan'];
 $assert(str_contains($section['pages'][0]['canonical_block_markup'], '<header'), 'A single-page article header stays in content.');
 $assert(array() === array_filter($section['template_parts'], static fn(array $part): bool => 'header' === $part['area']), 'An article header is not site chrome.');

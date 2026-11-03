@@ -52,8 +52,9 @@ foreach ($titles as $slug => $title) {
     $assert(1 === substr_count($markup, '"slug":"header"') && !str_contains($markup, '<!-- wp:navigation ') && !str_contains($markup, 'Brand') && str_contains($markup, $title . ' body copy.'), "{$slug}.html binds the shared header and keeps its content: {$markup}");
 }
 $work = (string) ($pages['work.html']['canonical_block_markup'] ?? '');
-$assert(1 === count($workHeaders) && 'Header (Work)' === $workHeaders[0]['title'] && array('work.html') === ($workHeaders[0]['placement']['source_paths'] ?? null) && str_contains((string) $workHeaders[0]['canonical_block_markup'], 'Other brand'), 'A genuinely different masthead becomes its route\'s own header variant part: ' . json_encode(array_column($plan['template_parts'], 'title')));
-$assert(!str_contains($work, '"slug":"header"') && 1 === substr_count($work, '"slug":"' . $workHeaders[0]['slug'] . '"') && !str_contains($work, 'Other brand') && !str_contains($work, '<!-- wp:navigation ') && str_contains($work, 'Work body copy.'), 'The different masthead is referenced at its source position and leaves the page content: ' . $work);
+$assert(0 === count($workHeaders), 'A genuinely different masthead does not become a single-use part.');
+$workTemplate = implode('', array_column(array_filter($plan['templates'], static fn(array $template): bool => ($pages['work.html']['route_template'] ?? 'page') === $template['slug']), 'canonical_block_markup'));
+$assert(!str_contains($work . $workTemplate, '"slug":"header"') && str_contains($work . $workTemplate, 'Other brand') && str_contains($work, 'Work body copy.'), 'The unique masthead remains route-owned, inline in its content or template frame.');
 
 // Converted chrome: a nested menu is disclosed (`open`) only on the routes it
 // holds, and its authored current item renders without the anchor subject
