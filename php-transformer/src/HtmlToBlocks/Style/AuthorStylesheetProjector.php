@@ -1469,8 +1469,8 @@ final class AuthorStylesheetProjector
         if ( ! in_array($property, array( 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' ), true) ) {
             return false;
         }
-        // Only proven padding/border sizing needs link ownership. Percentage,
-        // auto and fill sizes must keep the existing wrapper resolution chain.
+        // Definite out-of-flow heights and proven padding/border sizing need
+        // link ownership. Percentage, auto and fill sizes keep the wrapper chain.
         if ( in_array($property, array( 'height', 'min-height', 'max-height' ), true) ) {
             if ( array() === $controls ) {
                 return false;
