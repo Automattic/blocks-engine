@@ -1879,10 +1879,10 @@ $assert('core/image' === ($inlineSvgArtwork['blocks'][0]['blockName'] ?? ''), 'p
 $assert(str_contains($inlineSvgMarkup, '<!-- wp:image'), 'passive meaningful inline SVG artwork serializes as core/image');
 $assert(str_contains($inlineSvgMarkup, 'assets/materialized-svg/'), 'passive meaningful inline SVG artwork uses a materialized SVG asset URL');
 $assert(str_contains((string) ($inlineSvgArtwork['assets'][0]['content'] ?? ''), '<svg'), 'passive meaningful inline SVG artwork carries sanitized SVG asset content');
-$assert(str_contains($inlineSvgMarkup, 'class="wp-block-image is-resized album-art be-inline-geometry-'), 'passive meaningful inline SVG artwork preserves source class and inline line-box geometry on the image block wrapper');
+$assert(str_contains($inlineSvgMarkup, 'class="wp-block-image album-art be-inline-geometry-'), 'passive meaningful inline SVG artwork preserves source class and inline line-box geometry on the image block wrapper');
 $assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'passive meaningful inline SVG artwork maps accessible label to image alt text');
 $inlineSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inlineSvgArtwork['assets'] ?? array()));
-$assert(str_contains($inlineSvgMarkup, 'be-inline-geometry-') && ! str_contains($inlineSvgMarkup, 'line-height:0') && str_contains($inlineSvgCss, '>img{display:inline;vertical-align:baseline}'), 'default-inline SVG core/image restores the source baseline over WordPress image alignment');
+$assert(str_contains($inlineSvgMarkup, 'be-inline-geometry-') && ! str_contains($inlineSvgMarkup, 'line-height:0') && str_contains($inlineSvgCss, '>img{display:inline;vertical-align:baseline;width:100%;height:auto}'), 'default-inline SVG core/image restores the source baseline over WordPress image alignment');
 
 $externallyAnimatedSvg = ( new HtmlTransformer() )->transform(
     '<style>.steam{animation:steamRise 3s infinite}@keyframes steamRise{to{transform:translateY(-10px);opacity:0}}</style><svg viewBox="0 0 20 20" aria-hidden="true"><path class="steam" d="M10 18V2"/></svg>'
@@ -3230,7 +3230,7 @@ $assert(str_ends_with((string) ($safeInlineSvg['blocks'][0]['blockName'] ?? ''),
 $assert('core/image' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG is represented as native core/image, not dynamic core/icon');
 $assert(str_contains($safeInlineSvgSerialized, '<!-- wp:image'), 'icon-context inline SVG is serialized through core/image');
 $assert(str_contains($safeInlineSvgSerialized, 'assets/materialized-svg/'), 'decorative inline SVG uses a materialized SVG asset source');
-$assert(str_contains($safeInlineSvgSerialized, 'style="width:16px;height:16px"'), 'decorative icon SVG keeps intrinsic viewBox dimensions through core/image save styles');
+$assert(! str_contains($safeInlineSvgSerialized, 'style="width:16px;height:16px"'), 'unsized decorative SVG does not turn its viewBox into used pixel dimensions');
 
 $safeInlineSvgAsset = ( new HtmlTransformer() )->transform(
     '<svg role="img" aria-label="Status badge" viewBox="0 0 10 10"><title>Status badge</title><circle cx="5" cy="5" r="4"></circle></svg>'

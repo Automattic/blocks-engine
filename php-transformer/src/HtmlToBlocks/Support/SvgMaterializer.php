@@ -354,12 +354,10 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
         $preserveInlineGeometry = ! $isFlexOrGridItem && ( '' === $sourceDisplay || in_array($sourceDisplay, array( 'inline', 'inline-block' ), true) );
         $preserveBlockDisplay = ! $richTextImage && 'block' === $sourceDisplay;
-        // A block-level SVG with a viewBox but no width or height of its own has
-        // an aspect ratio and no intrinsic size, so CSS gives it its containing
-        // block's width. The materialized asset carries a viewBox-sized width,
-        // which an image would render at instead, so the image fills the same
-        // width and keeps the viewBox ratio.
-        $fillsContainingBlockWidth = $preserveBlockDisplay
+        // An SVG with a viewBox but no size of its own fills its containing
+        // block, even when its display is inline (including RichText icons).
+        // The viewBox supplies an aspect ratio, not a used pixel size.
+        $fillsContainingBlockWidth = ($preserveBlockDisplay || $preserveInlineGeometry || $richTextImage)
             && $this->fillsContainingBlockWidth($element, $html, $presentation, $parentPresentation);
         if ( $fillsContainingBlockWidth ) {
             $dimensions = array();
@@ -405,7 +403,8 @@ final class SvgMaterializer implements SvgElementMaterializer
             // the percentage cyclic: an image that has not loaded yet (lazy)
             // contributes 0 width, so the figure and image stay 0x0.
             $figureFillsContainer = ! $richTextImage && (
-                null !== $this->svgPercentageWidth((string) ($dimensions['width'] ?? ''))
+                $fillsContainingBlockWidth
+                || null !== $this->svgPercentageWidth((string) ($dimensions['width'] ?? ''))
                 || null !== $this->svgPercentageWidth(trim((string) ($presentation['width'] ?? '')))
             );
             $figureWidthRule = $figureFillsContainer ? '{width:100%}' : '';
@@ -827,7 +826,7 @@ final class SvgMaterializer implements SvgElementMaterializer
      * @param array<string, string> $presentation
      */
     /**
-     * Whether a block-level source SVG sizes to its containing block's width:
+     * Whether a source SVG sizes to its containing block's width:
      * it has a viewBox (an aspect ratio), no width, height, or height limit
      * from its attributes or CSS, and its parent is a block box in normal
      * flow, whose width is definite.

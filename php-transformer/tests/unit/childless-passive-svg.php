@@ -36,7 +36,8 @@ foreach ($fixtures as $label => $content) {
     $assert(1 === count($assets), "{$label}: emits a passive SVG asset.");
     $asset = (string) ($assets[0]['content'] ?? '');
     $assert(str_contains($asset, 'viewBox="0 0 696 812"'), "{$label}: retains the viewBox.");
-    $assert(str_contains($markup, 'width:696px;height:812px') && str_contains($asset, 'width="696" height="812"'), "{$label}: retains box geometry.");
+    $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));
+    $assert(!str_contains($markup, 'width:696px;height:812px') && str_contains($css, 'width:100%;height:auto'), "{$label}: retains container-relative box geometry.");
     if ('normal artwork' === $label) {
         $assert(str_contains($asset, '<path d="M0 0h696v812H0z"'), 'Normal path artwork survives unchanged.');
     }
