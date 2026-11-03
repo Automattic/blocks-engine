@@ -2286,15 +2286,19 @@ final class ShellExtraction
         $postCount = count(array_filter($pages, static fn(array $page): bool => empty($page['synthetic']) && 'post' === $page['post_type']));
         $splitPostCount = array_sum(array_map('count', $postGroups));
         $postFrame = null !== $postGeneric && $postCount === $splitPostCount ? $split[$postGeneric[0]] : null;
+        // Partition every assigned lifecycle by frame, not just same-slug
+        // overrides. A shared key must never let the last cluster overwrite
+        // another route's header/footer. Identical overrides are shared later.
+        $assigned = array_filter(array('page' => $generic, 'single' => $postFrame));
         foreach ($split as $index => $frame) {
             $page = $pages[$index];
-            $shared = null !== $generic && isset($inner[$index]) && self::frameIdentity($frame) === self::frameIdentity($generic);
-            $sharedPost = 'post' === $page['post_type'] && null !== $postFrame && self::frameIdentity($frame) === self::frameIdentity($postFrame);
-            // An explicit assignment (including same-slug route collisions)
-            // wins over a generic frame. Strip the edge only into the template
-            // this route actually renders with; final identical templates can
-            // then be shared without merging different header clusters.
-            $slug = !empty($page['entrypoint']) ? 'front-page' : ($page['route_template'] ?? ($shared ? 'page' : ($sharedPost ? 'single' : WordPressSitePlan::routeTemplateKey($page))));
+            $slug = !empty($page['entrypoint']) ? 'front-page' : ($page['route_template'] ?? (isset($inner[$index]) && null !== $generic ? 'page' : ('post' === $page['post_type'] && null !== $postFrame ? 'single' : WordPressSitePlan::routeTemplateKey($page))));
+            if (isset($assigned[$slug]) && self::frameIdentity($assigned[$slug]) !== self::frameIdentity($frame)) {
+                $slug = WordPressSitePlan::routeTemplateKey(array_diff_key($page, array('route_template' => true)));
+                $pages[$index]['route_template'] = $slug;
+                $pages[$index]['metadata']['post_meta']['_wp_page_template'] = $slug;
+            }
+            $assigned[$slug] = $frame;
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
             $frames[$slug] = array('opening' => $frame['opening'], 'closing' => $frame['closing'], 'shells' => array_values(array_unique($slugs[1])));
             $pages[$index]['canonical_block_markup'] = $frame['content'];
@@ -2304,21 +2308,19 @@ final class ShellExtraction
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $generic['opening'] . $generic['closing'], $slugs);
             $frames['page'] = array('opening' => $generic['opening'], 'closing' => $generic['closing'], 'shells' => array_values(array_unique($slugs[1])));
         }
-        // With only one authored route, its frame is the site frame for every
-        // native lifecycle template, including pages created later in WordPress.
-        $authored = array_filter($pages, static fn(array $page): bool => empty($page['synthetic']));
-        if (1 === count($authored) && isset($frames['front-page'])) {
-            foreach (array('page', 'single', 'index', 'archive', 'search', '404') as $slug) $frames[$slug] = $frames['front-page'];
-            $genericSource = (string) $pages[array_key_first($authored)]['source_path'];
-        }
-        // The selected generic page frame is also the site frame for native
-        // lifecycle fallbacks. Route-specific frames remain on their routes.
-        if (isset($frames['page'])) {
+        // Native query fallbacks use the entry route's cluster, independently
+        // of which population supplied the generic page or single frame.
+        $fallback = $frames['front-page'] ?? $frames['page'] ?? null;
+        if (null !== $fallback) {
             $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
             foreach (array('single', 'index', 'archive', 'search', '404') as $slug) {
                 // Captured posts retain occurrence-owned chrome in their layout.
                 if ('single' === $slug && $hasCapturedPosts) continue;
-                $frames[$slug] = $frames['page'];
+                $frames[$slug] = $fallback;
+            }
+            if (!isset($frames['page']) && 1 === count(array_filter($pages, static fn(array $page): bool => empty($page['synthetic'])))) {
+                $frames['page'] = $fallback;
+                $genericSource = (string) $pages[array_key_first($split)]['source_path'];
             }
         }
         // A page that keeps its chrome in its own content must not also get the

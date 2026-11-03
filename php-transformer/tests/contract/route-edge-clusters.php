@@ -58,4 +58,36 @@ foreach (array(false, true) as $retainEmbeds) {
         if (str_contains($page['source_path'], '-hero')) $assert(str_contains($markup, 'Episode ' . $page['title']) && str_contains($markup, 'Date ' . $page['title']), 'Hero remains content.');
     }
 }
+// Plain pages need no authored route-specific frame. Shared lifecycles must
+// nevertheless keep both edges of each language cluster together.
+$artifacts = array();
+foreach (array('en' => array('Explore', 'Contact us'), 'fr' => array('Découvrir', 'Contactez-nous')) as $language => [$nav, $footer]) {
+    foreach (array('home', 'about', 'post') as $shape) {
+        $path = $language . '-' . $shape . '.html';
+        $artifacts[] = array('path' => $path, 'metadata' => array('post_type' => 'post' === $shape ? 'post' : 'page'), 'content' => '<!doctype html><html lang="' . $language . '"><head><title>' . $language . ' ' . $shape . '</title></head><body><div class="navbar"><a href="/en-home.html">' . $nav . '</a><a href="/fr-home.html">Language</a></div><h1>' . $language . ' ' . $shape . '</h1><p>Body ' . $path . '</p><footer><p>' . $footer . '</p></footer></body></html>');
+    }
+}
+$plan = (new WordPressSitePlan())->fromResult((new ArtifactCompiler())->compile(array('entrypoint' => 'en-home.html', 'files' => $artifacts))->toArray());
+WordPressSitePlan::assertValid($plan);
+$templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+$bindings = array();
+foreach ($plan['pages'] as $page) {
+    $key = WordPressSitePlan::routeTemplateKey($page);
+    $key = isset($templates[$key]) ? $key : ($page['entrypoint'] ? 'front-page' : ('post' === $page['post_type'] ? 'single' : 'page'));
+    $bindings[$page['source_path']] = $key;
+}
+foreach ($plan['pages'] as $page) {
+    $template = $templates[$bindings[$page['source_path']]];
+    $assert(!str_contains($page['canonical_block_markup'], 'navbar') && !str_contains($page['canonical_block_markup'], 'Contact') && !str_contains($page['canonical_block_markup'], 'wp:template-part'), 'Chrome leaves route content: ' . $page['source_path']);
+    foreach ($plan['template_parts'] as $part) {
+        if (!in_array($part['area'], array('header', 'footer'), true)) continue;
+        $owns = in_array($page['source_path'], $part['placement']['source_paths'] ?? array_keys($part['provenance']['sources'] ?? array()), true);
+        $assert($owns === str_contains($template, '"slug":"' . $part['slug'] . '"'), 'Route template → cluster binding: ' . json_encode($bindings) . '; ' . $page['source_path'] . ' → ' . $part['slug']);
+    }
+}
+foreach (array('index', '404', 'archive', 'search') as $slug) foreach ($plan['template_parts'] as $part) {
+    if (!in_array($part['area'], array('header', 'footer'), true)) continue;
+    $entryOwns = in_array('en-home.html', $part['placement']['source_paths'] ?? array_keys($part['provenance']['sources'] ?? array()), true);
+    $assert($entryOwns === str_contains($templates[$slug], '"slug":"' . $part['slug'] . '"'), 'Fallback takes entry cluster: ' . $slug . ' → ' . $part['slug']);
+}
 fwrite(STDOUT, "Route edge clusters contract passed.\n");
