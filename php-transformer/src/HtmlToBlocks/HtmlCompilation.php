@@ -3347,6 +3347,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function singleColumnLayoutTableGroupBlock(DOMElement $table, array &$fallbacks): array
     {
+        // The table's cell spacing surrounds and separates the rows, and its
+        // cell padding insets each row's content.
+        $spacing = $this->layoutTableCellSpacing($table);
+        $padding = max(0, (int) ( is_numeric($this->attr($table, 'cellpadding')) ? $this->attr($table, 'cellpadding') : 1 ));
         $rows = array();
         $cellWidth = null;
         foreach ( $table->getElementsByTagName('tr') as $row ) {
@@ -3356,28 +3360,56 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             foreach ( $row->childNodes as $cell ) {
                 if ( $cell instanceof DOMElement && in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
                     $blocks = $this->layoutTableCellBlocks($cell, $fallbacks);
-                    // An empty, height-sized cell is a vertical spacer between page regions.
+                    // An empty, height-sized cell is a vertical spacer between page
+                    // regions. A cell's height includes its padding.
                     $height = $this->normalizeLayoutTableTrackWidth($this->attr($cell, 'height'));
-                    if ( array() === $blocks && null !== $height && ! str_ends_with($height, '%') ) {
+                    $spacer = array() === $blocks && null !== $height && ! str_ends_with($height, '%');
+                    if ( $spacer ) {
                         $blocks = array( $this->createBlock('core/spacer', array( 'height' => $height ), array(), $cell) );
                     }
-                    $rows[]    = $blocks;
+                    $cellPadding = $spacer || array() !== array_intersect_key($this->styleResolver->resolvedPresentationDeclarations($cell), array_flip(array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ))) ? 0 : $padding;
+                    $rows[]    = array( $blocks, $cellPadding );
                     $cellWidth = $cellWidth ?? $this->normalizeLayoutTableTrackWidth($this->attr($cell, 'width'));
                 }
             }
         }
 
         // Rows are stacked page regions: one row is the group's content, several keep their own boxes.
-        $children = 1 === count($rows)
-            ? $rows[0]
-            : array_map(fn (array $blocks): array => $this->createBlock('core/group', array(), $blocks, $table), $rows);
+        $boxPadding = static fn (int $inset): array => array( 'top' => $inset . 'px', 'right' => $inset . 'px', 'bottom' => $inset . 'px', 'left' => $inset . 'px' );
+        $single     = 1 === count($rows);
+        $children   = $single
+            ? $rows[0][0]
+            : array_map(
+                function (array $row, int $index) use ($boxPadding, $spacing, $table): array {
+                    $box = array();
+                    if ( 0 < $row[1] ) {
+                        $box['padding'] = $boxPadding($row[1]);
+                    }
+                    if ( 0 < $index ) {
+                        $box['margin'] = array( 'top' => $spacing . 'px' );
+                    }
+                    return $this->createBlock('core/group', array() === $box ? array() : array( 'style' => array( 'spacing' => $box ) ), $row[0], $table);
+                },
+                $rows,
+                array_keys($rows)
+            );
+        $inset = $spacing + ( $single ? $rows[0][1] : 0 );
 
         // core/table renders at 100% width, so the table box is carried by core layout instead:
         // the resolved table (or cell) width becomes the content size, and the box aligns
         // to the edge its `align`, <center> or <div align> names; an aligned table without
-        // a width shrinks to fit.
+        // a width shrinks to fit. A table width includes the spacing and padding
+        // around the cell content; a cell width only its content.
         $attrs     = $this->styleResolver->presentationAttributes($table);
-        $width     = $this->normalizeLayoutTableTrackWidth($this->attr($table, 'width')) ?? $cellWidth;
+        $tableWidth = $this->normalizeLayoutTableTrackWidth($this->attr($table, 'width'));
+        $width      = $tableWidth ?? $cellWidth;
+        if ( null !== $width && str_ends_with($width, 'px') ) {
+            $content = null !== $tableWidth ? (float) $width - 2 * $inset : (float) $width + ( $single ? 0 : 2 * $padding );
+            $width   = CssLength::format(max(0.0, $content));
+        }
+        if ( 0 < $inset && ! isset($attrs['style']['spacing']['padding']) ) {
+            $attrs['style']['spacing']['padding'] = $boxPadding($inset);
+        }
         $alignment = TableClassificationPolicy::boxAlignment($table);
         if ( null !== $width ) {
             $attrs['layout'] = array( 'type' => 'constrained', 'contentSize' => $width, 'justifyContent' => $alignment ?? 'left' );
@@ -3386,6 +3418,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->createBlock('core/group', $attrs, $children, $table);
+    }
+
+    /** The table's border spacing in px: `cellspacing` (2 by default), unless author CSS sets it. */
+    private function layoutTableCellSpacing(DOMElement $table): int
+    {
+        $declarations = $this->styleResolver->resolvedPresentationDeclarations($table);
+        if ( 'collapse' === strtolower(trim((string) ($declarations['border-collapse'] ?? ''))) ) {
+            return 0;
+        }
+        $authored = trim((string) ($declarations['border-spacing'] ?? ''));
+        if ( 1 === preg_match('/^(\d+(?:\.\d+)?)(?:px)?$/i', $authored, $match) ) {
+            return (int) round((float) $match[1]);
+        }
+        $attribute = trim($this->attr($table, 'cellspacing'));
+        return is_numeric($attribute) ? max(0, (int) $attribute) : 2;
     }
 
     /**
