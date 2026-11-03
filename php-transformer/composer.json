@@ -228,6 +228,7 @@
       "php tests/contract/captured-navigation-runtime.php",
       "php tests/contract/capture-receipt-routes.php",
       "php tests/contract/shared-navigation-entity.php",
+      "php tests/contract/breadcrumb-trail-navigation.php",
       "php tests/contract/equal-navigation-placements.php",
       "php tests/contract/navigation-explicit-references.php",
       "php tests/contract/shared-shell-containment.php",

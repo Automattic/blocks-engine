@@ -219,6 +219,65 @@ final class NavigationPatternContext
         return $this->styleResolver?->cssDeclarations($this->resolvedStyle($element)) ?? array();
     }
 
+    /** The element's own presentation as block style attributes (colors, spacing, border). */
+    public function resolvedStyleAttributes(DOMElement $element): array
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) {
+            return array();
+        }
+
+        return $this->styleResolver->styleAttributeMapper()->map($this->resolvedDeclarations($element))['style'] ?? array();
+    }
+
+    /**
+     * The generated content (`::before`/`::after`) a source rule paints on this
+     * element: unquoted, escape-decoded, and empty when nothing paints.
+     */
+    public function generatedPseudoContent(DOMElement $element, string $pseudo): string
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver || null === $this->session ) {
+            return '';
+        }
+
+        foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
+            if ( strtolower($pseudo) !== strtolower((string) ($rule['pseudo'] ?? '')) ) {
+                continue;
+            }
+            $content = trim((string) ($rule['declarations']['content'] ?? ''));
+            if ( '' === $content || in_array(strtolower($content), array( 'none', 'normal' ), true) ) {
+                continue;
+            }
+            if ( ! $this->styleResolver->matchesCssSelector($element, (string) ($rule['selector'] ?? '')) ) {
+                continue;
+            }
+            return self::decodeCssContent($content);
+        }
+
+        return '';
+    }
+
+    /** The source path of the document being compiled, for route-relative resolution. */
+    public function sourcePath(): string
+    {
+        return $this->session?->sourcePath() ?? '';
+    }
+
+    private static function decodeCssContent(string $value): string
+    {
+        if ( 1 === preg_match('/^([\'"])(.*)\1$/s', $value, $match) ) {
+            $value = $match[2];
+        }
+
+        return (string) preg_replace_callback(
+            '/\\\\([0-9a-fA-F]{1,6})(?:\r\n|[ \t\r\n\f])?/',
+            static function (array $match): string {
+                $code = hexdec($match[1]);
+                return $code > 0 && $code < 0x110000 ? mb_chr($code, 'UTF-8') : '';
+            },
+            $value
+        );
+    }
+
     /** Horizontal border-box extent of a content-free box; unknown lengths refuse carry. */
     public function emptyBoxWidth(DOMElement $element): ?float
     {
