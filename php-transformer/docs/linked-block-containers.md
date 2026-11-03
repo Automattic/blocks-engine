@@ -4,6 +4,10 @@ Links containing flow elements normally remain linked containers. The exception 
 
 Headings retain their source level/classes and responsive author typography. Bare div boundaries inside the link are retained where coalescing would change inline media line boxes. An empty, explicitly sized SVG also retains its box. Query-loop lowering replaces static card wrappers with divs when native per-post slots take ownership of the links.
 
+## Heading-labelled buttons
+
+The same flattening applied to native `<button>` controls: a disclosure toggle shaped `<button><div><h3>Question?</h3></div><div><svg/></div></button>` read as one phrasing label, and core/button erased the heading to plain button text — the level, authored typography and color were lost and the destination theme's `wp-element-button` paint rendered white label text over the source's transparent background. A `<button>` with visible text and a block-level flow descendant (a heading or paragraph; generic div label wrappers do not count) now keeps one real `<button>` as a layout-shell wrapper, with its `type`/ARIA attributes and authored classes intact, around the editable inner blocks its children convert to. Bare div boundaries inside the control are retained exactly as for anchors. Plain-text, div-wrapped-label, and icon-only buttons still lower to `core/button`; buttons with branching flow content (a second text block) keep their existing group lowering. Regression: `tests/unit/button-heading-label.php`.
+
 ## Verification
 
 - `composer install --no-interaction && composer test:canonical && composer test:parity`

@@ -69,6 +69,18 @@ final class ButtonElementConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
 
+        // Flow content that still reads as one label must not reach
+        // core/button's phrasing RichText, which erases a heading to plain
+        // button text and loses its level, typography and color. Keep one real
+        // button around the editable inner blocks, mirroring the flow-content
+        // anchor path; a plain-text button still lowers to core/button below.
+        if ( '' !== trim($element->textContent) && $this->context->hasBlockLevelDescendant($element) ) {
+            $container = $this->context->convertButtonWrapperGroup($element, $fallbacks);
+            if ( null !== $container ) {
+                return ConversionOutcome::handled($container);
+            }
+        }
+
         return ConversionOutcome::handled($this->context->convertButton($element));
     }
 

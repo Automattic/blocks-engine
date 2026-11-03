@@ -832,7 +832,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this,
             fn (DOMElement $element): ?array => $this->buttonLinkDispatcher->convertButton($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
-            fn (DOMElement $element): ?array => $this->runtimeAuthoredButton($element)
+            fn (DOMElement $element): ?array => $this->runtimeAuthoredButton($element),
+            fn (DOMElement $element, array &$fallbacks): ?array => $this->convertButtonWrapperGroup($element, $fallbacks)
         ));
         $detailsConverter = new DetailsElementConverter(new DetailsElementContext(
             fn (DOMElement $element): ?DOMElement => $this->capturedDisclosureDialog($element),
@@ -12251,6 +12252,31 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($anchor), $children, $anchor);
+    }
+
+    /**
+     * Preserve a flow-content button as one control container: the source
+     * `<button>` saved as a layout-shell wrapper (its type/ARIA attributes and
+     * authored classes intact) around the editable inner blocks its children
+     * convert to. core/button stores its label as phrasing RichText, so a
+     * heading inside the control is erased to plain text — its block
+     * semantics, level and authored typography and color are lost. Mirroring
+     * the flow-content anchor path keeps the heading a heading while the
+     * wrapper keeps the control's semantics, selectors and hitbox. Bare div
+     * boundaries inside the control are retained where coalescing would
+     * change inline media line boxes, as for anchors.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    public function convertButtonWrapperGroup(DOMElement $button, array &$fallbacks): ?array
+    {
+        $children = $this->convertChildren($button, $fallbacks, true, true);
+        if ( array() === $children ) {
+            return null;
+        }
+
+        return $this->layoutShellBlockForElements(array($button), $children, $button);
     }
 
     /**
