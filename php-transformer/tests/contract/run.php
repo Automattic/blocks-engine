@@ -900,6 +900,13 @@ $assert(2 === count($navigationBlock['innerBlocks'] ?? array()), 'navigation con
 $assert('About' === ($navigationBlock['innerBlocks'][0]['attrs']['label'] ?? null), 'navigation conversion still preserves link labels');
 $assert('/about' === ($navigationBlock['innerBlocks'][0]['attrs']['url'] ?? null), 'navigation conversion still preserves link URLs');
 
+$anchorResponsiveNavigation = ( new HtmlTransformer() )->transform('<nav class="hidden md:flex"><a href="/about">About</a><a href="/contact">Contact</a><button class="md:hidden" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button></nav>')->toArray();
+$listResponsiveNavigation = ( new HtmlTransformer() )->transform('<nav class="hidden md:flex"><ul><li><a href="/about">About</a></li><li><a href="/contact">Contact</a></li></ul><button class="md:hidden" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button></nav>')->toArray();
+$anchorResponsiveClassName = (string) ( $anchorResponsiveNavigation['blocks'][0]['attrs']['className'] ?? '' );
+$listResponsiveClassName = (string) ( $listResponsiveNavigation['blocks'][0]['attrs']['className'] ?? '' );
+$assert(str_contains($anchorResponsiveClassName, 'blocks-engine-anchor-items-navigation'), 'responsive direct-anchor navigation is marked to preserve block link display');
+$assert(! str_contains($listResponsiveClassName, 'blocks-engine-anchor-items-navigation'), 'responsive list navigation does not receive the direct-anchor marker');
+
 $socialLinksResult = ( new HtmlTransformer() )->transform('<style>.social-links .social-item{display:inline-block;width:22px;height:22px;margin:0 11px 0 0}</style><ul class="social-links"><li class="social-item"><a href="https://github.com/Automattic" aria-label="GitHub"><svg width="22" height="22" aria-hidden="true"></svg></a></li><li class="social-item"><a href="https://www.instagram.com/wordpress/" title="Instagram"><svg width="22" height="22" aria-hidden="true"></svg></a></li></ul>')->toArray();
 $socialLinksBlock = $socialLinksResult['blocks'][0] ?? array();
 $assert('core/social-links' === ($socialLinksBlock['blockName'] ?? null), 'explicit social profile clusters convert to core/social-links instead of generic navigation');
