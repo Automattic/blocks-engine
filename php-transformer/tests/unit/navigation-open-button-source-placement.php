@@ -299,6 +299,30 @@ $markerRules = static function (string $css, string $marker) use ($rules): array
 };
 $assert('' !== $plainMarker && $plainMarker === $autoMarker && $markerRules($plainCss, $plainMarker) === $markerRules($autoCss, $autoMarker), 'relative host: without relative offsets generated toggle CSS is byte-identical');
 
+// A toggle inside a fixed drawer is anchored to the viewport,
+// not to the replacement nav's in-flow box (issue #4141).
+$drawerCss = '.cs-menu-button{display:none}.cs-menu a{display:block}'
+    . '@media only screen and (max-width:767px){.cs-section .cs-menu{position:fixed;top:0;right:0;bottom:0;z-index:3}'
+    . '.cs-menu ul{display:none}.cs-menu.open ul{display:block}'
+    . '.cs-menu-button{display:block;position:absolute;top:0;right:0;width:56px;height:56px}}';
+$drawerHtml = '<header class="cs-section"><a href="/">Logo</a><nav class="cs-menu" id="drawer-menu"><button class="cs-menu-button" aria-controls="drawer-menu" aria-expanded="false" aria-label="Menu">Menu</button><ul><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav></header>';
+[ $drawerBlocks, $drawerOutput ] = $transform($drawerCss, $drawerHtml);
+$drawerMarker = $toggleMarker($drawerBlocks);
+$drawerFixed = false;
+$drawerEmpty = false;
+foreach ( $rules($drawerOutput) as [ $stack, $selector, $body ] ) {
+    if ( '' === $drawerMarker || ! str_contains($selector, $drawerMarker) || str_contains($selector, 'editor-styles-wrapper') ) {
+        continue;
+    }
+    if ( str_ends_with($selector, '>.wp-block-navigation__responsive-container-open') ) {
+        $drawerFixed = $drawerFixed || ($declares($body, 'position:fixed!important') && $declares($body, 'top:0px!important') && $declares($body, 'right:0px!important'));
+    } elseif ( str_ends_with($selector, $drawerMarker) ) {
+        $drawerEmpty = $drawerEmpty || ($declares($body, 'height:0!important') && $declares($body, 'width:0!important'));
+    }
+}
+$assert($drawerFixed, 'fixed drawer: native opener retains viewport edge placement', $drawerOutput);
+$assert($drawerEmpty, 'fixed drawer: collapsed host adds no layout row', $drawerOutput);
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "navigation open button source placement FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);

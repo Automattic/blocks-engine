@@ -281,7 +281,15 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . implode(';', $slotDeclarations) . $extra . (null === $source ? '' : serialize($source)) . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary ) . ( '' === $absentAbove ? '' : ';absent:' . $absentAbove )), 0, 12);
         $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation.' . $marker;
-        $hostRule = $host . '{' . implode(';', array_merge($this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations, array() !== $placement), $slotDeclarations)) . '}';
+        $hostDeclarations = $this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations, array() !== $placement);
+        $navigationPlacement = $this->portableCollapsedPlacement($navigation, array('position'));
+        if ( 'fixed' === ($placement['position'] ?? '') && 'fixed' === ($navigationPlacement['position'] ?? '') ) {
+            // The removed drawer occupied no layout slot. Keep its empty
+            // host out of flow too, without retaining panel dimensions.
+            $hostDeclarations = array_merge($hostDeclarations, array('position:absolute!important', 'inset:auto!important', 'width:0!important', 'height:0!important', 'margin:0!important', 'flex-basis:0!important'));
+            $slotDeclarations = array();
+        }
+        $hostRule = $host . '{' . implode(';', array_merge($hostDeclarations, $slotDeclarations)) . '}';
         // Core repeats source list classes on its inner container. Neither
         // that list nor the replacement toggle host is the source drawer:
         // retaining its translation moves the closed menu out of the viewport
@@ -762,6 +770,43 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $toggleContainingBlock = $this->collapsedContainingBlock($toggle);
         $navigationContainingBlock = $this->collapsedContainingBlock($navigation);
+        if ( $toggleContainingBlock instanceof DOMElement && $toggleContainingBlock->isSameNode($navigation) ) {
+            $drawer = $this->portableCollapsedPlacement($navigation, self::CONTAINING_BLOCK_PROPERTIES);
+            // An absolute control inside a viewport-fixed drawer is itself
+            // viewport anchored. Promote only simple physical edge offsets:
+            // percentages, logical insets and transformed drawers require a
+            // different containing-block calculation and must not be guessed.
+            if ( 'absolute' === ($portable['position'] ?? '') && 'fixed' === ($drawer['position'] ?? '') ) {
+                unset($drawer['position']);
+                foreach ( $drawer as $property => $value ) {
+                    if ( $this->establishesContainingBlock($property, strtolower($value)) ) {
+                        return array();
+                    }
+                }
+                $edges = $this->portableCollapsedPlacement($navigation, self::TOGGLE_OFFSET_PROPERTIES);
+                foreach ( array('top', 'right', 'bottom', 'left') as $edge ) {
+                    $offset = $portable[$edge] ?? 'auto';
+                    if ( 'auto' === $offset ) {
+                        continue;
+                    }
+                    $anchor = $edges[$edge] ?? 'auto';
+                    if ( ! preg_match('/^-?(?:\d+(?:\.\d+)?|\.\d+)(?:px)?$/', $offset)
+                        || ! preg_match('/^-?(?:\d+(?:\.\d+)?|\.\d+)(?:px)?$/', $anchor) ) {
+                        return array();
+                    }
+                    $portable[$edge] = ( (float) $offset + (float) $anchor ) . 'px';
+                }
+                if ( array_diff(array_keys(array_intersect_key($portable, array_flip(self::TOGGLE_OFFSET_PROPERTIES))), array('top', 'right', 'bottom', 'left')) ) {
+                    return array();
+                }
+                $portable['position'] = 'fixed';
+                $stacking = $this->portableCollapsedPlacement($navigation, array('z-index'));
+                if ( ! isset($portable['z-index']) && isset($stacking['z-index']) ) {
+                    $portable['z-index'] = $stacking['z-index'];
+                }
+                return $portable;
+            }
+        }
         if ( $toggleContainingBlock !== $navigationContainingBlock
             && ! ( $toggleContainingBlock instanceof DOMElement && $navigationContainingBlock instanceof DOMElement && $toggleContainingBlock->isSameNode($navigationContainingBlock) ) ) {
             return array();
