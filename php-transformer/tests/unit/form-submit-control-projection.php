@@ -49,4 +49,16 @@ try {
     // The additive field is a token array, not an authored class string.
 }
 $assert(! isset($finding['controls'][0]['control_carrier_classes']), 'Data-entry fields do not acquire button carriers');
+$assert('white' === ($finding['controls'][1]['native_button_attributes']['style']['color']['text'] ?? ''), 'Submit reuses native text color projection');
+$assert(! isset($finding['controls'][0]['native_button_attributes']), 'Data-entry fields do not acquire native button attributes');
+foreach (array('invalid', array('style' => array('color' => array('text' => 42))), array('className' => 'unexpected'), array('backgroundColor' => null)) as $attrs) {
+    $invalid = $finding;
+    $invalid['controls'][1]['native_button_attributes'] = $attrs;
+    try {
+        \Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract::assertFinding($invalid);
+        throw new RuntimeException('Metadata validation must reject invalid native button attributes');
+    } catch (InvalidArgumentException) {
+        // Only native color supports belong in this additive field.
+    }
+}
 echo "Form submit control projection passed\n";

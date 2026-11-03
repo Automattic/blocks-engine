@@ -579,9 +579,27 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element, DOMElement $boundary): ?array => $this->formContextHiddenState($element, $boundary),
             fn (DOMElement $element): string => $this->authorSelectorProjections()->tagMarker($element->tagName),
             fn (DOMElement $element): string => $this->formContextRichText($element),
-            fn (DOMElement $element): array => '' !== $this->authorStyles()->combinedCss()
-                ? $this->authorSelectorProjections()->controlCarrierClasses($element->getNodePath() ?? '')
-                : array()
+            function (DOMElement $element): array {
+                $hasAuthorCss = '' !== $this->authorStyles()->combinedCss();
+                $classes = $hasAuthorCss
+                    ? $this->authorSelectorProjections()->controlCarrierClasses($element->getNodePath() ?? '')
+                    : array();
+                // Use the content button path, not a second form-specific color cascade.
+                $attrs = $this->sourceBlockAttributeProjector->project(
+                    'core/button',
+                    $this->styleResolver->presentationAttributes($element),
+                    array(),
+                    $element,
+                    $element,
+                    new SourceBlockAttributeProjectionFacts(false, false, $hasAuthorCss, false, false, false),
+                    $this->sourceBlockAttributeProjectionContext()
+                );
+                $colors = array_intersect_key($attrs, array_flip(array('backgroundColor', 'textColor')));
+                if (array() !== ($attrs['style']['color'] ?? array())) {
+                    $colors['style']['color'] = $attrs['style']['color'];
+                }
+                return array('control_carrier_classes' => $classes, 'native_button_attributes' => $colors);
+            }
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);

@@ -128,7 +128,29 @@ final class ConversionFindingContract
         }
 
         foreach ( $finding['controls'] ?? array() as $control ) {
-            if ( ! is_array($control) || ! array_key_exists('control_carrier_classes', $control) ) {
+            if ( ! is_array($control) ) {
+                continue;
+            }
+            if (array_key_exists('native_button_attributes', $control)) {
+                $attrs = $control['native_button_attributes'];
+                $valid = is_array($attrs) && array() === array_diff(array_keys($attrs), array('backgroundColor', 'textColor', 'style'));
+                foreach (array('backgroundColor', 'textColor') as $field) {
+                    if (isset($attrs[$field])) $valid = $valid && is_string($attrs[$field]) && '' !== trim($attrs[$field]);
+                    elseif (is_array($attrs) && array_key_exists($field, $attrs)) $valid = false;
+                }
+                if (is_array($attrs) && array_key_exists('style', $attrs)) {
+                    $style = $attrs['style'];
+                    $valid = $valid && is_array($style) && array('color') === array_keys($style)
+                        && is_array($style['color']) && array() === array_diff(array_keys($style['color']), array('background', 'text'));
+                    foreach (is_array($style['color'] ?? null) ? $style['color'] : array() as $color) {
+                        $valid = $valid && is_string($color) && '' !== trim($color);
+                    }
+                }
+                if (! $valid) {
+                    throw new InvalidArgumentException(sprintf('%s native_button_attributes must contain native button color attributes.', ucfirst($label)));
+                }
+            }
+            if (! array_key_exists('control_carrier_classes', $control)) {
                 continue;
             }
             $classes = $control['control_carrier_classes'];

@@ -73,6 +73,19 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     exit(1);
 };
 
+// blocks-engine#4042: layered provider submit paint needs native button color supports.
+$layeredSubmitFixture = '<!doctype html><html><head><meta charset="utf-8"><title>S</title><style>@layer utilities{.paint{background-color:#df6c32}.alt{background-color:#2a6fdb}}</style></head><body><main><p><button class="alt">Other action</button></p><form><input><button class="paint">Send message</button></form></main></body></html>';
+$layeredSubmitResult = (new ArtifactCompiler())->compile(array('files' => array('index.html' => $layeredSubmitFixture)))->toArray();
+$layeredSubmitFinding = array_values(array_filter($layeredSubmitResult['fallbacks'], static fn (array $row): bool => 'html_form_fallback' === ($row['diagnostic_code'] ?? '')))[0] ?? array();
+$layeredSubmitAttrs = $layeredSubmitFinding['controls'][1]['native_button_attributes'] ?? array();
+$layeredSubmitBackground = $layeredSubmitAttrs['style']['color']['background'] ?? '';
+if (isset($layeredSubmitAttrs['backgroundColor'])) {
+    foreach ($layeredSubmitResult['theme']['settings']['color']['palette'] ?? array() as $preset) {
+        if ($preset['slug'] === $layeredSubmitAttrs['backgroundColor']) $layeredSubmitBackground = $preset['color'];
+    }
+}
+$assert('#df6c32' === strtolower($layeredSubmitBackground), 'provider submit metadata exports the native core/button background for layered author CSS', json_encode($layeredSubmitAttrs));
+
 $boundaryHtml = '<html class="dark"><body><button class="theme-toggle-btn" aria-label="Toggle theme"><svg class="lucide lucide-sun" data-lucide="sun" viewBox="0 0 24 24"><path d="M12 1v2"></path></svg><span class="theme-toggle-label">Light Mode</span></button></body></html>';
 $boundaryCss = '.dark .theme-toggle-btn{color:white}:root:not(.dark) .theme-toggle-btn{color:black}';
 $boundaryResult = ( new HtmlTransformer() )->transform($boundaryHtml, array(
