@@ -577,6 +577,7 @@
       "php tests/unit/non-palette-hover-buttons.php",
       "php tests/unit/design-usage-media-scoped-styles.php",
       "php tests/unit/responsive-font-size-not-baked.php",
+      "php tests/unit/hoisted-font-size.php",
       "php tests/unit/heading-block-span-font-size.php",
       "php tests/unit/color-scheme-variant.php",
       "php tests/unit/color-scheme-projection.php",
