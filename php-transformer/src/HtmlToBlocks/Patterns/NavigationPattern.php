@@ -69,6 +69,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private const LIST_NAVIGATION_CLASS = 'blocks-engine-list-navigation';
 
+    /** Marks responsive navigation whose items are direct anchor children. */
+    public const ANCHOR_ITEMS_NAVIGATION_CLASS = 'blocks-engine-anchor-items-navigation';
+
     /** The navigation that took over an absorbed menu dialog. */
     private const MENU_FOLD_NAVIGATION_CLASS = 'blocks-engine-menu-fold-navigation';
 
@@ -1212,6 +1215,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         // matching nothing, regardless of whether the source menu itself was
         // list-based.
         $attrs = $this->withClassName($attrs, self::LIST_NAVIGATION_CLASS);
+        if ( null === $this->navigationListSource($element) ) {
+            $attrs = $this->withClassName($attrs, self::ANCHOR_ITEMS_NAVIGATION_CLASS);
+        }
         $attrs = $navigationContext?->withSourceOpener($attrs, $element) ?? $attrs;
         return $this->withClassName($attrs, $marker);
     }
