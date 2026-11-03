@@ -8681,7 +8681,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( $caption instanceof DOMElement ) {
             $captionHtml = $this->innerHtml($caption);
             if ( '' !== trim($this->runtime->stripAllTags($captionHtml)) ) {
-                $children[] = $this->createBlock('core/paragraph', array( 'content' => $captionHtml ), array(), $caption);
+                $children[] = $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($caption), array( 'content' => $captionHtml )), array(), $caption);
             }
         }
 
