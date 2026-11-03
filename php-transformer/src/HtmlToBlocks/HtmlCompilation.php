@@ -1663,7 +1663,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // Capture evidence, not content: read before anything serializes the source.
         $this->capturedGlyphColors = CapturedGlyphColor::detach($body);
         if ( QuirksModeSource::isQuirksMode($html) ) {
-            QuirksModeSource::normalize($body);
+            QuirksModeSource::normalize(
+                $body,
+                fn (DOMElement $element, array $properties): bool => array() !== $this->styleResolver->authorDeclaredPropertyValues($element, $properties)
+            );
         }
 
         if ( array() !== $sourceBodyClasses ) {
