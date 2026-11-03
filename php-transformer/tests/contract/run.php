@@ -5329,7 +5329,7 @@ foreach ( $legacyFrontPageSite['source_reports']['wordpress_site_plan']['pages']
 $legacyBlockMarkup = (string) ($legacyPlanPage['canonical_block_markup'] ?? '');
 $assert('' !== trim($legacyBlockMarkup), 'legacy HTML 4 FrontPage-era documents produce non-empty materialization block markup');
 $assert(str_contains($legacyBlockMarkup, 'About Hank&#039;s Tool Rental'), 'legacy HTML 4 FrontPage-era table/font/center content is preserved');
-$assert(str_contains($legacyBlockMarkup, '"contentSize":"600px","justifyContent":"center"') && ! str_contains($legacyBlockMarkup, '<!-- wp:table') && ! str_contains($legacyBlockMarkup, '<!-- wp:html'), 'legacy HTML 4 centered layout tables lower to a centered 600px constrained group');
+$assert(str_contains($legacyBlockMarkup, '"contentSize":"594px","justifyContent":"center"') && ! str_contains($legacyBlockMarkup, '<!-- wp:table') && ! str_contains($legacyBlockMarkup, '<!-- wp:html'), 'legacy HTML 4 centered layout tables lower to a centered constrained group whose content box excludes cell spacing and padding');
 
 $legacyInline = ( new HtmlTransformer() )->transform('<CENTER><FONT FACE="Arial" SIZE="2">Visible legacy inline copy</FONT></CENTER>')->toArray();
 $assert(str_contains((string) ($legacyInline['serialized_blocks'] ?? ''), 'Visible legacy inline copy'), 'center/font-only legacy fragments preserve visible text');
