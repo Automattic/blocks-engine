@@ -560,9 +560,7 @@ PHP;
         $pages = $this->extractPostCommentForms($pages);
         $blockThemeChrome = $this->extractBlockThemePostChrome($pages, $runtimeDeclarations, $runtimeEntityRecords);
         $pages = $blockThemeChrome['pages'];
-        $articleChrome = $this->extractPostArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
-        if (array() !== $blockThemeChrome['templates']) $articleChrome['single'] = reset($blockThemeChrome['templates']);
-         $pages = $articleChrome['pages'];
+        $singleContent = array() !== $blockThemeChrome['templates'] ? reset($blockThemeChrome['templates']) : null;
           $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
           $pages = self::resolveFeaturedImageTargets($pages, $tokens);
           $assets = ListingQueryPresentation::project($assets, $this->listingQueryContainers);
@@ -623,7 +621,7 @@ PHP;
         unset($asset);
         // Shell extraction needed the archive documents, but route overrides
         // belong only to documents that actually materialize in WordPress.
-        $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single'], $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome'], $blockThemeChrome['templates']);
+        $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome'], $blockThemeChrome['templates']);
         foreach ($templates as &$template) {
             $chrome = $blockThemeChrome['templates'][$template['slug']] ?? null;
             if (!is_string($chrome)) continue;
@@ -635,6 +633,13 @@ PHP;
         }
         unset($template);
         $sharedTemplateTitles = self::shareOverrideTemplates($pages, $parts, $templates);
+        $articleChrome = $this->extractPostArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates);
+        $pages = $articleChrome['pages'];
+        $templates = $articleChrome['templates'];
+        $parts = $articleChrome['parts'];
+        // Template-group lifting settles post bodies and can add featured images.
+        $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
+        $pages = self::resolveFeaturedImageTargets($pages, $tokens);
         $registeredTemplates = array();
         foreach ($pages as $page) if (isset($page['route_template']) && !isset($registeredTemplates[$page['route_template']])) {
             $registeredTemplates[$page['route_template']] = true;
@@ -4379,7 +4384,73 @@ PHP;
      * @param array<int,array<string,mixed>> $runtimeEntityRecords
      * @return array{pages:array<int,array<string,mixed>>,single:?string}
      */
-    private function extractPostArticleChrome(array $pages, array $parts, array $runtimeDeclarations = array(), array $runtimeEntityRecords = array()): array
+    private function extractPostArticleChrome(array $pages, array $parts, array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), ?array $templates = null): array
+    {
+        if (null === $templates) return $this->factorPostArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
+        $bySlug = array_column($templates, null, 'slug');
+        $bound = array();
+        foreach ($pages as $index => $page) {
+            if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic'])) continue;
+            $slug = $page['route_template'] ?? 'single';
+            if (!isset($bySlug[$slug]) || isset($bySlug[$slug]['source_path']) || str_contains($bySlug[$slug]['canonical_block_markup'], '<!-- wp:post-title')) continue;
+            $bound[$slug][$index] = $page;
+        }
+        foreach ($bound as $slug => $posts) {
+            $shared = $this->sharedPostChromeIdentities($posts);
+            $groups = array();
+            foreach ($posts as $index => $post) {
+                $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $post['route']['path'] ?? '', $shared);
+                // Editor labels describe the source article, not its layout.
+                $identityMarkup = preg_replace_callback('/<!-- wp:([a-z0-9\/-]+) (\{.*?\})(\s*\/?)-->/s', static function (array $match): string {
+                    $attrs = json_decode($match[2], true);
+                    if (!is_array($attrs)) return $match[0];
+                    unset($attrs['metadata']);
+                    return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . ($match[3] ?? '') . '-->';
+                }, $transformed['template']) ?? $transformed['template'];
+                // Share actions may embed the current post URL; that is slot
+                // data, not a different article structure.
+                $identityMarkup = preg_replace_callback('/<!-- wp:social-link (\{.*?\}) \/-->/s', static function (array $match): string {
+                    $attrs = json_decode($match[1], true);
+                    if (!is_array($attrs)) return $match[0];
+                    unset($attrs['url']);
+                    return '<!-- wp:social-link ' . BlockAttributes::encode($attrs) . ' /-->';
+                }, $identityMarkup) ?? $identityMarkup;
+                $identity = ShellExtraction::identityMarkup($identityMarkup);
+                $groups[$identity][$index] = $post;
+            }
+            foreach ($groups as $identity => $group) {
+                $factored = $this->factorPostArticleChrome($group, $parts, $runtimeDeclarations, $runtimeEntityRecords);
+                if (null === $factored['single']) continue;
+                // A partial group cannot change the template used by the other
+                // layouts (or by posts whose complete article must be retained).
+                $target = count($group) === count($posts) ? $slug : 'single-post-article-' . substr(hash('sha256', $slug . "\0" . $identity), 0, 12);
+                $template = $bySlug[$slug];
+                $template['slug'] = $target;
+                $template['target_path'] = 'templates/' . $target . '.html';
+                $template['reconciliation_identity'] = self::identity('template', 'wordpress-site-plan/' . $template['target_path'], $template['target_path']);
+                $template['canonical_block_markup'] = preg_replace_callback('/<!-- wp:post-content(?:\s+\{.*?\})?\s*\/-->/', static fn(array $match): string => $factored['single'], $template['canonical_block_markup'], 1);
+                $template['content_hash'] = self::contentHash($template['canonical_block_markup']);
+                $bySlug[$target] = $template;
+                foreach ($factored['pages'] as $index => $page) {
+                    $pages[$index] = $page;
+                    if ($target === $slug) continue;
+                    $pages[$index]['route_template'] = $target;
+                    $pages[$index]['metadata']['post_meta']['_wp_page_template'] = $target;
+                }
+                if ($target === $slug) continue;
+                foreach ($parts as &$part) {
+                    foreach (array('template_slugs', 'excluded_template_slugs') as $field) {
+                        if (in_array($slug, $part['placement'][$field] ?? array(), true)) $part['placement'][$field][] = $target;
+                    }
+                    if (isset($part['placement']['template_wrappers'][$slug])) $part['placement']['template_wrappers'][$target] = $part['placement']['template_wrappers'][$slug];
+                }
+                unset($part);
+            }
+        }
+        return array('pages' => $pages, 'parts' => $parts, 'templates' => array_values($bySlug));
+    }
+
+    private function factorPostArticleChrome(array $pages, array $parts, array $runtimeDeclarations, array $runtimeEntityRecords): array
     {
         $posts = array();
         $indexes = array();
@@ -4393,7 +4464,7 @@ PHP;
         if (count($posts) < 2) {
             return array('pages' => $pages, 'single' => null);
         }
-        // Article factoring targets one global single template. Inline shell
+        // Inline shell
         // references belong to the source documents, including their wrappers.
         // Keep the entire article in post-content rather than hoisting those
         // references (or splitting their authored ancestor context).
