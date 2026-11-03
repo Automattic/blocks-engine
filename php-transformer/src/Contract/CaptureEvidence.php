@@ -202,8 +202,11 @@ final class CaptureEvidence
 
     // Sidecar schemas.
 
+    /** Legacy inline captured interaction report, still accepted by readers. */
+    public const CAPTURED_INTERACTIONS_V2_SCHEMA = 'blocks-engine-capture/captured-interactions/v2';
+
     /** `interaction-states.json`: captured interaction report. */
-    public const CAPTURED_INTERACTIONS_SCHEMA = 'blocks-engine-capture/captured-interactions/v2';
+    public const CAPTURED_INTERACTIONS_SCHEMA = 'blocks-engine-capture/captured-interactions/v3';
     /** Capture receipt. */
     public const CAPTURE_RECEIPT_SCHEMA = 'blocks-engine-capture/capture-receipt/v1';
     /** Capture receipt `sourceInteractivity` record. */

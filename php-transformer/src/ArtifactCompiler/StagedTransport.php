@@ -618,7 +618,7 @@ trait StagedTransport
         $choiceGroupsProjection = (new CapturedChoiceGroupProjector())->project($selectableSetsProjection['files']);
         $scrollStatesProjection = (new ScrollStateProjector())->project($choiceGroupsProjection['files']);
         $capturedDialogs = array(
-            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $collectionsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
+            'diagnostics' => CapturedInteractionReport::mergeDiagnostics($capturedDialogsProjection['diagnostics'], $collectionsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
             'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
             'native_runtime_replacements' => array_merge(
                 $capturedDialogsProjection['native_runtime_replacements'] ?? array(),

@@ -30,6 +30,13 @@ final class CapturedChoiceGroupProjector
      */
     public function project(array $files): array
     {
+        $result = $this->projectReportFiles($files);
+        $result['diagnostics'] = array_merge(CapturedInteractionReport::diagnostics($files), $result['diagnostics']);
+        return $result;
+    }
+
+    private function projectReportFiles(array $files): array
+    {
         $inline = $this->projectInline($files);
         $report = $this->projectReport($inline['files']);
 
@@ -201,8 +208,8 @@ final class CapturedChoiceGroupProjector
      */
     private function projectReport(array $files): array
     {
-        $report = $this->jsonFile($files, 'interaction-states.json');
-        if (null === $report || CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
+        $report = CapturedInteractionReport::read($files);
+        if (null === $report || !CapturedInteractionReport::valid($report) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
         $diagnostics = array();
