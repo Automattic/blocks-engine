@@ -2284,7 +2284,11 @@ final class ShellExtraction
             $page = $pages[$index];
             $shared = null !== $generic && isset($inner[$index]) && self::frameIdentity($frame) === self::frameIdentity($generic);
             $sharedPost = 'post' === $page['post_type'] && null !== $postFrame && self::frameIdentity($frame) === self::frameIdentity($postFrame);
-            $slug = !empty($page['entrypoint']) ? 'front-page' : ($shared ? 'page' : ($sharedPost ? 'single' : WordPressSitePlan::routeTemplateKey($page)));
+            // An explicit assignment (including same-slug route collisions)
+            // wins over a generic frame. Strip the edge only into the template
+            // this route actually renders with; final identical templates can
+            // then be shared without merging different header clusters.
+            $slug = !empty($page['entrypoint']) ? 'front-page' : ($page['route_template'] ?? ($shared ? 'page' : ($sharedPost ? 'single' : WordPressSitePlan::routeTemplateKey($page))));
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
             $frames[$slug] = array('opening' => $frame['opening'], 'closing' => $frame['closing'], 'shells' => array_values(array_unique($slugs[1])));
             $pages[$index]['canonical_block_markup'] = $frame['content'];
