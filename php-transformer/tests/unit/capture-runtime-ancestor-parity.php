@@ -5,7 +5,7 @@ declare(strict_types=1);
  * Recognized disclosure runtime -> native dialog: ancestor class bindings.
  *
  * Blocks Engine retires the capture's disclosure runtime only when its body is
- * the published one (CaptureEvidence::DISCLOSURE_RUNTIME_SHA256). The native
+ * a published one (including the trigger-subtree replay revision). The native
  * dialog must then replay what that runtime replays. The current producer body
  * replays ancestor `class` bindings as token sets (a re-ordered theme class, an
  * empty closed class on `body`, a long class list recorded as changed tokens
@@ -30,8 +30,9 @@ $assert = static function (bool $condition, string $message, string $context = '
     fwrite(STDERR, "FAIL: {$message}\n" . ('' !== $context ? substr($context, 0, 1600) . "\n" : ''));
 };
 
-$runtime = trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-disclosure-runtime.js'));
-$assert(CaptureEvidence::DISCLOSURE_RUNTIME_SHA256 === hash('sha256', $runtime), 'the fixture is the published disclosure runtime');
+$runtime = (string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-disclosure-trigger-runtime.js');
+$runtimeHash = hash('sha256', $runtime);
+$assert(CaptureEvidence::DISCLOSURE_RUNTIME_TRIGGER_SHA256 === $runtimeHash, 'the fixture is the exact published trigger-state runtime');
 
 // Rows as the producer records them: a re-ordered theme class on the header,
 // an empty closed class on body, and a class list recorded as tokens only.
@@ -41,7 +42,8 @@ $ancestors = array(
     array('selector' => 'body', 'tag' => 'body', 'depth' => 4, 'closed' => array('class' => ''), 'opened' => array('class' => 'header--menu-open')),
 );
 $key = 'site-menu-panel';
-$trigger = '<button type="button" aria-label="Open menu" data-blocks-engine-capture-disclosure-label="Open menu" data-blocks-engine-capture-dialog-trigger="' . $key . '" aria-controls="' . $key . '" aria-expanded="false" aria-haspopup="menu" data-blocks-engine-capture-dialog-ancestor-state="' . htmlspecialchars(json_encode($ancestors, JSON_THROW_ON_ERROR), ENT_QUOTES) . '"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M2 4h16M2 10h16M2 16h16" stroke="currentColor"></path></svg></button>';
+$triggerState = array(array('selector' => ':scope > :nth-child(1)', 'tag' => 'span', 'closed' => array('class' => ''), 'opened' => array('class' => 'icon--open'), 'classTokensOnly' => true));
+$trigger = '<button data-blocks-engine-capture-dialog-trigger-state="' . htmlspecialchars(json_encode($triggerState, JSON_THROW_ON_ERROR), ENT_QUOTES) . '" type="button" aria-label="Open menu" data-blocks-engine-capture-disclosure-label="Open menu" data-blocks-engine-capture-dialog-trigger="' . $key . '" aria-controls="' . $key . '" aria-expanded="false" aria-haspopup="menu" data-blocks-engine-capture-dialog-ancestor-state="' . htmlspecialchars(json_encode($ancestors, JSON_THROW_ON_ERROR), ENT_QUOTES) . '"><span class="icon">Menu</span><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M2 4h16M2 10h16M2 16h16" stroke="currentColor"></path></svg></button>';
 $panel = '<div id="' . $key . '" class="menu-panel data-blocks-engine-capture-dropdown" hidden data-blocks-engine-capture-dialog-panel="' . $key . '"><div><p>Visit</p><a href="#one">One</a><hr><button type="button">Ordinary action</button></div></div>';
 $css = 'body{margin:0;font-family:Arial}header{display:block;padding:8px}.dark-bold{background:rgb(20,20,20);color:white}.light{background:rgb(250,250,250);color:black}.menu-panel{padding:8px}';
 $scope = '<div id="scope" class="data-blocks-engine-capture-desktop-document config-0 config-1 config-2 config-3 menu-closed" data-blocks-engine-capture-document-scope="">'
@@ -66,7 +68,7 @@ $source = $page($runtime);
 $native = $compile($source);
 $markup = (string) ($native['serialized_blocks'] ?? '');
 $proofs = array_values(array_filter($native['source_reports']['native_runtime_replacements'] ?? array(), static fn (array $proof): bool => CaptureEvidence::DISCLOSURE_RUNTIME === ($proof['attribute'] ?? null)));
-$assert(1 === count($proofs) && CaptureEvidence::DISCLOSURE_RUNTIME_SHA256 === $proofs[0]['body_hash'], 'the published disclosure runtime is retired with a native replacement proof', json_encode($native['source_reports']['native_runtime_replacements'] ?? null));
+$assert(1 === count($proofs) && $runtimeHash === $proofs[0]['body_hash'], 'the published disclosure runtime is retired with a native replacement proof', json_encode($native['source_reports']['native_runtime_replacements'] ?? null));
 $assert(!str_contains(json_encode($native['assets']), 'function triggers()'), 'the retired runtime is not shipped as an asset');
 $assert(1 === substr_count($markup, '<!-- wp:custom/captured-dialog '), 'the scoped dropdown becomes one native dialog block', $markup);
 libxml_use_internal_errors(true);
@@ -75,6 +77,7 @@ $dom->loadHTML('<body>' . $markup . '</body>');
 $dialog = (new DOMXPath($dom))->query('//*[@data-blocks-engine-triggers]')->item(0);
 $expected = array_map(static fn (array $row): array => array('tag' => $row['tag'], 'closed' => $row['closed'], 'opened' => $row['opened']), $ancestors);
 $assert($dialog instanceof DOMElement && $expected === json_decode($dialog->getAttribute('data-blocks-engine-ancestor-state'), true), 'every recorded ancestor class binding travels to the native dialog', $markup);
+$assert(str_contains($markup, 'data-blocks-engine-capture-dialog-trigger-state=') && str_contains($markup, 'wp:custom/authored-button'), 'the authored trigger retains its relative state contract', $markup);
 $assert(0 === ($native['metrics']['fallback_count'] ?? -1), 'the page lowers without fallback blocks');
 
 // One changed byte makes the body unknown: the capture keeps its runtime and markup.

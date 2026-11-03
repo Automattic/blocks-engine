@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 // attributes parameterize that existing content rather than prove a runtime.
 $cases = array(
     'custom element wrapping iframe' => '<section><div><cal-inline data-layout="month_view" style="display:flex;width:100%"><iframe src="https://app.cal.com/example/30min?embed=true" title="Book a call" style="width:100%;height:600px"></iframe></cal-inline></div></section>',
+    'embed lifecycle attribute on host' => '<section><div><cal-inline data-layout="month_view" loading="done" style="display:flex;width:100%"><iframe src="https://app.cal.com/example/30min?embed=true" title="Book a call" style="width:100%;height:600px"></iframe></cal-inline></div></section>',
 );
 foreach ( $cases as $name => $html ) {
     $result = ( new HtmlTransformer() )->transform($html)->toArray();

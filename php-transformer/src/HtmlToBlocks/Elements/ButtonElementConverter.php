@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
@@ -20,6 +21,12 @@ final class ButtonElementConverter implements ElementConverter
         $roleButton = AuthoredButtonBlockGenerator::isRoleButton($element);
         if ( 'button' !== $tagName && (!$roleButton || (!$this->context->isRuntimeDomTarget($element) && !SourceDom::isBoundCapturedDialogTrigger($element))) ) {
             return ConversionOutcome::unhandled();
+        }
+
+        // Relative trigger-state selectors require the authored child tree;
+        // core/button's rich-text label is not a substitute for that tree.
+        if ( $element->hasAttribute(CaptureEvidence::DIALOG_TRIGGER_STATE) && SourceDom::isBoundCapturedDialogTrigger($element) ) {
+            return ConversionOutcome::handled($this->context->runtimeButton($element));
         }
 
         if ($roleButton) {

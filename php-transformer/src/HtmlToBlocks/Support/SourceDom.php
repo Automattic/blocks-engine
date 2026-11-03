@@ -1542,14 +1542,25 @@ final class SourceDom
     }
 
     /** Whether a subtree contains native media with a captured source. */
+    public static function hasCapturedIframe(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('iframe') as $iframe ) {
+            if ( '' !== trim(self::attr($iframe, 'src')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static function hasRenderableMediaContent(DOMElement $element): bool
     {
+        if ( self::hasCapturedIframe($element) ) {
+            return true;
+        }
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
             $tag = strtolower($descendant->tagName);
             if ( 'picture' === $tag && self::pictureHasRenderableSource($descendant) ) {
-                return true;
-            }
-            if ( 'iframe' === $tag && '' !== trim(self::attr($descendant, 'src')) ) {
                 return true;
             }
             if ( in_array($tag, array( 'img', 'video' ), true) ) {

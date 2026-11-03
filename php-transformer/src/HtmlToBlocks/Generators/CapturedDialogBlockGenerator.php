@@ -206,7 +206,20 @@ JS;
         bound.forEach( function( entry ) { replayAttributes( entry.node, entry.binding.closed ); } );
         return bound;
     }
-    function applyAncestors( dialog, bound ) {
+    // Trigger selectors are relative to the authored control, not its block
+    // wrapper. Only class deltas belong to this producer contract.
+    function boundTrigger( trigger ) {
+        var root = control( trigger ), rows;
+        try { rows = JSON.parse( root.getAttribute( '__DIALOG_TRIGGER_STATE__' ) || '[]' ); } catch ( error ) { return []; }
+        if ( ! Array.isArray( rows ) ) return [];
+        return rows.map( function( row ) {
+            if ( ! row || ! row.closed || ! row.opened || true !== row.classTokensOnly ) return null;
+            var node;
+            try { node = row.selector ? root.querySelector( row.selector ) : root; } catch ( error ) { return null; }
+            return node ? { node: node, binding: { closed: { 'class': row.closed[ 'class' ] || '' }, opened: { 'class': row.opened[ 'class' ] || '' } } } : null;
+        } ).filter( Boolean );
+    }
+    function applyBindings( dialog, bound ) {
         var applied = [];
         bound.forEach( function( entry ) {
             var node = entry.node, binding = entry.binding;
@@ -274,7 +287,7 @@ JS;
         var triggers = ( dialog.getAttribute( 'data-blocks-engine-triggers' ) || '' ).split( /\s+/ ).map( function( id ) { return document.getElementById( id ); } ).filter( Boolean );
         if ( ! triggers.length ) return;
         dialog.dataset.blocksEngineMounted = 'true';
-        var ancestors = triggers.map( function( trigger ) { return boundAncestors( dialog, trigger ); } );
+        var bindings = triggers.map( function( trigger ) { return boundAncestors( dialog, trigger ).concat( boundTrigger( trigger ) ); } );
         // The capture observed a dropdown: it opens without making the page
         // inert, its source trigger toggles it, and Escape returns focus to
         // that trigger. Anything else keeps the modal contract.
@@ -321,14 +334,14 @@ JS;
             if ( dropdown ) {
                 if ( dialog.hasAttribute( 'open' ) ) { close(); return; }
                 opener = trigger;
-                applyAncestors( dialog, ancestors[ triggers.indexOf( trigger ) ] );
+                applyBindings( dialog, bindings[ triggers.indexOf( trigger ) ] );
                 if ( 'under-header' === dialog.getAttribute( 'data-blocks-engine-placement' ) ) placeDropdown( dialog, trigger );
                 if ( panel ) replay( panel, resting.closed, resting.opened );
                 if ( dialog.show ) dialog.show(); else dialog.setAttribute( 'open', '' );
                 expanded( true );
                 return;
             }
-            if ( ! dialog.open ) applyAncestors( dialog, ancestors[ triggers.indexOf( trigger ) ] );
+            if ( ! dialog.open ) applyBindings( dialog, bindings[ triggers.indexOf( trigger ) ] );
             if ( dialog.showModal ) dialog.showModal(); else dialog.setAttribute( 'open', '' );
             if ( binding ) {
                 var carousel = dialog.querySelector( '.blocks-engine-authored-carousel' );
@@ -389,7 +402,7 @@ JS;
                 'style.css' => $style,
                 'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__', '__DIALOG_ANCESTOR_UNVERIFIED__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED), $editor),
             ),
-            'view_js' => str_replace('__ANCESTOR_ATTRIBUTE_PATTERN__', self::ANCESTOR_ATTRIBUTE_PATTERN, $view),
+            'view_js' => str_replace(array('__ANCESTOR_ATTRIBUTE_PATTERN__', '__DIALOG_TRIGGER_STATE__'), array(self::ANCESTOR_ATTRIBUTE_PATTERN, CaptureEvidence::DIALOG_TRIGGER_STATE), $view),
             'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element', 'wp-data')),
         );
     }
