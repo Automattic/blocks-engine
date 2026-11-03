@@ -299,6 +299,54 @@ $markerRules = static function (string $css, string $marker) use ($rules): array
 };
 $assert('' !== $plainMarker && $plainMarker === $autoMarker && $markerRules($plainCss, $plainMarker) === $markerRules($autoCss, $autoMarker), 'relative host: without relative offsets generated toggle CSS is byte-identical');
 
+// A toggle inside a fixed drawer is anchored to the viewport,
+// not to the replacement nav's in-flow box (issue #4141).
+$drawerCss = '.cs-menu-button{display:none}.cs-menu a{display:block}'
+    . '@media only screen and (max-width:767px){.cs-section .cs-menu{position:fixed;top:0;right:0;bottom:0;z-index:3}'
+    . '.cs-menu ul{display:none}.cs-menu.open ul{display:block}'
+    . '.cs-menu-button{display:block;position:absolute;top:0;right:0;width:56px;height:56px}}';
+$drawerHtml = '<header class="cs-section"><a href="/">Logo</a><nav class="cs-menu" id="drawer-menu"><button class="cs-menu-button" aria-controls="drawer-menu" aria-expanded="false" aria-label="Menu">Menu</button><ul><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav></header>';
+$checkboxCss = '.cs-menu .cs-menu-button{display:none;padding:17px}.cs-menu-items{list-style:none;display:flex}'
+    . '@media only screen and (max-width:767px){'
+    . '.cs-section .cs-menu{position:fixed;top:0;right:0;bottom:0;z-index:3}'
+    . '.cs-section .cs-menu .cs-menu-button{z-index:2;background:#fff;cursor:pointer;display:block;height:56px;width:56px;position:absolute;top:0;right:0;transform:translate(0,0)}'
+    . '.cs-section .cs-menu .cs-menu-items{width:370px;transform:translateX(370px);will-change:transform}'
+    . '.cs-menu input:checked~.cs-menu-button{transform:translate(-250px,0)}}';
+$checkboxHtml = '<section class="cs-section"><div class="cs-box"><div class="cs-widgets"><div class="cs-widget cs-menu-widget">'
+    . '<nav class="cs-menu cs-menu-theme-9 cs-menu-horizontal cs-menu-center" role="navigation" aria-label="Menu">'
+    . '<input type="checkbox" name="cs-menu-control" id="cs-menu-control" aria-label="Menu">'
+    . '<label for="cs-menu-control" class="cs-menu-button"><svg viewBox="0 0 24 24" class="cs-ico-menu"><title>Menu</title><path d="M2 2h20v2H2z"/></svg></label>'
+    . '<label for="cs-menu-control" class="cs-menu-overlay"></label>'
+    . '<ul class="cs-menu-items" role="menubar"><li><a href="/index.html">SOBRE</a></li><li><a href="/servicos/index.html">SERVIÇOS</a></li><li><a href="/contato/index.html">CONTATO</a></li></ul>'
+    . '</nav></div></div></div></section>';
+foreach ( array(
+    'fixed navigation' => array($drawerCss, $drawerHtml),
+    'checkbox drawer ancestor' => array($checkboxCss, $checkboxHtml),
+) as $case => [ $sourceCss, $sourceHtml ] ) {
+[ $drawerBlocks, $drawerOutput ] = $transform($sourceCss, $sourceHtml);
+$drawerMarker = $toggleMarker($drawerBlocks);
+$assert('' !== $drawerMarker, $case . ': native toggle is projected', $drawerBlocks);
+$drawerFixed = false;
+$drawerEmpty = false;
+foreach ( $rules($drawerOutput) as [ $stack, $selector, $body ] ) {
+    if ( '' === $drawerMarker || ! str_contains($selector, $drawerMarker) || str_contains($selector, 'editor-styles-wrapper') ) {
+        continue;
+    }
+    if ( str_ends_with($selector, '>.wp-block-navigation__responsive-container-open') ) {
+        if ( $declares($body, 'position:fixed!important') ) {
+            $drawerFixed = $declares($body, 'top:0px!important') && $declares($body, 'right:0px!important') && $declares($body, 'z-index:3!important');
+            $assert($isCollapsedMedia($stack), $case . ': fixed placement is inside max-width media', $body);
+        }
+    } elseif ( str_ends_with($selector, $drawerMarker) ) {
+        $assert($isCollapsedMedia($stack), $case . ': host changes are collapsed-only', $body);
+        $drawerEmpty = $drawerEmpty || ($declares($body, 'position:absolute!important') && $declares($body, 'height:0!important') && $declares($body, 'width:0!important'));
+    }
+}
+$assert($drawerFixed, $case . ': native opener retains viewport edge placement and drawer stacking', $drawerOutput);
+$assert($drawerEmpty, $case . ': collapsed host adds no layout row', $drawerOutput);
+$assert(str_contains($drawerOutput, '{transform:none!important;translate:none!important;will-change:auto!important}'), $case . ': drawer transform reset survives', $drawerOutput);
+}
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "navigation open button source placement FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);
