@@ -75,10 +75,18 @@ final class LayoutShellBlockGenerator
         appendDeclaration( declaration );
         return style;
     }
-    function wrapperProps( attributes ) {
+    // Gutenberg's serializer leaves an ampersand that already spells an entity
+    // unescaped, so a value holding the text `&quot;` would save as `"`. Saving
+    // that ampersand as `&amp;` keeps every value byte for byte, as the server
+    // writes it.
+    function savedValue( value ) {
+        return 'string' === typeof value ? value.replace( /&(?=([a-z0-9]+|#[0-9]+|#x[a-f0-9]+);)/gi, '&amp;' ) : value;
+    }
+    function wrapperProps( attributes, saved ) {
         var props = {};
         Object.keys( attributes || {} ).forEach( function( name ) {
             var value = attributes[ name ];
+            if ( saved && name !== 'style' ) { value = savedValue( value ); }
             if ( name === 'class' ) { props.className = value; }
             else if ( name === 'style' ) { props.style = reactStyle( value ); }
             else if ( name === 'tabindex' ) { props.tabIndex = value; }
@@ -89,7 +97,7 @@ final class LayoutShellBlockGenerator
     }
     function wrappedContent( wrappers, content ) {
         for ( var index = ( wrappers || [] ).length - 1; index >= 0; index-- ) {
-            var props = wrapperProps( wrappers[ index ].attributes );
+            var props = wrapperProps( wrappers[ index ].attributes, true );
             content = createElement( wrappers[ index ].tagName || 'div', props, content );
         }
         return content;
