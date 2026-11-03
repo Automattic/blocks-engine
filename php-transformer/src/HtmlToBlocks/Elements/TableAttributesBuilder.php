@@ -140,6 +140,12 @@ final class TableAttributesBuilder
                 $borderModel[] = $property . ':' . $value;
             }
         }
+        // Core's unlayered `.wp-block-table table{width:100%}` beats the layered
+        // `width` hint. Unless author CSS sets the width, roll core back to the
+        // layers so the hint sizes the table as in source.
+        if ( null !== self::widthHint($table) && array() === $this->styleResolver->authorDeclaredPropertyValues($table, array( 'width', 'inline-size' )) ) {
+            $borderModel[] = 'width:revert-layer';
+        }
         if ( array() !== $borderModel ) {
             $rules[] = '.' . $marker . '>table{' . implode(';', $borderModel) . '}';
         }

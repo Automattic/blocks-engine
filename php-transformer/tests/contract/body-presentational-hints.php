@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// Legacy bgcolor and height hints on body, table, rows and cells reach the page beneath author CSS (#4024, #4025).
+// Legacy bgcolor, width and height hints on body, table, rows and cells reach the page beneath author CSS (#4024, #4025, #4030).
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
@@ -18,6 +18,7 @@ $files = array(
     'green.html' => $page('<body bgcolor="#004821">'),
     'table.html' => $page('<body>', '<center><table width="300" bgcolor="#ffd79f"><tr bgcolor="red"><td bgcolor="navy">Boxed</td></tr></table></center>'),
     'sized.html' => $page('<body>', '<table><tr><td>Top</td></tr><tr height="20"><td height="642"></td></tr></table>'),
+    'authored.html' => $page('<body>', '<style>.authored{width:50%}</style><table class="authored" width="300"><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>'),
 );
 $plan = (new WordPressSitePlan())->fromCompilerResult((new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray());
 $assets = array_values(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')));
@@ -42,6 +43,10 @@ if (!str_contains($tableMarkup, '<!-- wp:table')) $fail('painted layout table st
 foreach (array('>table){width:300px;background-color:#ffd79f}', '>table>tbody>tr:nth-child(1)){background-color:#ff0000}', '>table>tbody>tr:nth-child(1)>:nth-child(1)){background-color:#000080}') as $rule) {
     if (!str_contains($css, $rule)) $fail("table hint {$rule}", $css);
 }
+
+// The width hint beats core's unlayered `.wp-block-table table{width:100%}`, but not an author width (#4030).
+preg_match_all('/\.(blocks-engine-table-[a-f0-9]+-\d+)>table\{[^}]*width:revert-layer/', $css, $reverted);
+if (1 !== count($reverted[1]) || !str_contains($css, $reverted[1][0] . '>table){width:300px;background-color:#ffd79f}')) $fail('width hint rolls back core width only for the hinted table', $css);
 
 // A core/table keeps its row and cell height hints (#4025).
 foreach (array('>table>tbody>tr:nth-child(2)){height:20px}', '>table>tbody>tr:nth-child(2)>:nth-child(1)){height:642px}') as $rule) {
