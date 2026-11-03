@@ -1483,6 +1483,34 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $this->session->fallbackEmitter();
     }
 
+    /**
+     * Core limitations this output works around, for the import report.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @return list<array{id: string, block_name: string, references: list<string>}>
+     */
+    private function gutenbergGaps(array $blocks): array
+    {
+        $gaps = array();
+        if ( $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ) {
+            $gaps[] = array('id' => 'semantic-description-list', 'block_name' => $this->generatedBlocks()->blockName(DescriptionListBlockGenerator::LOCAL_NAME), 'references' => array('https://github.com/WordPress/gutenberg/issues/4880', 'https://github.com/WordPress/gutenberg/pull/20760'));
+        }
+        // Core's overlay opens from one button and closes from a second one
+        // inside it, so a menu the source toggles from a single control gains
+        // a close button. `overlayMenu` defaults to `mobile` in block.json.
+        $stack = $blocks;
+        while ( array() !== $stack ) {
+            $block = array_pop($stack);
+            if ( 'core/navigation' === ($block['blockName'] ?? '') && 'never' !== ($block['attrs']['overlayMenu'] ?? 'mobile') ) {
+                $gaps[] = array('id' => 'navigation-overlay-close-control', 'block_name' => 'core/navigation', 'references' => array('https://github.com/WordPress/gutenberg/issues/49402'));
+                break;
+            }
+            array_push($stack, ...($block['innerBlocks'] ?? array()));
+        }
+
+        return $gaps;
+    }
+
     private function generatedBlocks(): GeneratedBlockRegistry
     {
         return $this->session->generatedBlockRegistry()
@@ -1914,7 +1942,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             reusableComponents: $reusableComponentRecognition,
             runtimeIslands: $this->runtimeDom()->islands(),
             generatedBlocks: $this->generatedBlocks()->definitions(),
-            gutenbergGaps: $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ? array(array('id' => 'semantic-description-list', 'block_name' => $this->generatedBlocks()->blockName(DescriptionListBlockGenerator::LOCAL_NAME), 'references' => array('https://github.com/WordPress/gutenberg/issues/4880', 'https://github.com/WordPress/gutenberg/pull/20760'))) : array(),
+            gutenbergGaps: $this->gutenbergGaps($blocks),
             interactionCandidates: $interactionCandidates,
             supersededSelectors: $this->runtimeSelectors()->supersededSelectors(),
             authorStylesheetProjections: $authorStylesheetProjections,

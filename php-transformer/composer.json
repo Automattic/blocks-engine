@@ -454,6 +454,7 @@
       "php tests/unit/labelled-nav-controls-toggle.php",
       "php tests/unit/visually-hidden-authored-clip.php",
       "php tests/unit/collapsed-navigation-css-toggle.php",
+      "php tests/unit/navigation-overlay-gutenberg-gap.php",
       "php tests/unit/navigation-nested-list-inventory.php",
       "php tests/unit/navigation-unlabelled-group-menu.php",
       "php tests/unit/navigation-opener-presentation.php",
