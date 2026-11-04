@@ -1332,10 +1332,10 @@ final class ShellExtraction
     }
 
     /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
-    public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), bool $partitionTypes = true, bool $partitionHeaders = true): array
+    public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), bool $partitionTypes = true, bool $partitionHeaders = true, array $assets = array()): array
     {
         $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
-        $pages = self::withWordmarkRouteState($pages);
+        $pages = self::withWordmarkRouteState($pages, $assets);
         $parts = array(); $diagnostics = array(); $unremovable = array();
         $areas = array('footer', 'header');
         while (null !== ($area = array_shift($areas))) {
@@ -1371,7 +1371,7 @@ final class ShellExtraction
                     }
                     $populationReserved = $reservedSlugs;
                     unset($populationReserved['header']);
-                    $resolved = $this->sharedShells($subset, $populationReserved, $runtimeDeclarations, $runtimeEntityRecords, $partitionTypes, false);
+                    $resolved = $this->sharedShells($subset, $populationReserved, $runtimeDeclarations, $runtimeEntityRecords, $partitionTypes, false, $assets);
                     $runtimeDeclarations = $resolved['runtime_declarations'];
                     $adoptedSources = array();
                     foreach ($resolved['pages'] as $index => $page) {
@@ -1475,7 +1475,7 @@ final class ShellExtraction
                         $subset[$index] = $pages[$index];
                         $subset[$index]['shell_candidates'] = array_values(array_filter($pages[$index]['shell_candidates'] ?? array(), static fn(array $candidate): bool => $area === $candidate['area']));
                     }
-                    $resolved = $this->sharedShells($subset, $reservedSlugs, $runtimeDeclarations, $runtimeEntityRecords, false);
+                    $resolved = $this->sharedShells($subset, $reservedSlugs, $runtimeDeclarations, $runtimeEntityRecords, false, true, $assets);
                     $renames = array();
                     $runtimeDeclarations = $resolved['runtime_declarations'];
                     foreach ($resolved['parts'] as &$part) {
@@ -3077,8 +3077,14 @@ final class ShellExtraction
      * Wordmark evidence is cross-route, not a class-name convention. Only the
      * comparison copy changes: extraction still moves the original editable blocks.
      */
-    private static function withWordmarkRouteState(array $pages): array
+    private static function withWordmarkRouteState(array $pages, array $assets): array
     {
+        $properties = array('color', 'text-decoration', 'text-decoration-line', 'font-size', 'font-family');
+        $analysis = (new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer())->analyze(
+            array_values(array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))),
+            '', $properties, 4000000, 50000, 100000, 16
+        );
+        if ($analysis['truncated']) return $pages;
         $entry = null;
         foreach ($pages as $page) if (!empty($page['entrypoint'])) $entry = $page['route']['path'] ?? '/';
         if (null === $entry) return $pages;
@@ -3100,6 +3106,7 @@ final class ShellExtraction
                     $text = trim(preg_replace('/\s+/u', ' ', $body->textContent) ?? '');
                     if ('' === $text) continue;
                     $classes = array(); $styles = array(); $links = array(); $valid = true;
+                    $presentation = array('text-decoration-line' => 'none');
                     foreach ($body->getElementsByTagName('*') as $element) {
                         if (!in_array($element->tagName, array('div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a'), true)) { $valid = false; break; }
                         // A wordmark is a single text leaf, possibly wrapped in a
@@ -3108,19 +3115,20 @@ final class ShellExtraction
                         foreach ($element->childNodes as $child) if ($child instanceof \DOMElement || ($child instanceof \DOMText && '' !== trim($child->textContent))) ++$children;
                         if ($children > 1) { $valid = false; break; }
                         foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
-                            if ('' !== $class && !str_starts_with($class, 'wp-block-') && !preg_match('/^has-.+-font-size$/', $class)) $classes[$class] = true;
+                            if ('' !== $class && !str_starts_with($class, 'wp-block-') && !str_starts_with($class, 'blocks-engine-synthetic-') && !str_starts_with($class, 'blocks-engine-propagated-') && !preg_match('/^has-(?:.+-font-(?:size|family)|text-color|.+-color)$/', $class)) $classes[$class] = true;
                         }
                         foreach (explode(';', $element->getAttribute('style')) as $style) {
                             $style = trim($style);
                             // Bare links are lowered to a zero-margin paragraph;
                             // headings can materialize their default bold weight.
-                            if ('font-weight:700' !== $style && '' !== $style && !preg_match('/^margin-(?:top|right|bottom|left):0$/', $style)) $styles[$style] = true;
+                            if ('font-weight:700' !== $style && '' !== $style && !preg_match('/^(?:color|text-decoration(?:-line)?|font-size|font-family)\s*:/', $style) && !preg_match('/^margin-(?:top|right|bottom|left):0$/', $style)) $styles[$style] = true;
                         }
+                        $presentation = self::wordmarkPresentation($element, $presentation, $analysis['rules'], $properties);
                         if ('a' === $element->tagName) $links[] = html_entity_decode($element->getAttribute('href'));
                     }
                     if (!$valid || count($links) > 1 || (!empty($links) && $links[0] !== $entry) || (empty($page['entrypoint']) && array($entry) !== $links)) continue;
                     ksort($classes); ksort($styles);
-                    $signature = hash('sha256', json_encode(array($text, array_keys($classes), array_keys($styles))));
+                    $signature = hash('sha256', json_encode(array($text, array_keys($classes), array_keys($styles), $presentation)));
                     $evidence[$signature][$index][] = array('candidate' => $candidateIndex, 'offset' => $node['offset'], 'length' => $node['end'] - $node['offset']);
                 }
             }
@@ -3139,6 +3147,36 @@ final class ShellExtraction
             }
         }
         return $pages;
+    }
+
+    /** Resolve the single text leaf through its wrappers, not block-support placement. */
+    private static function wordmarkPresentation(\DOMElement $element, array $inherited, array $rules, array $properties): array
+    {
+        $facts = array();
+        $rules[] = array('declarations' => \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($element->getAttribute('style'), $properties), 'inline' => true, 'specificity' => array(0, 0, 0), 'order' => PHP_INT_MAX);
+        foreach ($rules as $rule) {
+            if (empty($rule['inline']) && (null !== $rule['condition'] || !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches'])) continue;
+            foreach ($rule['declarations'] as $declaration) {
+                $value = $declaration['value'];
+                $important = (bool) preg_match('/\s*!important\s*$/i', $value);
+                $value = trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value);
+                $property = 'text-decoration' === $declaration['name'] ? 'text-decoration-line' : $declaration['name'];
+                \Automattic\BlocksEngine\PhpTransformer\Css\DeclarationCascade::apply($facts, $property, array_merge($rule, array('important' => $important, 'value' => $value)));
+            }
+        }
+        foreach ($facts as $property => $fact) {
+            $value = $fact['value'];
+            // Output presets retain the captured value as their fallback.
+            $value = preg_replace('/var\(--wp--preset--[^,()]+,\s*([^()]+)\)/', '$1', $value) ?? $value;
+            if (in_array(strtolower($value), array('inherit', 'unset', 'currentcolor'), true)) continue;
+            if ('color' === $property) {
+                $color = \Automattic\BlocksEngine\PhpTransformer\Css\CssColor::parse($value);
+                if (null !== $color) $value = json_encode($color);
+            }
+            $inherited[$property] = $value;
+        }
+        ksort($inherited);
+        return $inherited;
     }
 
     private static function normalizeNestedChromeMarkup(string $markup): string

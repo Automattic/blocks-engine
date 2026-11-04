@@ -9,10 +9,11 @@ $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
 };
 $routes = array('index' => 'Home', 'about' => 'About', 'visit' => 'Visit');
+foreach (array('', ';color:#333;text-decoration:none') as $titlePresentation) {
 foreach (array('site-title', 'brand-x') as $titleClass) {
 foreach (array(true, false) as $homeLinked) {
 foreach (array(true, false) as $paragraph) {
-$cell = "$titleClass / home linked=" . (int) $homeLinked . " / paragraph=" . (int) $paragraph;
+$cell = "$titleClass$titlePresentation / home linked=" . (int) $homeLinked . " / paragraph=" . (int) $paragraph;
 $files = array();
 foreach ($routes as $current => $title) {
     $wordmark = 'Garden Studio';
@@ -23,7 +24,7 @@ foreach ($routes as $current => $title) {
     foreach ($routes as $slug => $label) {
         $links .= '<li><a class="menu-link' . ($slug === $current ? ' is-active-menu-item' : '') . '" href="' . $slug . '.html">' . $label . '</a></li>';
     }
-    $files[$current . '.html'] = '<!doctype html><html><head><title>' . $title . '</title><style>.' . $titleClass . '{font-size:24px;font-weight:700;margin:0}.menu-link{color:#123456}.is-active-menu-item{color:#abcdef;text-decoration:underline}</style></head><body><header><div class="logo">' . $wordmark . '</div><nav><ul>' . $links . '</ul></nav></header><main><h2>' . $title . '</h2><p>Content for ' . $title . '</p></main></body></html>';
+    $files[$current . '.html'] = '<!doctype html><html><head><title>' . $title . '</title><style>.' . $titleClass . '{font-size:24px;font-weight:700;margin:0' . $titlePresentation . '}.menu-link{color:#123456}.is-active-menu-item{color:#abcdef;text-decoration:underline}</style></head><body><header><div class="logo">' . $wordmark . '</div><nav><ul>' . $links . '</ul></nav></header><main><h2>' . $title . '</h2><p>Content for ' . $title . '</p></main></body></html>';
 }
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];
 $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === $part['area']));
@@ -45,12 +46,22 @@ foreach ($plan['pages'] as $page) {
 }
 }
 }
+}
 // A different wordmark is different chrome, not another title level.
 $distinctFiles = $files;
 $distinctFiles['index.html'] = str_replace('Garden Studio', 'Meadow Studio', $distinctFiles['index.html']);
 $distinct = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $distinctFiles))->toWordPressSitePlanView()['wordpress_site_plan'];
 $distinctHeaders = array_values(array_filter($distinct['template_parts'], static fn(array $part): bool => 'header' === $part['area']));
 $assert(1 === count($distinctHeaders) && !str_contains($distinctHeaders[0]['canonical_block_markup'], 'Meadow Studio'), 'The unique wordmark must not merge or become a single-use part.');
+foreach (array('color:#933', 'font-size:32px') as $difference) {
+    $differentFiles = $files;
+    $differentFiles['index.html'] = str_replace('</style>', 'h1.' . $titleClass . '{' . $difference . '}</style>', $differentFiles['index.html']);
+    $different = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $differentFiles))->toWordPressSitePlanView()['wordpress_site_plan'];
+    $differentHeaders = array_values(array_filter($different['template_parts'], static fn(array $part): bool => 'header' === $part['area']));
+    $assert(1 === count($differentHeaders) && !str_contains($differentHeaders[0]['canonical_block_markup'], '<h1'), 'Different title presentation must not merge: ' . $difference);
+    $home = array_values(array_filter($different['pages'], static fn(array $page): bool => !empty($page['entrypoint'])))[0];
+    $assert(str_contains($home['canonical_block_markup'], '<header'), 'Different home presentation stays in content: ' . $difference);
+}
 $section = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<html><body><main><article><header><h1>Article title</h1></header><p>Article body</p></article></main></body></html>')))->toWordPressSitePlanView()['wordpress_site_plan'];
 $assert(str_contains($section['pages'][0]['canonical_block_markup'], '<header'), 'A single-page article header stays in content.');
 $assert(array() === array_filter($section['template_parts'], static fn(array $part): bool => 'header' === $part['area']), 'An article header is not site chrome.');
