@@ -1926,18 +1926,37 @@ final class NavigationToggleSuppressor
             return true;
         };
 
+        $isMenuBoundary = static fn (float $width): bool => $menuHiddenAt($width) && ! $menuHiddenAt($width + 1.0);
+        $isToggleBoundary = fn (float $width): bool => ! $hiddenAt($togglePath, $width) && $hiddenAt($togglePath, $width + 1.0);
+
+        return $this->lowestBoundaryWithinPixel($candidates, $isMenuBoundary)
+            ?? $this->lowestBoundaryWithinPixel($candidates, $isToggleBoundary);
+    }
+
+    /**
+     * The widest candidate satisfying the test, lowered to the narrowest
+     * satisfying candidate less than 1px below it. A rule that applies on only
+     * some routes (a current-item state) adds a fractional candidate beside the
+     * shared boundary; both name the same switch, so the boundary stays the
+     * same for every route rendering the same menu.
+     *
+     * @param array<int, float> $candidates Descending widths.
+     */
+    private function lowestBoundaryWithinPixel(array $candidates, callable $isBoundary): ?float
+    {
+        $found = null;
+        $widest = null;
         foreach ( $candidates as $width ) {
-            if ( $menuHiddenAt($width) && ! $menuHiddenAt($width + 1.0) ) {
-                return $width;
+            if ( null !== $widest && $widest - $width >= 1.0 ) {
+                break;
             }
-        }
-        foreach ( $candidates as $width ) {
-            if ( ! $hiddenAt($togglePath, $width) && $hiddenAt($togglePath, $width + 1.0) ) {
-                return $width;
+            if ( $isBoundary($width) ) {
+                $widest ??= $width;
+                $found = $width;
             }
         }
 
-        return null;
+        return $found;
     }
 
     private function hasDefaultViewportVisibleNavigationTwin(DOMElement $control): bool
