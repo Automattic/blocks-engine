@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\NavigationLabelNormalizer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RouteStateProjector;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
@@ -3397,6 +3398,13 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( '' !== $boxMarker ) {
                 $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' ' . $boxMarker);
             }
+        }
+
+        // Captures that marked this item current where its URL cannot say so:
+        // the runtime marks it current on exactly those routes.
+        $currentSources = json_decode($item->getAttribute(RouteStateProjector::CURRENT_SOURCES_ATTRIBUTE) ?: $anchor->getAttribute(RouteStateProjector::CURRENT_SOURCES_ATTRIBUTE), true);
+        if ( is_array($currentSources) && array() !== $currentSources ) {
+            $itemAttrs['metadata']['blocksEngineCurrentSources'] = array_values(array_filter($currentSources, 'is_string'));
         }
 
         if ( $isCurrentNavigationItem ) {

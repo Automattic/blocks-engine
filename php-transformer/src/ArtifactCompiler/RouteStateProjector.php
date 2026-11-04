@@ -57,6 +57,7 @@ final class RouteStateProjector
     public function project(array $files): array
     {
         $files = self::bindRetainedLabels($files);
+        $files = self::bindCurrentNavigationSources($files);
         $files = self::withRestingChrome($files);
         foreach ($files as &$file) {
             if ('html' !== ($file['kind'] ?? null) || ! is_string($file['content'] ?? null)) {
@@ -140,6 +141,85 @@ final class RouteStateProjector
         }
         foreach (array_keys($changed) as $index) $files[$index]['content'] = HtmlSerialization::documentHtml($documents[$index]);
         return $files;
+    }
+
+    public const CURRENT_SOURCES_ATTRIBUTE = 'data-blocks-engine-current-sources';
+
+    /**
+     * A navigation item the source marks current (a current-state class token
+     * or aria-current on the item or its own link) on some captures and at rest
+     * on others is route state. When its own link does not name exactly the
+     * captures that mark it (a URL-less dropdown toggle, a section parent that
+     * stays current on its child pages), the served URL cannot re-derive it, so
+     * every capture's copy of the item records the captures that marked it.
+     * An item is the same item across captures at the same position in the
+     * same-ordered navigation, with the same label.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private static function bindCurrentNavigationSources(array $files): array
+    {
+        $documents = array();
+        $items = array();
+        foreach ($files as $index => $file) {
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !str_contains($file['content'], '<nav')) continue;
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $previous = libxml_use_internal_errors(true);
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            libxml_clear_errors(); libxml_use_internal_errors($previous);
+            if (!$loaded) continue;
+            $documents[$index] = $document;
+            $xpath = new DOMXPath($document);
+            foreach ($xpath->query('//nav') ?: array() as $position => $navigation) {
+                if (!$navigation instanceof DOMElement) continue;
+                $root = (string) $navigation->getNodePath();
+                foreach ($xpath->query('.//li | .//a[not(ancestor::li)]', $navigation) ?: array() as $item) {
+                    if (!$item instanceof DOMElement) continue;
+                    $link = 'a' === strtolower($item->tagName) ? $item : null;
+                    $current = self::marksCurrent($item);
+                    foreach ($item->childNodes as $child) {
+                        if (!$child instanceof DOMElement || !in_array(strtolower($child->tagName), array('a', 'button'), true)) continue;
+                        $link ??= $child;
+                        $current = $current || self::marksCurrent($child);
+                    }
+                    if (null === $link) continue;
+                    $key = $position . substr((string) $item->getNodePath(), strlen($root)) . ':' . trim((string) preg_replace('/\s+/', ' ', $link->textContent));
+                    $items[$key][$index] = array('node' => $item, 'current' => $current, 'href' => trim($link->getAttribute('href')));
+                }
+            }
+        }
+        $route = static fn(string $path): string => trim((string) preg_replace('~(?:^|/)index(?:\.html?)?$|\.html?$~i', '', ArtifactPath::stripQueryAndFragment($path)), '/');
+        $changed = array();
+        foreach ($items as $rows) {
+            $current = array_keys(array_filter($rows, static fn(array $row): bool => $row['current']));
+            if (array() === $current || count($current) === count($rows)) continue;
+            $named = array();
+            foreach ($rows as $index => $row) {
+                $path = (string) ($files[$index]['path'] ?? '');
+                $href = $row['href'];
+                if ('' === $href || ArtifactPath::namesSection($href) || str_starts_with($href, '//') || preg_match('~^[a-z][a-z0-9+.-]*:~i', $href)) continue;
+                $target = str_starts_with($href, '/') ? ltrim($href, '/') : ArtifactPath::resolveRelativePath($href, $path);
+                if ($route($target) === $route($path)) $named[] = $index;
+            }
+            if ($named === $current) continue;
+            $sources = (string) json_encode(array_values(array_map(static fn(int $index): string => (string) ($files[$index]['path'] ?? ''), $current)), JSON_UNESCAPED_SLASHES);
+            foreach ($rows as $index => $row) {
+                $row['node']->setAttribute(self::CURRENT_SOURCES_ATTRIBUTE, $sources);
+                $changed[$index] = true;
+            }
+        }
+        foreach (array_keys($changed) as $index) {
+            $html = HtmlSerialization::documentHtml($documents[$index]);
+            if (is_string($html)) $files[$index]['content'] = $html;
+        }
+        return $files;
+    }
+
+    private static function marksCurrent(DOMElement $element): bool
+    {
+        return MenuVocabulary::containsCurrentStateToken($element->getAttribute('class'))
+            || ($element->hasAttribute('aria-current') && !in_array(strtolower(trim($element->getAttribute('aria-current'))), array('', 'false'), true));
     }
 
     private const CHROME_LANDMARKS = '//header | //footer | //*[@role="banner"] | //*[@role="contentinfo"]';
