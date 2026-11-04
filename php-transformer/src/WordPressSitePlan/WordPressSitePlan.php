@@ -5883,6 +5883,30 @@ PHP;
         return $module || '' === $type || in_array($type, array('module', 'text/javascript', 'application/javascript', 'text/ecmascript', 'application/ecmascript'), true);
     }
 
+    /**
+     * Served route of each source document a navigation item records as
+     * marking it current.
+     *
+     * @param array<int,array<string,mixed>> $documents
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<string,string>
+     */
+    private static function navigationCurrentSourceRoutes(array $documents, array $pages): array
+    {
+        $sources = array();
+        foreach ($documents as $document) {
+            preg_match_all('/"blocksEngineCurrentSources":(\[[^\]]*\])/', (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), $matches);
+            foreach ($matches[1] as $list) foreach ((array) json_decode($list, true) as $source) if (is_string($source)) $sources[$source] = true;
+        }
+        $routes = array();
+        foreach ($pages as $page) {
+            $source = (string) ($page['source_path'] ?? '');
+            if (isset($sources[$source]) && is_string($page['route']['path'] ?? null)) $routes[$source] = '/' . trim($page['route']['path'], '/');
+        }
+        ksort($routes, SORT_STRING);
+        return $routes;
+    }
+
     // A dynamic reference is a URL the script builds or assigns: an import, an
     // injected script, a `src` it sets, a URL it constructs. Inserting a node
     // (`appendChild`, `insertBefore`) names no URL: a copy button's scratch
@@ -6129,23 +6153,28 @@ PHP;
             // [aria-current] styling hook at render time.
             // Both native item blocks use the same URL resolution. A submenu's
             // descendants can already be current; inspect only its own first anchor.
+            // Where the source marked an item current on routes its URL does not
+            // name (a URL-less dropdown parent), the item records those source
+            // documents and that evidence decides; URL matching is the fallback.
+            $currentSourceRoutes = self::navigationCurrentSourceRoutes(array_merge($templates, $parts, $pages, $menus), $pages);
             foreach (array('navigation-link', 'navigation-submenu') as $navigationBlock) {
             $lines[] = "add_filter( 'render_block_core/{$navigationBlock}', static function ( string \$content, array \$block ): string {";
-            $lines[] = "    if ( ! preg_match( '/<a\\b[^>]*>/', \$content, \$anchor ) || str_contains( \$anchor[0], 'aria-current' ) ) return \$content;";
+            $lines[] = "    if ( ! preg_match( '/<(a|button)\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^>]*>/', \$content, \$anchor ) || str_contains( \$anchor[0], 'aria-current' ) ) return \$content;";
             $lines[] = "    \$current = str_contains( (string) ( \$block['attrs']['className'] ?? '' ), 'blocks-engine-current-navigation-item' );";
-            $lines[] = "    if ( ! \$current ) {";
-            $lines[] = "        \$url = is_string( \$block['attrs']['url'] ?? null ) ? trim( (string) \$block['attrs']['url'] ) : '';";
-            $lines[] = "        if ( '' !== \$url && '/' === \$url[0] && ( 1 === strlen( \$url ) || '/' !== \$url[1] ) ) {";
-            $lines[] = "            \$target = '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' );";
-            $lines[] = "            \$document = " . self::DOCUMENT_ID_EXPRESSION . ";";
-            $lines[] = "            \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
-            $lines[] = "            \$current = null !== \$served && \$target === \$served;";
-            $lines[] = "        }";
+            $lines[] = "    \$sources = \$block['attrs']['metadata']['blocksEngineCurrentSources'] ?? null;";
+            $lines[] = "    \$url = is_string( \$block['attrs']['url'] ?? null ) ? trim( (string) \$block['attrs']['url'] ) : '';";
+            $lines[] = "    if ( ! \$current && ( is_array( \$sources ) || ( '' !== \$url && '/' === \$url[0] && ( 1 === strlen( \$url ) || '/' !== \$url[1] ) ) ) ) {";
+            $lines[] = "        \$document = " . self::DOCUMENT_ID_EXPRESSION . ";";
+            $lines[] = "        \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
+            $lines[] = "        \$routes = array( " . implode(', ', array_map(static fn(string $source, string $route): string => var_export($source, true) . ' => ' . var_export($route, true), array_keys($currentSourceRoutes), $currentSourceRoutes)) . " );";
+            $lines[] = "        \$current = null !== \$served && ( is_array( \$sources ) ? in_array( \$served, array_map( static fn ( \$source ) => is_string( \$source ) ? ( \$routes[ \$source ] ?? null ) : null, \$sources ), true ) : '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' ) === \$served );";
             $lines[] = "    }";
             $lines[] = "    if ( ! \$current ) return \$content;";
             if ('navigation-submenu' === $navigationBlock) {
                 // Only the outer item is current, never a descendant or ancestor.
                 $lines[] = "    \$content = preg_replace_callback( '/^<li\\b[^>]*\\bclass=\"([^\"]*)\"/', static function ( array \$match ): string { return in_array( 'current-menu-item', preg_split( '/\\s+/', \$match[1] ), true ) ? \$match[0] : substr( \$match[0], 0, -1 ) . ' current-menu-item\"'; }, \$content, 1 ) ?? \$content;";
+                // A URL-less toggle is the current section, not a link to the page.
+                $lines[] = "    if ( 'a' !== \$anchor[1] || '' === \$url || '#' === \$url[0] ) return \$content;";
             }
             $lines[] = "    return preg_replace( '/(<a\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^\"]*\")/', '\$1 aria-current=\"page\"', \$content, 1 ) ?? \$content;";
             $lines[] = "}, 10, 2 );";
