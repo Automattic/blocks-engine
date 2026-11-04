@@ -108,6 +108,26 @@ final class NavigationBlockNormalizer
         return $this->wrapperHiddenAtCollapsedViewport($kept) && ! $this->wrapperHiddenAtCollapsedViewport($duplicate);
     }
 
+    /**
+     * A copy that took over a source menu toggle's slot opens the menu through
+     * Core's overlay. A kept copy that never collapses has no opener, so it
+     * cannot stand in for that control.
+     *
+     * @param array<string, mixed> $kept
+     * @param array<string, mixed> $duplicate
+     */
+    private function opensWhereKeptCopyCannot(array $kept, array $duplicate): bool
+    {
+        $classNames = preg_split('/\s+/', (string) ($duplicate['attrs']['className'] ?? '')) ?: array();
+
+        return 'never' === ($kept['attrs']['overlayMenu'] ?? 'mobile')
+            && in_array($duplicate['attrs']['overlayMenu'] ?? 'mobile', array( 'mobile', 'always' ), true)
+            && in_array(self::NATIVE_RESPONSIVE_NAVIGATION_CLASS, $classNames, true);
+    }
+
+    /** Marks a core/navigation that replaces a source menu toggle in its slot. */
+    private const NATIVE_RESPONSIVE_NAVIGATION_CLASS = 'blocks-engine-native-responsive-navigation';
+
     /** @param array<string, mixed> $block */
     private function wrapperHiddenAtCollapsedViewport(array $block): bool
     {
@@ -183,11 +203,15 @@ final class NavigationBlockNormalizer
                 if ( ! $preserveDisclosureNavigation && '' !== $signature && isset($seen[$signature])
                     && ( $this->isMobileDuplicate($block, $sourceProvenance) || $this->startsHidden($block, $sourceBaseHiddenStates) )
                     && ! $this->servesViewportKeptCopyCannot($seen[$signature], $block)
+                    && ! $this->opensWhereKeptCopyCannot($seen[$signature], $block)
                 ) {
                     continue;
                 }
                 if ( '' !== $signature && ! isset($seen[$signature]) ) {
-                    $seen[$signature] = array( '_source_provenance_id' => $block['_source_provenance_id'] ?? null );
+                    $seen[$signature] = array(
+                        '_source_provenance_id' => $block['_source_provenance_id'] ?? null,
+                        'attrs' => array( 'overlayMenu' => $block['attrs']['overlayMenu'] ?? 'mobile' ),
+                    );
                 }
             }
 
