@@ -857,6 +857,43 @@ final class CommerceFallbackReporter
             }
         }
         foreach ( array_slice(array_replace($regions, $optionRegions), 0, self::MAX_CANDIDATES) as $element ) {
+            $binding = $this->blockBinding(array(), 'commerce_add_to_cart_form', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element);
+            // A details column may be the smallest common ancestor without
+            // being a purchase-only wrapper. Anchor its contiguous control run,
+            // not the heading, price or prose alongside it.
+            $run = array();
+            $hasNonControl = false;
+            $containsCart = false;
+            $control = $this->recognizer->cartControlElement($element);
+            foreach ( $element->childNodes as $child ) {
+                if ( ! $child instanceof DOMElement ) {
+                    if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent) ) {
+                        $hasNonControl = true;
+                        if ( $containsCart ) break;
+                        $run = array();
+                    }
+                    continue;
+                }
+                $hasControl = $child === $control || null !== $this->recognizer->cartControlElement($child)
+                    || in_array(strtolower($child->tagName), array('select', 'input'), true)
+                    || $child->getElementsByTagName('select')->length > 0 || $child->getElementsByTagName('input')->length > 0;
+                if ( ! $hasControl ) {
+                    $hasNonControl = true;
+                    if ( $containsCart ) {
+                        break;
+                    }
+                    $run = array();
+                    continue;
+                }
+                $run[] = $child;
+                $containsCart = $containsCart || $child === $control || null !== $this->recognizer->cartControlElement($child);
+            }
+            if ( $hasNonControl && $containsCart && array() !== $run ) {
+                $binding['_binding_control_run_selectors'] = array_map(
+                    static fn (DOMElement $child): string => SourceDom::elementSelector($child),
+                    $run
+                );
+            }
             $fallbacks[] = FallbackDiagnostic::build(array(
                 'type' => 'html',
                 'reason' => 'commerce_controls_require_runtime',
@@ -867,7 +904,7 @@ final class CommerceFallbackReporter
                 'tag' => strtolower($element->tagName),
                 'selector' => SourceDom::elementSelector($element),
                 'context' => $this->sourceContext($element),
-                'binding' => $this->blockBinding(array(), 'commerce_add_to_cart_form', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element),
+                'binding' => $binding,
             ), $this->provenance->fallback());
         }
     }

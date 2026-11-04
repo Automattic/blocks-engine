@@ -1829,6 +1829,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $readableMarkup .= $this->runtime->serializeBlocks(self::withoutDefaultCommentAttributes($fallback['readable_blocks']));
             }
         }
+        $this->anchorPurchaseControlRuns($blocks, $fallbacks);
         $serializedBlocks = $this->runtime->serializeBlocks(self::withoutDefaultCommentAttributes($blocks));
         $this->finalizeFallbackBindings($fallbacks, $blocks, $serializedBlocks);
         $reusableComponentRecognition = $this->reusableComponents()->report($this->materializedAssets()->assets());
@@ -9191,6 +9192,52 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $binding;
     }
 
+    /** Group only qualified purchase control runs, without changing source qualification. */
+    private function anchorPurchaseControlRuns(array &$blocks, array &$fallbacks): void
+    {
+        $provenanceIndexes = array();
+        $index = 0;
+        $this->bindingProvenanceIndexes($blocks, $provenanceIndexes, $index);
+        $anchors = $this->bindingAnchorSelectorIndexes($provenanceIndexes);
+        $index = 0;
+        $this->sourceAnchorSelectorIndexes($blocks, $anchors, $index);
+        $runs = array();
+        foreach ( $fallbacks as &$fallback ) {
+            $selectors = $fallback['binding']['_binding_control_run_selectors'] ?? null;
+            if ( ! is_array($selectors) ) continue;
+            $indexes = array_map(static fn (string $selector): ?int => $anchors[$selector] ?? null, $selectors);
+            unset($fallback['binding']['_binding_control_run_selectors']);
+            if ( in_array(null, $indexes, true) ) {
+                $fallback['binding'] = array();
+                continue;
+            }
+            $selector = count($indexes) > 1 ? 'purchase-control-run:' . $selectors[0] : $selectors[0];
+            $fallback['binding']['_binding_anchor_selector'] = $selector;
+            $runs[$indexes[0]] = array('end' => $indexes[count($indexes) - 1], 'selector' => $selector);
+        }
+        unset($fallback);
+        $index = 0;
+        $walk = function (array &$siblings) use (&$walk, &$index, $runs): void {
+            $positions = array();
+            foreach ( $siblings as &$block ) {
+                $positions[] = $index++;
+                if ( is_array($block['innerBlocks'] ?? null) ) $walk($block['innerBlocks']);
+            }
+            unset($block);
+            for ( $start = count($siblings) - 1; $start >= 0; --$start ) {
+                $run = $runs[$positions[$start]] ?? null;
+                if ( null === $run ) continue;
+                $end = array_search($run['end'], $positions, true);
+                if ( false === $end || $end < $start ) continue;
+                if ( $end === $start ) continue;
+                $group = $this->createBlock('core/group', array('layout' => array('type' => 'default')), array_slice($siblings, $start, $end - $start + 1));
+                $group['_source_anchor_selector'] = $run['selector'];
+                array_splice($siblings, $start, $end - $start + 1, array($group));
+            }
+        };
+        $walk($blocks);
+    }
+
     /** @param array<int,array<string,mixed>> $fallbacks @param array<int,array<string,mixed>> $blocks */
     private function finalizeFallbackBindings(array &$fallbacks, array $blocks, string $markup): void
     {
@@ -9218,7 +9265,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             } else {
                 $binding = array();
             }
-            unset($binding['_binding_provenance_id'], $binding['_binding_anchor_selector']);
+            unset($binding['_binding_provenance_id'], $binding['_binding_anchor_selector'], $binding['_binding_control_run_selectors']);
         };
         foreach ( $fallbacks as &$fallback ) {
             if (is_array($fallback['binding'] ?? null)) $finalize($fallback['binding']);
