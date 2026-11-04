@@ -299,10 +299,23 @@ JS;
         // style the source gave it open, as the capture runtime did.
         var resting = JSON.parse( dialog.getAttribute( 'data-blocks-engine-resting-state' ) || 'null' );
         var panel = resting && resting.closed && resting.opened ? dialog.firstElementChild : null;
+        // Core navigation repeats the source wrapper classes and anchor on its
+        // inner list. Each copy is subject to the same authored closed rule.
+        var panels = panel ? [ panel ] : [];
+        if ( panel ) {
+            var sourceClasses = tokens( resting.closed[ 'class' ] );
+            Array.from( panel.querySelectorAll( '*' ) ).forEach( function( node ) {
+                var sameAnchor = panel.id && node.id === panel.id;
+                if ( sameAnchor || ( sourceClasses.length && sourceClasses.every( function( token ) { return node.classList.contains( token ); } ) ) ) panels.push( node );
+                // Keep the source anchor on the outermost rendered element.
+                if ( sameAnchor ) node.removeAttribute( 'id' );
+            } );
+        }
+        function replayPanels( from, to ) { panels.forEach( function( node ) { replay( node, from, to ); } ); }
         function expanded( value ) { if ( dropdown ) triggers.forEach( function( trigger ) { control( trigger ).setAttribute( 'aria-expanded', value ? 'true' : 'false' ); } ); }
         function close() { expanded( false ); if ( dialog.close ) dialog.close(); else { dialog.removeAttribute( 'open' ); dialog.dispatchEvent( new Event( 'close' ) ); } }
         expanded( false );
-        dialog.addEventListener( 'close', function() { expanded( false ); if ( panel ) replay( panel, resting.opened, resting.closed ); } );
+        dialog.addEventListener( 'close', function() { expanded( false ); if ( panel ) replayPanels( resting.opened, resting.closed ); } );
         if ( dropdown ) document.addEventListener( 'keydown', function( event ) {
             if ( 'Escape' !== event.key || ! dialog.hasAttribute( 'open' ) ) return;
             event.preventDefault();
@@ -336,7 +349,7 @@ JS;
                 opener = trigger;
                 applyBindings( dialog, bindings[ triggers.indexOf( trigger ) ] );
                 if ( 'under-header' === dialog.getAttribute( 'data-blocks-engine-placement' ) ) placeDropdown( dialog, trigger );
-                if ( panel ) replay( panel, resting.closed, resting.opened );
+                if ( panel ) replayPanels( resting.closed, resting.opened );
                 if ( dialog.show ) dialog.show(); else dialog.setAttribute( 'open', '' );
                 expanded( true );
                 return;

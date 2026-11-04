@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialo
 
 // Projected Breakdance-style header: the resting snapshot describes the list,
 // not its display:contents dialog wrapper. Search must not borrow this list.
-$css = 'body{margin:0}.breakdance-menu-list{display:none;visibility:hidden;position:absolute;top:93px;left:0;width:390px;margin:0;padding:0;list-style:none;flex-direction:column;gap:0}.breakdance-menu-list.is-visible{visibility:visible}.breakdance-menu-list a{display:block;height:55px;width:390px}.search-form__lightbox{visibility:hidden;position:fixed;inset:0}.search-form__lightbox.is-visible{visibility:visible}.search-form__field{position:absolute;left:92px;top:374px;width:258px;height:52px;box-sizing:border-box}#menuBtn{position:absolute;left:40px;top:38px;width:47px;height:43px}#searchBtn{position:absolute;left:313px;top:33px;width:52px;height:52px}';
+$css = 'body{margin:0}.breakdance-menu-list{display:none;visibility:hidden;position:absolute;top:93px;left:0;width:390px;margin:0;padding:0;list-style:none;flex-direction:column;gap:0}.breakdance-menu-list.is-visible{visibility:visible}.breakdance-menu-list:not(.is-visible):not(.is-collapsing){height:0;overflow:hidden;pointer-events:none;visibility:hidden}.breakdance-menu-list .wp-block-navigation__container{position:static}.breakdance-menu-list a{display:block;height:55px;width:390px}.search-form__lightbox{visibility:hidden;position:fixed;inset:0}.search-form__lightbox.is-visible{visibility:visible}.search-form__field{position:absolute;left:92px;top:374px;width:258px;height:52px;box-sizing:border-box}#menuBtn{position:absolute;left:40px;top:38px;width:47px;height:43px}#searchBtn{position:absolute;left:313px;top:33px;width:52px;height:52px}';
 $state = static fn(string $class): string => htmlspecialchars(json_encode(array('closed' => array('class' => $class, 'style' => 'display:none'), 'opened' => array('class' => $class . ' is-visible', 'style' => 'display:flex;visibility:visible !important;'))), ENT_QUOTES);
 $links = '';
 for ($i = 1; $i <= 7; ++$i) $links .= '<li><a href="/page-' . $i . '">Link ' . $i . '</a></li>';
@@ -16,7 +16,7 @@ $html = '<html><head><style>' . $css . '</style></head><body><header>'
     . '<button id="menuBtn" class="menu-toggle" aria-label="Menu" aria-controls="menuDialog" aria-haspopup="menu" aria-expanded="false">Menu</button>'
     . '<div id="menuDialog" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="menuBtn" data-blocks-engine-presentation="dropdown" data-blocks-engine-placement="in-place" data-blocks-engine-resting="authored" data-blocks-engine-resting-state="' . $state('breakdance-menu-list') . '"><ul id="authoredList" class="breakdance-menu-list" style="display:none">' . $links . '</ul></div>'
     . '<button id="searchBtn" class="search-form__button--full-screen js-search-form-expand-button" aria-label="Search" aria-controls="searchDialog" aria-haspopup="dialog" aria-expanded="false"><span></span></button>'
-    . '<div id="searchDialog" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="searchBtn" data-blocks-engine-presentation="dropdown" data-blocks-engine-placement="in-place" data-blocks-engine-resting="authored" data-blocks-engine-resting-state="' . $state('search-form__lightbox') . '"><div class="search-form__lightbox"><form role="search"><input class="search-form__field js-search-form-field" type="search" name="s"></form></div></div>'
+    . '<div id="searchDialog" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="searchBtn" data-blocks-engine-presentation="dropdown" data-blocks-engine-placement="in-place" data-blocks-engine-resting="authored" data-blocks-engine-resting-state="' . $state('search-form__lightbox') . '"><div class="search-form__lightbox"><form role="search"><input class="search-form__field js-search-form-field" type="search" name="s"></form><button id="searchClose" aria-label="Close search" data-blocks-engine-dialog-close="true">×</button></div></div>'
     . '<button class="menu-toggle" aria-label="Other menu" aria-controls="authoredList" aria-expanded="false"><span></span></button>'
     . '</header><main><h1>Home</h1></main></body></html>';
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'content' => $html))))->toArray();
@@ -30,10 +30,10 @@ foreach (array('menuDialog' => 'Link 7', 'searchDialog' => 'wp:search') as $id =
 if (str_contains($markup, 'blocks-engine-native-responsive-navigation')) $failures[] = 'Captured controls must not become Core overlay openers';
 $definition = (new CapturedDialogBlockGenerator())->definition('custom/captured-dialog');
 $browserMarkup = \Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($markup);
-// The static parity renderer duplicates navigation host classes on the UL and
-// omits dynamic core/search. Supply Core's frontend shape for these two blocks.
-$browserMarkup = preg_replace('/<ul class="wp-block-navigation__container[^"]*">/', '<ul class="wp-block-navigation__container" style="display:contents">', $browserMarkup);
-$browserMarkup = str_replace('<div class="wp-block-group search-form__lightbox"></div>', '<div class="wp-block-group search-form__lightbox"><form role="search"><input type="search" class="search-form__field" name="s"></form></div>', $browserMarkup);
+// Model Core's duplicated source anchor as well as its duplicated classes.
+// Keep the closed-state selector active on the inner list (no class stripping).
+$browserMarkup = preg_replace('/<ul class="wp-block-navigation__container([^"]*)">/', '<ul id="authoredList" class="wp-block-navigation__container$1">', $browserMarkup);
+$browserMarkup = str_replace('<div class="wp-block-group search-form__lightbox">', '<div class="wp-block-group search-form__lightbox"><form role="search"><input type="search" class="search-form__field" name="s"></form>', $browserMarkup);
 file_put_contents(sys_get_temp_dir() . '/captured-header-panel-ownership.json', json_encode(array('markup' => $browserMarkup, 'css' => $css . $definition['assets']['style.css'], 'script' => $definition['view_js'])));
 foreach ($failures as $failure) fwrite(STDERR, 'FAIL: ' . $failure . PHP_EOL);
 exit(array() === $failures ? 0 : 1);

@@ -367,6 +367,12 @@ final class SearchBlockConverter
 
     public function isReplacedSearchClusterControl(DOMElement $control): bool
     {
+        // An adopted lightbox still needs its own opener and close control;
+        // the editable search form replaces only the form, not its disclosure.
+        if ( SourceDom::isBoundCapturedDialogTrigger($control) || SourceDom::isBoundCapturedDialogCloser($control) ) {
+            return false;
+        }
+
         if ( $this->isAdjacentSearchTriggerControl($control) ) {
             $formContainer = $this->previousElementSibling($control);
             return $formContainer instanceof DOMElement && $this->containsNativeSearchForm($formContainer);

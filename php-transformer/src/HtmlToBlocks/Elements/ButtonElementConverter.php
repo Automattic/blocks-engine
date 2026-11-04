@@ -23,9 +23,9 @@ final class ButtonElementConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
 
-        // Relative trigger-state selectors require the authored child tree;
-        // core/button's rich-text label is not a substitute for that tree.
-        if ( $element->hasAttribute(CaptureEvidence::DIALOG_TRIGGER_STATE) && SourceDom::isBoundCapturedDialogTrigger($element) ) {
+        // Bound dialog controls retain their native tree and source geometry,
+        // even when an adjacent search form would otherwise replace them.
+        if ( SourceDom::isBoundCapturedDialogTrigger($element) && ( $element->hasAttribute(CaptureEvidence::DIALOG_TRIGGER_STATE) || '' === trim($element->textContent) ) ) {
             return ConversionOutcome::handled($this->context->runtimeButton($element));
         }
 
