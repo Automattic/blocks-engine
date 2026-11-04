@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonAnchorPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPattern;
@@ -39,6 +40,14 @@ final class ButtonLinkDispatcher
      */
     public function convertAnchor(DOMElement $element, array &$fallbacks): ?array
     {
+        // Keep captured dialog anchors editable while retaining the attributes
+        // the disclosure runtime uses to find and operate the trigger.
+        if (AuthoredButtonBlockGenerator::isCapturedDialogTriggerAnchor($element)
+            && AuthoredButtonBlockGenerator::canRetainRoleButton($element)) {
+            $button = $this->context->runtimeAuthoredButton($element);
+            if (null !== $button) return $button;
+        }
+
         $button = $this->context->recognizePatterns($element, $fallbacks, array( ButtonAnchorPattern::class ));
         if ( null !== $button ) {
             return $button;

@@ -22,7 +22,18 @@ final class AuthoredButtonBlockGenerator
     public static function isRoleButton(DOMElement $element): bool
     {
         return in_array(strtolower($element->tagName), array('div', 'span'), true)
-            && ('button' === strtolower(trim(SourceDom::attr($element, 'role'))) || self::isCapturedGalleryDirectionControl($element));
+            ? ('button' === strtolower(trim(SourceDom::attr($element, 'role'))) || self::isCapturedGalleryDirectionControl($element))
+            : self::isCapturedDialogTriggerAnchor($element);
+    }
+
+    /** A captured dialog trigger anchor is a button only when its two bindings agree. */
+    public static function isCapturedDialogTriggerAnchor(DOMElement $element): bool
+    {
+        $key = trim(SourceDom::attr($element, CaptureEvidence::DIALOG_TRIGGER));
+        return 'a' === strtolower($element->tagName)
+            && 'button' === strtolower(trim(SourceDom::attr($element, 'role')))
+            && '' !== $key
+            && $key === trim(SourceDom::attr($element, 'aria-controls'));
     }
 
     /**
@@ -151,8 +162,8 @@ final class AuthoredButtonBlockGenerator
     function sourceAttributes( attrs ) { return ( Array.isArray( attrs.sourceAttributes ) ? attrs.sourceAttributes : [] ).filter( function( item ) { return item && isSourceAttributeName( String( item.name || '' ) ); } ).sort( function( a, b ) { return String( a.name ).localeCompare( String( b.name ) ); } ); }
     function labelWrappers( attrs ) { return ( Array.isArray( attrs.labelWrappers ) ? attrs.labelWrappers : [] ).slice( 0, 16 ).filter( function( wrapper ) { return wrapper && labelTags.indexOf( String( wrapper.tagName || '' ).toLowerCase() ) !== -1; } ); }
     function labelProps( wrapper ) { var props = {}; Object.keys( wrapper.attributes || {} ).forEach( function( name ) { if ( /^(?:class|id|style|data-(?!wp-)[a-z0-9_.:-]+)$/.test( name ) ) props[ name ] = String( wrapper.attributes[ name ] ); } ); return props; }
-    function isSourceAttributeName( name ) { return /^(?:role|tabindex|hidden|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/.test( name ) && name !== 'data-action' && name !== 'jsaction'; }
-    function rootTag( attrs ) { var tag = String( attrs.tagName || 'button' ).toLowerCase(); return [ 'div', 'span' ].indexOf( tag ) !== -1 && sourceAttributes( attrs ).some( function( item ) { return item.name === 'role' && String( item.value ).toLowerCase() === 'button'; } ) ? tag : 'button'; }
+    function isSourceAttributeName( name ) { return /^(?:href|role|tabindex|hidden|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/.test( name ) && name !== 'data-action' && name !== 'jsaction'; }
+    function rootTag( attrs ) { var tag = String( attrs.tagName || 'button' ).toLowerCase(); return [ 'div', 'span', 'a' ].indexOf( tag ) !== -1 && sourceAttributes( attrs ).some( function( item ) { return item.name === 'role' && String( item.value ).toLowerCase() === 'button'; } ) ? tag : 'button'; }
     function sourceAttributeMarkup( attrs ) { var output = ''; sourceAttributes( attrs ).forEach( function( item ) { output += ' ' + item.name + '="' + escapeAttribute( item.value ) + '"'; } ); return output; }
     function contentParts( attrs ) { return ( Array.isArray( attrs.contentParts ) ? attrs.contentParts : [] ).slice( 0, 32 ); }
     function labelMarkup( attrs ) { return labelWrappers( attrs ).reverse().reduce( function( content, wrapper ) { var tag = String( wrapper.tagName ).toLowerCase(); var props = labelProps( wrapper ); var opening = '<' + tag; Object.keys( props ).forEach( function( name ) { opening += ' ' + name + '="' + escapeAttribute( props[ name ] ) + '"'; } ); return opening + '>' + content + '</' + tag + '>'; }, escapeAttribute( attrs.text ) ); }
@@ -224,7 +235,7 @@ JS;
         $rootTag = strtolower((string) ($attrs['tagName'] ?? 'button'));
         $source = $this->sourceAttributes($attrs);
         $isRoleButton = (bool) array_filter($source, static fn(array $attribute): bool => 'role' === $attribute['name'] && 'button' === strtolower($attribute['value']));
-        if (!in_array($rootTag, array('div', 'span'), true) || !$isRoleButton) $rootTag = 'button';
+        if (!in_array($rootTag, array('div', 'span', 'a'), true) || !$isRoleButton) $rootTag = 'button';
         $markup = '<' . $rootTag . ('button' === $rootTag ? ' type="' . $escape($type) . '"' : '');
         foreach ( array( 'id', 'name', 'ariaLabel' ) as $key ) {
             $value = (string) ($attrs[$key] ?? '');
@@ -339,7 +350,7 @@ JS;
 
     public static function isSourceAttributeName(string $name): bool
     {
-        return 1 === preg_match('/^(?:role|tabindex|hidden|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/', $name)
+        return 1 === preg_match('/^(?:href|role|tabindex|hidden|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/', $name)
             && ! in_array($name, array( 'data-action', 'jsaction' ), true);
     }
 

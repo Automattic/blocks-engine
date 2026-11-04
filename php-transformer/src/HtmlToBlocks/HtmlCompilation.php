@@ -1282,7 +1282,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->runtimeIslands,
             $this->formRuntimeIslandRecorder,
             $this,
-            $this->runtime
+            $this->runtime,
+            fn (DOMElement $element): array => $this->runtimeAuthoredButton($element)
         );
     }
 
