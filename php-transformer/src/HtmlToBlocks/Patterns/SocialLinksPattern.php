@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAtt
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMElement;
 
 /** Lowers explicit social-profile clusters to the core social-links family. */
@@ -94,6 +95,62 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 if (1 === count($itemAnchors) && $this->hasOnlyChild($child, $itemAnchors[0])) continue;
             }
             return null;
+        }
+
+        // Core's filled service glyph cannot reproduce different geometry.
+        // Keep those links as live inline
+        // SVG, not an isolated image (which would freeze currentColor).
+        $sourceArtwork = false;
+        $capturedPaint = array();
+        foreach ($anchors as $anchor) {
+            foreach ($anchor->getElementsByTagName('svg') as $svg) {
+                $hasArtwork = false;
+                foreach ($svg->childNodes as $child) {
+                    if ($child instanceof DOMElement && !in_array(strtolower($child->tagName), array('title', 'desc'), true)) $hasArtwork = true;
+                }
+                if (!$hasArtwork) continue;
+                $color = $context->capturedGlyphColor($svg);
+                $service = self::serviceForUrl($anchor->getAttribute('href')) ?? $this->serviceFromLabel($anchor->getAttribute('aria-label'));
+                if (!$this->matchesCoreArtwork($svg, $service)) {
+                    $sourceArtwork = true;
+                }
+                // Never freeze authored currentColor: it must keep responding
+                // to hover/focus. Capture paint is only a missing-paint fallback.
+                if ('' !== $color && $color !== $this->concreteColor($context->authoredIconColor($anchor)) && !preg_match('/currentcolor/i', $svg->ownerDocument->saveHTML($svg) ?: '')) {
+                    $capturedPaint[] = array($svg, $color);
+                }
+            }
+        }
+        if ($sourceArtwork && !$this->hasNavigationAncestor($element) && null !== $context->markupContext() && null !== $context->buttonContext()) {
+            // The existing editable link companion retains inline artwork and
+            // its source selectors without a Custom HTML escape hatch.
+            foreach ($capturedPaint as [$svg, $color]) {
+                $svg->setAttribute('style', rtrim($svg->getAttribute('style'), "; \t\n\r") . ';fill:' . $color);
+            }
+            $artworkLinks = array();
+            foreach ($anchors as $anchor) {
+                $content = '';
+                foreach ($anchor->childNodes as $child) {
+                    if ($child instanceof DOMElement) {
+                        $content .= $context->markupContext()->safeFallbackHtml($child);
+                    } elseif ($child instanceof \DOMText) {
+                        $content .= htmlspecialchars($child->textContent, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                    }
+                }
+                $safeDocument = new \DOMDocument();
+                @$safeDocument->loadHTML('<?xml encoding="UTF-8">' . $context->markupContext()->safeFallbackHtml($anchor));
+                $safeAnchor = $safeDocument->getElementsByTagName('a')->item(0);
+                if (!$safeAnchor instanceof DOMElement) continue;
+                $link = $context->buttonContext()->accessibleNameCompanion($safeAnchor, $content, null, true, $anchor)->block();
+                $item = $this->structuralItem($anchor, $element);
+                if (!$item->isSameNode($anchor)) {
+                    $link = $context->createBlock('core/group', $context->presentationAttributes($item), array($link), $item);
+                }
+                $artworkLinks[] = $link;
+            }
+            $attrs = $context->presentationAttributes($element);
+            $attrs['layout'] ??= array('type' => 'flex', 'flexWrap' => 'wrap');
+            return new PatternRecognitionResult($context->createBlock('core/group', $attrs, $artworkLinks, $element));
         }
 
         $links = array();
@@ -196,6 +253,52 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-social-source-non-list');
         }
         return new PatternRecognitionResult($context->createBlock('core/social-links', $attrs, $links, $element));
+    }
+
+    /**
+     * Navigation and captured panels require editable native descendants. Keep
+     * their existing social-link conversion rather than introducing Custom HTML
+     * into a navigation tree, including mixed-content dropdown panels.
+     */
+    private function hasNavigationAncestor(DOMElement $element): bool
+    {
+        for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if ('nav' === strtolower($ancestor->tagName)
+                || 'navigation' === strtolower($ancestor->getAttribute('role'))
+                || $ancestor->hasAttribute(CaptureEvidence::DIALOG_PANEL)
+                || in_array(CaptureEvidence::DROPDOWN_CLASS, preg_split('/\s+/', $ancestor->getAttribute('class')) ?: array(), true)
+                || in_array(CaptureEvidence::DIALOG_CLASS, preg_split('/\s+/', $ancestor->getAttribute('class')) ?: array(), true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Core's icon snapshot is evidence of geometry parity, not URL identity. */
+    private function matchesCoreArtwork(DOMElement $svg, ?string $service): bool
+    {
+        static $icons = null;
+        $icons ??= json_decode((string) file_get_contents(dirname(__DIR__, 3) . '/resources/wordpress-social-link-icons.json'), true);
+        if (null === $service || !isset($icons[$service])) return false;
+        $core = new \DOMDocument();
+        $core->loadXML($icons[$service]);
+        $signature = static function (DOMElement $element): string {
+            $parts = array();
+            foreach ($element->getElementsByTagName('*') as $child) {
+                if (in_array(strtolower($child->tagName), array('title', 'desc'), true)) continue;
+                $attrs = array();
+                foreach ($child->attributes as $attr) {
+                    $attrs[$attr->name] = preg_replace('/[\s,]+/', '', $attr->value);
+                }
+                ksort($attrs);
+                $parts[] = array(strtolower($child->tagName), $attrs);
+            }
+            return json_encode($parts, JSON_THROW_ON_ERROR);
+        };
+        return 'none' !== strtolower($svg->getAttribute('fill'))
+            && '' === $svg->getAttribute('stroke')
+            && ($svg->getAttribute('viewBox') ?: $svg->getAttribute('viewbox')) === $core->documentElement->getAttribute('viewBox')
+            && $signature($svg) === $signature($core->documentElement);
     }
 
     /**
