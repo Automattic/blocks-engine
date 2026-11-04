@@ -241,6 +241,11 @@ final class ReadableFormBlockBuilder
             $ownsShell = ! $ownedLabel && ! $inFieldBox && ($isFieldset || $element->hasAttributes() || isset($graphNodes[$entry['id']]));
             $elements = array($element);
             $descendants = $children[$entry['id']] ?? array();
+            // A shell starting at a control's own frame (its caption level
+            // holds other content, such as an empty error slot) is that
+            // control's box: it takes the whole frame chain down to the
+            // control and is marked like the box the finding encloses.
+            $controlBox = $ownsShell && ! $isFieldset ? $this->controlBoxIndex($entry['id'], $element, $children) : null;
             // One layout-shell can retain a consecutive source wrapper chain.
             // Keeping each DOM wrapper as a separate block inflates form entity
             // nesting past the runtime declaration bound without adding editability.
@@ -255,7 +260,8 @@ final class ReadableFormBlockBuilder
                     $next = $descendants[0];
                     $nextElement = $next['element'];
                     $nextOwnedLabel = 'label' === strtolower($nextElement->tagName) && '' !== $this->metadataBuilder->labelText($nextElement);
-                    if ('fieldset' === strtolower($nextElement->tagName) || $nextOwnedLabel || (! $nextElement->hasAttributes() && ! isset($graphNodes[$next['id']]))) break;
+                    $nextIsFrame = null !== $controlBox && $this->isControlBoxFrame($controlBox, $nextElement);
+                    if ('fieldset' === strtolower($nextElement->tagName) || $nextOwnedLabel || (! $nextIsFrame && ! $nextElement->hasAttributes() && ! isset($graphNodes[$next['id']]))) break;
                     $elements[] = $nextElement;
                     $descendants = $children[$next['id']] ?? array();
                 }
@@ -287,6 +293,9 @@ final class ReadableFormBlockBuilder
                     $inner = array($this->withoutShelledFieldBox($inner[0], $elements));
                 }
                 $shell = ($this->layoutShellBlockForElements)($elements, $inner, $element);
+                if ( null !== $controlBox && 1 === count($inner) && $controlBox === ($inner[0]['form_control_index'] ?? null) && ! isset($inner[0]['_form_control_box']) ) {
+                    $shell['form_control_box'] = $controlBox;
+                }
                 foreach ($elements as $source) {
                     if ('true' === strtolower($source->getAttribute('data-blocks-engine-choice-group'))) {
                         $shell['_source_anchor_selector'] = SourceDom::elementSelector($source);
@@ -372,6 +381,34 @@ final class ReadableFormBlockBuilder
         $index = $this->controlIndices[(string) $control['element']->getNodePath()] ?? null;
         foreach ( array_merge($this->fieldBoxes[$index] ?? array(), $this->controlBoxes[$index] ?? array()) as $frame ) {
             if ( ! $frame->isSameNode($element) && $this->contains($frame, $element) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The index of the sole captioned control whose own box the element
+     * frames, or null. An uncaptioned control (a wrapped submit button) has
+     * no caption level to split its frames from: its wrappers stay the
+     * walk's plain shell.
+     *
+     * @param array<string, list<array<string, mixed>>> $children
+     */
+    private function controlBoxIndex(string $id, DOMElement $element, array $children): ?int
+    {
+        $control = $this->soleControlEntry($id, $children);
+        if ( null === $control || null === $this->metadataBuilder->labelElement($control['element']) ) {
+            return null;
+        }
+        $index = $this->controlIndices[(string) $control['element']->getNodePath()] ?? null;
+        return null !== $index && $this->isControlBoxFrame($index, $element) ? $index : null;
+    }
+
+    private function isControlBoxFrame(int $index, DOMElement $element): bool
+    {
+        foreach ( $this->controlBoxes[$index] ?? array() as $frame ) {
+            if ( $frame->isSameNode($element) ) {
                 return true;
             }
         }

@@ -137,6 +137,40 @@ foreach ([0, 1] as $index) {
     $assert(1 === count($enclosing['innerBlocks'] ?? []) && 'wrap' === ($wrapper['attributes']['class'] ?? ''), 'Control ' . $index . ' is enclosed alone by its own wrapper shell.');
     $assert($index === ($enclosing['form_control_box'] ?? null), 'Control ' . $index . "'s own wrapper shell is marked as its control box.");
 }
+// A control's own box beside an empty error slot: the field holds more than
+// caption and control, so the walk reaches the box's outer frame as its own
+// entry. That frame is still the control's box, marked once around just the
+// control, so a provider can present the border on its input, not its label.
+$slotHtml = '<html><head><style>.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.box{border:1px solid #000;border-radius:100px;height:44px}.entry{border:0;width:100%}</style></head><body><form><div class="grid">'
+    . '<div class="field"><label for="first" class="caption">First</label><div class="root"><div class="box"><input id="first" name="first" class="entry"></div></div><div class="error"></div></div>'
+    . '<div class="field"><label for="mail" class="caption">Email</label><div class="root"><div class="box"><input id="mail" type="email" name="mail" class="entry"></div></div><div class="error"></div></div>'
+    . '</div><div class="send"><button type="submit">Send</button></div><p class="note">We reply soon.</p></form></body></html>';
+$form = null;
+$find((new ArtifactCompiler())->compile(['entrypoint'=>'index.html','files'=>['index.html'=>$slotHtml]])->toArray());
+foreach ([0, 1] as $index) {
+    $enclosing = null;
+    $controlWalk = static function (array $blocks) use (&$controlWalk, &$enclosing, $index): void {
+        foreach ($blocks as $block) {
+            foreach ($block['innerBlocks'] ?? [] as $inner) {
+                if (($inner['form_control_index'] ?? null) === $index) $enclosing = $block;
+                $controlWalk([$inner]);
+            }
+        }
+    };
+    $controlWalk($form['readable_blocks'] ?? []);
+    $classes = array_map(static fn (array $wrapper): string => $wrapper['attributes']['class'] ?? '', $enclosing['attrs']['wrappers'] ?? []);
+    $assert(['root', 'box'] === $classes && 1 === count($enclosing['innerBlocks'] ?? []), 'Control ' . $index . ' beside an error slot is enclosed alone by its root > box frames.');
+    $assert($index === ($enclosing['form_control_box'] ?? null), 'Control ' . $index . "'s frames beside an error slot are marked as its control box.");
+}
+$marked = [];
+$markWalk = static function (array $blocks) use (&$markWalk, &$marked): void {
+    foreach ($blocks as $block) {
+        if (isset($block['form_control_box'])) $marked[] = $block['form_control_box'];
+        $markWalk($block['innerBlocks'] ?? []);
+    }
+};
+$markWalk($form['readable_blocks'] ?? []);
+$assert([0, 1] === $marked, 'Each captioned control is marked once; an uncaptioned submit wrapper stays a plain shell.');
 // Types without prose degradations still paint as native inputs, even unstyled.
 foreach (['date','time','datetime-local','month','week','color'] as $type) {
     $typed = (new ArtifactCompiler())->compile(['entrypoint'=>'index.html','files'=>['index.html'=>'<html><body><form><label>Value<input type="' . $type . '"></label><button type="submit">Send</button></form></body></html>']])->toArray();
