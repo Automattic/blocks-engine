@@ -5129,8 +5129,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         if ( $this->sourceElementClassifier->hasResponsiveImageSources($element) ) {
             // GalleryPattern probes child conversions before it knows whether it
-            // has enough images. Preserve the collection as one companion block.
-            return $this->sourceElementClassifier->hasGalleryMediaItems($element) ? $this->responsiveMediaBlock($element) : null;
+            // has enough images. Keep independent img srcsets out of the gallery
+            // recognizer, but let each image lower natively in its own group.
+            return $this->sourceElementClassifier->hasResponsiveMediaAlternatives($element)
+                && $this->sourceElementClassifier->hasGalleryMediaItems($element)
+                ? $this->responsiveMediaBlock($element) : null;
         }
 
         return $this->recognizePatterns($element, $fallbacks, array(GalleryPattern::class));

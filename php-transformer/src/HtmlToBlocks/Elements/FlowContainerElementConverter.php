@@ -127,7 +127,9 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->context->responsiveMediaBlock($element));
         }
 
-        if ( $this->context->hasResponsiveImageSources($element) && $this->context->hasGalleryMediaItems($element) ) {
+        // Sibling img srcsets describe independent images, not alternatives
+        // for one media unit. Responsive alternatives still own their carrier.
+        if ( $this->context->hasResponsiveMediaAlternatives($element) && $this->context->hasGalleryMediaItems($element) ) {
             return ConversionOutcome::handled($this->context->responsiveMediaBlock($element));
         }
         $block = $this->context->authoredCarouselBlock($element);
