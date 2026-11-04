@@ -307,15 +307,17 @@ $drawerCss = '.cs-menu-button{display:none}.cs-menu a{display:block}'
     . '.cs-menu-button{display:block;position:absolute;top:0;right:0;width:56px;height:56px}}';
 $drawerHtml = '<header class="cs-section"><a href="/">Logo</a><nav class="cs-menu" id="drawer-menu"><button class="cs-menu-button" aria-controls="drawer-menu" aria-expanded="false" aria-label="Menu">Menu</button><ul><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav></header>';
 $checkboxCss = '.cs-menu .cs-menu-button{display:none;padding:17px}.cs-menu-items{list-style:none;display:flex}'
+    . '.cs-ico-menu,.cs-ico-menu-close{width:22px;height:22px;fill:#f79122}.cs-ico-menu-close{display:none}'
+    . '.cs-menu-overlay{background:rgba(0,0,0,.5)}'
     . '@media only screen and (max-width:767px){'
     . '.cs-section .cs-menu{position:fixed;top:0;right:0;bottom:0;z-index:3}'
     . '.cs-section .cs-menu .cs-menu-button{z-index:2;background:#fff;cursor:pointer;display:block;height:56px;width:56px;position:absolute;top:0;right:0;transform:translate(0,0)}'
-    . '.cs-section .cs-menu .cs-menu-items{width:370px;transform:translateX(370px);will-change:transform}'
+    . '.cs-section .cs-menu .cs-menu-items{width:250px;background:rgba(255,255,255,.9);transform:translateX(250px);will-change:transform}'
     . '.cs-menu input:checked~.cs-menu-button{transform:translate(-250px,0)}}';
 $checkboxHtml = '<section class="cs-section"><div class="cs-box"><div class="cs-widgets"><div class="cs-widget cs-menu-widget">'
     . '<nav class="cs-menu cs-menu-theme-9 cs-menu-horizontal cs-menu-center" role="navigation" aria-label="Menu">'
     . '<input type="checkbox" name="cs-menu-control" id="cs-menu-control" aria-label="Menu">'
-    . '<label for="cs-menu-control" class="cs-menu-button"><svg viewBox="0 0 24 24" class="cs-ico-menu"><title>Menu</title><path d="M2 2h20v2H2z"/></svg></label>'
+    . '<label for="cs-menu-control" class="cs-menu-button"><svg viewBox="0 0 24 24" class="cs-ico-menu"><title>Menu</title><path d="M2 2h20v2H2z"/></svg><svg class="cs-ico-menu-close" viewBox="0 0 24 24"><title>Close</title><path d="M0 0L24 24"/></svg></label>'
     . '<label for="cs-menu-control" class="cs-menu-overlay"></label>'
     . '<ul class="cs-menu-items" role="menubar"><li><a href="/index.html">SOBRE</a></li><li><a href="/servicos/index.html">SERVIÇOS</a></li><li><a href="/contato/index.html">CONTATO</a></li></ul>'
     . '</nav></div></div></div></section>';
@@ -337,10 +339,39 @@ foreach ( $rules($drawerOutput) as [ $stack, $selector, $body ] ) {
             $drawerFixed = $declares($body, 'top:0px!important') && $declares($body, 'right:0px!important') && $declares($body, 'z-index:3!important');
             $assert($isCollapsedMedia($stack), $case . ': fixed placement is inside max-width media', $body);
         }
-    } elseif ( str_ends_with($selector, $drawerMarker) ) {
+    } elseif ( str_ends_with($selector, $drawerMarker) || str_ends_with($selector, $drawerMarker . ':not(.wp-block-navigation__container)') ) {
         $assert($isCollapsedMedia($stack), $case . ': host changes are collapsed-only', $body);
+        if ( $declares($body, 'position:absolute!important') ) {
+            // Core repeats host classes on the inner list; it keeps its box in the open overlay.
+            $assert(str_ends_with($selector, ':not(.wp-block-navigation__container)'), $case . ': out-of-flow host rule spares the inner list', $selector);
+        }
         $drawerEmpty = $drawerEmpty || ($declares($body, 'position:absolute!important') && $declares($body, 'height:0!important') && $declares($body, 'width:0!important'));
     }
+}
+if ('checkbox drawer ancestor' === $case) {
+    $assert(str_contains($drawerBlocks, 'blocksEngineNavigationOpener') && str_contains($drawerBlocks, 'M2 2h20v2H2z'), 'checkbox drawer: titled resting SVG becomes native artwork', $drawerBlocks);
+    $assert(!str_contains($drawerBlocks, 'M0 0L24 24'), 'checkbox drawer: hidden close artwork is not used for opener', $drawerBlocks);
+    $seenDrawer = false;
+    foreach ($rules($drawerOutput) as [$stack, $selector, $body]) {
+        if (!str_contains($selector, $drawerMarker) || str_contains($selector, 'editor-styles-wrapper')) continue;
+        if (str_ends_with($selector, '>.wp-block-navigation__responsive-container-open>svg')) {
+            $assert(str_contains($body, '22px') || str_contains($body, '#f79122'), 'checkbox drawer: source icon sizing or paint is carried', $body);
+            $assert($isCollapsedMedia($stack), 'checkbox drawer: icon styles remain collapsed-only');
+        }
+        if (str_contains($selector, '.is-menu-open') && str_ends_with($selector, '.wp-block-navigation__responsive-dialog')) {
+            $seenDrawer = true;
+            foreach (array('width:250px!important', 'right:0!important', 'background:rgba(255,255,255,.9)!important') as $declaration) {
+                $assert($declares($body, $declaration), 'checkbox drawer: open dialog retains ' . $declaration, $body);
+            }
+            $assert($isCollapsedMedia($stack), 'checkbox drawer: open geometry remains collapsed-only');
+        }
+    }
+    $assert($seenDrawer, 'checkbox drawer: native open dialog gets source side-drawer geometry', $drawerOutput);
+    $assert(str_contains($drawerOutput, 'background:rgba(0,0,0,.5)!important'), 'checkbox drawer: source dimming backdrop is retained', $drawerOutput);
+    $assert(str_contains($drawerOutput, 'flex-direction:column!important'), 'checkbox drawer: open links stack vertically', $drawerOutput);
+    // An unsized SVG fills its definite-width control, as in the source.
+    [ $unsizedBlocks, $unsizedOutput ] = $transform(str_replace('.cs-ico-menu,.cs-ico-menu-close{width:22px;height:22px;fill:#f79122}', '.cs-ico-menu,.cs-ico-menu-close{fill:#f79122}', $checkboxCss), $checkboxHtml);
+    $assert(str_contains($unsizedBlocks, 'blocksEngineNavigationOpener') && str_contains($unsizedOutput, 'width:100%!important;height:auto!important'), 'checkbox drawer: unsized SVG fills the source control', $unsizedOutput);
 }
 $assert($drawerFixed, $case . ': native opener retains viewport edge placement and drawer stacking', $drawerOutput);
 $assert($drawerEmpty, $case . ': collapsed host adds no layout row', $drawerOutput);
