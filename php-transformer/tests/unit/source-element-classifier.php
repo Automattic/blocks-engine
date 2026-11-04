@@ -159,6 +159,22 @@ $assert(
     'an icon beside a phrasing label stays on the native control path'
 );
 $assert(
+    $classifier->isImageCarrierButton($element('<button><img src="photo.webp" alt="Garden"><span>Garden</span></button>')),
+    'a descriptive inline image beside a caption is preserved as media content'
+);
+$assert(
+    ! $classifier->isImageCarrierButton($element('<button type="button"><img src="search.svg" width="16" height="16" alt="Search icon"> Search</button>')),
+    'a named icon beside a distinct label stays on the native control path'
+);
+$assert(
+    ! $classifier->isImageCarrierButton($element('<button><img src="search.svg" alt="Search icon"> Search</button>')),
+    'alt text alone does not make an unsized icon descriptive media'
+);
+$assert(
+    $classifier->isImageCarrierButton($element('<button><img src="photo.webp" alt="Garden path"><span> Garden   path </span></button>')),
+    'caption matching normalizes whitespace'
+);
+$assert(
     ! $classifier->isImageCarrierButton($element('<button>All 06</button>')),
     'a text-only button is not a carrier'
 );

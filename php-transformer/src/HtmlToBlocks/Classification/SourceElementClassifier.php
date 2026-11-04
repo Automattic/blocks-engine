@@ -658,8 +658,22 @@ final class SourceElementClassifier
             return false;
         }
 
-        return '' === $this->visibleTextContent($element)
-            || $this->hasBlockLevelDescendant($element);
+        if ( '' === $this->visibleTextContent($element) || $this->hasBlockLevelDescendant($element) ) {
+            return true;
+        }
+
+        // An image repeating the visible caption is descriptive media. A
+        // non-empty alt alone is not evidence: ordinary icon + label controls
+        // also name their icons. Keep those on the native button path.
+        $caption = $this->normalizedVisibleText($this->visibleTextContent($element));
+        foreach ( $element->getElementsByTagName('img') as $image ) {
+            $alt = $this->normalizedVisibleText(SourceDom::attr($image, 'alt'));
+            if ( '' !== $alt && $alt === $caption ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
