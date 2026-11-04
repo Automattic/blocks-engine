@@ -24,6 +24,8 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
     public const SYNTHETIC_IMAGE_GAP_CLASS = 'blocks-engine-synthetic-image-gap';
+    /** An image unwrapped from a paragraph whose line box it sized in the source. */
+    public const PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS = 'blocks-engine-paragraph-line-box-image';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
     public const SYNTHETIC_FILL_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
@@ -65,6 +67,7 @@ final class SourceBlockAttributeProjector
             self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_IMAGE_GAP_CLASS,
+            self::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS,
         ),
     );
 
