@@ -5234,7 +5234,12 @@ PHP;
     private function listingCardTemplate(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $documentIndex, array $cards, array &$fields): ?string
     {
         $markup = $documentIndex->markup;
-        $first = $cards[0];
+        // A hidden empty binding may have been dropped during lowering. Use
+        // the fullest card as the template so its optional slot still exists.
+        $blocks = static fn(array $card): int => count(array_filter($documentIndex->ranges(), static fn(array $range): bool => $range['offset'] >= $card['offset'] && $range['offset'] + $range['length'] <= $card['offset'] + $card['length']));
+        $templateCards = $cards;
+        usort($templateCards, static fn(array $a, array $b): int => $blocks($b) <=> $blocks($a));
+        $first = $templateCards[0];
         $groups = $this->listingLinkedMetadataGroups($documentIndex, $first);
         $boundGroups = array();
         foreach ($groups as $index => $group) {
@@ -5252,7 +5257,9 @@ PHP;
                 $fields[$card['post']['source_path']][$key] = null === $row ? '' : ListingFieldProjection::content($row['paragraphs']);
             }
         }
-        $boundGroups += $this->listingLiteralFields($markup, $cards, $fields);
+        $literalFields = $this->listingLiteralFields($markup, $templateCards, $fields);
+        if (null === $literalFields) return null;
+        $boundGroups += $literalFields;
         $compact = !array_filter($cards, fn(array $card): bool => !$this->isExcerptListingCard($markup, $card));
         $sharedText = null;
         foreach ($cards as $card) {
@@ -5289,19 +5296,19 @@ PHP;
      *
      * @param list<array<string,mixed>> $cards
      * @param array<string,array<string,string>> $fields
-     * @return array<int,string>
+     * @return array<int,string>|null Null when rows cannot be safely aligned.
      */
-    private function listingLiteralFields(string $markup, array $cards, array &$fields): array
+    private function listingLiteralFields(string $markup, array $cards, array &$fields): ?array
     {
         $rows = array();
-        $structure = null;
+        $trees = array();
         foreach ($cards as $card) {
             $row = array();
-            $shape = array();
             $slice = substr($markup, $card['offset'], $card['length']);
-            foreach (self::blockRanges($slice) as $range) {
+            $sliceIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($slice);
+            foreach ($sliceIndex->ranges() as $range) {
                 $leaf = substr($slice, $range['offset'], $range['length']);
-                $children = self::childBlockRanges($slice, $range);
+                $children = $sliceIndex->children($range);
                 // HTML lowering represents an empty source div as a group,
                 // but its text-bearing counterpart as a synthetic paragraph.
                 $attrs = self::listingBlockAttributes($leaf);
@@ -5309,32 +5316,77 @@ PHP;
                     $attrs['className'] = trim(str_replace('blocks-engine-empty-visual-group', 'blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph', $attrs['className']));
                     $leaf = '<!-- wp:paragraph ' . BlockAttributes::encode($attrs) . ' --><p class="' . htmlspecialchars($attrs['className'], ENT_QUOTES, 'UTF-8') . '"></p><!-- /wp:paragraph -->';
                 }
-                $shape[] = array(self::listingBlockName($leaf), count($children));
-                if (array() !== $children) continue;
-                $row[] = array('markup' => $leaf, 'offset' => $card['offset'] + $range['offset']);
+                $row[$range['offset']] = array('markup' => $leaf, 'offset' => $card['offset'] + $range['offset'], 'children' => array_column($children, 'offset'));
             }
-            if (null !== $structure && $structure !== $shape) return array();
-            $structure = $shape;
+            $trees[] = $row;
+        }
+        // Align siblings, never a flat leaf sequence: an omitted label must
+        // occupy the same position under the same corresponding parent.
+        $align = function (array $expected, array $actual, array $template, array $tree) use (&$align): ?array {
+            if (array() === $expected) return array() === $actual ? array() : null;
+            $node = $template[$expected[0]];
+            $matches = array();
+            if (array() !== $actual) {
+                $other = $tree[$actual[0]];
+                if (self::listingBlockName($node['markup']) === self::listingBlockName($other['markup']) && (array() === $node['children']) === (array() === $other['children'])) {
+                    $children = $align($node['children'], $other['children'], $template, $tree);
+                    $rest = $align(array_slice($expected, 1), array_slice($actual, 1), $template, $tree);
+                    if (null !== $children && null !== $rest) {
+                        $matches[] = array_merge(array() === $node['children'] ? array($other) : $children, $rest);
+                    }
+                }
+            }
+            if (array() === $node['children'] && 'paragraph' === self::listingBlockName($node['markup']) && preg_match('~<p\\b[^>]*>[^<]*</p>~s', $node['markup']) && mb_strlen(ListingExcerptProjection::text($node['markup'])) <= 160) {
+                $rest = $align(array_slice($expected, 1), $actual, $template, $tree);
+                if (null !== $rest) $matches[] = array_merge(array(null), $rest);
+            }
+            // Ambiguous omissions are not evidence of a corresponding slot.
+            return 1 === count($matches) ? $matches[0] : null;
+        };
+        foreach ($trees as $tree) {
+            $row = $align(array(array_key_first($trees[0])), array(array_key_first($tree)), $trees[0], $tree);
+            if (null === $row) return null;
             $rows[] = $row;
         }
         $bound = array();
         foreach ($rows[0] as $index => $first) {
+            $optional = in_array(null, array_column($rows, $index), true);
             $values = array();
             $signature = null;
             foreach ($rows as $cardIndex => $row) {
+                if (null === $row[$index]) {
+                    $values[] = '';
+                    continue;
+                }
                 $leaf = $row[$index]['markup'];
-                if ('paragraph' !== self::listingBlockName($leaf) || !preg_match('~<p\\b([^>]*)>([^<]*)</p>~s', $leaf, $match)) continue 2;
+                if ('paragraph' !== self::listingBlockName($leaf) || !preg_match('~<p\\b([^>]*)>([^<]*)</p>~s', $leaf, $match)) {
+                    if ($optional) return null;
+                    continue 2;
+                }
                 $text = ListingExcerptProjection::text($leaf);
-                if (mb_strlen($text) > 160 || ListingExcerptProjection::matches($leaf, $cards[$cardIndex]['post'])) continue 2;
-                $kind = $this->classifyListingCardBlock($leaf, $cards[$cardIndex]['post'], $cards[$cardIndex]['route']);
-                if (!in_array($kind, array('unbound', 'chrome', 'body'), true)) continue 2;
+                if (mb_strlen($text) > 160 || ListingExcerptProjection::matches($leaf, $cards[$cardIndex]['post'])) {
+                    if ($optional) return null;
+                    continue 2;
+                }
+                $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex((string) ($cards[$cardIndex]['post']['canonical_block_markup'] ?? ''));
+                $kind = $this->classifyListingCardBlock($leaf, $cards[$cardIndex]['post'], $cards[$cardIndex]['route'], $postIndex);
+                if (!in_array($kind, array('unbound', 'chrome', 'body'), true)) {
+                    if ($optional) return null;
+                    continue 2;
+                }
                 // Do not turn an actual article paragraph into listing metadata.
-                foreach (self::blockRanges((string) ($cards[$cardIndex]['post']['canonical_block_markup'] ?? '')) as $bodyRange) {
-                    $body = substr((string) $cards[$cardIndex]['post']['canonical_block_markup'], $bodyRange['offset'], $bodyRange['length']);
-                    if ('' !== $text && $text === ListingExcerptProjection::text($body)) continue 3;
+                foreach ($postIndex->ranges() as $bodyRange) {
+                    $body = substr($postIndex->markup, $bodyRange['offset'], $bodyRange['length']);
+                    if ('' !== $text && $text === ListingExcerptProjection::text($body)) {
+                        if ($optional) return null;
+                        continue 3;
+                    }
                 }
                 $shape = array(self::listingBlockAttributes($leaf), $match[1]);
-                if (null !== $signature && $signature !== $shape) continue 2;
+                if (null !== $signature && $signature !== $shape) {
+                    if ($optional) return null;
+                    continue 2;
+                }
                 $signature = $shape;
                 $values[] = $match[2];
             }

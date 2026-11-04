@@ -15,14 +15,14 @@ foreach (array('journal', 'podcast') as $section) {
         $files[] = array('path' => "$section/entry-$day/index.html", 'metadata' => array('post_type' => 'post'), 'content' => '<meta property="article:published_time" content="2024-01-0' . $day . 'T00:00:00Z"><main><article><h1>' . $title . '</h1><time datetime="2024-01-0' . $day . '">January ' . $day . ', 2024</time><p>Unique body ' . $title . '.</p></article></main>');
         if ('journal' === $section) {
             $label = 2 === $day ? 'New topics' : '';
-            $hubCards[] = '<div class="collection-item"><a class="article-card" href="/journal/entry-' . $day . '/index.html" style="background-image:url(https://example.org/card-' . $day . '.jpg)"><div class="card-detail"><div class="card-detail-main"><div class="article-card-date"><div>Jan ' . $day . ', 2024</div></div><h3 class="article-headline">' . $title . '</h3><div class="card-category">' . $label . '</div></div><div class="see-more"><div class="btn-text">See <span>more</span></div></div></div></a></div>';
+            $hubCards[] = '<div class="collection-item"><a class="article-card" href="/journal/entry-' . $day . '/index.html" style="background-image:url(https://example.org/card-' . $day . '.jpg)"><div class="card-detail"><div class="card-detail-main"><div class="article-card-date"><div>Jan ' . $day . ', 2024</div></div><h3 class="article-headline">' . $title . '</h3><div class="card-category' . ('' === $label ? ' is-empty-binding' : '') . '">' . $label . '</div></div><div class="see-more"><div class="btn-text">See <span>more</span></div></div></div></a></div>';
         }
         $cards[$section][] = '<article><h2><a href="/' . $section . '/entry-' . $day . '/">' . $title . '</a></h2><p>Read this entry.</p></article>';
     }
 }
 $journal = '<section><h1>Journal dispatches</h1>' . implode('', $cards['journal']) . '</section>';
 $curated = '<section><h2>Selected episodes</h2>' . implode('', array_slice($cards['podcast'], 0, 2)) . '</section>';
-$files[] = array('path' => 'index.html', 'content' => '<main><h1>Hub</h1><section class="tab-pane"><h2>Journal dispatches</h2>' . implode('', $hubCards) . '</section>' . $curated . '</main>');
+$files[] = array('path' => 'index.html', 'content' => '<style>.is-empty-binding{display:none!important}</style><main><h1>Hub</h1><section class="tab-pane"><h2>Journal dispatches</h2>' . implode('', $hubCards) . '</section>' . $curated . '</main>');
 $files[] = array('path' => 'journal/index.html', 'content' => '<main>' . $journal . '</main>');
 $files[] = array('path' => 'podcast/index.html', 'content' => '<main><h1>Podcast</h1>' . implode('', array_reverse($cards['podcast'])) . '</main>');
 $compile = static fn(array $input): array => (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $input))->toArray();
@@ -56,6 +56,21 @@ unset($file);
 $linkedPlan = $compile($linkedFiles)['source_reports']['wordpress_site_plan'];
 $linkedPages = array_column($linkedPlan['pages'], null, 'source_path');
 $assert(!str_contains($linkedPages['index.html']['canonical_block_markup'], '<!-- wp:query '), 'Structurally different linked labels decline the hub listing.');
+// Missing non-label leaves and moving a label to another parent must not
+// masquerade as an empty value at the corresponding label slot.
+foreach (array(
+    array('<div class="article-card-date"><div>Jan 3, 2024</div></div>', ''),
+    array('<div class="card-category">New topics</div>', '<div class="label-wrapper"><div class="card-category">New topics</div></div>'),
+) as [$before, $after]) {
+    $differentFiles = $files;
+    foreach ($differentFiles as &$file) {
+        if ('index.html' === $file['path']) $file['content'] = str_replace($before, $after, $file['content']);
+    }
+    unset($file);
+    $differentPlan = $compile($differentFiles)['source_reports']['wordpress_site_plan'];
+    $differentPages = array_column($differentPlan['pages'], null, 'source_path');
+    $assert(!str_contains($differentPages['index.html']['canonical_block_markup'], '<!-- wp:query '), 'Only an omitted plain label under the same parent may align.');
+}
 $assert(str_contains($pages['index.html']['canonical_block_markup'], 'Podcast entry 3') && str_contains($pages['index.html']['canonical_block_markup'], 'Podcast entry 2'), 'Curated podcast cards stay static.');
 $assert(!str_contains($pages['podcast/index.html']['canonical_block_markup'], '<!-- wp:query '), 'Non-date order stays static.');
 $single = $compile(array_values(array_filter($files, static fn(array $file): bool => !str_starts_with($file['path'], 'podcast/'))));
