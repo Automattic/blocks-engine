@@ -789,6 +789,7 @@
       "php tests/unit/navigation-container-placement-reset.php",
       "php tests/unit/menu-chrome-presentation-carry.php",
       "php tests/unit/navigation-inline-margin-carry.php",
+      "php tests/unit/layered-navigation-display.php",
       "php tests/unit/navigation-resolved-projection-spacing.php",
       "php tests/unit/navigation-empty-sibling-spacing.php",
       "php tests/unit/source-target-projection-state.php",
