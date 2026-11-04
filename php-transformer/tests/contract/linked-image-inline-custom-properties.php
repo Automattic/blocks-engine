@@ -86,7 +86,7 @@ $assert('' !== $carrier, 'the rebuilt anchor keeps a generated custom-property c
 
 $rule = $carrierRule($out['css'], $carrier);
 $assert('' !== $rule && str_contains($rule, '--logo-w:165px') && str_contains($rule, '--logo-h:54px'), 'the carrier rule defines both custom properties in the anchor\'s scope', $rule);
-$assert(str_contains($out['css'], '.logo{width:var(--logo-w);height:var(--logo-h)'), 'the author rule reading the properties still matches the anchor', $out['css']);
+$assert(1 === preg_match('/\.logo(?:,[^{]+)?\{width:var\(--logo-w\);height:var\(--logo-h\)/', $out['css']), 'the author rule reading the properties still matches the anchor', $out['css']);
 
 // The compiled-artifact path runs the same conversion over real files.
 $linked = str_replace('<style>' . $authored . '</style>', '<link rel="stylesheet" href="assets/site.css">', $document);

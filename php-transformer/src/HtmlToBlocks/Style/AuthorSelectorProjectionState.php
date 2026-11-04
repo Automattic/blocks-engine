@@ -202,19 +202,21 @@ final class AuthorSelectorProjectionState
         return $this->navigationListBoxSubjects[$path] ?? '';
     }
 
-    /** @var array<string, array{selector:string, pseudo_element:string}> Native inner elements replacing source subjects. */
+    /** @var array<string, array{selector:string, pseudo_element:string, author_precedence:bool}> Native inner elements replacing source subjects. */
     private array $innerSubjects = array();
 
     /**
      * A source element whose presentation a native block renders on one of
-     * its inner parts (optionally a pseudo-element of it).
+     * its inner parts (optionally a pseudo-element of it). Author precedence
+     * requests the shared native-subject baseline above Core defaults; every
+     * source rule still carries its original specificity above that baseline.
      */
-    public function installInnerSubject(string $path, string $selector, string $pseudoElement = ''): void
+    public function installInnerSubject(string $path, string $selector, string $pseudoElement = '', bool $authorPrecedence = false): void
     {
-        $this->innerSubjects[$path] = array( 'selector' => $selector, 'pseudo_element' => $pseudoElement );
+        $this->innerSubjects[$path] = array( 'selector' => $selector, 'pseudo_element' => $pseudoElement, 'author_precedence' => $authorPrecedence );
     }
 
-    /** @return array{selector:string, pseudo_element:string}|null */
+    /** @return array{selector:string, pseudo_element:string, author_precedence:bool}|null */
     public function innerSubject(string $path): ?array
     {
         return $this->innerSubjects[$path] ?? null;

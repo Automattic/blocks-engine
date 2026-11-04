@@ -27,7 +27,7 @@ $assert(str_contains($markup, '<img src="print.jpg" alt="Print"/>'), 'image sour
 preg_match('/<a[^>]*class="[^"]*(blocks-engine-semantic-[^" ]+)/', $markup, $linkMarker);
 preg_match('/<figure[^>]*class="[^"]*(blocks-engine-semantic-[^" ]+)/', $markup, $imageMarker);
 $assert(isset($linkMarker[1]) && str_contains($css, ':where(.' . $linkMarker[1] . ')') && str_contains($css, ':hover{opacity:.8}'), 'ID-qualified link hover styling follows the retained anchor through semantic CSS projection');
-$assert(str_contains($css, '@media(min-width:800px){:where(.' . ($linkMarker[1] ?? 'missing') . ')'), 'conditional ID-qualified link styling retains its media condition');
+$assert(1 === preg_match('/@media\(min-width:800px\)\{[^{}]*' . preg_quote(':where(.' . ($linkMarker[1] ?? 'missing') . ')', '/') . '/', $css), 'conditional ID-qualified link styling retains its media condition');
 $assert(isset($imageMarker[1]) && preg_match('/' . preg_quote(':where(.' . $imageMarker[1] . ')', '/') . '[^{]*\{border-radius:12px\}/', $css), 'descendant image styling follows the generated figure instead of the removed source ancestry');
 $assert(isset($imageMarker[1]) && str_contains($css, ':where(.' . $imageMarker[1] . ').wp-block-image > a > img'), 'the native image bridge still reaches the image inside its link');
 

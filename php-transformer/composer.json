@@ -375,6 +375,7 @@
       "php tests/unit/artifact-image-aspect-ratio.php",
       "php tests/unit/responsive-select-navigation.php",
       "php tests/unit/linked-image-whitespace-gap.php",
+      "php tests/unit/native-inner-author-precedence.php",
       "php tests/unit/empty-inline-decoration.php",
       "php tests/unit/logo-empty-inline-box.php",
       "php tests/unit/rounded-site-logo.php",
