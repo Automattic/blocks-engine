@@ -505,16 +505,19 @@ final class AuthorStylesheetProjector
                 }
                 if ( 'fixed' === strtolower($position) ) {
                     // Core's editor canvas is position:relative. Re-forcing
-                    // source `position:fixed` with !important pins site chrome
-                    // (sticky headers, FABs) over the document being edited.
-                    // Absolute layers still need the override so hero overlays
-                    // keep stacking; leave relative/sticky unforced.
+                    // source `position:fixed` pins site chrome (sticky
+                    // headers, FABs) over the document being edited; leave
+                    // it out of the editor canvas entirely.
                     $position = '';
                 }
                 // Core adds `position:relative` to the actual editor block
-                // root. Preserve source visual layers without changing
-                // ordinary relative or sticky editing surfaces.
-                $overrides = '' === $position ? '' : 'position:' . $position . ( 'absolute' === strtolower($position) ? '!important' : '' ) . ';';
+                // root, but every copy here shares the
+                // `:root .editor-styles-wrapper` prefix plus the source
+                // selector's own specificity, which outranks that default and
+                // keeps the source rules' relative order. Mirror the value
+                // plainly so a more specific source `relative`/`static` rule
+                // still wins in the editor as it does on the frontend.
+                $overrides = '' === $position ? '' : 'position:' . $position . ';';
                 // RichText's inline white-space:pre-wrap must keep preserving
                 // typed spaces. Override only its wrapping longhand, not the
                 // whitespace-collapse half of the shorthand. Scoping keeps
