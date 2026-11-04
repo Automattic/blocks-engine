@@ -4847,10 +4847,14 @@ $footerShellTemplateParts = $footerShellSite['source_reports']['compiled_site'][
 $footerShellIndexPage = array_values(array_filter($footerShellPages, static fn (array $page): bool => 'index.html' === ($page['source_path'] ?? '')))[0] ?? array();
 $footerShellAboutPage = array_values(array_filter($footerShellPages, static fn (array $page): bool => 'about.html' === ($page['source_path'] ?? '')))[0] ?? array();
 $footerShellPart = $footerShellTemplateParts[0] ?? array();
-$assert(! str_contains((string) ($footerShellIndexPage['block_markup'] ?? ''), 'Global footer copy'), 'compiled site removes global footer shell from page body when a footer template part exists');
+$assert(str_contains((string) ($footerShellIndexPage['block_markup'] ?? ''), 'Global footer copy'), 'compiled site retains footer evidence for canonical explicit-part binding');
 $assert(str_contains((string) ($footerShellPart['block_markup'] ?? ''), 'Global footer copy'), 'compiled site preserves global footer copy in the footer template part');
-$assert(str_contains((string) ($footerShellAboutPage['block_markup'] ?? ''), 'Article byline footer'), 'compiled site preserves page-local article footer content while pruning global footer shell');
-$assert(! str_contains((string) ($footerShellAboutPage['block_markup'] ?? ''), 'Global footer copy'), 'compiled site does not duplicate global footer shell on secondary page bodies');
+$assert(str_contains((string) ($footerShellAboutPage['block_markup'] ?? ''), 'Article byline footer'), 'compiled site preserves page-local article footer content');
+$assert(str_contains((string) ($footerShellAboutPage['block_markup'] ?? ''), 'Global footer copy'), 'compiled site retains nonmatching footer evidence rather than deleting it by area');
+$footerPlan = $footerShellSite['source_reports']['wordpress_site_plan'];
+$footerPart = array_values(array_filter($footerPlan['template_parts'], static fn(array $part): bool => 'parts/footer.html' === $part['source_path']))[0];
+$assert('inline_shared_shell' === $footerPart['placement']['kind'], 'The matching producer footer binds in the canonical plan');
+$assert(in_array('index.html', $footerPart['placement']['source_paths'], true) && !in_array('about.html', $footerPart['placement']['source_paths'], true), 'Explicit binding requires equivalent chrome, not merely a shared area');
 
 $canonicalShellSite = $compiler->compile(
     array(
