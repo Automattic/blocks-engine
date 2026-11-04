@@ -31,9 +31,10 @@ $menu = static function (string $served): string {
 };
 $resting = static fn(string $html): string => str_replace(' aria-current="true"', '', $html);
 
+$home = $resting(RouteStateProjector::normalize($menu('/')));
 foreach (array('/about/', '/models/', '/models/fiat/') as $served) {
     $normalized = RouteStateProjector::normalize($menu($served));
-    $assert($resting($normalized) === $resting($menu('/elsewhere/')), 'A current menu item rests on route ' . $served . '.', $normalized);
+    $assert($home === $resting($normalized), 'A current menu item rests on route ' . $served . '.', $normalized);
     $assert(str_contains($normalized, 'aria-current'), 'Menu links keep aria-current for navigation to restore on ' . $served . '.', $normalized);
 }
 
