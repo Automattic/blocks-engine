@@ -27,11 +27,13 @@ final class EntityEquivalence
 
     /**
      * Source locations, cascade order and conversion diagnostics are provenance.
+     * A form's source contract losses report what its page's whole stylesheet
+     * set could not express; they describe that capture, not the form.
      * Normalize grid area shorthand to the equivalent row/column longhands.
      */
     private static function withoutSourcePaths(array $value): array
     {
-        unset($value['source_path'], $value['provenance'], $value['source_order'], $value['diagnostics']);
+        unset($value['source_path'], $value['provenance'], $value['source_order'], $value['diagnostics'], $value['source_contract_losses']);
         if (is_string($value['area'] ?? null) && 4 === count($lines = array_map('trim', explode('/', $value['area'])))) {
             unset($value['area']);
             $value['row'] = $lines[0] . ' / ' . $lines[2];
