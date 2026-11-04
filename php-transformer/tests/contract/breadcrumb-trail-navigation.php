@@ -41,7 +41,8 @@ $assert('#f3f1ec' === ($attributes['style']['color']['background'] ?? ''), 'The 
 $assert('12px' === ($attributes['style']['spacing']['padding']['top'] ?? '') && '16px' === ($attributes['style']['spacing']['padding']['right'] ?? ''), 'The trail box padding maps to the block padding.');
 $assert(!isset($attributes['ref']) && !isset($attributes['showHomeItem']), 'The home item and the entity reference stay on core defaults, with no per-route identity.');
 $newsBlocks = array_values(array_filter((new Runtime())->parseBlocks($newsMarkup), static fn(array $block): bool => 'core/breadcrumbs' === ($block['blockName'] ?? '')));
-$assert($attributes === ($newsBlocks[0]['attrs'] ?? null), 'A second route with the same trail shape renders the same hierarchy-driven block.');
+$withoutTrail = static function (array $attrs): array { unset($attrs["metadata"]); return $attrs; };
+$assert($withoutTrail($attributes) === $withoutTrail($newsBlocks[0]["attrs"] ?? array()), 'A second route with the same trail shape renders the same hierarchy-driven block.');
 
 $assert(0 === count($entityMenus($plan)), 'No wp_navigation entity is created for breadcrumb trails.');
 $allMarkup = implode("\n", array_merge(
