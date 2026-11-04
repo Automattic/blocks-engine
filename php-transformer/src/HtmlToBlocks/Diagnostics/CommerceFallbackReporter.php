@@ -957,7 +957,11 @@ final class CommerceFallbackReporter
     public function appendCheckoutViewFallbacks(DOMElement $body, array &$fallbacks): void
     {
         $regions = array();
-        foreach ( $this->recognizer->checkoutRegions($body, fn (DOMElement $node): bool => array() !== $this->runtimeIslands->runtimeDomSelectorsForElement($node)) as $region ) {
+        // A captured checkout carries no source scripts, so an autonomous custom
+        // element is script ownership evidence on its own.
+        $isRuntimeScope = fn (DOMElement $node): bool => CustomElementRuntimeDependency::isCustomElementTag(strtolower($node->tagName))
+            || array() !== $this->runtimeIslands->runtimeDomSelectorsForElement($node);
+        foreach ( $this->recognizer->checkoutRegions($body, $isRuntimeScope) as $region ) {
             if ( SourceDom::hasNonAuthoredAncestor($region) ) {
                 continue;
             }

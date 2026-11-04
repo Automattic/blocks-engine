@@ -75,7 +75,10 @@ $nativeInputCheckout = '<main><h1>Checkout</h1>'
     . '</div></form></main>';
 $nativeInputScope = 'main:nth-of-type(1) > form:nth-of-type(1)';
 
-$checkoutPage = static fn (string $body): string => '<!doctype html><html><head><title>Checkout</title></head><body>' . $body . '<script src="app.js"></script></body></html>';
+// A captured page carries no source scripts: the custom-element checkout is
+// recognized from its element names alone, a native form only through a script
+// that looks it up.
+$checkoutPage = static fn (string $body, bool $script = true): string => '<!doctype html><html><head><title>Checkout</title></head><body>' . $body . ($script ? '<script src="app.js"></script>' : '') . '</body></html>';
 
 $compile = static fn (array $files): array => (new ArtifactCompiler())->compile(array('entrypoint' => 'shop.html', 'files' => $files))->toArray();
 $findings = static function (array $result, string $code): array {
@@ -97,13 +100,13 @@ $findings = static function (array $result, string $code): array {
 $declaration = static fn (array $plan, string $type): ?array => current(array_filter($plan['runtime_declarations'] ?? array(), static fn (array $row): bool => $type === ($row['type'] ?? null))) ?: null;
 
 foreach (array(
-    'custom elements' => array('body' => $customElementCheckout, 'scope' => $customElementScope),
-    'native inputs' => array('body' => $nativeInputCheckout, 'scope' => $nativeInputScope),
+    'custom elements' => array('body' => $customElementCheckout, 'scope' => $customElementScope, 'script' => false),
+    'native inputs' => array('body' => $nativeInputCheckout, 'scope' => $nativeInputScope, 'script' => true),
 ) as $shape => $row) {
     $label = '[' . $shape . '] ';
 
     // Case A: a store with products and a checkout page.
-    $result = $compile(array('shop.html' => $shop, 'checkout.html' => $checkoutPage($row['body']), 'app.js' => $script));
+    $result = $compile(array('shop.html' => $shop, 'checkout.html' => $checkoutPage($row['body'], $row['script']), 'app.js' => $script));
     $assert('failed' !== $result['status'] && ! isset($result['source_reports']['wordpress_site_plan_diagnostics']), $label . 'The store composes cleanly: ' . json_encode($result['source_reports']['wordpress_site_plan_diagnostics'] ?? array()));
     $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
 
@@ -121,7 +124,7 @@ foreach (array(
     $assert(1 === count($checkoutEntities) && 'checkout.html' === ($checkoutEntities[0]['source_path'] ?? null), $label . 'Exactly one checkout entity is declared for the checkout page.');
     $binding = $checkoutEntities[0]['bindings'][0] ?? array();
     $assert('generic/block-binding/v1' === ($binding['schema'] ?? null) && 'commerce_checkout' === ($binding['role'] ?? null) && 1 === ($binding['occurrence'] ?? null), $label . 'The checkout entity carries a commerce_checkout block binding.');
-    $assert(array('.checkout') === ($binding['superseded_runtime_selectors'] ?? null), $label . 'The binding supersedes the script lookup of the checkout region: ' . json_encode($binding['superseded_runtime_selectors'] ?? null));
+    $assert(($row['script'] ? array('.checkout') : null) === ($binding['superseded_runtime_selectors'] ?? null), $label . 'The binding supersedes the script lookup of the checkout region: ' . json_encode($binding['superseded_runtime_selectors'] ?? null));
 
     $checkoutPageRow = current(array_filter($plan['pages'] ?? array(), static fn (array $page): bool => 'checkout.html' === ($page['source_path'] ?? null)));
     $canonical = (string) ($checkoutPageRow['canonical_block_markup'] ?? '');

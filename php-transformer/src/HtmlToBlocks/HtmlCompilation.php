@@ -4346,6 +4346,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->layoutShellBlockForElements(array($element), $children, $element);
         }
 
+        if ( $this->isScriptOwnedCheckoutRegion($element) ) {
+            // A checkout view region the commerce recognizer claims is
+            // script-owned commerce rendering the engine cannot convert.
+            // Preserve its source markup whole so the checkout view binding
+            // anchors on the block a shop provider replaces.
+            $block = $this->htmlPreservationBlock($element);
+            $block['_editability_runtime_owned'] = true;
+
+            return $block;
+        }
+
         if ( $this->isTransparentUnknownElement($element) ) {
             // A hyphenated custom element is an authored component: when the
             // classifier calls its subtree a cohesive custom block, it still
@@ -4382,23 +4393,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function customElementRuntimeDisposition(DOMElement $element, string $tagName, array &$fallbacks): array
     {
-        $runtimeDependency = new CustomElementRuntimeDependency();
-        $decision = $runtimeDependency->classify(
+        $decision = ( new CustomElementRuntimeDependency() )->classify(
             $element,
             $this->runtimeBehavior()->runtimeScriptMetadata(),
             $this->runtimeBehavior()->runtimeProjectionScriptAssets()
         );
-        if ( 'preserve' !== $decision['disposition'] && $this->isScriptOwnedCheckoutRegion($element, $runtimeDependency) ) {
-            // A checkout view region the commerce recognizer claims is
-            // script-owned commerce rendering the engine cannot convert.
-            // Preserve its source markup whole — like a proven custom element —
-            // so the checkout view binding can anchor on the block a shop
-            // provider replaces, instead of the region dropping unsupported.
-            $block = $this->htmlPreservationBlock($element);
-            $block['_editability_runtime_owned'] = true;
-
-            return array( 'handled' => true, 'block' => $block );
-        }
         if ( 'preserve' !== $decision['disposition'] && 'unproven' !== $decision['disposition'] ) {
             return array( 'handled' => false, 'block' => null );
         }
@@ -4440,18 +4439,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     /**
      * Whether `$element` is the script-owned region a checkout view binding
-     * anchors on: a custom element a source script looks up, holding the
+     * anchors on: a custom element (script-defined by name) holding the
      * checkout view's customer, address, payment and summary roles, and
      * passing the same preservation safety bar as a proven custom element.
      * Native checkout regions (a `form` or `div` root) convert natively and
      * never reach the custom-element disposition, so they need no preservation.
      */
-    private function isScriptOwnedCheckoutRegion(DOMElement $element, CustomElementRuntimeDependency $runtimeDependency): bool
+    private function isScriptOwnedCheckoutRegion(DOMElement $element): bool
     {
-        $tag = strtolower($element->tagName);
-        if ( 1 !== preg_match('/^[a-z][a-z0-9]*-[a-z0-9-]+$/D', $tag)
-            || ! $runtimeDependency->isSafe($element)
-            || array() === $this->runtimeIslands->runtimeDomSelectorsForElement($element) ) {
+        if ( ! CustomElementRuntimeDependency::isCustomElementTag(strtolower($element->tagName)) || ! ( new CustomElementRuntimeDependency() )->isSafe($element) ) {
             return false;
         }
 
