@@ -62,7 +62,7 @@ function assertSame(mixed $expected, mixed $actual, string $message): void
  */
 function normalizeTransformerResult(array $result): array
 {
-    unset($result['metrics']['transform_duration_ms']);
+    unset($result['metrics']['transform_duration_ms'], $result['metrics']['step_timings']);
     unset($result['source_reports']['conversion_report']['metrics']['transform_duration_ms']);
 
     return $result;
