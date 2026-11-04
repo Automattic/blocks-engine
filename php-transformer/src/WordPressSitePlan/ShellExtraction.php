@@ -2319,10 +2319,16 @@ final class ShellExtraction
         // Partition every assigned lifecycle by frame, not just same-slug
         // overrides. A shared key must never let the last cluster overwrite
         // another route's header/footer. Identical overrides are shared later.
+        $excludedTemplates = array();
+        foreach ($parts as $part) foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) $excludedTemplates[$slug] = true;
         $assigned = array_filter(array('page' => $generic, 'single' => $postFrame));
         foreach ($split as $index => $frame) {
             $page = $pages[$index];
-            $slug = !empty($page['entrypoint']) ? 'front-page' : ($page['route_template'] ?? (isset($inner[$index]) && null !== $generic ? 'page' : ('post' === $page['post_type'] && null !== $postFrame ? 'single' : WordPressSitePlan::routeTemplateKey($page))));
+            $routeKey = WordPressSitePlan::routeTemplateKey($page);
+            $slug = !empty($page['entrypoint']) ? 'front-page' : ($page['route_template'] ?? (isset($inner[$index]) && null !== $generic ? 'page' : ('post' === $page['post_type'] && null !== $postFrame ? 'single' : $routeKey)));
+            // Exclusions already require a route override. Its content may be
+            // stripped only when that override receives the captured frame.
+            if (isset($excludedTemplates[$routeKey])) $slug = $routeKey;
             if (isset($assigned[$slug]) && self::frameIdentity($assigned[$slug]) !== self::frameIdentity($frame)) {
                 $slug = WordPressSitePlan::routeTemplateKey(array_diff_key($page, array('route_template' => true)));
                 $pages[$index]['route_template'] = $slug;
