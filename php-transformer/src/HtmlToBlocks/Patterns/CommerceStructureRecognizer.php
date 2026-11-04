@@ -711,6 +711,104 @@ final class CommerceStructureRecognizer
     }
 
     /**
+     * The script-owned checkout regions under `$root`, outermost first.
+     *
+     * A checkout view is recognized from the role of the region, never a
+     * vendor tag name: a region a source script owns (see `$isRuntimeScope`)
+     * holding customer contact fields, an address group, a payment mount and
+     * an order summary or total. Page landmarks never own the region — a
+     * provider replaces the checkout inside them, not the chrome — and an
+     * outer region that qualifies claims its nested runtime targets, so one
+     * checkout is never split into several regions.
+     *
+     * @param null|callable(DOMElement): bool $isRuntimeScope Source runtime-target evidence.
+     * @return array<int, DOMElement>
+     */
+    public function checkoutRegions(DOMElement $root, ?callable $isRuntimeScope = null): array
+    {
+        $regions = array();
+        if ( null === $isRuntimeScope ) {
+            return $regions;
+        }
+        foreach ( $root->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement || ! $isRuntimeScope($element) ) {
+                continue;
+            }
+            $tag = strtolower($element->tagName);
+            if ( in_array($tag, array( 'html', 'body', 'main', 'header', 'footer', 'nav' ), true)
+                || '' !== ShellLandmarkPolicy::landmarkKind($tag, SourceDom::attr($element, 'role')) ) {
+                continue;
+            }
+            foreach ( $regions as $region ) {
+                if ( SourceDom::elementContains($region, $element) ) {
+                    continue 2;
+                }
+            }
+            if ( $this->isCheckoutRegion($element) ) {
+                $regions[] = $element;
+            }
+        }
+
+        return $regions;
+    }
+
+    /**
+     * Whether `$region` is a checkout view by role: a customer email and name,
+     * an address group, a payment mount, and an order summary or total row. A
+     * field's role is read from the attributes a script-defined element
+     * carries (`label`, `placeholder`, `name`, `type` — a captured checkout
+     * has no `<input>` at all) as well as from native controls, so a checkout
+     * built from custom elements is recognized like a native one. The summary
+     * rows qualify while their amounts are still empty — a client-side
+     * checkout fills them in only after it runs.
+     */
+    public function isCheckoutRegion(DOMElement $region): bool
+    {
+        $email = false;
+        $name = false;
+        $address = false;
+        $payment = false;
+        $totalRow = false;
+        foreach ( $region->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+            $vocabulary = $this->checkoutFieldVocabulary($descendant);
+            $email = $email || $this->classifier->hasTokenBoundary($vocabulary, 'email');
+            $name = $name || $this->classifier->hasTokenBoundary($vocabulary, 'name');
+            $address = $address || $this->classifier->hasTokenBoundary($vocabulary, 'address')
+                || $this->classifier->hasTokenBoundary($vocabulary, 'street')
+                || $this->classifier->hasTokenBoundary($vocabulary, 'postal')
+                || $this->classifier->hasTokenBoundary($vocabulary, 'zipcode');
+            $payment = $payment || $this->classifier->hasTokenBoundary($vocabulary, 'payment');
+            $totalRow = $totalRow || $this->classifier->hasTokenBoundary($vocabulary, 'subtotal')
+                || $this->classifier->hasTokenBoundary($vocabulary, 'total');
+        }
+
+        return $email && $name && $address && $payment && $totalRow;
+    }
+
+    /** Tag, class, id, field attributes (label, placeholder, name, type), aria-label, `data-*` attribute names and text, tokenized on non-alphanumerics. */
+    private function checkoutFieldVocabulary(DOMElement $element): string
+    {
+        $dataNames = array_map(static fn (string $name): string => substr($name, 5), array_keys($this->safeDataAttributes($element)));
+
+        return strtolower((string) preg_replace('/[^a-z0-9]+/i', ' ', implode(' ', array(
+            $element->tagName,
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'id'),
+            SourceDom::attr($element, 'label'),
+            SourceDom::attr($element, 'placeholder'),
+            SourceDom::attr($element, 'name'),
+            SourceDom::attr($element, 'type'),
+            SourceDom::attr($element, 'aria-label'),
+            SourceDom::attr($element, 'value'),
+            implode(' ', $dataNames),
+            $this->collapsedText($element),
+        ))));
+    }
+
+    /**
      * Whether the card contains quantity UI: number input, spinbutton, +/- controls,
      * or explicit quantity labels/classes/ARIA. This is diagnostic only.
      */

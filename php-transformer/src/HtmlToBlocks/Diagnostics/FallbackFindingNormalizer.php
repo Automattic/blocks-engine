@@ -53,6 +53,7 @@ final class FallbackFindingNormalizer
             'html_product_grid_fallback' => 'commerce_product_grid',
             'html_commerce_controls_fallback' => 'commerce_controls',
             'html_cart_view_fallback' => 'commerce_cart',
+            'html_checkout_view_fallback' => 'commerce_checkout',
             'html_script_fallback' => 'runtime_script',
             'interactive_control_behavior_lost' => 'interactive_control',
             'html_iframe_embed_fallback' => 'external_embed',
@@ -145,7 +146,7 @@ final class FallbackFindingNormalizer
             return 'materialize_commerce_products';
         }
 
-        if ( 'commerce_controls' === $patternFamily || 'commerce_cart' === $patternFamily ) {
+        if ( 'commerce_controls' === $patternFamily || 'commerce_cart' === $patternFamily || 'commerce_checkout' === $patternFamily ) {
             return 'materialize_commerce_runtime';
         }
 
@@ -183,6 +184,10 @@ final class FallbackFindingNormalizer
 
         if ( 'html_commerce_controls_fallback' === $code || 'html_cart_view_fallback' === $code || 'commerce_controls' === $patternFamily || 'commerce_cart_runtime' === $runtimeRequirement ) {
             return 'commerce_cart_controls';
+        }
+
+        if ( 'html_checkout_view_fallback' === $code || 'commerce_checkout' === $patternFamily || 'commerce_checkout_runtime' === $runtimeRequirement ) {
+            return 'commerce_checkout_controls';
         }
 
         if ( 'html_form_fallback' === $code || 'form' === $kind || 'server_or_client_form_handler' === $runtimeRequirement ) {

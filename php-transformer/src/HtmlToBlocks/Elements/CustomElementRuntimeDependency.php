@@ -48,9 +48,15 @@ final class CustomElementRuntimeDependency
         return array('disposition' => 'unproven', 'scripts' => array());
     }
 
+    /** An autonomous custom element name: only a script can define its behavior. */
+    public static function isCustomElementTag(string $tag): bool
+    {
+        return 1 === preg_match('/^[a-z][a-z0-9]*-[a-z0-9-]+$/D', $tag);
+    }
+
     private function isTextlessCustomElement(DOMElement $element, string $tag): bool
     {
-        return 1 === preg_match('/^[a-z][a-z0-9]*-[a-z0-9-]+$/D', $tag)
+        return self::isCustomElementTag($tag)
             && '' === trim($element->textContent ?? '');
     }
 
@@ -236,7 +242,8 @@ final class CustomElementRuntimeDependency
         return '' === $type || in_array($type, array( 'text/javascript', 'application/javascript', 'module', 'text/ecmascript', 'application/ecmascript' ), true);
     }
 
-    private function isSafe(DOMElement $element): bool
+    /** Same preservation safety bar the disposition paths apply to a custom element. */
+    public function isSafe(DOMElement $element): bool
     {
         $nodes = array( $element );
         foreach ( $element->getElementsByTagName('*') as $child ) {

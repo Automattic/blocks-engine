@@ -1810,6 +1810,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->commerceReporter->appendProductGridFallbacks($body, $fallbacks, $blocks);
         $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks, (string) ($options['declarative_state_html'] ?? $html));
         $this->commerceReporter->appendCartViewFallbacks($body, $fallbacks);
+        $this->commerceReporter->appendCheckoutViewFallbacks($body, $fallbacks);
         // Inserted into a theme the engine does not own, core's flow layout
         // spaces group children with the host's block gap; encode the
         // source spacing on the blocks instead.
@@ -4477,6 +4478,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->layoutShellBlockForElements(array($element), $children, $element);
         }
 
+        if ( $this->isScriptOwnedCheckoutRegion($element) ) {
+            // A checkout view region the commerce recognizer claims is
+            // script-owned commerce rendering the engine cannot convert.
+            // Preserve its source markup whole so the checkout view binding
+            // anchors on the block a shop provider replaces.
+            $block = $this->htmlPreservationBlock($element);
+            $block['_editability_runtime_owned'] = true;
+
+            return $block;
+        }
+
         if ( $this->isTransparentUnknownElement($element) ) {
             // A hyphenated custom element is an authored component: when the
             // classifier calls its subtree a cohesive custom block, it still
@@ -4555,6 +4567,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $block['_editability_runtime_owned'] = true;
 
         return array( 'handled' => true, 'block' => $block );
+    }
+
+    /**
+     * Whether `$element` is the script-owned region a checkout view binding
+     * anchors on: a custom element (script-defined by name) holding the
+     * checkout view's customer, address, payment and summary roles, and
+     * passing the same preservation safety bar as a proven custom element.
+     * Native checkout regions (a `form` or `div` root) convert natively and
+     * never reach the custom-element disposition, so they need no preservation.
+     */
+    private function isScriptOwnedCheckoutRegion(DOMElement $element): bool
+    {
+        if ( ! CustomElementRuntimeDependency::isCustomElementTag(strtolower($element->tagName)) || ! ( new CustomElementRuntimeDependency() )->isSafe($element) ) {
+            return false;
+        }
+
+        return $this->commercePattern->isCheckoutRegion($element);
     }
 
     /** A `li` whose parent is not a list: invalid markup the list converter never reaches. */
