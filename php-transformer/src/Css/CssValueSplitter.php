@@ -34,6 +34,11 @@ final class CssValueSplitter
      */
     public static function splitTopLevel(string $input, array $delimiters): array
     {
+        return CssRuleTreeCache::memo('values:' . serialize($delimiters), $input, static fn (): array => self::splitTopLevelUncached($input, $delimiters));
+    }
+
+    private static function splitTopLevelUncached(string $input, array $delimiters): array
+    {
         $parts = self::split($input, $delimiters, false);
 
         $trimmed = array();
