@@ -160,7 +160,8 @@ final class NavigationToggleSuppressor
         // A separate toggle cannot claim a panel that belongs to an operable
         // native disclosure. Projecting it would suppress the details content
         // even though the disclosure already owns its summary and open state.
-        if ( $this->isInsideNativeDisclosurePanel($target) || $this->isInsideNativeDisclosurePanel($navigation) ) {
+        if ( $this->isInsideNativeDisclosurePanel($target) || $this->isInsideNativeDisclosurePanel($navigation)
+            || $this->isInsideAdoptedRestingPanel($target) || $this->isInsideAdoptedRestingPanel($navigation) ) {
             return;
         }
         if ( $this->context->navigationProjection()->isSuppressed($navigation) ) {
@@ -173,6 +174,23 @@ final class NavigationToggleSuppressor
         if ( $this->isProjectableHashAnchorMenuToggle($control) ) {
             $this->suppressEquivalentNavigationDuplicates($control, $navigation);
         }
+    }
+
+    /**
+     * Adopted resting panels must stay inside the wrapper that replays their
+     * state on its first child. A nearby control (including a search expander)
+     * must not suppress that child and reuse it as a Core navigation overlay.
+     * Panels without a resting snapshot retain the existing native-menu path.
+     */
+    private function isInsideAdoptedRestingPanel(DOMElement $element): bool
+    {
+        for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'true' === SourceDom::attr($ancestor, 'data-blocks-engine-captured-dialog') && $ancestor->hasAttribute('data-blocks-engine-resting-state') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function suppressEquivalentNavigationDuplicates(DOMElement $control, DOMElement $navigation): void
