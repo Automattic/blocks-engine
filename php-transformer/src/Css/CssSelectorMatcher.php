@@ -156,6 +156,22 @@ final class CssSelectorMatcher
      */
     public static function functionalTypeSpans(string $selector): array
     {
+        $flat = CssRuleTreeCache::memo('functional-types', $selector, static function () use ($selector): array {
+            $flat = array();
+            foreach (self::functionalTypeSpansUncached($selector) as $span) {
+                array_push($flat, $span['start'], $span['end'], $span['name'], (int) $span['negated']);
+            }
+            return $flat;
+        });
+        $spans = array();
+        for ($i = 0, $count = count($flat); $i < $count; $i += 4) {
+            $spans[] = array('start' => $flat[$i], 'end' => $flat[$i + 1], 'name' => $flat[$i + 2], 'negated' => (bool) $flat[$i + 3]);
+        }
+        return $spans;
+    }
+
+    private static function functionalTypeSpansUncached(string $selector): array
+    {
         $spans = array();
         $state = CssSyntaxScanner::state();
         $length = strlen($selector);

@@ -42,6 +42,15 @@ final class CssCascade
     /** Evaluate a comma-separated visual media query list at a viewport width. */
     public static function mediaConditionApplies(string $condition, float $viewportWidth, float $rootFontSize = 16.0): bool
     {
+        return (bool) \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache::memo(
+            'media:' . serialize(array($viewportWidth, $rootFontSize)),
+            $condition,
+            static fn (): int => (int) self::mediaConditionAppliesUncached($condition, $viewportWidth, $rootFontSize)
+        );
+    }
+
+    private static function mediaConditionAppliesUncached(string $condition, float $viewportWidth, float $rootFontSize): bool
+    {
         foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($condition, array(',')) as $alternative) {
             if (self::mediaAlternativeApplies($alternative, $viewportWidth, $rootFontSize)) {
                 return true;

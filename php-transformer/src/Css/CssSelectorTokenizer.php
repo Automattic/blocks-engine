@@ -14,6 +14,28 @@ final class CssSelectorTokenizer
      */
     public static function tokenize(string $selector): array
     {
+        $flat = CssRuleTreeCache::memo('tokens', $selector, static function () use ($selector): array {
+            $tokens = self::tokenizeUncached($selector);
+            $flat = array((int) $tokens['supported'], count($tokens['compounds']));
+            foreach (array('compound', 'combinator') as $kind) {
+                foreach ($tokens[$kind . 's'] as $i => $text) {
+                    array_push($flat, $text, $tokens[$kind . '_spans'][$i]['start'], $tokens[$kind . '_spans'][$i]['end']);
+                }
+            }
+            return $flat;
+        });
+        $tokens = array('supported' => (bool) $flat[0], 'compounds' => array(), 'combinators' => array(), 'rightmost_compound' => '', 'compound_spans' => array(), 'combinator_spans' => array());
+        for ($i = 2, $count = count($flat); $i < $count; $i += 3) {
+            $kind = $i < 2 + 3 * $flat[1] ? 'compound' : 'combinator';
+            $tokens[$kind . 's'][] = $flat[$i];
+            $tokens[$kind . '_spans'][] = array('start' => $flat[$i + 1], 'end' => $flat[$i + 2]);
+        }
+        $tokens['rightmost_compound'] = $tokens['compounds'][$flat[1] - 1] ?? '';
+        return $tokens;
+    }
+
+    private static function tokenizeUncached(string $selector): array
+    {
         $unsupported = static fn (): array => array( 'supported' => false, 'compounds' => array(), 'combinators' => array(), 'rightmost_compound' => '', 'compound_spans' => array(), 'combinator_spans' => array() );
         $compounds = array();
         $combinators = array();

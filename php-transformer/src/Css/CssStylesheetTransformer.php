@@ -962,6 +962,12 @@ final class CssStylesheetTransformer
      */
     public static function splitSelectorList(string $prelude): ?array
     {
+        $result = CssRuleTreeCache::memo('selectors', $prelude, static fn (): array|int => self::splitSelectorListUncached($prelude) ?? 0);
+        return is_array($result) ? $result : null;
+    }
+
+    private static function splitSelectorListUncached(string $prelude): ?array
+    {
         $parts  = array();
         $start  = 0;
         $state  = CssSyntaxScanner::state();
