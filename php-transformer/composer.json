@@ -544,6 +544,7 @@
       "php tests/unit/wordpress-site-plan-frame-template-bindings.php",
       "php tests/unit/shared-override-templates.php",
       "php tests/unit/wordpress-site-plan-post-chrome-unique-menu.php",
+      "php tests/unit/post-content-main-boundary.php",
       "php tests/unit/wordpress-site-plan-visible-months.php",
       "php tests/unit/wordpress-stylesheet-instances.php",
       "php tests/unit/artifact-encoded-asset-reference.php",
