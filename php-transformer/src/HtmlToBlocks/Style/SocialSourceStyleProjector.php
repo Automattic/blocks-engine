@@ -17,25 +17,37 @@ final class SocialSourceStyleProjector
     public function __construct(private readonly StyleResolver $styles) {}
 
     /** @param array<string,mixed> $attrs @return array<string,mixed> */
-    public function project(array $attrs, DOMElement $anchor, AuthorStyleAnalysis $author, SourceTargetProjectionState $targets): array
+    public function project(array $attrs, DOMElement $anchor, AuthorStyleAnalysis $author, SourceTargetProjectionState $targets, bool $fontOnly = false): array
     {
+        $originalAttrs = $attrs;
         $marker = 'blocks-engine-social-source-item-' . substr(hash('sha256', $anchor->getNodePath() ?? ''), 0, 12);
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $marker);
         $glyph = null;
         foreach ($anchor->childNodes as $child) {
             if ($child instanceof DOMElement && in_array(strtolower($child->tagName), array('span', 'svg', 'img'), true)) { $glyph = $child; break; }
         }
-        if ($glyph instanceof DOMElement) {
-            $fontGlyph = false;
-            if ('span' === strtolower($glyph->tagName)) {
-                (new CssStylesheetTransformer())->visitStyleRules($author->combinedCss(), function (string $prelude, string $body) use ($glyph, &$fontGlyph): void {
-                    $content = $this->styles->verbatimCssDeclarations($body)['content'] ?? '';
-                    if (in_array(strtolower(trim($content)), array('', 'none', 'normal', 'initial', 'unset', '""', "''"), true)) return;
-                    foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
-                        if (preg_match('/::?before$/', $selector) && $this->styles->matchesCssSelector($glyph, preg_replace('/::?before$/', '', $selector) ?? '')) $fontGlyph = true;
-                    }
-                });
+        // A clipped accessible label can precede the artwork. Find the host
+        // of captured generated content, not simply the first span. This also
+        // covers icon-font <i> elements without guessing from vendor classes.
+        $fontGlyph = false;
+        (new CssStylesheetTransformer())->visitStyleRules($author->combinedCss(), function (string $prelude, string $body) use ($anchor, &$glyph, &$fontGlyph): void {
+            if ($fontGlyph) return;
+            $content = $this->styles->verbatimCssDeclarations($body)['content'] ?? '';
+            if (in_array(strtolower(trim($content)), array('', 'none', 'normal', 'initial', 'unset', '""', "''"), true)) return;
+            foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                if (!preg_match('/::?before$/', $selector)) continue;
+                $subject = preg_replace('/::?before$/', '', $selector) ?? '';
+                foreach ($anchor->getElementsByTagName('*') as $candidate) {
+                    if (!in_array(strtolower($candidate->tagName), array('i', 'span'), true)) continue;
+                    if (!$this->styles->matchesCssSelector($candidate, $subject)) continue;
+                    $glyph = $candidate;
+                    $fontGlyph = true;
+                    return;
+                }
             }
+        });
+        if ($fontOnly && !$fontGlyph) return $originalAttrs;
+        if ($glyph instanceof DOMElement) {
             if ($fontGlyph) {
                 $attrs['className'] .= ' blocks-engine-social-source-glyph';
                 $targets->record(SourceDom::elementSelector($glyph), ':root .' . $marker . '>a>svg', 'display:none');
@@ -62,7 +74,7 @@ final class SocialSourceStyleProjector
                     }
                     // Pseudo-elements cannot occur inside :where(). Their
                     // own type weight is already the source's before weight.
-                    $target = ':root :where(.' . $marker . ($ownPseudo ? '>a' : ($fontGlyph ? '' : $nativeGlyph)) . ')' . CssSpecificityProjection::shims($parsed, $author->specificityShim(), $author->classSpecificityShim(), $author->idSpecificityShim()) . ($ownPseudo ? '::before' : '');
+                    $target = ':root :where(.' . $marker . ($ownPseudo ? '>a' : ($fontGlyph ? '>a' : $nativeGlyph)) . ')' . CssSpecificityProjection::shims($parsed, $author->specificityShim(), $author->classSpecificityShim(), $author->idSpecificityShim()) . ($ownPseudo ? '::before' : '');
                     $targets->record(SourceDom::elementSelector($glyph), $target, $this->styles->cssDeclarationString($projected), $conditions);
                 }
             });
