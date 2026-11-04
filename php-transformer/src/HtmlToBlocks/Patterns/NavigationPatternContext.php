@@ -641,7 +641,10 @@ final class NavigationPatternContext
             // The instance names the resting menu: per-item link colours follow
             // the served route, and current-item presentation is lifted above.
             $resting = array_filter($targets, static fn(string $marker): bool => 1 !== preg_match('/^blocks-engine-navigation-(?:current-color|link-color(?:-states)?)-/', $marker), ARRAY_FILTER_USE_KEY);
-            $scope = $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . json_encode($resting));
+            // An ancestor may record this same emitted block again. Its first
+            // correspondence owns the instance and all subsequent projections.
+            preg_match('/(?:^|\s)(blocks-engine-navigation-instance-[a-f0-9]{12}-[0-9]+)(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''), $existing);
+            $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
             $this->recordCurrentItemPresentation($current, $scope, $source);
             $markup = (string) json_encode($block);
@@ -916,7 +919,7 @@ final class NavigationPatternContext
             if ($sibling instanceof DOMElement) ++$position;
         }
         $projections = $this->session->authorSelectorProjectionState();
-        $classes = array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class) && !$projections->selectsCurrentNavigationState('.' . $class));
+        $classes = array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class) && !$projections->selectsCurrentNavigationState('.' . $class)));
         $identity = array(strtolower($element->tagName), $element->getAttribute('id'), implode(' ', $classes), $element->getAttribute('style'), \Automattic\BlocksEngine\PhpTransformer\Support\NavigationUrl::serialize($element->getAttribute('href')), $position, $rules);
         return $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-' . $kind, (string) json_encode($identity));
     }

@@ -63,7 +63,7 @@ final class RouteStateProjector
             if ('html' !== ($file['kind'] ?? null) || ! is_string($file['content'] ?? null)) {
                 continue;
             }
-            $file['content'] = self::normalize($file['content']);
+            $file['content'] = self::normalize($file['content'], true);
         }
         unset($file);
 
@@ -430,7 +430,12 @@ final class RouteStateProjector
         return $rules;
     }
 
-    public static function normalize(string $html): string
+    /**
+     * The compiler retains page-item state until navigation can lift its paint
+     * to runtime selectors. Standalone normalization still removes router
+     * tokens; fragment links never retain them because they name no page.
+     */
+    public static function normalize(string $html, bool $preserveNavigationPresentation = false): string
     {
         if (! preg_match('/\saria-current\s*=|\sdata-status\s*=\s*["\']?active/i', $html)) {
             return $html;
@@ -487,6 +492,11 @@ final class RouteStateProjector
                 }
                 $changed = true;
                 foreach ($atLevel as $element) {
+                    // Keep page-item evidence for navigation's current-paint
+                    // projection, but not router state on fragment links (Core
+                    // cannot restore those as the current page).
+                    $link = 'a' === strtolower($element->tagName) ? $element : $element->getElementsByTagName('a')->item(0);
+                    if ($preserveNavigationPresentation && self::inMenu($element) && $link instanceof DOMElement && !ArtifactPath::namesSection($link->getAttribute('href'))) continue;
                     $classes = array_values(array_diff(self::classes($element), $state));
                     if (array() === $classes) {
                         $element->removeAttribute('class');
