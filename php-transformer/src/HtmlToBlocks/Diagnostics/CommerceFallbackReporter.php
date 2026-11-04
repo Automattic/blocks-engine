@@ -758,6 +758,7 @@ final class CommerceFallbackReporter
      */
     public function appendCommerceControlsFallbacks(DOMElement $body, array &$fallbacks, string $sourceHtml = ''): void
     {
+        $this->appendFormlessPurchaseFallbacks($body, $fallbacks, $sourceHtml);
         $emitted = 0;
         foreach ( $body->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement ) {
@@ -802,7 +803,7 @@ final class CommerceFallbackReporter
      *
      * @param array<int, array<string, mixed>> $fallbacks
      */
-    public function appendFormlessPurchaseFallbacks(DOMElement $body, array &$fallbacks, string $sourceHtml): void
+    private function appendFormlessPurchaseFallbacks(DOMElement $body, array &$fallbacks, string $sourceHtml): void
     {
         $regions = array();
         $optionRegions = array();
@@ -866,6 +867,11 @@ final class CommerceFallbackReporter
             $control = $this->recognizer->cartControlElement($element);
             foreach ( $element->childNodes as $child ) {
                 if ( ! $child instanceof DOMElement ) {
+                    if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent) ) {
+                        $hasNonControl = true;
+                        if ( $containsCart ) break;
+                        $run = array();
+                    }
                     continue;
                 }
                 $hasControl = $child === $control || null !== $this->recognizer->cartControlElement($child)
@@ -883,13 +889,10 @@ final class CommerceFallbackReporter
                 $containsCart = $containsCart || $child === $control || null !== $this->recognizer->cartControlElement($child);
             }
             if ( $hasNonControl && $containsCart && array() !== $run ) {
-                $wrapper = $element->ownerDocument->createElement('div');
-                $element->insertBefore($wrapper, $run[0]);
-                foreach ( $run as $child ) {
-                    $wrapper->appendChild($child);
-                }
-                $element = $wrapper;
-                $binding = $this->blockBinding(array(), 'commerce_add_to_cart_form', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element);
+                $binding['_binding_control_run_selectors'] = array_map(
+                    static fn (DOMElement $child): string => SourceDom::elementSelector($child),
+                    $run
+                );
             }
             $fallbacks[] = FallbackDiagnostic::build(array(
                 'type' => 'html',
