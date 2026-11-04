@@ -4647,6 +4647,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         return false;
     }
 
+    private function holdsLink(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('a') as $link ) {
+            if ( '' !== trim($this->attr($link, 'href')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function isNavigationChromeElement(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
@@ -4654,7 +4665,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        if ( in_array(strtolower($this->attr($element, 'role')), array( 'separator', 'presentation', 'none' ), true) ) {
+        // `presentation` and `none` remove only the element's own semantics.
+        // The WAI-ARIA menu pattern puts them on each menu item's `li`, which
+        // still holds the item's link.
+        $role = strtolower($this->attr($element, 'role'));
+        if ( 'separator' === $role || ( in_array($role, array( 'presentation', 'none' ), true) && ! $this->holdsLink($element) ) ) {
             return true;
         }
 
