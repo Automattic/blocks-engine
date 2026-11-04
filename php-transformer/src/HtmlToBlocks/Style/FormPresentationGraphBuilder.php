@@ -93,6 +93,14 @@ final class FormPresentationGraphBuilder
     );
 
     private array $diagnostics = array();
+    /** @var array<string,true> Stylesheet facts, separate from the current element's limits. */
+    private array $stylesheetDiagnostics = array();
+
+    /** Stylesheet diagnostics accumulated by this builder, once per selector. */
+    public function stylesheetDiagnostics(): array
+    {
+        return array_keys($this->stylesheetDiagnostics);
+    }
     /** @var array<string,true> Source declarations whose value cannot be represented, keyed by source and property. */
     private array $unrepresentable = array();
     private bool $truncated = false;
@@ -200,6 +208,7 @@ final class FormPresentationGraphBuilder
             foreach (is_array($variant['precedence'] ?? null) ? $variant['precedence'] : array() as $rank) if (!is_array($rank) || array_diff(array_keys($rank), array('source_order', 'specificity', 'important'))) throw new InvalidArgumentException('Form element presentation precedence has unknown keys.');
         }
         if ('generic/form-element-presentation/v1' !== ($presentation['schema'] ?? null) || !is_array($presentation['styles'] ?? null) || !is_array($presentation['provenance'] ?? null) || !is_array($presentation['variants'] ?? null) || count($presentation['variants']) > self::MAX_RULES_PER_ROLE || !is_bool($presentation['truncated'] ?? null) || !is_array($presentation['diagnostics'] ?? null) || count($presentation['diagnostics']) > self::MAX_DIAGNOSTICS) throw new InvalidArgumentException('Form element presentation envelope is invalid.');
+        if (!array_is_list($presentation['diagnostics']) || array_filter($presentation['diagnostics'], static fn (mixed $diagnostic): bool => !is_string($diagnostic) || '' === trim($diagnostic) || str_starts_with($diagnostic, 'unsupported_selector:'))) throw new InvalidArgumentException('Form element diagnostics must describe the element, not the stylesheet.');
         self::assertStyles($presentation['styles']);
         self::assertProvenance($presentation['provenance'], $presentation['styles'], null);
         foreach ($presentation['variants'] as $variant) {
@@ -522,6 +531,7 @@ final class FormPresentationGraphBuilder
     /** @param list<array<string, mixed>> $stylesheets @return array<string, mixed> */
     public function build(DOMElement $form, array $stylesheets, string $inlineCss = ''): array
     {
+        $this->stylesheetDiagnostics = array();
         $this->diagnostics = array();
         $this->truncated = false;
         $this->unrepresentable = array();
@@ -695,7 +705,7 @@ final class FormPresentationGraphBuilder
             }
         }
 
-        $diagnostics = array_values(array_unique($this->diagnostics));
+        $diagnostics = array_values(array_unique(array_merge($this->diagnostics, $this->stylesheetDiagnostics())));
         // Unsupported selectors can fill the diagnostic budget before the
         // actual bound that made this graph unsafe to publish. Keep that cause
         // visible so a dropped provider presentation graph is actionable.
@@ -726,7 +736,7 @@ final class FormPresentationGraphBuilder
         $v1 = 'generic/computed-form-presentation/v1' === $version;
         $v2 = 'generic/computed-form-presentation/v2' === $version;
         $expectedKeys = $v2 ? array( 'schema', 'basis', 'truncated', 'limits', 'controls', 'visual_parts', 'visual_groups', 'control_containers', 'group_captions', 'variants', 'diagnostics' ) : array( 'schema', 'basis', 'truncated', 'limits', 'controls', 'variants', 'diagnostics' );
-        if ( (! $v1 && ! $v2) || 'source_css_cascade' !== ($graph['basis'] ?? null) || ! is_bool($graph['truncated'] ?? null) || ! is_array($graph['limits'] ?? null) || array_diff(array_keys($graph['limits']), array( 'controls', 'rules_per_role' )) || self::MAX_CONTROLS !== ($graph['limits']['controls'] ?? null) || self::MAX_RULES_PER_ROLE !== ($graph['limits']['rules_per_role'] ?? null) || ! is_array($graph['controls'] ?? null) || ! array_is_list($graph['controls']) || count($graph['controls']) > self::MAX_CONTROLS || ($v2 && (! is_array($graph['visual_parts'] ?? null) || ! array_is_list($graph['visual_parts']) || count($graph['visual_parts']) > self::MAX_VISUAL_PARTS || ! is_array($graph['visual_groups'] ?? null) || ! array_is_list($graph['visual_groups']) || count($graph['visual_groups']) > self::MAX_VISUAL_PARTS || ! is_array($graph['control_containers'] ?? null) || ! array_is_list($graph['control_containers']) || count($graph['control_containers']) > self::MAX_CONTROLS || ! is_array($graph['group_captions'] ?? null) || ! array_is_list($graph['group_captions']) || count($graph['group_captions']) > self::MAX_CONTROLS)) || ! is_array($graph['variants'] ?? null) || ! array_is_list($graph['variants']) || count($graph['variants']) > self::MAX_VARIANTS || ! is_array($graph['diagnostics'] ?? null) || ! array_is_list($graph['diagnostics']) || count($graph['diagnostics']) > self::MAX_DIAGNOSTICS || array_filter($graph['diagnostics'], static fn (mixed $diagnostic): bool => ! is_string($diagnostic) || '' === trim($diagnostic) || strlen($diagnostic) > 1100) || array_diff(array_keys($graph), $expectedKeys) ) {
+        if ( (! $v1 && ! $v2) || 'source_css_cascade' !== ($graph['basis'] ?? null) || ! is_bool($graph['truncated'] ?? null) || ! is_array($graph['limits'] ?? null) || array_diff(array_keys($graph['limits']), array( 'controls', 'rules_per_role' )) || self::MAX_CONTROLS !== ($graph['limits']['controls'] ?? null) || self::MAX_RULES_PER_ROLE !== ($graph['limits']['rules_per_role'] ?? null) || ! is_array($graph['controls'] ?? null) || ! array_is_list($graph['controls']) || count($graph['controls']) > self::MAX_CONTROLS || ($v2 && (! is_array($graph['visual_parts'] ?? null) || ! array_is_list($graph['visual_parts']) || count($graph['visual_parts']) > self::MAX_VISUAL_PARTS || ! is_array($graph['visual_groups'] ?? null) || ! array_is_list($graph['visual_groups']) || count($graph['visual_groups']) > self::MAX_VISUAL_PARTS || ! is_array($graph['control_containers'] ?? null) || ! array_is_list($graph['control_containers']) || count($graph['control_containers']) > self::MAX_CONTROLS || ! is_array($graph['group_captions'] ?? null) || ! array_is_list($graph['group_captions']) || count($graph['group_captions']) > self::MAX_CONTROLS)) || ! is_array($graph['variants'] ?? null) || ! array_is_list($graph['variants']) || count($graph['variants']) > self::MAX_VARIANTS || ! is_array($graph['diagnostics'] ?? null) || ! array_is_list($graph['diagnostics']) || count(array_unique($graph['diagnostics'], SORT_REGULAR)) !== count($graph['diagnostics']) || count($graph['diagnostics']) > self::MAX_DIAGNOSTICS || array_filter($graph['diagnostics'], static fn (mixed $diagnostic): bool => ! is_string($diagnostic) || '' === trim($diagnostic) || strlen($diagnostic) > 1100) || array_diff(array_keys($graph), $expectedKeys) ) {
             throw new InvalidArgumentException('Form presentation graph envelope is invalid.');
         }
         $containerIndexes = array();
@@ -1297,7 +1307,7 @@ final class FormPresentationGraphBuilder
         $base = array(); $conditional = array(); $matched = 0;
         foreach ( $rules as $rule ) {
             $match = ! empty($rule['inline']) ? array( 'supported' => true, 'matches' => true ) : $this->matchCache->matches($element, $rule['selector'], $rule['parsed_selector']);
-            if ( ! $match['supported'] ) { $this->diagnostics[] = 'unsupported_selector:' . $rule['selector']; continue; }
+            if ( ! $match['supported'] ) { $this->stylesheetDiagnostics['unsupported_selector:' . $rule['selector']] = true; continue; }
             if ( ! $match['matches'] ) continue;
             if ( $matched++ >= self::MAX_RULES_PER_ROLE ) { $this->truncated = true; $this->diagnostics[] = 'rules_per_role_limit'; break; }
             foreach ( $rule['declarations'] as $declarationOrder => $declaration ) {

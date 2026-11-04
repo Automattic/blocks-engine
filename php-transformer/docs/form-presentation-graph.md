@@ -1,5 +1,16 @@
 # Form Presentation Graph
 
+## Diagnostic ownership
+
+Unsupported selectors describe stylesheet limitations, not individual elements.
+`unsupported_selector:<selector>` is deduplicated at graph level in the existing
+`diagnostics` lists of both layout and presentation graphs. Element
+`presentation.diagnostics` contains only element facts (such as value,
+provenance or variant limits), never unsupported-selector reports. Graph
+validators require unique diagnostic strings; the element validator rejects
+stylesheet diagnostics. Existing presentation graph diagnostic bounds still
+apply. Styles, provenance, variants and compiled blocks are unchanged.
+
 ## Companion layout graph: direct child counts
 
 `generic/computed-layout-graph/v3` container nodes optionally carry
