@@ -159,10 +159,11 @@ final class AuthoredButtonBlockGenerator
     function pressed( value ) { return [ 'true', 'false', 'mixed' ].indexOf( String( value || '' ) ) !== -1 ? String( value ) : ''; }
     function checkable( attrs ) { return attrs.role === 'checkbox' && [ 'true', 'false' ].indexOf( attrs.ariaChecked ) !== -1; }
     function safeIcon( value ) { value = String( value || '' ).trim(); if ( ! /^<svg[\s>]/i.test( value ) ) return ''; if ( /<\s*(?:script|style|foreignobject|iframe|object|embed|link)\b|\son[a-z]+\s*=|\shref\s*=|\sstyle\s*=|javascript\s*:|\burl\s*\(/i.test( value ) ) return ''; return value; }
-    function sourceAttributes( attrs ) { return ( Array.isArray( attrs.sourceAttributes ) ? attrs.sourceAttributes : [] ).filter( function( item ) { return item && isSourceAttributeName( String( item.name || '' ) ); } ).sort( function( a, b ) { return String( a.name ).localeCompare( String( b.name ) ); } ); }
+    function sourceAttributes( attrs ) { var tag = String( attrs.tagName || 'button' ).toLowerCase(); return ( Array.isArray( attrs.sourceAttributes ) ? attrs.sourceAttributes : [] ).filter( function( item ) { if ( !item || !isSourceAttributeName( String( item.name || '' ) ) ) return false; if ( item.name === 'href' ) return tag === 'a' && !!safeHref( item.value ); return true; } ).map( function( item ) { return item.name === 'href' ? { name: item.name, value: safeHref( item.value ) } : item; } ).sort( function( a, b ) { return String( a.name ).localeCompare( String( b.name ) ); } ); }
     function labelWrappers( attrs ) { return ( Array.isArray( attrs.labelWrappers ) ? attrs.labelWrappers : [] ).slice( 0, 16 ).filter( function( wrapper ) { return wrapper && labelTags.indexOf( String( wrapper.tagName || '' ).toLowerCase() ) !== -1; } ); }
     function labelProps( wrapper ) { var props = {}; Object.keys( wrapper.attributes || {} ).forEach( function( name ) { if ( /^(?:class|id|style|data-(?!wp-)[a-z0-9_.:-]+)$/.test( name ) ) props[ name ] = String( wrapper.attributes[ name ] ); } ); return props; }
     function isSourceAttributeName( name ) { return /^(?:href|role|tabindex|hidden|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/.test( name ) && name !== 'data-action' && name !== 'jsaction'; }
+    function safeHref( value ) { value = String( value || '' ).trim(); return value && ( !/^[a-z][a-z0-9+.-]*:/i.test( value ) || /^(?:https?:|mailto:|tel:)/i.test( value ) ) ? value : ''; }
     function rootTag( attrs ) { var tag = String( attrs.tagName || 'button' ).toLowerCase(); return [ 'div', 'span', 'a' ].indexOf( tag ) !== -1 && sourceAttributes( attrs ).some( function( item ) { return item.name === 'role' && String( item.value ).toLowerCase() === 'button'; } ) ? tag : 'button'; }
     function sourceAttributeMarkup( attrs ) { var output = ''; sourceAttributes( attrs ).forEach( function( item ) { output += ' ' + item.name + '="' + escapeAttribute( item.value ) + '"'; } ); return output; }
     function contentParts( attrs ) { return ( Array.isArray( attrs.contentParts ) ? attrs.contentParts : [] ).slice( 0, 32 ); }
@@ -292,7 +293,17 @@ JS;
             if ( ! self::isSourceAttributeName($name) ) {
                 continue;
             }
-            $attributes[$name] = (string) ($attribute['value'] ?? '');
+            $value = (string) ($attribute['value'] ?? '');
+            if ( 'href' === $name ) {
+                if ( 'a' !== strtolower((string) ($attrs['tagName'] ?? 'button')) ) {
+                    continue;
+                }
+                $value = self::safeHref($value);
+                if ( '' === $value ) {
+                    continue;
+                }
+            }
+            $attributes[$name] = $value;
         }
         ksort($attributes);
         $sorted = array();
@@ -315,7 +326,13 @@ JS;
         foreach ( $element->attributes ?? array() as $attribute ) {
             $name = strtolower($attribute->nodeName);
             if ( self::isSourceAttributeName($name) ) {
-                $candidates[$name] = $attribute->nodeValue ?? '';
+                $value = $attribute->nodeValue ?? '';
+                if ('href' === $name) {
+                    if ('a' !== strtolower($element->tagName)) continue;
+                    $value = self::safeHref($value);
+                    if ('' === $value) continue;
+                }
+                $candidates[$name] = $value;
             }
         }
         if ( array() === $candidates ) {
@@ -346,6 +363,12 @@ JS;
         }
 
         return array_slice(self::partsFrom($button, 0), 0, 32);
+    }
+
+    private static function safeHref(string $value): string
+    {
+        $value = trim($value);
+        return '' !== $value && (1 !== preg_match('/^[a-z][a-z0-9+.-]*:/i', $value) || 1 === preg_match('/^(?:https?:|mailto:|tel:)/i', $value)) ? $value : '';
     }
 
     public static function isSourceAttributeName(string $name): bool
