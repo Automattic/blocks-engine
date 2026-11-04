@@ -1332,9 +1332,10 @@ final class ShellExtraction
     }
 
     /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
-    public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), bool $partitionTypes = true, bool $partitionHeaders = true): array
+    public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), bool $partitionTypes = true, bool $partitionHeaders = true, array $assets = array()): array
     {
         $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
+        $pages = self::withWordmarkRouteState($pages, $assets);
         $parts = array(); $diagnostics = array(); $unremovable = array();
         $areas = array('footer', 'header');
         while (null !== ($area = array_shift($areas))) {
@@ -1370,7 +1371,7 @@ final class ShellExtraction
                     }
                     $populationReserved = $reservedSlugs;
                     unset($populationReserved['header']);
-                    $resolved = $this->sharedShells($subset, $populationReserved, $runtimeDeclarations, $runtimeEntityRecords, $partitionTypes, false);
+                    $resolved = $this->sharedShells($subset, $populationReserved, $runtimeDeclarations, $runtimeEntityRecords, $partitionTypes, false, $assets);
                     $runtimeDeclarations = $resolved['runtime_declarations'];
                     $adoptedSources = array();
                     foreach ($resolved['pages'] as $index => $page) {
@@ -1440,7 +1441,7 @@ final class ShellExtraction
                 if (1 !== count($rows)) { $excluded[$index] = count($rows) > 1 ? 'multiple' : 'missing'; continue; }
                 $candidate = $rows[0];
                 $candidateIdentity = hash('sha256', $area . "\0" . ($candidate['identity_markup'] ?? $candidate['markup']));
-                if (!isset($clusters[$candidateIdentity]['candidate']) || self::prefersScrollStateCarrier($candidate, $clusters[$candidateIdentity]['candidate'])) $clusters[$candidateIdentity]['candidate'] = $candidate;
+                if (!isset($clusters[$candidateIdentity]['candidate']) || (!empty($page['entrypoint']) && !empty($candidate['wordmark_route_state'])) || self::prefersScrollStateCarrier($candidate, $clusters[$candidateIdentity]['candidate'])) $clusters[$candidateIdentity]['candidate'] = $candidate;
                 $clusters[$candidateIdentity]['indexes'][] = $index;
             }
             uasort($clusters, static fn(array $left, array $right): int => count($right['indexes']) <=> count($left['indexes']) ?: strcmp($left['candidate']['source_path'], $right['candidate']['source_path']));
@@ -1474,7 +1475,7 @@ final class ShellExtraction
                         $subset[$index] = $pages[$index];
                         $subset[$index]['shell_candidates'] = array_values(array_filter($pages[$index]['shell_candidates'] ?? array(), static fn(array $candidate): bool => $area === $candidate['area']));
                     }
-                    $resolved = $this->sharedShells($subset, $reservedSlugs, $runtimeDeclarations, $runtimeEntityRecords, false);
+                    $resolved = $this->sharedShells($subset, $reservedSlugs, $runtimeDeclarations, $runtimeEntityRecords, false, true, $assets);
                     $renames = array();
                     $runtimeDeclarations = $resolved['runtime_declarations'];
                     foreach ($resolved['parts'] as &$part) {
@@ -3072,20 +3073,116 @@ final class ShellExtraction
         return str_contains((string) ($candidate['markup'] ?? ''), '/scroll-state') && !str_contains((string) ($current['markup'] ?? ''), '/scroll-state');
     }
 
+    /**
+     * Wordmark evidence is cross-route, not a class-name convention. Only the
+     * comparison copy changes: extraction still moves the original editable blocks.
+     */
+    private static function withWordmarkRouteState(array $pages, array $assets): array
+    {
+        $properties = array('color', 'text-decoration', 'text-decoration-line', 'font-size', 'font-family');
+        $analysis = (new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer())->analyze(
+            array_values(array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))),
+            '', $properties, 4000000, 50000, 100000, 16
+        );
+        if ($analysis['truncated']) return $pages;
+        $entry = null;
+        foreach ($pages as $page) if (!empty($page['entrypoint'])) $entry = $page['route']['path'] ?? '/';
+        if (null === $entry) return $pages;
+        $evidence = array(); $applicable = 0;
+        foreach ($pages as $index => $page) {
+            if (!empty($page['synthetic'])) continue;
+            ++$applicable;
+            foreach ($page['shell_candidates'] ?? array() as $candidateIndex => $candidate) {
+                if ('header' !== $candidate['area']) continue;
+                $markup = $candidate['markup'];
+                $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
+                foreach ($nodes as $node) {
+                    if (!in_array($node['name'], array('group', 'heading', 'paragraph'), true)) continue;
+                    $fragment = substr($markup, $node['offset'], $node['end'] - $node['offset']);
+                    $dom = new \DOMDocument();
+                    @$dom->loadHTML('<?xml encoding="UTF-8"><body>' . $fragment . '</body>', LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+                    $body = $dom->getElementsByTagName('body')->item(0);
+                    if (null === $body) continue;
+                    $text = trim(preg_replace('/\s+/u', ' ', $body->textContent) ?? '');
+                    if ('' === $text) continue;
+                    $classes = array(); $styles = array(); $links = array(); $valid = true;
+                    $presentation = array('text-decoration-line' => 'none');
+                    foreach ($body->getElementsByTagName('*') as $element) {
+                        if (!in_array($element->tagName, array('div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a'), true)) { $valid = false; break; }
+                        // A wordmark is a single text leaf, possibly wrapped in a
+                        // logo container. Never swallow sibling copy or navigation.
+                        $children = 0;
+                        foreach ($element->childNodes as $child) if ($child instanceof \DOMElement || ($child instanceof \DOMText && '' !== trim($child->textContent))) ++$children;
+                        if ($children > 1) { $valid = false; break; }
+                        foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
+                            if ('' !== $class && !str_starts_with($class, 'wp-block-') && !str_starts_with($class, 'blocks-engine-synthetic-') && !str_starts_with($class, 'blocks-engine-propagated-') && !preg_match('/^has-(?:.+-font-(?:size|family)|text-color|.+-color)$/', $class)) $classes[$class] = true;
+                        }
+                        foreach (explode(';', $element->getAttribute('style')) as $style) {
+                            $style = trim($style);
+                            // Bare links are lowered to a zero-margin paragraph;
+                            // headings can materialize their default bold weight.
+                            if ('font-weight:700' !== $style && '' !== $style && !preg_match('/^(?:color|text-decoration(?:-line)?|font-size|font-family)\s*:/', $style) && !preg_match('/^margin-(?:top|right|bottom|left):0$/', $style)) $styles[$style] = true;
+                        }
+                        $presentation = self::wordmarkPresentation($element, $presentation, $analysis['rules'], $properties);
+                        if ('a' === $element->tagName) $links[] = html_entity_decode($element->getAttribute('href'));
+                    }
+                    if (!$valid || count($links) > 1 || (!empty($links) && $links[0] !== $entry) || (empty($page['entrypoint']) && array($entry) !== $links)) continue;
+                    ksort($classes); ksort($styles);
+                    $signature = hash('sha256', json_encode(array($text, array_keys($classes), array_keys($styles), $presentation)));
+                    $evidence[$signature][$index][] = array('candidate' => $candidateIndex, 'offset' => $node['offset'], 'length' => $node['end'] - $node['offset']);
+                }
+            }
+        }
+        foreach ($evidence as $signature => $routes) {
+            if ($applicable < 2 || count($routes) !== $applicable) continue;
+            // Ambiguous repeated labels are not structural wordmark evidence.
+            if (array_filter($routes, static fn(array $matches): bool => 1 !== count($matches))) continue;
+            foreach ($routes as $index => $matches) {
+                $match = $matches[0];
+                $candidate = &$pages[$index]['shell_candidates'][$match['candidate']];
+                $identity = substr_replace($candidate['markup'], '<!-- shared-wordmark:' . $signature . ' -->', $match['offset'], $match['length']);
+                $candidate['identity_markup'] = self::normalizeNestedChromeMarkup($identity);
+                $candidate['wordmark_route_state'] = true;
+                unset($candidate);
+            }
+        }
+        return $pages;
+    }
+
+    /** Resolve the single text leaf through its wrappers, not block-support placement. */
+    private static function wordmarkPresentation(\DOMElement $element, array $inherited, array $rules, array $properties): array
+    {
+        $facts = array();
+        $rules[] = array('declarations' => \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($element->getAttribute('style'), $properties), 'inline' => true, 'specificity' => array(0, 0, 0), 'order' => PHP_INT_MAX);
+        foreach ($rules as $rule) {
+            if (empty($rule['inline']) && (null !== $rule['condition'] || !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches'])) continue;
+            foreach ($rule['declarations'] as $declaration) {
+                $value = $declaration['value'];
+                $important = (bool) preg_match('/\s*!important\s*$/i', $value);
+                $value = trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value);
+                $property = 'text-decoration' === $declaration['name'] ? 'text-decoration-line' : $declaration['name'];
+                \Automattic\BlocksEngine\PhpTransformer\Css\DeclarationCascade::apply($facts, $property, array_merge($rule, array('important' => $important, 'value' => $value)));
+            }
+        }
+        foreach ($facts as $property => $fact) {
+            $value = $fact['value'];
+            // Output presets retain the captured value as their fallback.
+            $value = preg_replace('/var\(--wp--preset--[^,()]+,\s*([^()]+)\)/', '$1', $value) ?? $value;
+            if (in_array(strtolower($value), array('inherit', 'unset', 'currentcolor'), true)) continue;
+            if ('color' === $property) {
+                $color = \Automattic\BlocksEngine\PhpTransformer\Css\CssColor::parse($value);
+                if (null !== $color) $value = json_encode($color);
+            }
+            $inherited[$property] = $value;
+        }
+        ksort($inherited);
+        return $inherited;
+    }
+
     private static function normalizeNestedChromeMarkup(string $markup): string
     {
         $markup = self::withoutCurrentNavigationState($markup, true);
         $markup = self::withoutScrollStateCarrierIdentity($markup);
-        // Site wordmarks commonly use h1 on home and a paragraph elsewhere.
-        // Compare their content and presentation, not that route's heading level;
-        // the selected shell still emits its original editable block and tag.
-        $markup = preg_replace_callback('/<!-- wp:(heading|paragraph) (\{.*?\}) --><(h1|p)\b([^>]*)>(.*?)<\/\3><!-- \/wp:\1 -->/s', static function (array $match): string {
-            $attrs = json_decode($match[2], true);
-            if (!is_array($attrs) || !preg_match('/(?:^|\s)(?:site-title|site-name|brand|wordmark)(?:\s|$)/', (string) ($attrs['className'] ?? '')) || !preg_match('/<a\b[^>]*href="[^"]+"/i', $match[5])) return $match[0];
-            unset($attrs['level']);
-            $htmlAttrs = preg_replace('/\bwp-block-heading\s*/', '', $match[4]) ?? $match[4];
-            return '<!-- wp:paragraph ' . BlockAttributes::encode($attrs) . ' --><p' . $htmlAttrs . '>' . $match[5] . '</p><!-- /wp:paragraph -->';
-        }, $markup) ?? $markup;
         $markup = preg_replace('/\s*' . EngineMarker::patternBody() . '/', '', $markup) ?? $markup;
         $markup = preg_replace('/\s*(?:' . EngineMarker::specificityPatternBody('specificity-class') . '|blocks-engine-disclosure-summary-[a-f0-9]{6,}(?:-\d+)?)/', '', $markup) ?? $markup;
         // A captured dialog's generated id, and its triggers' ids, carry a per-document hash;
