@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use DOMElement;
@@ -60,6 +61,8 @@ final class AuthorStyleAnalysis
     private ?array $markerContextPolicy = null;
     /** @var \SplObjectStorage<DOMElement, string>|null */
     private ?\SplObjectStorage $contextHashes = null;
+    /** @var \SplObjectStorage<DOMElement, true>|null */
+    private ?\SplObjectStorage $positionalParents = null;
     /** @var \SplObjectStorage<DOMElement, string>|null */
     private ?\SplObjectStorage $subtreeHashes = null;
 
@@ -145,6 +148,8 @@ final class AuthorStyleAnalysis
     {
         $this->styleRules = $rules;
         $this->styleRuleCandidateIndex = null;
+        $this->positionalParents = null;
+        $this->contextHashes = null;
     }
 
     /** @return list<array<string, mixed>> */
@@ -230,8 +235,9 @@ final class AuthorStyleAnalysis
      * any document that loads the rule. With document-seeded markers, a
      * stylesheet shared by N pages therefore projected to N different texts.
      * Here the seed hashes the author CSS identity, the document type, the
-     * element's source path and full subtree (every attribute and text node),
-     * and every ancestor with all its siblings and their emptiness. Two
+     * element's full subtree (every observable attribute and text node), and
+     * every ancestor, with its siblings and position wherever a positional
+     * selector observes them (positionalParents()). Two
      * documents give one element the same marker only when all of that
      * agrees, so every author selector sees the same element in both and a
      * rule projected for one of them is correct for the other.
@@ -254,7 +260,7 @@ final class AuthorStyleAnalysis
         }
         return $this->allocateStableMarker(
             $kind,
-            "context\0" . $kind . "\0" . $path . "\0" . $this->authorCssIdentity . "\0" . $this->documentTypeIdentity($element) . "\0" . $this->contextHash($element) . "\0" . $this->subtreeHash($element)
+            "context\0" . $kind . "\0\0" . $this->authorCssIdentity . "\0" . $this->documentTypeIdentity($element) . "\0" . $this->contextHash($element) . "\0" . $this->subtreeHash($element)
         );
     }
 
@@ -363,6 +369,19 @@ final class AuthorStyleAnalysis
             $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
         }
         if ( $observable ) {
+            // An empty style attribute (left behind by scripts) styles nothing.
+            if ( isset($attributes['style']) && '' === trim($attributes['style']) ) {
+                unset($attributes['style']);
+            }
+            // Which item is current varies by route while the resting menu is
+            // shared, so route state never renames a context marker.
+            unset($attributes['aria-current']);
+            if ( isset($attributes['class']) ) {
+                $attributes['class'] = implode(' ', array_filter(
+                    preg_split('/\s+/', trim($attributes['class'])) ?: array(),
+                    static fn (string $class): bool => ! SourceClassIdentity::isCurrentState($class)
+                ));
+            }
             $attributes["\0empty"] = $element->hasChildNodes() ? '0' : '1';
             $policy = $this->markerContextPolicy();
             if ( ! $policy['raw'] ) {
@@ -389,7 +408,52 @@ final class AuthorStyleAnalysis
         return $tag . "\0" . json_encode($attributes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     }
 
-    /** The element's ancestors, each with all its siblings and its position among them. */
+    /**
+     * The elements whose children's order author CSS observes: the parent of
+     * any element matched by a selector up to a compound that reads its
+     * position (a structural pseudo-class) or its neighbours (either side of
+     * `+` / `~`). A positional rule elsewhere on the page observes nothing
+     * around other elements.
+     *
+     * @return \SplObjectStorage<DOMElement, true>
+     */
+    private function positionalParents(): \SplObjectStorage
+    {
+        if ( null !== $this->positionalParents ) {
+            return $this->positionalParents;
+        }
+        $parents = new \SplObjectStorage();
+        foreach ( $this->styleRules as $rule ) {
+            foreach ( $rule['selectors'] as $selector ) {
+                $parsed = ($selector['parsed']['supported'] ?? false) ? $selector['parsed'] : ($selector['direct_child_parsed'] ?? array());
+                if ( ! ($parsed['supported'] ?? false) ) {
+                    continue;
+                }
+                $compounds = $parsed['compounds'];
+                $combinators = $parsed['combinators'];
+                foreach ( $compounds as $index => $compound ) {
+                    $sibling = in_array($combinators[$index - 1] ?? '', array('+', '~'), true) || in_array($combinators[$index] ?? '', array('+', '~'), true);
+                    if ( ! $sibling && CssSelectorMatcher::dependsOnlyOnSubject(array('supported' => true, 'compounds' => array($compound), 'combinators' => array())) ) {
+                        continue;
+                    }
+                    $prefix = array('supported' => true, 'compounds' => array_slice($compounds, 0, $index + 1), 'combinators' => array_slice($combinators, 0, $index));
+                    foreach ( $this->selectorCandidates($prefix) as $candidate ) {
+                        $parent = $candidate->parentNode;
+                        if ( $parent instanceof DOMElement && ! isset($parents[$parent]) && CssSelectorMatcher::matches($candidate, $prefix)['matches'] ) {
+                            $parents[$parent] = true;
+                        }
+                    }
+                }
+            }
+        }
+        return $this->positionalParents = $parents;
+    }
+
+    /**
+     * The element's ancestor chain as author CSS can observe it. At a level
+     * whose children's order a positional selector observes, the siblings and
+     * the position among them count too.
+     */
     private function contextHash(DOMElement $element): string
     {
         $this->contextHashes ??= new \SplObjectStorage();
@@ -397,29 +461,33 @@ final class AuthorStyleAnalysis
             return $this->contextHashes[$element];
         }
         $parent = $element->parentNode;
-        $siblings = array();
-        $position = -1;
-        foreach ( $parent?->childNodes ?? array() as $child ) {
-            if ( $child instanceof DOMElement ) {
-                if ( $child->isSameNode($element) ) {
-                    $position = count($siblings);
+        $identity = $this->startTagIdentity($element, true);
+        if ( $parent instanceof DOMElement && isset($this->positionalParents()[$parent]) ) {
+            $siblings = array();
+            $position = -1;
+            foreach ( $parent->childNodes as $child ) {
+                if ( $child instanceof DOMElement ) {
+                    if ( $child->isSameNode($element) ) {
+                        $position = count($siblings);
+                    }
+                    $siblings[] = $this->startTagIdentity($child, true);
                 }
-                $siblings[] = $this->startTagIdentity($child, true);
             }
+            $identity = $position . "\0" . implode("\0", $siblings);
         }
-        $hash = hash('sha256', ( $parent instanceof DOMElement ? $this->contextHash($parent) : '' ) . "\0" . $position . "\0" . implode("\0", $siblings));
+        $hash = hash('sha256', ( $parent instanceof DOMElement ? $this->contextHash($parent) : '' ) . "\0" . $identity);
         $this->contextHashes[$element] = $hash;
         return $hash;
     }
 
-    /** The element's full subtree: every start tag, attribute and text node. */
+    /** The element's full subtree: every start tag (as author CSS can observe it) and text node. */
     private function subtreeHash(DOMElement $element): string
     {
         $this->subtreeHashes ??= new \SplObjectStorage();
         if ( isset($this->subtreeHashes[$element]) ) {
             return $this->subtreeHashes[$element];
         }
-        $parts = array($this->startTagIdentity($element));
+        $parts = array($this->startTagIdentity($element, true));
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
                 $parts[] = $this->subtreeHash($child);

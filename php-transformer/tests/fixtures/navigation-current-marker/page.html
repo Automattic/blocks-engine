@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><style>
+.c-header{background:#fff}
+.c-header .navbar-nav{display:flex;flex-direction:column;padding-left:0;list-style:none}
+.c-header .nav-item.active>a{color:#c00}
+@media (min-width:1024px){.navbar-expand-lg .navbar-nav{flex-direction:row}}
+@media (max-width:1023.98px){.c-header .nav-item.active .dropdown-menu{display:block}}
+</style></head><body>
+<header class="c-header"><nav class="navbar navbar-expand-lg"><div class="collapse navbar-collapse"><ul class="navbar-nav">
+<li class="nav-item{{home}}"><a href="/index.html">Home</a></li>
+<li class="nav-item{{about}}"><a href="/about.html">About</a></li>
+<li class="nav-item dropdown{{work}}"><a href="/work.html">Work</a><ul class="dropdown-menu"><li><a href="/work.html">Projects</a></li><li><a href="/about.html">Team</a></li></ul></li>
+</ul></div></nav></header>
+<main><h1>{{title}}</h1><p>{{title}} body copy.</p></main>
+<footer><p>Footer</p></footer>
+</body></html>
