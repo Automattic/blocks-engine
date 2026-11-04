@@ -35,7 +35,7 @@ $assert('core/image' === ($resourceSvg['blocks'][0]['blockName'] ?? null) && !st
 $wowChain = '<wow-image class="captured-media"><img src="hero.jpg" alt="Hero"></wow-image>';
 for ($depth = 0; $depth < 39; ++$depth) $wowChain = '<div class="depth-' . $depth . '">' . $wowChain . '</div>';
 $deepWow = $transform($wowChain);
-$assert('core/group' === ($deepWow['blocks'][0]['blockName'] ?? null) && $maxDepth($deepWow['blocks'] ?? array()) <= 20 && str_contains((string) ($deepWow['serialized_blocks'] ?? ''), '<!-- wp:custom/responsive-media') && str_contains((string) ($deepWow['serialized_blocks'] ?? ''), 'hero.jpg'), 'A depth-39 custom media chain coalesces its structural shells while retaining the custom media host.');
+$assert('custom/layout-shell' === ($deepWow['blocks'][0]['blockName'] ?? null) && $maxDepth($deepWow['blocks'] ?? array()) <= 20 && str_contains((string) ($deepWow['serialized_blocks'] ?? ''), '<!-- wp:image ') && !str_contains((string) ($deepWow['serialized_blocks'] ?? ''), '/responsive-media') && str_contains((string) ($deepWow['serialized_blocks'] ?? ''), 'captured-media') && str_contains((string) ($deepWow['serialized_blocks'] ?? ''), 'hero.jpg'), 'A depth-39 custom media chain coalesces its structural shells while retaining the custom media host around a native image.');
 
 $fullWidth = $transform('<div style="width:100%"><div class="surface"><p>Copy</p></div></div>');
 $fullWidthBlock = $fullWidth['blocks'][0] ?? array();
@@ -76,6 +76,7 @@ $slider = $transform('<div class="slider image-carrier"><img src="hero.jpg" alt=
 $assert('core/group' === ($slider['blocks'][0]['blockName'] ?? null), 'Runtime-shaped slider topology is never flattened around media.');
 
 $customSelectorOwned = $transform('<style>.shell wow-image{border:1px solid red}</style><div class="shell"><wow-image><img src="hero.jpg" alt="Hero"></wow-image></div>');
-$assert('core/group' === ($customSelectorOwned['blocks'][0]['blockName'] ?? null), 'A custom media carrier whose ancestor selector relationship would change retains its wrapper.');
+$customWrappers = $customSelectorOwned['blocks'][0]['attrs']['wrappers'] ?? array();
+$assert('custom/layout-shell' === ($customSelectorOwned['blocks'][0]['blockName'] ?? null) && 2 === count($customWrappers) && str_contains($customWrappers[0]['attributes']['class'] ?? '', 'shell') && str_contains($customWrappers[1]['attributes']['class'] ?? '', 'blocks-engine-source-wow-image-'), 'A custom media carrier retains both ancestor and projected host selector boundaries around its native image.');
 
 fwrite(STDOUT, "Geometry chain coalescing contract passed\n");
