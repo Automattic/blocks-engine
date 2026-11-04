@@ -248,6 +248,7 @@ trait StagedTransport
         $stageCompiler->generatedAssetRoot = (string) ($sharedPlan['analysis']['generated_asset_root'] ?? '');
 
         $compiledDocuments = array();
+        $stepTimings = array();
         $omittedPages = array();
         foreach ($pageArtifact['files'] as $file) {
             if ('html' !== ($file['kind'] ?? null) || $stageCompiler->isTemplatePartFile($file)) {
@@ -272,6 +273,9 @@ trait StagedTransport
                     true,
                     is_array($pagePlan['artifact']['runtime_declarations'] ?? null) ? $pagePlan['artifact']['runtime_declarations'] : array()
                 );
+                // Keep ordered observations out of digest-bound document payloads.
+                array_push($stepTimings, ...($compiledDocuments[$path]['step_timings'] ?? array()));
+                unset($compiledDocuments[$path]['step_timings']);
             } catch (\InvalidArgumentException $error) {
                 // The entrypoint is the page the whole site hangs off; losing it fails the compile.
                 if ($path === $entryPath) throw $error;
@@ -333,6 +337,7 @@ trait StagedTransport
             'normalization_count' => 0,
             'analysis_count' => 3,
             'compile_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
+            'step_timings' => $stepTimings,
         );
         $pagePlan['digest'] = $this->planDigest($this->pagePlanDigestInput($pagePlan));
 

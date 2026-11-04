@@ -49,12 +49,37 @@ $assertTimings($compile, array(
 $check($compile->serializedBlocks === (new HtmlTransformer())->transform($html)->serializedBlocks, 'Compile markup changed');
 $artifact = array('entrypoint' => 'index.html', 'files' => array(
     array('path' => 'index.html', 'content' => $html),
+    array('path' => 'about.html', 'content' => str_replace('Timing', 'About', $html)),
     array('path' => 'style.css', 'content' => 'h1{color:red}'),
 ));
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
-$pages = $compiler->compilePreparedPages($shared, $compiler->preparePages($artifact, $shared));
+$pagePlans = $compiler->preparePages($artifact, $shared);
+$pages = $compiler->compilePreparedPages($shared, $pagePlans);
+$check(2 === count($pages), 'Fixture must compile multiple page receipts');
+$withoutTimings = $pages;
+$digestInput = new ReflectionMethod(ArtifactCompiler::class, 'pagePlanDigestInput');
+foreach ($pages as $pageId => $receipt) {
+    $steps = $receipt['work']['step_timings'];
+    $check(array_column($steps, 'step') === array_column($compile->metrics['step_timings'], 'step'), 'Receipt must retain ordered transform steps without batch accumulation');
+    foreach ($steps as $step) {
+        $check($step['ms'] >= 0 && $step['calls'] > 0, 'Invalid receipt timing observation');
+    }
+    foreach ($receipt['compiled_documents'] as $document) {
+        $check(!isset($document['step_timings']), 'Timings leaked into digest-bound documents');
+    }
+    unset($withoutTimings[$pageId]['work']['step_timings']);
+    $check($digestInput->invoke($compiler, $receipt) === $digestInput->invoke($compiler, $withoutTimings[$pageId]), 'Timings changed receipt digest input');
+}
+$repeatedPages = $compiler->compilePreparedPages($shared, $pagePlans);
+foreach ($pages as $pageId => $receipt) {
+    $check($receipt['digest'] === $repeatedPages[$pageId]['digest'], 'Repeated page timings changed receipt digest');
+    unset($receipt['work'], $repeatedPages[$pageId]['work']);
+    $check($receipt === $repeatedPages[$pageId], 'Repeated page timings changed canonical receipt');
+}
 $result = $compiler->compose($shared, $pages);
+$untimedResult = $compiler->compose($shared, $withoutTimings);
+$check($result->serializedBlocks === $untimedResult->serializedBlocks, 'Receipt timings changed composition');
 $assertTimings($result, array('compose.receipt_validation', 'compose.receipt_reduction',
     'compose.author_stylesheet_projections', 'compose.author_stylesheet_projections.route_documents',
     'compose.author_stylesheet_projections.route_variants', 'compose.author_stylesheet_projections.route_budget',
@@ -62,6 +87,7 @@ $assertTimings($result, array('compose.receipt_validation', 'compose.receipt_red
 $again = $compiler->compose($shared, $pages);
 $check($result->serializedBlocks === $again->serializedBlocks, 'Compose markup changed');
 $plan = new WordPressSitePlan();
+$check($plan->fromResult($untimedResult)['plan_identity'] === $plan->fromResult($result)['plan_identity'], 'Receipt timings changed canonical plan identity');
 $without = $result->toArray();
 unset($without['metrics']['step_timings']);
 $check($plan->fromResult($without)['plan_identity'] === $plan->fromResult($result)['plan_identity'], 'Timings changed canonical plan hash');
