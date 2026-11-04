@@ -662,11 +662,13 @@ final class SourceElementClassifier
             return true;
         }
 
-        // A descriptive image beside a caption is content, not an inline
-        // button icon. Keep it outside core/button RichText so its media and
-        // caption remain independently editable rather than flattening alt text.
+        // An image repeating the visible caption is descriptive media. A
+        // non-empty alt alone is not evidence: ordinary icon + label controls
+        // also name their icons. Keep those on the native button path.
+        $caption = $this->normalizedVisibleText($this->visibleTextContent($element));
         foreach ( $element->getElementsByTagName('img') as $image ) {
-            if ( '' !== trim(SourceDom::attr($image, 'alt')) ) {
+            $alt = $this->normalizedVisibleText(SourceDom::attr($image, 'alt'));
+            if ( '' !== $alt && $alt === $caption ) {
                 return true;
             }
         }
