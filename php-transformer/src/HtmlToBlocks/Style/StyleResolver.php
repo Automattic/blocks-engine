@@ -620,7 +620,10 @@ final class StyleResolver implements ElementPresentationResolver
             if (! $this->matchesCssSelector($element, $selector) || ! $this->selectorNamesAnyRetainedClass($selector, $classes)) {
                 continue;
             }
-            foreach (array_keys($rule['declarations']) as $property) {
+            foreach ($rule['declarations'] as $property => $value) {
+                if ($this->conditionalValueMatchesRestingValue($element, $property, $value)) {
+                    continue;
+                }
                 $families[$this->responsivePropertyFamily($property)] = true;
             }
         }
@@ -662,7 +665,12 @@ final class StyleResolver implements ElementPresentationResolver
             ) {
                 continue;
             }
-            foreach (array_keys($rule['declarations']) as $property) {
+            foreach ($rule['declarations'] as $property => $value) {
+                if ($this->matchesCssSelector($element, $selector)
+                    && $this->conditionalValueMatchesRestingValue($element, $property, $value)
+                ) {
+                    continue;
+                }
                 $conditionalFamilies[$this->responsivePropertyFamily($property)] = true;
             }
         }
@@ -679,6 +687,38 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $conditionalFamilies;
+    }
+
+    /**
+     * A matching conditional restatement is not a variant when both values
+     * compute identically in this element's scope. Unresolved references and
+     * conditionally redefined tokens remain conservative: a capture-time
+     * equality is not proof of equality in every condition.
+     */
+    private function conditionalValueMatchesRestingValue(DOMElement $element, string $property, string $value): bool
+    {
+        $resting = $this->matchedCascadedDeclarations($element)[$property] ?? '';
+        if ('' === $resting || str_starts_with($property, '--')) {
+            return false;
+        }
+
+        $live = array();
+        for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
+            foreach ($this->matchingStyleRules($node, 'conditional') as $rule) {
+                foreach (($rule['cascadedDeclarations'] ?? array()) + $rule['declarations'] as $name => $_value) {
+                    if (str_starts_with((string) $name, '--')) $live[$name] = true;
+                }
+            }
+        }
+        $customProperties = $this->cascadedCustomProperties($element, true);
+        $resolve = function (string $declared) use ($customProperties, $live): string {
+            $declared = preg_replace('/\s*!\s*important\s*$/i', '', $declared) ?? $declared;
+            return trim($this->expandCssVariableReferences($declared, $customProperties, $live));
+        };
+        $base = $resolve($resting);
+        $conditional = $resolve($value);
+
+        return '' !== $base && !str_contains($base, 'var(') && !str_contains($conditional, 'var(') && $base === $conditional;
     }
 
     /**

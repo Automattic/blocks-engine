@@ -118,6 +118,22 @@ foreach ($conditionalRules as $label => $rule) {
     $assert('#101010' === $color, $label . ': expected style.color.text #101010; got ' . json_encode($color));
 }
 
+// The second rule isolated by bisecting the real page's 300 rules matches
+// the label, but its extra unset -rgb fallbacks compute to the same color.
+$duplicateDocument = str_replace(
+    'p.framer-text{color:var(--framer-blockquote-text-color-rgb,var(--framer-blockquote-text-color,var(--framer-text-color-rgb,var(--framer-text-color,#000))))}',
+    'p.framer-text{color:var(--framer-blockquote-text-color,var(--framer-text-color,#000))}',
+    $minimalDocument
+);
+$duplicateRule = '@supports not (color:color(display-p3 1 1 1)){p.framer-text{color:var(--framer-blockquote-text-color-rgb,var(--framer-blockquote-text-color,var(--framer-text-color-rgb,var(--framer-text-color,#000))))}}';
+foreach (array('equal resolved fallback' => '', 'different resolved fallback' => '--framer-text-color-rgb:#ff0000;') as $label => $inline) {
+    $html = str_replace('--framer-font-size:14px;', $inline . '--framer-font-size:14px;', sprintf($duplicateDocument, $duplicateRule));
+    $result = (new HtmlTransformer())->transform($html)->toArray();
+    $button = $firstBlock($result['blocks'] ?? array(), 'core/button');
+    $color = $button['attrs']['style']['color']['text'] ?? null;
+    $assert(null !== $button && ('' === $inline ? '#101010' === $color : null === $color), $label . ': matching conditional duplicate; got ' . json_encode($color));
+}
+
 // A conditional rule that really can match must still own the color in CSS,
 // rather than being frozen into an unconditional native text-color attribute.
 foreach (array(
