@@ -41,7 +41,8 @@ final class LayoutParticipation
         public readonly string $sourceDisplay,
         public readonly bool $positioned,
         public readonly bool $sourceIsNativeControl = false,
-        public readonly bool $sourceWrappersAreNative = false
+        public readonly bool $sourceWrappersAreNative = false,
+        public readonly bool $intrinsicRatioItem = false
     ) {}
 
     public static function resolve(DOMElement $element, StyleResolver $styleResolver): self
@@ -91,8 +92,27 @@ final class LayoutParticipation
             $sourceDisplay,
             $positioned,
             in_array(strtolower($element->tagName), array( 'button', 'input' ), true),
-            self::hasNativeButtonSaveWrappers($element)
+            self::hasNativeButtonSaveWrappers($element),
+            self::isIntrinsicRatioColumnItem($element, $styleResolver, $context)
         );
+    }
+
+    /**
+     * Intrinsic ratio sizing transfers the content's block size back to its
+     * inline size. Keep that computation on the original flex item, not on a
+     * shrink-wrapped carrier with a different percentage containing block.
+     */
+    private static function isIntrinsicRatioColumnItem(DOMElement $element, StyleResolver $resolver, string $context): bool
+    {
+        if ( self::FLEX_ITEM !== $context || ! $element->parentNode instanceof DOMElement ) {
+            return false;
+        }
+        $style = $resolver->resolvedSourceStateDeclarations($element);
+        $parent = $resolver->resolvedSourceStateDeclarations($element->parentNode);
+        return str_starts_with(CssValueInspector::comparable((string) ($parent['flex-direction'] ?? '')), 'column')
+            && in_array(CssValueInspector::comparable((string) ($style['width'] ?? '')), array('min-content', 'max-content', 'fit-content'), true)
+            && str_contains((string) ($style['min-width'] ?? ''), '%')
+            && ! in_array(CssValueInspector::comparable((string) ($style['aspect-ratio'] ?? 'auto')), array('', 'auto'), true);
     }
 
     /**
@@ -172,7 +192,7 @@ final class LayoutParticipation
         if ( $this->positioned ) {
             return self::BOX_BUTTON_WRAPPER;
         }
-        if ( $this->sourceWrappersAreNative || $this->isInline() || $this->flattensInnerSaveWrapper() ) {
+        if ( $this->intrinsicRatioItem || $this->sourceWrappersAreNative || $this->isInline() || $this->flattensInnerSaveWrapper() ) {
             return self::BOX_LINK;
         }
 
