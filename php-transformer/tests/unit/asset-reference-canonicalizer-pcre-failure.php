@@ -39,6 +39,25 @@ if (str_replace('assets/icon.svg', $token, $large) !== $canonicalizer->content($
     throw new RuntimeException('A large inline data URI must remain unchanged while a sibling local src resolves.');
 }
 
+foreach (array(1, 25000) as $count) {
+    $attr = json_encode(array('content' => str_repeat('<div class="cell"><img src="assets/icon.svg"></div>', $count)), JSON_HEX_TAG | JSON_HEX_QUOT);
+    $markup = '<!-- wp:group --><div class="wp-block-group"><!-- wp:example/big ' . $attr . ' /--></div><!-- /wp:group -->';
+    if (str_replace('assets\\/icon.svg', $token, $markup) !== $canonicalizer->content($markup, 'website/index.html')) {
+        throw new RuntimeException('Small and oversized block comments must resolve every JSON attribute reference without changing other bytes.');
+    }
+}
+
+// Escaped attributes use the same bounded opener / linear closer scan.
+foreach (array(
+    'src=\\u0022data:image/png;base64,' . str_repeat('A', 1100000) . '\\u0022 src=\\u0022assets/icon.svg\\u0022',
+    'style=\\u0022' . str_repeat(' ', 1100000) . 'background:url(assets/icon.svg)\\u0022',
+    '\\u003cdiv style="' . str_repeat(' ', 1100000) . 'background:url(assets/icon.svg)"',
+) as $document) {
+    if (str_replace('assets/icon.svg', $token, $document) !== $canonicalizer->content($document, 'website/index.html')) {
+        throw new RuntimeException('Oversized escaped attribute values must resolve without changing other bytes.');
+    }
+}
+
 $limit = ini_get('pcre.backtrack_limit');
 try {
     ini_set('pcre.backtrack_limit', '1');
