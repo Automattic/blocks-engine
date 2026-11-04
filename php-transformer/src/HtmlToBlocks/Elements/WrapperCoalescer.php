@@ -198,7 +198,7 @@ final class WrapperCoalescer
      */
     private function coalescedInheritedTextWrapper(DOMElement $element, array $childBlock): ?array
     {
-        if (! $this->isInheritedTextWrapper($element)) return null;
+        if ($this->isBindingAnchor($childBlock) || ! $this->isInheritedTextWrapper($element)) return null;
         if (! in_array($childBlock['blockName'] ?? '', array('core/paragraph', 'core/heading', 'core/group', 'core/image', 'core/quote', 'core/list'), true)) return null;
         $chain = array($element);
         $leaf = ($this->soleElementChild)($element);
@@ -367,6 +367,7 @@ final class WrapperCoalescer
             // attributes, an anchor tag) that kept it, so re-deciding from the
             // saved markup would fold a wrapper the first transform preserved.
             array('saved_group_boundary', fn (): bool => SourceDom::hasClass($element, 'wp-block-group')),
+            array('child_is_binding_anchor', fn (): bool => $this->isBindingAnchor($childBlock)),
             array('unrepresentable_wrapper_tag', fn (): bool => ! $this->wrapperTagIsRepresentableOnChild($element, $childBlock)),
             array('unsupported_child_block_name', fn (): bool => ! in_array($childBlock['blockName'] ?? null, array( 'core/group', 'core/image' ), true)),
             array('full_width_shell_requires_group_child', fn (): bool => $fullWidthTransparentShell && 'core/group' !== ($childBlock['blockName'] ?? null)),
@@ -417,6 +418,17 @@ final class WrapperCoalescer
             array('containing_block_dependent_declarations', fn (): bool => 'core/image' !== ($childBlock['blockName'] ?? null) && ! $redundantNestedLayout && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild)),
             array('selector_matching_does_not_survive_coalescing', fn (): bool => null === $proof && ! $this->syntheticImageGeometryLeaf($childBlock) && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild, $fullWidthTransparentShell)),
         );
+    }
+
+    /**
+     * A provider replaces a bound block wholesale, so a wrapper absorbed into
+     * it would be deleted by that replacement.
+     *
+     * @param array<string, mixed> $block
+     */
+    private function isBindingAnchor(array $block): bool
+    {
+        return $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null);
     }
 
     /** @param array<int, array{0: string, 1: Closure(): bool}> $checks */
