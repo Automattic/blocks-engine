@@ -717,8 +717,13 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( '' === $path ) {
             return $rooted ? '/' : null;
         }
+        // Directory-index normalization: the index names its directory, so
+        // `/about/index.html` and `/about/` address one route, and the site
+        // root's own `index.html` addresses the root route itself.
         if ( str_ends_with($path, '/index.html') ) {
             $path = substr($path, 0, -strlen('/index.html'));
+        } elseif ( 'index.html' === $path ) {
+            $path = '';
         } elseif ( str_ends_with($path, '.html') ) {
             $path = substr($path, 0, -strlen('.html'));
         } else {
