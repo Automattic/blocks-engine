@@ -523,9 +523,16 @@ final class ShellExtraction
             if (in_array($area, $occupiedAreas, true) || array() === $rows) {
                 continue;
             }
-            $identities = array_column($rows, 'identity_markup');
-            if (1 !== count(array_unique($identities))) {
-                continue;
+            // Repeated chrome must agree within a document scope, not across
+            // devices. The ordered scope identities still compare across routes.
+            $scoped = array();
+            foreach ($rows as $row) $scoped[$row['capture_scope']][] = $row;
+            ksort($scoped, SORT_STRING);
+            $identities = array();
+            foreach ($scoped as $scope => $scopeRows) {
+                $unique = array_unique(array_column($scopeRows, 'identity_markup'));
+                if (1 !== count($unique)) continue 2;
+                $identities[$scope] = reset($unique);
             }
             $row = $rows[0];
             if ('' === ($row['identity_markup'] ?? '')) {
@@ -540,11 +547,25 @@ final class ShellExtraction
                 );
             }
             $partMarkup = self::landmarkPartMarkup(self::withoutCurrentNavigationState($row['markup']), $area);
+            $identity = $row['identity_markup'];
+            if (1 < count(array_unique($identities))) {
+                if (isset($scoped[''])) continue;
+                // Labelled landmarks (including leading chrome) already have
+                // a responsive absorption path; do not preempt that ownership.
+                if (array() !== $this->nestedLandmarkCandidates($index, $sourcePath, $area)) continue;
+                $pieces = array();
+                foreach ($scoped as $scopeRows) {
+                    $variant = $scopeRows[0];
+                    $pieces[] = self::variantVisibilityGroup($variant['capture_scope'], self::landmarkPartMarkup(self::withoutCurrentNavigationState($variant['markup']), $area));
+                }
+                $partMarkup = implode("\n", $pieces);
+                $identity = json_encode($identities, JSON_THROW_ON_ERROR);
+            }
             $candidates[] = array(
                 'area' => $area,
                 'markup' => $row['markup'],
                 'template_part_markup' => $partMarkup,
-                'identity_markup' => $row['identity_markup'],
+                'identity_markup' => $identity,
                 'source_path' => $sourcePath,
                 'source_hash' => $row['source_hash'],
                 'nested_shell' => true,
@@ -561,7 +582,7 @@ final class ShellExtraction
      * @param array<int,array<string,mixed>> $headers
      * @param array<int,array<string,mixed>> $footers
      */
-    private function collectNestedChrome(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $ranges, array &$headers, array &$footers): void
+    private function collectNestedChrome(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $ranges, array &$headers, array &$footers, string $captureScope = ''): void
     {
         $markup = $index->markup;
         // Empty decoration groups ahead of the header do not move it: the first
@@ -583,7 +604,7 @@ final class ShellExtraction
                     }
                 }
                 if ($restHasContent) {
-                    $headers[] = $this->nestedChromeRow($first, $head['offset'], $head['length']);
+                    $headers[] = $this->nestedChromeRow($first, $head['offset'], $head['length']) + array('capture_scope' => $captureScope);
                     // A projected modal dialog mounts at the end of its document;
                     // it renders in the top layer, so the footer is the last
                     // sibling before it.
@@ -592,7 +613,7 @@ final class ShellExtraction
                     $last = $ranges[$lastIndex];
                     $lastMarkup = substr($markup, $last['offset'], $last['length']);
                     if ($last !== $head && self::isFooterChrome($lastMarkup)) {
-                        $footers[] = $this->nestedChromeRow($lastMarkup, $last['offset'], $last['length']);
+                        $footers[] = $this->nestedChromeRow($lastMarkup, $last['offset'], $last['length']) + array('capture_scope' => $captureScope);
                     }
                     return;
                 }
@@ -600,7 +621,13 @@ final class ShellExtraction
         }
         foreach ($ranges as $range) {
             $children = $index->children($range);
-            if (array() !== $children) $this->collectNestedChrome($index, $children, $headers, $footers);
+            if (array() === $children) continue;
+            $opening = substr($markup, $range['offset'], $children[0]['offset'] - $range['offset']);
+            $scope = $captureScope;
+            if (str_contains($opening, CaptureEvidence::DOCUMENT_SCOPE) && preg_match('/\bclass="([^"]*)"/', $opening, $match)) {
+                $scope = $match[1];
+            }
+            $this->collectNestedChrome($index, $children, $headers, $footers, $scope);
         }
     }
 
