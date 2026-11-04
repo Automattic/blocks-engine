@@ -288,13 +288,16 @@ final class ProjectedNavigationConverter implements ElementConverter
         $drawer = $this->collapsedContainingBlock($toggle);
         $drawerPlacement = $drawer instanceof DOMElement && $this->containsNavigation($drawer, $navigation)
             ? $this->portableCollapsedPlacement($drawer, array('position')) : array();
+        $outOfFlowRule = '';
         if ( 'fixed' === ($placement['position'] ?? '') && 'fixed' === ($drawerPlacement['position'] ?? '') ) {
             // The removed drawer occupied no layout slot. Keep its empty
             // host out of flow too, without retaining panel dimensions.
-            $hostDeclarations = array_merge($hostDeclarations, array('position:absolute!important', 'inset:auto!important', 'width:0!important', 'height:0!important', 'margin:0!important', 'flex-basis:0!important'));
+            // Core repeats the host classes on its inner list, which must
+            // keep its own box inside the open overlay.
+            $outOfFlowRule = $host . ':not(.wp-block-navigation__container){position:absolute!important;inset:auto!important;width:0!important;height:0!important;margin:0!important;flex-basis:0!important}';
             $slotDeclarations = array();
         }
-        $hostRule = $host . '{' . implode(';', array_merge($hostDeclarations, $slotDeclarations)) . '}';
+        $hostRule = $host . '{' . implode(';', array_merge($hostDeclarations, $slotDeclarations)) . '}' . $outOfFlowRule;
         // Core repeats source list classes on its inner container. Neither
         // that list nor the replacement toggle host is the source drawer:
         // retaining its translation (or a transform hint) moves the closed
@@ -321,7 +324,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             // button so Core's overlay does not gain a transformed ancestor.
             $extraRules .= $open . '{min-width:0!important;min-height:0!important;' . ('button' === strtolower($toggle->tagName) ? '' : 'padding:0!important;') . 'border:0!important;width:auto!important;height:auto!important}';
             $extraRules .= $presentation->css($open, $source['button'], $toggle);
-            $extraRules .= $presentation->css($open . '>svg', $source['icon'], $toggle->getElementsByTagName('svg')->item(0));
+            $extraRules .= $presentation->css($open . '>svg', $source['icon'], $presentation->icon($toggle));
         }
         if ( str_contains($extra, 'SVG_HIDE') ) {
             $extraRules .= $host . '>.wp-block-navigation__responsive-container-open svg{display:none!important}';
@@ -346,6 +349,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         // dropdown's header-bound geometry. Other mobile-only drawers retain
         // their existing panel projection within the collapsed range.
         $drawerRules = ! $always && $bindsPanel ? $this->nativeNavigationBoundPanelCss($host, $navigation) : '';
+        $drawerRules .= $this->nativeNavigationDrawerCss($host, $navigation, $toggle);
         $panelRule = $always ? '' : $this->collapsePanelVisibilityRule($host, $navigation);
         if ( $always ) {
             $rule = $hostRule . $openRule . $extraRules;
@@ -689,6 +693,65 @@ final class ProjectedNavigationConverter implements ElementConverter
             }
         }
         return false;
+    }
+
+    /** Restore a proven viewport side drawer, never an ordinary header dropdown. */
+    private function nativeNavigationDrawerCss(string $host, DOMElement $navigation, DOMElement $toggle): string
+    {
+        $fixed = null;
+        $panel = null;
+        $width = '';
+        foreach ($this->collapsedPanelChain($navigation) as $candidatePanel) {
+            $values = $this->portableCollapsedPlacement($candidatePanel, array('width'));
+            if (preg_match('/^(?:[1-9][0-9]*(?:\.[0-9]+)?)(?:px|rem|em|vw)$/D', $values['width'] ?? '')) {
+                $panel = $candidatePanel;
+                $width = $values['width'];
+                break;
+            }
+        }
+        for ($node = $navigation, $depth = 0; $node instanceof DOMElement && $depth < 5; $node = $node->parentNode, ++$depth) {
+            $values = $this->portableCollapsedPlacement($node, array('position', 'width', 'left', 'right'));
+            $candidate = $values['width'] ?? '';
+            if (null === $panel && preg_match('/^(?:[1-9][0-9]*(?:\.[0-9]+)?)(?:px|rem|em|vw)$/D', $candidate)) {
+                $panel = $node;
+                $width = $candidate;
+            }
+            if ('fixed' === ($values['position'] ?? '') && (isset($values['right']) || isset($values['left']))) {
+                $fixed = $values;
+                break;
+            }
+        }
+        if (null === $fixed || null === $panel) return '';
+        $edge = 'auto' !== ($fixed['right'] ?? 'auto') ? 'right' : 'left';
+        if (!in_array($fixed[$edge] ?? '', array('0', '0px'), true)) return '';
+        $background = '';
+        foreach (array($panel, $node) as $paintSource) {
+            if (!$paintSource instanceof DOMElement) continue;
+            $paint = $this->styleResolver->collapsedViewportAuthorDeclarations($paintSource, array('background', 'background-color'));
+            $background = $this->portableCollapsedPaint($paintSource, $paint['background-color'] ?? $paint['background'] ?? '');
+            if ('' !== $background) break;
+        }
+        if ('' === $background) return '';
+        // Checkbox drawers commonly pair their visible label with a second,
+        // full-page label. Carry only its paint, not its hidden resting box.
+        $backdrop = 'transparent';
+        if ('label' === strtolower($toggle->tagName) && $toggle->parentNode instanceof DOMElement) {
+            foreach ($toggle->parentNode->childNodes as $sibling) {
+                if (!$sibling instanceof DOMElement || $sibling->isSameNode($toggle)
+                    || 'label' !== strtolower($sibling->tagName) || $sibling->getAttribute('for') !== $toggle->getAttribute('for')) continue;
+                $paint = $this->styleResolver->collapsedViewportAuthorDeclarations($sibling, array('background', 'background-color'));
+                $value = $this->portableCollapsedPaint($sibling, $paint['background-color'] ?? $paint['background'] ?? '');
+                if ('' !== $value) $backdrop = $value;
+            }
+        }
+        $controlSize = $this->portableCollapsedPlacement($toggle, array('height'))['height'] ?? '0px';
+        if (!preg_match('/^\d+(?:\.\d+)?(?:px|rem|em)$/D', $controlSize)) $controlSize = '0px';
+        $open = $host . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
+        return $open . '{background:' . $backdrop . '!important;padding:0!important}'
+            . $open . ' .wp-block-navigation__responsive-dialog{box-sizing:border-box!important;position:fixed!important;inset:0 auto 0 auto!important;' . $edge . ':0!important;width:' . $width . '!important;max-width:100vw!important;height:100dvh!important;margin:0!important;overflow:auto!important;background:' . $background . '!important}'
+            . $open . ' .wp-block-navigation__responsive-container-content{padding-top:' . $controlSize . '!important;flex-direction:column!important;align-items:stretch!important}'
+            . $open . ' .wp-block-navigation__container{display:flex!important;flex-direction:column!important;align-items:stretch!important;width:100%!important}'
+            . $open . ' .wp-block-navigation__responsive-container-close{top:0!important;right:0!important}';
     }
 
     private function nativeNavigationBoundPanelCss(string $host, DOMElement $navigation): string

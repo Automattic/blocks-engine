@@ -301,7 +301,7 @@ final class AuthorSelectorSemanticPreparer
                 continue;
             }
             $this->discoverNegatedDataAttributeState($authorSelector['selector'], $authorStyles, $projections);
-            $this->discoverAncestorAttributeState($authorSelector['selector'], $authorStyles, $projections);
+            $this->discoverDroppedAttributeState($authorSelector['selector'], $authorStyles, $projections);
             $pseudoHost = CssSelectorMatcher::pseudoElementHost($authorSelector['selector']);
             $selector = $pseudoHost['selector'] ?? $authorSelector['selector'];
             $parsed = $pseudoHost['parsed'] ?? $parsed;
@@ -501,43 +501,32 @@ final class AuthorSelectorSemanticPreparer
     }
 
     /**
-     * Ancestor attribute conditions such as Wix's
-     * `.mu5PoX[aria-disabled=false] .twJknM` select on a container whose
-     * block serialization keeps only id, class and style. Once the container
-     * becomes a group the condition can never match again, so the descendant
-     * loses every declaration the rule owned (the default Wix button skin
-     * paints its fill and border this way).
+     * Attribute conditions on grouped-container ancestors or subjects are
+     * dropped when their source elements become blocks that serialize only
+     * supported wrapper attributes. Record a stable class on each converted
+     * holder and let the stylesheet projector derive a selector arm with the
+     * attribute condition replaced by that class. The class-only marker channel
+     * does not affect wrapper preservation or layout ownership, and the class
+     * has the same specificity as the attribute it replaces.
      *
-     * For each ancestor compound carrying such a condition, the holders are
-     * the elements matching that compound on the ancestor chain of an element
-     * the full selector styles (dynamic pseudo-classes are ignored for this
-     * static match). Holders that convert to groups receive
-     * a stable class through the class-only marker channel, which never
-     * changes wrapper preservation or layout decisions. The projector then
-     * derives a sibling selector from the original's projected output with
-     * each condition replaced by its class, so every per-element safeguard the
-     * original received carries over. A class has the specificity of the
-     * attribute it replaces.
-     *
-     * Skipped: pseudo-element rules (projected outside the selector path the
-     * class form is derived from), `data-*` conditions (their own projection),
-     * conditions also used inside functional pseudo-classes, runtime-toggled
-     * states, conditions an executable source script writes, and selectors whose ancestry keeps
-     * another condition that would be lost (the class form could never match).
+     * Dynamic pseudo-classes are ignored for the static source match. Skip
+     * pseudo-element rules, `data-*` conditions (handled by their own
+     * projection), conditions inside functional pseudo-classes, runtime-toggled
+     * states, and attributes written by executable source scripts.
      */
-    private function discoverAncestorAttributeState(string $selector, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
+    private function discoverDroppedAttributeState(string $selector, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
     {
         $selector = trim($selector);
-        if ( ! str_contains($selector, '[') || $projections->hasAncestorAttributeStateDecision($selector) ) {
+        if ( ! str_contains($selector, '[') || $projections->hasAttributeStateProjectionDecision($selector) ) {
             return;
         }
-        $projections->installAncestorAttributeStateConditions($selector, array());
+        $projections->installAttributeStateProjectionConditions($selector, array());
         $rightmostStart = self::rightmostCompoundStart($selector);
-        if ( null === $rightmostStart || 0 === $rightmostStart || 1 === preg_match(self::PSEUDO_ELEMENT, $selector) ) {
+        if ( null === $rightmostStart || 1 === preg_match(self::PSEUDO_ELEMENT, $selector) ) {
             return;
         }
         $ancestry = substr($selector, 0, $rightmostStart);
-        if ( ! preg_match_all(self::ANCESTOR_ATTRIBUTE_CONDITION, $ancestry, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
+        if ( ! preg_match_all(self::ATTRIBUTE_CONDITION, $selector, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
             return;
         }
         // The projector swaps every copy of a condition for its class. A copy
@@ -546,7 +535,7 @@ final class AuthorSelectorSemanticPreparer
         // carries the class, so such selectors keep only the original.
         $nested = array();
         foreach ( $matches as $match ) {
-            if ( 0 !== substr_count($ancestry, '(', 0, $match[0][1]) - substr_count($ancestry, ')', 0, $match[0][1]) ) {
+            if ( 0 !== substr_count($selector, '(', 0, $match[0][1]) - substr_count($selector, ')', 0, $match[0][1]) ) {
                 $nested[$match[0][0]] = true;
             }
         }
@@ -554,16 +543,17 @@ final class AuthorSelectorSemanticPreparer
         foreach ( $matches as $match ) {
             $condition = $match[0][0];
             $name = strtolower($match['name'][0]);
-            $depthBefore = substr_count($ancestry, '(', 0, $match[0][1]) - substr_count($ancestry, ')', 0, $match[0][1]);
+            $depthBefore = substr_count($selector, '(', 0, $match[0][1]) - substr_count($selector, ')', 0, $match[0][1]);
             if ( in_array($name, array( 'class', 'id', 'style' ), true) && 0 === $depthBefore ) {
                 continue; // Serialized blocks keep these; the condition still matches.
             }
             if ( 0 !== $depthBefore ) {
                 continue; // Inside :not()/:is(); left to the original selector.
             }
+            $isSubjectCondition = $match[0][1] >= $rightmostStart;
             if ( str_starts_with($name, 'data-') || in_array($name, self::RUNTIME_STATE_ATTRIBUTES, true)
                 || isset($nested[$condition])
-                || str_contains(substr($selector, $rightmostStart), $condition)
+                || (! $isSubjectCondition && str_contains(substr($selector, $rightmostStart), $condition))
                 || $this->sourceScriptsWriteAttribute($authorStyles, $projections, $name)
             ) {
                 return; // A condition the class form cannot carry: emitting it would be dead or frozen.
@@ -572,7 +562,9 @@ final class AuthorSelectorSemanticPreparer
             if ( ! $parsedCondition['supported'] ) {
                 return;
             }
-            $compound = self::staticSelector(self::enclosingCompound($ancestry, $match[0][1]));
+            $compoundSource = $isSubjectCondition ? substr($selector, $rightmostStart) : $ancestry;
+            $compoundOffset = $match[0][1] - ($isSubjectCondition ? $rightmostStart : 0);
+            $compound = self::staticSelector(self::enclosingCompound($compoundSource, $compoundOffset));
             $parsedCompound = CssSelectorMatcher::parse($compound);
             if ( ! $parsedCompound['supported'] ) {
                 return;
@@ -582,6 +574,7 @@ final class AuthorSelectorSemanticPreparer
                 'compound' => $parsedCompound,
                 'compound_text' => $compound,
                 'marker'   => $authorStyles->allocateStableMarker('attribute-state', 'ancestor-attribute:' . self::conditionIdentity($match)),
+                'subject'  => $isSubjectCondition,
             );
         }
         if ( array() === $conditions ) {
@@ -598,11 +591,20 @@ final class AuthorSelectorSemanticPreparer
             $marker = $condition['marker'];
             $holderKey = $marker . "\n" . $condition['compound_text'];
             foreach ( $subjects as $subject ) {
+                if ( $condition['subject'] ) {
+                    $path = $subject->getNodePath() ?? '';
+                    if ( '' !== $path && in_array(strtolower($subject->tagName), self::GROUPED_CONTAINER_TAGS, true)
+                        && $projections->visitAttributeStateProjectionPath($holderKey, $path)
+                    ) {
+                        $projections->addAttributeStateProjectionMarker($path, $marker, $holderKey);
+                    }
+                    continue;
+                }
                 for ( $element = $subject->parentNode; $element instanceof DOMElement; $element = $element->parentNode ) {
                     $path = $element->getNodePath() ?? '';
                     // Ancestors above an already visited holder were walked
                     // for this marker by an earlier subject.
-                    if ( '' === $path || ! $projections->visitAncestorAttributeStatePath($holderKey, $path) ) {
+                    if ( '' === $path || ! $projections->visitAttributeStateProjectionPath($holderKey, $path) ) {
                         break;
                     }
                     if ( ! in_array(strtolower($element->tagName), self::GROUPED_CONTAINER_TAGS, true)
@@ -610,15 +612,18 @@ final class AuthorSelectorSemanticPreparer
                     ) {
                         continue;
                     }
-                    $projections->addAncestorAttributeStateMarker($path, $marker, $holderKey);
+                    $projections->addAttributeStateProjectionMarker($path, $marker, $holderKey);
                 }
             }
-            if ( ! $projections->hasAncestorAttributeStateHolder($holderKey) ) {
-                return; // No holder of this condition is emitted in this document.
+            if ( ! $projections->hasAttributeStateProjectionHolder($holderKey) ) {
+                if ( $condition['subject'] ) {
+                    continue; // The subject keeps this attribute; leave its authored predicate live.
+                }
+                return; // No grouped ancestor holder is emitted in this document.
             }
             $installed[$condition['text']] = $marker;
         }
-        $projections->installAncestorAttributeStateConditions($selector, $installed);
+        $projections->installAttributeStateProjectionConditions($selector, $installed);
     }
 
     /**
@@ -637,7 +642,7 @@ final class AuthorSelectorSemanticPreparer
     private const RUNTIME_STATE_ATTRIBUTES = array( 'open', 'checked', 'selected', 'hidden', 'inert', 'aria-expanded', 'aria-selected', 'aria-checked', 'aria-pressed', 'aria-hidden', 'aria-current' );
 
     /** Attribute conditions; nested ones are excluded by the caller's parenthesis-depth check. */
-    private const ANCESTOR_ATTRIBUTE_CONDITION = '/\[\s*(?<name>[a-z_][a-z0-9_:-]*)\s*(?:(?<operator>[~|^$*]?=)\s*(?:"(?<dq>[^"]*)"|\'(?<sq>[^\']*)\'|(?<bare>[^\]\s]+))(?:\s+(?<flag>[is]))?)?\s*\]/i';
+    private const ATTRIBUTE_CONDITION = '/\[\s*(?<name>[a-z_][a-z0-9_:-]*)\s*(?:(?<operator>[~|^$*]?=)\s*(?:"(?<dq>[^"]*)"|\'(?<sq>[^\']*)\'|(?<bare>[^\]\s]+))(?:\s+(?<flag>[is]))?)?\s*\]/i';
 
     /** Dynamic pseudo-classes do not change which source elements a rule addresses. */
     private const DYNAMIC_PSEUDO = '/(?<!:):(?:hover|active|focus|focus-visible|focus-within|visited|link|any-link|target)\b(?!\()/i';

@@ -22,7 +22,7 @@ final class CapturedInteractionReport
                 if (4 <= count(self::$cache)) array_shift(self::$cache);
                 self::$cache[$key] = self::decode($content);
             }
-            return self::$cache[$key];
+            return CapturedComponentStates::shareEvidence(self::$cache[$key], $files);
         }
         return null;
     }

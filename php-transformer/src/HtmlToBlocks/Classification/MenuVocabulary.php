@@ -153,6 +153,48 @@ final class MenuVocabulary
     }
 
     /**
+     * A current-page declaration identifies a short, listless internal menu at
+     * the document's leading edge. Keep the signal structural, not vocabulary-
+     * based, and require every sibling to be one simple label link.
+     */
+    public static function isCurrentPageLinkRun(DOMElement $element): bool
+    {
+        $count = 0;
+        $current = false;
+        foreach ($element->childNodes as $child) {
+            if (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent)) return false;
+            if (!$child instanceof DOMElement) continue;
+            if ('a' !== strtolower($child->tagName)) return false;
+            $href = trim($child->getAttribute('href'));
+            if ('' === $href || str_starts_with($href, '#') || str_starts_with($href, '//') || preg_match('~^[a-z][a-z0-9+.-]*:~i', $href)) return false;
+            $label = trim(preg_replace('/\s+/u', ' ', $child->textContent) ?? '');
+            if ('' === $label || mb_strlen($label) > 80) return false;
+            // A single block label may contain inline text, but never multiple
+            // paragraphs, media or other content-card structure.
+            $blocks = 0;
+            foreach ($child->getElementsByTagName('*') as $part) {
+                $tag = strtolower($part->tagName);
+                if ('p' === $tag) { ++$blocks; continue; }
+                if (!in_array($tag, array('span', 'strong', 'em', 'b', 'i', 'small'), true)) return false;
+            }
+            if ($blocks > 1) return false;
+            $current = $current || 'page' === strtolower(trim($child->getAttribute('aria-current')));
+            ++$count;
+        }
+        if ($count < 3 || !$current) return false;
+        for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode) {
+            if (self::isHeaderLandmark($node)) return true;
+            if (in_array(strtolower($node->tagName), array('main', 'article', 'section', 'aside', 'footer', 'nav'), true)) return false;
+            if ('body' === strtolower($node->tagName)) return true;
+            for ($sibling = $node->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling) {
+                if ($sibling instanceof DOMElement && !in_array(strtolower($sibling->tagName), array('style', 'script', 'link', 'meta', 'title', 'head'), true)) return false;
+                if (XML_TEXT_NODE === $sibling->nodeType && '' !== trim($sibling->textContent)) return false;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Returns the regex fragment for unconditional menu tokens.
      *
      * For use in compound regexes where word boundaries are handled by the

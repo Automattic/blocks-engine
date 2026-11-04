@@ -5,24 +5,99 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMDocument;
+use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 
 /** State-owned probe evidence from the v2 component inventory. */
 final class CapturedComponentStates
 {
-    /** Bound report work before inspecting component evidence, reporting the skipped remainder once. */
-    public static function boundPages(array $pages, int $maxPages, string $code, string $source, array &$diagnostics): array
+    /** Reuse evidence only when the source component subtree is identical, never by selector alone.
+     * Documents are inspected one at a time; the inventory retains only distinct fingerprints.
+     */
+    public static function shareEvidence(?array $report, array $files): ?array
     {
-        $skipped = count($pages) - $maxPages;
-        if (0 < $skipped) {
-            $diagnostics[] = array(
-                'code' => $code,
-                'severity' => 'warning',
-                'message' => sprintf('The captured interaction report exceeded the page limit; %d pages were skipped.', $skipped),
-                'source' => $source,
-                'context' => array('max_pages' => $maxPages, 'skipped_pages' => $skipped),
-            );
+        if (!CapturedInteractionReport::valid($report)) return $report;
+        $receipt = CaptureReceiptReport::read($files);
+        if (null === $receipt) return $report;
+        $routes = CaptureReceiptRoutes::resolve($files, $receipt);
+        $contents = array_column($files, 'content', 'path');
+        $inventory = array();
+        foreach ($report['pages'] as $page) {
+            if (empty($page['components'])) continue;
+            $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
+            if (!is_string($contents[$path] ?? null)) continue;
+            $document = self::document($contents[$path]);
+            foreach ($page['components'] as $component) {
+                $selector = $component['selector'] ?? '';
+                if (!is_string($selector) || '' === $selector) continue;
+                $parsed = CssSelectorMatcher::parse($selector);
+                if (!$parsed) continue;
+                foreach ($document->getElementsByTagName('*') as $node) {
+                    if (!(CssSelectorMatcher::matches($node, $parsed)['matches'] ?? false)) continue;
+                    $hash = self::fingerprint($node);
+                    $inventory[$selector][$hash][hash('sha256', serialize($component))] = $component;
+                }
+            }
         }
-        return array_slice($pages, 0, $maxPages);
+        if (!$inventory) return $report;
+        foreach ($report['pages'] as &$page) {
+            $path = $routes[CaptureReceiptRoutes::normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
+            if (!is_string($contents[$path] ?? null) || !is_array($page['components'] ?? null)) continue;
+            $document = self::document($contents[$path]);
+            $components = array();
+            foreach ($page['components'] as $component) $components[hash('sha256', serialize($component))] = $component;
+            foreach ($inventory as $selector => $identities) {
+                $parsed = CssSelectorMatcher::parse($selector);
+                foreach ($document->getElementsByTagName('*') as $node) {
+                    if (!(CssSelectorMatcher::matches($node, $parsed)['matches'] ?? false)) continue;
+                    foreach ($identities[self::fingerprint($node)] ?? array() as $key => $component) $components[$key] = $component;
+                }
+            }
+            $page['components'] = array_values($components);
+        }
+        unset($page);
+        return $report;
+    }
+
+    private static function document(string $html): DOMDocument
+    {
+        $document = new DOMDocument('1.0', 'UTF-8');
+        $previous = libxml_use_internal_errors(true);
+        $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NONET);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        return $document;
+    }
+
+    private static function fingerprint(DOMElement $node): string
+    {
+        // A trigger alone is not an identity: include its owning source subtree.
+        if (in_array(strtolower($node->tagName), array('button', 'a', 'input'), true) && $node->parentNode instanceof DOMElement) $node = $node->parentNode;
+        return hash('sha256', serialize(self::normalizedNode($node)));
+    }
+
+    private static function normalizedNode(\DOMNode $node): array
+    {
+        if (!$node instanceof DOMElement) return array($node->nodeType, $node->nodeValue);
+        $attributes = array();
+        foreach ($node->attributes as $attribute) {
+            if ('style' === $attribute->name) {
+                $declarations = CssRuleAnalyzer::declarations($attribute->value, array('*'));
+                // Stable property sorting preserves the order of repeated declarations.
+                usort($declarations, static fn(array $a, array $b): int => strcmp($a['name'], $b['name']));
+                if ($declarations) $attributes['style'] = $declarations;
+                continue;
+            }
+            $attributes[$attribute->name] = $attribute->value;
+        }
+        ksort($attributes);
+        $children = array();
+        foreach ($node->childNodes as $child) {
+            if (XML_TEXT_NODE === $child->nodeType && '' === trim((string) $child->nodeValue)) continue;
+            $children[] = self::normalizedNode($child);
+        }
+        return array(strtolower($node->tagName), $attributes, $children);
     }
 
     /** Retire only an exact recognized helper whose complete inventory was projected. */
