@@ -42,7 +42,10 @@ foreach (array('id="anchor"', 'role="region"', 'tabindex="0"', 'data-runtime-tar
     $boundary = (new HtmlTransformer())->transform('<div ' . $attribute . ' style="white-space:normal"><p>Boundary</p></div>')->toArray();
     $assert(str_contains($boundary['serialized_blocks'], '<!-- wp:group'), 'Semantic/runtime attributes keep a boundary: ' . $attribute);
 }
-$invalid = (new HtmlTransformer())->transform('<p style="whitespace:inherit;unknown-property:yes">Invalid declarations</p>')->toArray();
+$invalid = (new HtmlTransformer())->transform('<p style="whitespace:inherit">Invalid declaration</p>')->toArray();
 $invalidCss = implode('', array_column($invalid['assets'], 'content'));
-$assert(! str_contains($invalidCss, 'whitespace:') && ! str_contains($invalidCss, 'unknown-property:'), 'Unknown inline properties are dropped on leaves too.');
+$assert(! str_contains($invalidCss, 'whitespace:') && ! str_contains($invalid['serialized_blocks'], 'be-inline-geometry-'), 'The invalid whitespace spelling does not allocate a carrier on leaves either.');
+$author = (new HtmlTransformer())->transform('<style>.x{-webkit-font-smoothing:antialiased}</style><p class="x">Author CSS</p>')->toArray();
+$authorCss = implode('', array_column($author['assets'], 'content'));
+$assert(str_contains($authorCss, '-webkit-font-smoothing:antialiased'), 'Author vendor declarations survive into generated CSS.');
 echo "inherited-text-wrappers: ok (depth 10 -> {$paragraphDepth})\n";

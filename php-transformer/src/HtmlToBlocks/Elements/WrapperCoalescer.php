@@ -269,7 +269,8 @@ final class WrapperCoalescer
         $declarations = $this->inheritedWrapperDeclarations($element);
         if (array() === $declarations && ! $element->hasAttribute('data-node-view-content-inner') && ! $element->hasAttribute('style')) return false;
         foreach ($declarations as $name => $value) {
-            if ($this->isInheritedTextProperty($name)) continue;
+            // This invalid spelling has no rendering effect and no carrier.
+            if ('whitespace' === $name || $this->isInheritedTextProperty($name)) continue;
             if (in_array($name, array('width', 'height'), true) && '100%' === CssValueInspector::comparable($value)) {
                 $parent = $element->parentNode;
                 if (! $parent instanceof DOMElement) return false;
@@ -653,6 +654,7 @@ final class WrapperCoalescer
 
     private function isRenderNeutralGeometryDeclaration(string $property, string $value): bool
     {
+        if ('whitespace' === $property) return true;
         $value = strtolower(trim(CssValueInspector::withoutImportant($value)));
         if (preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left))?$/', $property)) return in_array($value, array('0', '0px', '0em', '0rem', '0%'), true);
         if (str_starts_with($property, 'border') || 'outline' === $property) return in_array($value, array('0', '0 none', 'none'), true);

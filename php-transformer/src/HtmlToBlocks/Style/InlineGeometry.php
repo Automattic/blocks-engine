@@ -658,7 +658,9 @@ final class InlineGeometry
         $properties = array();
         foreach ( array_keys($this->styleAttributeMapper()->map($declarations)['leftover']) as $property ) {
             $property = (string) $property;
-            if ( isset($owned[ $property ]) || str_starts_with($property, '--') ) {
+            // The observed misspelling is inert, not unsupported CSS to carry.
+            // Keep arbitrary real/new properties on the fallback carrier path.
+            if ( 'whitespace' === $property || isset($owned[ $property ]) || str_starts_with($property, '--') ) {
                 continue;
             }
             $properties[] = $property;

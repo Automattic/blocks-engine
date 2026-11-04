@@ -5704,7 +5704,7 @@ final class StyleResolver implements ElementPresentationResolver
             // reads the first.
             $name = str_starts_with($name, '--') ? $name : strtolower($name);
             // A browser drops `0: none`; its name would also be an int key.
-            if ( ! CssPropertyName::isKnown($name) ) {
+            if ( CssPropertyName::startsLikeNumber($name) ) {
                 continue;
             }
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
