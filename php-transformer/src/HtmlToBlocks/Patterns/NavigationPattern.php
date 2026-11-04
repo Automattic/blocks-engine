@@ -3341,21 +3341,44 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $textColor = trim((string) ($itemAttrs['style']['color']['text'] ?? ''));
         $stateMask = $this->navigationColorStateMask($anchor, $navigationContext);
+        // An authored current item's own markup is its resting presentation, as
+        // on every route where it is not current. What its current state adds
+        // is current-item presentation, emitted once per navigation instance
+        // for whichever item the runtime marks current.
+        $currentPresentation = array();
+        $currentReset = '';
+        $restingBox = null;
+        $atRest = $hasAuthoredCurrentState && null !== $navigationContext && '' === $subjectMarker;
+        if ( $atRest ) {
+            $sourceItem = $item->isSameNode($anchor) ? null : $item;
+            $restingColor = $this->navigationTextColorFromStyle($navigationContext->restingStyle($anchor));
+            if ( '' === $restingColor && null !== $sourceItem ) $restingColor = $this->navigationTextColorFromStyle($navigationContext->restingStyle($sourceItem));
+            if ( '' !== $textColor && $textColor !== $restingColor ) $currentPresentation[] = 'color:' . $textColor;
+            $currentBox = $navigationContext->navigationLinkBoxMarker($anchor, $sourceItem);
+            $restingBox = $navigationContext->navigationLinkBoxMarker($anchor, $sourceItem, true);
+            if ( '' !== $currentBox && $currentBox !== $restingBox ) {
+                $box = $navigationContext->linkBox($currentBox);
+                $currentPresentation[] = $box['content'];
+                $currentReset = $box['item_reset'];
+            }
+            $textColor = $restingColor;
+            if ( '' === $textColor ) unset($itemAttrs['style']['color']['text']); else $itemAttrs['style']['color']['text'] = $textColor;
+        }
         if ( '' !== $textColor ) {
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' '
                 . self::LINK_COLOR_STATE_CLASS_PREFIX . $stateMask);
             // URL-inferred current state does not make the source's base colour
             // route-specific. Keep its existing marker when shared entity
-            // extraction removes current state; authored active hooks retain
-            // their established current-only projection.
-            if ( ! $isCurrentNavigationItem || ! $hasAuthoredCurrentState ) {
+            // extraction removes current state; other authored active hooks
+            // retain their established current-only projection.
+            if ( $atRest || ! $isCurrentNavigationItem || ! $hasAuthoredCurrentState ) {
                 $itemAttrs['className'] .= ' ' . self::LINK_COLOR_CLASS_PREFIX
                     . hash('sha256', $textColor . "\0" . $stateMask);
             }
         }
 
         if ( null !== $navigationContext && '' === $subjectMarker ) {
-            $boxMarker = $navigationContext->navigationLinkBoxMarker(
+            $boxMarker = $restingBox ?? $navigationContext->navigationLinkBoxMarker(
                 $anchor,
                 $item->isSameNode($anchor) ? null : $item
             );
@@ -3366,7 +3389,9 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         if ( $isCurrentNavigationItem ) {
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' blocks-engine-current-navigation-item');
-            if ( '' !== $textColor ) {
+            if ( array() !== $currentPresentation ) {
+                $itemAttrs['className'] .= ' ' . $navigationContext->currentItemPresentationMarker(implode(';', $currentPresentation), $currentReset);
+            } elseif ( '' !== $textColor && ! $atRest ) {
                 // The navigation-link block cannot serialize its text color in
                 // current metadata. Keep an opaque shared marker on both the
                 // source-current item and its owning navigation so the final

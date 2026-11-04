@@ -318,6 +318,25 @@ final class NavigationPatternContext
     }
 
     /**
+     * The element's resolved style on routes where its item is not current:
+     * rules that address current-item state do not apply, nor does the inline
+     * style of an element that carries the current state itself.
+     */
+    public function restingStyle(DOMElement $element): string
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver || ! $this->session instanceof HtmlTransformerSession ) {
+            return $this->resolvedStyle($element);
+        }
+        $projections = $this->session->authorSelectorProjectionState();
+        $carriesState = $element->hasAttribute('aria-current') || MenuVocabulary::containsCurrentStateToken($element->getAttribute('class'));
+
+        return $this->styleResolver->resolveCssVariablesInValue(
+            $this->styleResolver->specificityResolvedPresentationStyle($element, $projections->selectsCurrentNavigationState(...), ! $carriesState),
+            $element
+        );
+    }
+
+    /**
      * Whether a navigation href names the document being compiled. Client
      * routers (a React Router NavLink, for one) often mark the current item
      * only through utility classes, with no aria-current or active/current
@@ -380,16 +399,18 @@ final class NavigationPatternContext
      *
      * @param ?DOMElement $sourceItem The source element core's item stands in
      *                                for, when it is not the anchor itself.
+     * @param bool $atRest Resolve the box the item has where it is not current.
      */
-    public function navigationLinkBoxMarker(DOMElement $anchor, ?DOMElement $sourceItem): string
+    public function navigationLinkBoxMarker(DOMElement $anchor, ?DOMElement $sourceItem, bool $atRest = false): string
     {
+        $style = $atRest ? $this->restingStyle(...) : $this->resolvedStyle(...);
         if ( ! $this->styleResolver instanceof StyleResolver
             || ! $this->session instanceof HtmlTransformerSession
         ) {
             return '';
         }
 
-        $declarations = $this->styleResolver->cssDeclarations($this->resolvedStyle($anchor));
+        $declarations = $this->styleResolver->cssDeclarations($style($anchor));
         $content = array();
         $paddingSides = array();
         $background = trim((string) ($declarations['background-color'] ?? ''));
@@ -411,7 +432,7 @@ final class NavigationPatternContext
         $reset = array();
         $itemDeclarations = null === $sourceItem
             ? array()
-            : $this->styleResolver->cssDeclarations($this->resolvedStyle($sourceItem));
+            : $this->styleResolver->cssDeclarations($style($sourceItem));
         foreach ( $paddingSides as $side ) {
             $itemValue = trim((string) ( $itemDeclarations[$side] ?? '' ));
             $reset[] = $side . ':' . ( $this->safeNavigationBoxValue($side, $itemValue) ? $itemValue : '0' );
@@ -603,14 +624,18 @@ final class NavigationPatternContext
                 }
                 continue;
             }
+            $current = $this->withoutCurrentItemPresentation($block);
             $targets = array();
             $collect($block['innerBlocks'] ?? array(), '');
-            if (array() === $targets) continue;
-            // The instance names the resting menu: current-item colour markers
-            // and per-item link colours follow the served route and are carried by per-item classes.
+            if (array() === $targets && array() === $current) continue;
+            // The instance names the resting menu: per-item link colours follow
+            // the served route, and current-item presentation is lifted above.
             $resting = array_filter($targets, static fn(string $marker): bool => 1 !== preg_match('/^blocks-engine-navigation-(?:current-color|link-color(?:-states)?)-/', $marker), ARRAY_FILTER_USE_KEY);
-            $scope = $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', ($source->getNodePath() ?? '') . json_encode($resting));
+            // A header-only parse roots the same navigation at /body.
+            $path = preg_replace('~^/body(?=/|$)~', '/html/body', $source->getNodePath() ?? '') ?? '';
+            $scope = $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $path . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
+            $this->recordCurrentItemPresentation($current, $scope, $source);
             $markup = (string) json_encode($block);
             $root = $source->getNodePath() ?? '';
             foreach ($this->pendingNavigationSubjects as $path => $subject) {
@@ -636,6 +661,73 @@ final class NavigationPatternContext
             }
         }
         unset($block);
+    }
+
+    /** @var array<string, array{content: string, reset: string}> Current-item presentation by item marker. */
+    private array $currentItemPresentation = array();
+
+    /** The box {@see self::navigationLinkBoxMarker()} registered for a marker. */
+    public function linkBox(string $marker): array
+    {
+        return $this->session?->generatedSupportStylesheetState()->navigationLinkBox($marker) ?? array('content' => '', 'item_reset' => '');
+    }
+
+    /**
+     * Marker for what an authored current item adds to its resting
+     * presentation. It only locates the item's level for
+     * {@see self::recordNavigationSubjects()}, which lifts it off the item.
+     */
+    public function currentItemPresentationMarker(string $content, string $reset): string
+    {
+        $marker = 'blocks-engine-navigation-current-item-' . substr(hash('sha256', $content . "\0" . $reset), 0, 16);
+        $this->currentItemPresentation[$marker] = array('content' => $content, 'reset' => $reset);
+        return $marker;
+    }
+
+    /**
+     * Lift current-item presentation markers off the current item, so every
+     * route serializes the same menu and navigation markup.
+     *
+     * @param array<string, mixed> $navigation
+     * @return array<string, array{content: list<string>, reset: string}> Presentation by item level.
+     */
+    private function withoutCurrentItemPresentation(array &$navigation): array
+    {
+        if (array() === $this->currentItemPresentation) return array();
+        $presentation = array();
+        $strip = function (array &$items, string $level) use (&$strip, &$presentation): void {
+            foreach ($items as &$item) {
+                $classes = preg_split('/\s+/', trim((string) ($item['attrs']['className'] ?? ''))) ?: array();
+                foreach ($classes as $index => $class) {
+                    if (!isset($this->currentItemPresentation[$class])) continue;
+                    unset($classes[$index]);
+                    $presentation[$level]['content'][] = $this->currentItemPresentation[$class]['content'];
+                    if ('' !== $this->currentItemPresentation[$class]['reset']) $presentation[$level]['reset'] = $this->currentItemPresentation[$class]['reset'];
+                    $item['attrs']['className'] = implode(' ', $classes);
+                }
+                if (!empty($item['innerBlocks'])) $strip($item['innerBlocks'], 'submenu');
+            }
+            unset($item);
+        };
+        $strip($navigation['innerBlocks'], 'top');
+        return array_map(static fn(array $level): array => array('content' => array_values(array_unique($level['content'])), 'reset' => $level['reset'] ?? ''), $presentation);
+    }
+
+    /**
+     * Emit current-item presentation once per navigation instance, keyed on
+     * what core renders on the current item at runtime (`current-menu-item`,
+     * `aria-current="page"`) at the level the source's current item sat.
+     *
+     * @param array<string, array{content: list<string>, reset: string}> $presentation
+     */
+    private function recordCurrentItemPresentation(array $presentation, string $scope, DOMElement $source): void
+    {
+        foreach ($presentation as $level => $declarations) {
+            $item = '.wp-block-navigation.' . $scope . ' ' . ('top' === $level ? '.wp-block-navigation__container' : '.wp-block-navigation__submenu-container') . '>.wp-block-navigation-item';
+            $anchor = '>.wp-block-navigation-item__content[aria-current="page"]';
+            $this->sourceTargetProjection?->record(SourceDom::elementSelector($source), $item . '.current-menu-item>.wp-block-navigation-item__content,' . $item . $anchor, implode(';', $declarations['content']));
+            $this->sourceTargetProjection?->record(SourceDom::elementSelector($source), $item . '.current-menu-item,' . $item . ':has(' . $anchor . ')', $declarations['reset']);
+        }
     }
 
     /** The source anchor remains a distinct CSS subject inside Core's item. */
