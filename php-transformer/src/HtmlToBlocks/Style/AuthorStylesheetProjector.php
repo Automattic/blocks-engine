@@ -386,12 +386,16 @@ final class AuthorStylesheetProjector
         if (!isset($declarations['display'])) return '';
         $targets = array();
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
-            if (!preg_match('/^\.((?:\\\\.|[A-Za-z0-9_-])+)$/', trim($selector), $match)) continue;
+            // Class compounds only (`.menus`, `.menus.res`): every lifted rule
+            // gains the same prefix, so their relative specificity holds.
+            if (!preg_match('/^(?:\.(?:\\\\.|[A-Za-z0-9_-])+)+$/', trim($selector), $match)) continue;
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if (!$parsed['supported']) continue;
             foreach ($this->matchingSourceElements($selector, $parsed, $context) as $element) {
-                if ('nav' === strtolower($element->tagName) && 0 === $element->getElementsByTagName('ul')->length && 0 === $element->getElementsByTagName('ol')->length) {
-                    $targets[] = ':root .wp-block-navigation.' . $match[1];
+                // A current-page link run lowers to core/navigation whatever its tag.
+                if (('nav' === strtolower($element->tagName) && 0 === $element->getElementsByTagName('ul')->length && 0 === $element->getElementsByTagName('ol')->length)
+                    || \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary::isCurrentPageLinkRun($element)) {
+                    $targets[] = ':root .wp-block-navigation' . $match[0];
                     break;
                 }
             }
@@ -501,16 +505,19 @@ final class AuthorStylesheetProjector
                 }
                 if ( 'fixed' === strtolower($position) ) {
                     // Core's editor canvas is position:relative. Re-forcing
-                    // source `position:fixed` with !important pins site chrome
-                    // (sticky headers, FABs) over the document being edited.
-                    // Absolute layers still need the override so hero overlays
-                    // keep stacking; leave relative/sticky unforced.
+                    // source `position:fixed` pins site chrome (sticky
+                    // headers, FABs) over the document being edited; leave
+                    // it out of the editor canvas entirely.
                     $position = '';
                 }
                 // Core adds `position:relative` to the actual editor block
-                // root. Preserve source visual layers without changing
-                // ordinary relative or sticky editing surfaces.
-                $overrides = '' === $position ? '' : 'position:' . $position . ( 'absolute' === strtolower($position) ? '!important' : '' ) . ';';
+                // root, but every copy here shares the
+                // `:root .editor-styles-wrapper` prefix plus the source
+                // selector's own specificity, which outranks that default and
+                // keeps the source rules' relative order. Mirror the value
+                // plainly so a more specific source `relative`/`static` rule
+                // still wins in the editor as it does on the frontend.
+                $overrides = '' === $position ? '' : 'position:' . $position . ';';
                 // RichText's inline white-space:pre-wrap must keep preserving
                 // typed spaces. Override only its wrapping longhand, not the
                 // whitespace-collapse half of the shorthand. Scoping keeps
@@ -2045,7 +2052,15 @@ final class AuthorStylesheetProjector
                     continue;
                 }
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-                $rewritten[] = $inner['selector'] . $this->selectorSpecificityShims($parsed, $context) . $suffix . $inner['pseudo_element'];
+                if ($inner['author_precedence']) {
+                    $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+                }
+                // A constant baseline beats native defaults without flattening
+                // source specificity, states, conditional groups or layer order.
+                $baseline = $inner['author_precedence']
+                    ? str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', 4)
+                    : '';
+                $rewritten[] = $inner['selector'] . $baseline . $this->selectorSpecificityShims($parsed, $context) . $suffix . $inner['pseudo_element'];
             }
             if ( array() === $remainingSubjects ) continue;
             $matches = $remainingSubjects;

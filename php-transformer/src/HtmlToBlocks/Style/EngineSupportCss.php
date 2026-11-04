@@ -59,6 +59,9 @@ final class EngineSupportCss
     public function beforeAuthorCss(string $serializedBlocks): array
     {
         $parts = array();
+        if (str_contains($serializedBlocks, 'blocks-engine-decorated-text')) {
+            $parts[] = '.blocks-engine-decorated-text{position:relative}.blocks-engine-decorated-text>[data-type$="/svg-artwork"]{position:static;margin:0}';
+        }
         if ( str_contains($serializedBlocks, 'blocks-engine-accordion-panel') ) {
             // Core owns the panel's hidden state. Projected source display rules
             // describe its open box and must not expose padding or borders while

@@ -70,9 +70,6 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private array $coreGridParentCache = array();
 
-    /** @var array<string, array<string, string>> */
-    private array $verbatimCssDeclarationsCache = array();
-
     /**
      * Resolved presentation attributes for the active transform, keyed by the
      * DOMElement wrapper object id plus node path. PHP may reuse wrapper object
@@ -5698,16 +5695,15 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function verbatimCssDeclarations(string $style, bool $expandFont = false): array
     {
-        // Parsing and font expansion depend only on these inputs, not context.
-        $cacheKey = ($expandFont ? '1:' : '0:') . $style;
-        if ( isset($this->verbatimCssDeclarationsCache[$cacheKey]) ) {
-            return $this->verbatimCssDeclarationsCache[$cacheKey];
-        }
-        // Bound retention for long-lived resolvers without an eviction index.
-        if ( count($this->verbatimCssDeclarationsCache) > 4096 ) {
-            $this->verbatimCssDeclarationsCache = array();
-        }
+        return \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache::memo(
+            $expandFont ? 'declarations:font' : 'declarations',
+            $style,
+            static fn (): array => self::parseVerbatimCssDeclarations($style, $expandFont)
+        );
+    }
 
+    private static function parseVerbatimCssDeclarations(string $style, bool $expandFont): array
+    {
         $declarations = array();
         foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
             if ( ! str_contains($declaration, ':') ) {
@@ -5741,7 +5737,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
-        return $this->verbatimCssDeclarationsCache[$cacheKey] = $declarations;
+        return $declarations;
     }
 
     /**
@@ -6066,39 +6062,9 @@ final class StyleResolver implements ElementPresentationResolver
                 'families' => array_fill_keys(array_map(fn (int|string $property): string => $this->responsivePropertyFamily((string) $property), array_keys($rule['declarations'] ?? array())), true),
             ), $this->context->sourceStyles()->navigationStateRules()),
         };
-        $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'attributes' => array(), 'total' => count($rules));
-        foreach ( $rules as $order => $rule ) {
-            $parsed = $this->context->parsedCssSelector((string) ($rule['selector'] ?? ''));
-            $compounds = $parsed['compounds'] ?? array();
-            $rightmost = array() === $compounds ? null : $compounds[array_key_last($compounds)];
-            $target = 'universal';
-            $key = '';
-            if ( $parsed['supported'] && null === ($parsed['pseudo_state_suffix_span'] ?? null) && is_array($rightmost) ) {
-                if ( array() !== ($rightmost['ids'] ?? array()) ) {
-                    $target = 'ids';
-                    $key = (string) $rightmost['ids'][0];
-                } elseif ( array() !== ($rightmost['classes'] ?? array()) ) {
-                    $target = 'classes';
-                    $key = (string) $rightmost['classes'][0];
-                } elseif ( is_string($rightmost['type'] ?? null) && '' !== $rightmost['type'] ) {
-                    $target = 'tags';
-                    $key = strtolower((string) $rightmost['type']);
-                } elseif ( array() !== ($rightmost['attributes'] ?? array()) ) {
-                    $name = (string) ($rightmost['attributes'][0]['name'] ?? '');
-                    if ( 1 === preg_match('/^[a-z][a-z0-9_-]*$/', $name) ) {
-                        $target = 'attributes';
-                        $key = $name;
-                    }
-                }
-            }
-            $entry = array('order' => (int) $order, 'rule' => $rule);
-            if ( 'universal' === $target ) {
-                $index['universal'][] = $entry;
-            } else {
-                $index[$target][$key][] = $entry;
-            }
-        }
-        return $index;
+        return \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::build(array_map(
+            fn (array $rule): array => array_merge($rule, array('parsed_selector' => $this->context->parsedCssSelector((string) ($rule['selector'] ?? '')))), $rules
+        ));
     }
 
     /**

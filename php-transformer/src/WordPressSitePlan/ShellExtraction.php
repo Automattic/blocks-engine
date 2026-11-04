@@ -324,6 +324,48 @@ final class ShellExtraction
     /** @var array<string,array<int,array<string,mixed>>> Entities of this call's manifest declarations, by payload hash. */
     private array $manifestEntities = array();
 
+    /**
+     * Bind producer-owned parts to equivalent landmarks at their authored
+     * positions, including repeated device documents. A conflicting part stays
+     * unbound and continues to reserve its slug; runtime anchors stay page-owned.
+     *
+     * @return array{pages:array,parts:array}
+     */
+    public function bindExplicitParts(array $pages, array $parts, array $declarations, array $records = array()): array
+    {
+        $this->resolveManifestEntities($declarations, $records);
+        foreach ($parts as &$part) {
+            $area = $part['area'] ?? '';
+            if ('unbound' !== ($part['placement']['kind'] ?? null) || !in_array($area, array('header', 'footer'), true)) continue;
+            $identity = self::normalizeNestedChromeMarkup(self::landmarkPartMarkup($part['canonical_block_markup'], $area));
+            $sources = array();
+            foreach ($pages as &$page) {
+                if (!empty($page['synthetic'])) continue;
+                $rows = $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']), $page['source_path'], $area, false);
+                if (array() === $rows) continue;
+                foreach ($rows as $row) {
+                    if ($identity !== self::normalizeNestedChromeMarkup($row['markup'])) continue 2;
+                    $bindings = $this->runtimeBindingsInRanges($declarations, $page, array($row));
+                    if ($bindings['blocked'] || array() !== $bindings['refs']) continue 2;
+                }
+                usort($rows, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
+                $markup = $page['canonical_block_markup'];
+                $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $area . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
+                foreach ($rows as $row) $markup = substr_replace($markup, $reference, $row['offset'], $row['length']);
+                $page['canonical_block_markup'] = $markup;
+                $page['content_hash'] = WordPressSitePlan::contentHash($markup);
+                $sources[] = $page['source_path'];
+            }
+            unset($page);
+            if (array() !== $sources) {
+                $part['placement'] = array('kind' => 'inline_shared_shell', 'source_path' => $part['source_path'], 'source_paths' => $sources);
+                $part['tag_name'] = 'div';
+            }
+        }
+        unset($part);
+        return array('pages' => $pages, 'parts' => $parts);
+    }
+
     public function __construct(private readonly WordPressSitePlan $plan)
     {
     }
@@ -1036,7 +1078,7 @@ final class ShellExtraction
     }
 
     /** @return array<int,array<string,mixed>> */
-    private function nestedLandmarkCandidates(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, string $sourcePath, string $area): array
+    private function nestedLandmarkCandidates(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, string $sourcePath, string $area, bool $includeCaptureEdges = true): array
     {
         // Keep the existing shell-main rule, with an exception for a unique
         // document-edge landmark inside main/section. Article/aside landmarks
@@ -1129,7 +1171,7 @@ final class ShellExtraction
             $tagName = $landmark ?: ($footerClass ?? $tagName);
             $kind = $namedFooter ? 'footer' : $tagName;
             if (null === $shellMains && !$disallowedAncestor && 'header' === $landmark && self::isShellLandmarkBlock($name)) $shellMains = $mainAncestors;
-            $candidate = ('header' === $area || 0 < count($stack)) && (!$disallowedAncestor || $edgeLandmark) && $area === $kind && (self::isShellLandmarkBlock($name) || ('footer' === $area && $hasShellWrapperContract && 'footer' === $footerClass));
+            $candidate = (!$includeCaptureEdges || 'header' === $area || 0 < count($stack)) && (!$disallowedAncestor || $edgeLandmark) && $area === $kind && (self::isShellLandmarkBlock($name) || ('footer' === $area && $hasShellWrapperContract && 'footer' === $footerClass));
             // Whether page content precedes the landmark inside its ancestors: a
             // block other than the enclosing openings started or ended before it.
             $preceded = false;
@@ -1154,7 +1196,7 @@ final class ShellExtraction
             $disjoint[] = $row;
             $outerEnd = $end;
         }
-        $rows = $this->captureScopeEdges($index, $disjoint, $area);
+        $rows = $includeCaptureEdges ? $this->captureScopeEdges($index, $disjoint, $area) : $disjoint;
         foreach ($rows as $variant => &$row) { unset($row['main_ancestors']); $row['variant'] = $variant; } unset($row);
         return $rows;
     }
@@ -2102,8 +2144,11 @@ final class ShellExtraction
             if (count($cluster) < 2) continue;
             $links = array(); $values = array();
             foreach ($cluster as $index => $row) {
-                preg_match_all('/<a\\b[^>]*\\bhref="([^"]*)"/i', $row['markup'], $matches);
-                $links[$index] = $matches[1];
+                // Menu items count as links too: a header whose menu is a
+                // navigation block still has mostly stable links when only
+                // its language switch follows the route.
+                preg_match_all('/<a\\b[^>]*\\bhref="([^"]*)"|<!-- wp:navigation-(?:sub)?link (\\{.*?\\}) \\/?-->/', $row['markup'], $matches);
+                $links[$index] = array_map(static fn(string $href, string $attrs): string => '' !== $attrs ? (string) (json_decode($attrs, true)['url'] ?? '') : $href, $matches[1], $matches[2]);
             }
             $first = reset($links);
             if (array() === $first) continue;
@@ -2130,6 +2175,9 @@ final class ShellExtraction
         $markup = self::identityMarkup(self::withoutCurrentNavigationState($block, true));
         $markup = preg_replace('/\b(?:id|anchor)="[^"]*"/i', '', $markup) ?? $markup;
         $markup = preg_replace('/"anchor":"[^"]*"/', '', $markup) ?? $markup;
+        // A class list is a set: removing a route's current-state class can
+        // leave a repeated token on the selected item only.
+        $markup = preg_replace_callback('/("className"\s*:\s*"|\bclass=")([^"]*)"/', static fn(array $match): string => $match[1] . implode(' ', array_unique(preg_split('/\s+/', trim($match[2])) ?: array())) . '"', $markup) ?? $markup;
         return hash('sha256', preg_replace('/\s+/', ' ', trim($markup)) ?? trim($markup));
     }
 
@@ -2285,9 +2333,13 @@ final class ShellExtraction
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $generic['opening'] . $generic['closing'], $slugs);
             $frames['page'] = array('opening' => $generic['opening'], 'closing' => $generic['closing'], 'shells' => array_values(array_unique($slugs[1])));
         }
-        // Native query fallbacks use the entry route's cluster, independently
-        // of which population supplied the generic page or single frame.
+        // Use the shared cluster rather than entry-only wrappers or an
+        // incomplete entry frame. Preserve a distinct entry cluster (for
+        // example another language) when it owns different shared parts.
         $fallback = $frames['front-page'] ?? $frames['page'] ?? null;
+        if (isset($frames['page']) && array() === array_diff($fallback['shells'] ?? array(), $frames['page']['shells'])) {
+            $fallback = $frames['page'];
+        }
         if (null !== $fallback) {
             $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
             foreach (array('single', 'index', 'archive', 'search', '404') as $slug) {
@@ -3088,6 +3140,8 @@ final class ShellExtraction
         $entry = null;
         foreach ($pages as $page) if (!empty($page['entrypoint'])) $entry = $page['route']['path'] ?? '/';
         if (null === $entry) return $pages;
+        $subjectIndex = \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::build($analysis['rules']);
+        $fragments = array();
         $evidence = array(); $applicable = 0;
         foreach ($pages as $index => $page) {
             if (!empty($page['synthetic'])) continue;
@@ -3099,35 +3153,42 @@ final class ShellExtraction
                 foreach ($nodes as $node) {
                     if (!in_array($node['name'], array('group', 'heading', 'paragraph'), true)) continue;
                     $fragment = substr($markup, $node['offset'], $node['end'] - $node['offset']);
-                    $dom = new \DOMDocument();
-                    @$dom->loadHTML('<?xml encoding="UTF-8"><body>' . $fragment . '</body>', LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
-                    $body = $dom->getElementsByTagName('body')->item(0);
-                    if (null === $body) continue;
-                    $text = trim(preg_replace('/\s+/u', ' ', $body->textContent) ?? '');
-                    if ('' === $text) continue;
-                    $classes = array(); $styles = array(); $links = array(); $valid = true;
-                    $presentation = array('text-decoration-line' => 'none');
-                    foreach ($body->getElementsByTagName('*') as $element) {
-                        if (!in_array($element->tagName, array('div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a'), true)) { $valid = false; break; }
-                        // A wordmark is a single text leaf, possibly wrapped in a
-                        // logo container. Never swallow sibling copy or navigation.
-                        $children = 0;
-                        foreach ($element->childNodes as $child) if ($child instanceof \DOMElement || ($child instanceof \DOMText && '' !== trim($child->textContent))) ++$children;
-                        if ($children > 1) { $valid = false; break; }
-                        foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
-                            if ('' !== $class && !str_starts_with($class, 'wp-block-') && !str_starts_with($class, 'blocks-engine-synthetic-') && !str_starts_with($class, 'blocks-engine-propagated-') && !preg_match('/^has-(?:.+-font-(?:size|family)|text-color|.+-color)$/', $class)) $classes[$class] = true;
+                    if (array_key_exists($fragment, $fragments)) {
+                        if (false === $fragments[$fragment]) continue;
+                        [$text, $classes, $styles, $links, $presentation, $valid] = $fragments[$fragment];
+                    } else {
+                        $fragments[$fragment] = false;
+                        $dom = new \DOMDocument();
+                        @$dom->loadHTML('<?xml encoding="UTF-8"><body>' . $fragment . '</body>', LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+                        $body = $dom->getElementsByTagName('body')->item(0);
+                        if (null === $body) continue;
+                        $text = trim(preg_replace('/\s+/u', ' ', $body->textContent) ?? '');
+                        if ('' === $text) continue;
+                        $classes = array(); $styles = array(); $links = array(); $valid = true;
+                        $presentation = array('text-decoration-line' => 'none');
+                        foreach ($body->getElementsByTagName('*') as $element) {
+                            if (!in_array($element->tagName, array('div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a'), true)) { $valid = false; break; }
+                            // A wordmark is a single text leaf, possibly wrapped in a
+                            // logo container. Never swallow sibling copy or navigation.
+                            $children = 0;
+                            foreach ($element->childNodes as $child) if ($child instanceof \DOMElement || ($child instanceof \DOMText && '' !== trim($child->textContent))) ++$children;
+                            if ($children > 1) { $valid = false; break; }
+                            foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
+                                if ('' !== $class && !str_starts_with($class, 'wp-block-') && !str_starts_with($class, 'blocks-engine-synthetic-') && !str_starts_with($class, 'blocks-engine-propagated-') && !preg_match('/^has-(?:.+-font-(?:size|family)|text-color|.+-color)$/', $class)) $classes[$class] = true;
+                            }
+                            foreach (explode(';', $element->getAttribute('style')) as $style) {
+                                $style = trim($style);
+                                // Bare links are lowered to a zero-margin paragraph;
+                                // headings can materialize their default bold weight.
+                                if ('font-weight:700' !== $style && '' !== $style && !preg_match('/^(?:color|text-decoration(?:-line)?|font-size|font-family)\s*:/', $style) && !preg_match('/^margin-(?:top|right|bottom|left):0$/', $style)) $styles[$style] = true;
+                            }
+                            $presentation = self::wordmarkPresentation($element, $presentation, $subjectIndex, $properties);
+                            if ('a' === $element->tagName) $links[] = html_entity_decode($element->getAttribute('href'));
                         }
-                        foreach (explode(';', $element->getAttribute('style')) as $style) {
-                            $style = trim($style);
-                            // Bare links are lowered to a zero-margin paragraph;
-                            // headings can materialize their default bold weight.
-                            if ('font-weight:700' !== $style && '' !== $style && !preg_match('/^(?:color|text-decoration(?:-line)?|font-size|font-family)\s*:/', $style) && !preg_match('/^margin-(?:top|right|bottom|left):0$/', $style)) $styles[$style] = true;
-                        }
-                        $presentation = self::wordmarkPresentation($element, $presentation, $analysis['rules'], $properties);
-                        if ('a' === $element->tagName) $links[] = html_entity_decode($element->getAttribute('href'));
+                        ksort($classes); ksort($styles);
+                        $fragments[$fragment] = array($text, $classes, $styles, $links, $presentation, $valid);
                     }
                     if (!$valid || count($links) > 1 || (!empty($links) && $links[0] !== $entry) || (empty($page['entrypoint']) && array($entry) !== $links)) continue;
-                    ksort($classes); ksort($styles);
                     $signature = hash('sha256', json_encode(array($text, array_keys($classes), array_keys($styles), $presentation)));
                     $leaf = $node;
                     while (1 === count($leaf['children'])) $leaf = $nodes[$leaf['children'][0]];
@@ -3176,9 +3237,10 @@ final class ShellExtraction
     }
 
     /** Resolve the single text leaf through its wrappers, not block-support placement. */
-    private static function wordmarkPresentation(\DOMElement $element, array $inherited, array $rules, array $properties): array
+    private static function wordmarkPresentation(\DOMElement $element, array $inherited, array $subjectIndex, array $properties): array
     {
         $facts = array();
+        $rules = array_column(\Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::entries($element, $subjectIndex), 'rule');
         $rules[] = array('declarations' => \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($element->getAttribute('style'), $properties), 'inline' => true, 'specificity' => array(0, 0, 0), 'order' => PHP_INT_MAX);
         foreach ($rules as $rule) {
             if (empty($rule['inline']) && (null !== $rule['condition'] || !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches'])) continue;

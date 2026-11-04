@@ -177,6 +177,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\Css\TemplatePartStickyContainment;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\EditorCanvasBodyBackground;
+use Automattic\BlocksEngine\PhpTransformer\Css\EditorCanvasPositioning;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -1204,7 +1205,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         return new StyleResolutionContext(
             $this->session,
-            fn (DOMElement $element): int => $this->cardLikeChildCount($element),
             CssValueInspector::comparable(...),
             fn (string $selector): array => $this->parsedCssSelector($selector),
             fn (string $className): string => $this->promotedClassName($className),
@@ -1386,8 +1386,30 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $this->rememberNativeDisclosure($element);
                 }
                 return $block;
+            },
+            fn (DOMElement $element): ?array => $this->decorativeTextSvgBlock($element),
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->mediaBlockFromTextlessHeading($element, $fallbacks);
             }
         );
+    }
+
+    /** @return array<string, mixed>|null */
+    private function decorativeTextSvgBlock(DOMElement $element): ?array
+    {
+        if (!SourceDom::isSafeSvgContent(SourceDom::outerHtml($element)) || !SvgMaterializer::isPassiveSvgMarkup($element)) {
+            return null;
+        }
+        foreach ($element->attributes as $attribute) {
+            if (str_starts_with(strtolower($attribute->name), 'aria-') || in_array(strtolower($attribute->name), array('role', 'tabindex'), true)) {
+                return null;
+            }
+        }
+        $declarations = $this->styleResolver->presentationDeclarations($element);
+        if ('absolute' !== strtolower(trim((string) ($declarations['position'] ?? '')))) {
+            return null;
+        }
+        return $this->svgArtworkBlock($element, $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element)));
     }
 
     /**
@@ -2840,6 +2862,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ? $authorCss
             : implode("\n\n", array_column($authorStylesheetProjections, 'content'));
         $afterAuthorCss->addAll(CascadeLayer::REVEAL_SETTLE, ( new RevealAnimationSettler() )->settleRules($settleableAuthorCss));
+        $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, (new EditorCanvasPositioning())->supportCss($settleableAuthorCss));
         // DOMDocument synthesizes a body for fragments; its margin belongs to
         // the host document, not to the imported content.
         $bodyDeclarations = preg_match('/<(?:html|body)\b/i', $html)
@@ -4213,13 +4236,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
-        // App roots are transport, not sectioning content. Even a footer
-        // holding only one paragraph must survive until shared-shell extraction.
-        $documentFooter = 'footer' === $tagName
-            && ! $this->hasAncestorTag($element, array('main', 'section', 'aside', 'nav'));
+        // Plain wrappers are transport, not sectioning content. Lower document
+        // landmarks consistently so shared-shell identity does not depend on them.
+        $documentLandmark = ! $this->hasAncestorTag($element, array('main', 'section', 'aside', 'nav'));
         if ( $this->session->preservesShellLandmarks()
             && in_array(ShellLandmarkPolicy::landmarkKind($tagName, $this->attr($element, 'role')), array('header', 'footer'), true)
-            && ('body' === strtolower($element->parentNode?->nodeName ?? '') || $this->hasAncestorTag($element, array('article')) || $documentFooter || ($this->hasAncestorTag($element, array('main', 'section')) && ShellLandmarkPolicy::isDocumentEdgeLandmark($element)))
+            && ($documentLandmark || $this->hasAncestorTag($element, array('article')) || ($this->hasAncestorTag($element, array('main', 'section')) && ShellLandmarkPolicy::isDocumentEdgeLandmark($element)))
         ) {
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
@@ -10867,9 +10889,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      *
      * @return array<string, mixed>|null
      */
-    private function unwrappedParagraphImageBlock(DOMElement $paragraph): ?array
+    private function unwrappedParagraphImageBlock(DOMElement $paragraph, bool $ignoreLineBreaks = false): ?array
     {
-        $block = $this->imageBlockFromParagraph($paragraph);
+        $block = $this->imageBlockFromParagraph($paragraph, $ignoreLineBreaks);
         if ( null === $block ) {
             return null;
         }
@@ -10880,7 +10902,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             (string) ( $attrs['className'] ?? '' ),
             ...$projections->semanticCarrierClasses($projections->ensureSemanticMarker($path), $path)
         );
-        if ( $this->paragraphImageSetsLineBox($paragraph) ) {
+        if ( $this->paragraphImageSetsLineBox($paragraph, $ignoreLineBreaks) ) {
             $attrs['className'] = $this->mergeClassNames((string) $attrs['className'], SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS);
         }
 
@@ -10893,9 +10915,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * its siblings. A blockified image would let that margin collapse through
      * the figure, so the figure keeps the image on a line instead.
      */
-    private function paragraphImageSetsLineBox(DOMElement $paragraph): bool
+    private function paragraphImageSetsLineBox(DOMElement $paragraph, bool $ignoreLineBreaks = false): bool
     {
-        $child = $this->paragraphImageChild($paragraph);
+        $child = $this->paragraphImageChild($paragraph, $ignoreLineBreaks);
         $image = $child instanceof DOMElement && 'img' === strtolower($child->tagName) ? $child : $child?->getElementsByTagName('img')->item(0);
         if ( ! $image instanceof DOMElement
             || ! in_array($this->resolvedDeclaration($image, 'display'), array( '', 'inline', 'inline-block' ), true)
@@ -10942,9 +10964,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      *
      * @return array<string, mixed>|null
      */
-    private function imageBlockFromParagraph(DOMElement $paragraph): ?array
+    private function imageBlockFromParagraph(DOMElement $paragraph, bool $ignoreLineBreaks = false): ?array
     {
-        $child = $this->paragraphImageChild($paragraph);
+        $child = $this->paragraphImageChild($paragraph, $ignoreLineBreaks);
         if ( ! $child instanceof DOMElement ) {
             return null;
         }
@@ -10966,15 +10988,76 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
+     * A heading with no text carries no heading semantics, so its one media
+     * element lowers as the media block it visually is (#4303): an iframe
+     * (or custom iframe element) takes the standalone embed route, and an
+     * image, picture or image-only link takes the paragraph image route,
+     * keeping the heading's selector identity the way a text-less paragraph
+     * keeps its own. `<br>` line breaks and whitespace are not text; any
+     * other text keeps the heading's RichText image behavior (#3496).
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function mediaBlockFromTextlessHeading(DOMElement $heading, array &$fallbacks): ?array
+    {
+        $media = $this->soleElementBesideLineBreaks($heading);
+        if ( null === $media || '' !== trim($this->textBesideLineBreaks($heading)) ) {
+            return null;
+        }
+
+        $tagName = strtolower($media->tagName);
+        if ( 'iframe' === $tagName || ( str_contains($tagName, '-') && 1 === preg_match('/(?:^|-)iframe(?:-|$)/', $tagName) ) ) {
+            return $this->visualIframeGenerator->convert($media, $fallbacks);
+        }
+
+        return $this->unwrappedParagraphImageBlock($heading, true);
+    }
+
+    /** The element's text content, ignoring `<br>` line breaks and whitespace. */
+    private function textBesideLineBreaks(DOMElement $element): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $node ) {
+            if ( $node instanceof DOMElement && 'br' === strtolower($node->tagName) ) {
+                continue;
+            }
+            $text .= $node->textContent ?? '';
+        }
+
+        return trim($text);
+    }
+
+    /** The one non-`<br>` element child, or null when there is none or several. */
+    private function soleElementBesideLineBreaks(DOMElement $element): ?DOMElement
+    {
+        $sole = null;
+        foreach ( $element->childNodes as $node ) {
+            if ( ! $node instanceof DOMElement || 'br' === strtolower($node->tagName) ) {
+                continue;
+            }
+            if ( null !== $sole ) {
+                return null;
+            }
+            $sole = $node;
+        }
+
+        return $sole;
+    }
+
+    /**
      * The image, picture or image-only anchor a paragraph wraps on its own
      * (through passive inline marks), which unwraps the paragraph into a
      * core/image block instead of a paragraph.
      */
-    private function paragraphImageChild(DOMElement $paragraph): ?DOMElement
+    private function paragraphImageChild(DOMElement $paragraph, bool $ignoreLineBreaks = false): ?DOMElement
     {
         $child = null;
         foreach ( $paragraph->childNodes as $node ) {
             if ( $node instanceof DOMElement ) {
+                if ( $ignoreLineBreaks && 'br' === strtolower($node->tagName) ) {
+                    continue;
+                }
                 if ( $child instanceof DOMElement ) {
                     return null;
                 }
@@ -10990,7 +11073,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
         if ( SourceDom::isInlineImageMark($child) ) {
-            return $this->paragraphImageChild($child);
+            return $this->paragraphImageChild($child, $ignoreLineBreaks);
         }
         $tagName = strtolower($child->tagName);
         if ( in_array($tagName, array( 'img', 'picture' ), true) || ( 'a' === $tagName && $this->isImageOnlyAnchor($child) ) ) {
@@ -11463,6 +11546,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( ! $hasHiddenLabel && $this->imageLinkOpensNativeLightbox($link) ) {
                 $attrs['lightbox'] = array( 'enabled' => true );
             } elseif ( '' !== LinkUrlSanitizer::sanitize($this->attr($link, 'href')) ) {
+                if ('' !== $this->authorStyles()->combinedCss()) {
+                    $projections = $this->session->authorSelectorProjectionState();
+                    $path = $link->getNodePath() ?? '';
+                    $marker = $projections->ensureSemanticMarker($path);
+                    $projections->installInnerSubject($path, ':where(.' . $marker . ')', '', true);
+                }
                 $attrs = array_filter(array_merge($attrs, $this->imageLinkAttributes($link)), static fn ($value): bool => '' !== $value);
             }
         }

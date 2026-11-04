@@ -117,7 +117,9 @@ $enqueues = static function (array $plan): array {
     preg_match('/\$blocks_engine_presentation_styles = (array \(.*?\n\));\n/s', $bootstrap, $editor);
     return array('routes' => $routes, 'global' => $global, 'editor' => isset($editor[1]) ? eval('return ' . $editor[1] . ';') : array());
 };
-$sharedTarget = (string) (array_values(array_filter(array_column($plan['assets'], 'target_path'), static fn(string $path): bool => 1 === preg_match('~/shared-chrome-[a-f0-9]{16}\.css$~', $path)))[0] ?? '');
+// Landmark lowering can also project engine geometry support. This contract
+// checks the authored inline stylesheet and its cascade placement, not support CSS.
+$sharedTarget = (string) (array_values(array_filter($plan['assets'], static fn(array $asset): bool => 'inline-style' === ($asset['source'] ?? '') && 1 === preg_match('~/shared-chrome-[a-f0-9]{16}\.css$~', $asset['target_path'])))[0]['target_path'] ?? '');
 $assert('' !== $sharedTarget, 'The first fixture projects one shared-chrome stylesheet.');
 $published = $enqueues($plan);
 $frontCondition = 'is_front_page()';
@@ -178,7 +180,7 @@ $linked = (new ArtifactCompiler())->compile(array(
 ))->toArray();
 $linkedPlan = $linked['source_reports']['wordpress_site_plan'] ?? array();
 $assert('failed' !== ($linked['status'] ?? null), 'A linked shared chrome stylesheet with a relative url() compiles: ' . json_encode(array_values(array_filter($linked['diagnostics'] ?? array(), static fn(array $d): bool => 'unresolved_local_browser_reference' === ($d['reason'] ?? null)))));
-$sharedWrites = array_values(array_filter($linkedPlan['writes'] ?? array(), static fn(array $write): bool => str_contains((string) ($write['target_path'] ?? ''), 'shared-chrome-')));
+$sharedWrites = array_values(array_filter($linkedPlan['writes'] ?? array(), static fn(array $write): bool => str_contains((string) ($write['target_path'] ?? ''), 'shared-chrome-') && str_contains((string) ($write['payload']['data'] ?? ''), 'background-image')));
 $assert(array() !== $sharedWrites, 'The linked shared chrome rule is projected into a generated shared stylesheet.');
 foreach ($sharedWrites as $write) {
     $payload = (string) ($write['payload']['data'] ?? '');
@@ -235,7 +237,7 @@ $split = (new ArtifactCompiler())->compile(array(
 $splitPlan = $split['source_reports']['wordpress_site_plan'] ?? null;
 $splitDiagnostics = array_values(array_filter($split['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'wordpress_site_plan_not_self_contained' === ($diagnostic['code'] ?? null)));
 $assert(is_array($splitPlan), 'Identical shared-chrome projections from two stylesheets compile: ' . (string) ($splitDiagnostics[0]['message'] ?? $split['status'] ?? ''));
-$splitShared = array_values(array_filter($splitPlan['assets'] ?? array(), static fn(array $asset): bool => str_contains((string) ($asset['target_path'] ?? ''), 'shared-chrome-') && !str_contains((string) ($asset['target_path'] ?? ''), 'shared-chrome-context')));
+$splitShared = array_values(array_filter($splitPlan['assets'] ?? array(), static fn(array $asset): bool => 'engine-support' !== ($asset['source'] ?? '') && str_contains((string) ($asset['target_path'] ?? ''), 'shared-chrome-') && !str_contains((string) ($asset['target_path'] ?? ''), 'shared-chrome-context')));
 $assert(1 === count($splitShared), 'Byte-identical shared-chrome projections are one asset, not a colliding pair.');
 $splitAsset = $splitShared[0];
 $assert(array(array('kind' => 'global')) === ($splitAsset['scopes'] ?? null), 'The coalesced shared-chrome asset stays globally scoped for every page.');
@@ -295,7 +297,7 @@ $conflict = (new ArtifactCompiler())->compile(array(
 $conflictPlan = $conflict['source_reports']['wordpress_site_plan'] ?? null;
 $assert('failed' !== ($conflict['status'] ?? null) && is_array($conflictPlan), 'Divergent shared-chrome url() origins no longer fail the plan.');
 WordPressSitePlan::assertValid($conflictPlan);
-$conflictShared = array_values(array_filter($conflictPlan['assets'], static fn(array $asset): bool => 1 === preg_match('~^assets/css/shared-chrome-[a-f0-9]{16}(?:-2)?\.css$~', (string) $asset['target_path'])));
+$conflictShared = array_values(array_filter($conflictPlan['assets'], static fn(array $asset): bool => 'engine-support' !== ($asset['source'] ?? '') && 1 === preg_match('~^assets/css/shared-chrome-[a-f0-9]{16}(?:-2)?\.css$~', (string) $asset['target_path'])));
 $assert(2 === count($conflictShared) && $conflictShared[0]['target_path'] !== $conflictShared[1]['target_path'] && str_replace('-2.css', '.css', $conflictShared[1]['target_path']) === $conflictShared[0]['target_path'], 'The later divergent projection is written to the suffixed target.');
 $conflictWrites = array_column($conflictPlan['writes'], null, 'target_path');
 $conflictTokens = array_column($conflictPlan['reference_tokens'], 'token', 'source_path');

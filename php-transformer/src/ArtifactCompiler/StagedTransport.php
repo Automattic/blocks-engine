@@ -32,6 +32,11 @@ trait StagedTransport
      */
     public function prepareShared(array $artifact, ?PayloadReader $payloadReader = null): array
     {
+        return $this->cssRuleTrees->run(fn () => $this->prepareSharedWithCssRuleTrees($artifact, $payloadReader));
+    }
+
+    private function prepareSharedWithCssRuleTrees(array $artifact, ?PayloadReader $payloadReader = null): array
+    {
         $artifact = $this->composeInputArtifact($artifact);
         if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
             return $this->prepareReferencedStage($artifact, 'shared', '', $payloadReader, null);
@@ -43,6 +48,7 @@ trait StagedTransport
         foreach ($normalized['files'] as &$file) if (isset($partition['canonical_provenance_hashes'][$file['path']])) $file['provenance']['hash'] = $partition['canonical_provenance_hashes'][$file['path']];
         unset($file);
         $sharedArtifact['files'] = $normalized['files'];
+        $this->retainSharedCssRuleTrees($normalized['files']);
 
         $plan = array(
             'schema' => self::SHARED_PLAN_SCHEMA,
@@ -108,6 +114,11 @@ trait StagedTransport
      * @return array<string,array<string,mixed>>
      */
     public function preparePages(array $artifact, array $sharedPlan, ?PayloadReader $payloadReader = null): array
+    {
+        return $this->cssRuleTrees->run(fn () => $this->preparePagesWithCssRuleTrees($artifact, $sharedPlan, $payloadReader));
+    }
+
+    private function preparePagesWithCssRuleTrees(array $artifact, array $sharedPlan, ?PayloadReader $payloadReader = null): array
     {
         $this->assertSharedPlan($sharedPlan);
         $artifact = $this->composeInputArtifact($artifact);
@@ -185,6 +196,11 @@ trait StagedTransport
     /** Compile one serialized page plan without receiving the source artifact. */
     public function compilePreparedPage(array $sharedPlan, array $pagePlan, ?PayloadReader $payloadReader = null): array
     {
+        return $this->cssRuleTrees->run(fn () => $this->compilePreparedPageWithCssRuleTrees($sharedPlan, $pagePlan, $payloadReader));
+    }
+
+    private function compilePreparedPageWithCssRuleTrees(array $sharedPlan, array $pagePlan, ?PayloadReader $payloadReader = null): array
+    {
         return $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $this->preparedPageCompiler(), $payloadReader);
     }
 
@@ -198,6 +214,11 @@ trait StagedTransport
      */
     public function compilePreparedPages(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null): array
     {
+        return $this->cssRuleTrees->run(fn () => $this->compilePreparedPagesWithCssRuleTrees($sharedPlan, $pagePlans, $payloadReader));
+    }
+
+    private function compilePreparedPagesWithCssRuleTrees(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null): array
+    {
         $this->assertSharedPlan($sharedPlan);
         $stageCompiler = $this->preparedPageCompiler();
         $receipts = array();
@@ -205,16 +226,25 @@ trait StagedTransport
             if (!is_array($pagePlan) || !is_string($pagePlan['page_id'] ?? null) || isset($receipts[$pagePlan['page_id']])) {
                 throw new \InvalidArgumentException('Prepared page batches require unique page plans with string page ids.');
             }
-            $receipts[$pagePlan['page_id']] = $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $stageCompiler, $payloadReader, true);
+            $receipts[$pagePlan['page_id']] = $this->cssRuleTrees->runPage(fn () => $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $stageCompiler, $payloadReader, true));
         }
         $this->htmlTransformerAnalysisCache = $stageCompiler->htmlTransformerAnalysisCache;
         $this->stylesheetAssetDiscoveryCount = $stageCompiler->stylesheetAssetDiscoveryCount;
         return $receipts;
     }
 
+    /** @param array<int, array<string, mixed>> $files */
+    private function retainSharedCssRuleTrees(array $files): void
+    {
+        foreach ($files as $file) {
+            if ('css' === ($file['kind'] ?? null)) $this->cssRuleTrees->retain((string) ($file['content'] ?? ''));
+        }
+    }
+
     private function preparedPageCompiler(): self
     {
         $compiler = new self(beforeDocumentTransform: $this->beforeDocumentTransform);
+        $compiler->cssRuleTrees = $this->cssRuleTrees;
         $compiler->htmlTransformerAnalysisCache = $this->htmlTransformerAnalysisCache ?? new HtmlTransformerAnalysisCache();
         $compiler->glyphColorByHash = &$this->glyphColorByHash;
         $compiler->glyphColorInspectionCount = &$this->glyphColorInspectionCount;
@@ -236,6 +266,7 @@ trait StagedTransport
         $this->assertPagePlan($pagePlan, $sharedPlan);
         $stageCompiler->glyphColorByHash = array_replace($stageCompiler->glyphColorByHash, $sharedPlan['shared_reduction']['glyph_colors'] ?? array());
         $sharedArtifact = array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)));
+        $this->retainSharedCssRuleTrees($sharedArtifact['files']);
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
         $pageLayoutGeometryProof = is_array($pagePlan['layout_geometry_proof'] ?? null) ? $pagePlan['layout_geometry_proof'] : array();
         foreach ($pageArtifact['files'] as &$pageFile) {
@@ -388,6 +419,11 @@ trait StagedTransport
      * @param null|callable(string,int,int):void $onProgress
      */
     public function compose(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null, ?callable $onProgress = null): TransformerResult
+    {
+        return $this->cssRuleTrees->run(fn () => $this->composeWithCssRuleTrees($sharedPlan, $pagePlans, $payloadReader, $onProgress));
+    }
+
+    private function composeWithCssRuleTrees(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null, ?callable $onProgress = null): TransformerResult
     {
         $timer = new \Automattic\BlocksEngine\PhpTransformer\Support\StepTimer('compose.receipt_validation');
         // A compiler instance may have performed page work previously; terminal
@@ -837,6 +873,7 @@ trait StagedTransport
             'compiler_options' => $this->receiptCompilerOptions(),
         );
         if ('shared' === $scope) {
+            $this->retainSharedCssRuleTrees($normalized['files']);
             $entryPath = (string) ($partition['entrypoints'][0] ?? '');
             $plan['analysis'] = array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
                 'entry_path' => $entryPath,

@@ -7,7 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use DOMDocument;
 use InvalidArgumentException;
 
-/** Keep linked card metadata on its own post through native block bindings. */
+/** Keep linked metadata and plain card labels on their own post through native block bindings. */
 final class ListingFieldProjection
 {
     /** @param array<string,mixed> $metadata */

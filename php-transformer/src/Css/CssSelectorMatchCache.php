@@ -363,24 +363,7 @@ final class CssSelectorMatchCache
 
         ++$this->candidateRuleMisses;
 
-        $candidates = $index['universal'];
-        $id = $this->attribute($element, 'id');
-        if ( null !== $id ) {
-            $candidates = array_merge($candidates, $index['ids'][$id] ?? array());
-        }
-        foreach ( $this->classTokens($element) as $class ) {
-            $candidates = array_merge($candidates, $index['classes'][$class] ?? array());
-            $anchoredId = EngineMarker::editorAnchorId($class);
-            if ( null !== $anchoredId && $anchoredId !== $id ) {
-                $candidates = array_merge($candidates, $index['ids'][$anchoredId] ?? array());
-            }
-        }
-        $candidates = array_merge($candidates, $index['tags'][strtolower($element->tagName)] ?? array());
-        foreach ( $this->attributeNames($element) as $name ) {
-            $candidates = array_merge($candidates, $index['attributes'][$name] ?? array());
-        }
-
-        uasort($candidates, static fn (array $left, array $right): int => $left['order'] <=> $right['order'] ?: (($left['sequence'] ?? $left['order']) <=> ($right['sequence'] ?? $right['order'])));
+        $candidates = CssSubjectIndex::entries($element, $index, $this);
         if ( ! $this->candidateOrderIsSignatureExact($candidates) ) {
             // Two distinct entries share a cascade position, so their relative
             // order follows the element's own class and attribute order, which

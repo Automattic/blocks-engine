@@ -202,19 +202,21 @@ final class AuthorSelectorProjectionState
         return $this->navigationListBoxSubjects[$path] ?? '';
     }
 
-    /** @var array<string, array{selector:string, pseudo_element:string}> Native inner elements replacing source subjects. */
+    /** @var array<string, array{selector:string, pseudo_element:string, author_precedence:bool}> Native inner elements replacing source subjects. */
     private array $innerSubjects = array();
 
     /**
      * A source element whose presentation a native block renders on one of
-     * its inner parts (optionally a pseudo-element of it).
+     * its inner parts (optionally a pseudo-element of it). Author precedence
+     * requests the shared native-subject baseline above Core defaults; every
+     * source rule still carries its original specificity above that baseline.
      */
-    public function installInnerSubject(string $path, string $selector, string $pseudoElement = ''): void
+    public function installInnerSubject(string $path, string $selector, string $pseudoElement = '', bool $authorPrecedence = false): void
     {
-        $this->innerSubjects[$path] = array( 'selector' => $selector, 'pseudo_element' => $pseudoElement );
+        $this->innerSubjects[$path] = array( 'selector' => $selector, 'pseudo_element' => $pseudoElement, 'author_precedence' => $authorPrecedence );
     }
 
-    /** @return array{selector:string, pseudo_element:string}|null */
+    /** @return array{selector:string, pseudo_element:string, author_precedence:bool}|null */
     public function innerSubject(string $path): ?array
     {
         return $this->innerSubjects[$path] ?? null;
@@ -244,13 +246,24 @@ final class AuthorSelectorProjectionState
         foreach ($classes as $class) $this->currentNavigationClasses[$class] = true;
     }
 
-    public function isCurrentNavigationClass(string $class): bool
+    public function isCurrentNavigationClass(string $class, ?DOMElement $element = null): bool
     {
+        if ('page_item' === $class || 1 === preg_match('/^page-item-\d+$/', $class)) {
+            return null !== $element && self::hasWordPressCurrentSignal($element);
+        }
         return isset($this->currentNavigationClasses[$class]);
     }
 
+    /** wp_list_pages also emits page identity classes on resting items. */
+    public static function hasWordPressCurrentSignal(DOMElement $element): bool
+    {
+        $aria = strtolower(trim($element->getAttribute('aria-current')));
+        return ('' !== $aria && 'false' !== $aria)
+            || 1 === preg_match('/(?:^|\s)(?:current-menu-item|current_page_item|current-menu-ancestor|current-menu-parent|current_page_parent|current_page_ancestor)(?:\s|$)/', $element->getAttribute('class'));
+    }
+
     /** Whether a selector addresses the served route's current-item state. */
-    public function selectsCurrentNavigationState(string $selector): bool
+    public function selectsCurrentNavigationState(string $selector, ?DOMElement $element = null): bool
     {
         if (1 === preg_match('/\[\s*(?:aria-current\b|data-status\s*=\s*["\']?active\b)/i', $selector)) return true;
         preg_match_all('/\.((?:\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
@@ -259,8 +272,8 @@ final class AuthorSelectorProjectionState
             // has been visited. Otherwise its conditional paint alone creates
             // a source subject marker that none of its resting peers receives.
             // A container named current-menu is not an item-state signal.
-            if (isset($this->currentNavigationClasses[stripslashes($class)])
-                || in_array(strtolower(stripslashes($class)), array('current-menu-item', 'current_page_item', 'current-menu-ancestor', 'current_page_parent', 'current-menu-parent'), true)
+            if ($this->isCurrentNavigationClass(stripslashes($class), $element)
+                || in_array(strtolower(stripslashes($class)), array('current-menu-item', 'current_page_item', 'current-menu-ancestor', 'current_page_parent', 'current-menu-parent', 'current_page_ancestor'), true)
                 || (MenuVocabulary::containsCurrentStateToken(stripslashes($class))
                     && (!MenuVocabulary::containsMenuToken(stripslashes($class)) || str_contains($class, 'item')))) return true;
         }

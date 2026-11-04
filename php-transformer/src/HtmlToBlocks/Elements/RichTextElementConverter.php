@@ -46,6 +46,11 @@ final class RichTextElementConverter implements ElementConverter
      */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
+        $decorated = $this->convertPositionedDecoration($element, $tagName, $fallbacks);
+        if (null !== $decorated) {
+            return ConversionOutcome::handled($decorated);
+        }
+
         if ( preg_match(self::HEADING_PATTERN, $tagName, $matches) ) {
             $button = SourceDom::onlyChildElement($element, 'button');
             $capturedChoice = null !== $button && $button->hasAttribute('data-blocks-engine-collection-choice');
@@ -55,6 +60,14 @@ final class RichTextElementConverter implements ElementConverter
             if (null !== $button && $capturedChoice) {
                 $children = $this->context->convertChildren($element, $fallbacks);
                 return ConversionOutcome::handled($this->context->createBlock('core/group', array_merge($this->context->presentationAttributes($element), array('tagName' => $tagName)), $children, $element));
+            }
+            // A heading with no text whose only content is one media element
+            // is the media block it visually is, not a heading. Anything with
+            // text keeps the rich-text route below (#3496).
+            $fallbackCount = count($fallbacks);
+            $media = $this->context->mediaBlockFromTextlessHeading($element, $fallbacks);
+            if ( null !== $media || count($fallbacks) > $fallbackCount ) {
+                return ConversionOutcome::handled($media);
             }
             return ConversionOutcome::handled($this->convertHeading($element, (int) $matches[1]));
         }
@@ -67,8 +80,48 @@ final class RichTextElementConverter implements ElementConverter
     }
 
     /**
+     * Keep overflow-visible, page-styled artwork in the document rather than
+     * externalizing it into a clipped image. The text remains ordinary RichText.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
+    private function convertPositionedDecoration(DOMElement $element, string $tagName, array &$fallbacks): ?array
+    {
+        $decorations = array();
+        $removed = array();
+        foreach (iterator_to_array($element->getElementsByTagName('svg')) as $child) {
+            if (!$child instanceof DOMElement || 'svg' !== strtolower($child->tagName)) {
+                continue;
+            }
+            $block = $this->context->decorativeSvgBlock($child);
+            if (null !== $block) {
+                $decorations[] = $block;
+                $removed[] = array($child, $child->parentNode, $child->nextSibling);
+            }
+        }
+        if (array() === $decorations) {
+            return null;
+        }
+        foreach ($removed as [$child, $parent]) {
+            $parent?->removeChild($child);
+        }
+        try {
+            $text = preg_match(self::HEADING_PATTERN, $tagName, $matches)
+                ? $this->convertHeading($element, (int) $matches[1])
+                : $this->convertParagraph($element, $fallbacks);
+        } finally {
+            foreach (array_reverse($removed) as [$child, $parent, $next]) {
+                $parent?->insertBefore($child, $next);
+            }
+        }
+        return $this->context->createBlock('core/group', array(
+            'className' => 'blocks-engine-decorated-text',
+            'layout' => array('type' => 'default'),
+        ), array_merge(null === $text ? array() : array($text), $decorations));
+    }
+
+    /** @return array<string, mixed>|null */
     private function convertHeading(DOMElement $element, int $level): ?array
     {
         $content        = $this->context->headingRichTextContent($this->context->richTextContent($element));

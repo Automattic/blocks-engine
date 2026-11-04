@@ -27,7 +27,12 @@ foreach ($figures as $index => $figure) {
     $assert(str_contains($figure[2], 'https://example.com/' . ($index + 1)), 'Native image retains its destination.');
     $assert(str_contains($figure[2], 'width:100%') && str_contains($figure[2], 'aspect-ratio:1/1'), 'Native image keeps its full-width square crop.');
     preg_match('/<a[^>]*class="([^"]*)"/', $figure[2], $anchor);
-    $assert(isset($anchor[1]) && preg_match('/\.' . preg_quote($anchor[1], '/') . '\{display:block/', $css) === 1, 'The rebuilt link remains block-level, so the percentage image has a containing width.');
+    $linkRules = '';
+    foreach (explode(' ', $anchor[1] ?? '') as $class) {
+        preg_match_all('/\.' . preg_quote($class, '/') . '\{([^{}]*)\}/', $css, $matches);
+        $linkRules .= implode(';', $matches[1]);
+    }
+    $assert(str_contains($linkRules, 'display:block'), 'The rebuilt link remains block-level, so the percentage image has a containing width.');
 }
 // Optional browser evidence uses the actual generated artifact, not a model of its CSS.
 if ($path = getenv('LINKED_FLEX_ARTIFACT')) {

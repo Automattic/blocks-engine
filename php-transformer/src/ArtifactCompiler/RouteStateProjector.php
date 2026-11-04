@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
@@ -56,7 +57,7 @@ final class RouteStateProjector
      */
     public function project(array $files): array
     {
-        $files = self::bindRetainedLabels($files);
+        $files = self::bindNavigationRuns(self::bindRetainedLabels($files));
         $files = self::bindCurrentNavigationSources($files);
         $files = self::withRestingChrome($files);
         foreach ($files as &$file) {
@@ -68,6 +69,48 @@ final class RouteStateProjector
         unset($file);
 
         return array('files' => $files);
+    }
+
+    /**
+     * Discover the site's current-page runs once, before per-route lowering.
+     * The annotation carries only navigation ownership, never a selected item.
+     */
+    private static function bindNavigationRuns(array $files): array
+    {
+        $documents = array();
+        $runs = array();
+        $qualified = array();
+        foreach ($files as $index => $file) {
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null)) continue;
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $previous = libxml_use_internal_errors(true);
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            libxml_clear_errors(); libxml_use_internal_errors($previous);
+            if (!$loaded) continue;
+            $documents[$index] = $document;
+            foreach ((new DOMXPath($document))->query('//*[a[@href]]') ?: array() as $element) {
+                if (!$element instanceof DOMElement) continue;
+                $signature = MenuVocabulary::linkRunSignature($element, (string) ($file['path'] ?? ''));
+                if (null === $signature) continue;
+                $runs[$index][] = array($element, $signature);
+                if (MenuVocabulary::isCurrentPageLinkRun($element)) $qualified[$signature] = true;
+            }
+        }
+        foreach ($runs as $index => $rows) {
+            $changed = false;
+            foreach ($rows as [$element, $signature]) {
+                if (!isset($qualified[$signature])) continue;
+                $element->setAttribute('data-blocks-engine-navigation-run', 'true');
+                // Recheck placement: a matching run in article content is not chrome.
+                if (!MenuVocabulary::isCurrentPageLinkRun($element)) {
+                    $element->removeAttribute('data-blocks-engine-navigation-run');
+                    continue;
+                }
+                $changed = true;
+            }
+            if ($changed) $files[$index]['content'] = HtmlSerialization::documentHtml($documents[$index]);
+        }
+        return $files;
     }
 
     /**
@@ -486,7 +529,7 @@ final class RouteStateProjector
                         }
                     }
                 }
-                $state = array_values(array_filter($state ?? array(), static fn(string $class): bool => ! isset($restingClasses[$class]) && MenuVocabulary::containsCurrentStateToken($class)));
+                $state = array_values(array_filter($state ?? array(), static fn(string $class): bool => ! isset($restingClasses[$class]) && (MenuVocabulary::containsCurrentStateToken($class) || 'page_item' === $class || 1 === preg_match('/^page-item-\d+$/', $class))));
                 if (array() === $state) {
                     continue;
                 }
@@ -497,7 +540,8 @@ final class RouteStateProjector
                     // cannot restore those as the current page).
                     $link = 'a' === strtolower($element->tagName) ? $element : $element->getElementsByTagName('a')->item(0);
                     if ($preserveNavigationPresentation && self::inMenu($element) && $link instanceof DOMElement && !ArtifactPath::namesSection($link->getAttribute('href'))) continue;
-                    $classes = array_values(array_diff(self::classes($element), $state));
+                    $elementState = array_filter($state, static fn(string $class): bool => ('page_item' !== $class && 1 !== preg_match('/^page-item-\d+$/', $class)) || AuthorSelectorProjectionState::hasWordPressCurrentSignal($element));
+                    $classes = array_values(array_diff(self::classes($element), $elementState));
                     if (array() === $classes) {
                         $element->removeAttribute('class');
                     } else {

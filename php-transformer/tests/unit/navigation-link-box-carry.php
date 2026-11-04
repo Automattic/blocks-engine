@@ -199,6 +199,21 @@ $assert(
     $plainCss
 );
 
+// A responsive box stays with the author rule: freezing the base padding on
+// the anchor would override the wide-viewport reset at every width.
+$responsiveResult = $transform(
+    '<style>.menu-link{padding-left:40px;padding-right:40px;background-color:#123}@media (min-width:1280px){.menu-link{padding-left:0;padding-right:0}}</style>'
+    . '<nav aria-label="Main"><a href="/" class="menu-link">Home</a><a href="/about" class="menu-link">About</a></nav>'
+);
+$responsiveCss = $assetsCss($responsiveResult);
+$responsiveMarker = $markerFor($navigationLinkComment((string) ( $responsiveResult['serialized_blocks'] ?? '' ), '/about'));
+preg_match('/' . preg_quote('.wp-block-navigation-item.' . $responsiveMarker . '>.wp-block-navigation-item__content', '/') . '\{([^}]*)\}/', $responsiveCss, $responsiveRule);
+$assert(
+    '' !== $responsiveMarker && str_contains($responsiveRule[1] ?? '', 'background-color:') && ! str_contains($responsiveRule[1] ?? '', 'padding'),
+    'a padding side with media variants is not frozen onto the rendered anchor',
+    $responsiveRule[0] ?? $responsiveCss
+);
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "navigation link box carry FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);

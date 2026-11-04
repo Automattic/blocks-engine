@@ -103,7 +103,11 @@ final class NavigationOpenerPresentation
         foreach ($rules as $condition => $values) {
             $parts = array();
             foreach ($values as $property => $value) {
-                $value = $this->styles->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $source);
+                // The opener only paints in the collapsed state, so an
+                // unconditional value takes its tokens at that viewport.
+                $value = '' === $condition
+                    ? $this->styles->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant($value), $source, StyleResolver::MOBILE_REFERENCE_WIDTH)
+                    : $this->styles->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $source);
                 if ('' === $value || preg_match('/[{}<>;]|var\(|url\(/i', $value)) continue;
                 $safeValues = $this->styles->safeVisualDeclarations(array($property => $value));
                 // Resting classification deliberately omits transforms and

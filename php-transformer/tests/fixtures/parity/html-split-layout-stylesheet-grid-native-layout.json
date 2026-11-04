@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-split-layout-stylesheet-grid-native-layout",
+  "description": "A two-pane container whose class name trips the split-layout columns heuristic (hero-grid) and whose cascade resolves display:grid with two equal tracks stays a core/group with a native grid layout (columnCount 2), never core/columns. core/columns is a flex layout: pairing it with layout:{type:grid} serializes the wp-block-columns + is-layout-grid combo WordPress rejects.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-split-layout-stylesheet-grid-native-layout.json",
+    "notes": "Derived from a bakery hero where .hero-grid { display:grid } held exactly two panes (copy + plate figure); the split-layout heuristic claimed it as columns while a native grid layout was stamped, producing an invalid block."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"hero-grid\"><div class=\"hero-text\"><h1>Fresh Bread Daily</h1><p>Baked every morning.</p></div><div class=\"hero-side\"><p>Visit the counter for today's bake.</p></div></div>",
+    "options": {
+      "static_css": ".hero-grid{display:grid;grid-template-columns:1fr 1fr;gap:48px}"
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hero-grid", "layout": { "type": "grid", "columnCount": 2 } } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"className\":\"hero-grid\",\"layout\":{\"type\":\"grid\",\"columnCount\":2}" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-group is-layout-grid wp-block-group-is-layout-grid hero-grid" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"level\":1} -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:columns" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-columns" }
+  ]
+}

@@ -2082,6 +2082,10 @@
         "class": "integrity",
         "count": 1
       },
+      "InvalidArgumentException('WordPress site plan section must be an unparented category.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('WordPress site plan taxonomy evidence is incomplete.')": {
         "class": "integrity",
         "count": 1

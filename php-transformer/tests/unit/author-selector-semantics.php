@@ -132,6 +132,14 @@ $assert(
     'direct navigation retains source-owned hidden and responsive display states against core navigation layout CSS'
 );
 
+// A builder link run lowers to core/navigation from a div, and keeps the same display states.
+$responsiveRunCss = $css($transform('<style>.menus{display:none}.menus.drawer{display:none}@media (min-width:1280px){.menus{display:flex}}</style><div class="bar"><div class="left"><a class="brand" href="/"><img src="logo.png" alt="Brand"></a></div><div class="right"><div class="menus drawer"><a class="menu-link w--current" aria-current="page" href="/a/">About</a><a class="menu-link" href="/s/">Services</a><a class="menu-link" href="/c/">Contact</a></div><a class="cta btn" href="/a/">Learn more</a></div></div><main><h1>Title</h1></main>'));
+$assert(
+    str_contains($responsiveRunCss, ':root .wp-block-navigation.menus{display:none}') && str_contains($responsiveRunCss, ':root .wp-block-navigation.menus{display:flex}')
+        && str_contains($responsiveRunCss, ':root .wp-block-navigation.menus.drawer{display:none}'),
+    'a current-page link run lowered to navigation retains its hidden, compound and responsive display states'
+);
+
 $controls = $transform('<style>a.cta:hover{padding:1rem}button.cta:focus{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button>');
 $controlCss = $css($controls);
 $assert(3 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus:not([style*="padding"]){padding:2rem}'), 'promoted anchors and native buttons project dynamic selectors while native source ownership remains authoritative');
@@ -377,7 +385,7 @@ $assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:a
 $heroLayers = $transform('<style>.hero{position:relative;min-height:46rem}.hero-image,.hero-overlay{position:absolute;inset:0}.hero-copy{position:relative}</style><section class="hero"><img class="hero-image" src="hero.jpg" alt="Hero"><div class="hero-overlay"></div><div class="hero-copy"><h1>Visible hero copy</h1></div></section>');
 $heroLayersCss = $css($heroLayers);
 $assert(
-    str_contains($heroLayersCss, ':root .editor-styles-wrapper :is(.hero-image,.hero-overlay){position:absolute!important}')
+    str_contains($heroLayersCss, ':root .editor-styles-wrapper :is(.hero-image,.hero-overlay){position:absolute}')
         && ! str_contains($heroLayersCss, 'block-editor-block-list__block:has(> .hero-image)')
         && str_contains($heroLayersCss, ':root .editor-styles-wrapper .hero-copy{position:relative}'),
     'editor canvas keeps authored absolute layers above Core block-root positioning without collapsing their source parent'
@@ -386,8 +394,8 @@ $stickyHeader = $transform('<style>.site-header{position:fixed;top:0;left:0;righ
 $stickyHeaderCss = $css($stickyHeader);
 $assert(
     ! str_contains($stickyHeaderCss, ':root .editor-styles-wrapper .site-header{position:fixed')
-        && str_contains($stickyHeaderCss, ':root .editor-styles-wrapper :is(.hero-image,.hero-overlay){position:absolute!important}'),
-    'editor canvas does not re-force position:fixed site chrome over the document while absolute hero layers still beat Core positioning'
+        && str_contains($stickyHeaderCss, ':root .editor-styles-wrapper :is(.hero-image,.hero-overlay){position:absolute}'),
+    'editor canvas does not re-force position:fixed site chrome over the document while absolute hero layers still outrank Core positioning through the shared editor scope prefix'
 );
 
 $wrapper = $transform('<style>.wrap a.cta:hover{padding:1rem}.wrap a.cta:focus{color:red}</style><div class="wrap" role="button"><a class="cta" href="/go">Go</a></div>');

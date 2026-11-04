@@ -403,6 +403,9 @@ final class NavigationPatternContext
      * reset on the item to the source item's own winner, so the box is not
      * painted twice now that it lives on the anchor again.
      *
+     * A declaration with media variants is not carried: a static restatement
+     * would freeze the base breakpoint's value over every other width.
+     *
      * Background and padding are never inherited, so a value resolved here was
      * owned by the source anchor itself: a box authored on the source list
      * item resolves nothing here and stays where the author put it.
@@ -420,7 +423,9 @@ final class NavigationPatternContext
             return '';
         }
 
-        $declarations = $this->styleResolver->cssDeclarations($style($anchor));
+        // A side with media variants stays with the author rule: core renders
+        // the source class on the item, where those variants still win.
+        $declarations = $this->styleResolver->classOwnedResponsiveDeclarations($anchor, $this->styleResolver->cssDeclarations($style($anchor)));
         $content = array();
         $paddingSides = array();
         $background = trim((string) ($declarations['background-color'] ?? ''));
@@ -692,7 +697,7 @@ final class NavigationPatternContext
             $tag = strtolower($node->tagName);
             if (in_array($tag, array('html', 'body'), true)) break;
             $classes = preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array();
-            $classes = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && !str_starts_with($class, 'blocks-engine-') && !$projections->isCurrentNavigationClass($class) && !$projections->selectsCurrentNavigationState('.' . $class)));
+            $classes = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && !str_starts_with($class, 'blocks-engine-') && !$projections->isCurrentNavigationClass($class, $node) && !$projections->selectsCurrentNavigationState('.' . $class, $node)));
             sort($classes);
             $role = strtolower(trim($node->getAttribute('role')));
             $identity[] = array($tag, $node->getAttribute('id'), $classes, $role);
@@ -833,7 +838,7 @@ final class NavigationPatternContext
                 if (is_array($suffix)) $text = substr($text, 0, (int) $suffix['start']);
                 // Current-only paint does not make an item a presented subject;
                 // its resting peers decide, so every route shapes it alike.
-                if ('' !== $text && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text) && $this->styleResolver->matchesCssSelector($element, $text)) return true;
+                if ('' !== $text && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text, $element) && $this->styleResolver->matchesCssSelector($element, $text)) return true;
             }
         }
         return false;
@@ -913,7 +918,7 @@ final class NavigationPatternContext
                 $text = (string) ($selector['selector'] ?? '');
                 // Route state is not item identity: the same item on every route
                 // carries one marker, whichever page the snapshot served.
-                if ('' !== $text && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text) && $this->styleResolver->matchesCssSelector($element, $text)) {
+                if ('' !== $text && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text, $element) && $this->styleResolver->matchesCssSelector($element, $text)) {
                     $rules[] = array($text, $rule['declarations'], $rule['conditions'] ?? array());
                 }
             }
@@ -923,7 +928,7 @@ final class NavigationPatternContext
             if ($sibling instanceof DOMElement) ++$position;
         }
         $projections = $this->session->authorSelectorProjectionState();
-        $classes = array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class) && !$projections->selectsCurrentNavigationState('.' . $class)));
+        $classes = array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class, $element) && !$projections->selectsCurrentNavigationState('.' . $class, $element)));
         $identity = array(strtolower($element->tagName), $element->getAttribute('id'), implode(' ', $classes), $element->getAttribute('style'), \Automattic\BlocksEngine\PhpTransformer\Support\NavigationUrl::serialize($element->getAttribute('href')), $position, $rules);
         return $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-' . $kind, (string) json_encode($identity));
     }
@@ -1472,15 +1477,20 @@ final class NavigationPatternContext
             return;
         }
 
-        // Shared list classes do not imply a shared cascade. Wait for the
-        // emitted instance before publishing this menu's recovered type.
+        // Equal author classes do not make equal menus: a captured dialog
+        // copy carries the inline menu's classes but not its cascade. The
+        // rule is published once the emitted block has its instance scope.
         $this->pendingInheritedPresentations[] = array('path' => $navigation->getNodePath() ?? '', 'source' => SourceDom::elementSelector($navigation), 'classes' => $authorClasses, 'declarations' => implode(';', $declarations));
     }
 
     /** @var list<array{path: string, source: string, classes: array<int, string>, declarations: string}> */
     private array $pendingInheritedPresentations = array();
 
-    /** Publish recovered type only on the emitted menu that owns it. */
+    /**
+     * Publish recovered type only on the emitted menu that owns it.
+     *
+     * @param array<string, mixed> $block
+     */
     private function publishInheritedNavigationPresentation(array &$block, DOMElement $source, string $scope): void
     {
         if (!$this->sourceTargetProjection instanceof SourceTargetProjectionState) return;
@@ -1491,6 +1501,11 @@ final class NavigationPatternContext
             // inheritance may belong to its enclosing landmark.
             if ($pending['path'] !== $root && !str_starts_with($pending['path'], $root . '/') && !str_starts_with($root, $pending['path'] . '/')) continue;
             if (array() !== array_diff($pending['classes'], $classes)) continue;
+            if ('' === $scope && !$this->session instanceof HtmlTransformerSession) {
+                $this->sourceTargetProjection->record($pending['source'], '.wp-block-navigation' . CssIdent::compoundClassSelector($pending['classes']) . ' .wp-block-navigation-item__content', $pending['declarations']);
+                unset($this->pendingInheritedPresentations[$index]);
+                continue;
+            }
             if ('' === $scope) {
                 preg_match('/(?:^|\s)(blocks-engine-navigation-instance-[a-f0-9]{12}-[0-9]+)(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''), $existing);
                 $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . $pending['declarations']);
@@ -1509,6 +1524,10 @@ final class NavigationPatternContext
         if (str_starts_with($property, 'font-')) $properties[] = 'font';
         foreach ($anchors as $anchor) {
             for ($node = $anchor->parentNode; $node instanceof DOMElement && !$node->isSameNode($navigation); $node = $node->parentNode) {
+                // This runs while the menu is still being recognised, before its
+                // subjects are published, so the boxes this conversion retains
+                // are its pending subjects; published ones alone would depend on
+                // an earlier document having converted the same DOM path.
                 $path = $node->getNodePath() ?? '';
                 if (!isset($this->pendingNavigationSubjects[$path]) && '' === $this->session->authorSelectorProjectionState()->navigationSubject($path)) continue;
                 foreach ($this->styleResolver->cssDeclarations($node->getAttribute('style')) as $name => $value) {

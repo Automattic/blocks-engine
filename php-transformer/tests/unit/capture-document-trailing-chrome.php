@@ -49,6 +49,16 @@ $assert(1 === count($plan['taxonomy_entities']), 'The category materializes desp
 $entity = $plan['taxonomy_entities'][0];
 $assert(str_contains($entity['archive']['presentation_markup'], '<!-- wp:query '), 'The category has a native query loop.');
 $templates = array_column($plan['templates'], null, 'slug');
+foreach (array('header', 'footer') as $area) {
+    $parts = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => $area === $part['area']));
+    $assert(1 === count($parts), 'Explicit and captured ' . $area . ' resolve to one part.');
+    $assert('parts/' . $area . '.html' === $parts[0]['source_path'], 'The producer part keeps its source identity.');
+    $assert('inline_shared_shell' === $parts[0]['placement']['kind'], 'The producer part binds at captured landmark positions.');
+    foreach ($plan['pages'] as $page) {
+        $assert(2 === substr_count($page['canonical_block_markup'], '"slug":"' . $area . '"'), 'Each captured device document references the same producer part.');
+        $assert(!str_contains($page['canonical_block_markup'], 'Shared ' . $area), 'Captured chrome is not duplicated inline.');
+    }
+}
 foreach ($plan['pages'] as $page) {
     if ('post' !== $page['post_type']) continue;
     $content = $page['canonical_block_markup'];

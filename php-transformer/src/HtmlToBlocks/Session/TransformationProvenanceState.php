@@ -197,6 +197,7 @@ final class TransformationProvenanceState
             unset($block['_form_legend']);
             unset($block['_form_field_box']);
             unset($block['_form_control_box']);
+            unset($block['form_control_box']);
             unset($block['_source_anchor_selector']);
             unset($block['_editability_runtime_owned']);
             unset($block['_editability_visual_owned']);
