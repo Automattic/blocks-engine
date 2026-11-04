@@ -310,7 +310,7 @@ final class GeneratedBlockStyleProjector
                 $declarations[] = 'width:max-content';
                 $declarations[] = 'max-width:100%';
             }
-            if ( ! self::sourceControlHasVisibleBorder($sourceDeclarations) ) {
+            if ( ! $this->sourceControlHasVisibleBorder($sourceControl, $sourceDeclarations) ) {
                 if ( '' === trim((string) ($style['border']['style'] ?? '')) ) {
                     $guardedDeclarations[':not([style*="border-style"]):not([style*="border-top-style"])'][] = 'border-style:none!important';
                 }
@@ -746,30 +746,57 @@ final class GeneratedBlockStyleProjector
     }
 
     /**
-     * Decide whether a source control's resolved cascade contributes any
-     * visible border, considering the `border` shorthand together with every
-     * longhand that can carry a border (`border-top|right|bottom|left`,
-     * `border-width`, `border-style`, and their per-side variants). The
+     * Decide whether the source contributes any visible border, including
+     * conditional author rules and physical or logical border longhands. The
      * neutralizer must only fire when none of them do — a stale `border: 0`
      * reset must not force-kill a real border declared later in the cascade
      * through longhands, which is exactly what happens with `var()`-driven
      * custom-property borders. A longhand whose value references `var(...)`
      * cannot be proven zero statically, so it is treated as visible.
      *
-     * @param array<string, mixed> $sourceDeclarations
+     * @param array<string, string> $sourceDeclarations
      */
-    private static function sourceControlHasVisibleBorder(array $sourceDeclarations): bool
+    private function sourceControlHasVisibleBorder(DOMElement $sourceControl, array $sourceDeclarations): bool
     {
+        $sides = array( 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-inline', 'border-inline-start', 'border-inline-end', 'border-block', 'border-block-start', 'border-block-end' );
+        $properties = $sides;
+        foreach ( $sides as $side ) {
+            $properties[] = $side . '-width';
+            $properties[] = $side . '-style';
+        }
+        // This is only a reset guard, not presentation projection: a border at
+        // any condition must stay under author ownership, even off-reference.
+        $conditional = $this->styleResolver->conditionalAuthorDeclaredPropertyValues($sourceControl, $properties);
+        // Logical properties are not all in the classification cascade's allow-list.
+        $logicalProperties = array_values(array_filter($properties, static fn (string $property): bool => str_starts_with($property, 'border-inline') || str_starts_with($property, 'border-block')));
+        $declared = array_merge($conditional, $this->styleResolver->authorDeclaredValuesAtAnyViewport($sourceControl, $logicalProperties));
+        foreach ( $declared as $property => $values ) {
+            foreach ( $values as $value ) {
+                if ( self::borderDeclarationsHaveVisibleBorder(array($property => $value)) ) {
+                    return true;
+                }
+            }
+        }
+
+        return self::borderDeclarationsHaveVisibleBorder($sourceDeclarations);
+    }
+
+    /** @param array<string, mixed> $sourceDeclarations */
+    private static function borderDeclarationsHaveVisibleBorder(array $sourceDeclarations): bool
+    {
+        $sides = array( 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-inline', 'border-inline-start', 'border-inline-end', 'border-block', 'border-block-start', 'border-block-end' );
+        $widths = array_merge(array('border-width'), array_map(static fn (string $side): string => $side . '-width', $sides));
+        $styles = array_merge(array('border-style'), array_map(static fn (string $side): string => $side . '-style', $sides));
         // A reset can pair border-style:solid with zero width. Style alone
         // cannot paint a border; only later nonzero side widths can override it.
         $width = CssValueInspector::comparable((string) ($sourceDeclarations['border-width'] ?? ''));
         if ( '' !== $width && 1 === preg_match('/^0(?:px)?(?:\s+0(?:px)?){0,3}$/', $width) ) {
             $nonzeroSide = false;
-            foreach ( array('border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width') as $property ) {
+            foreach ( array_diff($widths, array('border-width')) as $property ) {
                 $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
                 $nonzeroSide = $nonzeroSide || ('' !== $value && CssValueInspector::isNonZero($value));
             }
-            foreach ( array('border', 'border-top', 'border-right', 'border-bottom', 'border-left') as $property ) {
+            foreach ( array_merge(array('border'), $sides) as $property ) {
                 $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
                 $nonzeroSide = $nonzeroSide || ('' !== $value && self::borderSideShorthandIsVisible($value));
             }
@@ -782,21 +809,21 @@ final class GeneratedBlockStyleProjector
             return true;
         }
 
-        foreach ( array( 'border-top', 'border-right', 'border-bottom', 'border-left' ) as $property ) {
+        foreach ( $sides as $property ) {
             $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
             if ( '' !== $value && self::borderSideShorthandIsVisible($value) ) {
                 return true;
             }
         }
 
-        foreach ( array( 'border-width', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width' ) as $property ) {
+        foreach ( $widths as $property ) {
             $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
             if ( '' !== $value && ( str_contains($value, 'var(') || str_contains($value, 'calc(') || CssValueInspector::isNonZero($value) ) ) {
                 return true;
             }
         }
 
-        foreach ( array( 'border-style', 'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style' ) as $property ) {
+        foreach ( $styles as $property ) {
             $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
             if ( '' === $value ) {
                 continue;
