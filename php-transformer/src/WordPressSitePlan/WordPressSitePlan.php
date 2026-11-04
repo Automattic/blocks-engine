@@ -6190,6 +6190,8 @@ PHP;
             $lines[] = "}, 10, 2 );";
             }
         }
+        $breadcrumbLabels = BreadcrumbLabelRuntime::labels(array_merge($templates, $parts, $pages), $pages);
+        if (array() !== $breadcrumbLabels) $lines[] = BreadcrumbLabelRuntime::source($breadcrumbLabels);
         foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
             if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineRuntimeAttributes')) {
                 $lines[] = RuntimeAttributesRuntime::source();

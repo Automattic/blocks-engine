@@ -632,6 +632,17 @@ final class NavigationPattern implements PatternRecognizerInterface
             $attributes['style'] = $style;
         }
 
+        // Core labels crumbs with page titles; the source's own labels travel
+        // by resolved route so the theme runtime can restore them.
+        $trail = array();
+        foreach ( $links as $link ) {
+            $trail[] = array(
+                'route' => self::trailRoute((string) $link['href'], $navigationContext->sourcePath()),
+                'label' => trim(preg_replace('/\s+/', ' ', $link['anchor']->textContent ?? '') ?? ''),
+            );
+        }
+        $attributes['metadata']['blocksEngineBreadcrumbTrail'] = $trail;
+
         // Core renders the source classes on its wrapper and a bare <ol>
         // inside; rules written for the source list address that <ol>.
         $navigationContext->recordInnerSubject($list, '.wp-block-breadcrumbs ol');

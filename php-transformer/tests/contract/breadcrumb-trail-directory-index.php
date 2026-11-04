@@ -57,7 +57,8 @@ $assert('>' === ($attributes['separator'] ?? ''), 'The separator the source pain
 $assert('#666' === ($attributes['style']['color']['link'] ?? ''), 'The trail link color maps to the block link color.');
 $assert('#f3f1ec' === ($attributes['style']['color']['background'] ?? ''), 'The trail surface maps to the block background.');
 $assert(!isset($attributes['ref']) && !isset($attributes['showHomeItem']), 'The home item and the entity reference stay on core defaults: /index.html names the root route, not a /index/ page.');
-$assert($attributes === ($breadcrumbsIn($newsMarkup)[0]['attrs'] ?? null), 'A second route with the same trail shape renders the same hierarchy-driven block.');
+$withoutTrail = static function (array $attrs): array { unset($attrs["metadata"]); return $attrs; };
+$assert($withoutTrail($attributes) === $withoutTrail($breadcrumbsIn($newsMarkup)[0]["attrs"] ?? array()), 'A second route with the same trail shape renders the same hierarchy-driven block.');
 
 // A deeper trail built from directory-index links walks one ancestor chain
 // across several segment depths.
