@@ -479,7 +479,7 @@
       },
       "InvalidArgumentException('Runtime declaration payload contains an unsupported value.')": {
         "class": "integrity",
-        "count": 2
+        "count": 3
       },
       "InvalidArgumentException('Runtime declaration payload has an unsupported key.')": {
         "class": "integrity",
@@ -487,7 +487,7 @@
       },
       "InvalidArgumentException('Runtime declaration payload is not serializable.')": {
         "class": "integrity",
-        "count": 3
+        "count": 4
       },
       "InvalidArgumentException('Runtime declaration record reference is unresolved or stale.')": {
         "class": "integrity",

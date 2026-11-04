@@ -399,12 +399,43 @@ final class MaterializationPlanBuilder
             return array();
         }
 
+        // Directory prefixes let us scan markup once rather than once per asset.
+        $prefixPaths = array();
+        $trie = array();
+        foreach ( $assetPaths as $assetPath ) {
+            $node =& $trie;
+            for ( $i = 0, $length = strlen($assetPath); $i < $length; ++$i ) {
+                $node =& $node[$assetPath[$i]];
+            }
+            $node[''] = $assetPath;
+            unset($node);
+            $slash = strpos($assetPath, '/');
+            $prefix = false === $slash ? $assetPath : substr($assetPath, 0, $slash + 1);
+            $prefixPaths[$prefix] = true;
+        }
+        $pattern = '~(?=(' . implode('|', array_map(static fn (string $prefix): string => preg_quote($prefix, '~'), array_keys($prefixPaths))) . '))~';
         $candidates = array();
         foreach ( array('page' => $pages, 'template_part' => $templateParts) as $scope => $documents ) {
             foreach ( $documents as $document ) {
                 $markup = (string) ($document['block_markup'] ?? '');
+                $referenced = array();
+                // Lookahead retains overlapping occurrences and substring semantics.
+                if ( false === @preg_match_all($pattern, $markup, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
+                    // Very large prefix sets can exceed PCRE's pattern bound.
+                    foreach ( $assetPaths as $assetPath ) {
+                        if ( str_contains($markup, $assetPath) ) $referenced[$assetPath] = true;
+                    }
+                    $matches = array();
+                }
+                foreach ( $matches as $match ) {
+                    $node = $trie;
+                    for ( $offset = $match[1][1], $length = strlen($markup); $offset < $length && isset($node[$markup[$offset]]); ++$offset ) {
+                        $node = $node[$markup[$offset]];
+                        if ( isset($node['']) ) $referenced[$node['']] = true;
+                    }
+                }
                 foreach ( $assetPaths as $assetPath ) {
-                    if ( '' === $markup || ! str_contains($markup, $assetPath) ) {
+                    if ( ! isset($referenced[$assetPath]) ) {
                         continue;
                     }
 

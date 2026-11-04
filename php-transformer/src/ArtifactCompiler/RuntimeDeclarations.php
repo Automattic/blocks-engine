@@ -565,6 +565,13 @@ final class RuntimeDeclarations
     private static function updateCanonicalHash($context, mixed $value, int $maxDepth, int $depth = 0): void
     {
         if ($depth > $maxDepth || is_resource($value) || is_object($value)) throw new InvalidArgumentException('Runtime declaration payload contains an unsupported value.');
+        // Bound the native JSON buffer, including worst-case string escaping.
+        $budget = 8 * 1024 * 1024;
+        $canonical = self::boundedCanonicalHashValue($value, $budget, $maxDepth, $depth);
+        if ($budget >= 0) {
+            try { hash_update($context, json_encode($canonical, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE, $maxDepth + 2)); } catch (JsonException) { throw new InvalidArgumentException('Runtime declaration payload is not serializable.'); }
+            return;
+        }
         if (!is_array($value)) {
             if (is_string($value)) {
                 self::updateCanonicalStringHash($context, $value);
@@ -575,7 +582,10 @@ final class RuntimeDeclarations
         }
         foreach ($value as $key => $_item) if (!is_int($key) && !is_string($key)) throw new InvalidArgumentException('Runtime declaration payload has an unsupported key.');
         $keys = array_keys($value);
-        if (!array_is_list($value)) usort($keys, static fn(int|string $left, int|string $right): int => strcmp((string) $left, (string) $right));
+        if (!array_is_list($value)) {
+            ksort($value, SORT_STRING);
+            $keys = array_keys($value);
+        }
         $list = true;
         foreach ($keys as $index => $key) {
             if ($index !== $key) {
@@ -593,6 +603,21 @@ final class RuntimeDeclarations
             self::updateCanonicalHash($context, $value[$key], $maxDepth, $depth + 1);
         }
         hash_update($context, $list ? ']' : '}');
+    }
+
+    private static function boundedCanonicalHashValue(mixed $value, int &$budget, int $maxDepth, int $depth): mixed
+    {
+        if ($depth > $maxDepth || is_resource($value) || is_object($value)) throw new InvalidArgumentException('Runtime declaration payload contains an unsupported value.');
+        $budget -= is_string($value) ? 2 + 6 * strlen($value) : 32;
+        if ($budget < 0 || !is_array($value)) return $value;
+        if (!array_is_list($value)) ksort($value, SORT_STRING);
+        foreach ($value as $key => $item) {
+            $budget -= 8 + 6 * strlen((string) $key);
+            if ($budget < 0) return null;
+            $value[$key] = self::boundedCanonicalHashValue($item, $budget, $maxDepth, $depth + 1);
+            if ($budget < 0) return null;
+        }
+        return $value;
     }
 
     /** @param resource $context */
