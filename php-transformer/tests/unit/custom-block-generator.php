@@ -45,7 +45,60 @@ $render = $generator->render('<p>hello</p>');
 $assert('<p>hello</p>' === $render, '2: render is the supplied sanitized static HTML');
 $assert(! str_contains($render, '<?'), '2: render contains no server code');
 $editorScript = $generator->assets('ssi-acme/collection-1234abcd')['index.js'] ?? '';
-$assert(str_contains($editorScript, "registerBlockType( 'ssi-acme/collection-1234abcd'") && str_contains($editorScript, 'props.isSelected && createElement( components.TextareaControl'), '2: editor asset registers the exact block with source controls shown only after selection');
+$assert(str_contains($editorScript, "registerBlockType( 'ssi-acme/collection-1234abcd'"), '2: editor asset registers the exact block');
+$assert(str_contains($editorScript, "createElement( 'div', Object.assign( {}, blockEditor.useBlockProps(), { dangerouslySetInnerHTML: { __html: content } } ) )"), '2: editor puts source HTML directly on the block-props element without children');
+$assert((bool) preg_match("/element\\.Fragment, null,.*createElement\\( blockEditor\\.InspectorControls, null,\\s*createElement\\( components\\.PanelBody, \\{ title: 'HTML' \\},\\s*createElement\\( components\\.TextareaControl,/s", $editorScript), '2: HTML textarea lives in an inspector panel beside the canvas element');
+$assert(!str_contains($editorScript, 'RawHTML') && !str_contains($editorScript, 'props.isSelected'), '2: selection never adds inline controls or a raw HTML wrapper');
+
+// Other raw-HTML companions must use the same wrapper-free canvas contract.
+foreach ( array(
+    new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator(),
+    new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator(),
+    new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator(),
+) as $rawGenerator ) {
+    $script = $rawGenerator->assets('ssi-acme/raw-preview')['index.js'];
+    $attribute = $rawGenerator instanceof \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator ? 'svg' : 'content';
+    $assert(str_contains($script, "createElement( 'div', Object.assign( {}, blockEditor.useBlockProps(), { dangerouslySetInnerHTML: { __html: props.attributes." . $attribute . " || '' } } ) )"), '2: raw companion puts captured markup directly on its block-props element');
+    $assert(!str_contains($script, 'ServerSideRender') && !str_contains($script, 'RawHTML') && str_contains($script, 'blockEditor.InspectorControls'), '2: raw companion has no preview wrapper and keeps source controls in the inspector');
+}
+$linkScript = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator())->assets('ssi-acme/accessible-link')['index.js'];
+$assert(str_contains($linkScript, "blockProps.dangerouslySetInnerHTML = { __html: props.attributes.content || '' }") && str_contains($linkScript, "raw ? createElement( 'a', blockProps )"), '2: raw-source accessible links render directly on the block-props anchor without children');
+
+// Evaluate the actual edit tree for selected/unselected and empty content.
+$treeRunner = <<<'JS'
+const vm = require( 'node:vm' );
+let settings;
+const wp = {
+    blocks: { registerBlockType: ( name, value ) => { settings = value; } },
+    blockEditor: { useBlockProps: () => ( { className: 'block-props', ref: 'block-ref' } ), InspectorControls: 'InspectorControls' },
+    components: { PanelBody: 'PanelBody', TextareaControl: 'TextareaControl' },
+    element: { Fragment: 'Fragment', createElement: ( type, props, ...children ) => ( { type, props, children } ) }
+};
+vm.runInNewContext( Buffer.from( process.argv[ 1 ], 'base64' ).toString(), { window: { wp } } );
+for ( const isSelected of [ false, true ] ) {
+    for ( const content of [ '', '<section class="grid"><p>Source</p></section>' ] ) {
+        let updated;
+        const tree = settings.edit( { attributes: { content }, isSelected, setAttributes: value => { updated = value; } } );
+        const [ canvas, inspector ] = tree.children;
+        if ( tree.type !== 'Fragment' || canvas.type !== 'div' || canvas.children.length ||
+            canvas.props.className !== 'block-props' || canvas.props.ref !== 'block-ref' ||
+            canvas.props.dangerouslySetInnerHTML.__html !== content || inspector.type !== 'InspectorControls' ) {
+            throw new Error( 'Canvas must put source directly on the block-props element, beside the inspector' );
+        }
+        const panel = inspector.children[ 0 ];
+        const textarea = panel.children[ 0 ];
+        if ( panel.type !== 'PanelBody' || panel.props.title !== 'HTML' || textarea.type !== 'TextareaControl' || textarea.props.value !== content ) {
+            throw new Error( 'HTML source control must live inside the inspector panel' );
+        }
+        textarea.props.onChange( '<p>Updated</p>' );
+        if ( updated.content !== '<p>Updated</p>' ) throw new Error( 'Source changes must update the content attribute' );
+    }
+}
+JS;
+$treeOutput = array();
+$treeStatus = 0;
+exec('node -e ' . escapeshellarg($treeRunner) . ' ' . escapeshellarg(base64_encode($editorScript)) . ' 2>&1', $treeOutput, $treeStatus);
+$assert(0 === $treeStatus, '2: actual edit tree preserves source topology and inspector editing across selection states', implode("\n", $treeOutput));
 
 $refAttrs = $generator->referenceAttributes('<p>hello</p>');
 $assert($refAttrs === array('content' => '<p>hello</p>'), '3: reference carries per-instance content only');

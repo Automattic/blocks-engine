@@ -31,7 +31,7 @@ final class ResponsiveLayoutBlockGenerator
     public function assets(string $blockName): array
     {
         $script = <<<'JS'
-( function( blocks, blockEditor, components, element, ServerSideRender ) {
+( function( blocks, blockEditor, components, element ) {
     var createElement = element.createElement;
     function edit( props ) {
         var inspector = props.isSelected ? createElement( blockEditor.InspectorControls, {},
@@ -44,9 +44,7 @@ final class ResponsiveLayoutBlockGenerator
             )
         ) : null;
         return createElement( element.Fragment, {}, inspector,
-            createElement( 'div', blockEditor.useBlockProps(),
-                createElement( ServerSideRender, { block: '__BLOCK_NAME__', attributes: props.attributes, httpMethod: 'POST' } )
-            )
+            createElement( 'div', Object.assign( {}, blockEditor.useBlockProps(), { dangerouslySetInnerHTML: { __html: props.attributes.content || '' } } ) )
         );
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
@@ -55,7 +53,7 @@ final class ResponsiveLayoutBlockGenerator
         edit: edit,
         save: function() { return null; }
     } );
-} )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element, window.wp.serverSideRender );
+} )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
         return array( 'index.js' => str_replace('__BLOCK_NAME__', $blockName, $script) );
@@ -69,7 +67,7 @@ JS;
             'block_json' => $this->blockJson($namespace),
             'renderer' => self::RENDERER,
             'assets' => $this->assets($namespace . '/' . self::LOCAL_NAME),
-            'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-server-side-render' ) ),
+            'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ),
         );
     }
 }

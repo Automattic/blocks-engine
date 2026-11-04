@@ -109,14 +109,17 @@ final class CustomBlockGenerator
     function edit( props ) {
         var content = props.attributes.content || '';
         return createElement(
-            'div',
-            blockEditor.useBlockProps(),
-            createElement( element.RawHTML, null, content ),
-            props.isSelected && createElement( components.TextareaControl, {
-                label: 'HTML',
-                value: content,
-                onChange: function( value ) { props.setAttributes( { content: value } ); }
-            } )
+            element.Fragment, null,
+            createElement( 'div', Object.assign( {}, blockEditor.useBlockProps(), { dangerouslySetInnerHTML: { __html: content } } ) ),
+            createElement( blockEditor.InspectorControls, null,
+                createElement( components.PanelBody, { title: 'HTML' },
+                    createElement( components.TextareaControl, {
+                        label: 'HTML',
+                        value: content,
+                        onChange: function( value ) { props.setAttributes( { content: value } ); }
+                    } )
+                )
+            )
         );
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
