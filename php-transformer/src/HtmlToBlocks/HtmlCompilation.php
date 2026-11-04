@@ -7658,12 +7658,48 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $parent instanceof DOMElement || 0 !== $this->childElementCount($element) ) {
             return false;
         }
-        $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
+        $parentProperties = array( 'display', 'flex-direction' );
+        $properties = array( 'position', 'display', 'width', 'min-width', 'height', 'min-height', 'flex-basis', 'flex-grow', 'flex' );
+        $parentDeclared = $declared = array();
+        $conditions = array('' => array());
+        foreach (array(array($parent, $parentProperties), array($element, $properties)) as $index => [$node, $wanted]) {
+            foreach ($wanted as $property) {
+                $presentation = $this->styleResolver->declaredPresentation($node, $property);
+                if (0 === $index) $parentDeclared[$property] = $presentation;
+                else $declared[$property] = $presentation;
+                foreach ($presentation->conditionStacks() as $stack) {
+                    $conditions[implode("\n", $stack)] = $stack;
+                }
+            }
+        }
+        $parentBase = $this->styleResolver->structuralPresentationDeclarations($parent);
+        $base = $this->styleResolver->structuralPresentationDeclarations($element);
+        $parentInline = $this->styleResolver->cssDeclarations(SourceDom::attr($parent, 'style'));
+        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        foreach ($conditions as $stack) {
+            // Read both boxes in the same responsive state. Never combine a
+            // phone flex parent with a size declared only for desktop (#4276).
+            $read = static function (array $base, array $declared, array $inline) use ($stack): array {
+                foreach ($declared as $property => $presentation) {
+                    $value = $presentation->resolvedValueWhere(static fn (array $query): bool => array() === array_diff($query, $stack));
+                    if ('' !== $value) $base[$property] = $value;
+                }
+                return array_merge($base, $inline);
+            };
+            if ($this->emptyFlexItemHasFootprint($element, $read($parentBase, $parentDeclared, $parentInline), $read($base, $declared, $inline))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether an in-flow empty item reserves space in this flex state. */
+    private function emptyFlexItemHasFootprint(DOMElement $element, array $parentDeclarations, array $declarations): bool
+    {
         $display = CssValueInspector::comparable((string) ($parentDeclarations['display'] ?? ''));
         if ( ! in_array($display, array( 'flex', 'inline-flex' ), true) ) {
             return false;
         }
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         if ( in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true)
             || in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'none', 'contents' ), true)
         ) {
