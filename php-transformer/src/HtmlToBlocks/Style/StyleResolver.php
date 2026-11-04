@@ -1998,6 +1998,20 @@ final class StyleResolver implements ElementPresentationResolver
      * not a proportional `wp-embed-aspect-*` padding-top — becomes the box
      * the eventual oEmbed-injected iframe stretches to fill.
      */
+    /** @param array<string, string> $declarations */
+    public function inheritedTextCarrier(array $declarations): string
+    {
+        if (array() === $declarations) return '';
+        ksort($declarations);
+        $body = '';
+        foreach ($declarations as $name => $value) {
+            $body .= $name . ':' . CssValueInspector::withoutImportant($value) . '!important;';
+        }
+        $className = $this->context->layoutGeometry()->allocateCarrier('inherited-text:' . $body);
+        $this->context->layoutGeometry()->registerRule($className, '.' . $className . '{' . $body . '}');
+        return $className;
+    }
+
     public function embedWrapperHeightClassName(DOMElement $iframe, string $heightValue): string
     {
         $signature = $this->geometryStructuralPath($iframe) . "\nembed-wrapper-height\n" . $heightValue;
@@ -5690,7 +5704,7 @@ final class StyleResolver implements ElementPresentationResolver
             // reads the first.
             $name = str_starts_with($name, '--') ? $name : strtolower($name);
             // A browser drops `0: none`; its name would also be an int key.
-            if ( CssPropertyName::startsLikeNumber($name) ) {
+            if ( ! CssPropertyName::isKnown($name) ) {
                 continue;
             }
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;

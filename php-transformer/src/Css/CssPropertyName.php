@@ -16,6 +16,19 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
 final class CssPropertyName
 {
     /**
+     * Known browser properties, plus custom properties and prefixed aliases.
+     * The bundled name list comes from mdn-data 2.27.1 css/properties.json
+     * (CC0); values are deliberately left to the existing declaration parser.
+     */
+    public static function isKnown(string $name): bool
+    {
+        if (str_starts_with($name, '--')) return true;
+        static $names = null;
+        $names ??= array_fill_keys(json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/resources/css-property-names.json'), true), true);
+        return isset($names[$name]) || (1 === preg_match('/^-(?:webkit|moz|ms|o)-(.+)$/', $name, $match) && isset($names[$match[1]]));
+    }
+
+    /**
      * True for names that start like a CSS number (`0`, `12`, `-1`, `+1`,
      * `.5`, `1px`). Every name PHP would store as an int key is one of them.
      */
