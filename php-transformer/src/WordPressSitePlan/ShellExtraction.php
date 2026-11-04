@@ -1435,6 +1435,7 @@ final class ShellExtraction
             $applicable = array_filter($pages, static fn(array $page): bool => empty($page['synthetic']));
             if (array() === $applicable) continue;
             foreach ($applicable as $index => $page) if (!isset($unremovable[$area][$index])) foreach ($page['shell_candidates'] ?? array() as $candidate) if ($area === ($candidate['area'] ?? null)) $candidates[$index][] = $candidate;
+            if ('header' === $area) $candidates = self::withWordmarkRouteState($candidates, $applicable);
             foreach ($applicable as $index => $page) {
                 $rows = $candidates[$index] ?? array();
                 if (1 !== count($rows)) { $excluded[$index] = count($rows) > 1 ? 'multiple' : 'missing'; continue; }
@@ -3072,20 +3073,80 @@ final class ShellExtraction
         return str_contains((string) ($candidate['markup'] ?? ''), '/scroll-state') && !str_contains((string) ($current['markup'] ?? ''), '/scroll-state');
     }
 
+    /**
+     * Prove wordmark ownership across routes before ignoring its route state.
+     * Only comparison markup changes: the elected shell remains editable and
+     * retains its original heading and link. Navigation is never wordmark evidence.
+     */
+    private static function withWordmarkRouteState(array $candidates, array $pages): array
+    {
+        $home = null;
+        foreach ($pages as $page) if (!empty($page['entrypoint'])) $home = $page['route']['path'] ?? '/';
+        if (null === $home || count($pages) < 2) return $candidates;
+        $evidence = array();
+        foreach ($pages as $index => $page) {
+            if (1 !== count($candidates[$index] ?? array())) return $candidates;
+            $markup = $candidates[$index][0]['identity_markup'] ?? $candidates[$index][0]['markup'];
+            $nodes = self::blockNodes($markup);
+            $covered = -1;
+            foreach ($nodes as $node) {
+                if ($node['offset'] < $covered) continue;
+                $fragment = substr($markup, $node['offset'], $node['end'] - $node['offset']);
+                if (preg_match('/<!--\s*wp:(?:navigation|buttons|image|site-logo)\b/', $fragment)) continue;
+                $dom = new \DOMDocument();
+                $previous = libxml_use_internal_errors(true);
+                $dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $fragment . '</body></html>', LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+                libxml_clear_errors();
+                libxml_use_internal_errors($previous);
+                $body = $dom->getElementsByTagName('body')->item(0);
+                if (!$body) continue;
+                $text = trim($body->textContent);
+                if ('' === $text) continue;
+                $presentation = array(); $links = array(); $leaves = 0; $valid = true;
+                foreach ($body->getElementsByTagName('*') as $element) {
+                    if (!in_array($element->tagName, array('div', 'p', 'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'strong', 'em'), true)) { $valid = false; break; }
+                    foreach ($element->childNodes as $child) if ($child instanceof \DOMText && '' !== trim($child->textContent)) ++$leaves;
+                    foreach ($element->attributes as $attribute) {
+                        $name = $attribute->name; $value = $attribute->value;
+                        if ('href' === $name) { $links[] = $value; continue; }
+                        if ('class' === $name) {
+                            foreach (preg_split('/\s+/', trim($value)) ?: array() as $class) {
+                                if ('' !== $class && !preg_match('/^has-.*-font-size$/', $class) && !in_array($class, array('wp-block-heading', 'wp-block-group', 'wp-block-paragraph'), true)) $presentation['class:' . $class] = true;
+                            }
+                        } elseif ('style' === $name) {
+                            foreach (explode(';', $value) as $rule) {
+                                $rule = trim($rule);
+                                // Lowering can add a zero-margin paragraph carrier,
+                                // or restate the heading's default bold weight.
+                                if ('font-weight:700' === $rule) continue;
+                                if ('' !== $rule && !preg_match('/^margin-(?:top|right|bottom|left):0(?:px)?$/', $rule)) $presentation['style:' . $rule] = true;
+                            }
+                        } else $presentation[$name . ':' . $value] = true;
+                    }
+                }
+                if (!$valid || 1 !== $leaves || count($links) > 1 || (array() !== $links && $links !== array($home)) || (empty($page['entrypoint']) && $links !== array($home))) continue;
+                ksort($presentation, SORT_STRING);
+                $key = hash('sha256', $text . "\0" . json_encode(array_keys($presentation)));
+                $evidence[$key][$index][] = array('offset' => $node['offset'], 'length' => $node['end'] - $node['offset'], 'markup' => $markup);
+                $covered = $node['end'];
+            }
+        }
+        $evidence = array_filter($evidence, static fn(array $routes): bool => count($routes) === count($pages) && !array_filter($routes, static fn(array $rows): bool => 1 !== count($rows)));
+        // Multiple plausible wordmarks are ambiguous, not permission to erase chrome.
+        if (1 !== count($evidence)) return $candidates;
+        foreach ($evidence as $key => $routes) {
+            foreach ($routes as $index => $rows) {
+                $row = $rows[0];
+                $candidates[$index][0]['identity_markup'] = substr_replace($row['markup'], '<!-- shared-wordmark:' . $key . ' -->', $row['offset'], $row['length']);
+            }
+        }
+        return $candidates;
+    }
+
     private static function normalizeNestedChromeMarkup(string $markup): string
     {
         $markup = self::withoutCurrentNavigationState($markup, true);
         $markup = self::withoutScrollStateCarrierIdentity($markup);
-        // Site wordmarks commonly use h1 on home and a paragraph elsewhere.
-        // Compare their content and presentation, not that route's heading level;
-        // the selected shell still emits its original editable block and tag.
-        $markup = preg_replace_callback('/<!-- wp:(heading|paragraph) (\{.*?\}) --><(h1|p)\b([^>]*)>(.*?)<\/\3><!-- \/wp:\1 -->/s', static function (array $match): string {
-            $attrs = json_decode($match[2], true);
-            if (!is_array($attrs) || !preg_match('/(?:^|\s)(?:site-title|site-name|brand|wordmark)(?:\s|$)/', (string) ($attrs['className'] ?? '')) || !preg_match('/<a\b[^>]*href="[^"]+"/i', $match[5])) return $match[0];
-            unset($attrs['level']);
-            $htmlAttrs = preg_replace('/\bwp-block-heading\s*/', '', $match[4]) ?? $match[4];
-            return '<!-- wp:paragraph ' . BlockAttributes::encode($attrs) . ' --><p' . $htmlAttrs . '>' . $match[5] . '</p><!-- /wp:paragraph -->';
-        }, $markup) ?? $markup;
         $markup = preg_replace('/\s*' . EngineMarker::patternBody() . '/', '', $markup) ?? $markup;
         $markup = preg_replace('/\s*(?:' . EngineMarker::specificityPatternBody('specificity-class') . '|blocks-engine-disclosure-summary-[a-f0-9]{6,}(?:-\d+)?)/', '', $markup) ?? $markup;
         // A captured dialog's generated id, and its triggers' ids, carry a per-document hash;
