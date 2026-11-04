@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
+use SplObjectStorage;
 
 /**
  * Generic commerce-structure recognition: schema.org Product/Offer evidence,
@@ -17,11 +18,15 @@ use DOMElement;
  */
 final class CommerceStructureRecognizer
 {
+    /** @var SplObjectStorage<DOMElement, array<string, mixed>|null> Retains wrappers for stable native identity during this compilation. */
+    private SplObjectStorage $singleProductCards;
+
     public function __construct(
         private readonly SourceElementClassifier $classifier = new SourceElementClassifier(),
         /** @var \Closure(DOMElement): ?array|null */
         private readonly ?\Closure $svgImageReference = null
     ) {
+        $this->singleProductCards = new SplObjectStorage();
     }
 
     public function looksLikePriceText(string $text): bool
@@ -170,6 +175,14 @@ final class CommerceStructureRecognizer
     }
 
     private function singleProductCardData(DOMElement $card): ?array
+    {
+        if ( $this->singleProductCards->contains($card) ) {
+            return $this->singleProductCards[$card];
+        }
+        return $this->singleProductCards[$card] = $this->recognizeSingleProductCard($card);
+    }
+
+    private function recognizeSingleProductCard(DOMElement $card): ?array
     {
         $name = $this->productNameText($card);
         $prices = $this->productPriceTexts($card);

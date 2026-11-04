@@ -18,10 +18,14 @@ use Closure;
 use DOMElement;
 use DOMText;
 use LogicException;
+use SplObjectStorage;
 
 /** Builds an editable companion block for bounded authored carousels. */
 final class AuthoredCarouselBlockGenerator
 {
+    /** @var SplObjectStorage<DOMElement, array<string, mixed>> Compilation-local predicates; retained wrappers keep native identity stable. */
+    private SplObjectStorage $recognitions;
+
     public const LOCAL_NAME = 'authored-carousel';
     private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right');
     private const SLIDE_INDEX_ATTRIBUTES = array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item');
@@ -41,6 +45,7 @@ final class AuthoredCarouselBlockGenerator
         private readonly ?Closure $convertImage = null,
         private readonly ?Closure $convertChildren = null
     ) {
+        $this->recognitions = new SplObjectStorage();
     }
 
     /** @return array<string, mixed> */
@@ -767,6 +772,20 @@ JS;
 
     /** A host-local slide with no interaction has only static light DOM. */
     public function isStaticSingleSlideCarousel(DOMElement $element): bool
+    {
+        $memo = $this->recognitions[$element] ?? array();
+        if ( array_key_exists('static', $memo) ) {
+            return $memo['static'];
+        }
+        $result = $this->recognizeIsStaticSingleSlideCarousel($element);
+        // Recognition can populate another predicate for this same element.
+        $memo = $this->recognitions[$element] ?? array();
+        $memo['static'] = $result;
+        $this->recognitions[$element] = $memo;
+        return $result;
+    }
+
+    private function recognizeIsStaticSingleSlideCarousel(DOMElement $element): bool
     {
         if ( ! $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
             return false;
@@ -2300,6 +2319,20 @@ JS;
      * @return array{0: DOMElement|null, 1: array<int, DOMElement>}
      */
     private function outermostCarouselList(DOMElement $root): array
+    {
+        $memo = $this->recognitions[$root] ?? array();
+        if ( array_key_exists('list', $memo) ) {
+            return $memo['list'];
+        }
+        $result = $this->recognizeOutermostCarouselList($root);
+        // Recognition can populate another predicate for this same element.
+        $memo = $this->recognitions[$root] ?? array();
+        $memo['list'] = $result;
+        $this->recognitions[$root] = $memo;
+        return $result;
+    }
+
+    private function recognizeOutermostCarouselList(DOMElement $root): array
     {
         $list = null;
         $items = array();
