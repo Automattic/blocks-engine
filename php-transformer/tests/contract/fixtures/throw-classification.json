@@ -1084,6 +1084,10 @@
         "class": "integrity",
         "count": 1
       },
+      "InvalidArgumentException('Form layout graph diagnostics must be unique nonempty strings.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('Form layout graph envelope has unknown keys.')": {
         "class": "integrity",
         "count": 1
@@ -1166,6 +1170,10 @@
       }
     },
     "src/HtmlToBlocks/Style/FormPresentationGraphBuilder.php": {
+      "InvalidArgumentException('Form element diagnostics must describe the element, not the stylesheet.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('Form element presentation envelope has unknown keys.')": {
         "class": "integrity",
         "count": 1

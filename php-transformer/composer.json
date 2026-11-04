@@ -178,6 +178,7 @@
       "php tests/contract/script-selector-helper-targets.php",
       "php tests/contract/script-hooked-native-controls.php",
       "php tests/contract/rewritten-asset-integrity.php",
+      "php tests/contract/form-stylesheet-diagnostics.php",
       "php tests/contract/form-source-ownership.php",
       "php tests/contract/form-button-source-paint.php",
       "php tests/contract/wordpress-comment-form.php",

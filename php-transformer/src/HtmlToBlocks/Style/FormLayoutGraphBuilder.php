@@ -334,6 +334,9 @@ final class FormLayoutGraphBuilder
             }
         }
 
+        // Presentation-only properties may carry unsupported selectors that the
+        // layout analysis never sees. They belong to this graph, not each node.
+        $this->diagnostics = array_merge($this->diagnostics, $spacerPresentation->stylesheetDiagnostics(), $presentationBuilder->stylesheetDiagnostics());
         $graph = array(
             'schema' => 'generic/computed-layout-graph/v3',
             'basis' => 'source_css_cascade',
@@ -399,6 +402,9 @@ final class FormLayoutGraphBuilder
         $v3 = ! $v1 && ! $v2;
         if ( array_diff(array_keys($graph), array( 'schema', 'basis', 'truncated', 'limits', 'nodes', 'variants', 'diagnostics' )) || array_diff(array_keys($graph['limits']), array( 'nodes', 'depth', 'rules_per_node' )) || ! array_is_list($graph['nodes']) || ! array_is_list($graph['variants']) ) {
             throw new InvalidArgumentException('Form layout graph envelope has unknown keys.');
+        }
+        if (!array_is_list($graph['diagnostics']) || array_filter($graph['diagnostics'], static fn (mixed $diagnostic): bool => !is_string($diagnostic) || '' === trim($diagnostic)) || count(array_unique($graph['diagnostics'], SORT_REGULAR)) !== count($graph['diagnostics'])) {
+            throw new InvalidArgumentException('Form layout graph diagnostics must be unique nonempty strings.');
         }
         $ids = array();
         foreach ( $graph['nodes'] as $node ) {
