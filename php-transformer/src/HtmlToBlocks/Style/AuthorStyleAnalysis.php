@@ -503,18 +503,19 @@ final class AuthorStyleAnalysis
     /** @param list<string> $avoidTexts */
     public static function allocateSiteMarker(string $kind, array $avoidTexts): string
     {
-        $suffix = 0;
-        do {
-            $marker = (EngineMarker::SPECIFICITY_PREFIXES[$kind] ?? 'blocks-engine-' . $kind . '-site-') . $suffix++;
-            $collision = false;
-            foreach ($avoidTexts as $text) {
-                if (str_contains($text, $marker)) {
-                    $collision = true;
-                    break;
-                }
+        $prefix = EngineMarker::SPECIFICITY_PREFIXES[$kind] ?? 'blocks-engine-' . $kind . '-site-';
+        $collisions = array();
+        foreach ($avoidTexts as $text) {
+            preg_match_all('/' . preg_quote($prefix, '/') . '([0-9]+)/', $text, $matches);
+            foreach ($matches[1] as $digits) {
+                // prefix1 also occurs in prefix12; leading zeroes only block zero.
+                $length = '0' === $digits[0] ? 1 : min(strlen($digits), strlen((string) PHP_INT_MAX));
+                for ($size = 1; $size <= $length; ++$size) $collisions[substr($digits, 0, $size)] = true;
             }
-        } while ($collision);
-        return $marker;
+        }
+        $suffix = 0;
+        while (isset($collisions[$suffix])) ++$suffix;
+        return $prefix . $suffix;
     }
 
     public function selectorMatchCache(): CssSelectorMatchCache
