@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
@@ -3605,7 +3606,7 @@ final class ShellExtraction
     /** @param array<int,string> $peerClasses */
     private static function isCurrentPageClass(string $class, array $peerClasses = array()): bool
     {
-        if (in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline', 'current', 'active', 'selected'), true)) return true;
+        if (in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline'), true) || SourceClassIdentity::isCurrentState($class)) return true;
         if (1 !== preg_match('/(?:^|[-_])(?:is-)?(?:current|active|selected|on)$/', $class)) return false;
         return !in_array($class, $peerClasses, true);
     }
@@ -3614,7 +3615,7 @@ final class ShellExtraction
     private static function navigationClassSignature(array $classes): string
     {
         $classes = array_values(array_filter($classes, static function (string $class): bool {
-            return !in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline', 'current', 'active', 'selected'), true)
+            return !in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline'), true) && !SourceClassIdentity::isCurrentState($class)
                 && !preg_match('/^blocks-engine-navigation-(?:current|link)-color-[a-f0-9]{64}$/', $class)
                 && !preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class);
         }));

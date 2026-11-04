@@ -363,6 +363,15 @@ final class AuthorStyleAnalysis
             $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
         }
         if ( $observable ) {
+            // Which item is current varies by route while the resting menu is
+            // shared, so route state never renames a context marker.
+            unset($attributes['aria-current']);
+            if ( isset($attributes['class']) ) {
+                $attributes['class'] = implode(' ', array_filter(
+                    preg_split('/\s+/', trim($attributes['class'])) ?: array(),
+                    static fn (string $class): bool => ! SourceClassIdentity::isCurrentState($class)
+                ));
+            }
             $attributes["\0empty"] = $element->hasChildNodes() ? '0' : '1';
             $policy = $this->markerContextPolicy();
             if ( ! $policy['raw'] ) {
