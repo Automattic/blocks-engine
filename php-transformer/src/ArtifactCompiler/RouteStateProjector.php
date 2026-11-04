@@ -344,29 +344,9 @@ final class RouteStateProjector
     private static function styleRules(string $css): array
     {
         $rules = array();
-        $length = strlen($css);
-        $offset = 0;
-        while ($offset < $length) {
-            $open = strpos($css, '{', $offset);
-            if (false === $open) break;
-            $close = CssSyntaxScanner::matchingBrace($css, $open);
-            if (null === $close) break;
-            $prelude = substr($css, $offset, $open - $offset);
-            $stray = strrpos($prelude, '}');
-            if (false !== $stray) $prelude = substr($prelude, $stray + 1);
-            $prelude = trim($prelude);
-            $semicolon = strrpos($prelude, ';');
-            if (str_starts_with(ltrim($prelude), '@') || (false !== $semicolon && str_contains(substr($prelude, 0, $semicolon), '@'))) {
-                if (false !== $semicolon) $prelude = trim(substr($prelude, $semicolon + 1));
-            }
-            $body = substr($css, $open + 1, $close - $open - 1);
-            if (str_starts_with($prelude, '@')) {
-                if (preg_match('/^@(?:media|supports|layer|container|document|scope)\b/i', $prelude)) array_push($rules, ...self::styleRules($body));
-            } else {
-                $rules[] = array('prelude' => $prelude, 'body' => str_contains($body, '{') ? null : $body);
-            }
-            $offset = $close + 1;
-        }
+        (new CssStylesheetTransformer())->visitStyleRules($css, static function (string $prelude, string $body) use (&$rules): void {
+            $rules[] = array('prelude' => trim($prelude), 'body' => str_contains($body, '{') ? null : $body);
+        });
         return $rules;
     }
 

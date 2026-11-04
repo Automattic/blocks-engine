@@ -55,6 +55,25 @@ foreach (array('signup', 'features') as $fragment) {
     foreach (array('about/index.html', 'contact/index.html') as $source) $assert(!str_contains($pages[$source], '"anchor":"' . $fragment . '"'), "{$source} does not gain the home route's #{$fragment} target.");
 }
 
+// Each route's own layout places the shared footer: the same rule names the
+// footer on every route but declares that route's grid row. One global rule
+// cannot hold every placement, so each route keeps its own.
+$placed = static fn (int $row, string $title): string => $page($css . '.page{display:grid}#site-bottom{grid-row:' . $row . ';background:#eee}', $header('', ''), '<h1>' . $title . '</h1>', $footer('signup-row', 'display:grid;width:100%'));
+$placement = $compile(array(
+    'index.html' => $placed(9, 'Welcome'),
+    'about/index.html' => $placed(2, 'About'),
+    'contact/index.html' => $placed(3, 'Contact'),
+));
+$footerShell = current(array_filter($placement['diagnostics'], static fn (array $row): bool => 'wordpress_site_plan_shell_extracted' === ($row['code'] ?? null) && 'footer' === ($row['area'] ?? null)));
+$assert(3 === ($footerShell['page_count'] ?? null), 'A footer placed differently by each route still joins one shared part: ' . json_encode($footerShell));
+foreach (array('index.html' => 9, 'about/index.html' => 2, 'contact/index.html' => 3) as $source => $row) {
+    foreach ($placement['assets'] as $asset) {
+        if ('css' !== ($asset['kind'] ?? null) || !preg_match('/grid-row:\s*' . $row . '\b/', (string) ($asset['content'] ?? ''))) continue;
+        $scopes = array_column($asset['scopes'] ?? array(), 'source_path');
+        $assert(array($source) === $scopes, "Only {$source} applies its footer placement (row {$row}): " . json_encode($asset['scopes'] ?? null));
+    }
+}
+
 // A state class some author rule paints at rest is the chrome's own variant;
 // a hook whose rule sets more than the inline style is a width-scoped
 // presentation. Either difference keeps the home chrome page-owned.
