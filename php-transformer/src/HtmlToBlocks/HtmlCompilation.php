@@ -10432,15 +10432,26 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $scale = strtolower(trim((string) ($declarations['background-size'] ?? '')));
 
         $sized = in_array($scale, array( 'cover', 'contain' ), true);
+        $className = self::BACKGROUND_IMAGE_CLASS;
+        if ( $sized ) {
+            $className .= ' ' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . $scale;
+            $position = CssValueInspector::carriableDeclarationValue((string) ($declarations['background-position'] ?? ''));
+            if ( '' !== $position ) {
+                // core/image cannot save object-position itself. Carry the focal
+                // point onto its img in both the editor and frontend stylesheets.
+                $rule = '>img{object-position:' . $position . '}';
+                $carrier = $this->layoutGeometry()->allocateCarrier('background-image-position' . "\n" . $rule);
+                $this->layoutGeometry()->registerRule($carrier, '.' . $carrier . $rule);
+                $className .= ' ' . $carrier;
+            }
+        }
 
         return $this->createBlock('core/image', array_filter(array(
             'url'       => $this->resolvedAssetImageUrl($url),
             'alt'       => $this->backgroundImageExtractor->altFromAttributes($this->htmlAttributes($element)),
             // A painted background never contributes intrinsic size, so the
             // materialized image resolves its box from the source element.
-            'className' => $sized
-                ? self::BACKGROUND_IMAGE_CLASS . ' ' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . $scale
-                : self::BACKGROUND_IMAGE_CLASS,
+            'className' => $className,
             'width'     => ! in_array(strtolower($width), array( '', 'auto' ), true) ? $width : '',
             'height'    => ! in_array(strtolower($height), array( '', 'auto' ), true) ? $height : '',
             'scale'     => $sized ? $scale : '',
