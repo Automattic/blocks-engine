@@ -6128,6 +6128,16 @@ PHP;
                 break;
             }
         }
+        foreach (array_merge($templates, $parts, $pages) as $document) {
+            if (!str_contains((string) ($document['canonical_block_markup'] ?? ''), 'blocksEngineWordmark')) continue;
+            // Resolve before Core renders site-title, retaining one editable part
+            // and Core's live site name/home URL rather than rewriting saved HTML.
+            $lines[] = "add_filter( 'render_block_data', static function ( array \$block ): array {";
+            $lines[] = "    if ( 'core/site-title' === ( \$block['blockName'] ?? null ) && ! empty( \$block['attrs']['metadata']['blocksEngineWordmark'] ) ) \$block['attrs']['level'] = is_front_page() ? 1 : 0;";
+            $lines[] = "    return \$block;";
+            $lines[] = "}, 10, 1 );";
+            break;
+        }
         $hasNavigationLink = false;
         foreach (array_merge($templates, $parts, $pages) as $document) {
             if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineNavigationOpener')) {

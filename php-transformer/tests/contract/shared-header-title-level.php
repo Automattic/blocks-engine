@@ -2,12 +2,20 @@
 declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
+// With WordPress available, also exercise Core's real dynamic title renderer.
+if ($bootstrap = getenv('SHARED_TITLE_WORDPRESS_BOOTSTRAP')) {
+    require $bootstrap;
+    add_filter('pre_option_show_on_front', static fn() => 'posts');
+}
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
 };
+if (!function_exists('is_front_page')) {
+    function is_front_page(): bool { return $GLOBALS['wordmarkFrontPage']; }
+}
 $routes = array('index' => 'Home', 'about' => 'About', 'visit' => 'Visit');
 foreach (array('', ';color:#333;text-decoration:none') as $titlePresentation) {
 foreach (array('site-title', 'brand-x') as $titleClass) {
@@ -24,7 +32,7 @@ foreach ($routes as $current => $title) {
     foreach ($routes as $slug => $label) {
         $links .= '<li><a class="menu-link' . ($slug === $current ? ' is-active-menu-item' : '') . '" href="' . $slug . '.html">' . $label . '</a></li>';
     }
-    $files[$current . '.html'] = '<!doctype html><html><head><title>' . $title . '</title><style>.' . $titleClass . '{font-size:24px;font-weight:700;margin:0' . $titlePresentation . '}.menu-link{color:#123456}.is-active-menu-item{color:#abcdef;text-decoration:underline}</style></head><body><header><div class="logo">' . $wordmark . '</div><nav><ul>' . $links . '</ul></nav></header><main><h2>' . $title . '</h2><p>Content for ' . $title . '</p></main></body></html>';
+    $files[$current . '.html'] = '<!doctype html><html><head><title>' . $title . '</title><style>.' . $titleClass . '{font-size:24px;font-family:Georgia;font-weight:700;margin:0' . $titlePresentation . '}.menu-link{color:#123456}.is-active-menu-item{color:#abcdef;text-decoration:underline}</style></head><body><header><div class="logo">' . $wordmark . '</div><nav><ul>' . $links . '</ul></nav></header><main><h2>' . $title . '</h2><p>Content for ' . $title . '</p></main></body></html>';
 }
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];
 $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === $part['area']));
@@ -33,12 +41,44 @@ $header = $headers[0]['canonical_block_markup'];
 $assert(str_contains($header, 'wp:navigation '), 'The shared header contains native navigation.');
 $assert(1 === count($plan['menus']), 'The header uses one shared menu.');
 $assert(str_contains($header, '{{wordpress-site-plan:navigation:' . $plan['menus'][0]['token'] . '}}'), 'The header references the shared menu contract.');
-$assert(str_contains($header, '<h1') && str_contains($header, 'Garden Studio'), $cell . ': The shared title preserves the home heading.');
-$assert((bool) preg_match('/<h1\b[^>]*>\s*<a\b/', $header) === $homeLinked, $cell . ': The selected home title keeps its original self-link state.');
+$assert(str_contains($header, 'wp:site-title ') && !str_contains($header, '<h1'), $cell . ': The shared wordmark is a native, non-heading site title.');
+preg_match('/<!-- wp:site-title (\{.*?\}) \/-->/', $header, $titleMatch);
+$titleAttrs = json_decode($titleMatch[1], true);
+$assert(0 === $titleAttrs['level'] && true === $titleAttrs['isLink'], $cell . ': The shared title links home without a heading.');
+$assert('24px' === $titleAttrs['style']['typography']['fontSize'], $cell . ': Title size survives lowering.');
+$assert(str_contains($titleAttrs['style']['typography']['fontFamily'], 'Georgia'), $cell . ': Title font survives lowering.');
+$assert('inherit' === $titleAttrs['style']['elements']['link']['color']['text'], $cell . ': The home link uses wordmark colour, not generic theme link colour.');
+if ('' !== $titlePresentation) {
+    $assert('rgba(51,51,51,1)' === $titleAttrs['style']['color']['text'], $cell . ': Title colour survives lowering.');
+    $assert('none' === $titleAttrs['style']['typography']['textDecoration'], $cell . ': Title decoration survives lowering.');
+}
 $assert(!str_contains($plan['menus'][0]['block_markup'], 'is-active-menu-item'), 'The shared menu does not freeze the captured selection.');
 $css = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null)), 'content'));
 $assert((bool) preg_match('/[^{}]*(?:aria-current|current-menu-item)[^{}]*\{[^{}]*#abcdef/', $css), 'Current-item colour follows Core runtime selection.');
+$bootstrap = '';
+foreach ($plan['writes'] as $write) if ('functions.php' === ($write['path'] ?? $write['target_path'] ?? '')) $bootstrap = (string) $write['payload']['data'];
+$marker = strpos($bootstrap, "'core/site-title' ===");
+$assert(false !== $marker, $cell . ': The generated theme resolves title route state.');
+$start = strrpos(substr($bootstrap, 0, $marker), 'static function');
+$end = strpos($bootstrap, '}, 10, 1 );', $marker);
+$resolveTitle = eval('return ' . substr($bootstrap, $start, $end + 1 - $start) . ';');
 foreach ($plan['pages'] as $page) {
+    $GLOBALS['wordmarkFrontPage'] = (bool) $page['entrypoint'];
+    if (function_exists('render_block_core_site_title')) {
+        $GLOBALS['wp_query'] = new WP_Query();
+        $GLOBALS['wp_query']->is_home = (bool) $page['entrypoint'];
+    }
+    $block = array('blockName' => 'core/site-title', 'attrs' => $titleAttrs);
+    $resolved = $resolveTitle($block);
+    $assert(($page['entrypoint'] ? 1 : 0) === $resolved['attrs']['level'], $cell . ': Only the entrypoint renders a heading.');
+    $assert(true === $resolved['attrs']['isLink'], $cell . ': Inner routes use Core site-title\'s live home link.');
+    if (function_exists('render_block_core_site_title')) {
+        $html = render_block_core_site_title($resolved['attrs']);
+        $assert(str_starts_with($html, $page['entrypoint'] ? '<h1 ' : '<p '), 'Core renders the route-dependent title tag.');
+        $assert(str_contains($html, '<a href="' . esc_url(home_url()) . '"'), 'Core links the title to home on inner routes.');
+    }
+    $ordinary = array('blockName' => 'core/site-title', 'attrs' => array('level' => 3));
+    $assert($ordinary === $resolveTitle($ordinary), 'Unmarked site titles retain authored levels.');
     $assert(!str_contains($page['canonical_block_markup'], '<header') && !str_contains($page['canonical_block_markup'], 'Garden Studio'), $cell . ': Page content does not repeat header markup.');
     $template = array_column($plan['templates'], 'canonical_block_markup', 'slug')[$page['route_template'] ?? ($page['entrypoint'] ? 'front-page' : 'page')] ?? '';
     $assert(str_contains($template . $page['canonical_block_markup'], 'wp:template-part {"slug":"' . $headers[0]['slug'] . '"'), $cell . ': Every route references the shared header.');
