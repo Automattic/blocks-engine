@@ -412,14 +412,14 @@ final class AuthorStyleAnalysis
         return $hash;
     }
 
-    /** The element's full subtree: every start tag, attribute and text node. */
+    /** The element's full subtree: every start tag (as author CSS can observe it) and text node. */
     private function subtreeHash(DOMElement $element): string
     {
         $this->subtreeHashes ??= new \SplObjectStorage();
         if ( isset($this->subtreeHashes[$element]) ) {
             return $this->subtreeHashes[$element];
         }
-        $parts = array($this->startTagIdentity($element));
+        $parts = array($this->startTagIdentity($element, true));
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
                 $parts[] = $this->subtreeHash($child);
