@@ -209,14 +209,17 @@ final class ButtonPatternContext
      * `$wrapper` is the anchor's single wrapper child whose label `$content`
      * holds; the block's RichText element renders as that wrapper.
      */
-    public function accessibleNameCompanion(DOMElement $anchor, string $content, ?DOMElement $wrapper = null): PatternRecognitionResult
+    public function accessibleNameCompanion(DOMElement $anchor, string $content, ?DOMElement $wrapper = null, bool $sourceArtwork = false, ?DOMElement $sourceAnchor = null): PatternRecognitionResult
     {
         // The link keeps the anchor and the descendants its content renders
         // with their source identity, so author rules keep addressing them
         // as written instead of through a paragraph carrier it never emits.
-        $this->session?->authorSelectorProjectionState()->markRetainedSourcePath($anchor->getNodePath() ?? '');
-        $this->retainSourceDescendants($anchor);
-        $contentMode = 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : 'rich-text';
+        $sourceAnchor ??= $anchor;
+        $this->session?->authorSelectorProjectionState()->markRetainedSourcePath($sourceAnchor->getNodePath() ?? '');
+        $this->retainSourceDescendants($sourceAnchor);
+        // Linked artwork must stay inline: a RichText span changes selector
+        // topology and an external image cannot inherit hover/focus paint.
+        $contentMode = $sourceArtwork || 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : 'rich-text';
         if ( 'raw-source' === $contentMode ) {
             $wrapper = null;
         }

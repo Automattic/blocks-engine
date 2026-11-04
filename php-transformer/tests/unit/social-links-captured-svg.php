@@ -10,6 +10,7 @@ $result = (new HtmlTransformer())->transform($source)->toArray();
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
 };
+$assert(!str_contains($result['serialized_blocks'], 'wp:html'), 'Custom social artwork must never become Custom HTML.');
 $assert(!str_contains($result['serialized_blocks'], 'wp:social-link'), 'Service recognition must not replace authored SVG geometry.');
 $assert(!str_contains(json_encode($result), 'data-blocks-engine-capture-glyph-color'), 'Capture evidence must not leak.');
 $assert(0 === $result['metrics']['fallback_count'], 'Source icon links remain editable without HTML fallback.');
@@ -35,6 +36,28 @@ $assert(str_contains($custom['serialized_blocks'], 'M0 0h12v12z'), 'Wrong core a
 $assert(str_contains($custom['serialized_blocks'], '<a '), 'Uncaptured custom artwork remains linked.');
 $unsafe = (new HtmlTransformer())->transform('<div class="social"><a href="javascript:alert(1)" aria-label="Facebook" onclick="alert(1)"><svg viewBox="0 0 24 24" onload="alert(1)"><script>alert(1)</script><path d="M0 0h12v12z"/></svg></a></div>')->toArray();
 $assert(!preg_match('/javascript:|onclick=|onload=|<script/i', $unsafe['serialized_blocks']), 'Source artwork uses sanitized markup, not raw source HTML.');
+// Breakdance footer regression: X on a Twitter URL is not core's Twitter bird.
+$xPath = 'M389.2 48h70.6L305.6 224.2 487 464H345L233.7 318.6 106.5 464H35.8L200.7 275.5 26.8 48H172.4L272.9 180.9 389.2 48zM364.4 421.8h39.1L151.1 88h-42L364.4 421.8z';
+$linkedinPath = 'M4.98 3.5c0 1.381-1.11 2.5-2.48 2.5s-2.48-1.119-2.48-2.5 1.11-2.5 2.48-2.5 2.48 1.119 2.48 2.5z';
+$footer = '<div class="bde-social-icons-24610-115 bde-social-icons">';
+foreach (array('twitter' => array('https://twitter.com/robertjacobi', '0 0 512 512', $xPath, ''), 'linkedin' => array('https://linkedin.com/in/robert-jacobi', '-4 -2 32 32', $linkedinPath, ';fill:#ffffff')) as $label => [$href, $viewbox, $path, $style]) {
+    $footer .= '<a class="breakdance-link bde-social-icons__icon-wrapper bde-social-icons__icon-' . $label . '" href="' . $href . '" target="_self" aria-label="' . $label . '"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewbox="' . $viewbox . '" style="' . $style . '"><path d="' . $path . '"></path></svg></a>';
+}
+$footer .= '</div>';
+$convertedFooter = (new HtmlTransformer())->transform($footer)->toArray();
+$assert(!str_contains($convertedFooter['serialized_blocks'], 'wp:html'), 'Breakdance footer has no Custom HTML.');
+$footerDom = new DOMDocument();
+@$footerDom->loadHTML($convertedFooter['serialized_blocks']);
+foreach (array('twitter' => array('https://twitter.com/robertjacobi', $xPath), 'linkedin' => array('https://linkedin.com/in/robert-jacobi', $linkedinPath)) as $index => [$href, $path]) {
+    $xpath = new DOMXPath($footerDom);
+    $link = $xpath->query('//a[@aria-label="' . $index . '"]')->item(0);
+    $assert($link instanceof DOMElement && $href === $link->getAttribute('href'), 'Footer links retain URL and accessible name.');
+    $assert($path === $link->getElementsByTagName('path')->item(0)->getAttribute('d'), 'Footer geometry survives unchanged.');
+}
+$assert(str_contains($convertedFooter['serialized_blocks'], 'fill:#ffffff'), 'LinkedIn retains its authored white fill.');
+// Matching service artwork with captured paint still uses core/social-links.
+$painted = (new HtmlTransformer())->transform('<div class="social"><a href="https://facebook.com/example" aria-label="Facebook">' . str_replace('<svg ', '<svg data-blocks-engine-capture-glyph-color="#ffffff" ', $icons['facebook']) . '</a></div>')->toArray();
+$assert(str_contains($painted['serialized_blocks'], 'wp:social-link '), 'Captured paint does not disqualify matching core geometry.');
 // Mixed dropdown panels and navigation keep their prior native social blocks.
 $iconLink = '<div class="social"><a aria-label="Social" href="https://example.test/social"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M2 4h16M2 10h16M2 16h16" stroke="currentColor"></path></svg></a></div>';
 foreach (array('<nav>%s</nav>', '<div role="navigation">%s</div>', '<div data-blocks-engine-capture-dialog-panel="menu">%s</div>', '<div class="data-blocks-engine-capture-dropdown">%s</div>', '<div class="data-blocks-engine-capture-dialog">%s</div>') as $container) {

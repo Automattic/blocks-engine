@@ -97,8 +97,8 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             return null;
         }
 
-        // Core's filled service glyph cannot reproduce stroked artwork or a
-        // separately captured glyph paint. Keep those links as live inline
+        // Core's filled service glyph cannot reproduce different geometry.
+        // Keep those links as live inline
         // SVG, not an isolated image (which would freeze currentColor).
         $sourceArtwork = false;
         $capturedPaint = array();
@@ -111,7 +111,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 if (!$hasArtwork) continue;
                 $color = $context->capturedGlyphColor($svg);
                 $service = self::serviceForUrl($anchor->getAttribute('href')) ?? $this->serviceFromLabel($anchor->getAttribute('aria-label'));
-                if (!$this->matchesCoreArtwork($svg, $service) || ('' !== $color && $color !== $this->concreteColor($context->authoredIconColor($anchor)))) {
+                if (!$this->matchesCoreArtwork($svg, $service)) {
                     $sourceArtwork = true;
                 }
                 // Never freeze authored currentColor: it must keep responding
@@ -121,20 +121,36 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 }
             }
         }
-        if ($sourceArtwork && !$this->hasNavigationAncestor($element) && null !== $context->markupContext()) {
-            // Retain the source selectors on every descendant. The sanitized
-            // HTML block is the native owner of a > (source artwork); no
-            // synthetic paragraph, list, or unlinked image is introduced.
+        if ($sourceArtwork && !$this->hasNavigationAncestor($element) && null !== $context->markupContext() && null !== $context->buttonContext()) {
+            // The existing editable link companion retains inline artwork and
+            // its source selectors without a Custom HTML escape hatch.
             foreach ($capturedPaint as [$svg, $color]) {
                 $svg->setAttribute('style', rtrim($svg->getAttribute('style'), "; \t\n\r") . ';fill:' . $color);
             }
-            $context->buttonContext()?->retainSourceDescendants($element);
-            return new PatternRecognitionResult($context->createBlock(
-                'core/html',
-                array('content' => $context->markupContext()->safeFallbackHtml($element)),
-                array(),
-                $element
-            ));
+            $artworkLinks = array();
+            foreach ($anchors as $anchor) {
+                $content = '';
+                foreach ($anchor->childNodes as $child) {
+                    if ($child instanceof DOMElement) {
+                        $content .= $context->markupContext()->safeFallbackHtml($child);
+                    } elseif ($child instanceof \DOMText) {
+                        $content .= htmlspecialchars($child->textContent, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                    }
+                }
+                $safeDocument = new \DOMDocument();
+                @$safeDocument->loadHTML('<?xml encoding="UTF-8">' . $context->markupContext()->safeFallbackHtml($anchor));
+                $safeAnchor = $safeDocument->getElementsByTagName('a')->item(0);
+                if (!$safeAnchor instanceof DOMElement) continue;
+                $link = $context->buttonContext()->accessibleNameCompanion($safeAnchor, $content, null, true, $anchor)->block();
+                $item = $this->structuralItem($anchor, $element);
+                if (!$item->isSameNode($anchor)) {
+                    $link = $context->createBlock('core/group', $context->presentationAttributes($item), array($link), $item);
+                }
+                $artworkLinks[] = $link;
+            }
+            $attrs = $context->presentationAttributes($element);
+            $attrs['layout'] ??= array('type' => 'flex', 'flexWrap' => 'wrap');
+            return new PatternRecognitionResult($context->createBlock('core/group', $attrs, $artworkLinks, $element));
         }
 
         $links = array();
