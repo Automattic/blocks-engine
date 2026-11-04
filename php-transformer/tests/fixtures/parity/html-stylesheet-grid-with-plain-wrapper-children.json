@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-stylesheet-grid-with-plain-wrapper-children",
+  "description": "An author grid container (.grid-3 with display:grid and three equal tracks) whose children are plain wrapper divs rather than recognized card markup still emits a native grid layout with columnCount 3, so the multi-column arrangement survives. The layout attribute comes from the resolved cascade, not from the grid-looking class token.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-stylesheet-grid-with-plain-wrapper-children.json",
+    "notes": "Derived from SSI website fixtures (e.g. realistic-small-business events/index) where grid-3 process steps use neutral reveal wrappers with no card token."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"section\"><div class=\"grid-3\" style=\"gap:1.5rem\"><div class=\"reveal reveal-delay-1\"><div class=\"step-number\">01</div><h4>You Call, We Plan</h4><p>We discuss your space and goals.</p></div><div class=\"reveal reveal-delay-2\"><div class=\"step-number\">02</div><h4>We Build</h4><p>Our team assembles everything.</p></div><div class=\"reveal reveal-delay-3\"><div class=\"step-number\">03</div><h4>You Enjoy</h4><p>Sit back and relax.</p></div></div></section>",
+    "options": {
+      "static_css": ".grid-3{display:grid;grid-template-columns:repeat(3,1fr)}"
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "section" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "layout": { "type": "grid", "columnCount": 3 } } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "level": 4 } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"grid-3 be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\",\"layout\":{\"type\":\"grid\",\"columnCount\":3}} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-group is-layout-grid wp-block-group-is-layout-grid grid-3 be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"className\":\"reveal reveal-delay-1 blocks-engine-css-owned-layout\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"level\":4} -->" }
+  ]
+}

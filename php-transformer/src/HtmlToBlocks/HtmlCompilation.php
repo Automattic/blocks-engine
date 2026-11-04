@@ -1204,7 +1204,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         return new StyleResolutionContext(
             $this->session,
-            fn (DOMElement $element): int => $this->cardLikeChildCount($element),
             CssValueInspector::comparable(...),
             fn (string $selector): array => $this->parsedCssSelector($selector),
             fn (string $className): string => $this->promotedClassName($className),
