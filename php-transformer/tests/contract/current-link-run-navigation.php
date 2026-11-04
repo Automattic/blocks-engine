@@ -22,12 +22,12 @@ foreach (array('about', 'services', 'work') as $slug) {
 $simpleFiles = $files;
 $realLabels = array('about' => 'About', 'services' => 'Services', 'work' => 'Work', 'news' => 'News', 'contact' => 'Contact');
 $realFiles = array();
-foreach (array('about', 'services', 'work') as $slug) {
+foreach (array('index', 'articles/story', 'about', 'services', 'work') as $slug) {
     $links = '<div class="dismiss-row"><div class="dismiss-control"><img src="close.svg"><p class="label-accent">Close</p></div></div>';
     foreach ($realLabels as $destination => $label) {
         $links .= '<a href="/' . $destination . '/" class="entry-link' . ($slug === $destination ? ' current' : '') . '"' . ($slug === $destination ? ' aria-current="page"' : '') . '><p' . ('contact' === $destination ? ' class="label-accent"' : '') . '>' . $label . '</p></a>';
     }
-    $realFiles[$slug . '.html'] = '<!doctype html><html><head></head><body><div class="site-style"><div class="resource-embed"><link rel="stylesheet" href="shared.css"></div></div><div class="resource-embed"><style>.entry-link{color:#234}.label-accent{font-weight:700}</style><script>/* resource only */</script></div><div></div><div class="page-frame"><div class="top-frame"><div class="top-inner"><div class="brand-slot"><a href="/index.html"><img src="logo.svg"></a></div><div class="action-slot"><div class="page-shade"></div><div class="link-row wide">' . $links . '</div><div class="link-row narrow">' . $links . '</div><div class="locale-picker"><img><a href="/about/"' . ('about' === $slug ? ' aria-current="page" class="locale-link current"' : ' class="locale-link"') . '>English</a><div class="divider"></div><a href="/fr/about/" class="locale-link">Français</a></div><a href="/about/"' . ('about' === $slug ? ' aria-current="page" class="action-link current"' : ' class="action-link"') . '><p class="label-accent"><span>Learn more about us.</span></p></a><div class="compact-control"><p>Menu</p><img></div></div></div></div><div class="page-section"><h1>' . $realLabels[$slug] . '</h1><p>Route content.</p></div></div></body></html>';
+    $realFiles[$slug . '.html'] = '<!doctype html><html><head></head><body><div class="site-style"><div class="resource-embed"><link rel="stylesheet" href="shared.css"></div></div><div class="resource-embed"><style>.entry-link{color:#234}.label-accent{font-weight:700}</style><script>/* resource only */</script></div><div></div><div class="page-frame"><div class="top-frame"><div class="top-inner"><div class="brand-slot"><a href="/index.html"><img src="logo.svg"></a></div><div class="action-slot"><div class="page-shade"></div><div class="link-row wide">' . $links . '</div><div class="link-row narrow">' . $links . '</div><div class="locale-picker"><img><a href="/about/"' . ('about' === $slug ? ' aria-current="page" class="locale-link current"' : ' class="locale-link"') . '>English</a><div class="divider"></div><a href="/fr/about/" class="locale-link">Français</a></div><a href="/about/"' . ('about' === $slug ? ' aria-current="page" class="action-link current"' : ' class="action-link"') . '><p class="label-accent"><span>Learn more about us.</span></p></a><div class="compact-control"><p>Menu</p><img></div></div></div></div><div class="page-section"><h1>' . ($realLabels[$slug] ?? ('index' === $slug ? 'Home' : 'Article')) . '</h1><p>Route content.</p></div></div></body></html>';
 }
 foreach (array('simple' => $simpleFiles, 'controls and responsive copy' => $realFiles) as $fixture => $files) {
 $labels = 'simple' === $fixture ? $labels : $realLabels;
@@ -52,7 +52,34 @@ $expectedUrls[] = '/contact/';
 $assert($expectedUrls === array_column($items, 'url'), 'Destinations retain source order.');
 $assert(str_contains($menu['block_markup'], 'entry-link') && str_contains($menu['block_markup'], 'label-accent'), 'Author anchor and label classes survive projection.');
 $assert(!str_contains($menu['block_markup'] . $header, 'aria-current') && !str_contains($menu['block_markup'], ' current'), 'No route selection is frozen in the shared menu.');
-foreach ($plan['pages'] as $page) $assert(!str_contains($page['canonical_block_markup'], 'top-frame'), 'No route retains a private header.');
+foreach ($plan['pages'] as $page) {
+    $content = $page['canonical_block_markup'];
+    $templateSlug = $page['entrypoint'] ? 'front-page' : 'page';
+    $template = array_column($plan['templates'], 'canonical_block_markup', 'slug')[$templateSlug] ?? '';
+    $assert(str_contains($template . $content, 'wp:template-part {"slug":"' . $headers[0]['slug'] . '"'), 'Every route uses the same shared header part.');
+    $assert(!str_contains($content, 'top-frame') && !str_contains($content, 'brand-slot') && !str_contains($content, 'logo.svg') && !str_contains($content, '<!-- wp:navigation'), 'No route retains brand or navigation in page content.');
+}
+}
+
+// Translated destinations and labels form their own shared header, including
+// home/article routes with no selected menu destination in either language.
+$bilingualFiles = $realFiles;
+foreach ($realFiles as $path => $html) {
+    $bilingualFiles['fr/' . $path] = str_replace(
+        array('href="/about/"', 'href="/services/"', 'href="/work/"', 'href="/news/"', 'href="/contact/"', 'href="/index.html"', '>About<', '>Services<', '>Work<', '>News<', '>Contact<'),
+        array('href="/fr/about/"', 'href="/fr/services/"', 'href="/fr/work/"', 'href="/fr/news/"', 'href="/fr/contact/"', 'href="/fr/index.html"', '>À propos<', '>Prestations<', '>Projets<', '>Actualités<', '>Contactez-nous<'),
+        $html
+    );
+}
+$bilingualPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $bilingualFiles))->toArray()['source_reports']['wordpress_site_plan'];
+$bilingualHeaders = array_values(array_filter($bilingualPlan['template_parts'], static fn(array $part): bool => 'header' === $part['area']));
+$assert(2 === count($bilingualHeaders), 'Exactly one header part per language survives.');
+foreach ($bilingualHeaders as $part) $assert(str_contains($part['canonical_block_markup'], '<!-- wp:navigation'), 'Each language header owns native navigation.');
+foreach ($bilingualPlan['pages'] as $page) {
+    $content = $page['canonical_block_markup'];
+    $owners = array_values(array_filter($bilingualHeaders, static fn(array $part): bool => in_array($page['source_path'], $part['placement']['source_paths'] ?? array(), true)));
+    if (isset($bilingualFiles[$page['source_path']])) $assert(1 === count($owners), 'Every captured bilingual route belongs to exactly one shared language header.');
+    $assert(!str_contains($content, 'brand-slot') && !str_contains($content, 'logo.svg') && !str_contains($content, 'top-frame') && !str_contains($content, '<!-- wp:navigation'), 'No bilingual route retains a private header.');
 }
 
 foreach (array('no current signal' => $run('about', false), 'content-local run' => '<main>' . $run('about') . '</main>', 'after real content' => '<div><p>Article content.</p></div>' . $run('about'), 'after media' => '<div><img src="photo.svg"></div>' . $run('about'), 'nested link-bearing sibling' => str_replace('<div class="link-row">', '<div class="link-row"><div><a href="/extra/">Extra</a></div>', $run('about')), 'header-shaped run after content' => '<p>Article content.</p><div><a href="/index.html"><img src="logo.svg"></a>' . $run('about') . '</div><main><p>More content.</p></main>', 'too few links' => '<div><a href="/a" aria-current="page"><p>A</p></a><a href="/b"><p>B</p></a></div>', 'external destination' => str_replace('/contact/', 'https://elsewhere.test/contact/', $run('about')), 'multiple labels' => str_replace('<p>About</p>', '<p>About</p><p>More</p>', $run('about'))) as $case => $html) {

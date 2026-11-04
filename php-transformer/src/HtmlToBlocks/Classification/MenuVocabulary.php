@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use DOMElement;
 
 /**
@@ -160,11 +161,29 @@ final class MenuVocabulary
      */
     public static function isCurrentPageLinkRun(DOMElement $element): bool
     {
-        if (!self::hasCurrentPageLinkRunShape($element)) return false;
+        if (!self::hasCurrentPageLinkRunShape($element, !$element->hasAttribute('data-blocks-engine-navigation-run'))) return false;
         return self::isAtLeadingEdge($element);
     }
 
-    private static function hasCurrentPageLinkRunShape(DOMElement $element): bool
+    /**
+     * Ordered destinations and labels identify a run independently of route state.
+     * Resolve relative destinations against the capture, preserving query/fragment.
+     */
+    public static function linkRunSignature(DOMElement $element, string $sourcePath): ?string
+    {
+        if (!self::hasCurrentPageLinkRunShape($element, false)) return null;
+        $items = array();
+        foreach ($element->childNodes as $child) {
+            if (!$child instanceof DOMElement || 'a' !== strtolower($child->tagName)) continue;
+            $href = trim($child->getAttribute('href'));
+            $path = ArtifactPath::stripQueryAndFragment($href);
+            $target = ArtifactPath::resolveRelativePath(ltrim($path, '/'), str_starts_with($path, '/') ? '' : $sourcePath);
+            $items[] = array($target . substr($href, strlen($path)), trim(preg_replace('/\s+/u', ' ', $child->textContent) ?? ''));
+        }
+        return (string) json_encode($items, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+
+    private static function hasCurrentPageLinkRunShape(DOMElement $element, bool $requireCurrent = true): bool
     {
         $count = 0;
         $current = false;
@@ -191,7 +210,7 @@ final class MenuVocabulary
             $current = $current || 'page' === strtolower(trim($child->getAttribute('aria-current')));
             ++$count;
         }
-        return $count >= 3 && $current;
+        return $count >= 3 && (!$requireCurrent || $current);
     }
 
     private static function isAtLeadingEdge(DOMElement $element): bool
@@ -218,7 +237,7 @@ final class MenuVocabulary
             // Linked media or text before the run (a brand link) and a responsive
             // copy of the run are header chrome; unlinked text or media is content.
             for ($sibling = $node->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling) {
-                if ($sibling instanceof DOMElement && self::hasCurrentPageLinkRunShape($sibling)) continue;
+                if ($sibling instanceof DOMElement && self::hasCurrentPageLinkRunShape($sibling, !$sibling->hasAttribute('data-blocks-engine-navigation-run'))) continue;
                 if (self::hasVisibleContent($sibling, true)) return false;
             }
         }

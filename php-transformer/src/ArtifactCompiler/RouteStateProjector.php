@@ -56,7 +56,7 @@ final class RouteStateProjector
      */
     public function project(array $files): array
     {
-        $files = self::bindRetainedLabels($files);
+        $files = self::bindNavigationRuns(self::bindRetainedLabels($files));
         $files = self::bindCurrentNavigationSources($files);
         $files = self::withRestingChrome($files);
         foreach ($files as &$file) {
@@ -68,6 +68,48 @@ final class RouteStateProjector
         unset($file);
 
         return array('files' => $files);
+    }
+
+    /**
+     * Discover the site's current-page runs once, before per-route lowering.
+     * The annotation carries only navigation ownership, never a selected item.
+     */
+    private static function bindNavigationRuns(array $files): array
+    {
+        $documents = array();
+        $runs = array();
+        $qualified = array();
+        foreach ($files as $index => $file) {
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null)) continue;
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $previous = libxml_use_internal_errors(true);
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $file['content'], LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            libxml_clear_errors(); libxml_use_internal_errors($previous);
+            if (!$loaded) continue;
+            $documents[$index] = $document;
+            foreach ((new DOMXPath($document))->query('//*[a[@href]]') ?: array() as $element) {
+                if (!$element instanceof DOMElement) continue;
+                $signature = MenuVocabulary::linkRunSignature($element, (string) ($file['path'] ?? ''));
+                if (null === $signature) continue;
+                $runs[$index][] = array($element, $signature);
+                if (MenuVocabulary::isCurrentPageLinkRun($element)) $qualified[$signature] = true;
+            }
+        }
+        foreach ($runs as $index => $rows) {
+            $changed = false;
+            foreach ($rows as [$element, $signature]) {
+                if (!isset($qualified[$signature])) continue;
+                $element->setAttribute('data-blocks-engine-navigation-run', 'true');
+                // Recheck placement: a matching run in article content is not chrome.
+                if (!MenuVocabulary::isCurrentPageLinkRun($element)) {
+                    $element->removeAttribute('data-blocks-engine-navigation-run');
+                    continue;
+                }
+                $changed = true;
+            }
+            if ($changed) $files[$index]['content'] = HtmlSerialization::documentHtml($documents[$index]);
+        }
+        return $files;
     }
 
     /**
