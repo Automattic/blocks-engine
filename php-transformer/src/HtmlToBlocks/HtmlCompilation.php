@@ -1378,7 +1378,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): bool => $this->hasEmptyVisualInlineChild($element),
             fn (DOMElement $element): bool => $this->hasBoxChromeWrapperStyling($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
-            fn (DOMElement $element): ?array => $this->imageBlockFromParagraph($element),
+            fn (DOMElement $element): ?array => $this->unwrappedParagraphImageBlock($element),
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->mixedMediaLinkGroupFromParagraph($element, $fallbacks);
             },
@@ -10829,6 +10829,30 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return false;
+    }
+
+    /**
+     * The image block a paragraph unwraps into keeps the paragraph's selector
+     * identity, so rules that matched the paragraph in the source (type,
+     * structural position, its box) still reach the block that replaced it.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function unwrappedParagraphImageBlock(DOMElement $paragraph): ?array
+    {
+        $block = $this->imageBlockFromParagraph($paragraph);
+        if ( null === $block ) {
+            return null;
+        }
+        $path = $paragraph->getNodePath() ?? '';
+        $projections = $this->authorSelectorProjections();
+        $attrs = $block['attrs'];
+        $attrs['className'] = $this->mergeClassNames(
+            (string) ( $attrs['className'] ?? '' ),
+            ...$projections->semanticCarrierClasses($projections->ensureSemanticMarker($path), $path)
+        );
+
+        return $this->blockFactory->rebuild($block, $attrs);
     }
 
     /**

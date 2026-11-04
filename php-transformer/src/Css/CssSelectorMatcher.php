@@ -262,6 +262,7 @@ final class CssSelectorMatcher
             + ( null !== ($compound['nth_type'] ?? null) ? 1 : 0 )
             + (int) $compound['first_child']
             + (int) $compound['last_child']
+            + (int) ( $compound['last_type'] ?? false )
             + (int) ( $compound['root'] ?? false )
             + ( $compound['resting_state_negations'] ?? 0 );
         $types = ( null === $compound['type'] ? 0 : 1 ) - (int) ( $zero['types'] ?? 0 );
@@ -703,6 +704,15 @@ final class CssSelectorMatcher
                     $hasSimple = true;
                     continue;
                 }
+                if ( in_array($lowerName, array( 'first-of-type', 'last-of-type' ), true) && '(' !== ($source[ $offset ] ?? '') ) {
+                    if ( 'first-of-type' === $lowerName ) {
+                        $compound['nth_type'] = array( 'a' => 0, 'b' => 1 );
+                    } else {
+                        $compound['last_type'] = true;
+                    }
+                    $hasSimple = true;
+                    continue;
+                }
                 // `:root` is the document element, and a resting-state structural
                 // selector like `:first-child`. The engine emits `:root`-scoped
                 // support CSS in several projectors as a specificity device, and
@@ -1111,6 +1121,11 @@ final class CssSelectorMatcher
                 if (strtolower($previous->tagName) === strtolower($element->tagName)) ++$typeIndex;
             }
             if (!self::matchesNthExpression($typeIndex, $compound['nth_type'])) return false;
+        }
+        if ( ! empty($compound['last_type']) ) {
+            for ( $next = self::nextElementSibling($element); null !== $next; $next = self::nextElementSibling($next) ) {
+                if ( strtolower($next->tagName) === strtolower($element->tagName) ) return false;
+            }
         }
         if ( $compound['first_child'] && 1 !== $childIndex ) {
             return false;
