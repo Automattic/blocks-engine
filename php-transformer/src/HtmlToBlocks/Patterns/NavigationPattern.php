@@ -2375,7 +2375,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     /** @param array<int, array<string, mixed>> $links */
     private function defaultNavigationTextColorClass(array $links): string
     {
-        return $this->strictMajorityNavigationLinkString($links, static function (array $attrs): ?string {
+        $restingColorClass = static function (array $attrs): ?string {
             foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $className ) {
                 if ( str_starts_with($className, self::LINK_COLOR_CLASS_PREFIX)
                     && ! str_starts_with($className, self::LINK_COLOR_STATE_CLASS_PREFIX)
@@ -2385,7 +2385,18 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             return null;
-        }) ?? '';
+        };
+        // A route-current item that carries only its state colour says nothing
+        // about the resting colour, and exists on some routes only. Leaving it
+        // out of the vote keeps the shared menu's default route-independent.
+        $links = array_values(array_filter($links, static function (array $link) use ($restingColorClass): bool {
+            $attrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+
+            return null !== $restingColorClass($attrs)
+                || ! str_contains((string) ($attrs['className'] ?? ''), self::CURRENT_COLOR_CLASS_PREFIX);
+        }));
+
+        return $this->strictMajorityNavigationLinkString($links, $restingColorClass) ?? '';
     }
 
     /** @param array<int, array<string, mixed>> $links */
