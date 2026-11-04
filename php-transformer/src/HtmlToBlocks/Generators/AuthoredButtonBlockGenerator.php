@@ -16,7 +16,8 @@ final class AuthoredButtonBlockGenerator
 {
     public const LOCAL_NAME = 'authored-button';
 
-    private const LABEL_TAGS = array('div', 'p', 'span', 'small', 'strong', 'b', 'em', 'i', 'u', 's');
+    /** The elements a button label may be wrapped in or carried by. */
+    public const LABEL_TAGS = array('div', 'p', 'span', 'small', 'strong', 'b', 'em', 'i', 'u', 's');
 
     public static function isRoleButton(DOMElement $element): bool
     {
