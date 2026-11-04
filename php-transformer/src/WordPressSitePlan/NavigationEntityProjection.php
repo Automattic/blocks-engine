@@ -24,7 +24,7 @@ final class NavigationEntityProjection
                 $markup = (string) ($document['canonical_block_markup'] ?? '');
                 // In-place panels retain source-owned item style subjects. A
                 // semantically equal entity can carry another scope's classes.
-                $sourcePanels = array_values(array_filter(WordPressSitePlan::blockRanges($markup), static function (array $range) use ($markup): bool {
+                $sourcePanels = array_values(array_filter((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges(), static function (array $range) use ($markup): bool {
                     $block = substr($markup, $range['offset'], $range['length']);
                     return 1 === preg_match('/^<!--\s*wp:[^\s]+\/captured-dialog\s+(\{.*?\})\s*-->/s', $block, $match)
                         && 'in-place' === (json_decode($match[1], true)['placement'] ?? null);
@@ -95,7 +95,7 @@ final class NavigationEntityProjection
     {
         $menus = array();
         if (!str_contains($markup, 'wp:navigation')) return $menus;
-        foreach (WordPressSitePlan::blockRanges($markup) as $range) {
+        foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges() as $range) {
             $block = substr($markup, $range['offset'], $range['length']);
             if (!preg_match('/^<!--\s*wp:navigation(?:\s+(\{.*?\}))?\s*(\/)?-->/s', $block, $opening)) continue;
             $attrs = isset($opening[1]) && '' !== $opening[1] ? json_decode($opening[1], true) : array();
@@ -203,7 +203,7 @@ final class NavigationEntityProjection
     private static function navigationBlocks(string $markup): array
     {
         $blocks = array();
-        foreach (WordPressSitePlan::blockRanges($markup) as $range) {
+        foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges() as $range) {
             $block = substr($markup, $range['offset'], $range['length']);
             if (!preg_match('/^<!--\s*wp:navigation(?:\s+(\{.*?\}))?\s*-->/', $block, $opening)) continue;
             $attrs = isset($opening[1]) ? json_decode($opening[1], true) : array();
@@ -252,7 +252,7 @@ final class NavigationEntityProjection
     {
         if (!str_contains($markup, WordPressSitePlan::NAVIGATION_TOKEN_PREFIX)) return;
         $remaining = $markup;
-        foreach (WordPressSitePlan::blockRanges($markup) as $range) {
+        foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges() as $range) {
             $block = substr($markup, $range['offset'], $range['length']);
             if (!preg_match('/^<!--\s*wp:navigation\s+(\{.*?\})\s*\/-->$/s', $block, $match)) continue;
             $attrs = json_decode($match[1], true);

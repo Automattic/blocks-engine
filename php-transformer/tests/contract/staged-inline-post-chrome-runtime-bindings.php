@@ -87,7 +87,7 @@ foreach ($materialized as $declaration) foreach ($declaration['payload']['entiti
     if (!is_string($source) || !isset($postMarkupBySource[$source]) || !is_string($search) || '' === $search) continue;
     $markup = $postMarkupBySource[$source];
     $position = $binding['position'] ?? null;
-    $assert(true === WordPressSitePlan::bindingPosition($position, $markup, $search), "The binding anchors one exact block of {$source}.");
+    $assert(true === WordPressSitePlan::bindingPosition($position, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), $search), "The binding anchors one exact block of {$source}.");
     $occurrenceOffset = null;
     $cursor = 0;
     $seen = 0;
@@ -106,7 +106,7 @@ foreach ($plan['runtime_declarations'] as $declaration) {
     foreach (RuntimeEntityManifest::resolve($declaration['payload'], $manifestRecords) as $entity) foreach ($entity['bindings'] ?? array() as $binding) {
         $source = $binding['source_path'] ?? null;
         if (!isset($postMarkupBySource[$source])) continue;
-        $assert(true === WordPressSitePlan::bindingPosition($binding['position'] ?? null, $postMarkupBySource[$source], (string) $binding['search_block_markup']), "A manifest-backed binding anchors exactly on {$source}.");
+        $assert(true === WordPressSitePlan::bindingPosition($binding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($postMarkupBySource[$source]), (string) $binding['search_block_markup']), "A manifest-backed binding anchors exactly on {$source}.");
     }
 }
 
@@ -162,7 +162,7 @@ foreach ($unitPosts as $post) {
     $offset = strpos($markup, $form);
     $assert(false !== $offset, 'The unit fixture contains the bound form block.');
     $index = null;
-    foreach (WordPressSitePlan::blockRanges($markup) as $blockIndex => $range) if ($range['offset'] === $offset) $index = $blockIndex;
+    foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges() as $blockIndex => $range) if ($range['offset'] === $offset) $index = $blockIndex;
     $assert(null !== $index, 'The bound form block resolves to one emitted block position.');
     $boundEntities[] = array('bindings' => array(array('role' => 'form', 'source_path' => $post['source_path'], 'search_block_markup' => $form, 'occurrence' => 1, 'position' => array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $index, 'offset' => $offset, 'length' => strlen($form)))));
 }
@@ -196,7 +196,7 @@ foreach ($unitPosts as $post) {
     $search = '<!-- wp:paragraph --><p>Unique body for ' . basename($post['source_path'], '.html') . '.</p><!-- /wp:paragraph -->';
     $offset = strpos($markup, $search);
     $index = null;
-    foreach (WordPressSitePlan::blockRanges($markup) as $blockIndex => $range) if ($range['offset'] === $offset) $index = $blockIndex;
+    foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges() as $blockIndex => $range) if ($range['offset'] === $offset) $index = $blockIndex;
     $contentEntities[] = array('bindings' => array(array('role' => 'summary', 'source_path' => $post['source_path'], 'search_block_markup' => $search, 'occurrence' => 1, 'position' => array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $index, 'offset' => $offset, 'length' => strlen($search)))));
 }
 $contentDeclarations = RuntimeDeclarations::normalizeList(array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => array('schema' => 'generic/forms/v1', 'entities' => $contentEntities))));

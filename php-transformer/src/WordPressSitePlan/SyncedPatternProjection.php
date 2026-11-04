@@ -298,7 +298,7 @@ final class SyncedPatternProjection
         $nodes = array();
         $childrenOf = array();
         $stack = array();
-        foreach (WordPressSitePlan::blockRanges($markup) as $index => $range) {
+        foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges() as $index => $range) {
             while (array() !== $stack && $range['offset'] >= $nodes[end($stack)]['offset'] + $nodes[end($stack)]['length']) array_pop($stack);
             preg_match('/^<!--\s*wp:([a-z0-9\/_-]+)(?:\s+(\{.*?\}))?\s*\/?-->/s', substr($markup, $range['offset'], min($range['length'], 65536)), $opening);
             $attrs = isset($opening[2]) ? json_decode($opening[2], true) : array();
@@ -342,7 +342,7 @@ final class SyncedPatternProjection
             if (!is_array($pattern) || array('identity', 'title', 'canonical_block_markup', 'source_path', 'provenance') !== array_keys(array_diff_key($pattern, array('resolved_block_markup' => true)))
                 || !is_string($pattern['identity']) || !preg_match('/^[a-f0-9]{64}$/', $pattern['identity']) || isset($entities[self::token($pattern['identity'])])
                 || !is_string($pattern['title']) || '' === trim($pattern['title']) || self::SOURCE_PATH_PREFIX . self::token($pattern['identity']) !== $pattern['source_path']
-                || !is_string($pattern['canonical_block_markup']) || array() === WordPressSitePlan::blockRanges($pattern['canonical_block_markup'])
+                || !is_string($pattern['canonical_block_markup']) || array() === (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($pattern['canonical_block_markup']))->ranges()
                 || str_contains($pattern['canonical_block_markup'], WordPressSitePlan::SYNCED_PATTERN_TOKEN_PREFIX)
                 || !is_array($pattern['provenance']) || self::SOURCE_RELATION !== ($pattern['provenance']['source_relation'] ?? null)) {
                 throw new InvalidArgumentException('WordPress site plan synced pattern declaration is invalid or duplicated.');
