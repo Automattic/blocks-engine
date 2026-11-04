@@ -167,7 +167,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         $result = $this->recognizeNavigation($element, $context);
         if (null !== $result) {
             $blocks = array($result->block());
-            $context->navigationContext()?->recordNavigationSubjects($blocks, $element);
+            // Recognition can rebuild the same menu at its list and again at
+            // an enclosing landmark (for example, beside a toggle button).
+            // Both passes must publish subjects under the items' source list,
+            // not allocate a second instance for the enclosing layout.
+            $context->navigationContext()?->recordNavigationSubjects($blocks, $this->navigationListSource($element) ?? $element);
             $result = new PatternRecognitionResult($blocks[0], $result->fallbacks());
         }
         return $result;
