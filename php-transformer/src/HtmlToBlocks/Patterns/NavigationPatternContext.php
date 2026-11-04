@@ -607,8 +607,8 @@ final class NavigationPatternContext
             $collect($block['innerBlocks'] ?? array(), '');
             if (array() === $targets) continue;
             // The instance names the resting menu: current-item colour markers
-            // follow the served route and are carried by per-item classes.
-            $resting = array_filter($targets, static fn(string $marker): bool => 1 !== preg_match('/^blocks-engine-navigation-(?:current-color|link-color-states)-/', $marker), ARRAY_FILTER_USE_KEY);
+            // and per-item link colours follow the served route and are carried by per-item classes.
+            $resting = array_filter($targets, static fn(string $marker): bool => 1 !== preg_match('/^blocks-engine-navigation-(?:current-color|link-color(?:-states)?)-/', $marker), ARRAY_FILTER_USE_KEY);
             $scope = $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', ($source->getNodePath() ?? '') . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
             $markup = (string) json_encode($block);

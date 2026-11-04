@@ -60,6 +60,7 @@ final class AuthorStyleAnalysis
     private ?array $markerContextPolicy = null;
     /** @var \SplObjectStorage<DOMElement, string>|null */
     private ?\SplObjectStorage $contextHashes = null;
+    private ?bool $positionalSelectors = null;
     /** @var \SplObjectStorage<DOMElement, string>|null */
     private ?\SplObjectStorage $subtreeHashes = null;
 
@@ -254,7 +255,7 @@ final class AuthorStyleAnalysis
         }
         return $this->allocateStableMarker(
             $kind,
-            "context\0" . $kind . "\0" . $path . "\0" . $this->authorCssIdentity . "\0" . $this->documentTypeIdentity($element) . "\0" . $this->contextHash($element) . "\0" . $this->subtreeHash($element)
+            "context\0" . $kind . "\0" . ( $this->usesPositionalSelectors() ? $path : '' ) . "\0" . $this->authorCssIdentity . "\0" . $this->documentTypeIdentity($element) . "\0" . $this->contextHash($element) . "\0" . $this->subtreeHash($element)
         );
     }
 
@@ -363,6 +364,10 @@ final class AuthorStyleAnalysis
             $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
         }
         if ( $observable ) {
+            // An empty style attribute (left behind by scripts) styles nothing.
+            if ( isset($attributes['style']) && '' === trim($attributes['style']) ) {
+                unset($attributes['style']);
+            }
             // Which item is current varies by route while the resting menu is
             // shared, so route state never renames a context marker.
             unset($attributes['aria-current']);
@@ -398,7 +403,26 @@ final class AuthorStyleAnalysis
         return $tag . "\0" . json_encode($attributes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     }
 
-    /** The element's ancestors, each with all its siblings and its position among them. */
+    /**
+     * Whether any author selector can observe sibling lists or positions:
+     * a sibling combinator or a structural pseudo-class. Otherwise only an
+     * element's own ancestor chain, never what surrounds that chain, is
+     * observable, and the document path says nothing the chain does not.
+     */
+    private function usesPositionalSelectors(): bool
+    {
+        if ( null !== $this->positionalSelectors ) {
+            return $this->positionalSelectors;
+        }
+        $selectors = preg_replace('~/\*.*?\*/~s', '', $this->combinedCss) ?? '';
+        do {
+            $selectors = preg_replace('/\{[^{}]*\}/', ';', $selectors, -1, $removed) ?? '';
+        } while ( $removed > 0 );
+        $selectors = preg_replace('/\[[^\]]*\]/', '', $selectors) ?? '';
+        return $this->positionalSelectors = 1 === preg_match('/[+~]|:(?:nth-|first-|last-|only-)/i', $selectors);
+    }
+
+    /** The element's ancestors, each with the siblings and position that author selectors can observe. */
     private function contextHash(DOMElement $element): string
     {
         $this->contextHashes ??= new \SplObjectStorage();
@@ -406,6 +430,11 @@ final class AuthorStyleAnalysis
             return $this->contextHashes[$element];
         }
         $parent = $element->parentNode;
+        if ( ! $this->usesPositionalSelectors() ) {
+            $hash = hash('sha256', ( $parent instanceof DOMElement ? $this->contextHash($parent) : '' ) . "\0" . $this->startTagIdentity($element, true));
+            $this->contextHashes[$element] = $hash;
+            return $hash;
+        }
         $siblings = array();
         $position = -1;
         foreach ( $parent?->childNodes ?? array() as $child ) {
