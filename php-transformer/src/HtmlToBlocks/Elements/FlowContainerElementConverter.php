@@ -310,7 +310,7 @@ final class FlowContainerElementConverter implements ElementConverter
             }
         }
         if ( $this->context->isGeneratedComponentCandidate($element) ) {
-            $block = $this->context->generatedComponentBlock($element);
+            $block = $this->context->generatedComponentBlock($element, $fallbacks);
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);
             }

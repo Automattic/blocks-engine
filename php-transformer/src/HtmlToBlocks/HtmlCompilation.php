@@ -234,6 +234,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @var array<string, true>|null Source paths selected against the converted block budget. */
     private ?array $deepMediaBoundaryPaths = null;
 
+    /** @var array<string, bool> Source regions that exceeded the emitted depth budget. */
+    private array $generatedComponentDepthBoundaries = array();
+
+    /** @var array<string, bool> Native promotions to check after wrapper coalescing. */
+    private array $nativeComponentPaths = array();
+
     /** @var array<string, true> Boundaries discovered by the converted-tree pass. */
     private array $discoveredDeepMediaBoundaryPaths = array();
 
@@ -1039,10 +1045,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             readableFormControlBlock: fn (DOMElement $element): ?array => $this->readableFormControlBlockConverter->convert($element),
             cssAuthoredMarqueeBlock: fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->cssAuthoredMarqueeBlock($element),
             authoredCarouselBlock: fn (DOMElement $element): ?array => $this->authoredCarouselGenerator->convert($element),
-            generatedComponentBlock: function (DOMElement $element): ?array {
-                $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
-                return null !== $generated ? $this->generatedComponentBlock($generated, $element) : null;
-            },
+            generatedComponentBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->nativeOrGeneratedComponentBlock($element, $fallbacks),
             textFlowBlock: fn (DOMElement $element): ?array => $this->textFlowBlockFromElement($element),
             convertChildren: fn (DOMElement $element, array &$fallbacks): array => $this->convertChildren($element, $fallbacks, true),
             backgroundImageBlock: fn (DOMElement $element): ?array => $this->backgroundImageBlockFromElement($element),
@@ -1772,6 +1775,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::release($document);
         }
         $blocks = $this->compressProjectedGroupChains($blocks);
+        $depthBoundaries = $this->generatedComponentDepthBoundaries;
+        $this->collectNativeComponentDepthBoundaries($blocks, 0, $depthBoundaries);
+        if ($depthBoundaries !== $this->generatedComponentDepthBoundaries) {
+            // Decide only after conversion/coalescing, then replay cleanly so
+            // speculative native assets and diagnostics never escape.
+            $compilation = new self($this->runtime, $this->analysisCache);
+            $compilation->generatedComponentDepthBoundaries = $depthBoundaries;
+            $compilation->deepMediaBoundaryPaths = $this->deepMediaBoundaryPaths;
+            return $compilation->transform($html, $options, $timer);
+        }
         if (null === $this->deepMediaBoundaryPaths) {
             $blocks = $this->captureDeepMediaLayoutBoundaries($blocks);
             if (array() !== $this->discoveredDeepMediaBoundaryPaths) {
@@ -2419,7 +2432,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 continue;
             }
             foreach ( $elements as $element ) {
-                if ( $this->isRenderNeutralWrapper($element) ) {
+                if ( $this->isRenderNeutralWrapper($element, false) ) {
                     $this->unwrapElement($element);
                 }
             }
@@ -2541,16 +2554,45 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * Whether a wrapper instance carries no identity, behavior, or presentation
      * of its own, and can therefore be replaced by its children.
      */
-    private function isRenderNeutralWrapper(DOMElement $element): bool
+    private function isRenderNeutralWrapper(DOMElement $element, bool $stylesPrepared = true): bool
     {
-        return null !== $element->parentNode
-            && '' === trim($this->attr($element, 'id'))
-            && '' === trim($this->attr($element, 'class'))
-            && '' === trim($this->attr($element, 'role'))
-            && '' === trim($this->attr($element, 'style'))
-            && array() === $this->interactiveAttributes($element)
-            && ! $this->runtimeIslands->isRuntimeDomTarget($element)
-            && ! $this->sourceElementClassifier->hasMotionStructureToken($element);
+        // Custom-element convention removal precedes selector preparation.
+        // Keep its original conservative contract; effect-based checks belong
+        // to flow lowering, once the author rule index is available.
+        if (!$stylesPrepared) {
+            return null !== $element->parentNode
+                && '' === trim($this->attr($element, 'id'))
+                && '' === trim($this->attr($element, 'class'))
+                && '' === trim($this->attr($element, 'style'))
+                && '' === trim($this->attr($element, 'role'))
+                && array() === $this->interactiveAttributes($element)
+                && !$this->runtimeIslands->isRuntimeDomTarget($element)
+                && !$this->sourceElementClassifier->hasMotionStructureToken($element);
+        }
+        if (null === $element->parentNode
+            || '' !== trim($this->attr($element, 'role'))
+            || array() !== $this->interactiveAttributes($element)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
+            || $this->sourceElementClassifier->hasMotionStructureToken($element)
+        ) {
+            return false;
+        }
+        // Attribute spelling is not presentation. Check matched author rules
+        // (including conditional rules) as well as the inline declarations.
+        $declarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
+        foreach ($this->authorStyleRuleCandidates($element) as $candidate) {
+            if (! ($candidate['parsed']['supported'] ?? false)) return false;
+            if ($this->sourceStyles()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']) {
+                $declarations = array_merge($declarations, $candidate['declarations']);
+            }
+        }
+        $inheritedText = array('white-space', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'line-height', 'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent');
+        foreach ($declarations as $property => $value) {
+            if (!in_array($property, $inheritedText, true) && !('display' === $property && 'contents' === trim($value))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function collectGeneratedComponentCandidates(DOMElement $element, int $depth = 0): void
@@ -2570,6 +2612,96 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->collectGeneratedComponentCandidates($child, $depth + 1);
             }
         }
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    private function nativeOrGeneratedComponentBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        $nativeFallbacks = array();
+        $hasRuntimeTarget = false;
+        foreach (array_merge(array($element), SourceDom::descendantElements($element)) as $target) {
+            $hasRuntimeTarget = $hasRuntimeTarget || $this->runtimeIslands->isRuntimeDomTarget($target);
+        }
+        // A defining script or an exact runtime DOM contract cannot be proven
+        // editable just by inspecting the static children of its host.
+        $native = $hasRuntimeTarget || str_contains($element->tagName, '-')
+            ? null
+            : $this->authorLayoutBlockFromElement($element, $nativeFallbacks);
+        $reason = 'generated_component_non_native_items';
+        if (null !== $native && array() === $nativeFallbacks && $this->isEntirelyNativeComponent($native)) {
+            $path = (string) $element->getNodePath();
+            if (!isset($this->generatedComponentDepthBoundaries[$path])) {
+                $this->nativeComponentPaths[$path] = true;
+                return $native;
+            }
+            $reason = 'generated_component_depth_budget';
+        }
+        $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
+        if (null === $generated) {
+            return null;
+        }
+        // Explain the preserved editing surface without adding conversion loss
+        // to the fallbacks list that drives quality fallback_count.
+        $this->transformationEvidence()->recordConversionDiagnostic(array_merge(array(
+            'type' => 'generated_component',
+            'severity' => 'info',
+            'conversion_classification' => 'editable_approximation',
+            'reason' => $reason,
+            'code' => $reason,
+            'diagnostic_code' => $reason,
+            'message' => 'Repeated content retained as generated raw HTML: ' . $reason . '.',
+            'source_format' => 'html',
+            'tag' => strtolower($element->tagName),
+            'selector' => $this->elementSelector($element),
+        ), $this->transformationProvenance()->fallback()));
+        return $this->generatedComponentBlock($generated, $element);
+    }
+
+    /**
+     * Budget against the tree that will be emitted, not source ancestry. Merged
+     * wrappers retain provenance IDs but add no level to this traversal.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<string, bool> $boundaries
+     */
+    private function collectNativeComponentDepthBoundaries(array $blocks, int $depth, array &$boundaries): void
+    {
+        foreach ($blocks as $block) {
+            $ids = $block['_source_provenance_ids'] ?? array($block['_source_provenance_id'] ?? null);
+            foreach ($ids as $id) {
+                $source = is_int($id) ? $this->transformationProvenance()->sourceElement($id) : null;
+                $path = $source instanceof DOMElement ? (string) $source->getNodePath() : '';
+                if (isset($this->nativeComponentPaths[$path])
+                    && $depth + $this->convertedBlockNestingDepth(array($block)) > EditabilityPolicy::THRESHOLDS['max_nesting_depth']
+                ) {
+                    $boundaries[$path] = true;
+                }
+            }
+            $this->collectNativeComponentDepthBoundaries($block['innerBlocks'] ?? array(), $depth + 1, $boundaries);
+        }
+    }
+
+    /** @param array<string, mixed> $block */
+    private function isEntirelyNativeComponent(array $block): bool
+    {
+        $name = (string) ($block['blockName'] ?? '');
+        if (! str_starts_with($name, 'core/') || in_array($name, array('core/html', 'core/freeform'), true)) {
+            return false;
+        }
+        foreach ($block['innerBlocks'] ?? array() as $child) {
+            if (! $this->isEntirelyNativeComponent($child)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function containsGeneratedComponentCandidate(DOMElement $element): bool
+    {
+        foreach (SourceDom::descendantElements($element) as $descendant) {
+            if ($this->isGeneratedComponentCandidate($descendant)) return true;
+        }
+        return false;
     }
 
     private function isGeneratedComponentCandidate(DOMElement $element): bool
@@ -4306,9 +4438,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( $this->isGeneratedComponentCandidate($element) ) {
-            $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
-            if ( null !== $generated ) {
-                return $this->generatedComponentBlock($generated, $element);
+            $component = $this->nativeOrGeneratedComponentBlock($element, $fallbacks);
+            if ( null !== $component ) {
+                return $component;
             }
         }
 
@@ -6961,6 +7093,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function shouldPreserveWrapper(DOMElement $element, ?string $asTag = null): bool
     {
         $tag = $asTag ?? $element->tagName;
+
+        // Elide only a neutral chain, not a media shell whose positioned child
+        // requires an intrinsic-size carrier. Keep identity on its real box.
+        $child = 1 === SourceDom::childElementCount($element) ? $element->firstElementChild : null;
+        if ('div' === strtolower($tag) && '' === trim($this->attr($element, 'id'))
+            && $child instanceof DOMElement && 'div' === strtolower($child->tagName)
+            && !$this->hasAuthorSemanticMarker($element) && !$this->hasStyledSourceClassBoundary($element)
+            && $this->isRenderNeutralWrapper($element) && $this->isRenderNeutralWrapper($child)
+            && $this->containsGeneratedComponentCandidate($element)
+        ) {
+            return false;
+        }
 
         return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) || $this->hasStyledSourceClassBoundary($element) );
     }
