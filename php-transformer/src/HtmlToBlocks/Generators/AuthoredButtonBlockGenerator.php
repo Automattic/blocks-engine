@@ -163,7 +163,7 @@ final class AuthoredButtonBlockGenerator
     function labelWrappers( attrs ) { return ( Array.isArray( attrs.labelWrappers ) ? attrs.labelWrappers : [] ).slice( 0, 16 ).filter( function( wrapper ) { return wrapper && labelTags.indexOf( String( wrapper.tagName || '' ).toLowerCase() ) !== -1; } ); }
     function labelProps( wrapper ) { var props = {}; Object.keys( wrapper.attributes || {} ).forEach( function( name ) { if ( /^(?:class|id|style|data-(?!wp-)[a-z0-9_.:-]+)$/.test( name ) ) props[ name ] = String( wrapper.attributes[ name ] ); } ); return props; }
     function isSourceAttributeName( name ) { return /^(?:href|role|tabindex|hidden|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/.test( name ) && name !== 'data-action' && name !== 'jsaction'; }
-    function safeHref( value ) { value = String( value || '' ).trim(); return value && ( !/^[a-z][a-z0-9+.-]*:/i.test( value ) || /^(?:https?:|mailto:|tel:)/i.test( value ) ) ? value : ''; }
+    function safeHref( value ) { value = String( value || '' ); if ( /[\x00-\x20\x7f]/.test( value ) ) return ''; return value && ( !/^[a-z][a-z0-9+.-]*:/i.test( value ) || /^(?:https?:|mailto:|tel:)/i.test( value ) ) ? value : ''; }
     function rootTag( attrs ) { var tag = String( attrs.tagName || 'button' ).toLowerCase(); return [ 'div', 'span', 'a' ].indexOf( tag ) !== -1 && sourceAttributes( attrs ).some( function( item ) { return item.name === 'role' && String( item.value ).toLowerCase() === 'button'; } ) ? tag : 'button'; }
     function sourceAttributeMarkup( attrs ) { var output = ''; sourceAttributes( attrs ).forEach( function( item ) { output += ' ' + item.name + '="' + escapeAttribute( item.value ) + '"'; } ); return output; }
     function contentParts( attrs ) { return ( Array.isArray( attrs.contentParts ) ? attrs.contentParts : [] ).slice( 0, 32 ); }
@@ -367,7 +367,10 @@ JS;
 
     private static function safeHref(string $value): string
     {
-        $value = trim($value);
+        // Reject browser-stripped characters before classifying a URL's scheme.
+        if ( 1 === preg_match('/[\x00-\x20\x7f]/', $value) ) {
+            return '';
+        }
         return '' !== $value && (1 !== preg_match('/^[a-z][a-z0-9+.-]*:/i', $value) || 1 === preg_match('/^(?:https?:|mailto:|tel:)/i', $value)) ? $value : '';
     }
 
