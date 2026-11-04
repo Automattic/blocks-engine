@@ -21,9 +21,14 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
  * presentation. Author rules target the text as a descendant of that class
  * (`.fit p`), so the class must stay on the container: merging it onto the
  * text block itself would sever every one of them and the wordmark would
- * render unstyled. Core's fit-text support (`"fitText":true`) adds the
- * `has-fit-text` class itself in save and server render, so the emitted
- * markup never bakes it into `className`.
+ * render unstyled. Core's fit-text support (`"fitText":true`) re-fits the
+ * line to that container, and its canonical serialization splits the
+ * `has-fit-text` marker across two places: the `className` attribute stays
+ * clean while the saved element's class list carries `has-fit-text` — core
+ * derives it in `save()` (and server render) whenever `fitText` is true.
+ * A saved markup without the class fails the editor's save() validation and
+ * a paragraph deprecation silently migrates the block, dropping `fitText`;
+ * baking the class into the attribute diverges just the same.
  */
 
 $assert = static function (bool $condition, string $message, string $detail = ''): void {
@@ -168,7 +173,6 @@ foreach (array(
     $result = $compile($case['svg'], $case['rule']);
     $assert(! str_contains((string) json_encode($result), 'html_inline_svg_fallback'), "{$label}: the fit-text SVG is not routed to the inline SVG fallback.");
     $page = $pageMarkUp($result);
-    $assert(! str_contains($page, 'has-fit-text'), "{$label}: core owns the has-fit-text class; the emitted markup never bakes it in.", $page);
 
     $fit = $fitBlocks($page);
     $assert(1 === count($fit), "{$label}: exactly one block carries fitText.");
@@ -188,7 +192,10 @@ foreach (array(
     $assert($textElement instanceof DOMElement, "{$label}: the lowered text is present in the saved markup.", $page);
     $bearer = $bearerClassAncestor($textElement, 'fit');
     $assert($bearer instanceof DOMElement && 'div' === $bearer->tagName, "{$label}: the saved text element sits inside the container that carries the SVG class.", $page);
-    $assert(! preg_match('/(?:^| )has-fit-text(?:$| )/', $textElement->getAttribute('class')), "{$label}: the saved text element's className does not contain has-fit-text.", $page);
+    // Core's canonical serialization splits the marker: the className attribute
+    // stays clean (asserted above) while the saved element's class list carries
+    // has-fit-text. Missing either half breaks the editor's save() validation.
+    $assert(1 === preg_match('/(?:^| )has-fit-text(?:$| )/', $textElement->getAttribute('class')), "{$label}: the saved text element's class list carries has-fit-text.", $page);
 
     // The author rule still binds: the compiled descendant selector matches the
     // text element's position inside the emitted container.

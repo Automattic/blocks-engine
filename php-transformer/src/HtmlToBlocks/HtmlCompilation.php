@@ -8340,8 +8340,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * every one of them. The group keeps the source element relationship — the
      * authored `.fit` sizing applies to the box fit text measures and `.fit p`
      * still reaches the text. Core's fit-text support (`fitText: true`) re-fits
-     * the line to that container; it adds the `has-fit-text` class itself in
-     * save and server render, so the class is never baked into `className`.
+     * the line to that container. The emitted markup must reproduce core's
+     * canonical serialization exactly: the `className` attribute stays clean and
+     * `has-fit-text` lands only in the saved element's class list — core derives
+     * it in `save()` whenever `fitText` is true (BlockFactory's supports-derived
+     * class path); a saved markup without it fails the editor's validation and a
+     * paragraph deprecation silently migrates the block, dropping `fitText`.
      *
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
