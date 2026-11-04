@@ -16,6 +16,7 @@ $html = '<html><head><style>a{color:#fbb153}</style></head><body><main>'
     . '<p>Enroll <a href="/course/" style="color:#555;text-decoration:none">course</a></p>'
     . '<p>Bare <a href="/bare/" style="text-decoration:none">bare</a></p>'
     . '<p>Call <a href="/tel/" style="color:red;border-bottom:1px solid red;display:inline-flex">tel</a></p>'
+    . '<p><a class="outline" href="#top" style="border:0px;box-shadow:inset 0 0 0 1px #383838;background-color:#fff">Back to top</a></p>'
     . '</main></body></html>';
 $result = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'website/index.html',
@@ -70,6 +71,13 @@ $assert(1 === preg_match('/\\b(be-inline-geometry-[0-9a-f]+)\\b/', $tel->getAttr
 $telMark = $tel->firstElementChild;
 $assert($telMark instanceof DOMElement && 'mark' === $telMark->tagName && str_contains($telMark->getAttribute('style'), 'color:red')
     && !str_contains($telMark->getAttribute('style'), 'border') && !str_contains($telMark->getAttribute('style'), 'display'), 'mark carries only inherited text styling');
+// An inline box-shadow paints the link's own box — the outline an
+// `inset 0 0 0 1px` control draws in place of a border — so it is owned by
+// the anchor like the other box values, even though it wraps text.
+$outline = $xpath->query('//a[@href="#top"]')->item(0);
+$assert($outline instanceof DOMElement && !$outline->hasAttribute('style'), 'shadow-drawn outline link keeps no inline style');
+$assert($outline instanceof DOMElement && 1 === preg_match('/\b(be-inline-geometry-[0-9a-f]+)\b/', $outline->getAttribute('class'), $outlineMatch), 'outline link owns a generated class');
+$assert(str_contains($css, 'a.' . $outlineMatch[1] . '{border:0px!important;box-shadow:inset 0 0 0 1px #383838!important;background-color:#fff!important}'), 'anchor rule carries the inline shadow-drawn outline');
 $validity = (new BlockValidityValidator())->validateBlocks($result['blocks'] ?? array());
 $assert('pass' === ($validity['status'] ?? ''), 'compiled blocks remain valid');
 

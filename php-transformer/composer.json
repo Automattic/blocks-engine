@@ -193,6 +193,7 @@
       "php tests/contract/staged-inline-post-chrome.php",
       "php tests/contract/post-chrome-template-clusters.php",
       "php tests/contract/single-responsive-lead-image.php",
+      "php tests/contract/inline-box-shadow-outline.php",
       "php tests/contract/wordpress-runtime-document-root.php",
       "php tests/contract/staged-inline-post-chrome-runtime-bindings.php",
       "php tests/contract/staged-whole-equivalence.php",

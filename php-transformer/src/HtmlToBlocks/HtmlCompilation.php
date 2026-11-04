@@ -6308,7 +6308,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         foreach ($inline as $property => $value) {
             $property = strtolower((string) $property);
             $decorates = str_starts_with($property, 'text-decoration') || str_starts_with($property, 'text-underline-');
-            if (!$decorates && (!isset($visual[$property]) || $this->descendantInheritsLinkDeclaration($property))) {
+            // An inline box-shadow paints the link's own box — the outline an
+            // `inset 0 0 0 1px` control draws in place of a border. It is a
+            // box value the link owns, like border or background: it cannot
+            // travel to a descendant, and it must not fall off with the
+            // inline style RichText strips from the anchor.
+            $paintsBox = 'box-shadow' === $property;
+            if (!$decorates && !$paintsBox && (!isset($visual[$property]) || $this->descendantInheritsLinkDeclaration($property))) {
                 continue;
             }
             unset($inline[$property]);
