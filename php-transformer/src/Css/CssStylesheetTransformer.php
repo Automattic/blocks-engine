@@ -8,6 +8,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
  */
 final class CssStylesheetTransformer
 {
+    /** @var array<string,list<array{context: array, text: string, dedupable: bool}>> */
+    private array $ruleUnitCache = array();
+
     /**
      * Transform selector preludes in style rules, retaining all other source bytes.
      *
@@ -201,8 +204,7 @@ final class CssStylesheetTransformer
         }
         $seen = array();
         foreach ( $present as $stylesheet ) {
-            $units = array();
-            $this->collectRuleUnits($stylesheet, array(), $units);
+            $units = $this->ruleUnits($stylesheet);
             foreach ( $units as $unit ) {
                 $seen[ self::ruleUnitKey($unit) ] = true;
             }
@@ -216,8 +218,7 @@ final class CssStylesheetTransformer
         $elementFamilies = array();
         $unknownFamilies = array();
         foreach ( $stylesheets as $stylesheet ) {
-            $units = array();
-            $this->collectRuleUnits($stylesheet, array(), $units);
+            $units = $this->ruleUnits($stylesheet);
             foreach ( $units as $unit ) {
                 $key = self::ruleUnitKey($unit);
                 $properties = $preserveCascade ? self::cascadePropertyFamilies($unit['text']) : array();
@@ -895,6 +896,18 @@ final class CssStylesheetTransformer
      * @param list<string> $context
      * @param list<array{context: list<string>, text: string, dedupable: bool}> $units
      */
+    /** @return list<array{context: array, text: string, dedupable: bool}> */
+    private function ruleUnits(string $stylesheet): array
+    {
+        $key = hash('sha256', $stylesheet);
+        if (!isset($this->ruleUnitCache[$key])) {
+            $units = array();
+            $this->collectRuleUnits($stylesheet, array(), $units);
+            $this->ruleUnitCache[$key] = $units;
+        }
+        return $this->ruleUnitCache[$key];
+    }
+
     private function collectRuleUnits(string $css, array $context, array &$units): void
     {
         $offset = 0;
