@@ -57,7 +57,7 @@ final class WordPressSitePlan
     public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
     public const LISTING_QUERY_CLASS = 'blocks-engine-listing-query';
-    public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}.blocks-engine-listing-overlay{width:auto}';
+    public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}.blocks-engine-listing-overlay{width:auto}.blocks-engine-listing-card{position:relative}.blocks-engine-listing-card>.blocks-engine-listing-overlay{position:absolute;inset:0;z-index:2}.blocks-engine-listing-card>.blocks-engine-listing-background{position:absolute;inset:0;margin:0;pointer-events:none;z-index:0}.blocks-engine-listing-background img{width:100%;height:100%;object-fit:cover}.blocks-engine-listing-card>:not(.blocks-engine-listing-background):not(.blocks-engine-listing-overlay){position:relative;z-index:1}';
     /**
      * A generated theme reproduces captured text, so WordPress typographic
      * rewriting stays off while it is active. Static block content survives
@@ -5069,6 +5069,15 @@ PHP;
             foreach ($cards as $card) {
                 $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
                 $cardIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup);
+                if (str_contains($replaced, 'blocks-engine-listing-background')) {
+                    foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup']))->ranges() as $leadRange) {
+                        $lead = substr($card['post']['canonical_block_markup'], $leadRange['offset'], $leadRange['length']);
+                        if ('image' !== self::listingBlockName($lead)) continue;
+                        $image = self::listingCardImage($lead);
+                        if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
+                        break;
+                    }
+                }
                 if (str_contains($replaced, '<!-- wp:post-featured-image')) {
                     $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup']);
                     foreach ($cardIndex->ranges() as $leaf) {
@@ -5240,6 +5249,17 @@ PHP;
         $templateCards = $cards;
         usort($templateCards, static fn(array $a, array $b): int => $blocks($b) <=> $blocks($a));
         $first = $templateCards[0];
+        // Backgrounds are per-post only with evidence from every card, not
+        // merely because the template card happens to use its lead image.
+        foreach ($cards as $card) {
+            $cardMarkup = substr($markup, $card['offset'], $card['length']);
+            foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup))->ranges() as $range) {
+                foreach (self::listingBlockAttributes(substr($cardMarkup, $range['offset'], $range['length']))['wrappers'] ?? array() as $wrapper) {
+                    $image = self::listingBackgroundImage($wrapper);
+                    if (null !== $image && !self::listingPostHasLeadImage($card['post'], $image)) return null;
+                }
+            }
+        }
         $groups = $this->listingLinkedMetadataGroups($documentIndex, $first);
         $boundGroups = array();
         foreach ($groups as $index => $group) {
@@ -5537,8 +5557,10 @@ PHP;
         $attrs = self::listingBlockAttributes($slice);
         if (isset($attrs['wrappers'])) {
             $changed = false;
-            foreach ($attrs['wrappers'] as &$wrapper) {
+            $linkedWrappers = array();
+            foreach ($attrs['wrappers'] as $index => &$wrapper) {
                 if ('a' === ($wrapper['tagName'] ?? '') && self::hrefMatchesListingRoute((string) ($wrapper['attributes']['href'] ?? ''), $route)) {
+                    $linkedWrappers[$index] = true;
                     $wrapper['tagName'] = 'div';
                     unset($wrapper['attributes']['href'], $wrapper['attributes']['target'], $wrapper['attributes']['rel']);
                     $changed = true;
@@ -5546,14 +5568,54 @@ PHP;
             }
             unset($wrapper);
             if ($changed) {
-                $slice = preg_replace_callback('/^(<!--\\s*wp:[^\\s]+)\\s+\\{.*?\\}\\s*-->/', static fn(array $match): string => $match[1] . ' ' . BlockAttributes::encode($attrs) . ' -->', $slice, 1) ?? $slice;
-                $slice = preg_replace('/(<a)\\b[^>]*>/', '<div' . self::listingWrapperAttributes($attrs) . '>', $slice, 1) ?? $slice;
-                $position = strrpos($slice, '</a>');
-                if (false !== $position) $slice = substr_replace($slice, '</div>', $position, 4);
+                // Rebuild from the declared wrappers and transformed children.
+                // Replacing the first <a> with wrapper[0] duplicates outer boxes.
+                $sliceIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($slice);
+                $ranges = $sliceIndex->ranges();
+                $inner = '';
+                foreach ($sliceIndex->children($ranges[0]) as $child) $inner .= substr($slice, $child['offset'], $child['length']);
+                preg_match('/^<!-- wp:([^ ]+)/', $slice, $name);
+                foreach (array_reverse($attrs['wrappers'], true) as $index => $wrapper) {
+                    $image = self::listingBackgroundImage($wrapper);
+                    if (null !== $image && self::listingPostHasLeadImage($post, $image)) {
+                        // Keep the authored box/styles on a shell. Core Cover's
+                        // flex layout and minimum height would change this box.
+                        // A native featured-image slot is positioned as its background.
+                        $wrapper['attributes']['style'] = trim(preg_replace('/background-image\\s*:\\s*url\\(.*?\\)\\s*;?/i', '', $wrapper['attributes']['style']) ?? '');
+                        $inner = '<!-- wp:post-featured-image {"className":"blocks-engine-listing-background"} /-->' . $inner;
+                    }
+                    if (isset($linkedWrappers[$index])) $wrapper['attributes']['class'] = trim((string) ($wrapper['attributes']['class'] ?? '') . ' blocks-engine-listing-card');
+                    if (isset($linkedWrappers[$index])) $inner .= '<!-- wp:read-more {"className":"blocks-engine-listing-overlay","content":"<span aria-hidden=\\"true\\"></span>"} /-->';
+                    $tag = $wrapper['tagName'];
+                    $inner = '<!-- wp:' . $name[1] . ' ' . BlockAttributes::encode(array('wrappers' => array($wrapper))) . ' --><' . $tag . self::listingWrapperAttributes(array('wrappers' => array($wrapper))) . '>' . $inner . '</' . $tag . '><!-- /wp:' . $name[1] . ' -->';
+                }
+                $slice = $inner;
             }
         }
         return array('markup' => $slice, 'title' => $foundTitle, 'content' => $emittedContent && !$foundTitle);
     }
+    /** @param array<string,mixed> $wrapper */
+    private static function listingBackgroundImage(array $wrapper): ?string
+    {
+        $style = (string) ($wrapper['attributes']['style'] ?? '');
+        if (!preg_match('/background-image\\s*:\\s*url\\(\\s*["\' ]?([^"\')]+)["\' ]?\\s*\\)/i', $style, $match)) return null;
+        return trim($match[1]);
+    }
+
+    /** @param array<string,mixed> $post */
+    private static function listingPostHasLeadImage(array $post, string $image): bool
+    {
+        $featured = $post['metadata']['featured_image']['asset_token'] ?? null;
+        if (is_string($featured) && self::TOKEN_PREFIX . $featured . '}}' === $image) return true;
+        foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex((string) ($post['canonical_block_markup'] ?? '')))->ranges() as $range) {
+            $slice = substr($post['canonical_block_markup'], $range['offset'], $range['length']);
+            if ('image' !== self::listingBlockName($slice)) continue;
+            $lead = self::listingCardImage($slice);
+            return null !== $lead && self::TOKEN_PREFIX . $lead['asset_token'] . '}}' === $image;
+        }
+        return false;
+    }
+
     /** Visible text identifies a card leaf; a textless leaf is identified by its markup. */
     private static function listingLeafIdentity(string $leaf): string
     {
