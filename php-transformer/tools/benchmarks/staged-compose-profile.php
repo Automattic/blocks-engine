@@ -250,6 +250,8 @@ fwrite(STDOUT, json_encode(array(
         'view_serialization' => $clock->phases['view_serialization']['ms'],
         'plan_projection_replay' => $clock->phases['plan_projection_replay']['ms'],
     ),
+    'compose_step_timings' => $result->metrics['step_timings'] ?? array(),
+    'compose_work' => array_filter($result->metrics, static fn (string $key): bool => str_starts_with($key, 'compose_'), ARRAY_FILTER_USE_KEY),
     'compose_stages_ms' => $composeStages,
     'compose_stages_mem_bytes' => $composeStageMem,
     'compose_stages_peak_memory_bytes' => $composeStagePeak,
@@ -266,6 +268,7 @@ fwrite(STDOUT, json_encode(array(
     'output' => array(
         'status' => $result->status,
         'canonical_plan_sha256' => $canonicalPlanSha,
+        'serialized_blocks_sha256' => hash('sha256', $result->serializedBlocks),
         'canonical_plan_identity' => $canonicalIdentity,
         'plan_projection_replay_matches' => $replayMatches,
         'plan_projection_replay_different_keys' => $replayDifferentKeys,

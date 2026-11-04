@@ -13,6 +13,22 @@ final class ComposeFacts
         'compose_state_matches' => 0,
     );
     private array $values = array();
+    private array $inputIdentities = array();
+
+    /**
+     * Intern immutable inputs once. PHP string keys retain the existing string
+     * buffer (not a serialized copy), and Zend caches its table hash. All fact
+     * tables below use only the fixed-size digest, never CSS or route markup.
+     */
+    public function inputIdentity(string $input): string
+    {
+        return $this->inputIdentities[$input] ??= hash('sha256', $input);
+    }
+
+    public function inputIdentities(array $inputs): array
+    {
+        return array_map($this->inputIdentity(...), $inputs);
+    }
 
     public function get(string $kind, string $identity, callable $compute): mixed
     {

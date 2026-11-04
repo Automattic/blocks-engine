@@ -332,8 +332,10 @@ final class ArtifactCompiler
      * @param array<string,mixed> $artifact
      * @param array<string,mixed> $reduction
      */
-    private function finalizeArtifact(array $artifact, array $reduction): TransformerResult
+    private function finalizeArtifact(array $artifact, array $reduction, ?\Automattic\BlocksEngine\PhpTransformer\Support\StepTimer $timer = null): TransformerResult
     {
+        $timer ??= new \Automattic\BlocksEngine\PhpTransformer\Support\StepTimer('compose.artifact_assembly');
+        $timer->start('compose.artifact_assembly');
         $startedAt = hrtime(true);
         $composeFacts = new ComposeFacts();
         $normalized = $reduction['normalized'];
@@ -459,7 +461,7 @@ final class ArtifactCompiler
         foreach ($pageMarkup as &$markup) $markup .= "\n" . $sharedMarkup;
         unset($markup);
         $authoredFiles = $normalized['files'];
-        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics, $sharedMarkup, $composeFacts);
+        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics, $sharedMarkup, $timer, $composeFacts);
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
             $documentFiles = $normalized['files'];
@@ -690,7 +692,7 @@ final class ArtifactCompiler
         );
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
 
-        return ( new WordPressSitePlanComposer() )->compose(
+        return $timer->result(( new WordPressSitePlanComposer() )->compose(
             new TransformerResult(
                 status: $this->statusFromDiagnostics($diagnostics),
                 components: $components,
@@ -715,8 +717,9 @@ final class ArtifactCompiler
             ),
             $startedAt,
             fn(): array => ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks),
+            $timer,
             $composeFacts
-        );
+        ));
     }
 
     /**
@@ -2662,8 +2665,9 @@ final class ArtifactCompiler
      * @param string $primaryOwner The page that produced the primary projections, '' when they are site-wide.
      * @return array<int, array<string, mixed>>
      */
-    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = '', array $pageMarkup = array(), array &$projectionDiagnostics = array(), string $sharedMarkup = '', ?ComposeFacts $composeFacts = null): array
+    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = '', array $pageMarkup = array(), array &$projectionDiagnostics = array(), string $sharedMarkup = '', ?\Automattic\BlocksEngine\PhpTransformer\Support\StepTimer $timer = null, ?ComposeFacts $composeFacts = null): array
     {
+        $timer?->start('compose.author_stylesheet_projections');
         $this->authorStylesheetProjectionCount = 0;
         // Asset identity is its path, not the number of partition occurrences.
         $files = array_values(array_column($files, null, 'path'));
@@ -2722,6 +2726,7 @@ final class ArtifactCompiler
         $transformer = new CssStylesheetTransformer($composeFacts);
         $routeIdentities = array();
         $routeDocuments = array();
+        $timer?->start('compose.author_stylesheet_projections.route_documents');
         foreach ($files as $document) {
             if ('html' !== ($document['kind'] ?? '')) continue;
             $source = (string) $document['path'];
@@ -2831,9 +2836,11 @@ final class ArtifactCompiler
             $sharedStylesheets = array($transformer->concatenateWithoutRedundantRules($sharedStylesheets));
             $fallbackSharedStylesheets = $sharedStylesheets;
             foreach ($pages as $owner => $_) $pages[$owner] = $pageProjections[$owner] ?? $pages[$owner];
+            $timer?->start('compose.author_stylesheet_projections.route_variants');
             $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup, $routeMatchIndex, $this->routeClasses, $sharedMarkup);
             // Recompact only at serialization, merging compatible marker arms.
-            $recompact = static fn (string $css): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
+            $recompact = static fn (string $css): string => $timer?->measure('compose.compaction', static fn(): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css) ?? (count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css);
+            $timer?->start('compose.author_stylesheet_projections.route_budget');
             // A cached shared download replaces separate page-copy downloads.
             // Both costs are measured before compaction.
             $largestCopy = $totalCopyBytes = 0;
@@ -2855,6 +2862,7 @@ final class ArtifactCompiler
             foreach ($routed['reasons'] as $owner => $reason) {
                 $projectionDiagnostics[] = $this->diagnostic('author_stylesheet_route_scope_fallback', 'warning', $path . ' (' . $owner . '): ' . $reason);
             }
+            $timer?->start('compose.serialization');
             $projectedFile = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $recompact($transformer->concatenateWithoutRedundantRules(array($routed['stylesheet']))) ))));
             $projectedFile['metadata']['native_selectors'] = array_keys($native);
             $output[] = $projectedFile;
@@ -2881,6 +2889,7 @@ final class ArtifactCompiler
                 $output[] = $pageFile;
             }
         }
+        $timer?->start('compose.artifact_assembly');
         return $output;
     }
 

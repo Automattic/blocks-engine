@@ -1075,6 +1075,9 @@ final class NavigationPatternContext
             }
         }
 
+        // This background is replacement DOM artwork, not an authored anchor
+        // background. Projected anchor resets (including shared route styles)
+        // must not erase the SVG that Core cannot persist in its label.
         $background = ';background-image:url("data:image/svg+xml,' . rawurlencode($markup) . '")'
             . ';background-repeat:no-repeat;background-position:center;background-size:contain';
 

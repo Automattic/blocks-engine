@@ -11,9 +11,9 @@ final class RouteSelectorMatchIndex
     private CssSelectorMatchCache $cache;
     private array $elements = array();
     private array $owners = array();
-    private array $canonicalOwners = array();
+    private array $subjectIdentities = array();
+    private array $subjectMatches = array();
     private array $elementOwners = array();
-    private array $ownerElements = array();
     private array $keys = array();
     private array $selectors = array();
     private array $hits = array();
@@ -24,25 +24,26 @@ final class RouteSelectorMatchIndex
     public function __construct(array $documents, private readonly ?\Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ComposeFacts $facts = null)
     {
         $this->cache = new CssSelectorMatchCache();
-        $fingerprints = array();
+        $contexts = new \WeakMap();
         foreach ($documents as $owner => $document) {
-            // Exact serialized DOM includes root/body context, attributes and text.
-            // Equivalent owners share element ids; sets are compared only within a route.
-            $fingerprint = $document->saveHTML();
-            $canonical = $fingerprints[$fingerprint] ?? $owner;
-            $this->canonicalOwners[$owner] = $canonical;
-            if ($canonical !== $owner) continue;
-            $fingerprints[$fingerprint] = $owner;
             $this->owners[$owner] = true;
             foreach ($document->getElementsByTagName('*') as $element) {
                 $id = count($this->elements);
                 $this->elements[$id] = $element;
+                // For descendant/child selectors without structural functions,
+                // only this subject's attributes and ancestor chain can affect
+                // the answer. Text and other branches are deliberately absent.
+                $attributes = array();
+                foreach ($element->attributes as $attribute) $attributes[$attribute->name] = $attribute->value;
+                ksort($attributes);
+                $context = hash('sha256', serialize(array($element->tagName, $attributes, $contexts[$element->parentNode] ?? '')));
+                $contexts[$element] = $context;
+                $this->subjectIdentities[$id] = $context;
                 $this->elementOwners[$id] = $owner;
                 $keys = array('t:' . strtolower($element->tagName));
                 if ($element->hasAttribute('id')) $keys[] = 'i:' . $element->getAttribute('id');
                 foreach ($this->cache->classTokens($element) as $class) $keys[] = 'c:' . $class;
                 foreach ($keys as $key) $this->keys[$key][$id] = true;
-                $this->ownerElements[$owner][] = $id;
             }
         }
     }
@@ -58,22 +59,15 @@ final class RouteSelectorMatchIndex
      */
     public function matchedElements(string $arm, string $owner): ?array
     {
-        $owner = $this->canonicalOwner($owner);
         if ( ! array_key_exists($arm, $this->cascadeMatches) || ! array_key_exists($owner, $this->cascadeMatches[$arm]) ) {
             $this->cascadeMatches[$arm][$owner] = $this->computeMatchedElements($arm, $owner);
         }
         return $this->cascadeMatches[$arm][$owner];
     }
 
-    public function canonicalOwner(string $owner): string
-    {
-        return (string) ($this->canonicalOwners[$owner] ?? $owner);
-    }
-
     /** @return array<int|string, true>|null */
     private function computeMatchedElements(string $arm, string $owner): ?array
     {
-        $this->facts?->count('route_selector_matches');
         if ( ! isset($this->owners[$owner]) ) {
             return null;
         }
@@ -110,16 +104,33 @@ final class RouteSelectorMatchIndex
         if ( ! $parsed['supported'] ) {
             return null;
         }
-        $matched = array();
-        foreach ( null === $candidates ? ($this->ownerElements[$owner] ?? array()) : array_keys($candidates) as $id ) {
-            if ( $this->elementOwners[$id] !== $owner ) {
-                continue;
-            }
-            if ( $this->cache->matches($this->elements[$id], $arm, $parsed, true)['matches'] ) {
-                $matched[ null === $pseudo ? $id : $id . $pseudo ] = true;
+        // Build every route's set in one pass over distinct subjects. Shared
+        // chrome is evaluated once, then its route-local element ids are
+        // scattered into each route's set for exact cascade intersections.
+        foreach ($this->owners as $route => $_) $this->cascadeMatches[$arm][$route] = array();
+        foreach (null === $candidates ? array_keys($this->elements) : array_keys($candidates) as $id) {
+            if ($this->matchesSubject($id, $arm, $parsed)) {
+                $this->cascadeMatches[$arm][$this->elementOwners[$id]][null === $pseudo ? $id : $id . $pseudo] = true;
             }
         }
-        return $matched;
+        return $this->cascadeMatches[$arm][$owner];
+    }
+
+    /** Match each context-independent shared subject once, not once per route. */
+    private function matchesSubject(int $id, string $arm, array $parsed, string $mode = 'cascade'): bool
+    {
+        // Sibling combinators and structural/functional pseudo-classes can
+        // observe the page remainder. Keep their complete route-local proof.
+        $structural = self::cascadeSubject($arm)[0] ?? $arm;
+        $shareable = false === strpbrk($structural, ':+~\\');
+        $identity = $mode . ':' . ($shareable ? $this->subjectIdentities[$id] : (string) $id);
+        if (!array_key_exists($identity, $this->subjectMatches[$arm] ?? array())) {
+            $this->facts?->count('route_selector_matches');
+            $this->facts?->count($shareable ? 'shared_subject_matches' : 'route_local_subject_matches');
+            $match = $this->cache->matches($this->elements[$id], $arm, $parsed, true);
+            $this->subjectMatches[$arm][$identity] = $match['matches'] || ('inert' === $mode && !$match['supported']);
+        }
+        return $this->subjectMatches[$arm][$identity];
     }
 
     /**
@@ -301,13 +312,12 @@ final class RouteSelectorMatchIndex
         [$parsed, $byOwner] = $this->selectors[$arm];
         if (!$parsed['supported']) return false;
         foreach ($outside as $owner => $_) {
-            $owner = $this->canonicalOwner((string) $owner);
+            $owner = (string) $owner;
             if (!isset($this->owners[$owner])) return false;
             if (!isset($this->hits[$arm][$owner])) {
                 $hit = false;
                 foreach ($byOwner[$owner] ?? array() as $id) {
-                    $match = $this->cache->matches($this->elements[$id], $arm, $parsed, true);
-                    if (!$match['supported'] || $match['matches']) { $hit = true; break; }
+                    if ($this->matchesSubject($id, $arm, $parsed, 'inert')) { $hit = true; break; }
                 }
                 $this->hits[$arm][$owner] = $hit;
             }

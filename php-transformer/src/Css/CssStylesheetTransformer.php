@@ -20,7 +20,7 @@ final class CssStylesheetTransformer
             $this->collectRuleUnits($css, $context, $units);
             return $units;
         };
-        return null === $this->facts ? $compute() : $this->facts->get('rule_units', serialize(array($css, $context)), $compute);
+        return null === $this->facts ? $compute() : $this->facts->get('rule_units', serialize(array($this->facts->inputIdentity($css), $context)), $compute);
     }
 
     /**
@@ -164,7 +164,7 @@ final class CssStylesheetTransformer
     public function concatenateWithoutRedundantRules(array $stylesheets): string
     {
         $compute = fn (): string => $this->concatenateRules($stylesheets);
-        return null === $this->facts ? $compute() : $this->facts->get('concatenated_rules', serialize($stylesheets), $compute);
+        return null === $this->facts ? $compute() : $this->facts->get('concatenated_rules', serialize($this->facts->inputIdentities($stylesheets)), $compute);
     }
 
     private function concatenateRules(array $stylesheets): string
@@ -215,7 +215,7 @@ final class CssStylesheetTransformer
     public function rulesAbsentFrom(array $stylesheets, array $present, bool $preserveCascade = false, ?RouteSelectorMatchIndex $matchIndex = null, ?string $owner = null): string
     {
         $compute = fn (): string => $this->computeRulesAbsentFrom($stylesheets, $present, $preserveCascade, $matchIndex, $owner);
-        $identity = serialize(array($stylesheets, $present, $preserveCascade, null === $matchIndex ? null : spl_object_id($matchIndex), null === $owner ? null : ($matchIndex?->canonicalOwner($owner) ?? $owner)));
+        $identity = null === $this->facts ? '' : serialize(array($this->facts->inputIdentities($stylesheets), $this->facts->inputIdentities($present), $preserveCascade, null === $matchIndex ? null : spl_object_id($matchIndex), $owner));
         return null === $this->facts ? $compute() : $this->facts->get('absent_rules', $identity, $compute);
     }
 
@@ -293,8 +293,8 @@ final class CssStylesheetTransformer
      */
     private function cascadeTargets(RouteSelectorMatchIndex $matchIndex, string $owner, string $rule): ?array
     {
-        $compute = static fn (): ?array => self::computeCascadeTargets($matchIndex, $owner, $rule);
-        return null === $this->facts ? $compute() : $this->facts->get('cascade_targets', serialize(array(spl_object_id($matchIndex), $matchIndex->canonicalOwner($owner), $rule)), $compute);
+        // The index already owns distinct selector subjects and their matches.
+        return self::computeCascadeTargets($matchIndex, $owner, $rule);
     }
 
     private static function computeCascadeTargets(RouteSelectorMatchIndex $matchIndex, string $owner, string $rule): ?array
@@ -349,7 +349,7 @@ final class CssStylesheetTransformer
                 preg_match_all(CssSelectorListCompactor::PAGE_MARKER, $html, $matches);
                 return array_unique($matches[0]);
             };
-            $markers = null === $this->facts ? $compute() : $this->facts->get('markers', $html, $compute);
+            $markers = null === $this->facts ? $compute() : $this->facts->get('markers', $this->facts->inputIdentity($html), $compute);
             foreach ($markers as $marker) $carriers[$marker][$owner] = true;
         }
         return $carriers;

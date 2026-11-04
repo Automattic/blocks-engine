@@ -101,7 +101,7 @@ $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($compi
 // equivalence is asserted on everything else.
 $withoutDurations = static function (array $value) use (&$withoutDurations): array {
     foreach ( $value as $key => $item ) {
-        if ( str_ends_with((string) $key, '_duration_ms') ) {
+        if ( 'step_timings' === $key || str_ends_with((string) $key, '_duration_ms') ) {
             unset($value[$key]);
             continue;
         }
@@ -254,7 +254,7 @@ $terminalWorker = new ArtifactCompiler();
 $manyStaged = $terminalWorker->compose($serializedShared, array_reverse($serializedReceipts))->toArray();
 $canonical = static function (mixed $value) use (&$canonical): mixed {
     if (!is_array($value)) return $value;
-    unset($value['transform_duration_ms'], $value['compile_duration_ms'], $value['html_document_transform_count'], $value['normalization_count'], $value['analysis_count'], $value['terminal_reduction_count']);
+    unset($value['transform_duration_ms'], $value['step_timings'], $value['compile_duration_ms'], $value['html_document_transform_count'], $value['normalization_count'], $value['analysis_count'], $value['terminal_reduction_count']);
     foreach ($value as $key => $item) $value[$key] = $canonical($item);
     return $value;
 };

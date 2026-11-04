@@ -59,6 +59,25 @@ $assert(str_contains($css, 'box-shadow:0 0 24px rgba(232,160,32,0.3)'), 'rendere
 $assert($hasLinkDeclaration($result, 'background-color', '#e8a020'), 'rendered core/button carries source fill through CSS', $css);
 $assert($hasLinkDeclaration($result, 'color', '#050d1a'), 'rendered core/button carries source text color through CSS', $css);
 
+// An inline shadow-drawn outline (`inset 0 0 0 1px`) on a control that also
+// carries its own geometry carrier (an authored inline width) keeps the
+// shadow: the fallback declaration must project onto a generated carrier
+// even though the control's class already holds one, because the geometry
+// carrier excluded the shadow when the resolved shadow claimed the support.
+$carriedShadowButton = ( new HtmlTransformer() )->transform(
+    '<style>.btn{display:inline-block;padding:8px 16px;color:#383838;text-decoration:none;border-radius:4px}</style>'
+    . '<div class="wp-block-buttons">'
+    . '<a class="btn" href="#one" style="border:0px;box-shadow:inset 0 0 0 1px #383838;background-color:#fff;width:180px">Button one</a>'
+    . '<a class="btn" href="#two" style="border:0px;box-shadow:inset 0 0 0 1px #383838;background-color:#fff">Button two</a>'
+    . '</div>'
+)->toArray();
+$carriedShadowCss = implode("\n", array_column($carriedShadowButton['assets'] ?? array(), 'content'));
+$carriedShadowMarkup = (string) ($carriedShadowButton['serialized_blocks'] ?? '');
+$assert(2 === substr_count($carriedShadowMarkup, '<!-- wp:button '), 'shadow-drawn controls lower to core/button', $carriedShadowMarkup);
+$assert(2 === preg_match_all('/\.be-inline-geometry-[0-9a-f]+>\.wp-block-button__link\{box-shadow:inset 0 0 0 1px #383838 !important\}/', $carriedShadowCss), 'controls with and without their own geometry carrier paint the inline shadow on the link', $carriedShadowCss);
+$assert(2 === substr_count($carriedShadowCss, 'box-shadow:inset 0 0 0 1px #383838'), 'each shadow-drawn control keeps its shadow exactly once in the generated CSS', $carriedShadowCss);
+$assert('pass' === ($carriedShadowButton['source_reports']['wp_block_validity']['status'] ?? ''), 'shadow-carried buttons remain editor-valid', json_encode($carriedShadowButton['source_reports']['wp_block_validity'] ?? array()));
+
 $themed = ( new HtmlTransformer() )->transform(
     '<style>:root{--ink:#1d2230;--brand:linear-gradient(135deg,#2c63ff,#ff5d73)}[data-theme="dark"]{--ink:#f3f1ea}.btn{background:var(--brand);color:var(--ink)}</style><button class="btn">Continue</button>'
 )->toArray();

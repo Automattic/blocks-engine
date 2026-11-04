@@ -311,7 +311,7 @@ $buttonCss = $cssFor($button, 'engine-support');
 $buttonSerialized = (string) ($button['serialized_blocks'] ?? '');
 
 $assert(! str_contains($buttonSerialized, '"shadow"'), 'C3: metadata-rejected button shadow stays out of native block attributes', $buttonSerialized);
-$assert('' !== $importantWith($tierRules($buttonCss), 'box-shadow:0 10px 0 -2px rgba(0,0,0,0.22)'), 'C3: the carrier preserves the inline button shadow', $buttonCss);
+$assert(1 === preg_match('/\\.be-inline-geometry-[0-9a-f]+>\\.wp-block-button__link\\{box-shadow:0 10px 0 -2px rgba\\(0,0,0,0\\.22\\) !important\\}/', $buttonCss), 'C3: the carrier preserves the inline button shadow on the link', $buttonCss);
 
 // ---------------------------------------------------------------------------
 // C4 — no-op when the value equals the default.

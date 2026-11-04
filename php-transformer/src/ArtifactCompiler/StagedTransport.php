@@ -384,6 +384,7 @@ trait StagedTransport
      */
     public function compose(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null, ?callable $onProgress = null): TransformerResult
     {
+        $timer = new \Automattic\BlocksEngine\PhpTransformer\Support\StepTimer('compose.receipt_validation');
         // A compiler instance may have performed page work previously; terminal
         // receipt metrics describe this invocation only.
         $this->htmlDocumentTransformCount = 0;
@@ -470,13 +471,14 @@ trait StagedTransport
                 is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array()
             );
             $artifact['_captured_source_css_bytes'] = $sharedPlan['analysis']['source_css_bytes'];
-            return $this->compileArtifact($artifact);
+            return $timer->result($this->compileArtifact($artifact));
         }
         $this->reportProgress($onProgress, 'reduce_receipts', 0, 1);
+        $timer->start('compose.receipt_reduction');
         $terminalReduction = $this->reduceCompiledReceipts($sharedPlan, $sharedArtifact, $reductions, $compiledDocuments);
         $this->reportProgress($onProgress, 'reduce_receipts', 1, 1);
         $this->reportProgress($onProgress, 'finalize_artifact', 0, 1);
-        $result = $this->finalizeArtifact($terminalReduction['artifact'], $terminalReduction);
+        $result = $this->finalizeArtifact($terminalReduction['artifact'], $terminalReduction, $timer);
         $this->reportProgress($onProgress, 'finalize_artifact', 1, 1);
         return $result;
     }
