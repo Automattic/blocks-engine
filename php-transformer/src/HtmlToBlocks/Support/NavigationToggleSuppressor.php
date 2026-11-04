@@ -369,7 +369,7 @@ final class NavigationToggleSuppressor
 
     private function hiddenNavigationInControlledTarget(DOMElement $target): ?DOMElement
     {
-        if ( $this->hiddenNavigationTargets->contains($target) ) {
+        if ( isset($this->hiddenNavigationTargets[$target]) ) {
             return $this->hiddenNavigationTargets[$target];
         }
         return $this->hiddenNavigationTargets[$target] = $this->recognizeHiddenNavigationInControlledTarget($target);

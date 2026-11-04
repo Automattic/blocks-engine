@@ -176,7 +176,7 @@ final class CommerceStructureRecognizer
 
     private function singleProductCardData(DOMElement $card): ?array
     {
-        if ( $this->singleProductCards->contains($card) ) {
+        if ( isset($this->singleProductCards[$card]) ) {
             return $this->singleProductCards[$card];
         }
         return $this->singleProductCards[$card] = $this->recognizeSingleProductCard($card);
