@@ -17,6 +17,8 @@ final class RouteSelectorMatchIndex
     private array $hits = array();
     private array $cascadeArms = array();
     private array $cascadeMatches = array();
+    /** @var array<string, array<string, true>> Classes self-closing dynamic blocks render, per route. */
+    private array $dynamicClasses = array();
 
     /** @param array<string,DOMDocument> $documents */
     public function __construct(array $documents)
@@ -32,6 +34,16 @@ final class RouteSelectorMatchIndex
                 foreach ($this->cache->classTokens($element) as $class) $keys[] = 'c:' . $class;
                 foreach ($keys as $key) $this->keys[$owner][$key][$id] = true;
                 $this->ownerElements[$owner][] = $id;
+            }
+            // A self-closing block (core/navigation-link) renders its className
+            // on the front end, but its serialized form is a comment the
+            // parser cannot match against.
+            foreach ((new \DOMXPath($document))->query('//comment()') ?: array() as $comment) {
+                if (1 !== preg_match('/^\s*wp:[a-z0-9\/-]+\s+(\{.*\})\s*\/\s*$/s', (string) $comment->nodeValue, $block)) continue;
+                $attributes = json_decode($block[1], true);
+                foreach (preg_split('/\s+/', is_array($attributes) && is_string($attributes['className'] ?? null) ? $attributes['className'] : '') ?: array() as $class) {
+                    if ('' !== $class) $this->dynamicClasses[$owner][$class] = true;
+                }
             }
         }
     }
@@ -58,6 +70,13 @@ final class RouteSelectorMatchIndex
     {
         if ( ! isset($this->owners[$owner]) ) {
             return null;
+        }
+        // An arm naming a class only a dynamic block renders cannot be
+        // disproved from the serialized document.
+        if ( isset($this->dynamicClasses[$owner]) && preg_match_all('/\.(-?[_a-zA-Z][\w-]*)/', $arm, $classes) ) {
+            foreach ( $classes[1] as $class ) {
+                if ( isset($this->dynamicClasses[$owner][$class]) ) return null;
+            }
         }
         if ( ! array_key_exists($arm, $this->cascadeArms) ) {
             [$structural, $pseudo] = self::cascadeSubject($arm) ?? array('', null);
