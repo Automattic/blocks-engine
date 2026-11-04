@@ -3094,6 +3094,8 @@ final class ShellExtraction
         $entry = null;
         foreach ($pages as $page) if (!empty($page['entrypoint'])) $entry = $page['route']['path'] ?? '/';
         if (null === $entry) return $pages;
+        $subjectIndex = \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::build($analysis['rules']);
+        $fragments = array();
         $evidence = array(); $applicable = 0;
         foreach ($pages as $index => $page) {
             if (!empty($page['synthetic'])) continue;
@@ -3105,35 +3107,42 @@ final class ShellExtraction
                 foreach ($nodes as $node) {
                     if (!in_array($node['name'], array('group', 'heading', 'paragraph'), true)) continue;
                     $fragment = substr($markup, $node['offset'], $node['end'] - $node['offset']);
-                    $dom = new \DOMDocument();
-                    @$dom->loadHTML('<?xml encoding="UTF-8"><body>' . $fragment . '</body>', LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
-                    $body = $dom->getElementsByTagName('body')->item(0);
-                    if (null === $body) continue;
-                    $text = trim(preg_replace('/\s+/u', ' ', $body->textContent) ?? '');
-                    if ('' === $text) continue;
-                    $classes = array(); $styles = array(); $links = array(); $valid = true;
-                    $presentation = array('text-decoration-line' => 'none');
-                    foreach ($body->getElementsByTagName('*') as $element) {
-                        if (!in_array($element->tagName, array('div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a'), true)) { $valid = false; break; }
-                        // A wordmark is a single text leaf, possibly wrapped in a
-                        // logo container. Never swallow sibling copy or navigation.
-                        $children = 0;
-                        foreach ($element->childNodes as $child) if ($child instanceof \DOMElement || ($child instanceof \DOMText && '' !== trim($child->textContent))) ++$children;
-                        if ($children > 1) { $valid = false; break; }
-                        foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
-                            if ('' !== $class && !str_starts_with($class, 'wp-block-') && !str_starts_with($class, 'blocks-engine-synthetic-') && !str_starts_with($class, 'blocks-engine-propagated-') && !preg_match('/^has-(?:.+-font-(?:size|family)|text-color|.+-color)$/', $class)) $classes[$class] = true;
+                    if (array_key_exists($fragment, $fragments)) {
+                        if (false === $fragments[$fragment]) continue;
+                        [$text, $classes, $styles, $links, $presentation, $valid] = $fragments[$fragment];
+                    } else {
+                        $fragments[$fragment] = false;
+                        $dom = new \DOMDocument();
+                        @$dom->loadHTML('<?xml encoding="UTF-8"><body>' . $fragment . '</body>', LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+                        $body = $dom->getElementsByTagName('body')->item(0);
+                        if (null === $body) continue;
+                        $text = trim(preg_replace('/\s+/u', ' ', $body->textContent) ?? '');
+                        if ('' === $text) continue;
+                        $classes = array(); $styles = array(); $links = array(); $valid = true;
+                        $presentation = array('text-decoration-line' => 'none');
+                        foreach ($body->getElementsByTagName('*') as $element) {
+                            if (!in_array($element->tagName, array('div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a'), true)) { $valid = false; break; }
+                            // A wordmark is a single text leaf, possibly wrapped in a
+                            // logo container. Never swallow sibling copy or navigation.
+                            $children = 0;
+                            foreach ($element->childNodes as $child) if ($child instanceof \DOMElement || ($child instanceof \DOMText && '' !== trim($child->textContent))) ++$children;
+                            if ($children > 1) { $valid = false; break; }
+                            foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
+                                if ('' !== $class && !str_starts_with($class, 'wp-block-') && !str_starts_with($class, 'blocks-engine-synthetic-') && !str_starts_with($class, 'blocks-engine-propagated-') && !preg_match('/^has-(?:.+-font-(?:size|family)|text-color|.+-color)$/', $class)) $classes[$class] = true;
+                            }
+                            foreach (explode(';', $element->getAttribute('style')) as $style) {
+                                $style = trim($style);
+                                // Bare links are lowered to a zero-margin paragraph;
+                                // headings can materialize their default bold weight.
+                                if ('font-weight:700' !== $style && '' !== $style && !preg_match('/^(?:color|text-decoration(?:-line)?|font-size|font-family)\s*:/', $style) && !preg_match('/^margin-(?:top|right|bottom|left):0$/', $style)) $styles[$style] = true;
+                            }
+                            $presentation = self::wordmarkPresentation($element, $presentation, $subjectIndex, $properties);
+                            if ('a' === $element->tagName) $links[] = html_entity_decode($element->getAttribute('href'));
                         }
-                        foreach (explode(';', $element->getAttribute('style')) as $style) {
-                            $style = trim($style);
-                            // Bare links are lowered to a zero-margin paragraph;
-                            // headings can materialize their default bold weight.
-                            if ('font-weight:700' !== $style && '' !== $style && !preg_match('/^(?:color|text-decoration(?:-line)?|font-size|font-family)\s*:/', $style) && !preg_match('/^margin-(?:top|right|bottom|left):0$/', $style)) $styles[$style] = true;
-                        }
-                        $presentation = self::wordmarkPresentation($element, $presentation, $analysis['rules'], $properties);
-                        if ('a' === $element->tagName) $links[] = html_entity_decode($element->getAttribute('href'));
+                        ksort($classes); ksort($styles);
+                        $fragments[$fragment] = array($text, $classes, $styles, $links, $presentation, $valid);
                     }
                     if (!$valid || count($links) > 1 || (!empty($links) && $links[0] !== $entry) || (empty($page['entrypoint']) && array($entry) !== $links)) continue;
-                    ksort($classes); ksort($styles);
                     $signature = hash('sha256', json_encode(array($text, array_keys($classes), array_keys($styles), $presentation)));
                     $leaf = $node;
                     while (1 === count($leaf['children'])) $leaf = $nodes[$leaf['children'][0]];
@@ -3182,9 +3191,10 @@ final class ShellExtraction
     }
 
     /** Resolve the single text leaf through its wrappers, not block-support placement. */
-    private static function wordmarkPresentation(\DOMElement $element, array $inherited, array $rules, array $properties): array
+    private static function wordmarkPresentation(\DOMElement $element, array $inherited, array $subjectIndex, array $properties): array
     {
         $facts = array();
+        $rules = array_column(\Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::entries($element, $subjectIndex), 'rule');
         $rules[] = array('declarations' => \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($element->getAttribute('style'), $properties), 'inline' => true, 'specificity' => array(0, 0, 0), 'order' => PHP_INT_MAX);
         foreach ($rules as $rule) {
             if (empty($rule['inline']) && (null !== $rule['condition'] || !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches'])) continue;

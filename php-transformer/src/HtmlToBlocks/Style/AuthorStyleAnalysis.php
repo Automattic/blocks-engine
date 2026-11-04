@@ -619,28 +619,7 @@ final class AuthorStyleAnalysis
                 if ( ! ($parsed['supported'] ?? false) && ! ($selector['direct_child_parsed']['supported'] ?? false) ) {
                     continue;
                 }
-                $compounds = $parsed['compounds'] ?? array();
-                $rightmost = array() === $compounds ? null : $compounds[array_key_last($compounds)];
-                $target = 'universal';
-                $key = '';
-                if ( $parsed['supported'] && is_array($rightmost) ) {
-                    if ( array() !== ($rightmost['ids'] ?? array()) ) {
-                        $target = 'ids';
-                        $key = (string) $rightmost['ids'][0];
-                    } elseif ( array() !== ($rightmost['classes'] ?? array()) ) {
-                        $target = 'classes';
-                        $key = (string) $rightmost['classes'][0];
-                    } elseif ( is_string($rightmost['type'] ?? null) && '' !== $rightmost['type'] ) {
-                        $target = 'tags';
-                        $key = strtolower((string) $rightmost['type']);
-                    } elseif ( array() !== ($rightmost['attributes'] ?? array()) ) {
-                        $name = (string) ($rightmost['attributes'][0]['name'] ?? '');
-                        if ( 1 === preg_match('/^[a-z][a-z0-9_-]*$/', $name) ) {
-                            $target = 'attributes';
-                            $key = $name;
-                        }
-                    }
-                }
+                [$target, $key] = \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::bucket($parsed, true);
                 $entry = array(
                     'order' => $rule['order'],
                     'sequence' => $sequence++,
