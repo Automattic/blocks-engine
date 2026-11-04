@@ -10903,14 +10903,35 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             || ! in_array($this->resolvedDeclaration($image, 'position'), array( '', 'static', 'relative' ), true) ) {
             return false;
         }
-        foreach ( array( 'margin-top', 'margin-bottom' ) as $property ) {
-            $value = $this->resolvedDeclaration($image, $property);
+        foreach ( $this->resolvedVerticalMargins($image) as $value ) {
             if ( '' !== $value && ! in_array($value, array( '0', '0px', 'auto' ), true) ) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * The element's resolved top and bottom margins, from the `margin`
+     * shorthand or its longhands, whichever the cascade declared last.
+     *
+     * @return array{top: string, bottom: string}
+     */
+    private function resolvedVerticalMargins(DOMElement $element): array
+    {
+        $margins = array( 'top' => '', 'bottom' => '' );
+        foreach ( $this->styleResolver->resolvedPresentationDeclarations($element) as $property => $value ) {
+            $value = strtolower(trim(CssValueInspector::withoutImportant((string) $value)));
+            if ( 'margin' === $property ) {
+                [ $top, , $bottom ] = CssValueInspector::expandBoxShorthand($value);
+                $margins = array( 'top' => $top, 'bottom' => $bottom );
+            } elseif ( 'margin-top' === $property || 'margin-bottom' === $property ) {
+                $margins[ substr($property, 7) ] = $value;
+            }
+        }
+
+        return $margins;
     }
 
     /**
@@ -12898,10 +12919,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return true;
         }
 
-        // An inline-block link is a line-level box around an inline image.
-        // Blockifying the image would leave the link with no line box, so its
-        // baseline moves to the margin edge and the strut adds descent below.
-        if ($parent instanceof DOMElement && 'a' === strtolower($parent->tagName)
+        // An inline-block wrapper (a link, a span) is a line-level box around
+        // an inline image. Blockifying the image would leave the wrapper with
+        // no line box, so its baseline moves to the margin edge and the strut
+        // adds descent below.
+        if ($parent instanceof DOMElement
             && 'inline-block' === $this->resolvedDeclaration($parent, 'display')) {
             return true;
         }
