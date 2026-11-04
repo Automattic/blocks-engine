@@ -98,6 +98,7 @@ final class AuthorSelectorSemanticPreparer
         $this->discoverAuthorAttributePaths($authorSelectors, $authorStyles, $projections);
         $this->discoverAuthorRootChildPaths($authorSelectors, $authorStyles, $projections);
         $this->discoverAuthorTablePaths($authorSelectors, $authorStyles, $projections);
+        $this->discoverConvertedSiblingPaths($authorSelectors, $authorStyles, $projections);
         $matchCache = $authorStyles->releaseSelectorMatchCache();
         $this->analysisCache->authorSelectorClassTokenBuilds += $matchCache->classTokenBuilds;
         $this->analysisCache->authorSelectorClassTokenHits += $matchCache->classTokenHits;
@@ -830,6 +831,63 @@ final class AuthorSelectorSemanticPreparer
                 }
             }
         }
+    }
+
+    /**
+     * Sibling-structural selectors (`:first-of-type`, `:last-of-type`,
+     * `:nth-of-type()`, `+`, `~`) match by source sibling positions. When
+     * conversion turns a sibling into another element type (an image-only
+     * paragraph becomes a figure), the live pseudo-class or combinator would
+     * match different elements in the block tree. Give the subject and its
+     * siblings of the converted type semantic markers, so every rule reaching
+     * them is resolved against the source at compile time instead of live.
+     *
+     * @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors
+     */
+    private function discoverConvertedSiblingPaths(array $authorSelectors, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
+    {
+        foreach ( $authorSelectors as $authorSelector ) {
+            $parsed = $authorSelector['parsed'];
+            if ( ! $parsed['supported'] || ! self::isSiblingStructuralSelector($parsed) ) {
+                continue;
+            }
+            foreach ( $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $parsed) as $element ) {
+                $siblings = array();
+                $convertedTypes = array();
+                foreach ( $element->parentNode?->childNodes ?? array() as $sibling ) {
+                    if ( $sibling instanceof DOMElement ) {
+                        $siblings[] = $sibling;
+                        if ( $this->context->convertsToOtherElementType($sibling) ) {
+                            $convertedTypes[strtolower($sibling->tagName)] = true;
+                        }
+                    }
+                }
+                if ( array() === $convertedTypes ) {
+                    continue;
+                }
+                foreach ( $siblings as $sibling ) {
+                    if ( $sibling === $element || isset($convertedTypes[strtolower($sibling->tagName)]) ) {
+                        $projections->ensureSemanticMarker($sibling->getNodePath() ?? '');
+                    }
+                }
+            }
+        }
+    }
+
+    /** @param array<string, mixed> $parsed */
+    public static function isSiblingStructuralSelector(array $parsed): bool
+    {
+        foreach ( $parsed['compounds'] as $compound ) {
+            if ( null !== ($compound['nth_type'] ?? null) || ! empty($compound['last_type']) ) {
+                return true;
+            }
+        }
+        foreach ( $parsed['combinators'] as $combinator ) {
+            if ( in_array(trim((string) $combinator), array( '+', '~' ), true) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */

@@ -16,6 +16,7 @@ final class AuthorSelectorSemanticContext
      * @param Closure(DOMElement): bool        $requiresIndependentSemanticWrapper
      * @param Closure(DOMElement): bool        $requiresInlineLayoutCarrier
      * @param Closure(DOMElement): bool        $isRepresentableTable
+     * @param Closure(DOMElement): bool        $convertsToOtherElementType
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier,
@@ -23,7 +24,8 @@ final class AuthorSelectorSemanticContext
         private readonly Closure $isStructuralListItem,
         private readonly Closure $requiresIndependentSemanticWrapper,
         private readonly Closure $requiresInlineLayoutCarrier,
-        private readonly Closure $isRepresentableTable
+        private readonly Closure $isRepresentableTable,
+        private readonly Closure $convertsToOtherElementType
     ) {}
 
     public function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool
@@ -60,5 +62,15 @@ final class AuthorSelectorSemanticContext
     public function isRepresentableTable(DOMElement $table): bool
     {
         return ($this->isRepresentableTable)($table);
+    }
+
+    /**
+     * Whether conversion emits this source element as a block of another
+     * element type (a paragraph that only wraps an image becomes a figure),
+     * which changes the type-sibling positions structural selectors see.
+     */
+    public function convertsToOtherElementType(DOMElement $element): bool
+    {
+        return ($this->convertsToOtherElementType)($element);
     }
 }

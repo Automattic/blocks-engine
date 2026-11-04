@@ -1,0 +1,5 @@
+html{font-size:62.5%}
+p{margin-bottom:1rem}
+.u-rich-text p{margin-bottom:2.4rem}
+.u-rich-text p:last-of-type{margin-bottom:0}
+.c-article .u-rich-text img{max-width:100%;height:auto}

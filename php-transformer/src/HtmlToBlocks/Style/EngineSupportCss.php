@@ -170,6 +170,12 @@ final class EngineSupportCss
             $parts[] = $inlineFigure . '{display:contents}'
                 . $inlineFigure . ' img{display:inline}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS) ) {
+            // The figure stands in for the paragraph that wrapped this image.
+            // Keep the image on the figure's line, as it sat on the paragraph's,
+            // so its vertical margins size the line box instead of collapsing.
+            $parts[] = ':root .wp-block-image.' . SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS . ' img{display:inline;vertical-align:baseline}';
+        }
         if ( str_contains($serializedBlocks, self::BACKGROUND_IMAGE_CLASS) ) {
             // The source painted this image as a background, where the element's
             // own box decides the size and the image never overflows it. core's

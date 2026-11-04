@@ -540,7 +540,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fn (DOMElement $element): bool => $this->isStructuralListItem($element),
                 fn (DOMElement $element): bool => $this->requiresIndependentSemanticWrapper($element),
                 fn (DOMElement $element): bool => $this->requiresStandaloneInlineLayoutLeaf($element),
-                fn (DOMElement $table): bool => $this->isRepresentableTable($table)
+                fn (DOMElement $table): bool => $this->isRepresentableTable($table),
+                fn (DOMElement $element): bool => 'p' === strtolower($element->tagName) && $this->paragraphImageChild($element) instanceof DOMElement
             ),
             $this->stylesheetAnalysisComposer,
             $this->styleResolver,
@@ -1364,7 +1365,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): bool => $this->hasEmptyVisualInlineChild($element),
             fn (DOMElement $element): bool => $this->hasBoxChromeWrapperStyling($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
-            fn (DOMElement $element): ?array => $this->imageBlockFromParagraph($element),
+            fn (DOMElement $element): ?array => $this->unwrappedParagraphImageBlock($element),
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->mixedMediaLinkGroupFromParagraph($element, $fallbacks);
             },
@@ -10824,6 +10825,59 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
+     * The image block a paragraph unwraps into keeps the paragraph's selector
+     * identity, so rules that matched the paragraph in the source (type,
+     * structural position, its box) still reach the block that replaced it.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function unwrappedParagraphImageBlock(DOMElement $paragraph): ?array
+    {
+        $block = $this->imageBlockFromParagraph($paragraph);
+        if ( null === $block ) {
+            return null;
+        }
+        $path = $paragraph->getNodePath() ?? '';
+        $projections = $this->authorSelectorProjections();
+        $attrs = $block['attrs'];
+        $attrs['className'] = $this->mergeClassNames(
+            (string) ( $attrs['className'] ?? '' ),
+            ...$projections->semanticCarrierClasses($projections->ensureSemanticMarker($path), $path)
+        );
+        if ( $this->paragraphImageSetsLineBox($paragraph) ) {
+            $attrs['className'] = $this->mergeClassNames((string) $attrs['className'], SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS);
+        }
+
+        return $this->blockFactory->rebuild($block, $attrs);
+    }
+
+    /**
+     * An inline image with an authored vertical margin sizes its paragraph's
+     * line box: the margin sits inside the paragraph and never collapses with
+     * its siblings. A blockified image would let that margin collapse through
+     * the figure, so the figure keeps the image on a line instead.
+     */
+    private function paragraphImageSetsLineBox(DOMElement $paragraph): bool
+    {
+        $child = $this->paragraphImageChild($paragraph);
+        $image = $child instanceof DOMElement && 'img' === strtolower($child->tagName) ? $child : $child?->getElementsByTagName('img')->item(0);
+        if ( ! $image instanceof DOMElement
+            || ! in_array($this->resolvedDeclaration($image, 'display'), array( '', 'inline', 'inline-block' ), true)
+            || ! in_array($this->resolvedDeclaration($image, 'float'), array( '', 'none' ), true)
+            || ! in_array($this->resolvedDeclaration($image, 'position'), array( '', 'static', 'relative' ), true) ) {
+            return false;
+        }
+        foreach ( array( 'margin-top', 'margin-bottom' ) as $property ) {
+            $value = $this->resolvedDeclaration($image, $property);
+            if ( '' !== $value && ! in_array($value, array( '0', '0px', 'auto' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Route a paragraph containing a single image (or image-only link) through
      * the existing core/image primitive. Passive inline marks around that image
      * add no text formatting to preserve. Mixed content and multiple images
@@ -10832,6 +10886,34 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * @return array<string, mixed>|null
      */
     private function imageBlockFromParagraph(DOMElement $paragraph): ?array
+    {
+        $child = $this->paragraphImageChild($paragraph);
+        if ( ! $child instanceof DOMElement ) {
+            return null;
+        }
+
+        $tagName = strtolower($child->tagName);
+        if ( 'img' === $tagName ) {
+            return $this->convertImageElement($child);
+        }
+        if ( 'picture' === $tagName ) {
+            return $this->convertPictureElement($child);
+        }
+
+        if ( '' !== LinkUrlSanitizer::sanitize($this->attr($child, 'href')) ) {
+            return $this->imageBlockFromAnchor($child);
+        }
+
+        $image = $this->firstChildElement($child, 'img');
+        return $image instanceof DOMElement ? $this->convertImageElement($image) : null;
+    }
+
+    /**
+     * The image, picture or image-only anchor a paragraph wraps on its own
+     * (through passive inline marks), which unwraps the paragraph into a
+     * core/image block instead of a paragraph.
+     */
+    private function paragraphImageChild(DOMElement $paragraph): ?DOMElement
     {
         $child = null;
         foreach ( $paragraph->childNodes as $node ) {
@@ -10850,29 +10932,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $child instanceof DOMElement ) {
             return null;
         }
-
         if ( SourceDom::isInlineImageMark($child) ) {
-            return $this->imageBlockFromParagraph($child);
+            return $this->paragraphImageChild($child);
         }
-
         $tagName = strtolower($child->tagName);
-        if ( 'img' === $tagName ) {
-            return $this->convertImageElement($child);
-        }
-        if ( 'picture' === $tagName ) {
-            return $this->convertPictureElement($child);
+        if ( in_array($tagName, array( 'img', 'picture' ), true) || ( 'a' === $tagName && $this->isImageOnlyAnchor($child) ) ) {
+            return $child;
         }
 
-        if ( 'a' !== $tagName || ! $this->isImageOnlyAnchor($child) ) {
-            return null;
-        }
-
-        if ( '' !== LinkUrlSanitizer::sanitize($this->attr($child, 'href')) ) {
-            return $this->imageBlockFromAnchor($child);
-        }
-
-        $image = $this->firstChildElement($child, 'img');
-        return $image instanceof DOMElement ? $this->convertImageElement($image) : null;
+        return null;
     }
 
     /**
