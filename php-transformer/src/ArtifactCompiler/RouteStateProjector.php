@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
@@ -63,7 +64,7 @@ final class RouteStateProjector
             if ('html' !== ($file['kind'] ?? null) || ! is_string($file['content'] ?? null)) {
                 continue;
             }
-            $file['content'] = self::normalize($file['content']);
+            $file['content'] = self::normalize($file['content'], true);
         }
         unset($file);
 
@@ -472,7 +473,12 @@ final class RouteStateProjector
         return $rules;
     }
 
-    public static function normalize(string $html): string
+    /**
+     * The compiler retains page-item state until navigation can lift its paint
+     * to runtime selectors. Standalone normalization still removes router
+     * tokens; fragment links never retain them because they name no page.
+     */
+    public static function normalize(string $html, bool $preserveNavigationPresentation = false): string
     {
         if (! preg_match('/\saria-current\s*=|\sdata-status\s*=\s*["\']?active/i', $html)) {
             return $html;
@@ -523,13 +529,19 @@ final class RouteStateProjector
                         }
                     }
                 }
-                $state = array_values(array_filter($state ?? array(), static fn(string $class): bool => ! isset($restingClasses[$class]) && MenuVocabulary::containsCurrentStateToken($class)));
+                $state = array_values(array_filter($state ?? array(), static fn(string $class): bool => ! isset($restingClasses[$class]) && (MenuVocabulary::containsCurrentStateToken($class) || 'page_item' === $class || 1 === preg_match('/^page-item-\d+$/', $class))));
                 if (array() === $state) {
                     continue;
                 }
                 $changed = true;
                 foreach ($atLevel as $element) {
-                    $classes = array_values(array_diff(self::classes($element), $state));
+                    // Keep page-item evidence for navigation's current-paint
+                    // projection, but not router state on fragment links (Core
+                    // cannot restore those as the current page).
+                    $link = 'a' === strtolower($element->tagName) ? $element : $element->getElementsByTagName('a')->item(0);
+                    if ($preserveNavigationPresentation && self::inMenu($element) && $link instanceof DOMElement && !ArtifactPath::namesSection($link->getAttribute('href'))) continue;
+                    $elementState = array_filter($state, static fn(string $class): bool => ('page_item' !== $class && 1 !== preg_match('/^page-item-\d+$/', $class)) || AuthorSelectorProjectionState::hasWordPressCurrentSignal($element));
+                    $classes = array_values(array_diff(self::classes($element), $elementState));
                     if (array() === $classes) {
                         $element->removeAttribute('class');
                     } else {

@@ -16,7 +16,7 @@
     "content": "<nav class=\"site-nav\"><a href=\"/services\">Services</a><a class=\"btn btn-primary cta\" style=\"border-radius:999px;padding:12px 20px;background:#111;color:#fff\" href=\"/book\">Book Now</a></nav>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "site-nav blocks-engine-navigation-instance-49c7f8aa626e-0" } },
+    { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "site-nav blocks-engine-navigation-instance-c97ecd069f4c-0" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Services", "url": "/services", "kind": "custom" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Book Now", "url": "/book", "kind": "custom" } }
   ],

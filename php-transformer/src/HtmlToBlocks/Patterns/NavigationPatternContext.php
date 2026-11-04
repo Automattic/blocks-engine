@@ -643,20 +643,21 @@ final class NavigationPatternContext
             $targets = array();
             $collect($block['innerBlocks'] ?? array(), '');
             if (array() === $targets && array() === $current) {
-                $this->publishInheritedNavigationPresentation($block, $source->getNodePath() ?? '', '');
+                $this->publishInheritedNavigationPresentation($block, $source, '');
                 continue;
             }
             // The instance names the resting menu: per-item link colours follow
             // the served route, and current-item presentation is lifted above.
             $resting = array_filter($targets, static fn(string $marker): bool => 1 !== preg_match('/^blocks-engine-navigation-(?:current-color|link-color(?:-states)?)-/', $marker), ARRAY_FILTER_USE_KEY);
-            // A header-only parse roots the same navigation at /body.
-            $path = preg_replace('~^/body(?=/|$)~', '/html/body', $source->getNodePath() ?? '') ?? '';
-            $scope = $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $path . json_encode($resting));
+            // An ancestor may record this same emitted block again. Its first
+            // correspondence owns the instance and all subsequent projections.
+            preg_match('/(?:^|\s)(blocks-engine-navigation-instance-[a-f0-9]{12}-[0-9]+)(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''), $existing);
+            $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
             $this->recordCurrentItemPresentation($current, $scope, $source);
             $markup = (string) json_encode($block);
             $root = $source->getNodePath() ?? '';
-            $this->publishInheritedNavigationPresentation($block, $root, $scope);
+            $this->publishInheritedNavigationPresentation($block, $source, $scope);
             foreach ($this->pendingNavigationSubjects as $path => $subject) {
                 if ($path !== $root && !str_starts_with($path, $root . '/')) continue;
                 $marker = $subject['marker'];
@@ -680,6 +681,29 @@ final class NavigationPatternContext
             }
         }
         unset($block);
+    }
+
+    /**
+     * Chrome can be compiled alone or inside a route, without a landmark.
+     * Name its menu by source-owned identity, never sibling offsets. Stop at
+     * the landmark or top-level chrome root, excluding route/body wrappers.
+     * Resting subjects further distinguish menus with different contents.
+     */
+    private function navigationSourceIdentity(DOMElement $source): string
+    {
+        $identity = array();
+        $projections = $this->session->authorSelectorProjectionState();
+        for ($node = $source; $node instanceof DOMElement; $node = $node->parentNode) {
+            $tag = strtolower($node->tagName);
+            if (in_array($tag, array('html', 'body'), true)) break;
+            $classes = preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array();
+            $classes = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && !str_starts_with($class, 'blocks-engine-') && !$projections->isCurrentNavigationClass($class, $node) && !$projections->selectsCurrentNavigationState('.' . $class, $node)));
+            sort($classes);
+            $role = strtolower(trim($node->getAttribute('role')));
+            $identity[] = array($tag, $node->getAttribute('id'), $classes, $role);
+            if (in_array($tag, array('header', 'footer'), true) || in_array($role, array('banner', 'contentinfo'), true)) break;
+        }
+        return (string) json_encode($identity);
     }
 
     /** @var array<string, array{content: string, reset: string, state_mask: int}> Current-item presentation by item marker. */
@@ -814,7 +838,7 @@ final class NavigationPatternContext
                 if (is_array($suffix)) $text = substr($text, 0, (int) $suffix['start']);
                 // Current-only paint does not make an item a presented subject;
                 // its resting peers decide, so every route shapes it alike.
-                if ('' !== $text && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text) && $this->styleResolver->matchesCssSelector($element, $text)) return true;
+                if ('' !== $text && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text, $element) && $this->styleResolver->matchesCssSelector($element, $text)) return true;
             }
         }
         return false;
@@ -894,7 +918,7 @@ final class NavigationPatternContext
                 $text = (string) ($selector['selector'] ?? '');
                 // Route state is not item identity: the same item on every route
                 // carries one marker, whichever page the snapshot served.
-                if ('' !== $text && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text) && $this->styleResolver->matchesCssSelector($element, $text)) {
+                if ('' !== $text && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text, $element) && $this->styleResolver->matchesCssSelector($element, $text)) {
                     $rules[] = array($text, $rule['declarations'], $rule['conditions'] ?? array());
                 }
             }
@@ -904,7 +928,7 @@ final class NavigationPatternContext
             if ($sibling instanceof DOMElement) ++$position;
         }
         $projections = $this->session->authorSelectorProjectionState();
-        $classes = array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class) && !$projections->selectsCurrentNavigationState('.' . $class));
+        $classes = array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn(string $class): bool => !$projections->isCurrentNavigationClass($class, $element) && !$projections->selectsCurrentNavigationState('.' . $class, $element)));
         $identity = array(strtolower($element->tagName), $element->getAttribute('id'), implode(' ', $classes), $element->getAttribute('style'), \Automattic\BlocksEngine\PhpTransformer\Support\NavigationUrl::serialize($element->getAttribute('href')), $position, $rules);
         return $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-' . $kind, (string) json_encode($identity));
     }
@@ -1463,21 +1487,19 @@ final class NavigationPatternContext
     private array $pendingInheritedPresentations = array();
 
     /**
-     * Publish the presentation recovered from this source menu on the emitted
-     * block that carries its author classes, scoped to that block's instance
-     * when it has one, so another menu sharing the classes keeps its own type.
-     *
-     * A menu without item subjects has no instance scope yet; it gets one
-     * from the same allocator when it has presentation to publish.
+     * Publish recovered type only on the emitted menu that owns it.
      *
      * @param array<string, mixed> $block
      */
-    private function publishInheritedNavigationPresentation(array &$block, string $root, string $scope): void
+    private function publishInheritedNavigationPresentation(array &$block, DOMElement $source, string $scope): void
     {
         if (!$this->sourceTargetProjection instanceof SourceTargetProjectionState) return;
+        $root = $source->getNodePath() ?? '';
         $classes = preg_split('/\s+/', trim((string) ($block['attrs']['className'] ?? ''))) ?: array();
         foreach ($this->pendingInheritedPresentations as $index => $pending) {
-            if ($pending['path'] !== $root && !str_starts_with($pending['path'], $root . '/')) continue;
+            // The correspondence is rooted at the list, while the recovered
+            // inheritance may belong to its enclosing landmark.
+            if ($pending['path'] !== $root && !str_starts_with($pending['path'], $root . '/') && !str_starts_with($root, $pending['path'] . '/')) continue;
             if (array() !== array_diff($pending['classes'], $classes)) continue;
             if ('' === $scope && !$this->session instanceof HtmlTransformerSession) {
                 $this->sourceTargetProjection->record($pending['source'], '.wp-block-navigation' . CssIdent::compoundClassSelector($pending['classes']) . ' .wp-block-navigation-item__content', $pending['declarations']);
@@ -1485,9 +1507,8 @@ final class NavigationPatternContext
                 continue;
             }
             if ('' === $scope) {
-                // A header-only parse roots the same navigation at /body.
-                $identity = preg_replace('~^/body(?=/|$)~', '/html/body', $root) ?? '';
-                $scope = $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $identity . $pending['declarations']);
+                preg_match('/(?:^|\s)(blocks-engine-navigation-instance-[a-f0-9]{12}-[0-9]+)(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''), $existing);
+                $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . $pending['declarations']);
                 $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
             }
             $this->sourceTargetProjection->record($pending['source'], '.wp-block-navigation.' . $scope . ' .wp-block-navigation-item__content', $pending['declarations']);
