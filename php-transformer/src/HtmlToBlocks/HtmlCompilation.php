@@ -243,6 +243,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** After-author content-box restatements collected while projecting the author stylesheet assets. */
     private string $authorStylesheetContentBoxCss = '';
 
+    /** Author CSS visible to the document, captured once per transform for element-dispatch checks. */
+    private string $documentAuthorCss = '';
+
     /**
      * Core blocks this transformer can produce, keyed by the contract that
      * verifies that producer. Runtime registration is intentionally not part of
@@ -1629,6 +1632,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->projectedSelectorBindings = array();
         $this->glyphColorUndecodable = array();
         $this->capturedGlyphColors = null;
+        $this->documentAuthorCss = '';
         $this->currentSourcePath = (string) ($options['source'] ?? 'html');
         $this->session->installSourcePath($this->currentSourcePath);
         $this->sharedStylesheetPaths = array();
@@ -1745,7 +1749,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // Remove wrapper-convention custom elements before author selectors are
         // prepared, so style projection and component promotion both observe the
         // content rather than the source's wrapping convention.
-        $this->unwrapRenderNeutralCustomElements($body, $this->authoredCssText($html, (string) ($options['static_css'] ?? '')));
+        $this->documentAuthorCss = $this->authoredCssText($html, (string) ($options['static_css'] ?? ''));
+        $this->unwrapRenderNeutralCustomElements($body, $this->documentAuthorCss);
         $timer->start('transform.author_selector_preparation');
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
         $this->fallbackEmitter()->configure($this->transformationProvenance()->fallback(), $this->runtimeBehavior()->runtimeScriptMetadata(), $this->runtimeSelectors(), $this->authorSelectorProjections()->tagMarkers());
@@ -4363,6 +4368,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $customElementRuntime['block'];
         }
 
+        // Last disposition before the unsupported gate: a custom element whose
+        // whole subtree renders nothing is transport scaffolding, not lost
+        // content, so omit it without recording a fallback downstream importers
+        // would count as an unsupported reduction.
+        if ( $this->isEmptyRenderNeutralCustomElement($element) ) {
+            return null;
+        }
+
         if ( $captureUnsupported ) {
             return $this->unsupportedRecorder->record($element, $tagName, $fallbacks);
         }
@@ -4423,6 +4436,127 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $block['_editability_runtime_owned'] = true;
 
         return array( 'handled' => true, 'block' => $block );
+    }
+
+    /** Subtree tags that render media, graphics, or accept interaction; any of them keeps the host on its existing disposition. */
+    private const SUBTREE_RENDERING_TAGS = array(
+        'a', 'audio', 'base', 'button', 'canvas', 'details', 'dialog', 'embed', 'fieldset', 'form',
+        'iframe', 'img', 'input', 'label', 'link', 'map', 'meta', 'meter', 'object', 'output',
+        'picture', 'progress', 'script', 'select', 'slot', 'source', 'style', 'svg', 'template',
+        'textarea', 'track', 'video',
+    );
+
+    /** URL-bearing attributes; a nonempty value means the subtree references rendered content elsewhere. */
+    private const SUBTREE_URL_ATTRIBUTES = array( 'src', 'srcset', 'href', 'data-src', 'data-url' );
+
+    /**
+     * A hyphenated custom element whose whole subtree renders nothing: no
+     * text, no media, graphics, or iframes, no form or interactive controls,
+     * no runtime or event metadata, no accessible role or name, no
+     * URL-bearing attributes, and authored presentation limited to `display`
+     * (stylesheet rules addressing the tag and inline styles alike). The host
+     * itself carries no authored attributes beyond an anchor `id` and such
+     * geometry-neutral inline styles — a classed or configured host stays on
+     * its explicit diagnostic path. Nothing visible or interactive is lost by
+     * omitting such a slot, so it leaves no blocks and no unsupported-element
+     * fallback behind; identity attributes on its placeholder children (`class`,
+     * `id`, `data-hook`) are not runtime metadata and do not disqualify it.
+     *
+     * Every content-bearing disposition sits ahead of this check in the
+     * dispatch chain: proven runtimes and configuration-bearing hosts (the
+     * unproven finding), static graphics, background paint, and captured
+     * media have already been handled when an element reaches it.
+     */
+    private function isEmptyRenderNeutralCustomElement(DOMElement $element): bool
+    {
+        if ( ! str_contains(strtolower($element->tagName), '-')
+            || '' !== trim($element->textContent ?? '')
+            || SourceDom::hasRenderableMediaContent($element)
+            || ! $this->isSafeTransparentCustomElement($element)
+        ) {
+            return false;
+        }
+
+        // A host with authored attributes is a component instance, not an
+        // empty slot: its destination-less or labelled presentation keeps the
+        // explicit unsupported diagnostic.
+        foreach ( $element->attributes as $attribute ) {
+            $name = strtolower($attribute->name);
+            if ( 'id' === $name || 'style' === $name || '' === trim((string) $attribute->value) ) {
+                continue;
+            }
+            return false;
+        }
+
+        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            if ( in_array(strtolower($candidate->tagName), self::SUBTREE_RENDERING_TAGS, true)
+                || '' !== trim($this->attr($candidate, 'role'))
+                || '' !== trim($this->attr($candidate, 'aria-label'))
+                || '' !== trim($this->attr($candidate, 'aria-labelledby'))
+            ) {
+                return false;
+            }
+            foreach ( self::SUBTREE_URL_ATTRIBUTES as $attribute ) {
+                if ( '' !== trim($this->attr($candidate, $attribute)) ) {
+                    return false;
+                }
+            }
+            if ( ! $this->inlineStyleIsGeometryNeutral($candidate) ) {
+                return false;
+            }
+        }
+
+        return $this->customElementCssIsDisplayOnly(strtolower($element->tagName), $this->documentAuthorCss);
+    }
+
+    /** Inline presentation beyond `display` (paint, typography, spacing) means the subtree is not render-empty. */
+    private function inlineStyleIsGeometryNeutral(DOMElement $candidate): bool
+    {
+        $style = trim(SourceDom::attr($candidate, 'style'));
+        if ( '' === $style ) {
+            return true;
+        }
+        foreach ( array_keys($this->styleResolver->cssDeclarations($style)) as $property ) {
+            if ( 'display' !== strtolower(trim((string) $property)) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether every author rule addressing the tag declares only `display`.
+     * Unlike the wrapper-convention check, which requires `display:contents`,
+     * any display value stays render-empty here: the subtree has no content
+     * to show, so the box the element generates paints nothing.
+     */
+    private function customElementCssIsDisplayOnly(string $tag, string $css): bool
+    {
+        if ( '' === trim($css) ) {
+            return true;
+        }
+
+        $pattern = '/(?<![\w-])' . preg_quote($tag, '/') . '(?![\w-])/i';
+        if ( 1 !== preg_match($pattern, $css) ) {
+            return true;
+        }
+
+        foreach ( $this->cssRuleBlocks($css) as $rule ) {
+            if ( 1 !== preg_match($pattern, $rule['selector']) ) {
+                continue;
+            }
+            foreach ( array_keys($this->styleResolver->cssDeclarations($rule['declarations'])) as $property ) {
+                if ( 'display' !== strtolower(trim((string) $property)) ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     /** A `li` whose parent is not a list: invalid markup the list converter never reaches. */
