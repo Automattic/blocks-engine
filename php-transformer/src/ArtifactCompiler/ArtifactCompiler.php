@@ -242,15 +242,21 @@ final class ArtifactCompiler
         return $this->stylesheetStructure ??= new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache();
     }
 
+    /** @param array<string, mixed> $sheet @return array<string, mixed> */
+    private function stylesheetAssetWithStructure(array $sheet): array
+    {
+        $cache = $this->stylesheetStructureCache();
+        // Identify the actual ingested bytes, not a possibly stale provenance
+        // hash: compatibility projection can change a file without changing it.
+        $cache->sheet((string) $sheet['content']);
+        $sheet['_structure_cache'] = $cache;
+        return $sheet;
+    }
+
     public function compile(array $artifact): TransformerResult
     {
-        $previous = \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache::activate($this->stylesheetStructureCache());
-        try {
-            $this->htmlDocumentTransformCount = 0;
-            return $this->compileArtifact($this->composeInputArtifact($artifact));
-        } finally {
-            \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache::activate($previous);
-        }
+        $this->htmlDocumentTransformCount = 0;
+        return $this->compileArtifact($this->composeInputArtifact($artifact));
     }
 
     /**
@@ -1836,7 +1842,7 @@ final class ArtifactCompiler
             'declarative_state_html'    => $html,
             'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),
             'stylesheet_payloads'       => $stylesheetPayloads,
-            'author_stylesheet_assets'  => $stylesheetAssets,
+            'author_stylesheet_assets'  => array_map($this->stylesheetAssetWithStructure(...), $stylesheetAssets),
             'author_layer_order'        => (new AuthorCascadeLayerOrder())->statement($layerOrderCss),
             'shared_stylesheet_paths'   => $this->sharedStylesheetPathsFromFiles($files),
             'skip_author_stylesheet_materialization' => true,
@@ -2396,7 +2402,7 @@ final class ArtifactCompiler
         // carries its geometry in the author sheet and must not be replayed.
         // Apply the same selection to route-owned deltas.
         $authoredByPath = array_column($authoredFiles, null, 'path');
-        $transformer = new CssStylesheetTransformer();
+        $transformer = new CssStylesheetTransformer($this->stylesheetStructureCache());
         foreach ($files as &$file) {
             if ('css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) continue;
             $source = $authoredByPath[$file['path']]['content'] ?? $authoredByPath[$file['metadata']['page_stylesheet_of'] ?? '']['content'] ?? $file['content'];
@@ -2465,7 +2471,7 @@ final class ArtifactCompiler
         if (isset($ancestors[$path])) return '';
         $ancestors[$path] = true;
         if ($importedLayer) $this->layeredNavigationImports[$path] = true;
-        $split = (new CssStylesheetTransformer())->splitLeadingAtRulePreamble($css);
+        $split = (new CssStylesheetTransformer($this->stylesheetStructureCache()))->splitLeadingAtRulePreamble($css);
         $preamble = array();
         $byPath = array_column($files, null, 'path');
         foreach ($split['statements'] as $statement) {
@@ -2773,7 +2779,7 @@ final class ArtifactCompiler
                 $pageByPath[$projection['path']][$owner][] = $projection['content'];
             }
         }
-        $transformer = new CssStylesheetTransformer();
+        $transformer = new CssStylesheetTransformer($this->stylesheetStructureCache());
         $routeIdentities = array();
         $routeDocuments = array();
         $timer?->start('compose.author_stylesheet_projections.route_documents');
@@ -3420,7 +3426,7 @@ final class ArtifactCompiler
         // as inline style does. The matching class arm of :is() supplies the
         // ID weight without an authored ID, like InlineGeometry's carriers.
         $ids = 0;
-        $transformer = new CssStylesheetTransformer();
+        $transformer = new CssStylesheetTransformer($this->stylesheetStructureCache());
         foreach ($files as $file) {
             if ('css' !== ($file['kind'] ?? '')) continue;
             $transformer->visitStyleRules((string) ($file['content'] ?? ''), static function (string $prelude) use (&$ids): void {

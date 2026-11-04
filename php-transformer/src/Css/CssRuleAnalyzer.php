@@ -9,6 +9,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
  */
 final class CssRuleAnalyzer
 {
+    private ?CssStylesheetStructureCache $structureCache = null;
     /**
      * @param list<array<string, mixed>> $stylesheets
      * @param list<string> $properties
@@ -17,10 +18,12 @@ final class CssRuleAnalyzer
      */
     public function analyze(array $stylesheets, string $inlineCss, array $properties, int $maxCssBytes, int $maxRules, int $maxSelectors, int $maxConditionDepth, ?callable $retainSelector = null, ?int $maxScannedSelectors = null): array
     {
+        $this->structureCache = null;
         $result = array( 'rules' => array(), 'diagnostics' => array(), 'truncated' => false );
         $counters = array( 'order' => 0, 'retained' => 0, 'scanned' => 0, 'max_scanned' => $maxScannedSelectors ?? $maxSelectors );
 
         foreach ( $stylesheets as $sheet ) {
+            $this->structureCache = $sheet['_structure_cache'] ?? null;
             $css = (string) ( $sheet['content'] ?? '' );
             $stream = $this->stylesheetStream($css, (string) ( $sheet['source_path'] ?? $sheet['path'] ?? '' ), (string) ( $sheet['source_hash'] ?? '' ), $this->linkCondition($sheet), $properties, $maxCssBytes, $maxConditionDepth);
             if ( ! $this->replay($stream, $maxRules, $maxSelectors, $retainSelector, $result, $counters) ) {
@@ -73,7 +76,7 @@ final class CssRuleAnalyzer
      */
     private function stylesheetStream(string $css, string $path, string $hash, ?array $condition, array $properties, int $maxCssBytes, int $maxConditionDepth): array
     {
-        $key = hash('xxh128', $css) . "\0" . serialize(array( $path, $hash, $condition, $properties, $maxCssBytes, $maxConditionDepth ));
+        $key = (null === $this->structureCache ? hash('xxh128', $css) : $this->structureCache->sheet($css)['identity']) . "\0" . serialize(array( $path, $hash, $condition, $properties, $maxCssBytes, $maxConditionDepth ));
         if ( isset(self::$streams[ $key ]) ) {
             $stream = self::$streams[ $key ];
             unset(self::$streams[ $key ]);
@@ -186,28 +189,22 @@ final class CssRuleAnalyzer
             $css = substr($css, 0, $maxCssBytes);
             $diagnostic('css_bytes_truncated:' . $path, true);
         }
-        for ( $offset = 0, $length = strlen($css); $offset < $length; ) {
-            $boundary = $this->nextRuleBoundary($css, $offset);
-            if ( null === $boundary ) {
-                if ( $this->hasNonTrivia($css, $offset) ) {
-                    $diagnostic('malformed_stylesheet:' . $path, false);
-                }
+        $structure = ($this->structureCache ?? new CssStylesheetStructureCache())->sheet($css);
+        foreach ($structure['units'] as $unit) {
+            $offset = $unit['offset'];
+            $boundary = $unit['boundary'];
+            if (null === $boundary) {
+                if ($this->hasNonTrivia($css, $offset)) $diagnostic('malformed_stylesheet:' . $path, false);
                 return;
             }
-
-            if ( ';' === $css[ $boundary ] ) {
-                $offset = $boundary + 1;
-                continue;
-            }
-
-            $end = $this->matchingBrace($css, $boundary);
-            if ( null === $end ) {
+            if (';' === $css[$boundary]) continue;
+            $end = $unit['end'];
+            if (null === $end) {
                 $diagnostic('malformed_stylesheet:' . $path, false);
                 return;
             }
-
-            $prelude = trim(substr($css, $offset, $boundary - $offset));
-            $body = substr($css, $boundary + 1, $end - $boundary - 1);
+            $prelude = trim($unit['prelude']);
+            $body = $unit['body'];
             $atRule = $this->atRule($prelude);
             if ( null !== $atRule ) {
                 if ( in_array($atRule['name'], array( 'media', 'container', 'supports' ), true) ) {
@@ -387,11 +384,6 @@ final class CssRuleAnalyzer
         return array( 'kind' => 'all', 'conditions' => 'all' === ($left['kind'] ?? null) ? array_merge($left['conditions'], array($right)) : array($left, $right) );
     }
 
-    private function nextRuleBoundary(string $css, int $offset): ?int
-    {
-        return CssStylesheetStructureCache::boundary($css, $offset);
-    }
-
     /**
      * A stylesheet may legally end with whitespace and comments, including a
      * source-map comment. Preserve malformed-input diagnostics for every other
@@ -455,8 +447,4 @@ final class CssRuleAnalyzer
         return '' !== $character && (ctype_alnum($character) || '_' === $character || '-' === $character || '\\' === $character);
     }
 
-    private function matchingBrace(string $css, int $openingBrace): ?int
-    {
-        return CssStylesheetStructureCache::brace($css, $openingBrace);
-    }
 }

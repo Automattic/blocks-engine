@@ -185,12 +185,7 @@ trait StagedTransport
     /** Compile one serialized page plan without receiving the source artifact. */
     public function compilePreparedPage(array $sharedPlan, array $pagePlan, ?PayloadReader $payloadReader = null): array
     {
-        $previous = \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache::activate($this->stylesheetStructureCache());
-        try {
-            return $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $this->preparedPageCompiler(), $payloadReader);
-        } finally {
-            \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache::activate($previous);
-        }
+        return $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $this->preparedPageCompiler(), $payloadReader);
     }
 
     /**
@@ -202,16 +197,6 @@ trait StagedTransport
      * @return array<string,array<string,mixed>>
      */
     public function compilePreparedPages(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null): array
-    {
-        $previous = \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache::activate($this->stylesheetStructureCache());
-        try {
-            return $this->compilePreparedPagesWithStructure($sharedPlan, $pagePlans, $payloadReader);
-        } finally {
-            \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache::activate($previous);
-        }
-    }
-
-    private function compilePreparedPagesWithStructure(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader): array
     {
         $this->assertSharedPlan($sharedPlan);
         $stageCompiler = $this->preparedPageCompiler();
@@ -230,6 +215,7 @@ trait StagedTransport
     private function preparedPageCompiler(): self
     {
         $compiler = new self(beforeDocumentTransform: $this->beforeDocumentTransform);
+        $compiler->stylesheetStructure = $this->stylesheetStructureCache();
         $compiler->htmlTransformerAnalysisCache = $this->htmlTransformerAnalysisCache ?? new HtmlTransformerAnalysisCache();
         $compiler->glyphColorByHash = &$this->glyphColorByHash;
         $compiler->glyphColorInspectionCount = &$this->glyphColorInspectionCount;

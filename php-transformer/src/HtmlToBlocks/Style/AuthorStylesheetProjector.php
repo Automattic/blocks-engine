@@ -74,7 +74,14 @@ final class AuthorStylesheetProjector
      */
     public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
-        $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
+        $cache = null;
+        foreach ($context->authorStyles->stylesheetAssets() as $asset) {
+            if ($stylesheet === $asset['content']) {
+                $cache = $asset['_structure_cache'] ?? null;
+                break;
+            }
+        }
+        $projected = ( new CssStylesheetTransformer($cache) )->transformStyleRules(
             $stylesheet,
             fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, $body, $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions)
         );

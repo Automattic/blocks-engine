@@ -1,42 +1,55 @@
-# Shared stylesheet structure (#4238)
+# Shared stylesheet structure replay
 
-Reduced regression: four pages, one shared stylesheet, one distinct sheet per
-page, and a contact form on each page. One `ArtifactCompiler` compiles all four.
-This deliberately does not use a whole-stylesheet-set cache: every set differs.
+## Review correction
 
-Before editing the implementation, temporary instrumentation in
-`CssStylesheetTransformer::nextRuleBoundary` recorded **108 boundary scans** of
-the shared stylesheet; the four-page compile took **0.1630 s**. Instrumenting the
-replacement scanner on the same fixture recorded **4 boundary scans**, building
-that stylesheet's top-level structure once; a measured run took **0.1701 s**.
-These are single native-PHP runs of a tiny fixture, not evidence of an end-to-end
-speedup. Startup and unrelated compilation work dominate this fixture.
+The original offset cache used ambient static activation and repeatedly SHA-256
+hashed alternating stylesheet strings. Its hardcoded compiled-output hash was
+invalid because richtext/control markers are run-random. Neither approach remains.
 
-The contract `tests/contract/shared-stylesheet-structure.php` asserts one actual
-structure construction for the shared stylesheet and each of the four distinct
-page stylesheets. It hashes the entire result envelope after excluding timing
-metrics, including fallbacks, layout/presentation graphs and source reports.
-The trunk and fixed SHA-256 are both:
+The compiler now owns source-preserving parsed units (prelude, body, source
+positions, malformed tails and validity). Stylesheet assets carry the owner into
+analysis and projection; staged workers explicitly share that owner. Each source
+is SHA-256 identified at ingestion once. The lookup uses PHP string table keys,
+whose string hashes PHP retains, rather than repeatedly hashing whole strings
+cryptographically. Actual content is authoritative, not potentially stale source
+provenance hashes. Nested bodies are separately interned. Generated standalone
+CSS uses the streaming scanner, avoiding unnecessary retained trees.
 
-```
-d4e54e9432ee44e4202731af3cc022e04e06758fda40756384bfc27b742cdca3
-```
+## Reduced fixture and measurements
 
-With all four modified implementation files restored from HEAD, the new contract
-exits 1 with `FAIL: shared stylesheet must be parsed once ...: 0, d4e54e...`.
-(The zero means trunk has no compiler-owned structure counter.) Restoring the
-implementation makes it pass. Temporary measurement instrumentation was removed.
+`tests/fixtures/contract/shared-stylesheet-structure/shared-css.php` reduces the
+native replay shape to 22 shared sheets totaling 964,482 bytes, nested layer/media
+blocks, and page-local CSS. Eight pages alternate those sheets, as the reported
+worker did. This is synthetic, not the unavailable real Wix capture.
 
-The structure owner retains source offsets and validity by content hash, not DOM
-nodes, per-page query results, source paths, conditions or property filters.
-Repeated identical inputs add no entries; memory follows distinct stylesheet
-content, including generated stylesheet content, rather than page count. Nested
-bodies queried by walkers are also content-addressed. Active ownership is scoped
-with `try/finally`, including staged batches, and does not retain the compiler in
-process-global state between calls.
+Native PHP measurements in this workspace:
 
-The operator will re-measure the real **30-page Wix import after merge**.
+| Eight-page full compile | Wall | Peak allocated memory |
+| --- | ---: | ---: |
+| trunk ab5a72ff | 1.6542 s | 180.7 MB |
+| original PR e206237c | 2.6996 s | 180.7 MB |
+| revised, shared compiler | 1.6893 s | 182.7 MB |
+| revised, fresh compiler per page | 1.7488 s | 182.7 MB |
 
-AI disclosure: model `cook-heavy` (provider: Roadie), using Pi, read the issues,
-implemented the cache, wrote the regression, and ran the measurements and tests.
-The harness did not expose a more specific underlying model identity.
+The revision is 37.4% faster than the reviewed branch and 3.4% faster than the
+equivalent fresh path. It is still 2.1% slower than trunk on this small full-compile
+fixture; this is not evidence of a real-import end-to-end speedup. A separate
+alternating-sheet transformer replay measured 0.0097 s uncached versus 0.0058 s
+cached (40% faster), including cold construction. Timings are observations, not
+flaky test assertions.
+
+The benchmark writes normalized full output for direct byte comparison. Revised
+shared, revised fresh and trunk outputs compared equal, with only metrics/timing
+fields removed and `blocks-engine-(richtext|control)-<hex>` normalized. No expected
+output digest is embedded in the test. The contract also compares complete form
+compiles against fresh compiler instances, and verifies one parse per shared or
+page-local source. The large replay retains 74 distinct source entries (22 sheets,
+44 nested bodies, eight page sheets); repeating the pages leaves that count
+unchanged. Memory is retained by distinct source bytes, not page invocations.
+
+The new contract was run against the original PR with its own Composer autoloader
+and failed on the explicit no-ambient-activation requirement. The old cache also
+cannot populate the per-instance reduced replay without global activation.
+
+AI disclosure: OpenAI's coding assistant via Pi read the review, implemented the
+revision, added fixtures and comparisons, ran measurements, and drafted this note.
