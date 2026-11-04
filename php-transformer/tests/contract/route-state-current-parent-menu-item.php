@@ -27,7 +27,7 @@ $menu = static function (string $served): string {
         return '<li' . $class . '><a href="' . $href . '" class="menu-item"' . $state . '>' . $label . '</a>' . $submenu . '</li>';
     };
     $submenu = '<ul>' . $item('/models/fiat/', 'Fiat', $served) . $item('/models/ford/', 'Ford', $served) . '</ul>';
-    return '<header><ul id="menu">' . $item('/', 'Home', $served) . $item('/about/', 'About', $served) . $item('/models/', 'Models', $served, $submenu) . '</ul></header>';
+    return '<header><nav><ul id="menu">' . $item('/', 'Home', $served) . $item('/about/', 'About', $served) . $item('/models/', 'Models', $served, $submenu) . '</ul></nav></header>';
 };
 $resting = static fn(string $html): string => str_replace(' aria-current="true"', '', $html);
 
