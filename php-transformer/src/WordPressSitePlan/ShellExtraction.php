@@ -722,10 +722,11 @@ final class ShellExtraction
     /** @param array<int,string> $occupiedAreas @return array<int,array<string,mixed>> */
     private function nestedLandmarkShellCandidates(string $markup, string $sourcePath, array $occupiedAreas): array
     {
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         $candidates = array();
         foreach (array('header', 'footer') as $area) {
             if (in_array($area, $occupiedAreas, true)) continue;
-            $rows = $this->nestedLandmarkCandidates($markup, $sourcePath, $area);
+            $rows = $this->nestedLandmarkCandidates($markup, $sourcePath, $area, $index);
             if (array() === $rows) continue;
             if (!empty($rows[0]['document_level']) && 1 < count($rows)) continue;
             $identities = array_column($rows, 'identity_markup');
@@ -1036,36 +1037,17 @@ final class ShellExtraction
     /** @return array<int,array{token:string,offset:int,closing:bool,name:string,attributes:string,self_closing:bool}> */
     private static function blockCommentTokens(string $markup): array
     {
-        $tokens = array();
-        $cursor = 0;
-        $length = strlen($markup);
-        while ($cursor < $length) {
-            $start = strpos($markup, '<!--', $cursor);
-            if (false === $start) break;
-            $end = strpos($markup, '-->', $start + 4);
-            if (false === $end) break;
-            $token = substr($markup, $start, $end + 3 - $start);
-            $cursor = $end + 3;
-            if (!preg_match('/^<!--\s*(\/?)wp:([^\s]+)(?:\s+(.*?))?\s*(\/?)-->$/s', $token, $match)) continue;
-            $tokens[] = array(
-                'token' => $token,
-                'offset' => $start,
-                'closing' => '' !== $match[1],
-                'name' => $match[2],
-                'attributes' => trim($match[3] ?? ''),
-                'self_closing' => '' !== ($match[4] ?? '') || str_ends_with(rtrim($token), '/-->'),
-            );
-        }
-        return $tokens;
+        return (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->tokens();
     }
 
     /** @return array<int,array<string,mixed>> */
-    private function nestedLandmarkCandidates(string $markup, string $sourcePath, string $area): array
+    private function nestedLandmarkCandidates(string $markup, string $sourcePath, string $area, ?\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index = null): array
     {
         // Keep the existing shell-main rule, with an exception for a unique
         // document-edge landmark inside main/section. Article/aside landmarks
         // remain content even when they happen to sit at a document edge.
-        $tokens = self::blockCommentTokens($markup);
+        $index ??= new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $tokens = $index->tokens();
         $landmarks = array();
         foreach ($tokens as $token) {
             if ($token['closing']) continue;
@@ -1074,7 +1056,7 @@ final class ShellExtraction
         }
         $uniqueLandmark = 1 === count($landmarks) ? $landmarks[0] : null;
         $rows = array(); $stack = array(); $shellMains = null; $documentEnds = array();
-        foreach (self::topLevelBlockRanges($markup) as $range) $documentEnds[$range['offset']] = $range['offset'] + $range['length'];
+        foreach ($index->topLevel() as $range) $documentEnds[$range['offset']] = $range['offset'] + $range['length'];
         foreach ($tokens as $token) {
             $offset = $token['offset']; $closing = $token['closing']; $selfClosing = $token['self_closing'];
             if ($closing) {
@@ -1177,7 +1159,7 @@ final class ShellExtraction
             $disjoint[] = $row;
             $outerEnd = $end;
         }
-        $rows = $this->captureScopeEdges($markup, $disjoint, $area);
+        $rows = $this->captureScopeEdges($index, $disjoint, $area);
         foreach ($rows as $variant => &$row) { unset($row['main_ancestors']); $row['variant'] = $variant; } unset($row);
         return $rows;
     }
@@ -1190,11 +1172,12 @@ final class ShellExtraction
      * @param list<array<string,mixed>> $rows
      * @return list<array<string,mixed>>
      */
-    private function captureScopeEdges(string $markup, array $rows, string $area): array
+    private function captureScopeEdges(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $rows, string $area): array
     {
+        $markup = $index->markup;
         if (!str_contains($markup, CaptureEvidence::DOCUMENT_SCOPE)) return $rows;
         $stack = array(); $scopes = array();
-        foreach (self::blockCommentTokens($markup) as $token) {
+        foreach ($index->tokens() as $token) {
             if ($token['closing']) {
                 $open = array_pop($stack);
                 if (!is_array($open) || !$open['scope']) continue;
@@ -3069,19 +3052,7 @@ final class ShellExtraction
      */
     private static function blockRangesAtDepth(string $markup, int $depth): array
     {
-        $ranges = array(); $stack = array();
-        foreach (self::blockCommentTokens($markup) as $token) {
-            if ($token['closing']) {
-                $open = array_pop($stack);
-                if (is_int($open) && count($stack) === $depth) $ranges[] = array('offset' => $open, 'length' => $token['offset'] + strlen($token['token']) - $open);
-            } elseif ($token['self_closing']) {
-                if (count($stack) === $depth) $ranges[] = array('offset' => $token['offset'], 'length' => strlen($token['token']));
-            } else {
-                $stack[] = $token['offset'];
-            }
-        }
-        usort($ranges, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
-        return $ranges;
+        return (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->atDepth($depth);
     }
 
     /** @return array<int,array{offset:int,length:int}> */
@@ -3093,7 +3064,8 @@ final class ShellExtraction
     /** @return array<int,array{offset:int,length:int}> The direct children of a markup that is exactly one block. */
     private static function directChildBlockRanges(string $markup): array
     {
-        return 1 === count(self::topLevelBlockRanges($markup)) ? self::blockRangesAtDepth($markup, 1) : array();
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        return 1 === count($index->topLevel()) ? $index->atDepth(1) : array();
     }
 
     private static function isGroupBlock(string $markup): bool { return preg_match('/^<!--\s*wp:group(?:\s|\{)/', $markup) === 1; }
