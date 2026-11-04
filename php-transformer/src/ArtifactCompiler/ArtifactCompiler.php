@@ -469,10 +469,19 @@ final class ArtifactCompiler
         $runtimeDeclarationDiagnostics = array();
         $runtimeEntityRecords = array();
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files'], $runtimeDeclarationDiagnostics, $runtimeEntityRecords);
-        // `_collection_binding_declined` is consumed above and never part of
-        // the published fallback contract.
+        // Internal fallback markers are consumed above and never part of the
+        // published contract. Ambiguous description candidates were used to
+        // build the unrepresented-text diagnostic; remove them from findings
+        // too, keeping their controls identical to the declared form entity.
         $allFallbacks = array_map(static function (mixed $fallback): mixed {
-            if (is_array($fallback)) unset($fallback['_collection_binding_declined']);
+            if ( ! is_array($fallback) ) return $fallback;
+            unset($fallback['_collection_binding_declined']);
+            if ( is_array($fallback['controls'] ?? null) ) {
+                foreach ( $fallback['controls'] as &$control ) {
+                    if ( is_array($control) ) unset($control['_unresolved_description_candidates']);
+                }
+                unset($control);
+            }
             return $fallback;
         }, $allFallbacks);
         $pageMarkup = array();
