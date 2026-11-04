@@ -1,0 +1,7 @@
+<?php
+// Issue #4330: unlabeled chrome nested inside sibling capture documents.
+$document = static function (string $title): string {
+    $inner = '<div class="body-element-container"><div class="body-element-wrapper"><div class="view-mode" id="body-element"><div class="header-section"><nav class="top header-element"><a href="/"><img src="/logo.png" alt="Acme" width="80" height="30"></a><nav class="menu"><a href="/">Home</a><a href="/services/">Services</a></nav></nav></div><div class="page-section"><h1>' . $title . '</h1><p>Body text for ' . $title . '.</p></div><div class="footer-section"><p>© Acme</p></div></div></div></div>';
+    return '<!doctype html><html><head><meta charset="utf-8"><title>' . $title . '</title><style>html,body{margin:0}.top{display:flex;gap:24px;align-items:center;padding:12px}.menu a{margin-right:16px}@media (max-width:767px){.data-blocks-engine-capture-desktop-document{display:none}}@media (min-width:768px){.data-blocks-engine-capture-mobile-document{display:none}}</style></head><body><div class="data-blocks-engine-capture-desktop-document" data-blocks-engine-capture-document-scope="">' . $inner . '</div><div class="data-blocks-engine-capture-mobile-document" data-blocks-engine-capture-document-scope="">' . $inner . '</div></body></html>';
+};
+return array('entrypoint' => 'index.html', 'files' => array('index.html' => $document('Home'), 'services/index.html' => $document('Services')));

@@ -267,6 +267,7 @@
       "php tests/contract/navigation-explicit-references.php",
       "php tests/contract/shared-shell-containment.php",
       "php tests/contract/viewport-shell.php",
+      "php tests/contract/unlabeled-viewport-shell.php",
       "php tests/contract/shared-chrome-stylesheet-scope.php",
       "php tests/contract/native-view-site-stylesheets.php",
       "php tests/contract/shared-chrome-titled-stylesheet.php",
