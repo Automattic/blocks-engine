@@ -653,8 +653,12 @@ final class StyleResolver implements ElementPresentationResolver
         $conditionalFamilies = array();
         foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
             $selector = (string) ($rule['selector'] ?? '');
+            // A shared class token is only a fallback for selectors we cannot
+            // evaluate. A supported non-match (for example a.label against
+            // p.label) cannot give this element conditional style ownership.
             if (! $this->matchesCssSelector($element, $selector)
-                && ! $this->unsupportedSelectorReferencesElement($selector, $element)
+                && ($this->isSupportedCssSelector($selector)
+                    || ! $this->unsupportedSelectorReferencesElement($selector, $element))
             ) {
                 continue;
             }

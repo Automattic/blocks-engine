@@ -82,5 +82,52 @@ $assert('' !== $firstBlock($painted['blocks'] ?? array(), 'core/paragraph'), 'pa
 $assert(str_contains((string) ($painted['serialized_blocks'] ?? ''), 'href="/kontakt/"'), 'painting wrapper: the container keeps its destination');
 $assert(str_contains((string) ($painted['serialized_blocks'] ?? ''), 'background-color:red'), 'painting wrapper: the wrapper keeps its own paint');
 
+// Rule-level bisect of the real Framer import. Every row must retain #101010.
+// Before the resolver fix:
+// | Extra rule | style.color.text |
+// | --- | --- |
+// | @supports not (color:color(display-p3 1 1 1)){a.framer-text{color:red}} | LOST |
+// | @supports not (display:grid){a.framer-text[data-current]{color:red}} | LOST |
+// | @supports (display:flex){a.framer-text[data-current]{color:red}} | kept |
+// | @supports not (display:grid){a[data-current]{color:red}} | kept |
+// | @media (min-width:1px){a[data-current]{color:red}} | kept |
+// | a.framer-text[data-current]{color:red} | kept |
+$conditionalRules = array(
+    'LOST: negated gamut supports / missing class' => '@supports not (color:color(display-p3 1 1 1)){a.framer-text{color:red}}',
+    'LOST: negated grid supports / missing class and attribute' => '@supports not (display:grid){a.framer-text[data-current]{color:red}}',
+    'kept: positive supports' => '@supports (display:flex){a.framer-text[data-current]{color:red}}',
+    'kept: negated supports / missing attribute' => '@supports not (display:grid){a[data-current]{color:red}}',
+    'kept: media / missing attribute' => '@media (min-width:1px){a[data-current]{color:red}}',
+    'kept: unconditional / missing class and attribute' => 'a.framer-text[data-current]{color:red}',
+    'kept: no extra rule' => '',
+);
+$minimalDocument = <<<'HTML'
+<!doctype html><html><head><style>
+body{--token-ink:#101010;--token-lime:#c6ff4d}
+p.framer-text{color:var(--framer-blockquote-text-color-rgb,var(--framer-blockquote-text-color,var(--framer-text-color-rgb,var(--framer-text-color,#000))))}
+.cta{display:flex;padding:16px 24px;border-radius:2px;text-decoration:none}
+%s
+</style></head><body><main><section>
+<a class="cta" href="/leistungen/" style="background-color:var(--token-lime)"><div class="label" style="--extracted-r6o4lv: var(--token-ink)"><p class="framer-text" style="--framer-font-size:14px;--framer-text-color:var(--extracted-r6o4lv, var(--token-ink))">Alle Leistungen ansehen</p></div></a>
+</section></main></body></html>
+HTML;
+foreach ($conditionalRules as $label => $rule) {
+    $result = (new HtmlTransformer())->transform(sprintf($minimalDocument, $rule))->toArray();
+    $button = $firstBlock($result['blocks'] ?? array(), 'core/button');
+    $color = $button['attrs']['style']['color']['text'] ?? null;
+    $assert('#101010' === $color, $label . ': expected style.color.text #101010; got ' . json_encode($color));
+}
+
+// A conditional rule that really can match must still own the color in CSS,
+// rather than being frozen into an unconditional native text-color attribute.
+foreach (array(
+    '@supports not (display:grid){p.framer-text{color:red}}',
+    '@media (min-width:1px){p.framer-text{color:red}}',
+) as $rule) {
+    $result = (new HtmlTransformer())->transform(sprintf($minimalDocument, $rule))->toArray();
+    $button = $firstBlock($result['blocks'] ?? array(), 'core/button');
+    $assert(null !== $button && !isset($button['attrs']['style']['color']['text']), 'matching conditional selector keeps color stylesheet-owned: ' . $rule);
+}
+
 if ($failures) { fwrite(STDERR, implode("\n", $failures) . "\n"); exit(1); }
 echo "Button link wrapped label contract passed\n";
