@@ -87,6 +87,7 @@ final class SourceStyleResolutionState
     private array $matchedRules = array();
 
     private string $formLayoutCss = '';
+    private ?ContainerStyleQueries $containerStyleQueries = null;
 
     public function __construct()
     {
@@ -333,6 +334,13 @@ final class SourceStyleResolutionState
     public function setFormLayoutCss(string $css): void
     {
         $this->formLayoutCss = $css;
+        $this->containerStyleQueries = null;
+    }
+
+    /** Viewport truth of the combined author stylesheet's container style queries. */
+    public function containerStyleQueries(): ContainerStyleQueries
+    {
+        return $this->containerStyleQueries ??= new ContainerStyleQueries($this->formLayoutCss);
     }
 
     public function formLayoutCss(): string
