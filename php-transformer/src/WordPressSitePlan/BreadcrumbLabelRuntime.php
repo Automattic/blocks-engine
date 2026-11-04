@@ -26,19 +26,11 @@ final class BreadcrumbLabelRuntime
         }
         $labels = array();
         foreach ($documents as $document) {
-            $markup = (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? '');
-            if (! str_contains($markup, 'blocksEngineBreadcrumbTrail')) {
-                continue;
-            }
-            preg_match_all('/<!-- wp:breadcrumbs (\{.*?\}) \/-->/s', $markup, $matches);
-            foreach ($matches[1] as $json) {
-                $attributes = json_decode($json, true);
-                foreach (is_array($attributes) ? ($attributes['metadata']['blocksEngineBreadcrumbTrail'] ?? array()) : array() as $crumb) {
-                    $route = is_string($crumb['route'] ?? null) ? $crumb['route'] : '';
-                    $label = is_string($crumb['label'] ?? null) ? $crumb['label'] : '';
-                    if ('' !== $route && '' !== $label && isset($titles[$route]) && $label !== $titles[$route] && ! isset($labels[$route])) {
-                        $labels[$route] = $label;
-                    }
+            foreach (self::trail($document) as $crumb) {
+                $route = is_string($crumb['route'] ?? null) ? $crumb['route'] : '';
+                $label = is_string($crumb['label'] ?? null) ? $crumb['label'] : '';
+                if ('' !== $route && '' !== $label && isset($titles[$route]) && $label !== $titles[$route] && ! isset($labels[$route])) {
+                    $labels[$route] = $label;
                 }
             }
         }
@@ -46,11 +38,71 @@ final class BreadcrumbLabelRuntime
         return $labels;
     }
 
-    /** @param array<string, string> $labels */
-    public static function source(array $labels): string
+    /**
+     * Source trails keyed by post route. Core builds a post's trail from its
+     * category and full title, so a post replaces the whole trail: each crumb
+     * keeps the source label and links to its route, except the current item.
+     *
+     * @param list<array<string, mixed>> $pages Pages with `post_type`, `route.path` and breadcrumb markup.
+     * @return array<string, list<array{label: string, route: string|null}>>
+     */
+    public static function postTrails(array $pages): array
     {
-        return '$blocks_engine_breadcrumb_labels = ' . var_export($labels, true) . ';' . "\n" . <<<'PHP'
-add_filter( 'block_core_breadcrumbs_items', static function ( array $items ) use ( $blocks_engine_breadcrumb_labels ): array {
+        $trails = array();
+        foreach ($pages as $page) {
+            if ('post' !== ($page['post_type'] ?? null)) {
+                continue;
+            }
+            $trail = array_values(array_filter(self::trail($page), static fn ($crumb): bool => is_string($crumb['route'] ?? null) && is_string($crumb['label'] ?? null) && '' !== $crumb['label']));
+            if (array() === $trail) {
+                continue;
+            }
+            $last = count($trail) - 1;
+            $trails[self::route((string) ($page['route']['path'] ?? ''))] = array_map(static fn (array $crumb, int $index): array => array('label' => $crumb['label'], 'route' => $index === $last ? null : $crumb['route']), $trail, array_keys($trail));
+        }
+
+        return $trails;
+    }
+
+    /** @return list<array<string, mixed>> The source trail recorded on a document's breadcrumb blocks. */
+    private static function trail(array $document): array
+    {
+        $markup = (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? '');
+        if (! str_contains($markup, 'blocksEngineBreadcrumbTrail')) {
+            return array();
+        }
+        $trail = array();
+        preg_match_all('/<!-- wp:breadcrumbs (\{.*?\}) \/-->/s', $markup, $matches);
+        foreach ($matches[1] as $json) {
+            $attributes = json_decode($json, true);
+            foreach (is_array($attributes) ? ($attributes['metadata']['blocksEngineBreadcrumbTrail'] ?? array()) : array() as $crumb) {
+                if (is_array($crumb)) {
+                    $trail[] = $crumb;
+                }
+            }
+        }
+
+        return $trail;
+    }
+
+    /**
+     * @param array<string, string>                                              $labels
+     * @param array<string, list<array{label: string, route: string|null}>> $trails
+     */
+    public static function source(array $labels, array $trails = array()): string
+    {
+        return '$blocks_engine_breadcrumb_labels = ' . var_export($labels, true) . ';' . "\n"
+            . '$blocks_engine_breadcrumb_post_trails = ' . var_export($trails, true) . ';' . "\n" . <<<'PHP'
+add_filter( 'block_core_breadcrumbs_items', static function ( array $items ) use ( $blocks_engine_breadcrumb_labels, $blocks_engine_breadcrumb_post_trails ): array {
+    if ( is_singular( 'post' ) && array() !== $blocks_engine_breadcrumb_post_trails ) {
+        $post_path = (string) parse_url( (string) get_permalink( get_queried_object_id() ), PHP_URL_PATH );
+        $post_home = rtrim( (string) parse_url( home_url( '/' ), PHP_URL_PATH ), '/' );
+        if ( '' !== $post_home && str_starts_with( $post_path, $post_home . '/' ) ) $post_path = substr( $post_path, strlen( $post_home ) );
+        $post_route = '/' . trim( $post_path, '/' ) . '/';
+        if ( isset( $blocks_engine_breadcrumb_post_trails[ $post_route ] ) ) {
+            return array_map( static fn ( array $crumb ): array => null === $crumb['route'] ? array( 'label' => $crumb['label'] ) : array( 'label' => $crumb['label'], 'url' => home_url( $crumb['route'] ) ), $blocks_engine_breadcrumb_post_trails[ $post_route ] );
+        }
+    }
     $home = (string) parse_url( home_url( '/' ), PHP_URL_PATH );
     foreach ( $items as $index => $item ) {
         $path = ! empty( $item['url'] ) ? (string) parse_url( (string) $item['url'], PHP_URL_PATH ) : '';
