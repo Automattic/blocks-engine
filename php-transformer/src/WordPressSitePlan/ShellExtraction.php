@@ -828,6 +828,7 @@ final class ShellExtraction
                     continue;
                 }
                 $identities = array(); foreach ($candidates as $rows) $identities[] = $rows[$variant]['identity_markup'];
+                $identities = self::canonicalizeRouteNumberedShellIds($identities);
                 if (1 !== count(array_unique($identities))) { $rejected = true; break; }
                 $variants[] = $identities[0];
             }
@@ -3265,6 +3266,36 @@ final class ShellExtraction
         }
         ksort($inherited);
         return $inherited;
+    }
+
+    /** Canonicalize route-numbered authored ids only when the same stem varies across candidates and is unreferenced. */
+    private static function canonicalizeRouteNumberedShellIds(array $markups): array
+    {
+        $values = array();
+        foreach ($markups as $markup) {
+            preg_match_all('/(?:"anchor"\\s*:\\s*"([^"]+)"|\\bid="([^"]+)")/', $markup, $matches, PREG_SET_ORDER);
+            $row = array();
+            foreach ($matches as $match) $row[] = $match[1] !== '' ? $match[1] : $match[2];
+            $values[] = $row;
+        }
+        if (count($values) < 2) return $markups;
+        $replace = array();
+        foreach ($values[0] as $position => $value) {
+            if (!preg_match('/^(.*?)-([0-9]+)$/', $value, $match)) continue;
+            $stem = $match[1]; $suffixes = array(); $safe = true;
+            foreach ($markups as $index => $markup) {
+                $other = $values[$index][$position] ?? '';
+                if (!preg_match('/^' . preg_quote($stem, '/') . '-([0-9]+)$/', $other, $number)) { $safe = false; break; }
+                $suffixes[] = $number[1];
+                if (preg_match('/(?:href\\s*=\\s*["\\\']#' . preg_quote($other, '/') . '["\\\']|(?:aria-controls|for)\\s*=\\s*["\\\']' . preg_quote($other, '/') . '["\\\'])/i', $markup)) { $safe = false; break; }
+            }
+            if ($safe && count(array_unique($suffixes)) > 1) foreach ($values as $index => $row) $replace[$index][$row[$position]] = $stem . '-__route__';
+        }
+        foreach ($markups as $index => $markup) foreach ($replace[$index] ?? array() as $from => $to) {
+            $markup = str_replace(array('"anchor":"' . $from . '"', 'id="' . $from . '"'), array('"anchor":"' . $to . '"', 'id="' . $to . '"'), $markup);
+            $markups[$index] = $markup;
+        }
+        return $markups;
     }
 
     private static function normalizeNestedChromeMarkup(string $markup): string
