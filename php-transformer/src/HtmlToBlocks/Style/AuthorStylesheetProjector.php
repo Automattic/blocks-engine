@@ -503,11 +503,14 @@ final class AuthorStylesheetProjector
                     }
                     $editorSelectors[] = ':root .editor-styles-wrapper ' . $selector;
                 }
-                if ( 'fixed' === strtolower($position) ) {
+                $fixedSizing = '';
+                if ( 'fixed' === strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $position) ?? $position)) ) {
                     // Core's editor canvas is position:relative. Re-forcing
                     // source `position:fixed` pins site chrome (sticky
                     // headers, FABs) over the document being edited; leave
-                    // it out of the editor canvas entirely.
+                    // it out of the editor canvas entirely. Its viewport-sized
+                    // box must also stop stretching now that it is in flow.
+                    $fixedSizing = $this->editorFixedSizing($declarations);
                     $position = '';
                 }
                 // Core adds `position:relative` to the actual editor block
@@ -517,7 +520,7 @@ final class AuthorStylesheetProjector
                 // keeps the source rules' relative order. Mirror the value
                 // plainly so a more specific source `relative`/`static` rule
                 // still wins in the editor as it does on the frontend.
-                $overrides = '' === $position ? '' : 'position:' . $position . ';';
+                $overrides = $fixedSizing . ( '' === $position ? '' : 'position:' . $position . ';' );
                 // RichText's inline white-space:pre-wrap must keep preserving
                 // typed spaces. Override only its wrapping longhand, not the
                 // whitespace-collapse half of the shorthand. Scoping keeps
@@ -531,6 +534,42 @@ final class AuthorStylesheetProjector
                     : implode(',', $editorSelectors) . '{' . rtrim($overrides, ';') . '}';
             }
         );
+    }
+
+    /** @param array<string, string> $declarations */
+    private function editorFixedSizing(array $declarations): string
+    {
+        $plain = static fn (string $value): string => strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value));
+        $relative = static fn (string $value): bool => 1 === preg_match('/(?:[0-9.]%|[0-9.](?:s|d|l)?vh\b)/i', $value);
+        $height = $plain($declarations['height'] ?? 'auto');
+        // Expand inset in declaration order so later top/bottom longhands (or
+        // a later shorthand) still decide whether the fixed box was stretched.
+        $edges = array();
+        foreach ( $declarations as $name => $value ) {
+            if ( 'inset' === $name ) {
+                $parts = CssValueSplitter::splitTopLevelWhitespace($plain($value));
+                if ( count($parts) < 1 || count($parts) > 4 ) continue;
+                $sides = array('top' => $parts[0], 'bottom' => $parts[2] ?? $parts[0]);
+            } elseif ( in_array($name, array('top', 'bottom'), true) ) {
+                $sides = array($name => $plain($value));
+            } else {
+                continue;
+            }
+            foreach ( $sides as $side => $edge ) {
+                if ( isset($edges[$side]) && $edges[$side]['important'] && ! CssValueInspector::isImportant($value) ) continue;
+                $edges[$side] = array('value' => $edge, 'important' => CssValueInspector::isImportant($value));
+            }
+        }
+        $stretched = 'auto' === $height && isset($edges['top'], $edges['bottom'])
+            && 'auto' !== $edges['top']['value'] && 'auto' !== $edges['bottom']['value'];
+        if ( ! $relative($height) && ! $stretched ) {
+            return '';
+        }
+        $overrides = 'height:auto' . (CssValueInspector::isImportant($declarations['height'] ?? '') ? '!important' : '') . ';';
+        if ( $relative($declarations['min-height'] ?? '') ) {
+            $overrides .= 'min-height:0' . (CssValueInspector::isImportant($declarations['min-height']) ? '!important' : '') . ';';
+        }
+        return $overrides;
     }
 
     /**
