@@ -3225,7 +3225,9 @@ final class ShellExtraction
                 if (!is_array($attrs['style']['spacing'][$box] ?? null)) continue;
                 foreach ($attrs['style']['spacing'][$box] as $side => $value) if (is_string($value)) $attrs['style']['spacing'][$box][$side] = RenderEquivalentMarkup::canonicalZeroLength($value);
             }
-            if (is_string($attrs['content'] ?? null)) $attrs['content'] = RenderEquivalentMarkup::canonical($attrs['content']);
+            // Rendered HTML a block carries as an attribute (its content, a
+            // label's markup) reads like the HTML between block comments.
+            foreach ($attrs as $name => $value) if (is_string($value) && ('content' === $name || preg_match('/<[a-zA-Z]/', $value))) $attrs[$name] = RenderEquivalentMarkup::canonical($value);
             if (is_string($attrs['className'] ?? null)) {
                 $classes = array_values(array_filter(preg_split('/\s+/', trim($attrs['className'])) ?: array(), static fn(string $class): bool => '' !== $class && 'wp-block-group' !== $class && 'blocks-engine-empty-visual-group' !== $class && 'blocks-engine-css-owned-layout' !== $class && null === EngineMarker::editorAnchorId($class) && !self::isInheritedNavigationLinkColor($class)));
                 sort($classes, SORT_STRING);

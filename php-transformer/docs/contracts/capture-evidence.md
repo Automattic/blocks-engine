@@ -71,6 +71,7 @@ Two audiences read this vocabulary:
 | `data-blocks-engine-capture-device-document` | attribute | `[a-z][a-z0-9_-]{0,63}` | Profile id of a declared document scope. |
 | `data-blocks-engine-capture-mobile-document` | class | — | Root of the mobile copy of a responsive capture. |
 | `data-blocks-engine-capture-desktop-document` | class | — | Root of the desktop (default) copy of a responsive capture. |
+| `data-blocks-engine-capture-responsive-` | class prefix | 12 lowercase hex digits | Hooks an id-less element's width-scoped style rules. On route chrome, a hook whose every rule restates the element's own inline declarations is removed from that chrome. |
 | `data-blocks-engine-capture-responsive-counterpart-` | class prefix | 12 lowercase hex digits | Pairs an element in the default document with its counterpart in another variant. |
 | `data-blocks-engine-capture-responsive-source` | attribute | source id | Source identity of a responsive counterpart; ignored when comparing shared chrome. |
 | `data-blocks-engine-capture-device-style` | attribute on `<style>`/`<link>` | space-separated profile ids | Device profiles that activate the stylesheet. Document occurrences and their projected slices retain these keys in generated frontend links. |
@@ -173,6 +174,7 @@ See [Native control state](../native-control-state.md).
 | ---- | ---- | ----- | ------- |
 | `data-blocks-engine-capture-glyph-color` | attribute | `#rrggbb` (any case) | Rendered glyph colour of an icon; read and removed. See [Social icon glyph colour](../glyph-color.md). |
 | `data-blocks-engine-capture-anchor-unresolved` | attribute | text | An anchor the capture could not resolve; ignored when comparing render-equivalent markup. |
+| `data-blocks-engine-capture-anchor-target` | attribute | fragment | On an empty placeholder: the fragment a route's link scrolls to. Inside route chrome it moves to just before the chrome landmark, so it stays with that route rather than the shared part. |
 | `data-blocks-engine-capture-viewport-entrance` | attribute | JSON | Recorded entrance states of an element the source reveals as it scrolls into view; layout shells carrying it are labelled "Scroll reveal". |
 | `data-blocks-engine-capture-viewport-entrances` | attribute | presence | Marks the capture's own entrance activator `<script>`. It addresses entrance evidence, not source behavior, so runtime-selector analysis excludes it. |
 

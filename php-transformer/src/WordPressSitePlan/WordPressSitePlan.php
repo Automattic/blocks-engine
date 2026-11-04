@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -1750,6 +1751,60 @@ PHP;
     }
 
     /**
+     * Authored chrome hooks that the routes rendering their chrome declare
+     * differently: the same selector, in the same media and at-rule context,
+     * carries other declarations on another route. A route lacking the rule
+     * altogether does not conflict; the lifted rule still styles it.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array{class:array<string,true>,id:array<string,true>} $authored
+     * @param array{class:array<string,array<string,true>>,id:array<string,array<string,true>>} $hookRoutes
+     * @return array{class:array<string,true>,id:array<string,true>}
+     */
+    private static function routeVaryingChromeHooks(array $assets, array $authored, array $hookRoutes): array
+    {
+        $varying = array('class' => array(), 'id' => array());
+        if (array() === $authored['class'] && array() === $authored['id']) return $varying;
+        $allRoutes = array();
+        foreach ($hookRoutes as $names) foreach ($names as $routes) $allRoutes += $routes;
+        if (count($allRoutes) < 2) return $varying;
+        $declared = array();
+        $hooks = array();
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content']) || !StylesheetActivation::active($asset)) continue;
+            $routes = array_column($asset['stylesheet_instances'] ?? array(), 'source_path');
+            if (array() === $routes) $routes = array_column($asset['scopes'] ?? array(), 'source_path');
+            $routes = array() === $routes ? array_keys($allRoutes) : array_values(array_unique(array_map('strval', $routes)));
+            $media = (string) ($asset['media'] ?? '');
+            (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use ($authored, $routes, $media, &$declared, &$hooks): void {
+                if (!preg_match_all('/([.#])(-?[_a-zA-Z][\w-]*)/', self::positiveSelector($prelude), $matches, PREG_SET_ORDER)) return;
+                $named = array();
+                foreach ($matches as $match) {
+                    $hook = self::selectorHook($match[1], $match[2]);
+                    if (null !== $hook && isset($authored[$hook[0]][$hook[1]])) $named[$hook[0] . ':' . $hook[1]] = $hook;
+                }
+                if (array() === $named) return;
+                $key = $media . "\0" . implode("\0", $ancestors) . "\0" . (preg_replace('/\s+/', ' ', trim($prelude)) ?? $prelude);
+                $hooks[$key] = $named;
+                $canonical = RenderEquivalentMarkup::canonicalStyle($body);
+                foreach ($routes as $route) $declared[$key][$route][$canonical] = true;
+            });
+        }
+        foreach ($declared as $key => $byRoute) {
+            foreach ($hooks[$key] as [$kind, $name]) {
+                if (isset($varying[$kind][$name])) continue;
+                $signatures = array();
+                foreach (array_intersect_key($byRoute, $hookRoutes[$kind][$name] ?? array()) as $bodies) {
+                    ksort($bodies);
+                    $signatures[implode("\0", array_keys($bodies))] = true;
+                }
+                if (count($signatures) > 1) $varying[$kind][$name] = true;
+            }
+        }
+        return $varying;
+    }
+
+    /**
      * Whether a selector is written for shared chrome: it names at least one of
      * the chrome's own authored classes or ids, and every class or id it names
      * belongs to that chrome or to the ancestors it was hoisted out of. A
@@ -2426,6 +2481,7 @@ PHP;
         $detachedRoots = array();
         $inheritedContexts = array();
         $chromeElements = array();
+        $hookRoutes = array('class' => array(), 'id' => array());
         $hasSharedNavigation = false;
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
@@ -2460,6 +2516,7 @@ PHP;
                 $authored['class'] += $element['class'];
                 $authored['id'] += $element['id'];
                 $chromeElements[] = $element;
+                foreach (array('class', 'id') as $kind) foreach (array_keys($element[$kind]) as $name) foreach ($sources as $source) $hookRoutes[$kind][$name][(string) $source] = true;
             }
             $ancestors = self::selectorHooks((array) ($part['ancestor_context']['classes'] ?? array()), (array) ($part['ancestor_context']['ids'] ?? array()));
             $context['class'] += $ancestors['class'];
@@ -2484,6 +2541,11 @@ PHP;
                 $routeHooks[$kind] += $names;
             }
         }
+        // A hook whose rules differ between the routes rendering its chrome
+        // carries route state, such as where each route's own layout places
+        // the part. One global rule cannot declare both, so it stays with the
+        // route as well.
+        foreach (self::routeVaryingChromeHooks($assets, $authored, $hookRoutes) as $kind => $names) $routeHooks[$kind] += $names;
         // Rules for a hook no lifted selector can name (an escaped class) stay
         // with the route as well.
         foreach ($authored as $kind => $names) {
