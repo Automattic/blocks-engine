@@ -43,7 +43,10 @@ final class BreadcrumbLabelRuntime
      * category and full title, so a post replaces the whole trail: each crumb
      * keeps the source label and links to its route, except the current item.
      *
-     * @param list<array<string, mixed>> $pages Pages with `post_type`, `route.path` and breadcrumb markup.
+     * Each post's own source trail is read from `metadata.breadcrumb_trail`,
+     * recorded before shared chrome moves the breadcrumb into a template.
+     *
+     * @param list<array<string, mixed>> $pages Pages with `post_type`, `reconciliation_identity` and a recorded trail.
      * @return array<string, list<array{label: string, route: string|null}>>
      */
     public static function postTrails(array $pages): array
@@ -53,7 +56,7 @@ final class BreadcrumbLabelRuntime
             if ('post' !== ($page['post_type'] ?? null)) {
                 continue;
             }
-            $trail = array_values(array_filter(self::trail($page), static fn ($crumb): bool => is_string($crumb['label'] ?? null) && '' !== $crumb['label']));
+            $trail = array_values(array_filter((array) ($page['metadata']['breadcrumb_trail'] ?? array()), static fn ($crumb): bool => is_string($crumb['label'] ?? null) && '' !== $crumb['label']));
             if (array() === $trail) {
                 continue;
             }
@@ -70,7 +73,7 @@ final class BreadcrumbLabelRuntime
     }
 
     /** @return list<array<string, mixed>> The source trail recorded on a document's breadcrumb blocks. */
-    private static function trail(array $document): array
+    public static function trail(array $document): array
     {
         $markup = (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? '');
         if (! str_contains($markup, 'blocksEngineBreadcrumbTrail')) {
