@@ -91,7 +91,29 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        return MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->hasButtonDropdownChild($element);
+        return MenuVocabulary::isCurrentPageLinkRun($element) || $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->hasButtonDropdownChild($element) || $this->holdsAriaMenu($element);
+    }
+
+    /**
+     * The WAI-ARIA menu pattern: a list with `role="menu"` or `role="menubar"`
+     * whose items link as `role="menuitem"`, as the element itself or as its
+     * direct child. The author declared the list a menu, so it is navigation
+     * even where a parent's CSS layout places it.
+     */
+    private function holdsAriaMenu(DOMElement $element): bool
+    {
+        foreach ( array_merge(array( $element ), iterator_to_array($element->childNodes)) as $list ) {
+            if ( ! $list instanceof DOMElement || ! in_array(strtolower($list->tagName), array( 'ul', 'ol' ), true) || ! in_array(strtolower($this->attr($list, 'role')), array( 'menu', 'menubar' ), true) ) {
+                continue;
+            }
+            foreach ( $list->getElementsByTagName('a') as $link ) {
+                if ( 'menuitem' === strtolower($this->attr($link, 'role')) && '' !== trim($this->attr($link, 'href')) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
