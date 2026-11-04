@@ -530,7 +530,7 @@ final class InlineGeometry
             $geometry[$property] = $value;
         }
 
-        $this->capAbsoluteWidthToContainingBlock($geometry);
+        $this->capAbsoluteWidthToContainingBlock($element, $geometry);
 
         if (array() === $geometry) {
             return '';
@@ -702,12 +702,17 @@ final class InlineGeometry
     }
 
     /**
-     * An authored pixel width must not overflow its containing block.
+     * Keep the responsive replaced-media cap from #2206. Ordinary boxes may
+     * intentionally overflow their containing block (#4328), so their carriers
+     * must only restate authored constraints, not synthesize a percentage cap.
      *
      * @param array<string, string> $geometry
      */
-    private function capAbsoluteWidthToContainingBlock(array &$geometry): void
+    private function capAbsoluteWidthToContainingBlock(DOMElement $element, array &$geometry): void
     {
+        if ( ! in_array(strtolower($element->tagName), array( 'img', 'iframe', 'video' ), true) ) {
+            return;
+        }
         if ( isset($geometry['max-width']) || ! isset($geometry['width']) ) {
             return;
         }
