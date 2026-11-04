@@ -132,6 +132,14 @@ $assert(
     'direct navigation retains source-owned hidden and responsive display states against core navigation layout CSS'
 );
 
+// A builder link run lowers to core/navigation from a div, and keeps the same display states.
+$responsiveRunCss = $css($transform('<style>.menus{display:none}.menus.drawer{display:none}@media (min-width:1280px){.menus{display:flex}}</style><div class="bar"><div class="left"><a class="brand" href="/"><img src="logo.png" alt="Brand"></a></div><div class="right"><div class="menus drawer"><a class="menu-link w--current" aria-current="page" href="/a/">About</a><a class="menu-link" href="/s/">Services</a><a class="menu-link" href="/c/">Contact</a></div><a class="cta btn" href="/a/">Learn more</a></div></div><main><h1>Title</h1></main>'));
+$assert(
+    str_contains($responsiveRunCss, ':root .wp-block-navigation.menus{display:none}') && str_contains($responsiveRunCss, ':root .wp-block-navigation.menus{display:flex}')
+        && str_contains($responsiveRunCss, ':root .wp-block-navigation.menus.drawer{display:none}'),
+    'a current-page link run lowered to navigation retains its hidden, compound and responsive display states'
+);
+
 $controls = $transform('<style>a.cta:hover{padding:1rem}button.cta:focus{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button>');
 $controlCss = $css($controls);
 $assert(3 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus:not([style*="padding"]){padding:2rem}'), 'promoted anchors and native buttons project dynamic selectors while native source ownership remains authoritative');
