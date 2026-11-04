@@ -720,10 +720,33 @@ $assert(array() === array_filter($describedFieldResult['diagnostics'] ?? array()
 $ambiguousFieldResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><div class="signup"><div class="field"><label>Portfolio URL</label><input type="text" name="portfolio"><p>Link to your design work</p><span>Optional but recommended</span></div><button>Subscribe</button></div></main>')))->toArray();
 $ambiguousFieldFallback = current(array_filter($ambiguousFieldResult['fallbacks'] ?? array(), static fn(array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
 $ambiguousFieldControl = current(array_filter($ambiguousFieldFallback['controls'] ?? array(), static fn(array $control): bool => 'portfolio' === ($control['name'] ?? null)));
-$assert(! isset($ambiguousFieldControl['description']) && array('Link to your design work', 'Optional but recommended') === ($ambiguousFieldControl['_unresolved_description_candidates'] ?? null), 'Two disjoint description candidates for one control are not guessed at.');
+$assert(! isset($ambiguousFieldControl['description']) && ! array_key_exists('_unresolved_description_candidates', $ambiguousFieldControl), 'Two disjoint description candidates are not guessed at, and their internal marker is absent from the published finding.');
 $ambiguousFieldDiagnostics = array_values(array_filter($ambiguousFieldResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'form_field_context_unrepresented' === ($diagnostic['code'] ?? null)));
 $assert(1 === count($ambiguousFieldDiagnostics) && 'warning' === ($ambiguousFieldDiagnostics[0]['severity'] ?? null) && 'generic/forms/v1' === ($ambiguousFieldDiagnostics[0]['entity_schema'] ?? null) && 'materialize_form_provider' === ($ambiguousFieldDiagnostics[0]['repair_bucket'] ?? null) && array('Link to your design work', 'Optional but recommended') === ($ambiguousFieldDiagnostics[0]['unrepresented_text'] ?? null), 'Ambiguous field description candidates are named by a diagnostic in the same taxonomy and repair bucket as a declined form declaration, rather than vanishing.');
 $assert(is_array(current(array_filter($ambiguousFieldResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'entity_collection' === ($declaration['kind'] ?? null) && 'forms' === ($declaration['type'] ?? null)))), 'A field with an unrepresented description still declares its generic/forms/v1 entity — the diagnostic supplements the declaration, it does not replace it.');
+
+// Regression for #4339: ambiguous copy beside a submit control is useful to
+// diagnostics internally, but must not make the published finding differ from
+// the provider-facing entity control metadata.
+$reducedFormResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!DOCTYPE html><html><head><title>Form</title></head><body><main><h2>Inquiry</h2><form><label for="n">Name</label><input id="n" name="name"><div><button type="submit">Send</button><p>One.</p><p>Two.</p></div></form></main></body></html>')))->toArray();
+$reducedFormFallback = current(array_filter($reducedFormResult['source_reports']['wordpress_site_plan']['quality']['fallbacks'] ?? array(), static fn(array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
+$reducedFormDeclaration = current(array_filter($reducedFormResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'entity_collection' === ($declaration['kind'] ?? null) && 'forms' === ($declaration['type'] ?? null)));
+$reducedFormEntity = $reducedFormDeclaration['payload']['entities'][0] ?? array();
+$assert(is_array($reducedFormFallback) && is_array($reducedFormEntity), 'The reduced #4339 form produces both a published finding and a declared entity.');
+$assert(array() === array_filter($reducedFormFallback['controls'] ?? array(), static fn(array $control): bool => array_key_exists('_unresolved_description_candidates', $control)), 'The published finding controls carry no internal description-resolution markers.');
+$assert(RuntimeDeclarations::hash($reducedFormFallback['controls'] ?? null) === RuntimeDeclarations::hash($reducedFormEntity['controls'] ?? null), 'Published finding and entity controls are identical for provider reconciliation.');
+foreach (array(
+    'result diagnostics' => $reducedFormResult['diagnostics'] ?? array(),
+    'site plan diagnostics' => $reducedFormResult['source_reports']['wordpress_site_plan']['diagnostics'] ?? array(),
+) as $surface => $publishedDiagnostics) {
+    $formDiagnostics = array_values(array_filter($publishedDiagnostics, static fn(array $diagnostic): bool => 'html_form_fallback' === ($diagnostic['code'] ?? null)));
+    $assert(1 === count($formDiagnostics), 'The reduced form has a published html_form_fallback in ' . $surface . '.');
+    $diagnosticControls = $formDiagnostics[0]['controls'] ?? array();
+    $assert(array() === array_filter($diagnosticControls, static fn(array $control): bool => array_key_exists('_unresolved_description_candidates', $control)), 'Internal description-resolution markers never reach ' . $surface . '.');
+    $assert(RuntimeDeclarations::hash($diagnosticControls) === RuntimeDeclarations::hash($reducedFormEntity['controls'] ?? null), 'Diagnostic and entity controls hash identically for provider reconciliation in ' . $surface . '.');
+}
+$reducedFormDiagnostics = array_values(array_filter($reducedFormResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'form_field_context_unrepresented' === ($diagnostic['code'] ?? null)));
+$assert(array('One.', 'Two.') === ($reducedFormDiagnostics[0]['unrepresented_text'] ?? null), 'Ambiguous submit-button copy remains available to the unrepresented-text diagnostic.');
 
 // Copy that sits between two controls at the form's own level cannot be
 // positioned either; it is named by the same diagnostic rather than only
