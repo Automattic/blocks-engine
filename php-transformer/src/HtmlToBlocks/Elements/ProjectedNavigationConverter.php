@@ -206,10 +206,13 @@ final class ProjectedNavigationConverter implements ElementConverter
                 $declarations[] = $property . ':' . $comparable . '!important';
             }
         }
-        if ( ! $hasUsableWidth && null === $source ) {
+        // A toggle carried by its own padding, border and an icon child keeps
+        // that intrinsic box; the touch-target floor is for boxes with none.
+        $hasIntrinsicBox = ! $isJumpMenu && $this->nativeNavigationToggleHasIntrinsicBox($toggle);
+        if ( ! $hasUsableWidth && null === $source && ! $hasIntrinsicBox ) {
             $declarations[] = 'min-width:44px!important';
         }
-        if ( ! $hasUsableHeight && null === $source ) {
+        if ( ! $hasUsableHeight && null === $source && ! $hasIntrinsicBox ) {
             $declarations[] = 'min-height:44px!important';
         }
         if ( array() === $declarations && null === $source ) {
@@ -1315,6 +1318,20 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return 1 !== preg_match('/^0(?:px|em|rem)?(?:\s+0(?:px|em|rem)?){0,3}$/', strtolower(trim($value)));
+    }
+
+    private function nativeNavigationToggleHasIntrinsicBox(DOMElement $toggle): bool
+    {
+        foreach ( $toggle->getElementsByTagName('*') as $child ) {
+            $declarations = $this->styleResolver->resolvedPresentationDeclarations($child);
+            $width = CssValueInspector::withoutImportant(trim((string) ($declarations['width'] ?? '')));
+            $height = CssValueInspector::withoutImportant(trim((string) ($declarations['height'] ?? '')));
+            if ( $this->nativeNavigationToggleDimensionIsUsable($width) && $this->nativeNavigationToggleDimensionIsUsable($height) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function nativeNavigationToggleDimensionIsUsable(string $value): bool
