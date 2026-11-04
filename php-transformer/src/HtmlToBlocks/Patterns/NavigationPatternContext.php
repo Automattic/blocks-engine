@@ -64,7 +64,17 @@ final class NavigationPatternContext
             $path = $element->getNodePath() ?? '';
             $projections->ensureSemanticMarker($path);
         }
-        return $this->sourcePresentationMarkers($element);
+        $markers = $this->sourcePresentationMarkers($element);
+        if (null !== $projections && 1 === preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName)
+            && array() !== $projections->semanticMarkersForPath($element->getNodePath() ?? '')) {
+            // Retagging changes the UA display from block to inline. Restore
+            // only that default, below author CSS (including responsive display).
+            $marker = $projections->ensureSemanticMarker($element->getNodePath() ?? '');
+            $this->session->generatedSupportStylesheetState()->registerRichTextPresentationalHint(
+                $marker, ':where(.' . $marker . '){display:block}'
+            );
+        }
+        return $markers;
     }
 
     /**
