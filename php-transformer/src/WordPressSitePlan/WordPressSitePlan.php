@@ -4435,6 +4435,7 @@ PHP;
         foreach ($ordered as $index => $post) {
             if ('post' !== ($post['post_type'] ?? null)) continue;
             $markup = $post['canonical_block_markup'];
+            $markupIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
             $contents = array();
             foreach (self::blockRanges($markup) as $range) {
                 $slice = substr($markup, $range['offset'], $range['length']);
@@ -4451,7 +4452,7 @@ PHP;
                 $articles = array();
                 $retained = array();
                 foreach ($contents as $content) {
-                    $children = self::childBlockRanges($markup, $content);
+                    $children = $markupIndex->children($content);
                     if (array() === $children) continue;
                     $start = $children[0]['offset'];
                     $last = $children[count($children) - 1];
@@ -4467,7 +4468,7 @@ PHP;
                         }
                     }
                     if (null === $owner) continue;
-                    $siblings = self::childBlockRanges($markup, $owner);
+                    $siblings = $markupIndex->children($owner);
                     if (array() === $siblings) continue;
                     $first = $siblings[0]['offset'];
                     $lastSibling = $siblings[count($siblings) - 1];
@@ -4487,7 +4488,7 @@ PHP;
                 continue;
             }
             $content = $contents[0];
-            $children = self::childBlockRanges($markup, $content);
+            $children = $markupIndex->children($content);
             if (array() === $children) continue;
             $start = $children[0]['offset'];
             $last = $children[count($children) - 1];
@@ -4503,10 +4504,11 @@ PHP;
             // Reuse the normal title/date conversion, but never infer article
             // body from arbitrary chrome siblings once WordPress named it.
             $replacements = array();
-            foreach (self::blockRanges($template) as $range) {
+            $templateIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($template);
+            foreach ($templateIndex->ranges() as $range) {
                 $slice = substr($template, $range['offset'], $range['length']);
-                if (array() !== self::childBlockRanges($template, $range)) continue;
-                $kind = $this->classifyPostChromeBlock($slice, $post, (string) ($post['route']['path'] ?? ''));
+                if (array() !== $templateIndex->children($range)) continue;
+                $kind = $this->classifyPostChromeBlock($slice, $post, (string) ($post['route']['path'] ?? ''), $markupIndex);
                 if (preg_match('/<time\b[^>]*datetime=/i', $slice)) $kind = 'date';
                 if ('title' === $kind || 'date' === $kind) $replacements[] = $range + array('markup' => 'title' === $kind ? self::postTitleMarkup($slice) : self::postDateMarkup($slice));
             }
@@ -4773,13 +4775,9 @@ PHP;
      */
     private function transformPostChromeDocument(string $markup, array $post, string $route, array $shared, ?int $featuredOffset = null): array
     {
-        $top = array();
-        foreach (self::blockRanges($markup) as $range) {
-            if (null === self::parentBlockRange($markup, $range)) {
-                $top[] = $range;
-            }
-        }
-        usort($top, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex((string) ($post['canonical_block_markup'] ?? ''));
+        $top = $index->topLevel();
         if (array() === $top) {
             return array('template' => '', 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array());
         }
@@ -4787,10 +4785,10 @@ PHP;
         // media leaves. Materialized SVG attachment identities are route-local,
         // and must never turn header logos or metadata icons into body slots.
         $contentRange = null;
-        foreach (self::blockRanges($markup) as $candidate) {
+        foreach ($index->ranges() as $candidate) {
             $slice = substr($markup, $candidate['offset'], $candidate['length']);
             $attrs = self::listingBlockAttributes($slice);
-            if ('main' !== ($attrs['tagName'] ?? null) || array() === self::childBlockRanges($markup, $candidate)) continue;
+            if ('main' !== ($attrs['tagName'] ?? null) || array() === $index->children($candidate)) continue;
             $hasTitle = false;
             foreach (self::blockRanges($slice) as $descendant) {
                 if ($this->headingMatchesPostTitle(substr($slice, $descendant['offset'], $descendant['length']), $post)) $hasTitle = true;
@@ -4811,7 +4809,7 @@ PHP;
             if ($range['offset'] > $cursor) {
                 $template .= substr($markup, $cursor, $range['offset'] - $cursor);
             }
-            $transformed = $this->transformPostChromeRange($markup, $range, $post, $route, $shared, false, $featuredOffset, $contentRange);
+            $transformed = $this->transformPostChromeRange($index, $postIndex, $range, $post, $route, $shared, false, $featuredOffset, $contentRange);
             $template .= $transformed['template'];
             $body .= $transformed['body'];
             $title = $title || $transformed['title'];
@@ -4832,12 +4830,13 @@ PHP;
      * @param array<string,true> $shared
      * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool,retained:array<int,array{offset:int,length:int}>}
      */
-    private function transformPostChromeRange(string $markup, array $range, array $post, string $route, array $shared, bool $dateContext = false, ?int $featuredOffset = null, ?array $contentRange = null): array
+    private function transformPostChromeRange(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $postIndex, array $range, array $post, string $route, array $shared, bool $dateContext = false, ?int $featuredOffset = null, ?array $contentRange = null): array
     {
+        $markup = $index->markup;
         $slice = substr($markup, $range['offset'], $range['length']);
         $empty = array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array());
         if (null !== $contentRange && $range === $contentRange) {
-            $children = self::childBlockRanges($markup, $range);
+            $children = $index->children($range);
             $start = $children[0]['offset'];
             $last = $children[count($children) - 1];
             $length = $last['offset'] + $last['length'] - $start;
@@ -4868,9 +4867,9 @@ PHP;
         if (self::isClosedDialogBlock($slice)) {
             return array('template' => '', 'body' => $slice, 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array(array('offset' => $range['offset'], 'length' => $range['length'])));
         }
-        $children = self::childBlockRanges($markup, $range);
+        $children = $index->children($range);
         if (array() === $children) {
-            $kind = $this->classifyPostChromeBlock($slice, $post, $route);
+            $kind = $this->classifyPostChromeBlock($slice, $post, $route, $postIndex);
             if ($dateContext && is_string($post['publication_timestamp'] ?? null)
                 && self::parseVisiblePublicationTimestamp(ListingExcerptProjection::text($slice)) === $post['publication_timestamp']) {
                 $kind = 'date';
@@ -4899,9 +4898,9 @@ PHP;
         // shell in the template instead of replacing it with the date block.
         $childDateContext = 1 === count($children)
             && ListingExcerptProjection::text($slice) === ListingExcerptProjection::text(substr($markup, $children[0]['offset'], $children[0]['length']))
-            && ($dateContext || 'date' === $this->classifyPostChromeBlock($slice, $post, $route));
+            && ($dateContext || 'date' === $this->classifyPostChromeBlock($slice, $post, $route, $postIndex));
         foreach ($children as $child) {
-            $transformed = $this->transformPostChromeRange($markup, $child, $post, $route, $shared, $childDateContext, $featuredOffset, $contentRange);
+            $transformed = $this->transformPostChromeRange($index, $postIndex, $child, $post, $route, $shared, $childDateContext, $featuredOffset, $contentRange);
             $foundShared = $foundShared || $transformed['shared'];
             $body .= $transformed['body'];
             $retained = array_merge($retained, $transformed['retained']);
@@ -4926,7 +4925,7 @@ PHP;
         return array('template' => $slice, 'body' => $body, 'title' => $foundTitle, 'date' => $foundDate, 'shared' => $foundShared, 'content' => $emittedContent, 'retained' => $retained);
     }
     /** @param array<string,mixed> $post */
-    private function classifyPostChromeBlock(string $slice, array $post, string $route): string
+    private function classifyPostChromeBlock(string $slice, array $post, string $route, \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $postIndex): string
     {
         if ($this->headingMatchesPostTitle($slice, $post)) {
             return 'title';
@@ -4934,7 +4933,7 @@ PHP;
         if (self::isCommentFormChrome($slice)) {
             return 'comments';
         }
-        $kind = $this->classifyListingCardBlock($slice, $post, $route);
+        $kind = $this->classifyListingCardBlock($slice, $post, $route, $postIndex);
         return 'skip' === $kind ? 'share' : $kind;
     }
     /** @param array<string,mixed> $post */
@@ -5029,7 +5028,7 @@ PHP;
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = self::contentHash($replaced);
             $firstCard = ($this->listingCardRanges($sourceListingMarkup, $posts, isset($postsByArchive[$page['source_path']]) ? 1 : 2) ?? array())[0] ?? null;
-            $parent = is_array($firstCard) ? self::parentBlockRange($sourceListingMarkup, $firstCard) : null;
+            $parent = is_array($firstCard) ? (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($sourceListingMarkup))->parent($firstCard) : null;
             if (is_array($parent)) $this->listingQueryContainers[] = substr($sourceListingMarkup, $parent['offset'], $parent['length']);
             foreach ($fields as $source => $values) $postMeta[$source] = ($postMeta[$source] ?? array()) + $values;
             foreach ($this->listingCardRanges($sourceListingMarkup, $posts, isset($postsByArchive[$page['source_path']]) ? 1 : 2) ?? array() as $card) {
@@ -5037,7 +5036,7 @@ PHP;
                     $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
                     foreach (self::blockRanges($cardMarkup) as $leaf) {
                         $slice = substr($cardMarkup, $leaf['offset'], $leaf['length']);
-                        if ('featured-image' !== $this->classifyListingCardBlock($slice, $card['post'], $card['route']) && !('image' === self::listingBlockName($slice) && str_contains($cardMarkup, '"wrappers"'))) continue;
+                        if ('featured-image' !== $this->classifyListingCardBlock($slice, $card['post'], $card['route'], new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup'])) && !('image' === self::listingBlockName($slice) && str_contains($cardMarkup, '"wrappers"'))) continue;
                         $image = self::listingCardImage($slice);
                         if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
                         break;
@@ -5070,21 +5069,23 @@ PHP;
     private function postsRepeatListingChrome(string $markup, array $posts): bool
     {
         $cards = $this->listingCardRanges($markup, $posts) ?? array();
+        $markupIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         $chrome = array();
-        foreach (self::blockRanges($markup) as $range) {
+        foreach ($markupIndex->ranges() as $range) {
             $end = $range['offset'] + $range['length'];
             foreach ($cards as $card) {
                 if ($range['offset'] < $card['offset'] + $card['length'] && $card['offset'] < $end) continue 2;
             }
-            if (array() === self::childBlockRanges($markup, $range)) continue;
+            if (array() === $markupIndex->children($range)) continue;
             $identity = ShellExtraction::identityMarkup(substr($markup, $range['offset'], $range['length']));
             if ('' !== $identity) $chrome[$identity] = true;
         }
         if (array() === $chrome) return false;
         foreach ($posts as $post) {
             $postMarkup = (string) ($post['canonical_block_markup'] ?? '');
-            foreach (self::blockRanges($postMarkup) as $range) {
-                if (array() === self::childBlockRanges($postMarkup, $range)) continue;
+            $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($postMarkup);
+            foreach ($postIndex->ranges() as $range) {
+                if (array() === $postIndex->children($range)) continue;
                 if (isset($chrome[ShellExtraction::identityMarkup(substr($postMarkup, $range['offset'], $range['length']))])) return true;
             }
         }
@@ -5125,7 +5126,7 @@ PHP;
         $start = $cards[0]['offset'];
         $end = $cards[count($cards) - 1]['offset'] + $cards[count($cards) - 1]['length'];
         $query = self::listingQueryMarkup(count($cards), $template, $inheritQuery);
-        $parent = self::parentBlockRange($markup, $cards[0]);
+        $parent = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->parent($cards[0]);
         if (is_array($parent) && 'columns' === self::listingBlockName(substr($markup, $parent['offset'], $parent['length']))) {
             $query = '<!-- wp:column --><div class="wp-block-column">' . $query . '</div><!-- /wp:column -->';
         }
@@ -5144,7 +5145,8 @@ PHP;
                 $routes[$post['route']['path']] = $post;
             }
         }
-        $ranges = self::blockRanges($markup);
+        $documentIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $ranges = $documentIndex->ranges();
         $cards = array();
         foreach ($routes as $route => $post) {
             $exclusive = null;
@@ -5177,12 +5179,12 @@ PHP;
             return null;
         }
         usort($cards, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
-        $parent = self::parentBlockRange($markup, $cards[0]);
+        $parent = $documentIndex->parent($cards[0]);
         for ($index = 0; $index < count($cards); ++$index) {
             if ($index > 0 && $cards[$index]['offset'] < $cards[$index - 1]['offset'] + $cards[$index - 1]['length']) {
                 return null;
             }
-            $cardParent = self::parentBlockRange($markup, $cards[$index]);
+            $cardParent = $documentIndex->parent($cards[$index]);
             if ((null === $parent) !== (null === $cardParent) || (is_array($parent) && is_array($cardParent) && ($parent['offset'] !== $cardParent['offset'] || $parent['length'] !== $cardParent['length']))) {
                 return null;
             }
@@ -5194,8 +5196,9 @@ PHP;
      */
     private function listingCardTemplate(string $markup, array $cards, array &$fields): ?string
     {
+        $documentIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         $first = $cards[0];
-        $groups = $this->listingLinkedMetadataGroups($markup, $first);
+        $groups = $this->listingLinkedMetadataGroups($documentIndex, $first);
         $boundGroups = array();
         foreach ($groups as $index => $group) {
             $key = 'blocks_engine_listing_labels_' . substr(hash('sha256', $group['markup']), 0, 12);
@@ -5208,7 +5211,7 @@ PHP;
             }
             $boundGroups[$group['offset']] = $bound;
             foreach ($cards as $card) {
-                $row = $this->listingLinkedMetadataGroups($markup, $card)[$index] ?? null;
+                $row = $this->listingLinkedMetadataGroups($documentIndex, $card)[$index] ?? null;
                 $fields[$card['post']['source_path']][$key] = null === $row ? '' : ListingFieldProjection::content($row['paragraphs']);
             }
         }
@@ -5217,13 +5220,14 @@ PHP;
         foreach ($cards as $card) {
             $texts = array();
             $cardMarkup = substr($markup, $card['offset'], $card['length']);
-            foreach (self::blockRanges($cardMarkup) as $leaf) {
-                if (array() !== self::childBlockRanges($cardMarkup, $leaf)) continue;
+            $cardIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup);
+            foreach ($cardIndex->ranges() as $leaf) {
+                if (array() !== $cardIndex->children($leaf)) continue;
                 $texts[self::listingLeafIdentity(substr($cardMarkup, $leaf['offset'], $leaf['length']))] = true;
             }
             $sharedText = null === $sharedText ? $texts : array_intersect_key($sharedText, $texts);
         }
-        $transformed = $this->listingTransformRange($markup, $first, $first['post'], $first['route'], $compact ? ListingExcerptProjection::length($cards) : 0, $boundGroups, false, $sharedText ?? array());
+        $transformed = $this->listingTransformRange($documentIndex, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($first['post']['canonical_block_markup']), $first, $first['post'], $first['route'], $compact ? ListingExcerptProjection::length($cards) : 0, $boundGroups, false, $sharedText ?? array());
         if (null === $transformed || !$transformed['title'] || '' === $transformed['markup']) {
             return null;
         }
@@ -5242,14 +5246,15 @@ PHP;
     }
 
     /** @param array<string,mixed> $card @return list<array{offset:int,markup:string,paragraphs:list<string>}> */
-    private function listingLinkedMetadataGroups(string $markup, array $card): array
+    private function listingLinkedMetadataGroups(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $card): array
     {
+        $markup = $index->markup;
         $groups = array();
-        foreach (self::blockRanges($markup) as $range) {
+        foreach ($index->ranges() as $range) {
             if ($range['offset'] <= $card['offset'] || $range['offset'] + $range['length'] >= $card['offset'] + $card['length']) continue;
             $slice = substr($markup, $range['offset'], $range['length']);
             if ('group' !== self::listingBlockName($slice)) continue;
-            $children = self::childBlockRanges($markup, $range);
+            $children = $index->children($range);
             if (array() === $children) continue;
             $paragraphs = array();
             foreach ($children as $child) {
@@ -5267,12 +5272,13 @@ PHP;
     private function isExcerptListingCard(string $markup, array $card): bool
     {
         $description = false;
+        $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup']);
         $slice = substr($markup, $card['offset'], $card['length']);
         foreach (self::blockRanges($slice) as $range) {
             $paragraph = substr($slice, $range['offset'], $range['length']);
             if ('paragraph' !== self::listingBlockName($paragraph)) continue;
             if (ListingExcerptProjection::matches($paragraph, $card['post'])) { $description = true; continue; }
-            if ('body' === $this->classifyListingCardBlock($paragraph, $card['post'], $card['route']) && !ListingFieldProjection::isLinkedMetadata($paragraph)) return false;
+            if ('body' === $this->classifyListingCardBlock($paragraph, $card['post'], $card['route'], $postIndex) && !ListingFieldProjection::isLinkedMetadata($paragraph)) return false;
         }
         return $description;
     }
@@ -5282,8 +5288,9 @@ PHP;
      * @param array<string,true> $sharedText
      * @return array{markup:string,title:bool,content:bool}|null
      */
-    private function listingTransformRange(string $markup, array $range, array $post, string $route, int $excerptLength = 0, array $boundGroups = array(), bool $linkedContainer = false, array $sharedText = array()): ?array
+    private function listingTransformRange(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $postIndex, array $range, array $post, string $route, int $excerptLength = 0, array $boundGroups = array(), bool $linkedContainer = false, array $sharedText = array()): ?array
     {
+        $markup = $index->markup;
         $slice = substr($markup, $range['offset'], $range['length']);
         if (isset($boundGroups[$range['offset']])) return array('markup' => $boundGroups[$range['offset']], 'title' => false, 'content' => false);
         $className = (string) (self::listingBlockAttributes($slice)['className'] ?? '');
@@ -5293,7 +5300,7 @@ PHP;
         if (preg_match('/\bseparator\b/', $className)) {
             return array('markup' => $slice, 'title' => false, 'content' => false);
         }
-        $children = self::childBlockRanges($markup, $range);
+        $children = $index->children($range);
         if (isset(self::listingBlockAttributes($slice)['wrappers'])) {
             foreach (self::listingBlockAttributes($slice)['wrappers'] ?? array() as $wrapper) {
                 if ('a' === ($wrapper['tagName'] ?? '') && self::hrefMatchesListingRoute((string) ($wrapper['attributes']['href'] ?? ''), $route)) $linkedContainer = true;
@@ -5316,7 +5323,7 @@ PHP;
                 $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-authored-excerpt');
                 return array('markup' => '<!-- wp:post-excerpt ' . BlockAttributes::encode($attrs) . ' /-->', 'title' => false, 'content' => false);
             }
-            $kind = $this->classifyListingCardBlock($slice, $post, $route);
+            $kind = $this->classifyListingCardBlock($slice, $post, $route, $postIndex);
             // An unbound media leaf cannot be replaced by post-content: the
             // card may own media which the article body does not render.
             if ('body' === $kind && !in_array(self::listingBlockName($slice), array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true) && preg_match('/<(?:img|video|picture|audio)\b/i', $slice . (string) (self::listingBlockAttributes($slice)['content'] ?? ''))) $kind = 'chrome';
@@ -5355,7 +5362,7 @@ PHP;
         $emittedContent = false;
         $replacements = array();
         foreach ($children as $child) {
-            $transformed = $this->listingTransformRange($markup, $child, $post, $route, $excerptLength, $boundGroups, $linkedContainer, $sharedText);
+            $transformed = $this->listingTransformRange($index, $postIndex, $child, $post, $route, $excerptLength, $boundGroups, $linkedContainer, $sharedText);
             if (null === $transformed) return null;
             $foundTitle = $foundTitle || $transformed['title'];
             if ($transformed['content'] && $emittedContent) {
@@ -5412,7 +5419,7 @@ PHP;
     }
 
     /** @param array<string,mixed> $post */
-    private function classifyListingCardBlock(string $slice, array $post, string $route): string
+    private function classifyListingCardBlock(string $slice, array $post, string $route, \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $postIndex): string
     {
         $anchors = $this->listingAnchors($slice);
         foreach ($anchors as $anchor) {
@@ -5465,9 +5472,9 @@ PHP;
             return 'chrome';
         }
         // Recognize actual article leaves before considering unbound card text.
-        $postMarkup = (string) ($post['canonical_block_markup'] ?? '');
-        foreach (self::blockRanges($postMarkup) as $range) {
-            if (array() !== self::childBlockRanges($postMarkup, $range)) continue;
+        $postMarkup = $postIndex->markup;
+        foreach ($postIndex->ranges() as $range) {
+            if (array() !== $postIndex->children($range)) continue;
             if (ListingExcerptProjection::text(substr($postMarkup, $range['offset'], $range['length'])) === ListingExcerptProjection::text($slice)) return 'body';
         }
         // Keep the legacy content-listing contract for paragraphs without an
@@ -5720,52 +5727,6 @@ PHP;
             }
         }
         return null;
-    }
-    /** @param array{offset:int,length:int} $parent @return array<int,array{offset:int,length:int}> */
-    private static function childBlockRanges(string $markup, array $parent): array
-    {
-        $parentStart = $parent['offset'];
-        $parentEnd = $parent['offset'] + $parent['length'];
-        $inner = array();
-        foreach (self::blockRanges($markup) as $range) {
-            $start = $range['offset'];
-            $end = $start + $range['length'];
-            if ($start <= $parentStart || $end >= $parentEnd) {
-                continue;
-            }
-            $inner[] = $range;
-        }
-        $children = array();
-        foreach ($inner as $range) {
-            $nested = false;
-            foreach ($inner as $other) {
-                if ($other['offset'] === $range['offset'] && $other['length'] === $range['length']) {
-                    continue;
-                }
-                if ($other['offset'] < $range['offset'] && ($other['offset'] + $other['length']) > ($range['offset'] + $range['length'])) {
-                    $nested = true;
-                    break;
-                }
-            }
-            if (!$nested) {
-                $children[] = $range;
-            }
-        }
-        usort($children, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
-        return $children;
-    }
-    /** @param array{offset:int,length:int} $child @return array{offset:int,length:int}|null */
-    private static function parentBlockRange(string $markup, array $child): ?array
-    {
-        $best = null;
-        foreach (self::blockRanges($markup) as $range) {
-            if ($range['offset'] < $child['offset'] && ($range['offset'] + $range['length']) > ($child['offset'] + $child['length'])) {
-                if (null === $best || $range['length'] < $best['length']) {
-                    $best = $range;
-                }
-            }
-        }
-        return $best;
     }
     private static function queryLoopMarkup(bool $inherit): string
     {
@@ -7478,15 +7439,7 @@ PHP;
     /** @return array<int,array{offset:int,length:int}> */
     public static function blockRanges(string $markup): array
     {
-        $ranges = array(); $stack = array();
-        if (!preg_match_all('/<!--\s*(\/?)wp:.*?-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $ranges;
-        foreach ($matches[0] as $match) {
-            $token = $match[0]; $offset = $match[1];
-            if (str_starts_with($token, '<!-- /wp:')) { $open = array_pop($stack); if (is_array($open)) $ranges[$open['index']]['length'] = $offset + strlen($token) - $open['offset']; }
-            elseif (str_ends_with(rtrim($token), '/-->')) $ranges[] = array('offset' => $offset, 'length' => strlen($token));
-            else { $index = count($ranges); $ranges[] = array('offset' => $offset, 'length' => 0); $stack[] = array('index' => $index, 'offset' => $offset); }
-        }
-        return array_values(array_filter($ranges, static fn(array $range): bool => 0 < $range['length']));
+        return (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges();
     }
     /** @param array<string,mixed>|mixed $position */
     public static function bindingPosition(mixed $position, string $markup, string $search): bool
