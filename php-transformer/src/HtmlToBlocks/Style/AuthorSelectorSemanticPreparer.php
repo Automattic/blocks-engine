@@ -875,7 +875,7 @@ final class AuthorSelectorSemanticPreparer
     }
 
     /** @param array<string, mixed> $parsed */
-    private static function isSiblingStructuralSelector(array $parsed): bool
+    public static function isSiblingStructuralSelector(array $parsed): bool
     {
         foreach ( $parsed['compounds'] as $compound ) {
             if ( null !== ($compound['nth_type'] ?? null) || ! empty($compound['last_type']) ) {

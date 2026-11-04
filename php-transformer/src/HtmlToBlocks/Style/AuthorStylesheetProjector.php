@@ -333,6 +333,13 @@ final class AuthorStylesheetProjector
             );
             $imageRule .= implode(',', $inlineSelectors) . '{display:' . ($declarations['display'] ?? 'inline')
                 . ';max-width:' . ($declarations['max-width'] ?? 'none') . ';vertical-align:' . ($declarations['vertical-align'] ?? 'baseline') . '}';
+            // An image unwrapped from the paragraph whose line box it sized
+            // stays on that line, so its vertical margins keep sizing the
+            // figure. Override the bridge's block display at its position.
+            if ( str_contains($context->emittedMarkup, SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS) ) {
+                $imageRule .= str_replace('.wp-block-image', '.wp-block-image:where(.' . SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS . ')', $imagePrelude)
+                    . '{display:' . ($declarations['display'] ?? 'inline') . ';vertical-align:' . ($declarations['vertical-align'] ?? 'baseline') . '}';
+            }
             // Any inline-flow image aligns on its line as the source declared,
             // not at the bottom where core's Image rule would put it.
             if ( isset($declarations['vertical-align']) ) {
@@ -1948,7 +1955,7 @@ final class AuthorStylesheetProjector
                     array_push($rewritten, ...$dormantControls);
                     continue;
                 }
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, self::sourceResolvedSiblingExclusion($parsed));
                 continue;
             }
 
@@ -2198,7 +2205,7 @@ final class AuthorStylesheetProjector
                         ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION
                         : ':where(.' . self::SUPERSEDED_MENU_TOGGLE_CLASS . ')';
                 }
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, $insertion);
+                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, $insertion . self::sourceResolvedSiblingExclusion($parsed));
                 continue;
             }
             $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
@@ -2234,6 +2241,7 @@ final class AuthorStylesheetProjector
                     $parsed,
                     $context,
                     ( array() === $exclusion ? '' : ':not(:where(' . implode(',', $exclusion) . '))' ) . ( $supersededToggles ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION : '' )
+                        . ( in_array('.' . self::SEMANTIC_ROLE_CLASS, $exclusion, true) ? '' : self::sourceResolvedSiblingExclusion($parsed) )
                 );
             }
             // A context-free subject (`a`, `.btn`, `*`) reaches every control
@@ -2284,6 +2292,26 @@ final class AuthorStylesheetProjector
         }
 
         return $projected;
+    }
+
+    private const SEMANTIC_ROLE_CLASS = 'blocks-engine-role-semantic';
+
+    /**
+     * A sibling-structural selector (`:last-of-type`, `+`, …) left live
+     * matches by rendered sibling positions, which conversion changes where it
+     * turns a sibling into another element type. Every document resolves the
+     * elements of such sibling groups against its source and gives them
+     * per-element semantic arms, so a live arm, from any document's copy of a
+     * shared stylesheet, must stay off semantic carriers. `:not(:where())`
+     * adds no specificity.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private static function sourceResolvedSiblingExclusion(array $parsed): string
+    {
+        return ($parsed['supported'] ?? false) && AuthorSelectorSemanticPreparer::isSiblingStructuralSelector($parsed)
+            ? ':not(:where(.' . self::SEMANTIC_ROLE_CLASS . '))'
+            : '';
     }
 
     /** @param array<string, mixed> $parsed */
