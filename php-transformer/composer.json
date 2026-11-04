@@ -550,6 +550,7 @@
       "php tests/unit/navigation-nowrap-row.php",
       "php tests/unit/image-responsive-size-not-pinned.php",
       "php tests/unit/listing-unlisted-undated-route-stays-page.php",
+      "php tests/unit/listing-card-date-evidence.php",
       "php tests/unit/presentational-hint-cascade.php",
       "php tests/unit/table-cell-layered-author-box.php",
       "php tests/unit/table-width-hints.php",
