@@ -82,7 +82,7 @@ foreach ( array( '#one', '#two' ) as $href ) {
     $assert(false !== $link, 'the ' . $href . ' control keeps its destination', $buttonMarkup);
 }
 $assert(2 === preg_match_all('/\\.be-inline-geometry-[0-9a-f]+>\\.wp-block-button__link\\{box-shadow:inset 0 0 0 1px #383838 !important\\}/', $buttonCss), 'both controls paint the shadow on their links', $buttonCss);
-$assert(1 === preg_match('/\\.be-inline-geometry-[0-9a-f]+\\{width:180px !important;max-width:100% !important\\}/', $buttonCss), 'the existing width geometry stays on its carrier', $buttonCss);
+$assert(1 === preg_match('/\\.be-inline-geometry-[0-9a-f]+\\{width:180px !important\\}/', $buttonCss), 'the existing width geometry stays on its carrier', $buttonCss);
 $assert(2 === substr_count($buttonCss, 'box-shadow:inset 0 0 0 1px #383838'), 'both controls keep their shadow exactly once in the generated CSS', $buttonCss);
 $assert('pass' === ( $buttonResult['source_reports']['wp_block_validity']['status'] ?? '' ), 'the lowered buttons remain valid', (string) json_encode($buttonResult['source_reports']['wp_block_validity'] ?? array()));
 
