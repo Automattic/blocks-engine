@@ -98,6 +98,13 @@ final class ArtifactCompiler
 
     private readonly RuntimeScriptEvidenceAnalyzer $runtimeScriptEvidenceAnalyzer;
 
+    private \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache $cssRuleTrees;
+
+    public function cssTokenizationCounts(): array
+    {
+        return $this->cssRuleTrees->tokenizations();
+    }
+
     private ?HtmlTransformerAnalysisCache $htmlTransformerAnalysisCache = null;
 
     /** Observational only: excludes receipt cache hits. */
@@ -117,6 +124,7 @@ final class ArtifactCompiler
         private readonly ?\Closure $beforeDocumentTransform = null
     )
     {
+        $this->cssRuleTrees = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache();
         $this->wordpressCompat = new WordPressCompatCss();
         $this->runtimeScriptEvidenceAnalyzer = new RuntimeScriptEvidenceAnalyzer();
     }
@@ -217,6 +225,11 @@ final class ArtifactCompiler
      */
     public function runtimeContextForSource(string $html, string $sourcePath, array $files): array
     {
+        return $this->cssRuleTrees->run(fn () => $this->runtimeContextForSourceWithCssRuleTrees($html, $sourcePath, $files));
+    }
+
+    private function runtimeContextForSourceWithCssRuleTrees(string $html, string $sourcePath, array $files): array
+    {
         $normalized = ( new ArtifactNormalizer() )->normalize(array(
             'entrypoint' => $sourcePath,
             'files'      => $files,
@@ -236,6 +249,11 @@ final class ArtifactCompiler
      * @param array<string, mixed> $artifact
      */
     public function compile(array $artifact): TransformerResult
+    {
+        return $this->cssRuleTrees->run(fn () => $this->compileWithCssRuleTrees($artifact));
+    }
+
+    private function compileWithCssRuleTrees(array $artifact): TransformerResult
     {
         $this->htmlDocumentTransformCount = 0;
         return $this->compileArtifact($this->composeInputArtifact($artifact));
@@ -1712,6 +1730,11 @@ final class ArtifactCompiler
      */
     public function compileFragment(string $content, string $source = 'fragment', string $format = 'html', array $options = array()): TransformerResult
     {
+        return $this->cssRuleTrees->run(fn () => $this->compileFragmentWithCssRuleTrees($content, $source, $format, $options));
+    }
+
+    private function compileFragmentWithCssRuleTrees(string $content, string $source = 'fragment', string $format = 'html', array $options = array()): TransformerResult
+    {
         $bridge = new FormatBridge();
         return $bridge->convertResult($content, $format, 'blocks', array_merge(array(
             'source'       => $source,
@@ -1754,6 +1777,11 @@ final class ArtifactCompiler
     }
 
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false, array $runtimeDeclarations = array(), int $globalShellContextDepth = 0): array
+    {
+        return $this->cssRuleTrees->runPage(fn () => $this->compileHtmlDocumentBlocksWithCssRuleTrees($html, $sourcePath, $files, $sourceScope, $generatedBlockNamespace, $extractGlobalShell, $runtimeDeclarations, $globalShellContextDepth));
+    }
+
+    private function compileHtmlDocumentBlocksWithCssRuleTrees(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace, bool $extractGlobalShell, array $runtimeDeclarations, int $globalShellContextDepth): array
     {
         ++$this->htmlDocumentTransformCount;
         $preserveBlockMarkup = $this->isBlockMarkup($html);

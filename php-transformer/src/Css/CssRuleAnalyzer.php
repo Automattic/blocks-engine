@@ -9,6 +9,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
  */
 final class CssRuleAnalyzer
 {
+    private ?\Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache $ruleTrees = null;
+
     /**
      * @param list<array<string, mixed>> $stylesheets
      * @param list<string> $properties
@@ -389,28 +391,9 @@ final class CssRuleAnalyzer
 
     private function nextRuleBoundary(string $css, int $offset): ?int
     {
-        $state = CssSyntaxScanner::state();
-        for ( $length = strlen($css); $offset < $length; ) {
-            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{;');
-            if ( $offset >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $offset, $state);
-            if ( null === $next ) {
-                return null;
-            }
-            if ( $topLevel && $next === $offset + 1 && ( '{' === $css[ $offset ] || ';' === $css[ $offset ] ) ) {
-                return $offset;
-            }
-            $offset = $next;
-        }
-        return null;
+        return CssRuleTreeCache::parse($css, $this->ruleTrees ??= new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache())->nextBoundary($offset);
     }
 
-    /**
-     * A stylesheet may legally end with whitespace and comments, including a
-     * source-map comment. Preserve malformed-input diagnostics for every other
-     * incomplete trailing token.
-     */
     private function hasNonTrivia(string $css, int $offset): bool
     {
         $state = CssSyntaxScanner::state();
@@ -471,23 +454,7 @@ final class CssRuleAnalyzer
 
     private function matchingBrace(string $css, int $openingBrace): ?int
     {
-        $state = CssSyntaxScanner::state();
-        $depth = 0;
-        for ( $offset = $openingBrace, $length = strlen($css); $offset < $length; ) {
-            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{}');
-            if ( $offset >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $offset, $state);
-            if ( null === $next ) {
-                return null;
-            }
-            if ( $topLevel && $next === $offset + 1 && '{' === $css[ $offset ] ) {
-                ++$depth;
-            } elseif ( $topLevel && $next === $offset + 1 && '}' === $css[ $offset ] && 0 === --$depth ) {
-                return $offset;
-            }
-            $offset = $next;
-        }
-        return null;
+        return CssRuleTreeCache::parse($css, $this->ruleTrees ??= new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache())->blockEnd($openingBrace);
     }
+
 }
