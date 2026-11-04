@@ -11,7 +11,6 @@ final class RouteSelectorMatchIndex
     private CssSelectorMatchCache $cache;
     private array $elements = array();
     private array $owners = array();
-    private array $elementOwners = array();
     private array $ownerElements = array();
     private array $keys = array();
     private array $selectors = array();
@@ -28,11 +27,10 @@ final class RouteSelectorMatchIndex
             foreach ($document->getElementsByTagName('*') as $element) {
                 $id = count($this->elements);
                 $this->elements[$id] = $element;
-                $this->elementOwners[$id] = $owner;
                 $keys = array('t:' . strtolower($element->tagName));
                 if ($element->hasAttribute('id')) $keys[] = 'i:' . $element->getAttribute('id');
                 foreach ($this->cache->classTokens($element) as $class) $keys[] = 'c:' . $class;
-                foreach ($keys as $key) $this->keys[$key][$id] = true;
+                foreach ($keys as $key) $this->keys[$owner][$key][$id] = true;
                 $this->ownerElements[$owner][] = $id;
             }
         }
@@ -70,35 +68,15 @@ final class RouteSelectorMatchIndex
                 [$structural, $pseudo] = self::cascadeSubject($arm, true) ?? array('', null);
                 $parsed = '' === $structural ? array('supported' => false) : CssSelectorMatcher::parse($structural);
             }
-            $keys = array();
-            if ( $parsed['supported'] ) {
-                $leaf = $parsed['compounds'][count($parsed['compounds']) - 1];
-                foreach ($leaf['classes'] as $class) $keys[] = 'c:' . $class;
-                // An id also matches an editor anchor carrier: either key
-                // can supply candidates, never require the literal id alone.
-                foreach ($leaf['ids'] as $id) {
-                    $keys[] = array('i:' . $id, 'c:' . \Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker::editorAnchorClass($id));
-                }
-                if (null !== $leaf['type']) $keys[] = 't:' . strtolower($leaf['type']);
-            }
-            $candidates = null;
-            foreach ($keys as $key) {
-                $list = array();
-                foreach ((array) $key as $alternative) $list += $this->keys[$alternative] ?? array();
-                if (null === $candidates || count($list) < count($candidates)) $candidates = $list;
-                if (!$candidates) break;
-            }
-            $this->cascadeArms[$arm] = array($parsed, $candidates, $pseudo);
+            $this->cascadeArms[$arm] = array($parsed, $pseudo);
         }
-        [$parsed, $candidates, $pseudo] = $this->cascadeArms[$arm];
+        [$parsed, $pseudo] = $this->cascadeArms[$arm];
         if ( ! $parsed['supported'] ) {
             return null;
         }
+        $candidates = $this->candidates($parsed, $owner);
         $matched = array();
         foreach ( null === $candidates ? ($this->ownerElements[$owner] ?? array()) : array_keys($candidates) as $id ) {
-            if ( $this->elementOwners[$id] !== $owner ) {
-                continue;
-            }
             if ( $this->cache->matches($this->elements[$id], $arm, $parsed, true)['matches'] ) {
                 $matched[ null === $pseudo ? $id : $id . $pseudo ] = true;
             }
@@ -256,39 +234,16 @@ final class RouteSelectorMatchIndex
                 $structural = preg_replace('/:(?:hover|focus-visible|focus-within|focus|active|visited|any-link|link|disabled|enabled|target)(?![\w(-])/i', '', $arm) ?? $arm;
             }
             $parsed = CssSelectorMatcher::parse($structural);
-            $keys = array();
-            if ($parsed['supported']) {
-                $leaf = $parsed['compounds'][count($parsed['compounds']) - 1];
-                foreach ($leaf['classes'] as $class) $keys[] = 'c:' . $class;
-                // An id also matches an editor anchor carrier: either key
-                // can supply candidates, never require the literal id alone.
-                foreach ($leaf['ids'] as $id) {
-                    $keys[] = array('i:' . $id, 'c:' . \Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker::editorAnchorClass($id));
-                }
-                if (null !== $leaf['type']) $keys[] = 't:' . strtolower($leaf['type']);
-            }
-            // Pick the smallest subject-key union once across all routes.
-            // Integer element ids deduplicate id/editor-anchor alternatives.
-            $candidates = null;
-            foreach ($keys as $key) {
-                $list = array();
-                foreach ((array) $key as $alternative) $list += $this->keys[$alternative] ?? array();
-                if (null === $candidates || count($list) < count($candidates)) $candidates = $list;
-                if (!$candidates) break;
-            }
-            $byOwner = array();
-            foreach (null === $candidates ? array_keys($this->elements) : array_keys($candidates) as $id) {
-                $byOwner[$this->elementOwners[$id]][] = $id;
-            }
-            $this->selectors[$arm] = array($parsed, $byOwner);
+            $this->selectors[$arm] = $parsed;
         }
-        [$parsed, $byOwner] = $this->selectors[$arm];
+        $parsed = $this->selectors[$arm];
         if (!$parsed['supported']) return false;
         foreach ($outside as $owner => $_) {
             if (!isset($this->owners[$owner])) return false;
             if (!isset($this->hits[$arm][$owner])) {
                 $hit = false;
-                foreach ($byOwner[$owner] ?? array() as $id) {
+                $candidates = $this->candidates($parsed, $owner);
+                foreach (null === $candidates ? ($this->ownerElements[$owner] ?? array()) : array_keys($candidates) as $id) {
                     $match = $this->cache->matches($this->elements[$id], $arm, $parsed, true);
                     if (!$match['supported'] || $match['matches']) { $hit = true; break; }
                 }
@@ -297,5 +252,58 @@ final class RouteSelectorMatchIndex
             if ($this->hits[$arm][$owner]) return false;
         }
         return true;
+    }
+
+    /**
+     * Possible subjects on one route, or null when no key narrows the search.
+     * Every preceding compound must match somewhere on the route, whether it
+     * is connected by a descendant, child, adjacent or general sibling combinator.
+     * An absent key proves no match; its presence does not prove a relationship.
+     *
+     * @return array<int,true>|null
+     */
+    private function candidates(array $parsed, string $owner): ?array
+    {
+        $compounds = $parsed['compounds'];
+        $subject = array_pop($compounds);
+        foreach ($compounds as $preceding) {
+            if (array() === $this->compoundCandidates($preceding, $owner)) return array();
+        }
+        return $this->compoundCandidates($subject, $owner);
+    }
+
+    /**
+     * Smallest necessary key set for a compound (a conservative superset).
+     * Negations supply no positive keys. An any group can narrow the search
+     * only when every alternative's subject is keyed; otherwise it is unbounded.
+     *
+     * @return array<int,true>|null
+     */
+    private function compoundCandidates(array $compound, string $owner): ?array
+    {
+        $keys = $this->keys[$owner] ?? array();
+        $options = array();
+        foreach ($compound['classes'] as $class) $options[] = $keys['c:' . $class] ?? array();
+        // An id can also match an editor anchor carrier. Union, never intersect.
+        foreach ($compound['ids'] as $id) {
+            $options[] = ($keys['i:' . $id] ?? array())
+                + ($keys['c:' . \Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker::editorAnchorClass($id)] ?? array());
+        }
+        if (null !== $compound['type']) $options[] = $keys['t:' . strtolower($compound['type'])] ?? array();
+        foreach ($compound['any'] ?? array() as $group) {
+            $union = array();
+            foreach ($group['alternatives'] as $alternative) {
+                $subject = $this->compoundCandidates($alternative['compounds'][count($alternative['compounds']) - 1], $owner);
+                if (null === $subject) continue 2;
+                $union += $subject;
+            }
+            $options[] = $union;
+        }
+        $best = null;
+        foreach ($options as $option) {
+            if (null === $best || count($option) < count($best)) $best = $option;
+            if (array() === $best) break;
+        }
+        return $best;
     }
 }
