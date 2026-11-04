@@ -3075,7 +3075,7 @@ final class ShellExtraction
 
     /**
      * Wordmark evidence is cross-route, not a class-name convention. Only the
-     * comparison copy changes: extraction still moves the original editable blocks.
+     * comparison copy ignores route state; the emitted leaf is a live site title.
      */
     private static function withWordmarkRouteState(array $pages, array $assets): array
     {
@@ -3129,7 +3129,31 @@ final class ShellExtraction
                     if (!$valid || count($links) > 1 || (!empty($links) && $links[0] !== $entry) || (empty($page['entrypoint']) && array($entry) !== $links)) continue;
                     ksort($classes); ksort($styles);
                     $signature = hash('sha256', json_encode(array($text, array_keys($classes), array_keys($styles), $presentation)));
-                    $evidence[$signature][$index][] = array('candidate' => $candidateIndex, 'offset' => $node['offset'], 'length' => $node['end'] - $node['offset']);
+                    $leaf = $node;
+                    while (1 === count($leaf['children'])) $leaf = $nodes[$leaf['children'][0]];
+                    $attrs = json_decode($leaf['attributes'], true) ?: array();
+                    unset($attrs['level'], $attrs['content']);
+                    $attrs['level'] = 0;
+                    $attrs['isLink'] = true;
+                    $attrs['metadata']['blocksEngineWordmark'] = true;
+                    foreach (array('font-size' => 'fontSize', 'font-family' => 'fontFamily', 'text-decoration-line' => 'textDecoration') as $property => $attribute) {
+                        if (isset($presentation[$property])) {
+                            unset($attrs[$attribute]);
+                            $attrs['style']['typography'][$attribute] = $presentation[$property];
+                        }
+                    }
+                    if (isset($presentation['color'])) {
+                        $color = json_decode($presentation['color'], true);
+                        $attrs['style']['color']['text'] = is_array($color)
+                            ? sprintf('rgba(%s,%s,%s,%s)', ...$color) : $presentation['color'];
+                        unset($attrs['textColor']);
+                    }
+                    // Core's link must not acquire the theme's generic anchor
+                    // colour or underline after moving presentation to the title.
+                    $attrs['style']['elements']['link']['color']['text'] = 'inherit';
+                    $attrs['style']['elements']['link']['typography']['textDecoration'] = $presentation['text-decoration-line'] ?? 'none';
+                    $replacement = '<!-- wp:site-title ' . BlockAttributes::encode($attrs) . ' /-->';
+                    $evidence[$signature][$index][] = array('candidate' => $candidateIndex, 'offset' => $node['offset'], 'length' => $node['end'] - $node['offset'], 'leaf_offset' => $leaf['offset'], 'leaf_length' => $leaf['end'] - $leaf['offset'], 'replacement' => $replacement);
                 }
             }
         }
@@ -3143,6 +3167,8 @@ final class ShellExtraction
                 $identity = substr_replace($candidate['markup'], '<!-- shared-wordmark:' . $signature . ' -->', $match['offset'], $match['length']);
                 $candidate['identity_markup'] = self::normalizeNestedChromeMarkup($identity);
                 $candidate['wordmark_route_state'] = true;
+                $part = substr_replace($candidate['markup'], $match['replacement'], $match['leaf_offset'], $match['leaf_length']);
+                $candidate['template_part_markup'] = self::landmarkPartMarkup(self::withoutCurrentNavigationState($part), 'header');
                 unset($candidate);
             }
         }
