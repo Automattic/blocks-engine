@@ -144,12 +144,21 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 $link = $context->buttonContext()->accessibleNameCompanion($safeAnchor, $content, null, true, $anchor)->block();
                 $item = $this->structuralItem($anchor, $element);
                 if (!$item->isSameNode($anchor)) {
-                    $link = $context->createBlock('core/group', $context->presentationAttributes($item), array($link), $item);
+                    $itemAttrs = $context->presentationAttributes($item);
+                    if ('li' === strtolower($item->tagName)) $itemAttrs['tagName'] = 'li';
+                    $link = $context->createBlock('core/group', $itemAttrs, array($link), $item);
                 }
                 $artworkLinks[] = $link;
             }
             $attrs = $context->presentationAttributes($element);
-            $attrs['layout'] ??= array('type' => 'flex', 'flexWrap' => 'wrap');
+            // A source list keeps its tag so element-type rules and its inline
+            // formatting context carry over; only other containers need an
+            // invented flex row.
+            if (in_array(strtolower($element->tagName), array('ul', 'ol'), true)) {
+                $attrs['tagName'] = strtolower($element->tagName);
+            } else {
+                $attrs['layout'] ??= array('type' => 'flex', 'flexWrap' => 'wrap');
+            }
             return new PatternRecognitionResult($context->createBlock('core/group', $attrs, $artworkLinks, $element));
         }
 
