@@ -292,7 +292,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             // Native defaults supply a different box; intrinsic source SVG
             // sizing remains on the child, with margin/transform on the leaf
             // button so Core's overlay does not gain a transformed ancestor.
-            $extraRules .= $open . '{min-width:0;min-height:0;padding:0;border:0;width:auto;height:auto}';
+            $extraRules .= $open . '{min-width:0!important;min-height:0!important;padding:0!important;border:0!important;width:auto!important;height:auto!important}';
             $extraRules .= $presentation->css($open, $source['button'], $toggle);
             $extraRules .= $presentation->css($open . '>svg', $source['icon'], $toggle->getElementsByTagName('svg')->item(0));
         }
