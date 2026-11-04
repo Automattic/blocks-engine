@@ -23,11 +23,11 @@ $assert(false === ($definition['block_json']['supports']['html'] ?? null), 'the 
 $assert('file:./index.js' === ($definition['block_json']['editorScript'] ?? null), 'the companion declares its editor script');
 $assert(!isset($definition['block_json']['render']), 'the companion metadata does not reference a producer-authored render asset');
 $assert(array('wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element') === ($definition['script_dependencies']['index.js'] ?? null), 'the companion declares editor dependencies');
-$assert(ResponsiveMediaBlockGenerator::RENDERER === ($definition['renderer'] ?? null) && !isset($definition['render']), 'the companion delegates runtime rendering through an audited identifier without producer-authored PHP');
+$assert(!isset($definition['renderer'], $definition['render']), 'the companion delegates runtime rendering through an audited identifier without producer-authored PHP');
 $payload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), array($definition));
-$assert(ResponsiveMediaBlockGenerator::RENDERER === ($payload['blocks'][0]['renderer'] ?? null) && !isset($payload['blocks'][0]['render']), 'the audited renderer identifier survives companion payload normalization');
+$assert(!isset($payload['blocks'][0]['renderer'], $payload['blocks'][0]['render']), 'the audited renderer identifier survives companion payload normalization');
 $editor = (string) ($definition['assets']['index.js'] ?? '');
-$assert(str_contains($editor, "registerBlockType( 'ssi-example/responsive-media'") && !str_contains($editor, 'ServerSideRender') && str_contains($editor, 'dangerouslySetInnerHTML') && str_contains($editor, 'InspectorControls') && str_contains($editor, 'TextControl') && !str_contains($editor, 'TextareaControl') && str_contains($editor, 'save: function() { return null; }') && !str_contains($editor, "display: 'none'") && !str_contains($editor, 'RawHTML'), 'the editor renders captured HTML directly and exposes media fields in the inspector');
+$assert(str_contains($editor, "registerBlockType( 'ssi-example/responsive-media'") && !str_contains($editor, 'ServerSideRender') && str_contains($editor, 'dangerouslySetInnerHTML') && str_contains($editor, 'InspectorControls') && str_contains($editor, 'TextControl') && !str_contains($editor, 'TextareaControl') && str_contains($editor, 'markup( props.attributes.media )') && !str_contains($editor, "display: 'none'") && str_contains($editor, 'RawHTML'), 'the editor renders captured HTML directly and exposes media fields in the inspector');
 $editorSchemaRunner = <<<'JS'
 const vm = require( 'node:vm' );
 let settings;
@@ -41,7 +41,7 @@ process.stdout.write( JSON.stringify( settings.attributes ) );
 JS;
 $editorAttributes = json_decode((string) shell_exec('node -e ' . escapeshellarg($editorSchemaRunner) . ' ' . escapeshellarg(base64_encode($editor))), true);
 $assert(($definition['block_json']['attributes'] ?? null) === $editorAttributes, 'the editor registration attribute schema exactly matches generated block metadata');
-$assert('content' === ($editorAttributes['content']['role'] ?? null), 'the editor registration marks responsive media HTML as Gutenberg content');
+$assert('content' === ($editorAttributes['media']['role'] ?? null), 'the editor registration marks responsive media HTML as Gutenberg content');
 $assert('media' === ($editorAttributes['kind']['default'] ?? null), 'the editor registration carries the typed captured-boundary kind');
 $assert('string' === ($definition['block_json']['attributes']['kind']['type'] ?? null) && 'media' === ($definition['block_json']['attributes']['kind']['default'] ?? null), 'producer metadata declares the responsive-media boundary kind schema');
 
@@ -73,7 +73,7 @@ foreach (array(
 ) as $plainSource) {
     $plain = ( new HtmlTransformer() )->transform($plainSource)->toArray();
     $assert('custom/responsive-media' === ($plain['blocks'][0]['blockName'] ?? null), 'authored plain-img selection uses the existing responsive-media boundary');
-    $assert($plainSource === ($plain['blocks'][0]['attrs']['content'] ?? null), 'selection, source URL identity and authored geometry survive together');
+    $assert($plainSource === ($plain['blocks'][0]['innerHTML'] ?? null), 'selection, source URL identity and authored geometry survive together');
     $assert(array() === ($plain['fallbacks'] ?? array()), 'safe authored selection needs no HTML fallback');
 }
 $linkedDensity = ( new HtmlTransformer() )->transform('<a href="/item"><img src="small.jpg" srcset="small.jpg 1x, retina.jpg 2x" width="40" height="20" alt="Density"></a>')->toArray();
@@ -116,7 +116,7 @@ $deviceDocuments = static function (string $desktopCss, string $mobileCss): arra
         . '<div class="data-blocks-engine-capture-mobile-document"><main><h1>Mobile</h1>' . $image . '</main></div></body></html>';
     $serialized = (string) (( new ArtifactCompiler() )->compile(array( 'entrypoint' => 'index.html', 'files' => array( 'index.html' => $html ) ))->toArray()['serialized_blocks'] ?? '');
 
-    return array( substr_count($serialized, '/responsive-media '), substr_count($serialized, '<!-- wp:image') );
+    return array( substr_count($serialized, '<!-- wp:custom/responsive-media '), substr_count($serialized, '<!-- wp:image') );
 };
 $selectionPlan = ( new ArtifactCompiler() )->compile(array( 'entrypoint' => 'index.html', 'files' => array( 'index.html' => '<!doctype html><html><head><style>.photo{width:100%}</style></head><body><main><h1>Gallery</h1><img class="photo" src="photo-2048.webp" srcset="photo-600.webp 600w, photo-2048.webp 2048w" sizes="(max-width: 992px) 100vw, 50vw" alt="Photo"></main></body></html>', 'photo-600.webp' => 'RIFF', 'photo-2048.webp' => 'RIFF' ) ))->toArray();
 $selectionRuntime = (string) json_encode(( new Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan() )->fromCompilerResult($selectionPlan));
@@ -156,7 +156,7 @@ $typedPicture = ( new HtmlTransformer() )->transform('<picture><source type="ima
 $assert('custom/responsive-media' === ($typedPicture['blocks'][0]['blockName'] ?? null), 'a format-selected picture source remains responsive media');
 $repeated = ( new HtmlTransformer() )->transform($source . $source)->toArray();
 $assert(2 === count($repeated['blocks'] ?? array()) && 1 === count($repeated['source_reports']['generated_blocks'] ?? array()), 'multiple instances need one generated definition');
-$content = (string) ($result['blocks'][0]['attrs']['content'] ?? '');
+$content = (string) ($result['blocks'][0]['innerHTML'] ?? '');
 foreach (array('media="(min-width: 800px)"', 'type="image/webp"', 'hero,wide.webp 1200w, hero.webp 600w', 'sizes="100vw"', 'href="/profile"', 'target="_blank"', 'rel="noopener"', 'aria-label="Profile"', 'width="44"', 'class="avatar"') as $fragment) {
     $assert(str_contains($content, $fragment), 'responsive companion preserves ' . $fragment);
 }
@@ -198,30 +198,30 @@ $assert('core/html' === ($inlineFlow['blocks'][0]['blockName'] ?? null) && str_c
 
 $wrappedSource = '<a class="profile-link" href="/profile" target="_blank" rel="noopener"><media-frame class="profile-frame" data-image-info="bounded"><img class="profile-image" src="profile.png" width="30" height="30" alt="Profile"></media-frame></a>';
 $wrapped = ( new HtmlTransformer() )->transform($wrappedSource)->toArray();
-$assert('custom/responsive-media' === ($wrapped['blocks'][0]['blockName'] ?? null) && str_contains((string) ($wrapped['blocks'][0]['attrs']['content'] ?? ''), '<a class="profile-link" href="/profile"') && str_contains((string) ($wrapped['blocks'][0]['attrs']['content'] ?? ''), '<img class="profile-image" src="profile.png"'), 'a linked custom image wrapper remains a carrier when its source topology cannot be lowered to core/image');
+$assert('custom/responsive-media' === ($wrapped['blocks'][0]['blockName'] ?? null) && str_contains((string) ($wrapped['blocks'][0]['innerHTML'] ?? ''), '<a class="profile-link" href="/profile"') && str_contains((string) ($wrapped['blocks'][0]['innerHTML'] ?? ''), '<img class="profile-image" src="profile.png"'), 'a linked custom image wrapper remains a carrier when its source topology cannot be lowered to core/image');
 
 $nestedWrappedSource = '<a href="/profile"><div class="crop" style="overflow:hidden"><media-frame data-image-info="bounded"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame></div></a>';
 $nestedWrapped = ( new HtmlTransformer() )->transform($nestedWrappedSource)->toArray();
-$assert('custom/responsive-media' === ($nestedWrapped['blocks'][0]['blockName'] ?? null) && str_contains((string) ($nestedWrapped['blocks'][0]['attrs']['content'] ?? ''), '<a href="/profile"><div class="crop"'), 'a linked image behind additional presentation topology remains responsive media');
+$assert('custom/responsive-media' === ($nestedWrapped['blocks'][0]['blockName'] ?? null) && str_contains((string) ($nestedWrapped['blocks'][0]['innerHTML'] ?? ''), '<a href="/profile"><div class="crop"'), 'a linked image behind additional presentation topology remains responsive media');
 
 $artDirectedWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><media-frame><picture><source media="(min-width: 800px)" srcset="profile-wide.png 800w"><img src="profile.png" alt="Profile"></picture></media-frame></a>')->toArray();
-$artDirectedContent = (string) ($artDirectedWrapper['blocks'][0]['attrs']['content'] ?? '');
+$artDirectedContent = (string) ($artDirectedWrapper['blocks'][0]['innerHTML'] ?? '');
 $assert('custom/responsive-media' === ($artDirectedWrapper['blocks'][0]['blockName'] ?? null) && str_contains($artDirectedContent, '<source media="(min-width: 800px)" srcset="profile-wide.png 800w">'), 'art-directed custom wrappers remain responsive media because core/image cannot preserve picture source selection');
 
 $srcsetWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><media-frame><img src="profile.png" srcset="profile.png 1x, profile-2x.png 2x" sizes="30px" alt="Profile"></media-frame></a>')->toArray();
-$srcsetContent = (string) ($srcsetWrapper['blocks'][0]['attrs']['content'] ?? '');
+$srcsetContent = (string) ($srcsetWrapper['blocks'][0]['innerHTML'] ?? '');
 $assert('custom/responsive-media' === ($srcsetWrapper['blocks'][0]['blockName'] ?? null) && str_contains($srcsetContent, 'srcset="profile.png 1x, profile-2x.png 2x"') && str_contains($srcsetContent, 'sizes="30px"'), 'responsive candidates remain responsive media because core/image cannot serialize srcset or sizes');
 
 $selectorDependentWrapper = ( new HtmlTransformer() )->transform('<style>.media-frame .media-image{border-radius:50%}</style><a href="/profile"><media-frame class="media-frame"><img class="media-image" src="profile.png" alt="Profile"></media-frame></a>')->toArray();
 $assert('custom/responsive-media' === ($selectorDependentWrapper['blocks'][0]['blockName'] ?? null), 'a custom wrapper whose descendant selector would change remains responsive media');
 
 $deferredHost = ( new HtmlTransformer() )->transform('<wow-image class="_wowImage" data-image-info="{&quot;alignType&quot;:&quot;center&quot;,&quot;imageData&quot;:{&quot;name&quot;:&quot;Logo.png&quot;,&quot;url&quot;:&quot;https://cdn.example.test/logo.png&quot;,&quot;alt&quot;:&quot;Logo.png&quot;}}"><picture><img alt="Logo.png"></picture></wow-image>')->toArray();
-$deferredContent = (string) ($deferredHost['blocks'][0]['attrs']['content'] ?? $deferredHost['serialized_blocks'] ?? '');
+$deferredContent = (string) ($deferredHost['blocks'][0]['innerHTML'] ?? $deferredHost['serialized_blocks'] ?? '');
 $assert(str_contains($deferredContent, 'src="https://cdn.example.test/logo.png"'), 'a custom image host with JSON image metadata fills a missing img src');
 $assert(! str_contains($deferredContent, '<picture><img alt="Logo.png"></picture>') || str_contains($deferredContent, '<img alt="Logo.png" src="https://cdn.example.test/logo.png">') || str_contains($deferredContent, '<img src="https://cdn.example.test/logo.png" alt="Logo.png">'), 'the recovered source is serialized onto the captured img');
 
 $emptyPicture = ( new HtmlTransformer() )->transform('<wow-image class="_wowImage"><picture><img alt="Logo.png"></picture></wow-image>')->toArray();
-$emptyContent = (string) ($emptyPicture['blocks'][0]['attrs']['content'] ?? $emptyPicture['serialized_blocks'] ?? '');
+$emptyContent = (string) ($emptyPicture['blocks'][0]['innerHTML'] ?? $emptyPicture['serialized_blocks'] ?? '');
 $assert(! str_contains($emptyContent, '<picture><img alt="Logo.png"></picture>'), 'a picture with no src and no recoverable metadata is not emitted');
 
 $labeledWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><div><wow-image><img src="profile.png" alt="Profile"></wow-image><span>Profile</span></div></a>')->toArray();
@@ -230,7 +230,7 @@ $assert('custom/responsive-media' !== ($labeledWrapper['blocks'][0]['blockName']
 $maskedVideoSource = '<div class="masked-video"><svg viewBox="0 0 600 120"><defs><clipPath id="clip-masked-video"><text x="0" y="0">LET&apos;S TALK</text></clipPath></defs></svg><div class="fill-layers-wrapper" style="clip-path:url(&quot;#clip-masked-video&quot;)"><video src="footer.mp4" autoplay muted loop></video></div></div>';
 $maskedVideo = ( new HtmlTransformer() )->transform($maskedVideoSource)->toArray();
 $maskedVideoBlock = $maskedVideo['blocks'][0] ?? array();
-$maskedVideoContent = (string) ($maskedVideoBlock['attrs']['content'] ?? '');
+$maskedVideoContent = (string) ($maskedVideoBlock['innerHTML'] ?? '');
 $assert('custom/responsive-media' === ($maskedVideoBlock['blockName'] ?? null), 'a Wix-style video and sibling SVG clip definition remain in one captured media boundary');
 $assert(str_contains($maskedVideoContent, '<clippath id="clip-masked-video">') && str_contains($maskedVideoContent, '<video src="footer.mp4" autoplay muted loop>'), 'the captured boundary preserves the SVG definition and media consumer');
 $assert(! str_contains((string) ($maskedVideo['serialized_blocks'] ?? ''), '<!-- wp:html') && 'pass' === ($maskedVideo['source_reports']['wp_block_validity']['status'] ?? null), 'the dependent composition remains valid generated-block markup');

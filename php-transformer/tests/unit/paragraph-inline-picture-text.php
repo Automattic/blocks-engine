@@ -57,7 +57,7 @@ if ( null === $row
 }
 
 $media = $children[0] ?? array();
-$mediaContent = (string) ($media['attrs']['content'] ?? '');
+$mediaContent = (string) ($media['innerHTML'] ?? '');
 if ( ! str_ends_with((string) ($media['blockName'] ?? ''), '/responsive-media')
     || ! str_contains($mediaContent, '<source srcset="/a.avif 88w" type="image/avif" sizes="44px">')
     || ! str_contains($mediaContent, 'src="/a.webp"')

@@ -17,31 +17,38 @@ if (1 !== count($media) || 'raw_html' === ($media[0]['block_json']['blocksEngine
     throw new RuntimeException('Linked responsive figures must expose media fields rather than a raw HTML editing surface.');
 }
 $editor = $media[0]['assets']['index.js'];
-if (str_contains($editor, 'TextareaControl') || !str_contains($editor, 'components.TextControl') || !str_contains($editor, "field( node, 'alt', 'Alternative text'") || !str_contains($editor, "field( node, 'href', 'Link URL'") || !str_contains($editor, "field( node, 'src', 'Image URL'")) {
+if (str_contains($editor, 'TextareaControl') || !str_contains($editor, 'components.TextControl') || !str_contains($editor, 'Alternative text') || !str_contains($editor, 'Link URL') || !str_contains($editor, 'Image URL')) {
     throw new RuntimeException('The public transformer must supply structured media controls, not an HTML textarea.');
 }
-if ('<a href="/photo"><picture><source media="(min-width:800px)" srcset="wide.jpg 1200w"><img src="photo.jpg" alt="Photo"></picture></a>' !== ($result['blocks'][0]['attrs']['content'] ?? null)) {
+if ('<a href="/photo"><picture><source media="(min-width:800px)" srcset="wide.jpg 1200w"><img src="photo.jpg" alt="Photo"></picture></a>' !== ($result['blocks'][0]['attrs']['content'] ?? $result['blocks'][0]['innerHTML'] ?? null)) {
     throw new RuntimeException('Structured editing must not rewrite captured media during import.');
 }
+// Public-interface regression: captured custom hosts must contain editable data,
+// not a raw HTML string hidden behind structured controls.
+$captured = (new HtmlTransformer())->transform('<wow-image id="photo"><picture><source media="(min-width:800px)" srcset="wide.jpg 1200w"><img src="photo.jpg" alt="Photo"></picture></wow-image>')->toArray();
+$block = $captured['blocks'][0];
+if ('custom/responsive-media' !== $block['blockName'] || isset($block['attrs']['content']) || 'wow-image' !== ($block['attrs']['media'][0]['tag'] ?? null)) {
+    throw new RuntimeException('Captured media must use structured data through the public transformer.');
+}
+$rejectMarkup = static function (array $values) use (&$rejectMarkup): void {
+    foreach ($values as $value) {
+        if (is_array($value)) $rejectMarkup($value);
+        elseif (is_string($value) && preg_match('/<[a-z][a-z0-9-]*[\\s>\\/]/i', $value)) throw new RuntimeException('Media attributes must not carry HTML.');
+    }
+};
+$rejectMarkup($block['attrs']);
 // Execute the emitted editor through its registered public edit callback.
 $runner = <<<'JS'
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 let settings;
 const nodes = [
-    { localName: 'a', attrs: { href: '/photo' } },
-    { localName: 'source', attrs: { media: '(min-width:800px)', srcset: 'wide.jpg 1200w' } },
-    { localName: 'img', attrs: { src: 'photo.jpg', alt: 'Photo' } }
+    { tag: 'a', attributes: { href: '/photo' } },
+    { tag: 'source', attributes: { media: '(min-width:800px)', srcset: 'wide.jpg 1200w' } },
+    { tag: 'img', attributes: { src: 'photo.jpg', alt: 'Photo' } }
 ];
-nodes.forEach(node => {
-    node.getAttribute = name => node.attrs[name];
-    node.hasAttribute = name => name in node.attrs;
-    node.setAttribute = (name, value) => { node.attrs[name] = value; };
-});
-const body = { querySelectorAll: () => nodes, get innerHTML() { return JSON.stringify(nodes.map(node => node.attrs)); } };
 const createElement = (type, props, ...children) => ({ type, props, children });
 vm.runInNewContext(Buffer.from(process.argv[1], 'base64').toString(), { window: {
-    DOMParser: function() { this.parseFromString = () => ({ body }); },
     wp: {
         blocks: { registerBlockType: (name, value) => { settings = value; } },
         blockEditor: { InspectorControls: 'inspector', useBlockProps: () => ({}) },
@@ -50,7 +57,7 @@ vm.runInNewContext(Buffer.from(process.argv[1], 'base64').toString(), { window: 
     }
 } });
 let update;
-const tree = settings.edit({ isSelected: true, attributes: { content: '<captured>' }, setAttributes: value => { update = value; } });
+const tree = settings.edit({ isSelected: true, attributes: { media: nodes }, setAttributes: value => { update = value; } });
 const fields = [];
 function visit(node) {
     if (Array.isArray(node)) return node.forEach(visit);
@@ -59,17 +66,19 @@ function visit(node) {
     (node.children || []).forEach(visit);
 }
 visit(tree);
+const saved = settings.save({ attributes: { media: nodes } });
+assert.equal(saved.children[0], '<a href="/photo"></a><source media="(min-width:800px)" srcset="wide.jpg 1200w"><img src="photo.jpg" alt="Photo">');
 for (const [label, value, index, attribute] of [
-    ['Alternative text 3', 'Edited photo', 2, 'alt'],
-    ['Image URL 3', 'replacement.jpg', 2, 'src'],
-    ['Link URL 1', '/edited', 0, 'href'],
-    ['Source URL or candidates 2', 'new-wide.jpg 1200w', 1, 'srcset']
+    ['Alternative text', 'Edited photo', 2, 'alt'],
+    ['Image URL', 'replacement.jpg', 2, 'src'],
+    ['Link URL', '/edited', 0, 'href'],
+    ['Source URL or candidates', 'new-wide.jpg 1200w', 1, 'srcset']
 ]) {
     const field = fields.find(field => field.props.label === label);
     assert.ok(field, label + ' is a structured control');
     field.props.onChange(value);
-    assert.equal(JSON.parse(update.content)[index][attribute], value);
-    assert.equal(nodes[1].attrs.media, '(min-width:800px)', 'editing retains source selection');
+    assert.equal(update.media[index].attributes[attribute], value);
+    assert.equal(update.media[1].attributes.media, '(min-width:800px)', 'editing retains source selection');
 }
 JS;
 exec('node -e ' . escapeshellarg($runner) . ' ' . escapeshellarg(base64_encode($editor)) . ' 2>&1', $output, $status);

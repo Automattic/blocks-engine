@@ -4,8 +4,10 @@ A plain `img` `srcset` outside `<picture>` describes one image at several
 resolutions. When its rendered width is known, it lowers to native `core/image`
 so the photo stays editable Media Library content. Mixed, unparseable or
 descriptorless families, `sizes` without `srcset`, and families whose rendered
-width is unknown keep the existing `responsive-media` block and
-`blocks-engine/responsive-media/v1` renderer. In that last case the intrinsic
+width is unknown keep the `responsive-media` block. This static block stores a
+structured `media` tree (tags, attributes, text and children), exposes media
+fields in the inspector, and saves the captured element topology without a
+server renderer or an HTML-string content attribute. In that last case the intrinsic
 size depends on the chosen candidate's density. Art direction (`<picture>`
 sources) also keeps that boundary.
 
@@ -23,7 +25,7 @@ the first fetch fixes the image's density.
 
 - The producer retains the source family, order, descriptors (including absent
   descriptors), `sizes`, authored dimensions, presentation, and URL identity in
-  the responsive-media content attribute or the `core/image` selection
+  the responsive-media `media` tree or the `core/image` selection
   metadata. Existing source sanitization applies.
 - Artifact asset analysis and plan canonicalization bind each URL through the
   existing asset reference/token mechanism. Fallback attachment metadata alone

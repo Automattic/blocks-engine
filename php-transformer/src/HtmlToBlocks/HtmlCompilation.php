@@ -11913,12 +11913,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $contentElement->setAttribute('class', SourceDom::mergeClassNames($contentElement->getAttribute('class'), $overflowClass));
         }
 
-        return $this->createBlock(
+        $html = SourceDom::safeFallbackHtml($contentElement, $this->authorSelectorProjections()->tagMarkers());
+        $block = $this->createBlock(
             $this->generatedBlocks()->blockName(ResponsiveMediaBlockGenerator::LOCAL_NAME),
-            array( 'content' => SourceDom::safeFallbackHtml($contentElement, $this->authorSelectorProjections()->tagMarkers()), 'kind' => 'media' ),
+            array( 'media' => ResponsiveMediaBlockGenerator::mediaNodes($html), 'kind' => 'media' ),
             array(),
             $element
         );
+        $block['innerHTML'] = $html;
+        $block['innerContent'] = array($html);
+        return $block;
     }
 
     /** @return array<string, mixed> */

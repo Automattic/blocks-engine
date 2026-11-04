@@ -50,9 +50,10 @@ $assert(str_contains($editorScript, "createElement( 'div', Object.assign( {}, bl
 $assert((bool) preg_match("/element\\.Fragment, null,.*createElement\\( blockEditor\\.InspectorControls, null,\\s*createElement\\( components\\.PanelBody, \\{ title: 'HTML' \\},\\s*createElement\\( components\\.TextareaControl,/s", $editorScript), '2: HTML textarea lives in an inspector panel beside the canvas element');
 $assert(!str_contains($editorScript, 'RawHTML') && !str_contains($editorScript, 'props.isSelected'), '2: selection never adds inline controls or a raw HTML wrapper');
 
-// Other raw-HTML companions must use the same wrapper-free canvas contract.
+// Companions that still store raw HTML use the same wrapper-free canvas contract.
+// Responsive media instead has structured attributes and its own editor contract
+// covered through HtmlTransformer in raw-html-companion-editability.php.
 foreach ( array(
-    new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator(),
     new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator(),
     new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator(),
 ) as $rawGenerator ) {
