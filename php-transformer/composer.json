@@ -63,6 +63,7 @@
     "visual:nested-responsive-font-size": "node tools/visual-parity/tests/nested-responsive-font-size.mjs",
     "test:detached-auto-inset-backdrop-browser": "node tests/unit/detached-auto-inset-backdrop-browser.mjs",
     "test:social-profile-flex-cluster-browser": "node tests/unit/social-profile-flex-cluster-browser.mjs",
+    "test:navigation-icon-reset-browser": "node tests/unit/navigation-icon-reset-browser.mjs",
     "test:image-caption-margins-browser": "node tests/unit/image-caption-margins-browser.mjs",
     "test:collection-component-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-collection-component-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/collection-component-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "test:slideshow-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-slideshow-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/slideshow-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
