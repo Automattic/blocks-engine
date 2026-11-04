@@ -520,6 +520,22 @@ final class StyleAttributeMapper
             $global[ $component ] = $this->borderComponentCandidate($declarations, $positions, $component, '', $resolveValue);
         }
 
+        // A color alone is invisible in CSS (the initial border style is none).
+        // Core's has-border-color class supplies solid, so only lower the color
+        // when at least one resolved side already paints without that class.
+        $paintingSides = array();
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $sideIndex => $side ) {
+            $resolved = array();
+            foreach ( array( 'width', 'style' ) as $component ) {
+                $candidate = $this->borderComponentCandidate($declarations, $positions, $component, $side, $resolveValue);
+                $winner = $candidate['index'] > $global[ $component ]['index'] ? $candidate : $global[ $component ];
+                $values = CssValueInspector::expandBoxShorthand($winner['value']);
+                $resolved[ $component ] = strtolower(trim($values[ $sideIndex ]));
+            }
+            $paintingSides[ $side ] = in_array($resolved['style'], array( 'solid', 'dotted', 'dashed', 'double', 'groove', 'ridge', 'inset', 'outset' ), true)
+                && ( '' === $resolved['width'] || ! preg_match('/^[+-]?0*(?:\.0+)?(?:[a-z%]+)?$/i', $resolved['width']) );
+        }
+
         $width      = trim($global['width']['value']);
         $style      = strtolower(trim($global['style']['value']));
         $colorValue = $this->cssColor($global['color']['value'], $resolveValue);
@@ -532,7 +548,7 @@ final class StyleAttributeMapper
             if ( $global['style']['declared'] && '' !== $style && 'none' !== $style ) {
                 $border['style'] = $style;
             }
-            if ( $global['color']['declared'] && '' !== $colorValue ) {
+            if ( $global['color']['declared'] && '' !== $colorValue && in_array(true, $paintingSides, true) ) {
                 $border['color'] = $colorValue;
             }
         }
@@ -567,7 +583,7 @@ final class StyleAttributeMapper
                 if ( ( ($sideDeclared['style'] ?? false) || $hasGlobalBorder ) && '' !== $sideStyle && ( 'none' !== $sideStyle || $hasGlobalBorder ) ) {
                     $sideValues['style'] = $sideStyle;
                 }
-                if ( ( ($sideDeclared['color'] ?? false) || $hasGlobalBorder ) && '' !== $sideColor ) {
+                if ( ( ($sideDeclared['color'] ?? false) || $hasGlobalBorder ) && '' !== $sideColor && $paintingSides[ $side ] ) {
                     $sideValues['color'] = $sideColor;
                 }
             }
