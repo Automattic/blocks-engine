@@ -632,6 +632,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             $attributes['style'] = $style;
         }
 
+        // Core renders the source classes on its wrapper and a bare <ol>
+        // inside; rules written for the source list address that <ol>.
+        if ( $list !== $element ) {
+            $navigationContext->recordInnerSubject($list, '.wp-block-breadcrumbs ol');
+        }
+
         return $createBlock('core/breadcrumbs', $attributes, array(), $element);
     }
 

@@ -79,6 +79,16 @@ final class NavigationPatternContext
         $this->session?->authorSelectorProjectionState()->markNavigationSource($element, $role, $rendersSourceSiblings);
     }
 
+    /**
+     * A source element whose presentation lands on one of the block's inner
+     * parts: author rules that address it project onto that part instead of
+     * the block wrapper.
+     */
+    public function recordInnerSubject(DOMElement $element, string $selector): void
+    {
+        $this->session?->authorSelectorProjectionState()->installInnerSubject($element->getNodePath() ?? '', $selector);
+    }
+
     /** Source list identity also survives when its landmark owns another block. */
     public function navigationListHostIdentity(DOMElement $element, ?DOMElement $list = null, ?string $rowGap = null): string
     {
