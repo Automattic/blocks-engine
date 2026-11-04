@@ -4600,7 +4600,7 @@ PHP;
             if ($promoteLead) {
                 $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $route, $shared, $transformed['retained'][0]['offset']);
             }
-            if (!$transformed['title'] || (!$transformed['date'] && !$transformed['shared']) || '' === trim($transformed['body']) || !str_contains($transformed['template'], '<!-- wp:post-content')) {
+            if (!$transformed['title'] || (!$transformed['date'] && !$transformed['shared']) || '' === trim($transformed['body']) || 1 !== substr_count($transformed['template'], '<!-- wp:post-content')) {
                 return array('pages' => $pages, 'single' => null);
             }
             // A runtime entity binding anchors one exact block of the document
@@ -4721,6 +4721,22 @@ PHP;
         if (array() === $top) {
             return array('template' => '', 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array());
         }
+        // A content-only main landmark is stronger evidence than varying
+        // media leaves. Materialized SVG attachment identities are route-local,
+        // and must never turn header logos or metadata icons into body slots.
+        $contentRange = null;
+        foreach (self::blockRanges($markup) as $candidate) {
+            $slice = substr($markup, $candidate['offset'], $candidate['length']);
+            $attrs = self::listingBlockAttributes($slice);
+            if ('main' !== ($attrs['tagName'] ?? null) || array() === self::childBlockRanges($markup, $candidate)) continue;
+            $hasTitle = false;
+            foreach (self::blockRanges($slice) as $descendant) {
+                if ($this->headingMatchesPostTitle(substr($slice, $descendant['offset'], $descendant['length']), $post)) $hasTitle = true;
+            }
+            if ($hasTitle) continue;
+            if (null !== $contentRange) { $contentRange = null; break; }
+            $contentRange = $candidate;
+        }
         $template = '';
         $body = '';
         $title = false;
@@ -4733,7 +4749,7 @@ PHP;
             if ($range['offset'] > $cursor) {
                 $template .= substr($markup, $cursor, $range['offset'] - $cursor);
             }
-            $transformed = $this->transformPostChromeRange($markup, $range, $post, $route, $shared, false, $featuredOffset);
+            $transformed = $this->transformPostChromeRange($markup, $range, $post, $route, $shared, false, $featuredOffset, $contentRange);
             $template .= $transformed['template'];
             $body .= $transformed['body'];
             $title = $title || $transformed['title'];
@@ -4754,10 +4770,17 @@ PHP;
      * @param array<string,true> $shared
      * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool,retained:array<int,array{offset:int,length:int}>}
      */
-    private function transformPostChromeRange(string $markup, array $range, array $post, string $route, array $shared, bool $dateContext = false, ?int $featuredOffset = null): array
+    private function transformPostChromeRange(string $markup, array $range, array $post, string $route, array $shared, bool $dateContext = false, ?int $featuredOffset = null, ?array $contentRange = null): array
     {
         $slice = substr($markup, $range['offset'], $range['length']);
         $empty = array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array());
+        if (null !== $contentRange && $range === $contentRange) {
+            $children = self::childBlockRanges($markup, $range);
+            $start = $children[0]['offset'];
+            $last = $children[count($children) - 1];
+            $length = $last['offset'] + $last['length'] - $start;
+            return array('template' => substr_replace($slice, '<!-- wp:post-content /-->', $start - $range['offset'], $length), 'body' => substr($markup, $start, $length), 'title' => false, 'date' => false, 'shared' => false, 'content' => true, 'retained' => array(array('offset' => $start, 'length' => $length)));
+        }
         if ($range['offset'] === $featuredOffset) {
             $empty['template'] = self::postFeaturedImageMarkup($slice);
             return $empty;
@@ -4796,6 +4819,7 @@ PHP;
             if ('comments' === $kind || 'chrome' === $kind || 'share' === $kind || 'skip' === $kind) {
                 return $empty;
             }
+            if (null !== $contentRange) return $empty;
             return array('template' => '<!-- wp:post-content /-->', 'body' => $slice, 'title' => false, 'date' => false, 'shared' => false, 'content' => true, 'retained' => array(array('offset' => $range['offset'], 'length' => $range['length'])));
         }
         $foundTitle = false;
@@ -4812,7 +4836,7 @@ PHP;
             && ListingExcerptProjection::text($slice) === ListingExcerptProjection::text(substr($markup, $children[0]['offset'], $children[0]['length']))
             && ($dateContext || 'date' === $this->classifyPostChromeBlock($slice, $post, $route));
         foreach ($children as $child) {
-            $transformed = $this->transformPostChromeRange($markup, $child, $post, $route, $shared, $childDateContext, $featuredOffset);
+            $transformed = $this->transformPostChromeRange($markup, $child, $post, $route, $shared, $childDateContext, $featuredOffset, $contentRange);
             $foundShared = $foundShared || $transformed['shared'];
             $body .= $transformed['body'];
             $retained = array_merge($retained, $transformed['retained']);
