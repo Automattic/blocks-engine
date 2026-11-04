@@ -38,7 +38,7 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
             'innerBlocks' => $i,
         )),
         'richTextContent'                   => static fn (DOMElement $e, array $x): string => (string) $e->textContent,
-        'headingRichTextContent'            => static fn (string $c): string => $c,
+        'hasStructuralHtml'                 => static fn (string $c): bool => false,
         'richTextWithMaterializedSvgImages' => static fn (DOMElement $e, string $c): ?string => null,
         'richTextWithInlineSafeButtonsLowered' => static fn (DOMElement $e, string $c): ?string => null,
         'requiresHtmlFallback'              => static fn (string $c): bool => false,
@@ -64,7 +64,7 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         $c['createBlock'],
         new RichTextMaterializationFixture(array(
             'content' => $c['richTextContent'],
-            'headingContent' => $c['headingRichTextContent'],
+            'hasStructuralHtml' => $c['hasStructuralHtml'],
             'contentWithMaterializedSvgImages' => $c['richTextWithMaterializedSvgImages'],
             'contentWithInlineSafeButtonsLowered' => $c['richTextWithInlineSafeButtonsLowered'],
             'requiresHtmlFallback' => $c['requiresHtmlFallback'],
@@ -133,9 +133,13 @@ $assert('core/group' === ($mixedAnchor->convert($elementFrom('<p><a href="/1/fee
 // ...and stays a core/html fallback when that conversion declines.
 $assert('core/html' === ($fallbackConverter->convert($elementFrom('<p><a href="/1/feed"><img src="icon.gif">RSS Feed</a></p>'), 'p', $fallbacks)->block['blockName'] ?? ''), 'declined-mixed-anchor-still-falls-back');
 
-// Heading content passes through the heading-specific normalizer.
-$headingNormalized = $makeConverter(array('headingRichTextContent' => static fn (string $c): string => 'NORMALIZED:' . $c));
-$assert('NORMALIZED:Title' === ($headingNormalized->convert($elementFrom('<h3>Title</h3>'), 'h3', $fallbacks)->block['attrs']['content'] ?? ''), 'heading-uses-heading-normalizer');
+// Structural content reaches createBlock intact for native container lowering.
+$structuralHeading = $makeConverter(array(
+    'richTextContent' => static fn (DOMElement $e, array $x): string => '<div><p>Title</p></div>',
+    'hasStructuralHtml' => static fn (string $c): bool => true,
+    'requiresHtmlFallback' => static fn (string $c): bool => true,
+));
+$assert('<div><p>Title</p></div>' === ($structuralHeading->convert($elementFrom('<h3>Title</h3>'), 'h3', $fallbacks)->block['attrs']['content'] ?? ''), 'structural-heading-reaches-block-creation');
 
 // A paragraph recognized as an authored marquee short-circuits everything else.
 $marquee = $makeConverter(array('authoredMarqueeBlock' => static fn (DOMElement $e): ?array => array('blockName' => 'blocks-engine/marquee')));

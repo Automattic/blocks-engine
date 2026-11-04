@@ -14,7 +14,6 @@ final class RichTextMaterializationFixture implements RichTextMaterialization
 
     /** @param array<int, string> $excludedTags */
     public function content(DOMElement $element, array $excludedTags = array()): string { return isset($this->operations['content']) ? ($this->operations['content'])($element, $excludedTags) : (string) $element->textContent; }
-    public function headingContent(string $content): string { return isset($this->operations['headingContent']) ? ($this->operations['headingContent'])($content) : $content; }
     public function requiresHtmlFallback(string $content): bool { return isset($this->operations['requiresHtmlFallback']) && ($this->operations['requiresHtmlFallback'])($content); }
     public function hasStructuralHtml(string $content): bool { return isset($this->operations['hasStructuralHtml']) && ($this->operations['hasStructuralHtml'])($content); }
     public function inlineVisualDeclarations(DOMElement $element): array { return isset($this->operations['inlineVisualDeclarations']) ? ($this->operations['inlineVisualDeclarations'])($element) : array(); }

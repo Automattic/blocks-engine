@@ -207,6 +207,25 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * A lowered heading no longer receives the browser's heading box defaults.
+     * Map only missing declarations; authored (including responsive) values
+     * remain owned by the ordinary presentation/selector projection paths.
+     *
+     * @return array<string, mixed>
+     */
+    public function headingContainerAttributes(DOMElement $element, array $attrs): array
+    {
+        $defaults = HostBlockGapEncoder::headingBoxDefaults(strtolower($element->tagName));
+        foreach (array_keys($defaults) as $property) {
+            if (!$this->declaredPresentation($element, $property)->isEmpty()) {
+                unset($defaults[$property]);
+            }
+        }
+        $mapped = $this->styleAttributeMapper()->map($defaults);
+        return array_replace_recursive(array('style' => $mapped['style'] ?? array()), $attrs);
+    }
+
+    /**
      * Preserve inline-only geometry entirely in the generated carrier because
      * core/media-text cannot serialize arbitrary wrapper geometry inline.
      *
