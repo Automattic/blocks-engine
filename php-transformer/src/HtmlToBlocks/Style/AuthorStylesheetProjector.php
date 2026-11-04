@@ -503,11 +503,14 @@ final class AuthorStylesheetProjector
                     }
                     $editorSelectors[] = ':root .editor-styles-wrapper ' . $selector;
                 }
-                if ( 'fixed' === strtolower($position) ) {
+                $fixedHeightOverrides = '';
+                if ( 'fixed' === strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $position) ?? '')) ) {
                     // Core's editor canvas is position:relative. Re-forcing
                     // source `position:fixed` pins site chrome (sticky
                     // headers, FABs) over the document being edited; leave
-                    // it out of the editor canvas entirely.
+                    // it out of the editor canvas entirely. Its viewport-sized
+                    // height must not stretch the now in-flow block to the page.
+                    $fixedHeightOverrides = $this->editorFixedHeightOverrides($declarations);
                     $position = '';
                 }
                 // Core adds `position:relative` to the actual editor block
@@ -517,7 +520,7 @@ final class AuthorStylesheetProjector
                 // keeps the source rules' relative order. Mirror the value
                 // plainly so a more specific source `relative`/`static` rule
                 // still wins in the editor as it does on the frontend.
-                $overrides = '' === $position ? '' : 'position:' . $position . ';';
+                $overrides = ( '' === $position ? '' : 'position:' . $position . ';' ) . $fixedHeightOverrides;
                 // RichText's inline white-space:pre-wrap must keep preserving
                 // typed spaces. Override only its wrapping longhand, not the
                 // whitespace-collapse half of the shorthand. Scoping keeps
@@ -531,6 +534,30 @@ final class AuthorStylesheetProjector
                     : implode(',', $editorSelectors) . '{' . rtrim($overrides, ';') . '}';
             }
         );
+    }
+
+    /** @param array<string, string> $declarations */
+    private function editorFixedHeightOverrides(array $declarations): string
+    {
+        $height = trim(preg_replace('/\s*!important\s*$/i', '', $declarations['height'] ?? '') ?? '');
+        $relativeHeight = static fn (string $value): bool => 1 === preg_match('/(?:[0-9.])(?:%|(?:s|d|l)?vh\b)/i', $value);
+        $top = $declarations['top'] ?? 'auto';
+        $bottom = $declarations['bottom'] ?? 'auto';
+        if ( isset($declarations['inset']) ) {
+            $inset = CssValueSplitter::splitTopLevelWhitespace(preg_replace('/\s*!important\s*$/i', '', $declarations['inset']) ?? '');
+            $top = $declarations['top'] ?? ($inset[0] ?? 'auto');
+            $bottom = $declarations['bottom'] ?? ($inset[2] ?? $inset[0] ?? 'auto');
+        }
+        $isAuto = static fn (string $value): bool => 'auto' === strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? ''));
+        $stretched = ( '' === $height || $isAuto($height) ) && ! $isAuto($top) && ! $isAuto($bottom);
+        if ( ! $relativeHeight($height) && ! $stretched ) {
+            return '';
+        }
+        $overrides = 'height:auto' . ( CssValueInspector::isImportant($declarations['height'] ?? '') ? '!important' : '' ) . ';';
+        if ( $relativeHeight($declarations['min-height'] ?? '') ) {
+            $overrides .= 'min-height:0' . ( CssValueInspector::isImportant($declarations['min-height']) ? '!important' : '' ) . ';';
+        }
+        return $overrides;
     }
 
     /**

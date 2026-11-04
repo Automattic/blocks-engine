@@ -177,7 +177,6 @@ use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\Css\TemplatePartStickyContainment;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\EditorCanvasBodyBackground;
-use Automattic\BlocksEngine\PhpTransformer\Css\EditorCanvasPositioning;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -2862,7 +2861,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ? $authorCss
             : implode("\n\n", array_column($authorStylesheetProjections, 'content'));
         $afterAuthorCss->addAll(CascadeLayer::REVEAL_SETTLE, ( new RevealAnimationSettler() )->settleRules($settleableAuthorCss));
-        $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, (new EditorCanvasPositioning())->supportCss($settleableAuthorCss));
         // DOMDocument synthesizes a body for fragments; its margin belongs to
         // the host document, not to the imported content.
         $bodyDeclarations = preg_match('/<(?:html|body)\b/i', $html)
