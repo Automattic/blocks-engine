@@ -915,6 +915,7 @@
       "php tests/unit/declared-canvas-selector-identity.php",
       "php tests/unit/layout-table-variant-identity.php",
       "php tests/unit/conditional-definite-parent-percentage-height.php",
+      "php tests/unit/conditional-aspect-ratio-parent-percentage-height.php",
       "php tests/unit/conditional-positioned-percentage-fill.php",
       "php tests/unit/responsive-footer-geometry.php",
       "php tests/unit/core-html-fallback-reduction.php",

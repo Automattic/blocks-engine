@@ -1041,9 +1041,15 @@ final class AuthorStyleRuleProjector
                 continue;
             }
             $matchedSurface = true;
-            $autoSizedMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isAutoSizedStructuralPercentageHeight($element, $authorStyles, $conditions));
+            $autoSizedMatches = array();
+            $conditionalSize = false;
+            foreach ( $matches as $element ) {
+                if ( $this->isAutoSizedStructuralPercentageHeight($element, $authorStyles, $conditions, $conditionalSize) ) {
+                    $autoSizedMatches[] = $element;
+                }
+            }
             if ( count($autoSizedMatches) !== count($matches) ) {
-                if ( array() !== $autoSizedMatches ) {
+                if ( $conditionalSize || array() !== $autoSizedMatches ) {
                     $evidence->recordResponsiveHeightAmbiguity($selector, $height);
                 }
                 return $body;
@@ -1064,7 +1070,7 @@ final class AuthorStyleRuleProjector
     }
 
     /** @param list<string> $conditions */
-    private function isAutoSizedStructuralPercentageHeight(DOMElement $element, AuthorStyleAnalysis $authorStyles, array $conditions = array()): bool
+    private function isAutoSizedStructuralPercentageHeight(DOMElement $element, AuthorStyleAnalysis $authorStyles, array $conditions, bool &$conditionalSize): bool
     {
         if ( in_array(strtolower($element->tagName), array( 'canvas', 'embed', 'iframe', 'img', 'input', 'object', 'picture', 'svg', 'video' ), true) ) {
             return false;
@@ -1085,7 +1091,8 @@ final class AuthorStyleRuleProjector
             if ( ! in_array($ancestorHeight, array( '', 'auto', '100%' ), true) ) {
                 return false;
             }
-            if ( $this->hasDefiniteHeightUnderConditions($ancestor, $conditions) ) {
+            if ( $this->hasDefiniteBlockSizeUnderConditions($ancestor, $conditions) ) {
+                $conditionalSize = true;
                 return false;
             }
             if ( in_array(strtolower($ancestor->tagName), array( 'footer', 'header', 'section' ), true) ) {
@@ -1097,28 +1104,36 @@ final class AuthorStyleRuleProjector
     }
 
     /**
-     * Whether `$element` has a definite height wherever a rule scoped by
-     * `$conditions` applies.
-     *
-     * A responsive capture scopes its desktop stylesheet under
-     * `@media (min-width:768px)`, so a wrapper's `height:42px` never reaches
-     * the unconditional structural cascade. A percentage-height rule under that
-     * same condition still resolves against the wrapper in the source. Only
-     * declarations whose own condition stack is a subset of the rule's are
-     * read: those hold everywhere the rule does. An inline height already
-     * reached the structural cascade, and is left to it.
+     * A conditioned fill reads sizes in its own condition domain. An
+     * unconditional fill must also survive every author-declared domain:
+     * rewriting it globally is unsafe if any of those can resolve its height.
+     * Resolve height, ratio and width together so conditional declarations
+     * participate in the same cascade, including unconditional/inline values.
      *
      * @param list<string> $conditions
      */
-    private function hasDefiniteHeightUnderConditions(DOMElement $element, array $conditions): bool
+    private function hasDefiniteBlockSizeUnderConditions(DOMElement $element, array $conditions): bool
     {
-        $held = self::restatableConditions($conditions);
-        if ( array() === $held || isset($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['height']) ) {
-            return false;
+        $domains = array( $conditions );
+        if ( array() === self::restatableConditions($conditions) ) {
+            foreach ( array( 'height', 'aspect-ratio', 'width' ) as $property ) {
+                foreach ( $this->styleResolver->declaredPresentation($element, $property)->conditionStacks() as $stack ) {
+                    $domains[] = $stack;
+                }
+            }
         }
-        $height = $this->presentationValueUnderConditions($element, 'height', $conditions);
-
-        return $this->isDefiniteBlockSize($this->styleResolver->resolveStructuralCssVariablesInValue($height, $element));
+        foreach ( $domains as $domain ) {
+            $declarations = array();
+            foreach ( array( 'height', 'aspect-ratio', 'width' ) as $property ) {
+                $declarations[$property] = $this->presentationValueUnderConditions($element, $property, $domain);
+            }
+            $height = $this->styleResolver->resolveStructuralCssVariablesInValue($declarations['height'], $element);
+            if ( $this->isDefiniteBlockSize($height)
+                || ($this->isAutoOrUnsetBlockSize($height) && $this->aspectRatioDerivesBlockSize($element, $declarations)) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @param list<string> $conditions */
