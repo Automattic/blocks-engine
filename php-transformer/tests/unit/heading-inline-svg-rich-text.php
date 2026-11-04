@@ -103,6 +103,48 @@ if ( 'core/paragraph' !== ($paragraph['blocks'][0]['blockName'] ?? '') || ! str_
     $failures[] = 'Paragraph with an inline icon SVG still materializes the icon.';
 }
 
+// Positioned, aria-less decoration needs the page document, not a clipped image.
+$fixture = (string) file_get_contents(__DIR__ . '/../fixtures/decorative-heading-svg.html');
+foreach (array('h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p') as $tag) {
+    $source = str_replace(array('<h1 ', '</h1>'), array('<' . $tag . ' ', '</' . $tag . '>'), $fixture);
+    $result = (new HtmlTransformer())->transform($source)->toArray();
+    $names = $blockNames($result['blocks'] ?? array());
+    $name = 'p' === $tag ? 'core/paragraph' : 'core/heading';
+    $textBlock = $findBlock($result['blocks'] ?? array(), $name);
+    $content = (string) ($textBlock['attrs']['content'] ?? '');
+    $markup = (string) ($result['serialized_blocks'] ?? '');
+    $artwork = $findBlock($result['blocks'] ?? array(), 'custom/svg-artwork');
+    $svg = (string) ($artwork['attrs']['svg'] ?? '');
+    // Mirror the audited dynamic artwork renderer for the standalone runtime.
+    $expand = static function (array $blocks) use (&$expand): array {
+        foreach ($blocks as &$block) {
+            if ('custom/svg-artwork' === ($block['blockName'] ?? '')) {
+                $block['innerContent'] = array($block['attrs']['svg']);
+            }
+            $block['innerBlocks'] = $expand($block['innerBlocks'] ?? array());
+        }
+        return $blocks;
+    };
+    $runtime = new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime();
+    $rendered = $runtime->renderBlocks($expand($runtime->parseBlocks($markup)));
+    $css = implode("\n", array_column(array_filter($result['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+    if (in_array('core/html', $names, true)
+        || 1 !== count(array_filter($names, static fn (string $item): bool => $name === $item))
+        || !str_contains($content, 'Sponsor Today')
+        || !str_contains($content, 'Weekly Sponsorships Available')
+        || !str_contains($content, '<br')
+        || !str_contains($content, 'data-style="secondary"')
+        || !str_contains($svg, '<svg')
+        || !str_contains($svg, 'rough-notation-dash')
+        || !str_contains($svg, 'stroke-width="4"')
+        || !str_contains($svg, 'overflow: visible')
+        || !str_contains($rendered, '<svg')
+        || !str_contains($rendered, 'stroke="var(--bde-brand-primary-color)"')
+        || !str_contains($css, '.blocks-engine-decorated-text{position:relative}')) {
+        $failures[] = $tag . ' preserves editable text and positioned SVG artwork: ' . $markup;
+    }
+}
+
 if ( array() !== $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);

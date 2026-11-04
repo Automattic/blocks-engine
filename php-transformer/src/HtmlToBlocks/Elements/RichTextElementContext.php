@@ -50,7 +50,8 @@ final class RichTextElementContext
         private readonly Runtime $runtime,
         private readonly Closure $convertChildren,
         private readonly ?Closure $emptyInlineGeometryBlock = null,
-        private readonly ?Closure $nativeDisclosureBlock = null
+        private readonly ?Closure $nativeDisclosureBlock = null,
+        private readonly ?Closure $decorativeSvgBlock = null
     ) {
     }
 
@@ -115,6 +116,12 @@ final class RichTextElementContext
     public function requiresHtmlFallbackForElement(DOMElement $element, string $content): bool
     {
         return $this->richTextMaterializer->requiresHtmlFallbackForElement($element, $content);
+    }
+
+    /** @return array<string, mixed>|null */
+    public function decorativeSvgBlock(DOMElement $element): ?array
+    {
+        return null === $this->decorativeSvgBlock ? null : ($this->decorativeSvgBlock)($element);
     }
 
     public function containsNativeSvgImageObject(string $content): bool
