@@ -236,7 +236,8 @@ final class CustomElementRuntimeDependency
         return '' === $type || in_array($type, array( 'text/javascript', 'application/javascript', 'module', 'text/ecmascript', 'application/ecmascript' ), true);
     }
 
-    private function isSafe(DOMElement $element): bool
+    /** Same preservation safety bar the disposition paths apply to a custom element. */
+    public function isSafe(DOMElement $element): bool
     {
         $nodes = array( $element );
         foreach ( $element->getElementsByTagName('*') as $child ) {
