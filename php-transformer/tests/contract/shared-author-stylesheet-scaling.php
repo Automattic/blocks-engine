@@ -702,7 +702,7 @@ $costly = $transformer->scopeRouteVariants(array($costlyBase), $costlyPages, arr
 $assert($costly['route_bytes'] > 8192 && $costly['route_bytes'] > 3 * strlen($costlyBase), 'matching dropped arms retain over-budget scope accounting');
 
 // Unknown, negated-state and missing-document evidence is conservative.
-foreach (array('.x:unknown', '.x:not(:hover)', '.x:has(> .y)') as $unknownArm) {
+foreach (array('.x:unknown', '.x:not(:hover)', '.x:has(> .y:checked)') as $unknownArm) {
     $assert(!$index->inertOutside($unknownArm, array('plain-1' => true)), 'undecidable arm stays scoped: ' . $unknownArm);
 }
 $assert(!$index->inertOutside('.absent', array('missing' => true)), 'missing document never proves inertness');

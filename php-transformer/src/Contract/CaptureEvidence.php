@@ -39,6 +39,8 @@ final class CaptureEvidence
     public const MOBILE_DOCUMENT_CLASS = 'data-blocks-engine-capture-mobile-document';
     /** Class on the root of the desktop (default) copy of a responsive capture. */
     public const DESKTOP_DOCUMENT_CLASS = 'data-blocks-engine-capture-desktop-document';
+    /** Class prefix hooking an id-less element's width-scoped style rules; followed by 12 lowercase hex digits. */
+    public const RESPONSIVE_PROJECTION_CLASS_PREFIX = 'data-blocks-engine-capture-responsive-';
     /** Class prefix pairing responsive counterparts; followed by 12 lowercase hex digits. */
     public const RESPONSIVE_COUNTERPART_CLASS_PREFIX = 'data-blocks-engine-capture-responsive-counterpart-';
     /** Source identity of a responsive counterpart element. */
@@ -195,6 +197,8 @@ final class CaptureEvidence
     public const GLYPH_COLOR = 'data-blocks-engine-capture-glyph-color';
     /** Diagnostic recording an anchor the capture could not resolve; not render-significant. */
     public const ANCHOR_UNRESOLVED = 'data-blocks-engine-capture-anchor-unresolved';
+    /** On an empty placeholder: the fragment a route's link scrolls to. It belongs to that route, not to the element it sits in. */
+    public const ANCHOR_TARGET = 'data-blocks-engine-capture-anchor-target';
     /** Recorded scroll-entrance states of an element the source reveals on viewport entry. */
     public const VIEWPORT_ENTRANCE = 'data-blocks-engine-capture-viewport-entrance';
     /** Marks the capture's viewport-entrance activator script; engine-owned, not source behavior. */

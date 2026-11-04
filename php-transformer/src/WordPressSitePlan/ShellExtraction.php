@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
@@ -3224,7 +3225,9 @@ final class ShellExtraction
                 if (!is_array($attrs['style']['spacing'][$box] ?? null)) continue;
                 foreach ($attrs['style']['spacing'][$box] as $side => $value) if (is_string($value)) $attrs['style']['spacing'][$box][$side] = RenderEquivalentMarkup::canonicalZeroLength($value);
             }
-            if (is_string($attrs['content'] ?? null)) $attrs['content'] = RenderEquivalentMarkup::canonical($attrs['content']);
+            // Rendered HTML a block carries as an attribute (its content, a
+            // label's markup) reads like the HTML between block comments.
+            foreach ($attrs as $name => $value) if (is_string($value) && ('content' === $name || preg_match('/<[a-zA-Z]/', $value))) $attrs[$name] = RenderEquivalentMarkup::canonical($value);
             if (is_string($attrs['className'] ?? null)) {
                 $classes = array_values(array_filter(preg_split('/\s+/', trim($attrs['className'])) ?: array(), static fn(string $class): bool => '' !== $class && 'wp-block-group' !== $class && 'blocks-engine-empty-visual-group' !== $class && 'blocks-engine-css-owned-layout' !== $class && null === EngineMarker::editorAnchorId($class) && !self::isInheritedNavigationLinkColor($class)));
                 sort($classes, SORT_STRING);
@@ -3605,7 +3608,7 @@ final class ShellExtraction
     /** @param array<int,string> $peerClasses */
     private static function isCurrentPageClass(string $class, array $peerClasses = array()): bool
     {
-        if (in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline', 'current', 'active', 'selected'), true)) return true;
+        if (in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline'), true) || SourceClassIdentity::isCurrentState($class)) return true;
         if (1 !== preg_match('/(?:^|[-_])(?:is-)?(?:current|active|selected|on)$/', $class)) return false;
         return !in_array($class, $peerClasses, true);
     }
@@ -3614,7 +3617,7 @@ final class ShellExtraction
     private static function navigationClassSignature(array $classes): string
     {
         $classes = array_values(array_filter($classes, static function (string $class): bool {
-            return !in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline', 'current', 'active', 'selected'), true)
+            return !in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline'), true) && !SourceClassIdentity::isCurrentState($class)
                 && !preg_match('/^blocks-engine-navigation-(?:current|link)-color-[a-f0-9]{64}$/', $class)
                 && !preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class);
         }));

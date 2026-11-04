@@ -79,6 +79,16 @@ final class NavigationPatternContext
         $this->session?->authorSelectorProjectionState()->markNavigationSource($element, $role, $rendersSourceSiblings);
     }
 
+    /**
+     * A source element whose presentation lands on one of the block's inner
+     * parts: author rules that address it project onto that part instead of
+     * the block wrapper.
+     */
+    public function recordInnerSubject(DOMElement $element, string $selector): void
+    {
+        $this->session?->authorSelectorProjectionState()->installInnerSubject($element->getNodePath() ?? '', $selector);
+    }
+
     /** Source list identity also survives when its landmark owns another block. */
     public function navigationListHostIdentity(DOMElement $element, ?DOMElement $list = null, ?string $rowGap = null): string
     {
@@ -606,7 +616,10 @@ final class NavigationPatternContext
             $targets = array();
             $collect($block['innerBlocks'] ?? array(), '');
             if (array() === $targets) continue;
-            $scope = $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', ($source->getNodePath() ?? '') . json_encode($targets));
+            // The instance names the resting menu: current-item colour markers
+            // and per-item link colours follow the served route and are carried by per-item classes.
+            $resting = array_filter($targets, static fn(string $marker): bool => 1 !== preg_match('/^blocks-engine-navigation-(?:current-color|link-color(?:-states)?)-/', $marker), ARRAY_FILTER_USE_KEY);
+            $scope = $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', ($source->getNodePath() ?? '') . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
             $markup = (string) json_encode($block);
             $root = $source->getNodePath() ?? '';

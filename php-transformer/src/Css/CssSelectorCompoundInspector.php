@@ -37,6 +37,13 @@ final class CssSelectorCompoundInspector
                 }
             }
         }
+        foreach ($compound['has'] ?? array() as $group) {
+            foreach ($group['alternatives'] ?? array() as $alternative) {
+                foreach ($alternative['compounds'] ?? array() as $nested) {
+                    array_push($names, ...self::dataAttributeNames($nested));
+                }
+            }
+        }
         return array_values(array_unique($names));
     }
 
@@ -49,6 +56,15 @@ final class CssSelectorCompoundInspector
             }
         }
         foreach ( $compound['any'] ?? array() as $group ) {
+            foreach ( $group['alternatives'] ?? array() as $alternative ) {
+                foreach ( $alternative['compounds'] ?? array() as $nested ) {
+                    if ( self::containsDataAttribute($nested) ) {
+                        return true;
+                    }
+                }
+            }
+        }
+        foreach ( $compound['has'] ?? array() as $group ) {
             foreach ( $group['alternatives'] ?? array() as $alternative ) {
                 foreach ( $alternative['compounds'] ?? array() as $nested ) {
                     if ( self::containsDataAttribute($nested) ) {
@@ -72,6 +88,15 @@ final class CssSelectorCompoundInspector
             foreach ( $negated['compounds'] ?? array() as $nested ) {
                 if ( array() !== ($nested['attributes'] ?? array()) || self::hasLiveAttributePredicate($nested) ) {
                     return true;
+                }
+            }
+        }
+        foreach ( $compound['has'] ?? array() as $group ) {
+            foreach ( $group['alternatives'] ?? array() as $alternative ) {
+                foreach ( $alternative['compounds'] ?? array() as $nested ) {
+                    if ( array() !== ($nested['attributes'] ?? array()) || self::hasLiveAttributePredicate($nested) ) {
+                        return true;
+                    }
                 }
             }
         }

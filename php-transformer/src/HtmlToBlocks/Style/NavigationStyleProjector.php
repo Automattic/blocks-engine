@@ -960,6 +960,13 @@ final class NavigationStyleProjector
                     $addCompound($negatedCompound);
                 }
             }
+            foreach ( $compound['has'] ?? array() as $group ) {
+                foreach ( $group['alternatives'] ?? array() as $alternative ) {
+                    foreach ( $alternative['compounds'] ?? array() as $hasCompound ) {
+                        $addCompound($hasCompound);
+                    }
+                }
+            }
         };
         foreach ( $parsed['compounds'] ?? array() as $compound ) {
             $addCompound($compound);

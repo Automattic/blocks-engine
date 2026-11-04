@@ -234,6 +234,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @var array<string, true>|null Source paths selected against the converted block budget. */
     private ?array $deepMediaBoundaryPaths = null;
 
+    /** @var array<string, bool> Source regions that exceeded the emitted depth budget. */
+    private array $generatedComponentDepthBoundaries = array();
+
+    /** @var array<string, bool> Native promotions to check after wrapper coalescing. */
+    private array $nativeComponentPaths = array();
+
     /** @var array<string, true> Boundaries discovered by the converted-tree pass. */
     private array $discoveredDeepMediaBoundaryPaths = array();
 
@@ -242,6 +248,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     /** After-author content-box restatements collected while projecting the author stylesheet assets. */
     private string $authorStylesheetContentBoxCss = '';
+
+    /** Author CSS visible to the document, captured once per transform for element-dispatch checks. */
+    private string $documentAuthorCss = '';
 
     /**
      * Core blocks this transformer can produce, keyed by the contract that
@@ -1039,10 +1048,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             readableFormControlBlock: fn (DOMElement $element): ?array => $this->readableFormControlBlockConverter->convert($element),
             cssAuthoredMarqueeBlock: fn (DOMElement $element): ?array => $this->authoredMarqueeRecognizer->cssAuthoredMarqueeBlock($element),
             authoredCarouselBlock: fn (DOMElement $element): ?array => $this->authoredCarouselGenerator->convert($element),
-            generatedComponentBlock: function (DOMElement $element): ?array {
-                $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
-                return null !== $generated ? $this->generatedComponentBlock($generated, $element) : null;
-            },
+            generatedComponentBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->nativeOrGeneratedComponentBlock($element, $fallbacks),
             textFlowBlock: fn (DOMElement $element): ?array => $this->textFlowBlockFromElement($element),
             convertChildren: fn (DOMElement $element, array &$fallbacks): array => $this->convertChildren($element, $fallbacks, true),
             backgroundImageBlock: fn (DOMElement $element): ?array => $this->backgroundImageBlockFromElement($element),
@@ -1605,9 +1611,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /**
      * @param array<string, mixed> $options
      */
-    public function transform(string $html, array $options = array(), ?\Automattic\BlocksEngine\PhpTransformer\Support\StepTimer $timer = null): TransformerResult
+    public function transform(string $html, array $options = array()): TransformerResult
     {
-        $timer ??= new \Automattic\BlocksEngine\PhpTransformer\Support\StepTimer('transform.source_preparation');
+        return $this->transformTimed($html, $options, new \Automattic\BlocksEngine\PhpTransformer\Support\StepTimer('transform.source_preparation'));
+    }
+
+    /** @param array<string, mixed> $options */
+    private function transformTimed(string $html, array $options, \Automattic\BlocksEngine\PhpTransformer\Support\StepTimer $timer): TransformerResult
+    {
         $timer->start('transform.source_preparation');
         $validationEvidence = \Automattic\BlocksEngine\PhpTransformer\Contract\ValidationEvidencePolicy::fromOptions($options);
         $context = TransformationOptions::context($options);
@@ -1629,6 +1640,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->projectedSelectorBindings = array();
         $this->glyphColorUndecodable = array();
         $this->capturedGlyphColors = null;
+        $this->documentAuthorCss = '';
         $this->currentSourcePath = (string) ($options['source'] ?? 'html');
         $this->session->installSourcePath($this->currentSourcePath);
         $this->sharedStylesheetPaths = array();
@@ -1745,7 +1757,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // Remove wrapper-convention custom elements before author selectors are
         // prepared, so style projection and component promotion both observe the
         // content rather than the source's wrapping convention.
-        $this->unwrapRenderNeutralCustomElements($body, $this->authoredCssText($html, (string) ($options['static_css'] ?? '')));
+        $this->documentAuthorCss = $this->authoredCssText($html, (string) ($options['static_css'] ?? ''));
+        $this->unwrapRenderNeutralCustomElements($body, $this->documentAuthorCss);
         $timer->start('transform.author_selector_preparation');
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
         $this->fallbackEmitter()->configure($this->transformationProvenance()->fallback(), $this->runtimeBehavior()->runtimeScriptMetadata(), $this->runtimeSelectors(), $this->authorSelectorProjections()->tagMarkers());
@@ -1772,6 +1785,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::release($document);
         }
         $blocks = $this->compressProjectedGroupChains($blocks);
+        $depthBoundaries = $this->generatedComponentDepthBoundaries;
+        $this->collectNativeComponentDepthBoundaries($blocks, 0, $depthBoundaries);
+        if ($depthBoundaries !== $this->generatedComponentDepthBoundaries) {
+            // Decide only after conversion/coalescing, then replay cleanly so
+            // speculative native assets and diagnostics never escape.
+            $compilation = new self($this->runtime, $this->analysisCache);
+            $compilation->generatedComponentDepthBoundaries = $depthBoundaries;
+            $compilation->deepMediaBoundaryPaths = $this->deepMediaBoundaryPaths;
+            return $compilation->transform($html, $options, $timer);
+        }
         if (null === $this->deepMediaBoundaryPaths) {
             $blocks = $this->captureDeepMediaLayoutBoundaries($blocks);
             if (array() !== $this->discoveredDeepMediaBoundaryPaths) {
@@ -1782,7 +1805,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 // in extracted shell/template artifacts, even with shared names.
                 $compilation = new self($this->runtime, $this->analysisCache);
                 $compilation->deepMediaBoundaryPaths = $this->discoveredDeepMediaBoundaryPaths;
-                return $compilation->transform($html, $options, $timer);
+                return $compilation->transformTimed($html, $options, $timer);
             }
         }
         $timer->start('transform.fallback_reduction');
@@ -1797,6 +1820,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->commerceReporter->appendProductGridFallbacks($body, $fallbacks, $blocks);
         $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks, (string) ($options['declarative_state_html'] ?? $html));
         $this->commerceReporter->appendCartViewFallbacks($body, $fallbacks);
+        $this->commerceReporter->appendCheckoutViewFallbacks($body, $fallbacks);
         // Inserted into a theme the engine does not own, core's flow layout
         // spaces group children with the host's block gap; encode the
         // source spacing on the blocks instead.
@@ -2419,7 +2443,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 continue;
             }
             foreach ( $elements as $element ) {
-                if ( $this->isRenderNeutralWrapper($element) ) {
+                if ( $this->isRenderNeutralWrapper($element, false) ) {
                     $this->unwrapElement($element);
                 }
             }
@@ -2541,16 +2565,45 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * Whether a wrapper instance carries no identity, behavior, or presentation
      * of its own, and can therefore be replaced by its children.
      */
-    private function isRenderNeutralWrapper(DOMElement $element): bool
+    private function isRenderNeutralWrapper(DOMElement $element, bool $stylesPrepared = true): bool
     {
-        return null !== $element->parentNode
-            && '' === trim($this->attr($element, 'id'))
-            && '' === trim($this->attr($element, 'class'))
-            && '' === trim($this->attr($element, 'role'))
-            && '' === trim($this->attr($element, 'style'))
-            && array() === $this->interactiveAttributes($element)
-            && ! $this->runtimeIslands->isRuntimeDomTarget($element)
-            && ! $this->sourceElementClassifier->hasMotionStructureToken($element);
+        // Custom-element convention removal precedes selector preparation.
+        // Keep its original conservative contract; effect-based checks belong
+        // to flow lowering, once the author rule index is available.
+        if (!$stylesPrepared) {
+            return null !== $element->parentNode
+                && '' === trim($this->attr($element, 'id'))
+                && '' === trim($this->attr($element, 'class'))
+                && '' === trim($this->attr($element, 'style'))
+                && '' === trim($this->attr($element, 'role'))
+                && array() === $this->interactiveAttributes($element)
+                && !$this->runtimeIslands->isRuntimeDomTarget($element)
+                && !$this->sourceElementClassifier->hasMotionStructureToken($element);
+        }
+        if (null === $element->parentNode
+            || '' !== trim($this->attr($element, 'role'))
+            || array() !== $this->interactiveAttributes($element)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
+            || $this->sourceElementClassifier->hasMotionStructureToken($element)
+        ) {
+            return false;
+        }
+        // Attribute spelling is not presentation. Check matched author rules
+        // (including conditional rules) as well as the inline declarations.
+        $declarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
+        foreach ($this->authorStyleRuleCandidates($element) as $candidate) {
+            if (! ($candidate['parsed']['supported'] ?? false)) return false;
+            if ($this->sourceStyles()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']) {
+                $declarations = array_merge($declarations, $candidate['declarations']);
+            }
+        }
+        $inheritedText = array('white-space', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'line-height', 'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent');
+        foreach ($declarations as $property => $value) {
+            if (!in_array($property, $inheritedText, true) && !('display' === $property && 'contents' === trim($value))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function collectGeneratedComponentCandidates(DOMElement $element, int $depth = 0): void
@@ -2570,6 +2623,96 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->collectGeneratedComponentCandidates($child, $depth + 1);
             }
         }
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    private function nativeOrGeneratedComponentBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        $nativeFallbacks = array();
+        $hasRuntimeTarget = false;
+        foreach (array_merge(array($element), SourceDom::descendantElements($element)) as $target) {
+            $hasRuntimeTarget = $hasRuntimeTarget || $this->runtimeIslands->isRuntimeDomTarget($target);
+        }
+        // A defining script or an exact runtime DOM contract cannot be proven
+        // editable just by inspecting the static children of its host.
+        $native = $hasRuntimeTarget || str_contains($element->tagName, '-')
+            ? null
+            : $this->authorLayoutBlockFromElement($element, $nativeFallbacks);
+        $reason = 'generated_component_non_native_items';
+        if (null !== $native && array() === $nativeFallbacks && $this->isEntirelyNativeComponent($native)) {
+            $path = (string) $element->getNodePath();
+            if (!isset($this->generatedComponentDepthBoundaries[$path])) {
+                $this->nativeComponentPaths[$path] = true;
+                return $native;
+            }
+            $reason = 'generated_component_depth_budget';
+        }
+        $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
+        if (null === $generated) {
+            return null;
+        }
+        // Explain the preserved editing surface without adding conversion loss
+        // to the fallbacks list that drives quality fallback_count.
+        $this->transformationEvidence()->recordConversionDiagnostic(array_merge(array(
+            'type' => 'generated_component',
+            'severity' => 'info',
+            'conversion_classification' => 'editable_approximation',
+            'reason' => $reason,
+            'code' => $reason,
+            'diagnostic_code' => $reason,
+            'message' => 'Repeated content retained as generated raw HTML: ' . $reason . '.',
+            'source_format' => 'html',
+            'tag' => strtolower($element->tagName),
+            'selector' => $this->elementSelector($element),
+        ), $this->transformationProvenance()->fallback()));
+        return $this->generatedComponentBlock($generated, $element);
+    }
+
+    /**
+     * Budget against the tree that will be emitted, not source ancestry. Merged
+     * wrappers retain provenance IDs but add no level to this traversal.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<string, bool> $boundaries
+     */
+    private function collectNativeComponentDepthBoundaries(array $blocks, int $depth, array &$boundaries): void
+    {
+        foreach ($blocks as $block) {
+            $ids = $block['_source_provenance_ids'] ?? array($block['_source_provenance_id'] ?? null);
+            foreach ($ids as $id) {
+                $source = is_int($id) ? $this->transformationProvenance()->sourceElement($id) : null;
+                $path = $source instanceof DOMElement ? (string) $source->getNodePath() : '';
+                if (isset($this->nativeComponentPaths[$path])
+                    && $depth + $this->convertedBlockNestingDepth(array($block)) > EditabilityPolicy::THRESHOLDS['max_nesting_depth']
+                ) {
+                    $boundaries[$path] = true;
+                }
+            }
+            $this->collectNativeComponentDepthBoundaries($block['innerBlocks'] ?? array(), $depth + 1, $boundaries);
+        }
+    }
+
+    /** @param array<string, mixed> $block */
+    private function isEntirelyNativeComponent(array $block): bool
+    {
+        $name = (string) ($block['blockName'] ?? '');
+        if (! str_starts_with($name, 'core/') || in_array($name, array('core/html', 'core/freeform'), true)) {
+            return false;
+        }
+        foreach ($block['innerBlocks'] ?? array() as $child) {
+            if (! $this->isEntirelyNativeComponent($child)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function containsGeneratedComponentCandidate(DOMElement $element): bool
+    {
+        foreach (SourceDom::descendantElements($element) as $descendant) {
+            if ($this->isGeneratedComponentCandidate($descendant)) return true;
+        }
+        return false;
     }
 
     private function isGeneratedComponentCandidate(DOMElement $element): bool
@@ -4306,9 +4449,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( $this->isGeneratedComponentCandidate($element) ) {
-            $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
-            if ( null !== $generated ) {
-                return $this->generatedComponentBlock($generated, $element);
+            $component = $this->nativeOrGeneratedComponentBlock($element, $fallbacks);
+            if ( null !== $component ) {
+                return $component;
             }
         }
 
@@ -4345,6 +4488,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->layoutShellBlockForElements(array($element), $children, $element);
         }
 
+        if ( $this->isScriptOwnedCheckoutRegion($element) ) {
+            // A checkout view region the commerce recognizer claims is
+            // script-owned commerce rendering the engine cannot convert.
+            // Preserve its source markup whole so the checkout view binding
+            // anchors on the block a shop provider replaces.
+            $block = $this->htmlPreservationBlock($element);
+            $block['_editability_runtime_owned'] = true;
+
+            return $block;
+        }
+
         if ( $this->isTransparentUnknownElement($element) ) {
             // A hyphenated custom element is an authored component: when the
             // classifier calls its subtree a cohesive custom block, it still
@@ -4361,6 +4515,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $customElementRuntime = $this->customElementRuntimeDisposition($element, $tagName, $fallbacks);
         if ( $customElementRuntime['handled'] ) {
             return $customElementRuntime['block'];
+        }
+
+        // Last disposition before the unsupported gate: a custom element whose
+        // whole subtree renders nothing is transport scaffolding, not lost
+        // content, so omit it without recording a fallback downstream importers
+        // would count as an unsupported reduction.
+        if ( $this->isEmptyRenderNeutralCustomElement($element) ) {
+            return null;
         }
 
         if ( $captureUnsupported ) {
@@ -4423,6 +4585,277 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $block['_editability_runtime_owned'] = true;
 
         return array( 'handled' => true, 'block' => $block );
+    }
+
+    /**
+     * Whether `$element` is the script-owned region a checkout view binding
+     * anchors on: a custom element (script-defined by name) holding the
+     * checkout view's customer, address, payment and summary roles, and
+     * passing the same preservation safety bar as a proven custom element.
+     * Native checkout regions (a `form` or `div` root) convert natively and
+     * never reach the custom-element disposition, so they need no preservation.
+     */
+    private function isScriptOwnedCheckoutRegion(DOMElement $element): bool
+    {
+        if ( ! CustomElementRuntimeDependency::isCustomElementTag(strtolower($element->tagName)) || ! ( new CustomElementRuntimeDependency() )->isSafe($element) ) {
+            return false;
+        }
+
+        return $this->commercePattern->isCheckoutRegion($element);
+    }
+
+    /** Subtree tags that render media, graphics, or accept interaction; any of them keeps the host on its existing disposition. */
+    private const SUBTREE_RENDERING_TAGS = array(
+        'a', 'audio', 'base', 'button', 'canvas', 'details', 'dialog', 'embed', 'fieldset', 'form',
+        'iframe', 'img', 'input', 'label', 'link', 'map', 'meta', 'meter', 'object', 'output',
+        'picture', 'progress', 'script', 'select', 'slot', 'source', 'style', 'svg', 'template',
+        'textarea', 'track', 'video',
+    );
+
+    /** URL-bearing attributes; a nonempty value means the subtree references rendered content elsewhere. */
+    private const SUBTREE_URL_ATTRIBUTES = array( 'src', 'srcset', 'href', 'data-src', 'data-url' );
+
+    /**
+     * A hyphenated custom element whose whole subtree renders nothing: no
+     * text, no media, graphics, or iframes, no form or interactive controls,
+     * no runtime or event metadata, no accessible role or name, no
+     * URL-bearing attributes, and authored presentation limited to `display`
+     * (stylesheet rules addressing the tag and inline styles alike). Author
+     * CSS reaching the subtree through a descendant's class, id, or
+     * hyphenated tag name must not paint or occupy space either: a child
+     * styled by `.rule-line{height:1px;background:#ccc}` is a visible
+     * divider, not an empty slot. The host itself carries no authored
+     * attributes beyond an anchor `id` and such geometry-neutral inline
+     * styles — a classed or configured host stays on its explicit diagnostic
+     * path. Nothing visible or interactive is lost by omitting such a slot,
+     * so it leaves no blocks and no unsupported-element fallback behind;
+     * identity attributes on its placeholder children (`class`, `id`,
+     * `data-hook`) are not runtime metadata and do not disqualify it.
+     *
+     * Every content-bearing disposition sits ahead of this check in the
+     * dispatch chain: proven runtimes and configuration-bearing hosts (the
+     * unproven finding), static graphics, background paint, and captured
+     * media have already been handled when an element reaches it.
+     */
+    private function isEmptyRenderNeutralCustomElement(DOMElement $element): bool
+    {
+        if ( ! str_contains(strtolower($element->tagName), '-')
+            || '' !== trim($element->textContent ?? '')
+            || SourceDom::hasRenderableMediaContent($element)
+            || ! $this->isSafeTransparentCustomElement($element)
+        ) {
+            return false;
+        }
+
+        // A host with authored attributes is a component instance, not an
+        // empty slot: its destination-less or labelled presentation keeps the
+        // explicit unsupported diagnostic.
+        foreach ( $element->attributes as $attribute ) {
+            $name = strtolower($attribute->name);
+            if ( 'id' === $name || 'style' === $name || '' === trim((string) $attribute->value) ) {
+                continue;
+            }
+            return false;
+        }
+
+        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            if ( in_array(strtolower($candidate->tagName), self::SUBTREE_RENDERING_TAGS, true)
+                || '' !== trim($this->attr($candidate, 'role'))
+                || '' !== trim($this->attr($candidate, 'aria-label'))
+                || '' !== trim($this->attr($candidate, 'aria-labelledby'))
+            ) {
+                return false;
+            }
+            foreach ( self::SUBTREE_URL_ATTRIBUTES as $attribute ) {
+                if ( '' !== trim($this->attr($candidate, $attribute)) ) {
+                    return false;
+                }
+            }
+            if ( ! $this->inlineStyleIsGeometryNeutral($candidate) ) {
+                return false;
+            }
+        }
+
+        return $this->authorCssLeavesSubtreeRenderEmpty($element);
+    }
+
+    /** Inline presentation beyond `display` (paint, typography, spacing) means the subtree is not render-empty. */
+    private function inlineStyleIsGeometryNeutral(DOMElement $candidate): bool
+    {
+        $style = trim(SourceDom::attr($candidate, 'style'));
+        if ( '' === $style ) {
+            return true;
+        }
+        foreach ( array_keys($this->styleResolver->cssDeclarations($style)) as $property ) {
+            if ( 'display' !== strtolower(trim((string) $property)) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** Token-boundary selector match, as the host-tag pattern already uses. */
+    private function cssTokenPattern(string $token): string
+    {
+        return '/(?<![\w-])' . preg_quote($token, '/') . '(?![\w-])/i';
+    }
+
+    /**
+     * Whether author CSS leaves this custom-element subtree render-empty.
+     * Rules addressing the host tag may declare only `display` — the box they
+     * generate paints nothing over empty content. Rules reaching the subtree
+     * through a class, id, or hyphenated tag name must not declare paint or
+     * size either: descendant CSS such as `.rule-line{height:1px;background:
+     * #ccc}` gives an otherwise-empty host visible presence. Token matching
+     * over-matches freely — a false positive only keeps the element on its
+     * existing unsupported-element diagnostic path.
+     */
+    private function authorCssLeavesSubtreeRenderEmpty(DOMElement $element): bool
+    {
+        $css = trim($this->documentAuthorCss);
+        if ( '' === $css ) {
+            return true;
+        }
+
+        $tagPattern = $this->cssTokenPattern(strtolower($element->tagName));
+        $tokens = $this->subtreeCssTokens($element);
+
+        foreach ( $this->cssRuleBlocks($css) as $rule ) {
+            if ( 1 === preg_match($tagPattern, $rule['selector']) ) {
+                // The host tag's own presentation stays display-only.
+                foreach ( array_keys($this->styleResolver->cssDeclarations($rule['declarations'])) as $property ) {
+                    if ( 'display' !== strtolower(trim((string) $property)) ) {
+                        return false;
+                    }
+                }
+                continue;
+            }
+            if ( ! $this->selectorMentionsSubtreeToken($rule['selector'], $tokens) ) {
+                continue;
+            }
+            if ( $this->cssDeclarationsPaintOrOccupySpace($rule['declarations']) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Class names, ids, and hyphenated tag names of every subtree element
+     * (host included): the selectors that can reach it. Non-hyphenated tags
+     * are left out — a bare `div` would match half the page's rules.
+     *
+     * @return array<int, string>
+     */
+    private function subtreeCssTokens(DOMElement $element): array
+    {
+        $tokens = array();
+        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            if ( str_contains(strtolower($candidate->tagName), '-') ) {
+                $tokens[] = strtolower($candidate->tagName);
+            }
+            foreach ( preg_split('/\s+/', trim($this->attr($candidate, 'class')), -1, PREG_SPLIT_NO_EMPTY) as $class ) {
+                $tokens[] = $class;
+            }
+            $id = trim($this->attr($candidate, 'id'));
+            if ( '' !== $id ) {
+                $tokens[] = $id;
+            }
+        }
+
+        return array_values(array_unique($tokens));
+    }
+
+    /** Whether a selector mentions any subtree token with a boundary match. */
+    private function selectorMentionsSubtreeToken(string $selector, array $tokens): bool
+    {
+        foreach ( $tokens as $token ) {
+            if ( 1 === preg_match($this->cssTokenPattern($token), $selector) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a declaration block paints or occupies space with a non-zero,
+     * non-none value: any background, border, shadow, outline, size,
+     * spacing, mask, filter, clip, or generated pseudo-element content.
+     * `width` counts only alongside a height — a lone width wraps nothing
+     * visible in an empty subtree.
+     */
+    private function cssDeclarationsPaintOrOccupySpace(string $declarations): bool
+    {
+        $declared = array();
+        foreach ( $this->styleResolver->cssDeclarations($declarations) as $property => $value ) {
+            $declared[strtolower(trim((string) $property))] = trim((string) $value);
+        }
+
+        $hasHeight = ( isset($declared['height']) && $this->cssValueIsNonZero($declared['height']) )
+            || ( isset($declared['min-height']) && $this->cssValueIsNonZero($declared['min-height']) );
+
+        foreach ( $declared as $property => $value ) {
+            if ( ! $this->cssPropertyPaintsOrOccupiesSpace($property, $hasHeight) ) {
+                continue;
+            }
+            if ( $this->cssValueIsNonZero((string) $value) ) {
+                return true;
+            }
+            // A background paints with any other value — even all-zero
+            // colors like `#000`; only `none` stays quiet.
+            $value = strtolower(trim((string) $value));
+            if ( str_starts_with($property, 'background') && ! in_array($value, array( '', 'none' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether the property name itself paints or occupies space at all. */
+    private function cssPropertyPaintsOrOccupiesSpace(string $property, bool $hasHeight): bool
+    {
+        foreach ( array( 'background', 'border', 'outline', 'padding', 'margin', 'mask' ) as $prefix ) {
+            if ( str_starts_with($property, $prefix) ) {
+                return true;
+            }
+        }
+
+        return in_array($property, array( 'aspect-ratio', 'box-shadow', 'clip-path', 'content', 'filter', 'flex-basis', 'height', 'min-height' ), true)
+            || ( in_array($property, array( 'width', 'min-width' ), true) && $hasHeight );
+    }
+
+    /**
+     * Whether a declaration value carries more than zero and `none`: any
+     * non-zero number (`1px`, `rgb(0,0,1)`), or a numberless value (`red`,
+     * `#ccc`, `thin`) — over-matching only keeps the existing diagnostic,
+     * so quiet values are just `none` and all-zero lists (`0`, `0 0 auto`).
+     */
+    private function cssValueIsNonZero(string $value): bool
+    {
+        $value = strtolower(trim($value));
+        if ( '' === $value || 'none' === $value ) {
+            return false;
+        }
+        if ( 0 === preg_match_all('/\d+(?:\.\d+)?/', $value, $numbers) ) {
+            return true;
+        }
+        foreach ( $numbers[0] as $number ) {
+            if ( 0.0 !== (float) $number ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** A `li` whose parent is not a list: invalid markup the list converter never reaches. */
@@ -4874,9 +5307,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $anchor = 'a' === strtolower($sourceElement->tagName) ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
             if ($anchor instanceof DOMElement) $this->authorSelectorProjections()->markSocialAnchor($anchor);
         }
-        if ('core/social-link' === $name && $sourceElement instanceof DOMElement && str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item')) {
+        if ('core/social-link' === $name && $sourceElement instanceof DOMElement) {
             $anchor = 'a' === strtolower($sourceElement->tagName) ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
-            if ($anchor instanceof DOMElement) $attrs = (new SocialSourceStyleProjector($this->styleResolver))->project($attrs, $anchor, $this->authorStyles(), $this->session->sourceTargetProjectionState());
+            if ($anchor instanceof DOMElement) $attrs = (new SocialSourceStyleProjector($this->styleResolver))->project($attrs, $anchor, $this->authorStyles(), $this->session->sourceTargetProjectionState(), !str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item'));
         }
         if ( 'core/group' === $name && $sourceElement instanceof DOMElement && $this->preservesScriptStateWrapper($sourceElement) ) {
             return $this->layoutShellBlockForElements(array( $sourceElement ), $innerBlocks, $sourceElement);
@@ -6961,6 +7394,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function shouldPreserveWrapper(DOMElement $element, ?string $asTag = null): bool
     {
         $tag = $asTag ?? $element->tagName;
+
+        // Elide only a neutral chain, not a media shell whose positioned child
+        // requires an intrinsic-size carrier. Keep identity on its real box.
+        $child = 1 === SourceDom::childElementCount($element) ? $element->firstElementChild : null;
+        if ('div' === strtolower($tag) && '' === trim($this->attr($element, 'id'))
+            && $child instanceof DOMElement && 'div' === strtolower($child->tagName)
+            && !$this->hasAuthorSemanticMarker($element) && !$this->hasStyledSourceClassBoundary($element)
+            && $this->isRenderNeutralWrapper($element) && $this->isRenderNeutralWrapper($child)
+            && $this->containsGeneratedComponentCandidate($element)
+        ) {
+            return false;
+        }
 
         return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) || $this->hasStyledSourceClassBoundary($element) );
     }
@@ -12584,6 +13029,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ($parent instanceof DOMElement
             && $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
             && in_array($this->resolvedDeclaration($parent, 'display'), array('', 'inline'), true)) {
+            return true;
+        }
+
+        // An inline-block link is a line-level box around an inline image.
+        // Blockifying the image would leave the link with no line box, so its
+        // baseline moves to the margin edge and the strut adds descent below.
+        if ($parent instanceof DOMElement && 'a' === strtolower($parent->tagName)
+            && 'inline-block' === $this->resolvedDeclaration($parent, 'display')) {
             return true;
         }
 

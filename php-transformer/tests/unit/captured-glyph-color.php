@@ -73,7 +73,9 @@ $svg = (new HtmlTransformer())->transform(
     '<ul class="social-links"><li><a href="https://www.youtube.com/example" aria-label="YouTube"><svg data-blocks-engine-capture-glyph-color="#1877f2" width="16" height="16" fill="currentColor"><path d="M0 0h16v16z"/></svg></a></li>'
     . '<li><a href="https://www.instagram.com/example" aria-label="Instagram"><svg data-blocks-engine-capture-glyph-color="#1877f2" width="16" height="16" fill="currentColor"><path d="M0 0h16v16z"/></svg></a></li></ul>'
 )->toArray();
-$assert('#1877f2' === ($social($svg)['attrs']['iconColorValue'] ?? null), 'a captured colour on an inline svg glyph becomes iconColorValue');
+$assert(! str_contains($svg['serialized_blocks'], 'wp:social-link'), 'authored SVG glyphs are not replaced with core service artwork');
+$assert(str_contains($svg['serialized_blocks'], 'fill="currentColor"'), 'authored currentColor stays live rather than freezing capture paint');
+$assert(2 === substr_count($svg['serialized_blocks'], '<a '), 'both captured SVG links keep their anchors');
 
 $background = (new HtmlTransformer())->transform(
     '<ul class="social-links"><li><a href="https://www.youtube.com/example" aria-label="YouTube"><span class="icon" data-blocks-engine-capture-glyph-color="#1877f2"></span></a></li>'

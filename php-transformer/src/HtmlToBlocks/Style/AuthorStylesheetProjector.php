@@ -1745,7 +1745,7 @@ final class AuthorStylesheetProjector
             && is_array($rightmost)
             && 'a' === strtolower((string) ($link['type'] ?? ''))
             && array() === $link['classes'] && array() === $link['ids'] && array() === $link['attributes']
-            && array() === ($link['not'] ?? array()) && array() === ($link['any'] ?? array())
+            && array() === ($link['not'] ?? array()) && array() === ($link['any'] ?? array()) && array() === ($link['has'] ?? array())
         ) {
             foreach ( $parsed['type_spans'] as $typeSpan ) {
                 if ( (int) $typeSpan['compound'] !== count($compounds) - 2 ) {
@@ -1903,7 +1903,7 @@ final class AuthorStylesheetProjector
             if (($structuralParsed['supported'] ?? false) && 1 === count($structuralParsed['compounds'] ?? array())
                 && null === ($subject['type'] ?? null) && !($subject['universal'] ?? false)
                 && array() !== ($subject['classes'] ?? array())
-                && array() === array_merge($subject['ids'] ?? array(), $subject['attributes'] ?? array(), $subject['not'] ?? array(), $subject['any'] ?? array())
+                && array() === array_merge($subject['ids'] ?? array(), $subject['attributes'] ?? array(), $subject['not'] ?? array(), $subject['any'] ?? array(), $subject['has'] ?? array())
                 && null === ($subject['nth_child'] ?? null) && !($subject['first_child'] ?? false) && !($subject['last_child'] ?? false) && !($subject['root'] ?? false)
                 && null === ($structuralParsed['pseudo_state_suffix_span'] ?? null)
                 && CssSelectorMatcher::matches($context->authorStyles->sourceBody(), $structuralParsed)['matches']) {
@@ -3389,13 +3389,14 @@ final class AuthorStylesheetProjector
     /**
      * A compound whose match is decided by the element's own tag and class
      * tokens: a type or `*`, plus classes, and nothing else (no id, attribute,
-     * negation, `:is()`/`:where()` argument or structural pseudo-class).
+     * negation, `:is()`/`:where()` argument, `:has()` relationship or
+     * structural pseudo-class).
      *
      * @param array<string, mixed> $compound
      */
     private static function isContextFreeCompound(array $compound): bool
     {
-        $known = array( 'type', 'universal', 'classes', 'ids', 'attributes', 'not', 'any', 'nth_child', 'first_child', 'last_child', 'root', 'resting_state_negations', 'zero_specificity', 'nth_type' );
+        $known = array( 'type', 'universal', 'classes', 'ids', 'attributes', 'not', 'any', 'has', 'nth_child', 'first_child', 'last_child', 'root', 'resting_state_negations', 'zero_specificity', 'nth_type' );
         foreach ( $compound as $key => $value ) {
             if ( ! in_array($key, $known, true) ) {
                 return false;
@@ -3403,6 +3404,7 @@ final class AuthorStylesheetProjector
         }
         if ( array() !== ($compound['ids'] ?? array()) || array() !== ($compound['attributes'] ?? array())
             || array() !== ($compound['not'] ?? array()) || array() !== ($compound['any'] ?? array())
+            || array() !== ($compound['has'] ?? array())
             || null !== ($compound['nth_child'] ?? null) || null !== ($compound['nth_type'] ?? null)
             || ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false) || ($compound['root'] ?? false)
             || 0 !== (int) ($compound['resting_state_negations'] ?? 0)
@@ -4521,6 +4523,7 @@ final class AuthorStylesheetProjector
             && array() === ($rightmost['ids'] ?? array())
             && array() === ($rightmost['attributes'] ?? array())
             && array() === ($rightmost['not'] ?? array())
+            && array() === ($rightmost['has'] ?? array())
             && ( null !== ($rightmost['nth_child'] ?? null) || ($rightmost['first_child'] ?? false) || ($rightmost['last_child'] ?? false) );
     }
 

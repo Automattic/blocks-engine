@@ -112,7 +112,7 @@ final class FlowContainerElementContext
     /** @return array<string, mixed>|null */
     public function authoredCarouselBlock(DOMElement $element): ?array { return ($this->authoredCarouselBlock)($element); }
     /** @return array<string, mixed>|null */
-    public function generatedComponentBlock(DOMElement $element): ?array { return ($this->generatedComponentBlock)($element); }
+    public function generatedComponentBlock(DOMElement $element, array &$fallbacks): ?array { return ($this->generatedComponentBlock)($element, $fallbacks); }
     /** @return array<string, mixed>|null */
     public function textFlowBlock(DOMElement $element): ?array { return ($this->textFlowBlock)($element); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */

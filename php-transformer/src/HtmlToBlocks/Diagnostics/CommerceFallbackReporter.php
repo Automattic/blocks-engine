@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
@@ -936,6 +937,86 @@ final class CommerceFallbackReporter
                 'binding'           => $this->blockBinding(array(), 'commerce_cart', $runtimeSelectors, $scope),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
         }
+    }
+
+    /**
+     * Surface each checkout view — a script-owned region holding the customer
+     * contact fields, an address group, a payment mount and an order summary
+     * or total — so a shop provider can put its own checkout where the
+     * source's client-side checkout was. The layout blocks are unchanged.
+     *
+     * The binding anchors on the script-owned region the source script looks
+     * up, so a provider that replaces it also retires the source's checkout
+     * rendering together with the source fallbacks it covered: the region's
+     * own unsupported-element findings (a script-defined element the engine
+     * cannot prove or convert) and any cart view finding over the same region
+     * are superseded here — a checkout is never also declared as a cart.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    public function appendCheckoutViewFallbacks(DOMElement $body, array &$fallbacks): void
+    {
+        $regions = array();
+        // A captured checkout carries no source scripts, so an autonomous custom
+        // element is script ownership evidence on its own.
+        $isRuntimeScope = fn (DOMElement $node): bool => CustomElementRuntimeDependency::isCustomElementTag(strtolower($node->tagName))
+            || array() !== $this->runtimeIslands->runtimeDomSelectorsForElement($node);
+        foreach ( $this->recognizer->checkoutRegions($body, $isRuntimeScope) as $region ) {
+            if ( SourceDom::hasNonAuthoredAncestor($region) ) {
+                continue;
+            }
+            $regions[] = array('element' => $region, 'selector' => SourceDom::elementSelector($region), 'runtime_selectors' => $this->runtimeIslands->runtimeDomSelectorsForElement($region));
+        }
+        $regions = array_slice($regions, 0, self::MAX_CANDIDATES);
+        if ( array() === $regions ) {
+            return;
+        }
+        $this->supersedeCoveredFallbacks($fallbacks, array_column($regions, 'selector'));
+        foreach ( $regions as $region ) {
+            $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
+                'type'              => 'html',
+                'reason'            => 'checkout_view_requires_commerce_runtime',
+                'diagnostic_code'   => 'html_checkout_view_fallback',
+                'kind'              => 'html_checkout_view_fallback',
+                'message'           => 'A checkout view (customer, address and payment fields beside an order summary) was detected; its fields, payment and totals come from a client-side checkout, so a shop provider must supply the checkout in its place.',
+                'source_format'     => 'html',
+                'tag'               => strtolower($region['element']->tagName),
+                'selector'          => $region['selector'],
+                'runtime_selectors' => $region['runtime_selectors'],
+                'context'           => $this->sourceContext($region['element']),
+                'binding'           => $this->blockBinding(array(), 'commerce_checkout', $region['runtime_selectors'], $region['element']),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
+        }
+    }
+
+    /**
+     * The checkout binding replaces the whole region, so the source fallbacks
+     * it covers are superseded: the region's unsupported-element findings and
+     * a cart view finding over the same region are retired with the checkout
+     * binding standing in their place.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @param list<string> $regionSelectors
+     */
+    private function supersedeCoveredFallbacks(array &$fallbacks, array $regionSelectors): void
+    {
+        $covered = static function (string $findingSelector) use ($regionSelectors): bool {
+            foreach ( $regionSelectors as $selector ) {
+                if ( $findingSelector === $selector || str_starts_with($findingSelector, $selector . ' > ') ) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+        $fallbacks = array_values(array_filter($fallbacks, static function (mixed $fallback) use ($covered): bool {
+            if ( ! is_array($fallback) || ! in_array((string) ($fallback['diagnostic_code'] ?? ''), array( 'html_unsupported_element', CustomElementRuntimeDependency::UNPROVEN_CODE, 'html_cart_view_fallback' ), true) ) {
+                return true;
+            }
+            $findingSelector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+
+            return '' === $findingSelector || ! $covered($findingSelector);
+        }));
     }
 
     /** Hidden carts outside the page's main content are reusable site chrome. */

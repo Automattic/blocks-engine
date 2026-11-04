@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -1750,6 +1751,60 @@ PHP;
     }
 
     /**
+     * Authored chrome hooks that the routes rendering their chrome declare
+     * differently: the same selector, in the same media and at-rule context,
+     * carries other declarations on another route. A route lacking the rule
+     * altogether does not conflict; the lifted rule still styles it.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array{class:array<string,true>,id:array<string,true>} $authored
+     * @param array{class:array<string,array<string,true>>,id:array<string,array<string,true>>} $hookRoutes
+     * @return array{class:array<string,true>,id:array<string,true>}
+     */
+    private static function routeVaryingChromeHooks(array $assets, array $authored, array $hookRoutes): array
+    {
+        $varying = array('class' => array(), 'id' => array());
+        if (array() === $authored['class'] && array() === $authored['id']) return $varying;
+        $allRoutes = array();
+        foreach ($hookRoutes as $names) foreach ($names as $routes) $allRoutes += $routes;
+        if (count($allRoutes) < 2) return $varying;
+        $declared = array();
+        $hooks = array();
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content']) || !StylesheetActivation::active($asset)) continue;
+            $routes = array_column($asset['stylesheet_instances'] ?? array(), 'source_path');
+            if (array() === $routes) $routes = array_column($asset['scopes'] ?? array(), 'source_path');
+            $routes = array() === $routes ? array_keys($allRoutes) : array_values(array_unique(array_map('strval', $routes)));
+            $media = (string) ($asset['media'] ?? '');
+            (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use ($authored, $routes, $media, &$declared, &$hooks): void {
+                if (!preg_match_all('/([.#])(-?[_a-zA-Z][\w-]*)/', self::positiveSelector($prelude), $matches, PREG_SET_ORDER)) return;
+                $named = array();
+                foreach ($matches as $match) {
+                    $hook = self::selectorHook($match[1], $match[2]);
+                    if (null !== $hook && isset($authored[$hook[0]][$hook[1]])) $named[$hook[0] . ':' . $hook[1]] = $hook;
+                }
+                if (array() === $named) return;
+                $key = $media . "\0" . implode("\0", $ancestors) . "\0" . (preg_replace('/\s+/', ' ', trim($prelude)) ?? $prelude);
+                $hooks[$key] = $named;
+                $canonical = RenderEquivalentMarkup::canonicalStyle($body);
+                foreach ($routes as $route) $declared[$key][$route][$canonical] = true;
+            });
+        }
+        foreach ($declared as $key => $byRoute) {
+            foreach ($hooks[$key] as [$kind, $name]) {
+                if (isset($varying[$kind][$name])) continue;
+                $signatures = array();
+                foreach (array_intersect_key($byRoute, $hookRoutes[$kind][$name] ?? array()) as $bodies) {
+                    ksort($bodies);
+                    $signatures[implode("\0", array_keys($bodies))] = true;
+                }
+                if (count($signatures) > 1) $varying[$kind][$name] = true;
+            }
+        }
+        return $varying;
+    }
+
+    /**
      * Whether a selector is written for shared chrome: it names at least one of
      * the chrome's own authored classes or ids, and every class or id it names
      * belongs to that chrome or to the ancestors it was hoisted out of. A
@@ -2426,6 +2481,7 @@ PHP;
         $detachedRoots = array();
         $inheritedContexts = array();
         $chromeElements = array();
+        $hookRoutes = array('class' => array(), 'id' => array());
         $hasSharedNavigation = false;
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
@@ -2460,6 +2516,7 @@ PHP;
                 $authored['class'] += $element['class'];
                 $authored['id'] += $element['id'];
                 $chromeElements[] = $element;
+                foreach (array('class', 'id') as $kind) foreach (array_keys($element[$kind]) as $name) foreach ($sources as $source) $hookRoutes[$kind][$name][(string) $source] = true;
             }
             $ancestors = self::selectorHooks((array) ($part['ancestor_context']['classes'] ?? array()), (array) ($part['ancestor_context']['ids'] ?? array()));
             $context['class'] += $ancestors['class'];
@@ -2484,6 +2541,11 @@ PHP;
                 $routeHooks[$kind] += $names;
             }
         }
+        // A hook whose rules differ between the routes rendering its chrome
+        // carries route state, such as where each route's own layout places
+        // the part. One global rule cannot declare both, so it stays with the
+        // route as well.
+        foreach (self::routeVaryingChromeHooks($assets, $authored, $hookRoutes) as $kind => $names) $routeHooks[$kind] += $names;
         // Rules for a hook no lifted selector can name (an escaped class) stay
         // with the route as well.
         foreach ($authored as $kind => $names) {
@@ -3357,28 +3419,73 @@ PHP;
     {
         $html = is_string($document['html'] ?? null) ? $document['html'] : (string) ($document['block_markup'] ?? '');
         if (!preg_match_all('~<a\b[^>]*?\bhref\s*=\s*["\']([^"\']*)["\']~i', $html, $matches)) return array();
-        $base = '/' === $route ? '/' : $route . '/';
         $linked = array();
         foreach ($matches[1] as $href) {
-            $href = html_entity_decode((string) preg_replace('/[?#].*$/s', '', trim($href)), ENT_QUOTES | ENT_HTML5);
-            if (1 === preg_match('~^[a-z][a-z0-9+.-]*:~i', $href) || str_starts_with($href, '//')) {
-                $path = parse_url(str_starts_with($href, '//') ? 'http:' . $href : $href, PHP_URL_PATH);
-                if (!is_string($path)) continue;
-                $href = '' === $path ? '/' : $path;
-            }
-            if ('' === $href) continue;
-            $path = str_starts_with($href, '/') ? $href : $base . $href;
-            $segments = array();
-            foreach (explode('/', $path) as $segment) {
-                if ('' === $segment || '.' === $segment) continue;
-                if ('..' === $segment) { array_pop($segments); continue; }
-                $segments[] = $segment;
-            }
-            if (array() !== $segments && 1 === preg_match('/^index\.html?$/i', (string) end($segments))) array_pop($segments);
-            elseif (array() !== $segments) $segments[count($segments) - 1] = (string) preg_replace('/\.html?$/i', '', (string) end($segments));
-            $linked['/' . implode('/', $segments)] = true;
+            $path = self::hrefRoute((string) $href, $route);
+            if (null !== $path) $linked[$path] = true;
         }
         return array_keys($linked);
+    }
+    /** Route path one href resolves to from the page at $route, or null when it names none. */
+    private static function hrefRoute(string $href, string $route): ?string
+    {
+        $base = '/' === $route ? '/' : $route . '/';
+        $href = html_entity_decode((string) preg_replace('/[?#].*$/s', '', trim($href)), ENT_QUOTES | ENT_HTML5);
+        if (1 === preg_match('~^[a-z][a-z0-9+.-]*:~i', $href) || str_starts_with($href, '//')) {
+            $path = parse_url(str_starts_with($href, '//') ? 'http:' . $href : $href, PHP_URL_PATH);
+            if (!is_string($path)) return null;
+            $href = '' === $path ? '/' : $path;
+        }
+        if ('' === $href) return null;
+        $path = str_starts_with($href, '/') ? $href : $base . $href;
+        $segments = array();
+        foreach (explode('/', $path) as $segment) {
+            if ('' === $segment || '.' === $segment) continue;
+            if ('..' === $segment) { array_pop($segments); continue; }
+            $segments[] = $segment;
+        }
+        if (array() !== $segments && 1 === preg_match('/^index\.html?$/i', (string) end($segments))) array_pop($segments);
+        elseif (array() !== $segments) $segments[count($segments) - 1] = (string) preg_replace('/\.html?$/i', '', (string) end($segments));
+        return '/' . implode('/', $segments);
+    }
+    /**
+     * Child routes a listing's repeated cards link to, each with the card's
+     * single visible date. A card is the smallest element around a link that
+     * holds exactly one <time> and links to exactly one child route. The
+     * datetime attribute is ignored: templates repeat a placeholder there, so
+     * the visible text is the source of truth. A date that does not parse
+     * yields null rather than a wrong timestamp.
+     *
+     * @param array<string,mixed> $document
+     * @param array<string,bool> $childRoutes
+     * @return array<string,string|null> child route => UTC timestamp
+     */
+    private static function listingCardDates(array $document, string $route, array $childRoutes): array
+    {
+        $html = is_string($document['html'] ?? null) ? $document['html'] : (string) ($document['block_markup'] ?? '');
+        if ('' === trim($html) || array() === $childRoutes) return array();
+        $dom = new \DOMDocument();
+        @$dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        $xpath = new \DOMXPath($dom);
+        $cards = array();
+        foreach ($xpath->query('//a[@href]') ?: array() as $anchor) {
+            $target = self::hrefRoute((string) $anchor->getAttribute('href'), $route);
+            if (null === $target || !isset($childRoutes[$target])) continue;
+            $card = $anchor;
+            while ($card instanceof \DOMElement && 0 === ($xpath->query('descendant-or-self::time', $card)->length ?? 0)) $card = $card->parentNode;
+            if (!$card instanceof \DOMElement || 'body' === $card->nodeName || 'html' === $card->nodeName) continue;
+            $targets = array();
+            foreach ($xpath->query('descendant-or-self::a[@href]', $card) ?: array() as $link) {
+                $linked = self::hrefRoute((string) $link->getAttribute('href'), $route);
+                if (null !== $linked && isset($childRoutes[$linked])) $targets[$linked] = true;
+            }
+            $times = $xpath->query('descendant-or-self::time', $card);
+            if (1 !== count($targets) || 1 !== $times->length) continue;
+            $cards[$target][] = self::parseVisiblePublicationTimestamp((string) $times->item(0)->textContent);
+        }
+        $dates = array();
+        foreach ($cards as $target => $found) if (1 === count($found)) $dates[$target] = $found[0];
+        return $dates;
     }
     /** @param array<int,array<string,string>> $evidence */
     private static function hasOnlyPublishTimeMeta(array $evidence): bool
@@ -3429,6 +3536,17 @@ PHP;
         foreach ($evidenceByIndex as $index => $evidence) {
             $parentIndex = $indexByRoute[self::parentRoutePath($routes[$index])] ?? null;
             $evidenceByIndex[$index] = array_intersect(array('BlogPosting', 'NewsArticle'), $structuredTypes[$index]) ? $evidence : self::withoutUnsupportedArticleMarkers($evidence, $documents[$index], $routes[$index], null === $parentIndex ? null : $documents[$parentIndex]);
+        }
+        // A listing whose repeated cards each link to one child and carry one
+        // visible date dates the children that carry no evidence themselves.
+        foreach ($documents as $listingIndex => $listingDocument) {
+            $listingRoute = $routes[$listingIndex];
+            if ('/' === $listingRoute || null !== self::paginationParentRoute($listingRoute) || TaxonomyProjection::isTermRoute($listingRoute)) continue;
+            $children = array();
+            foreach ($routes as $childIndex => $childRoute) if ($listingRoute === self::parentRoutePath($childRoute) && array() === $evidenceByIndex[$childIndex] && empty($documents[$childIndex]['entrypoint']) && !isset($pageEvidenceByIndex[$childIndex])) $children[$childRoute] = $childIndex;
+            $cardDates = self::listingCardDates($listingDocument, $listingRoute, array_fill_keys(array_keys($children), true));
+            if (count($cardDates) < 2) continue;
+            foreach ($cardDates as $childRoute => $date) $evidenceByIndex[$children[$childRoute]] = array(array_filter(array('source' => 'listing:card-date', 'publication_timestamp' => $date), static fn(mixed $value): bool => null !== $value));
         }
         $datedByParent = array();
         foreach ($evidenceByIndex as $index => $evidence) {
@@ -4713,9 +4831,12 @@ PHP;
             return $empty;
         }
         $identity = ShellExtraction::identityMarkup($slice);
-        // Shared markup is not proof of chrome ownership for media, including
-        // serialized responsive media inside a shared wrapper.
-        if ('' !== $identity && isset($shared[$identity]) && !preg_match('/<(?:img|video|picture|audio)\b/i', str_replace('\\u003c', '<', $slice))) {
+        // Shared markup is not proof of chrome ownership for media alone,
+        // including serialized responsive media inside a shared wrapper: each
+        // post may render the same image. A shared section that also carries
+        // its own text or controls is chrome, media included.
+        $mediaOnly = preg_match('/<(?:img|video|picture|audio)\b/i', str_replace('\\u003c', '<', $slice)) && '' === ListingExcerptProjection::text($slice);
+        if ('' !== $identity && isset($shared[$identity]) && !$mediaOnly) {
             return array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => true, 'content' => false, 'retained' => array());
         }
         // A closed dialog opens on demand, so it can neither host the post

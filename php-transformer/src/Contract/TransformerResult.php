@@ -46,6 +46,16 @@ final class TransformerResult
     }
 
     /**
+     * Return a copy with replacement metrics, preserving all compilation facts.
+     *
+     * @param array<string, mixed> $metrics
+     */
+    public function withMetrics(array $metrics): self
+    {
+        return new self(...array_replace(get_object_vars($this), array('metrics' => $metrics)));
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function toArray(): array
