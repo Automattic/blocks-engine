@@ -185,7 +185,12 @@ trait StagedTransport
     /** Compile one serialized page plan without receiving the source artifact. */
     public function compilePreparedPage(array $sharedPlan, array $pagePlan, ?PayloadReader $payloadReader = null): array
     {
-        return $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $this->preparedPageCompiler(), $payloadReader);
+        $previous = \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache::activate($this->stylesheetStructureCache());
+        try {
+            return $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $this->preparedPageCompiler(), $payloadReader);
+        } finally {
+            \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache::activate($previous);
+        }
     }
 
     /**
@@ -197,6 +202,16 @@ trait StagedTransport
      * @return array<string,array<string,mixed>>
      */
     public function compilePreparedPages(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null): array
+    {
+        $previous = \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache::activate($this->stylesheetStructureCache());
+        try {
+            return $this->compilePreparedPagesWithStructure($sharedPlan, $pagePlans, $payloadReader);
+        } finally {
+            \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache::activate($previous);
+        }
+    }
+
+    private function compilePreparedPagesWithStructure(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader): array
     {
         $this->assertSharedPlan($sharedPlan);
         $stageCompiler = $this->preparedPageCompiler();

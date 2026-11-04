@@ -235,10 +235,22 @@ final class ArtifactCompiler
     /**
      * @param array<string, mixed> $artifact
      */
+    private ?\Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache $stylesheetStructure = null;
+
+    public function stylesheetStructureCache(): \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache
+    {
+        return $this->stylesheetStructure ??= new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache();
+    }
+
     public function compile(array $artifact): TransformerResult
     {
-        $this->htmlDocumentTransformCount = 0;
-        return $this->compileArtifact($this->composeInputArtifact($artifact));
+        $previous = \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache::activate($this->stylesheetStructureCache());
+        try {
+            $this->htmlDocumentTransformCount = 0;
+            return $this->compileArtifact($this->composeInputArtifact($artifact));
+        } finally {
+            \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetStructureCache::activate($previous);
+        }
     }
 
     /**

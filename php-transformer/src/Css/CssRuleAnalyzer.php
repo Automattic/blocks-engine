@@ -389,21 +389,7 @@ final class CssRuleAnalyzer
 
     private function nextRuleBoundary(string $css, int $offset): ?int
     {
-        $state = CssSyntaxScanner::state();
-        for ( $length = strlen($css); $offset < $length; ) {
-            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{;');
-            if ( $offset >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $offset, $state);
-            if ( null === $next ) {
-                return null;
-            }
-            if ( $topLevel && $next === $offset + 1 && ( '{' === $css[ $offset ] || ';' === $css[ $offset ] ) ) {
-                return $offset;
-            }
-            $offset = $next;
-        }
-        return null;
+        return CssStylesheetStructureCache::boundary($css, $offset);
     }
 
     /**
@@ -471,23 +457,6 @@ final class CssRuleAnalyzer
 
     private function matchingBrace(string $css, int $openingBrace): ?int
     {
-        $state = CssSyntaxScanner::state();
-        $depth = 0;
-        for ( $offset = $openingBrace, $length = strlen($css); $offset < $length; ) {
-            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{}');
-            if ( $offset >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $offset, $state);
-            if ( null === $next ) {
-                return null;
-            }
-            if ( $topLevel && $next === $offset + 1 && '{' === $css[ $offset ] ) {
-                ++$depth;
-            } elseif ( $topLevel && $next === $offset + 1 && '}' === $css[ $offset ] && 0 === --$depth ) {
-                return $offset;
-            }
-            $offset = $next;
-        }
-        return null;
+        return CssStylesheetStructureCache::brace($css, $openingBrace);
     }
 }

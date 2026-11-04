@@ -1102,47 +1102,12 @@ final class CssStylesheetTransformer
 
     private function nextRuleBoundary(string $css, int $offset): ?int
     {
-        $state  = CssSyntaxScanner::state();
-        $length = strlen($css);
-        for ( $index = $offset; $index < $length; ++$index ) {
-            $index = CssSyntaxScanner::inertEnd($css, $index, $state, '{;');
-            if ( $index >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $index, $state);
-            if ( null === $next ) {
-                return null;
-            }
-            if ( $topLevel && $next === $index + 1 && ('{' === $css[ $index ] || ';' === $css[ $index ]) ) {
-                return $index;
-            }
-            $index = $next - 1;
-        }
-
-        return null;
+        return CssStylesheetStructureCache::boundary($css, $offset);
     }
 
     private function matchingBrace(string $css, int $openingBrace): ?int
     {
-        $state  = CssSyntaxScanner::state();
-        $depth  = 0;
-        $length = strlen($css);
-        for ( $index = $openingBrace; $index < $length; ++$index ) {
-            $index = CssSyntaxScanner::inertEnd($css, $index, $state, '{}');
-            if ( $index >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $index, $state);
-            if ( null === $next ) {
-                return null;
-            }
-            if ( $topLevel && $next === $index + 1 && '{' === $css[ $index ] ) {
-                ++$depth;
-            } elseif ( $topLevel && $next === $index + 1 && '}' === $css[ $index ] && 0 === --$depth ) {
-                return $index;
-            }
-            $index = $next - 1;
-        }
-
-        return null;
+        return CssStylesheetStructureCache::brace($css, $openingBrace);
     }
 
     private function isAtRule(string $prelude): bool
@@ -1167,29 +1132,7 @@ final class CssStylesheetTransformer
 
     private function isWellFormedStylesheet(string $css): bool
     {
-        $state = CssSyntaxScanner::state();
-        $braces = 0;
-        $length = strlen($css);
-        for ( $offset = 0; $offset < $length; ) {
-            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{}');
-            if ( $offset >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $offset, $state);
-            if ( null === $next ) {
-                return false;
-            }
-            if ( $topLevel && $next === $offset + 1 ) {
-                if ( '{' === $css[ $offset ] ) {
-                    ++$braces;
-                } elseif ( '}' === $css[ $offset ] ) {
-                    if ( --$braces < 0 ) {
-                        return false;
-                    }
-                }
-            }
-            $offset = $next;
-        }
-        return 0 === $braces && CssSyntaxScanner::isComplete($state);
+        return CssStylesheetStructureCache::wellFormed($css);
     }
 
     private static function firstSignificantCharacter(string $value): string
