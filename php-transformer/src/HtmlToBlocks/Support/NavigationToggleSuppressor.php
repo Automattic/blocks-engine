@@ -942,6 +942,16 @@ final class NavigationToggleSuppressor
             return false;
         }
 
+        // Explicit ownership outranks icon shape and nearby menus. A search
+        // expander (or any other non-navigation disclosure) must not borrow a
+        // sibling menu merely because its button has no visible text.
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'aria-controls'))) ?: array() as $controlledId ) {
+            $panel = '' === $controlledId ? null : $this->elementWithId($element, $controlledId);
+            if ( $panel instanceof DOMElement && ! $panel->isSameNode($element) && ! $this->panelHoldsNavigation($panel) ) {
+                return false;
+            }
+        }
+
         // A control wired to the source `<nav>` itself is that navigation's
         // toggle, whatever its visible text ("Menu", "Browse").
         if ( SourceDom::controlsSourceNavigation($element) ) {
