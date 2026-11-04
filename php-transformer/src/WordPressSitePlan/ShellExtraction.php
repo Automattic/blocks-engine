@@ -2105,8 +2105,8 @@ final class ShellExtraction
                 // Menu items count as links too: a header whose menu is a
                 // navigation block still has mostly stable links when only
                 // its language switch follows the route.
-                preg_match_all('/<a\\b[^>]*\\bhref="([^"]*)"|<!-- wp:navigation-(?:sub)?link \\{[^}]*?"url":"([^"]*)"/i', $row['markup'], $matches);
-                $links[$index] = array_map(static fn(string $href, string $url): string => '' !== $href ? $href : $url, $matches[1], $matches[2]);
+                preg_match_all('/<a\\b[^>]*\\bhref="([^"]*)"|<!-- wp:navigation-(?:sub)?link (\\{.*?\\}) \\/?-->/', $row['markup'], $matches);
+                $links[$index] = array_map(static fn(string $href, string $attrs): string => '' !== $attrs ? (string) (json_decode($attrs, true)['url'] ?? '') : $href, $matches[1], $matches[2]);
             }
             $first = reset($links);
             if (array() === $first) continue;

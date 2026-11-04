@@ -247,7 +247,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         // `links` looks navigational, but its anchors carry button signals and
         // belong to the buttons pattern, which preserves their pill geometry and
         // styling. Defer so navigation does not flatten them into menu items.
-        if ( 'nav' !== strtolower($element->tagName) && ! $this->hasDirectListNavigationSignal($element) && $this->hasButtonStyledLinkChildren($element, $navigationContext) ) {
+        // A current-page link run is site navigation even when its padded
+        // items look like buttons: the route selection proves the menu.
+        if ( 'nav' !== strtolower($element->tagName) && ! $this->hasDirectListNavigationSignal($element) && ! MenuVocabulary::isCurrentPageLinkRun($element) && $this->hasButtonStyledLinkChildren($element, $navigationContext) ) {
             return null;
         }
 
