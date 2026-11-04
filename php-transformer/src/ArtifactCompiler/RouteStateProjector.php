@@ -222,7 +222,7 @@ final class RouteStateProjector
     private static function inMenu(DOMElement $link): bool
     {
         for ($cursor = $link->parentNode; $cursor instanceof DOMElement; $cursor = $cursor->parentNode) {
-            if ('nav' === strtolower($cursor->tagName) || 'navigation' === strtolower($cursor->getAttribute('role'))) {
+            if ('nav' === strtolower($cursor->tagName) || 'navigation' === strtolower($cursor->getAttribute('role')) || MenuVocabulary::isCurrentPageLinkRun($cursor)) {
                 return true;
             }
         }

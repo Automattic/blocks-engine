@@ -307,6 +307,7 @@
       "php tests/contract/preserved-html-svg-data-image-src.php",
       "php tests/contract/unsized-svg-fills-container.php",
       "php tests/contract/header-link-cluster-navigation.php",
+      "php tests/contract/current-link-run-navigation.php",
       "php tests/contract/empty-visual-figure.php",
       "php tests/contract/font-wrapped-inline-image.php",
       "php tests/contract/single-column-layout-table-group.php",
