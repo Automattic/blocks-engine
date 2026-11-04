@@ -595,6 +595,21 @@ final class GeneratedBlockStyleProjector
         $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
         $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
         $link = $button . '>:where(.wp-block-button__link)';
+        if ( LayoutParticipation::resolve($control, $this->styleResolver)->intrinsicRatioItem ) {
+            // The link must remain the column flex item: its multiline content
+            // height feeds the preferred aspect ratio before the percentage
+            // minimum is applied. A block carrier breaks that sizing cycle.
+            // Core's fixed minimum height also disables the flex item's
+            // content-based automatic minimum; restore it along with auto height.
+            $intrinsicWidth = CssValueInspector::comparable((string) ($this->styleResolver->resolvedSourceStateDeclarations($control)['width'] ?? 'min-content'));
+            $generatedStyles->registerDirectFlexButton(
+                $marker,
+                $wrapper . '{display:contents!important}'
+                    . $button . '{display:contents!important}'
+                    . $link . '{box-sizing:border-box;width:' . $intrinsicWidth . '!important;height:auto!important;min-height:auto!important;word-break:normal!important}'
+            );
+            return;
+        }
         // The outer box participates in the authored parent, including its live
         // responsive cross-axis stretching. Intrinsic widths resolved at the
         // reference viewport must not pin it when that parent becomes a column.

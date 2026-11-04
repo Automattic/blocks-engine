@@ -1352,7 +1352,7 @@ final class AuthorStylesheetProjector
             $colon = strpos($declaration, ':');
             $name = strtolower(trim(false === $colon ? $declaration : substr($declaration, 0, $colon)));
             $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
-            if ( $this->isCollapsedButtonKeywordWidth($name, $value) ) {
+            if ( $this->isCollapsedButtonKeywordWidth($name, $value) && ! $this->buttonSubjectsKeepIntrinsicRatio($controls) ) {
                 continue;
             }
             if ( 'min-width' === $name && $this->percentageResolvesAgainstButtonWrapper($value, $controls) ) {
@@ -1548,6 +1548,16 @@ final class AuthorStylesheetProjector
             return true;
         }
         return 'min-width' === $property && ! $this->percentageResolvesAgainstButtonWrapper($value, $controls);
+    }
+
+    /** @param list<DOMElement> $controls */
+    private function buttonSubjectsKeepIntrinsicRatio(array $controls): bool
+    {
+        if ( array() === $controls ) return false;
+        foreach ( $controls as $control ) {
+            if ( ! LayoutParticipation::resolve($control, $this->styleResolver)->intrinsicRatioItem ) return false;
+        }
+        return true;
     }
 
     private static function wrapperFillingMinimumWidth(string $value): string
