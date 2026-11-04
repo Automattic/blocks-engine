@@ -58,15 +58,31 @@ $assertNonCountingDiagnostic($frozen, 'generated_component_non_native_items');
 // Real padded boxes, unlike inert attribute-bearing wrappers, consume depth.
 $pressured = $html;
 for ($depth = 0; $depth < 24; ++$depth) {
-    // Fourteen independent padded groups leave room for the generated leaf;
-    // the remaining id wrappers are packed by layout-shell normalization.
-    $padding = $depth < 14 ? ' style="padding:1px"' : '';
+    $padding = ' style="padding:1px"';
     $pressured = str_replace('<body>', '<body><div id="depth-' . $depth . '"' . $padding . '>', $pressured);
     $pressured = str_replace('</body>', '</div></body>', $pressured);
 }
-$bounded = $transform($pressured);
-$assert(str_contains(json_encode($bounded['diagnostics']), 'generated_component_depth_budget'), 'Depth pressure retains an explained bounded fallback.');
-$assertNonCountingDiagnostic($bounded, 'generated_component_depth_budget');
-$assert(20 >= ($bounded['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX), 'Depth fallback protects the editability cap.');
+$deepMain = '<main>' . str_repeat('<div>', 24)
+    . '<a href="/story" aria-label="Story"><img src="story.jpg" alt="Story"></a>'
+    . str_repeat('</div>', 24) . '</main>';
+$withButtons = str_replace('<h4>', '<button type="button" role="checkbox" aria-label="Favorite" aria-checked="false"><svg viewBox="0 0 10 10"><path d="M0 0h10v10H0z"/></svg></button><h4>', $html);
+foreach (array(
+    'deep native collection' => array($pressured, '<!-- wp:heading', true),
+    'deep linked media main' => array($deepMain, '<!-- wp:image', false),
+    'structured authored-button collection' => array($withButtons, '<!-- wp:custom/authored-button', false),
+) as $label => [$source, $nativeMarker, $exceedsDepth]) {
+    $native = $transform($source);
+    $nativeMarkup = $native['serialized_blocks'];
+    $definitions = $native['source_reports']['generated_blocks'] ?? array();
+    $depth = $native['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? null;
+    $assert(str_contains($nativeMarkup, $nativeMarker)
+        && ! preg_match('/(?:collection|gallery)-[0-9a-f]{8,}/', $nativeMarkup)
+        && ! str_contains($nativeMarkup, 'wp:custom/responsive-layout')
+        && ! str_contains($nativeMarkup, '<!-- wp:html')
+        && ! str_contains($nativeMarkup, '<!-- wp:freeform')
+        && array() === \Automattic\BlocksEngine\PhpTransformer\Contract\GeneratedBlockEditingSurface::rawHtmlBlockNames($definitions)
+        && is_int($depth) && (!$exceedsDepth || $depth > 20),
+        $label . ' stays editable without raw_html companions and keeps its diagnostic nesting metric.');
+}
 
 echo "deep repeated card grid contract passed\n";

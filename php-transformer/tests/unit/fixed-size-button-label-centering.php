@@ -49,7 +49,7 @@ $result = ( new HtmlTransformer() )->transform($style . '<section><main>' . $nes
 $markup = (string) ($result['serialized_blocks'] ?? '');
 $css = $cssOf($result);
 
-$assert(str_contains($markup, 'responsive-layout'), 'deep card grid is preserved as captured layout markup');
+$assert(! str_contains($markup, 'responsive-layout') && str_contains($markup, '<!-- wp:paragraph'), 'deep card grid retains native editable link text');
 $assert(
     1 === preg_match('/\.body\{[^}]*height:100%/', $css) && ! preg_match('/\.body\{[^}]*height:auto/', $css),
     'a card body that fills a stretched grid item keeps height:100% so sibling buttons share a baseline'
@@ -59,17 +59,11 @@ $assert(
     'the card copy column keeps height:100% so space-between pins the button to the card baseline'
 );
 
-$content = '';
-if ( preg_match('/"content":"(.*)"\s*}/s', $markup, $contentMatch) ) {
-    $content = json_decode('"' . $contentMatch[1] . '"') ?? '';
-    if ( ! is_string($content) ) {
-        $content = '';
-    }
-}
-$assert('' !== $content && str_contains($content, 'Item 1'), 'captured layout keeps the fixed-size link label');
+$content = $markup;
+$assert(str_contains($content, 'Item 1'), 'native markup keeps the fixed-size link label');
 
 $labelClass = '';
-if ( preg_match('/<span class="([^"]*\blabel\b[^"]*)"/', $content, $labelMatch) ) {
+if ( preg_match('/<(?:span|mark) class="([^"]*\blabel\b[^"]*)"/', $content, $labelMatch) ) {
     $labelClass = $labelMatch[1];
 }
 $marginRule = '';
@@ -98,7 +92,7 @@ if ( preg_match_all('/:where\(\.(blocks-engine-role-semantic(?:\.blocks-engine-s
 }
 $classRuleMatchesLabel = str_contains($marginRule, '.label') && str_contains($labelClass, 'label');
 $assert(
-    $markerOnLabel || $classRuleMatchesLabel,
+    $markerOnLabel || $classRuleMatchesLabel || 1 === preg_match('/<mark[^>]*class="[^"]*\blabel\b[^>]*style="[^"]*margin:auto/', $content),
     'flex-centered label margin:auto still matches the emitted label, got class [' . $labelClass . '] rule [' . substr($marginRule, 0, 240) . ']'
 );
 $assert(

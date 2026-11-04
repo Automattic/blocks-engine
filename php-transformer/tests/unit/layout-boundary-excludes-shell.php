@@ -42,8 +42,8 @@ $main = '<main>' . $nest('<a href="/story" aria-label="Story"><img src="story.jp
 $mainResult = ( new HtmlTransformer() )->transform($main)->toArray();
 $mainMarkup = (string) ($mainResult['serialized_blocks'] ?? '');
 $assert(
-    str_contains($mainMarkup, '<!-- wp:custom/responsive-layout {"content":'),
-    'a deep media main without document chrome still compiles as a layout boundary'
+    ! str_contains($mainMarkup, 'wp:custom/responsive-layout') && str_contains($mainMarkup, '<!-- wp:image'),
+    'a deep media main without document chrome retains native media'
 );
 
 $mainWithHeader = '<main class="story">' . $nest(
@@ -54,8 +54,8 @@ $mainWithHeader = '<main class="story">' . $nest(
 $mainHeaderResult = ( new HtmlTransformer() )->transform($mainWithHeader)->toArray();
 $mainHeaderMarkup = (string) ($mainHeaderResult['serialized_blocks'] ?? '');
 $assert(
-    str_contains($mainHeaderMarkup, '<!-- wp:custom/responsive-layout {"content":'),
-    'a deep media main may still capture when an inner header is page content'
+    ! str_contains($mainHeaderMarkup, 'wp:custom/responsive-layout') && str_contains($mainHeaderMarkup, '<!-- wp:heading'),
+    'a deep media main retains native page content including its inner header'
 );
 
 if ( 0 !== $failures ) {
