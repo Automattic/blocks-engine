@@ -174,7 +174,10 @@ final class EngineSupportCss
             // The figure stands in for the paragraph that wrapped this image.
             // Keep the image on the figure's line, as it sat on the paragraph's,
             // so its vertical margins size the line box instead of collapsing.
-            $parts[] = ':root .wp-block-image.' . SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS . ' img{display:inline;vertical-align:baseline}';
+            // The baseline only undoes core's `vertical-align:bottom`; at the
+            // author image bridge's weight, so a source alignment still wins.
+            $parts[] = ':root .wp-block-image.' . SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS . ' img{display:inline}'
+                . 'figure.wp-block-image:where(.' . SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS . ') img{vertical-align:baseline}';
         }
         if ( str_contains($serializedBlocks, self::BACKGROUND_IMAGE_CLASS) ) {
             // The source painted this image as a background, where the element's

@@ -333,13 +333,7 @@ final class AuthorStylesheetProjector
             );
             $imageRule .= implode(',', $inlineSelectors) . '{display:' . ($declarations['display'] ?? 'inline')
                 . ';max-width:' . ($declarations['max-width'] ?? 'none') . ';vertical-align:' . ($declarations['vertical-align'] ?? 'baseline') . '}';
-            // An image unwrapped from the paragraph whose line box it sized
-            // stays on that line, so its vertical margins keep sizing the
-            // figure. Override the bridge's block display at its position.
-            if ( str_contains($context->emittedMarkup, SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS) ) {
-                $imageRule .= str_replace('.wp-block-image', '.wp-block-image:where(.' . SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS . ')', $imagePrelude)
-                    . '{display:' . ($declarations['display'] ?? 'inline') . ';vertical-align:' . ($declarations['vertical-align'] ?? 'baseline') . '}';
-            }
+            $imageRule .= $this->lineImageFigureRule($imagePrelude, $declarations, $context);
             // Any inline-flow image aligns on its line as the source declared,
             // not at the bottom where core's Image rule would put it.
             if ( isset($declarations['vertical-align']) ) {
@@ -353,7 +347,8 @@ final class AuthorStylesheetProjector
         // above SvgMaterializer's inline-geometry carrier or replay SVG paint.
         $svgImageRule = '' === $svgImagePrelude
             ? ''
-            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . ';' . $this->styleResolver->cssDeclarationString($this->imageApplicableSvgDeclarations($declarations)) . '}';
+            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . ';' . $this->styleResolver->cssDeclarationString($this->imageApplicableSvgDeclarations($declarations)) . '}'
+                . $this->lineImageFigureRule($svgImagePrelude, $declarations, $context);
         $svgImageRule .= $this->flexItemImageBoxRule(
             $prelude,
             $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations, true),
@@ -3242,6 +3237,30 @@ final class AuthorStylesheetProjector
         }
 
         return false;
+    }
+
+    /**
+     * An image that sat on its source parent's line (the paragraph it
+     * unwrapped from, or the inline wrapper its figure is transparent in)
+     * stays on that line, so its margins and the strut keep sizing the same
+     * box. Override the bridge's block display at the bridge's position; the
+     * line alignment is the rule's own, or whatever earlier rule set it.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function lineImageFigureRule(string $imagePrelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        $figures = array_filter(
+            array( SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS ),
+            static fn (string $class): bool => str_contains($context->emittedMarkup, $class)
+        );
+        if ( array() === $figures ) {
+            return '';
+        }
+
+        return str_replace('.wp-block-image', '.wp-block-image:where(.' . implode(',.', $figures) . ')', $imagePrelude)
+            . '{display:' . ($declarations['display'] ?? 'inline')
+            . ( isset($declarations['vertical-align']) ? ';vertical-align:' . $declarations['vertical-align'] : '' ) . '}';
     }
 
     /** @param array<string, string> $declarations */
