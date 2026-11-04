@@ -19,7 +19,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
-use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Contract\GeneratedBlockEditingSurface;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
@@ -41,7 +41,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGe
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionListBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LinkedResponsiveContentBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
@@ -230,19 +229,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     use DomHelpersTrait;
 
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');
-    private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
-    /** @var array<string, true>|null Source paths selected against the converted block budget. */
-    private ?array $deepMediaBoundaryPaths = null;
-
-    /** @var array<string, bool> Source regions that exceeded the emitted depth budget. */
-    private array $generatedComponentDepthBoundaries = array();
-
-    /** @var array<string, bool> Native promotions to check after wrapper coalescing. */
-    private array $nativeComponentPaths = array();
-
-    /** @var array<string, true> Boundaries discovered by the converted-tree pass. */
-    private array $discoveredDeepMediaBoundaryPaths = array();
-
     private string $capturedRootTheme = '';
     private string $emittedStyleMarkup = '';
 
@@ -1785,29 +1771,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::release($document);
         }
         $blocks = $this->compressProjectedGroupChains($blocks);
-        $depthBoundaries = $this->generatedComponentDepthBoundaries;
-        $this->collectNativeComponentDepthBoundaries($blocks, 0, $depthBoundaries);
-        if ($depthBoundaries !== $this->generatedComponentDepthBoundaries) {
-            // Decide only after conversion/coalescing, then replay cleanly so
-            // speculative native assets and diagnostics never escape.
-            $compilation = new self($this->runtime, $this->analysisCache);
-            $compilation->generatedComponentDepthBoundaries = $depthBoundaries;
-            $compilation->deepMediaBoundaryPaths = $this->deepMediaBoundaryPaths;
-            return $compilation->transform($html, $options, $timer);
-        }
-        if (null === $this->deepMediaBoundaryPaths) {
-            $blocks = $this->captureDeepMediaLayoutBoundaries($blocks);
-            if (array() !== $this->discoveredDeepMediaBoundaryPaths) {
-                // Discovery converts before boxing so it can use the real block
-                // budget. None of that speculative work may reach the result:
-                // replay in a fresh session, treating only the selected source
-                // regions as opaque. This also preserves independent registrations
-                // in extracted shell/template artifacts, even with shared names.
-                $compilation = new self($this->runtime, $this->analysisCache);
-                $compilation->deepMediaBoundaryPaths = $this->discoveredDeepMediaBoundaryPaths;
-                return $compilation->transformTimed($html, $options, $timer);
-            }
-        }
         $timer->start('transform.fallback_reduction');
         $fallbacks = array_merge($fallbacks, $this->transformationEvidence()->responsiveImageFallbacks());
         $this->reconcileNativeListItemFallbacks($fallbacks, $blocks);
@@ -2649,12 +2612,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             : $this->authorLayoutBlockFromElement($element, $nativeFallbacks);
         $reason = 'generated_component_non_native_items';
         if (null !== $native && array() === $nativeFallbacks && $this->isEntirelyNativeComponent($native)) {
-            $path = (string) $element->getNodePath();
-            if (!isset($this->generatedComponentDepthBoundaries[$path])) {
-                $this->nativeComponentPaths[$path] = true;
-                return $native;
-            }
-            $reason = 'generated_component_depth_budget';
+            return $native;
         }
         $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
         if (null === $generated) {
@@ -2677,35 +2635,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $this->generatedComponentBlock($generated, $element);
     }
 
-    /**
-     * Budget against the tree that will be emitted, not source ancestry. Merged
-     * wrappers retain provenance IDs but add no level to this traversal.
-     *
-     * @param array<int, array<string, mixed>> $blocks
-     * @param array<string, bool> $boundaries
-     */
-    private function collectNativeComponentDepthBoundaries(array $blocks, int $depth, array &$boundaries): void
-    {
-        foreach ($blocks as $block) {
-            $ids = $block['_source_provenance_ids'] ?? array($block['_source_provenance_id'] ?? null);
-            foreach ($ids as $id) {
-                $source = is_int($id) ? $this->transformationProvenance()->sourceElement($id) : null;
-                $path = $source instanceof DOMElement ? (string) $source->getNodePath() : '';
-                if (isset($this->nativeComponentPaths[$path])
-                    && $depth + $this->convertedBlockNestingDepth(array($block)) > EditabilityPolicy::THRESHOLDS['max_nesting_depth']
-                ) {
-                    $boundaries[$path] = true;
-                }
-            }
-            $this->collectNativeComponentDepthBoundaries($block['innerBlocks'] ?? array(), $depth + 1, $boundaries);
-        }
-    }
-
     /** @param array<string, mixed> $block */
     private function isEntirelyNativeComponent(array $block): bool
     {
         $name = (string) ($block['blockName'] ?? '');
-        if (! str_starts_with($name, 'core/') || in_array($name, array('core/html', 'core/freeform'), true)) {
+        $rawHtmlNames = GeneratedBlockEditingSurface::rawHtmlBlockNames($this->generatedBlocks()->definitions());
+        $nativeCore = str_starts_with($name, 'core/') && ! in_array($name, array('core/html', 'core/freeform'), true);
+        $structuredGenerated = str_starts_with($name, $this->generatedBlocks()->namespace() . '/') && ! isset($rawHtmlNames[$name]);
+        if (! $nativeCore && ! $structuredGenerated) {
             return false;
         }
         foreach ($block['innerBlocks'] ?? array() as $child) {
@@ -4220,10 +4157,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
-        if (isset($this->deepMediaBoundaryPaths[$element->getNodePath()])) {
-            return $this->capturedMediaLayoutBoundaryBlock($element, true);
-        }
-
         $tagName = strtolower($element->tagName);
 
         // WordPress post navigation is a dynamic post primitive, not a menu.
@@ -11991,234 +11924,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
-    /**
-     * Place captures on the converted tree, after wrapper coalescing. A branching
-     * region can keep its shallow children editable; a single-chain region needs
-     * only one boundary. Never descend past the policy's actual block budget.
-     *
-     * @param array<int, array<string, mixed>> $blocks
-     * @param array<string, bool>|null $represented
-     * @return array<int, array<string, mixed>>
-     */
-    private function captureDeepMediaLayoutBoundaries(array $blocks, int $depth = 1, ?array $represented = null): array
-    {
-        if (null === $represented) {
-            $represented = array();
-            $collect = function (array $items) use (&$collect, &$represented): void {
-                foreach ($items as $item) {
-                    $ids = $item['_source_provenance_ids'] ?? array($item['_source_provenance_id'] ?? null);
-                    foreach ($ids as $id) {
-                        $source = is_int($id) ? $this->transformationProvenance()->sourceElement($id) : null;
-                        if ($source instanceof DOMElement) $represented[$source->getNodePath()] = true;
-                    }
-                    $collect($item['innerBlocks'] ?? array());
-                }
-            };
-            $collect($blocks);
-        }
-        foreach ($blocks as &$block) {
-            $id = $block['_source_provenance_id'] ?? ($block['_source_provenance_ids'][0] ?? null);
-            $element = is_int($id) ? $this->transformationProvenance()->sourceElement($id) : null;
-            // Inert wrappers may vanish entirely. Their surviving carrier still
-            // represents that source region, up to the next native ancestor.
-            $captureElement = $element;
-            $parent = $element?->parentNode;
-            while ($parent instanceof DOMElement && 'body' !== strtolower($parent->tagName) && !isset($represented[$parent->getNodePath()])) {
-                if ($this->sourceElementNestingDepth($parent) > self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING) $captureElement = $parent;
-                $parent = $parent->parentNode;
-            }
-            $children = $block['innerBlocks'] ?? array();
-            $branch = $children;
-            while (1 === count($branch)) {
-                $branch = $branch[0]['innerBlocks'] ?? array();
-            }
-            $converted = null;
-            if (count($branch) > 1 && $depth < EditabilityPolicy::THRESHOLDS['max_nesting_depth']) {
-                $converted = $this->captureDeepMediaLayoutBoundaries($children, $depth + 1, $represented);
-                if ($converted !== $children) {
-                    $block['innerBlocks'] = $converted;
-                    continue;
-                }
-            }
-            $exceedsBudget = $depth + $this->convertedBlockNestingDepth($children) > EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
-            $boundary = $captureElement instanceof DOMElement ? $this->capturedMediaLayoutBoundaryBlock($captureElement, $exceedsBudget) : null;
-            if (null !== $boundary) {
-                $this->discoveredDeepMediaBoundaryPaths[$captureElement->getNodePath()] = true;
-                $block = $boundary;
-            } elseif (array() !== $children) {
-                $block['innerBlocks'] = $converted ?? $this->captureDeepMediaLayoutBoundaries($children, $depth + 1, $represented);
-            }
-        }
-        unset($block);
-        return $blocks;
-    }
-
-    /** @param array<int, array<string, mixed>> $blocks */
-    private function convertedBlockNestingDepth(array $blocks): int
-    {
-        $depth = 0;
-        foreach ($blocks as $block) {
-            $depth = max($depth, 1 + $this->convertedBlockNestingDepth($block['innerBlocks'] ?? array()));
-        }
-        return $depth;
-    }
-
-    /** @return array<string, mixed>|null */
-    private function capturedMediaLayoutBoundaryBlock(DOMElement $element, bool $exceedsBlockBudget = false): ?array
-    {
-        if ( ! in_array(strtolower($element->tagName), array('main', 'article', 'section', 'div', 'figure', 'ul', 'ol', 'li'), true)
-            || $this->runtimeIslands->isRuntimeDomTarget($element)
-            || $this->hasRuntimeTargetInSubtree($element)
-            || $this->hasLayoutGeometryProofInSubtree($element)
-            || $this->containsDocumentShellLandmarks($element)
-            || (!$exceedsBlockBudget && $this->sourceElementNestingDepth($element) <= self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING)
-            || ! $this->sourceElementClassifier->hasCapturedMediaContent($element)
-            || (!$exceedsBlockBudget && ! in_array(strtolower($element->tagName), array('main', 'ul', 'ol', 'li'), true) && '' === trim((string) $element->textContent))
-        ) {
-            return null;
-        }
-
-        if ( ! $this->isStaticLayoutV1($element) ) {
-            return null;
-        }
-
-        $this->generatedBlocks()->register(ResponsiveLayoutBlockGenerator::class, ( new ResponsiveLayoutBlockGenerator() )->definition($this->generatedBlocks()->namespace()));
-
-        return $this->createBlock(
-            $this->generatedBlocks()->blockName(ResponsiveLayoutBlockGenerator::LOCAL_NAME),
-            array( 'content' => $this->staticLayoutHtml($element) ),
-            array(),
-            $element
-        );
-    }
-
-    /**
-     * The responsive-layout renderer accepts this fixed static-layout-v1
-     * subset. Keep admission narrower than fallback sanitizing
-     * so a captured layout never depends on stripped source semantics.
-     */
-    private function isStaticLayoutV1(DOMElement $element): bool
-    {
-        $tags = array(
-            'main', 'article', 'aside', 'section', 'header', 'footer', 'nav', 'div', 'figure',
-            'figcaption', 'p', 'span', 'strong', 'em', 'b', 'i', 'small', 'br',
-            'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'button', 'ul', 'ol', 'li',
-            'dl', 'dt', 'dd', 'picture', 'source', 'img', 'video', 'audio',
-            'svg', 'defs', 'symbol', 'lineargradient', 'radialgradient', 'stop', 'clippath',
-            'mask', 'use', 'g', 'path', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
-            'rect', 'text', 'tspan', 'title', 'desc', 'link',
-        );
-        $globalAttributes = array(
-            'class', 'id', 'role', 'title', 'style', 'tabindex', 'dir', 'lang', 'hidden', 'xml:lang',
-            'aria-controls', 'aria-current', 'aria-describedby', 'aria-details', 'aria-expanded',
-            'aria-hidden', 'aria-label', 'aria-labelledby', 'aria-live',
-        );
-        $tagAttributes = array(
-            'a' => array('download', 'href', 'target', 'rel'),
-            'button' => array('disabled', 'name', 'type', 'value'),
-            'img' => array('src', 'alt', 'width', 'height', 'loading', 'decoding', 'fetchpriority', 'longdesc', 'srcset', 'sizes', 'usemap'),
-            'source' => array('src', 'srcset', 'sizes', 'media', 'type'),
-            'video' => array('autoplay', 'controls', 'height', 'loop', 'muted', 'playsinline', 'poster', 'preload', 'src', 'width'),
-            'audio' => array('autoplay', 'controls', 'loop', 'muted', 'preload', 'src'),
-            'svg' => array('fill', 'stroke', 'viewbox', 'width', 'height', 'focusable', 'preserveaspectratio', 'xmlns', 'xmlns:xlink'),
-            'symbol' => array('viewbox'),
-            'lineargradient' => array('gradientunits', 'x1', 'x2', 'y1', 'y2'),
-            'radialgradient' => array('cx', 'cy', 'r'),
-            'stop' => array('offset', 'stop-color', 'stop-opacity'),
-            'use' => array('href', 'xlink:href'),
-            'g' => array('clip-path', 'fill', 'fill-opacity', 'opacity', 'stroke', 'stroke-width', 'transform'),
-            'path' => array('d', 'fill', 'fill-rule', 'opacity', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'transform'),
-            'circle' => array('cx', 'cy', 'r', 'fill', 'opacity', 'stroke', 'stroke-width'),
-            'ellipse' => array('cx', 'cy', 'rx', 'ry', 'fill', 'opacity', 'stroke', 'stroke-width'),
-            'line' => array('x1', 'x2', 'y1', 'y2', 'fill', 'stroke', 'stroke-width', 'stroke-linecap'),
-            'polyline' => array('points', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'),
-            'polygon' => array('points', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'),
-            'rect' => array('x', 'y', 'width', 'height', 'rx', 'ry', 'fill', 'opacity', 'stroke', 'stroke-width'),
-            'text' => array('fill', 'font-family', 'font-size', 'font-weight', 'text-anchor', 'x', 'y'),
-            'tspan' => array('dx', 'dy', 'fill', 'x', 'y'),
-            'link' => array('href', 'rel'),
-        );
-
-        foreach (array_merge(array($element), SourceDom::descendantElements($element)) as $candidate) {
-            $tag = strtolower($candidate->tagName);
-            $customElement = (bool) preg_match('/^[a-z][a-z0-9]*-[a-z0-9-]+$/D', $tag);
-            if ( (! $customElement && ! in_array($tag, $tags, true)) || $this->isDeclaredRuntimeDomTarget($candidate) || array() !== $this->eventMetadata($candidate) ) {
-                return false;
-            }
-            if ('svg' === $tag && ! $this->isSafeSvgContent($this->outerHtml($candidate))) {
-                return false;
-            }
-            if ('link' === $tag && ('stylesheet' !== strtolower($this->attr($candidate, 'rel')) || ! $this->hasAncestorTag($candidate, array('defs')) || ! $this->hasAncestorTag($candidate, array('svg')) || ! $this->safeFallbackUrl($this->attr($candidate, 'href'), 'href'))) {
-                return false;
-            }
-
-            $allowed = array_merge($globalAttributes, $tagAttributes[$tag] ?? array());
-            $insidePicture = SourceDom::isInsidePicture($candidate);
-            foreach ($this->htmlAttributes($candidate) as $attribute => $value) {
-                $attribute = strtolower($attribute);
-                if ( (! str_starts_with($attribute, 'data-') && ! str_starts_with($attribute, 'aria-') && ! in_array($attribute, $allowed, true))
-                    || str_starts_with($attribute, 'data-wp-')
-                    || ('srcset' === $attribute && $this->safeFallbackSrcset($value, $tag, $insidePicture) !== $value)
-                    || (in_array($attribute, array('href', 'src'), true) && ! $this->safeFallbackUrl($value, $attribute, $tag, $insidePicture))
-                ) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
-
-    private function staticLayoutHtml(DOMElement $element): string
-    {
-        return preg_replace('/<link\b[^>]*\/?\s*>/i', '', SourceDom::safeFallbackHtml(
-            $element,
-            $this->authorSelectorProjections()->tagMarkers(),
-            fn (DOMElement $node): array => $this->authorSelectorProjections()->sourceProjectionMarkersForPath($node->getNodePath() ?? '')
-        )) ?? '';
-    }
-
-    private function hasLayoutGeometryProofInSubtree(DOMElement $element): bool
-    {
-        $selector = $this->elementSelector($element);
-        $prefix = $selector . ' > ';
-        foreach ( $this->layoutGeometry()->proofReductions() as $proof ) {
-            $wrapperSelector = is_array($proof) ? (string) ($proof['wrapper_selector'] ?? '') : '';
-            if ( $selector === $wrapperSelector || str_starts_with($wrapperSelector, $prefix) || str_starts_with($selector, $wrapperSelector . ' > ') ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Deep media layout capture is for a content region, not the site shell.
-     * An ancestor that also owns header/footer chrome must convert children
-     * so landmarks stay native blocks.
-     */
-    private function containsDocumentShellLandmarks(DOMElement $element): bool
-    {
-        if ( in_array(strtolower($element->tagName), array( 'main', 'article' ), true) ) {
-            return false;
-        }
-
-        if ( 0 < $element->getElementsByTagName('header')->length
-            || 0 < $element->getElementsByTagName('footer')->length ) {
-            return true;
-        }
-
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( ! $descendant instanceof DOMElement ) {
-                continue;
-            }
-            if ( in_array(ShellLandmarkPolicy::landmarkKind($descendant->tagName, $this->attr($descendant, 'role')), array( 'header', 'footer' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private function hasRuntimeTargetInSubtree(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
@@ -12244,17 +11949,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return false;
-    }
-
-    private function sourceElementNestingDepth(DOMElement $element): int
-    {
-        $depth = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                $depth = max($depth, 1 + $this->sourceElementNestingDepth($child));
-            }
-        }
-        return $depth;
     }
 
     /** @return array<string, mixed> */
