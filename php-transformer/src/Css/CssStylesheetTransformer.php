@@ -860,6 +860,18 @@ final class CssStylesheetTransformer
         return $families;
     }
 
+    /**
+     * A conservative proof that replay cannot override an intervening sheet.
+     * Different selectors can match the same element, so property families are
+     * used without assuming selector text inequality implies disjoint targets.
+     */
+    public function canOmitReplay(string $stylesheet, string $intervening): bool
+    {
+        if (!$this->isWellFormedStylesheet($stylesheet) || !$this->isWellFormedStylesheet($intervening)
+            || preg_match('/@(?:import|namespace|layer)\b/i', $stylesheet . $intervening)) return false;
+        return !self::cascadeFamiliesOverlap(self::cascadePropertyFamilies($stylesheet), self::cascadePropertyFamilies($intervening));
+    }
+
     /** @param array<string, true> $families @param array<string, true> $kept */
     private static function cascadeFamiliesOverlap(array $families, array $kept): bool
     {

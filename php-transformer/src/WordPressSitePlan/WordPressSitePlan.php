@@ -6300,35 +6300,52 @@ PHP;
         $transformer = new CssStylesheetTransformer();
         foreach ($pages as $page) {
             $rows = array_values(array_filter(self::stylesheetEnqueues($assets, array($page)), static fn(array $row): bool => isset($row['route'])));
-            $present = $basePaths = array();
+            $present = array();
+            // Projection placement is a source-document contract. Do not remove
+            // either a projection or the source slot immediately preceding it.
+            $projectionSlot = static fn(int $position): bool => str_contains($rows[$position]['asset']['target_path'] ?? '', '/shared-chrome-') || str_contains($rows[$position + 1]['asset']['target_path'] ?? '', '/shared-chrome-');
             $variantEmitted = false;
             for ($i = 0; $i < count($rows);) {
                 $row = $rows[$i];
                 if (in_array($row['media'], array('', 'all'), true) && !isset($row[CaptureEvidence::DEVICE_STYLE])) {
                     if (StylesheetActivation::active($row['asset'])) {
                         $present[] = $row['asset']['content'] ?? '';
-                        $basePaths[$row['asset']['target_path']] = true;
                     }
                     ++$i;
                     continue;
                 }
                 // Runtime-selected device sets (media="not all") and alternate
                 // stylesheet sets are not viewport variants of the active base.
-                if ($variantEmitted || array() === $present || !str_contains($row['media'], '(') || isset($row[CaptureEvidence::DEVICE_STYLE]) || !StylesheetActivation::active($row['asset'])) { ++$i; continue; }
+                if ($projectionSlot($i) || $variantEmitted || array() === $present || !str_contains($row['media'], '(') || isset($row[CaptureEvidence::DEVICE_STYLE]) || !StylesheetActivation::active($row['asset'])) { ++$i; continue; }
                 $run = array();
                 $directory = dirname($row['asset']['target_path']);
-                while ($i < count($rows) && $rows[$i]['media'] === $row['media'] && ($rows[$i]['asset']['stylesheet_target'] ?? 'both') === ($row['asset']['stylesheet_target'] ?? 'both') && !isset($rows[$i][CaptureEvidence::DEVICE_STYLE]) && StylesheetActivation::active($rows[$i]['asset']) && dirname($rows[$i]['asset']['target_path']) === $directory && is_string($rows[$i]['asset']['content'] ?? null)) $run[] = $rows[$i++];
+                while ($i < count($rows) && !$projectionSlot($i) && $rows[$i]['media'] === $row['media'] && ($rows[$i]['asset']['stylesheet_target'] ?? 'both') === ($row['asset']['stylesheet_target'] ?? 'both') && !isset($rows[$i][CaptureEvidence::DEVICE_STYLE]) && StylesheetActivation::active($rows[$i]['asset']) && dirname($rows[$i]['asset']['target_path']) === $directory && is_string($rows[$i]['asset']['content'] ?? null)) $run[] = $rows[$i++];
                 if (array() === $run) { ++$i; continue; }
                 $sheets = array_column(array_column($run, 'asset'), 'content');
                 // Subtract the entire contiguous variant sequence at once. A
                 // later shared rule that overrides a variant-only rule must be
                 // replayed in the delta, not silently dropped or moved earlier.
-                $delta = $transformer->rulesAbsentFrom($sheets, $present, true);
+                // Only subtract a base sheet if replay cannot change any
+                // intervening sheet, including differently conditioned sheets.
+                $safePresent = array();
+                $runStart = $i - count($run);
+                for ($base = 0; $base < $runStart; ++$base) {
+                    if (!in_array($rows[$base]['media'], array('', 'all'), true) || isset($rows[$base][CaptureEvidence::DEVICE_STYLE]) || !StylesheetActivation::active($rows[$base]['asset'])) continue;
+                    $content = $rows[$base]['asset']['content'] ?? null;
+                    if (!is_string($content)) continue;
+                    $safe = true;
+                    for ($between = $base + 1; $between < $runStart; ++$between) {
+                        $other = $rows[$between]['asset']['content'] ?? null;
+                        if (!is_string($other) || !$transformer->canOmitReplay($content, $other)) { $safe = false; break; }
+                    }
+                    if ($safe) $safePresent[] = $content;
+                }
+                $delta = $transformer->rulesAbsentFrom($sheets, $safePresent, true);
                 // Separate directories cannot share a delta without rebasing
                 // URLs. Once a nonempty variant has loaded, leave subsequent
                 // runs intact: they may need to override that earlier delta.
                 $variantEmitted = '' !== trim($delta);
-                if ($delta === implode('', $sheets) && !array_intersect_key($basePaths, array_flip(array_column(array_column($run, 'asset'), 'target_path')))) continue;
+                if ($delta === implode('', $sheets)) continue;
                 foreach ($run as $entry) {
                     $index = $indexes[$entry['asset']['target_path']];
                     $assets[$index]['stylesheet_instance_only'] = true;
