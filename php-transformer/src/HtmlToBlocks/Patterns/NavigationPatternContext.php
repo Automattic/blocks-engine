@@ -64,7 +64,17 @@ final class NavigationPatternContext
             $path = $element->getNodePath() ?? '';
             $projections->ensureSemanticMarker($path);
         }
-        return $this->sourcePresentationMarkers($element);
+        $markers = $this->sourcePresentationMarkers($element);
+        if (null !== $projections && 1 === preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName)
+            && array() !== $projections->semanticMarkersForPath($element->getNodePath() ?? '')) {
+            // Retagging changes the UA display from block to inline. Restore
+            // only that default, below author CSS (including responsive display).
+            $marker = $projections->ensureSemanticMarker($element->getNodePath() ?? '');
+            $this->session->generatedSupportStylesheetState()->registerRichTextPresentationalHint(
+                $marker, ':where(.' . $marker . '){display:block}'
+            );
+        }
+        return $markers;
     }
 
     /**
@@ -823,8 +833,35 @@ final class NavigationPatternContext
         }
         if (!$presented) return '';
         $marker = $this->navigationSubjectMarker($anchor, 'anchor');
-        $this->pendingNavigationSubjects[$anchor->getNodePath() ?? ''] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)', 'source' => SourceDom::elementSelector($anchor));
+        $target = '.wp-block-navigation .wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)';
+        $this->pendingNavigationSubjects[$anchor->getNodePath() ?? ''] = array('marker' => $marker, 'target' => $target, 'source' => SourceDom::elementSelector($anchor));
+        if ($this->inlineAnchorCarriesPercentageHeight($anchor)) {
+            // Core inserts a block anchor with auto height and a label span.
+            // Neither existed as a containing block in the source. Let the
+            // percentage-sized block child keep sizing through both carriers
+            // against the source ancestor (including retained navigation boxes).
+            $this->sourceTargetProjection?->record(SourceDom::elementSelector($anchor), $target, 'height:100%');
+            $this->sourceTargetProjection?->record(SourceDom::elementSelector($anchor), $target . '>.wp-block-navigation-item__label', 'display:block;height:100%');
+        }
         return $marker;
+    }
+
+    /** Only an inline source link lets a block child's height bypass it. */
+    private function inlineAnchorCarriesPercentageHeight(DOMElement $anchor): bool
+    {
+        if ('a' !== strtolower($anchor->tagName)) return false;
+        $anchorStyle = $this->styleResolver->referenceViewportAuthorDeclarations($anchor, array('display', 'position'));
+        if ('inline' !== ($anchorStyle['display'] ?? 'inline')
+            || in_array($anchorStyle['position'] ?? 'static', array('absolute', 'fixed'), true)) return false;
+        foreach ($anchor->childNodes as $child) {
+            if (!$child instanceof DOMElement) continue;
+            $style = $this->styleResolver->referenceViewportAuthorDeclarations($child, array('height', 'display', 'position'));
+            $display = $style['display'] ?? (1 === preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $child->tagName) ? 'block' : 'inline');
+            if (in_array($display, array('block', 'flex', 'grid', 'flow-root'), true)
+                && !in_array($style['position'] ?? 'static', array('absolute', 'fixed'), true)
+                && 1 === preg_match('/^\d+(?:\.\d+)?%$/D', trim((string) ($style['height'] ?? '')))) return true;
+        }
+        return false;
     }
 
     private function hasNavigationSubjectPresentation(DOMElement $element): bool

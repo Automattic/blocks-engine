@@ -808,6 +808,7 @@
       "php tests/unit/navigation-wrapped-list-id.php",
       "php tests/unit/navigation-list-box-properties.php",
       "php tests/unit/navigation-block-child-label-carrier.php",
+      "php tests/contract/navigation-block-child-label-box.php",
       "php tests/unit/navigation-label-tag-identity.php",
       "php tests/unit/navigation-label-presentation-chain.php",
       "php tests/unit/navigation-label-wrapper-author-span.php",
