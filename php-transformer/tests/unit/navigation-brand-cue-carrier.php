@@ -542,8 +542,9 @@ $assert(
 $assert(
     ! isset($majorityNavigation['innerBlocks'][0]['attrs']['style']['color']['text'])
         && ! isset($majorityNavigation['innerBlocks'][3]['attrs']['style']['color']['text'])
-        && str_contains((string) ($majorityNavigation['attrs']['className'] ?? ''), $majorityCurrentCarrier)
-        && str_contains($majorityCss, '.wp-block-navigation.' . $majorityCurrentCarrier . '.' . $majorityCurrentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content')
+        && ! str_contains((string) ($majorityNavigation['attrs']['className'] ?? ''), $majorityCurrentCarrier)
+        && 1 === preg_match('/blocks-engine-navigation-instance-[0-9a-f]{12}-\d+/', (string) ($majorityNavigation['attrs']['className'] ?? ''), $majorityScope)
+        && str_contains($majorityCss, '.wp-block-navigation.' . $majorityScope[0] . '.' . $majorityScope[0] . ' .wp-block-navigation__container>.wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content')
         && str_contains($majorityCss, '{color:#dde6ef}')
         && str_contains($majorityCss, '.' . $majorityCtaCarrier . '>.wp-block-navigation-item__content{color:#071018}'),
     'current and CTA link colour exceptions remain in their own scoped CSS carriers',
@@ -610,11 +611,10 @@ $assert(
     substr($alphaCss, -900)
 );
 $assert(
-    str_contains((string) ($alphaNavigation['attrs']['className'] ?? ''), $currentCarrier)
-        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . '.' . $currentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content')
-        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . '.' . $currentCarrier . ' .wp-block-navigation-item>.wp-block-navigation-item__content[aria-current]')
-        && ! str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . '.' . $currentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:not(')
-        && str_contains($alphaCss, '{color:rgb(255,255,255)}'),
+    ! str_contains((string) ($alphaNavigation['attrs']['className'] ?? ''), $currentCarrier)
+        && 1 === preg_match('/blocks-engine-navigation-instance-[0-9a-f]{12}-\d+/', (string) ($alphaNavigation['attrs']['className'] ?? ''), $alphaScope)
+        && str_contains($alphaCss, '.wp-block-navigation.' . $alphaScope[0] . '.' . $alphaScope[0] . ' .wp-block-navigation__container>.wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content,'
+            . '.wp-block-navigation.' . $alphaScope[0] . '.' . $alphaScope[0] . ' .wp-block-navigation__container>.wp-block-navigation-item>.wp-block-navigation-item__content[aria-current="page"]{color:rgb(255,255,255)}'),
     'authored current colour follows the WordPress runtime current item within its navigation',
     'attrs=' . json_encode($alphaNavigation['attrs'] ?? array()) . ' css=' . substr($alphaCss, -1200)
 );
