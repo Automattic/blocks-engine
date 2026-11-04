@@ -160,6 +160,12 @@ final class MenuVocabulary
      */
     public static function isCurrentPageLinkRun(DOMElement $element): bool
     {
+        if (!self::hasCurrentPageLinkRunShape($element)) return false;
+        return self::isAtLeadingEdge($element);
+    }
+
+    private static function hasCurrentPageLinkRunShape(DOMElement $element): bool
+    {
         $count = 0;
         $current = false;
         foreach ($element->childNodes as $child) {
@@ -185,7 +191,11 @@ final class MenuVocabulary
             $current = $current || 'page' === strtolower(trim($child->getAttribute('aria-current')));
             ++$count;
         }
-        if ($count < 3 || !$current) return false;
+        return $count >= 3 && $current;
+    }
+
+    private static function isAtLeadingEdge(DOMElement $element): bool
+    {
         // A header row can have a brand or another responsive copy before the
         // run. Bound the leading-edge check at the row before main content,
         // rather than treating its own chrome as preceding page content.
@@ -205,23 +215,27 @@ final class MenuVocabulary
             if (self::isHeaderLandmark($node)) return true;
             if (in_array(strtolower($node->tagName), array('main', 'article', 'section', 'aside', 'footer', 'nav'), true)) return false;
             if ('body' === strtolower($node->tagName)) return true;
+            // Linked media or text before the run (a brand link) and a responsive
+            // copy of the run are header chrome; unlinked text or media is content.
             for ($sibling = $node->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling) {
-                if (self::hasVisibleContent($sibling)) return false;
+                if ($sibling instanceof DOMElement && self::hasCurrentPageLinkRunShape($sibling)) continue;
+                if (self::hasVisibleContent($sibling, true)) return false;
             }
         }
         return false;
     }
 
     /** Resource-only embeds and empty wrappers do not displace the leading edge. */
-    private static function hasVisibleContent(\DOMNode $node): bool
+    private static function hasVisibleContent(\DOMNode $node, bool $ignoreLinks = false): bool
     {
         if (XML_TEXT_NODE === $node->nodeType) return '' !== trim($node->textContent);
         if (!$node instanceof DOMElement) return false;
         $tag = strtolower($node->tagName);
+        if ($ignoreLinks && 'a' === $tag) return false;
         if (in_array($tag, array('style', 'script', 'link', 'meta', 'title', 'head'), true)) return false;
         if (in_array($tag, array('img', 'svg', 'picture', 'video', 'audio', 'canvas', 'iframe', 'object', 'embed', 'input', 'button', 'select', 'textarea', 'hr'), true)) return true;
         foreach ($node->childNodes as $child) {
-            if (self::hasVisibleContent($child)) return true;
+            if (self::hasVisibleContent($child, $ignoreLinks)) return true;
         }
         return false;
     }
