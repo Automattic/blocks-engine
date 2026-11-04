@@ -1787,7 +1787,7 @@ final class AuthorStylesheetProjector
     private function rewriteSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false, bool $subjectArms = false, bool $semanticSubjectArms = false): string
     {
         $projected = $this->rewriteSelectorPreludeOnce($prelude, $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
-        if ( ! $context->selectorProjections->hasAncestorAttributeStateConditions() ) {
+        if ( ! $context->selectorProjections->hasAttributeStateProjectionConditions() ) {
             return $projected;
         }
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
@@ -1796,7 +1796,7 @@ final class AuthorStylesheetProjector
         }
         $variants = array();
         foreach ( $selectors as $selector ) {
-            $conditions = $context->selectorProjections->ancestorAttributeStateConditions(trim($selector));
+            $conditions = $context->selectorProjections->attributeStateProjectionConditions(trim($selector));
             if ( array() === $conditions ) {
                 continue;
             }

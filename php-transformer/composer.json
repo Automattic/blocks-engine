@@ -790,6 +790,7 @@
       "php tests/unit/brand-link-button-semantics.php",
       "php tests/unit/device-style-synthetic-anchor-carrier.php",
       "php tests/unit/ancestor-attribute-state-projection.php",
+      "php tests/unit/subject-attribute-state-projection.php",
       "php tests/unit/attribute-projection-parent-marker.php",
       "php tests/unit/attribute-scoped-button-link.php",
       "php tests/unit/media-scoped-svg-icon-size.php",
