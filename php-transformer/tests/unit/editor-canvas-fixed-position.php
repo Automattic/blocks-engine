@@ -42,4 +42,39 @@ $frontendFixed = false;
 });
 $assert($editorHeight, 'The editor-scoped pin rule resets full-page height to auto.');
 $assert($frontendFixed, 'The frontend author rule retains position:fixed and height:100%.');
+// #4363: a fixed layer must overlay the grid start, not auto-place after row 3.
+$html = <<<'HTML'
+<style>
+.page{display:grid;grid-template-rows:auto auto auto}
+.pin{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none}
+.pin header{pointer-events:auto;height:80px}
+.sections{display:contents}
+.s1{grid-area:1/1/2/2;height:600px}
+.s2{grid-area:2/1/3/2;height:600px}
+.foot{grid-area:3/1/4/2;height:200px}
+</style>
+<div class="page">
+  <div class="pin"><header><a href="#top">Logo</a><nav><a href="#s2">Two</a></nav></header></div>
+  <div class="sections"><section class="s1">One</section><section class="s2">Two</section></div>
+  <footer class="foot">Footer</footer>
+</div>
+HTML;
+$result = (new HtmlTransformer())->transform($html)->toArray();
+$css = implode("\n", array_column(array_filter($result['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$editorPlacement = false;
+$frontendUnchanged = false;
+(new CssStylesheetTransformer())->visitStyleRules($css, static function (string $selector, string $body) use (&$editorPlacement, &$frontendUnchanged, $assert): void {
+    $editor = str_contains($selector, '.editor-styles-wrapper');
+    $assert(!$editor || !preg_match('/(?:^|;)\s*position\s*:\s*fixed\b/i', $body), 'No editor rule may set position:fixed.');
+    if (!str_contains($selector, '.pin') || str_contains($selector, 'header')) return;
+    if ($editor && str_contains($selector, ':root .editor-styles-wrapper')) {
+        $editorPlacement = str_contains($body, 'grid-row:1;grid-column:1/-1;align-self:start');
+        $assert(!str_contains($body, 'z-index:'), 'Do not invent a stacking level absent from the source.');
+    }
+    if (!$editor && 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none' === $body) {
+        $frontendUnchanged = true;
+    }
+});
+$assert($editorPlacement, 'The editor pin overlays the start of the grid without auto-placement.');
+$assert($frontendUnchanged, 'The frontend pin declarations remain unchanged.');
 echo "editor-canvas-fixed-position: passed\n";

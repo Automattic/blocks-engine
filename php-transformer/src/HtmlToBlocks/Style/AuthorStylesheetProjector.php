@@ -509,7 +509,8 @@ final class AuthorStylesheetProjector
                     // source `position:fixed` pins site chrome (sticky
                     // headers, FABs) over the document being edited; leave
                     // it out of the editor canvas entirely. Its viewport-sized
-                    // box must also stop stretching now that it is in flow.
+                    // box must also stop stretching now that it is in flow,
+                    // and overlay the grid edge rather than auto-place a track.
                     $fixedSizing = $this->editorFixedSizing($declarations);
                     $position = '';
                 }
@@ -562,12 +563,22 @@ final class AuthorStylesheetProjector
         }
         $stretched = 'auto' === $height && isset($edges['top'], $edges['bottom'])
             && 'auto' !== $edges['top']['value'] && 'auto' !== $edges['bottom']['value'];
-        if ( ! $relative($height) && ! $stretched ) {
-            return '';
+        // Grid placement is inert for non-grid parents. Keep fixed layers on
+        // an explicit edge so the editor's in-flow copy cannot consume an
+        // auto-placed track. Prefer the top edge when both anchors are set.
+        $bottomAnchored = 'auto' === ($edges['top']['value'] ?? 'auto')
+            && 'auto' !== ($edges['bottom']['value'] ?? 'auto');
+        $overrides = $bottomAnchored
+            ? 'grid-row:-2/-1;grid-column:1/-1;align-self:end;'
+            : 'grid-row:1;grid-column:1/-1;align-self:start;';
+        if ( isset($declarations['z-index']) ) {
+            $overrides .= 'z-index:' . $declarations['z-index'] . ';';
         }
-        $overrides = 'height:auto' . (CssValueInspector::isImportant($declarations['height'] ?? '') ? '!important' : '') . ';';
-        if ( $relative($declarations['min-height'] ?? '') ) {
-            $overrides .= 'min-height:0' . (CssValueInspector::isImportant($declarations['min-height']) ? '!important' : '') . ';';
+        if ( $relative($height) || $stretched ) {
+            $overrides .= 'height:auto' . (CssValueInspector::isImportant($declarations['height'] ?? '') ? '!important' : '') . ';';
+            if ( $relative($declarations['min-height'] ?? '') ) {
+                $overrides .= 'min-height:0' . (CssValueInspector::isImportant($declarations['min-height']) ? '!important' : '') . ';';
+            }
         }
         return $overrides;
     }
