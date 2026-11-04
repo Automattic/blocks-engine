@@ -1790,7 +1790,8 @@ final class NavigationStyleProjector
         return array() === $masks ? 0 : (int) array_key_first($masks);
     }
 
-    private function navigationColorRestingSuffix(int $stateMask): string
+    /** The interaction states a navigation item's resting colour rule excludes. */
+    public static function navigationColorRestingSuffix(int $stateMask): string
     {
         $suffix = '';
         foreach ( array( 'hover' => 1, 'focus' => 2, 'focus-visible' => 4, 'active' => 8 ) as $state => $bit ) {
