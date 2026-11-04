@@ -12,6 +12,24 @@ $check = static function (bool $condition, string $message): void {
 };
 $html = '<!doctype html><html><head><title>Timing</title><link rel="stylesheet" href="style.css"></head><body><main><h1>Timing</h1><p>Hello world.</p></main></body></html>';
 $compile = (new HtmlTransformer())->transform($html);
+foreach (array(HtmlTransformer::class, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation::class) as $class) {
+    $check(2 === (new ReflectionMethod($class, 'transform'))->getNumberOfParameters(), 'Public transform signature must match trunk');
+}
+$replacementMetrics = array('replacement' => 1, 'step_timings' => array());
+$copy = $compile->withMetrics($replacementMetrics);
+$check($copy !== $compile && $copy->metrics === $replacementMetrics, 'withMetrics must return a copy with replacement metrics');
+foreach (get_object_vars($compile) as $field => $value) {
+    if ('metrics' !== $field) {
+        $check($copy->$field === $value, 'withMetrics dropped result field: ' . $field);
+    }
+}
+$check(isset($compile->metrics['transform_duration_ms']), 'withMetrics mutated the original');
+$timedCopy = (new \Automattic\BlocksEngine\PhpTransformer\Support\StepTimer('test.copy'))->result($compile);
+foreach (get_object_vars($compile) as $field => $value) {
+    if ('metrics' !== $field) {
+        $check($timedCopy->$field === $value, 'StepTimer dropped result field: ' . $field);
+    }
+}
 $assertTimings = static function ($result, array $names) use ($check): void {
     $steps = $result->metrics['step_timings'];
     $check(array() === array_diff($names, array_column($steps, 'step')), 'Missing timing steps');

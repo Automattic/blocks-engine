@@ -1608,9 +1608,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /**
      * @param array<string, mixed> $options
      */
-    public function transform(string $html, array $options = array(), ?\Automattic\BlocksEngine\PhpTransformer\Support\StepTimer $timer = null): TransformerResult
+    public function transform(string $html, array $options = array()): TransformerResult
     {
-        $timer ??= new \Automattic\BlocksEngine\PhpTransformer\Support\StepTimer('transform.source_preparation');
+        return $this->transformTimed($html, $options, new \Automattic\BlocksEngine\PhpTransformer\Support\StepTimer('transform.source_preparation'));
+    }
+
+    /** @param array<string, mixed> $options */
+    private function transformTimed(string $html, array $options, \Automattic\BlocksEngine\PhpTransformer\Support\StepTimer $timer): TransformerResult
+    {
         $timer->start('transform.source_preparation');
         $validationEvidence = \Automattic\BlocksEngine\PhpTransformer\Contract\ValidationEvidencePolicy::fromOptions($options);
         $context = TransformationOptions::context($options);
@@ -1795,7 +1800,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 // in extracted shell/template artifacts, even with shared names.
                 $compilation = new self($this->runtime, $this->analysisCache);
                 $compilation->deepMediaBoundaryPaths = $this->discoveredDeepMediaBoundaryPaths;
-                return $compilation->transform($html, $options, $timer);
+                return $compilation->transformTimed($html, $options, $timer);
             }
         }
         $timer->start('transform.fallback_reduction');

@@ -60,25 +60,9 @@ final class StepTimer
         $now = hrtime(true);
         $this->steps[$this->active]['ms'] += ($now - $this->since) / 1000000;
         $this->since = $now;
-        return new TransformerResult(
-            status: $result->status,
-            components: $result->components,
-            blockTypes: $result->blockTypes,
-            sourceReports: $result->sourceReports,
-            blocks: $result->blocks,
-            serializedBlocks: $result->serializedBlocks,
-            documents: $result->documents,
-            assets: $result->assets,
-            diagnostics: $result->diagnostics,
-            fallbacks: $result->fallbacks,
-            provenance: $result->provenance,
-            coverage: $result->coverage,
-            context: $result->context,
-            metrics: array_merge($result->metrics, array(
-                'transform_duration_ms' => ($now - $this->startedAt) / 1000000,
-                'step_timings' => array_values($this->steps),
-            )),
-            blockCompilationOutput: $result->blockCompilationOutput
-        );
+        return $result->withMetrics(array_merge($result->metrics, array(
+            'transform_duration_ms' => ($now - $this->startedAt) / 1000000,
+            'step_timings' => array_values($this->steps),
+        )));
     }
 }
