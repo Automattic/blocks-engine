@@ -2640,16 +2640,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if (null === $generated) {
             return null;
         }
-        $fallbacks[] = FallbackDiagnostic::build(array(
+        // Explain the preserved editing surface without adding conversion loss
+        // to the fallbacks list that drives quality fallback_count.
+        $this->transformationEvidence()->recordConversionDiagnostic(array_merge(array(
             'type' => 'generated_component',
+            'severity' => 'info',
             'conversion_classification' => 'editable_approximation',
             'reason' => $reason,
+            'code' => $reason,
             'diagnostic_code' => $reason,
             'message' => 'Repeated content retained as generated raw HTML: ' . $reason . '.',
             'source_format' => 'html',
             'tag' => strtolower($element->tagName),
             'selector' => $this->elementSelector($element),
-        ), $this->transformationProvenance()->fallback());
+        ), $this->transformationProvenance()->fallback()));
         return $this->generatedComponentBlock($generated, $element);
     }
 

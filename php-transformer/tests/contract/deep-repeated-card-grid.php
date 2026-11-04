@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 
 $assert = static function (bool $condition, string $message): void {
     if (! $condition) throw new RuntimeException($message);
@@ -35,11 +36,24 @@ $assert(1 === preg_match('/collection-[0-9a-f]{8,}/', $frozen['serialized_blocks
 $assert(str_contains(json_encode($frozen['source_reports']['generated_blocks']), 'raw_html'), 'Fallback retains the raw_html editing surface.');
 $assert(str_contains(json_encode($frozen['diagnostics']), 'generated_component_non_native_items'), 'Fallback explains native representability failure.');
 
-foreach ($frozen['diagnostics'] as $diagnostic) {
-    if ('generated_component' === ($diagnostic['type'] ?? '')) {
+$assertNonCountingDiagnostic = static function (array $result, string $reason) use ($assert): void {
+    $diagnostics = array_values(array_filter($result['diagnostics'], static fn (array $finding): bool => $reason === ($finding['code'] ?? '')));
+    $assert(array() !== $diagnostics, 'Generated content retains its explained diagnostic: ' . $reason);
+    foreach ($diagnostics as $diagnostic) {
+        $assert('generated_component' === ($diagnostic['type'] ?? ''), 'Diagnostic identifies the generated component.');
+        $assert($reason === ($diagnostic['reason'] ?? ''), 'Diagnostic retains the bounded fallback reason.');
+        $assert('info' === ($diagnostic['severity'] ?? ''), 'Generated component explanation is informational metadata.');
         $assert('editable_approximation' === ($diagnostic['conversion_classification'] ?? ''), 'Preserved generated content must not become unsupported loss.');
     }
-}
+    $fallbacks = $result['fallbacks'];
+    foreach ($fallbacks as $fallback) {
+        $assert('generated_component' !== ($fallback['type'] ?? ''), 'Generated component metadata is not in the counted fallback list.');
+        $assert(! str_starts_with($fallback['diagnostic_code'] ?? '', 'generated_component_'), 'Generated component reasons do not enter quality fallbacks.');
+    }
+    $assert(0 === FallbackDiagnostic::countableFallbackCount($fallbacks), 'Preserved generated content introduces no counted fallbacks.');
+    $assert(0 === ($result['metrics']['fallback_count'] ?? null), 'Generated component metadata does not increment quality fallback_count.');
+};
+$assertNonCountingDiagnostic($frozen, 'generated_component_non_native_items');
 
 // Real padded boxes, unlike inert attribute-bearing wrappers, consume depth.
 $pressured = $html;
@@ -52,6 +66,7 @@ for ($depth = 0; $depth < 24; ++$depth) {
 }
 $bounded = $transform($pressured);
 $assert(str_contains(json_encode($bounded['diagnostics']), 'generated_component_depth_budget'), 'Depth pressure retains an explained bounded fallback.');
+$assertNonCountingDiagnostic($bounded, 'generated_component_depth_budget');
 $assert(20 >= ($bounded['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX), 'Depth fallback protects the editability cap.');
 
 echo "deep repeated card grid contract passed\n";
