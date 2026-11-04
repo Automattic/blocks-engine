@@ -96,6 +96,7 @@
       "php tests/contract/form-readable-shapes.php",
       "php tests/contract/navigation-current-item-shared-menu.php",
       "php tests/contract/navigation-toggler-current-item-shared-header.php",
+      "php tests/contract/intrinsic-navigation-toggle-size.php",
       "php tests/contract/navigation-context-marker-current-item-shared-header.php",
       "php tests/contract/shared-navigation-context-marker.php",
       "php tests/contract/navigation-context-marker-positional-rules.php",

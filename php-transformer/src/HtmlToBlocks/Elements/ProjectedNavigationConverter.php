@@ -206,10 +206,13 @@ final class ProjectedNavigationConverter implements ElementConverter
                 $declarations[] = $property . ':' . $comparable . '!important';
             }
         }
-        if ( ! $hasUsableWidth && null === $source ) {
+        // A toggle carried by its own padding, border and an icon child keeps
+        // that intrinsic box; the touch-target floor is for boxes with none.
+        $hasIntrinsicBox = ! $isJumpMenu && $this->nativeNavigationToggleHasIntrinsicBox($toggle);
+        if ( ! $hasUsableWidth && null === $source && ! $hasIntrinsicBox ) {
             $declarations[] = 'min-width:44px!important';
         }
-        if ( ! $hasUsableHeight && null === $source ) {
+        if ( ! $hasUsableHeight && null === $source && ! $hasIntrinsicBox ) {
             $declarations[] = 'min-height:44px!important';
         }
         if ( array() === $declarations && null === $source ) {
@@ -1320,6 +1323,53 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return 1 !== preg_match('/^0(?:px|em|rem)?(?:\s+0(?:px|em|rem)?){0,3}$/', strtolower(trim($value)));
+    }
+
+    private function nativeNavigationToggleHasIntrinsicBox(DOMElement $toggle): bool
+    {
+        foreach ( $toggle->getElementsByTagName('*') as $child ) {
+            $declarations = $this->styleResolver->resolvedPresentationDeclarations($child);
+            $fontSize = null;
+            $lengths = array();
+            foreach ( array( 'width', 'height' ) as $property ) {
+                $value = CssValueInspector::withoutImportant(trim((string) ($declarations[$property] ?? '')));
+                if ( 1 === preg_match('/^(\d+(?:\.\d+)?|\.\d+)(em|rem)$/i', $value, $matches) ) {
+                    $fontSize ??= $this->nativeNavigationToggleFontSize($child);
+                    $value = rtrim(rtrim(sprintf('%.3F', (float) $matches[1] * ( 'rem' === strtolower($matches[2]) ? 16.0 : $fontSize )), '0'), '.') . 'px';
+                }
+                $lengths[] = $value;
+            }
+            if ( $this->nativeNavigationToggleDimensionIsUsable($lengths[0]) && $this->nativeNavigationToggleDimensionIsUsable($lengths[1]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Computed font size in px: the nearest declared size, em against its parent, rem against 16px. */
+    private function nativeNavigationToggleFontSize(DOMElement $element, int $depth = 0): float
+    {
+        if ( $depth > 32 ) {
+            return 16.0;
+        }
+        $value = strtolower(CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->resolvedPresentationDeclarations($element)['font-size'] ?? ''))));
+        $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
+        if ( 1 === preg_match('/^(\d+(?:\.\d+)?|\.\d+)(px|rem|em|%)$/', $value, $matches) ) {
+            $number = (float) $matches[1];
+            switch ( $matches[2] ) {
+                case 'px':
+                    return $number;
+                case 'rem':
+                    return $number * 16.0;
+                case 'em':
+                    return $number * ( $parent ? $this->nativeNavigationToggleFontSize($parent, $depth + 1) : 16.0 );
+                default:
+                    return $number / 100 * ( $parent ? $this->nativeNavigationToggleFontSize($parent, $depth + 1) : 16.0 );
+            }
+        }
+
+        return $parent ? $this->nativeNavigationToggleFontSize($parent, $depth + 1) : 16.0;
     }
 
     private function nativeNavigationToggleDimensionIsUsable(string $value): bool
