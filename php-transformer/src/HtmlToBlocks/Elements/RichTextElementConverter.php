@@ -61,6 +61,14 @@ final class RichTextElementConverter implements ElementConverter
                 $children = $this->context->convertChildren($element, $fallbacks);
                 return ConversionOutcome::handled($this->context->createBlock('core/group', array_merge($this->context->presentationAttributes($element), array('tagName' => $tagName)), $children, $element));
             }
+            // A heading with no text whose only content is one media element
+            // is the media block it visually is, not a heading. Anything with
+            // text keeps the rich-text route below (#3496).
+            $fallbackCount = count($fallbacks);
+            $media = $this->context->mediaBlockFromTextlessHeading($element, $fallbacks);
+            if ( null !== $media || count($fallbacks) > $fallbackCount ) {
+                return ConversionOutcome::handled($media);
+            }
             return ConversionOutcome::handled($this->convertHeading($element, (int) $matches[1]));
         }
 
