@@ -31,7 +31,11 @@ try {
     }
     if (boxes) {
         const page = await browser.newPage({ viewport: { width: 900, height: 800 } });
-        for (const [name, html] of Object.entries({ source: boxes.source, compiled: `<style>${boxes.css}</style>${boxes.native}` })) {
+        let sourceY;
+        // Core makes the content anchor block-level. Without its real display
+        // rule the synthetic renderer leaves it inline and hides #4329.
+        const coreCss = '.wp-block-navigation__container{margin:0;padding:0;list-style:none}.wp-block-navigation-item__content{display:block}';
+        for (const [name, html] of Object.entries({ source: boxes.source, compiled: `<!doctype html><style>${coreCss}${boxes.css}</style>${boxes.native}` })) {
             await page.setContent(html);
             const geometry = await page.evaluate(() => {
                 const anchor = document.querySelector('a[href="/services/"]');
@@ -42,9 +46,14 @@ try {
                 const slot = anchor.closest('.slot').getBoundingClientRect();
                 const link = anchor.getBoundingClientRect();
                 const box = fill.getBoundingClientRect();
-                return { slot: [slot.width, slot.height], link: [link.width, link.height], fill: [box.width, box.height], dx: text.x + text.width / 2 - slot.x - slot.width / 2, dy: text.y + text.height / 2 - slot.y - slot.height / 2 };
+                return { y: text.y, slot: [slot.width, slot.height], link: [link.width, link.height], fill: [box.width, box.height], dx: text.x + text.width / 2 - slot.x - slot.width / 2, dy: text.y + text.height / 2 - slot.y - slot.height / 2 };
             });
             console.log(name, 'Services', JSON.stringify(geometry));
+            if (name === 'source') {
+                sourceY = geometry.y;
+                assert.ok(Math.abs(sourceY - 26) <= 1, 'Source Services text must sit at y 26 in the 53px slot');
+            }
+            assert.ok(Math.abs(geometry.y - sourceY) <= 1, 'Services text y must match source (26px)');
             assert.deepEqual(geometry.slot, [125, 53]);
             assert.deepEqual(geometry.link, [125, 53]);
             assert.deepEqual(geometry.fill, [125, 53]);

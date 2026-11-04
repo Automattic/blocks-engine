@@ -54,4 +54,21 @@ foreach ($dom->getElementsByTagName('span') as $span) {
     }
 }
 if (3 !== $boxes || 3 !== $fills || 1 !== $labels) throw new RuntimeException('navigation label carrier topology was lost');
-echo "Navigation block label boxes retain block display, author flex, and inline source spans\n";
+// The generated anchor and Core label must not introduce auto-height
+// containing blocks between .box and the source item's definite slot.
+$heightCarry = static function (array $artifact): bool {
+    $styles = implode("\n", array_column($artifact['assets'] ?? array(), 'content'));
+    return 1 === preg_match('/__content\)[^{]*\{height:100%\}/', $styles)
+        && 1 === preg_match('/__label\{display:block;height:100%\}/', $styles);
+};
+if (!$heightCarry($result)) throw new RuntimeException('inline anchor and label must carry percentage height');
+foreach (array(
+    'auto-height child' => str_replace('height:100%', 'height:auto', $source),
+    'authored block anchor' => str_replace('</style>', 'a{display:block}</style>', $source),
+    'inline-block anchor' => str_replace('</style>', 'a{display:inline-block}</style>', $source),
+    'positioned child' => str_replace('.box{position:relative', '.box{position:absolute', $source),
+) as $case => $html) {
+    $control = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'kind' => 'html', 'content' => $html))))->toArray();
+    if ($heightCarry($control)) throw new RuntimeException($case . ': unrelated anchor must not acquire height carry');
+}
+echo "Navigation block label boxes retain display and scoped anchor/label percentage height carry\n";
