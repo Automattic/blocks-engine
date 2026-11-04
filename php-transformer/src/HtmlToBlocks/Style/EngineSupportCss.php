@@ -70,18 +70,15 @@ final class EngineSupportCss
             $parts[] = ':root .blocks-engine-social-source-row>:where(.wp-social-link)>a{line-height:inherit}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS) ) {
-            // A paragraph is required for valid block markup, but phrasing content
-            // did not have paragraph margins in the source document.
-            $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}'
-                // The paragraph stands for inline source content: an inline
-                // element it was retagged from, or loose text. An inline box
-                // lays out as that content did (in flow it shares the line; a
-                // flex or grid parent blockifies it into the same item), and,
-                // unlike display:contents, it can take focus, so the editor can
-                // select and edit it. A paragraph that only carries a source
-                // anchor stays transparent: the anchor is the layout participant.
-                // A lowered block-level source wrapper keeps its block box.
-                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:inline}'
+            // The paragraph stands for inline source content: an inline
+            // element it was retagged from, or loose text. An inline box
+            // lays out as that content did (in flow it shares the line; a
+            // flex or grid parent blockifies it into the same item), and,
+            // unlike display:contents, it can take focus, so the editor can
+            // select and edit it. A paragraph that only carries a source
+            // anchor stays transparent: the anchor is the layout participant.
+            // A lowered block-level source wrapper keeps its block box.
+            $parts[] = ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:inline}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'
                 // A parent's sibling-spacing rule (`.stack > * + *`) now matches the
                 // carrier, whose margins do nothing as display:contents. The
@@ -97,17 +94,6 @@ final class EngineSupportCss
                 // SourceBlockAttributeProjector::sourceAnchorResolvesToBlockDisplay()).
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS . ')>a{display:block}';
         }
-        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS) ) {
-            // core/embed's save() always wraps its content in a <figure> the
-            // source never had — a WordPress block-structure artifact, not an
-            // authored wrapper. That figure's own default margin therefore has
-            // no source counterpart. Zero specificity, exactly like the
-            // synthetic-paragraph reset above: a genuinely authored margin
-            // reaching this same figure through the ordinary author-stylesheet
-            // projection is already reset-resistant (boosted above the
-            // block-library default it must beat) and so still outranks this.
-            $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS . '){margin-top:0;margin-bottom:0}';
-        }
         if (str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS)) {
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
         }
@@ -119,9 +105,6 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS) ) {
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS . '){display:none!important}';
-        }
-        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
-            $parts[] = '.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS) ) {
             // core/image inserts a figure between a source flex/grid item and
@@ -162,7 +145,7 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS) ) {
             // The injected figure must pass the source's percentage height
             // through to its original containing block, not create an auto box.
-            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . '){width:100%;height:100%;margin:0}';
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . '){width:100%;height:100%}';
         }
         if ( str_contains($serializedBlocks, '<video') ) {
             $parts[] = 'video{max-width:100%}';
@@ -296,12 +279,6 @@ final class EngineSupportCss
             // must not cover native controls after its source runtime is absent.
             $parts[] = ':where(.' . HtmlCompilation::EMPTY_VISUAL_GROUP_CLASS . '){pointer-events:none!important}';
         }
-        if ( str_contains($serializedBlocks, HtmlCompilation::LOWERED_PARAGRAPH_CLASS) ) {
-            // A paragraph lowered from a margin-less source element (e.g. a
-            // text-only div) must not gain the UA 1em paragraph margins. This
-            // precedes author CSS so authored margin utilities still win.
-            $parts[] = ':root :where(p.' . HtmlCompilation::LOWERED_PARAGRAPH_CLASS . '){margin-block-start:0;margin-block-end:0}';
-        }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             // Core flow spacing is not part of a source grid or flex contract.
             // This precedes author CSS so source child margins remain authoritative.
@@ -373,12 +350,41 @@ final class EngineSupportCss
     }
 
     /**
-     * Before-author CSS that restates source shape over Core's own block CSS.
+     * Zero-margin defaults for boxes synthesized by block serialization.
      *
-     * Core's block styles are unlayered, so these parts must stay unlayered:
-     * the engine reset layer (#2878) would make them lose to the Core rule
-     * they exist to replace (#2915). An author rule that wants to beat them
-     * competes with that unlayered Core rule anyway.
+     * With author layers, HtmlCompilation pairs these defaults in the engine
+     * layer with unlayered revert-layer bridges. Core's unlayered margins lose,
+     * while an authored layered margin still wins over the engine fallback.
+     *
+     * @return list<string>
+     */
+    public function coreDefaultResetCss(string $serializedBlocks): array
+    {
+        $parts = array();
+        // These boxes have no source margins. Keep the selectors at the low
+        // weight needed to cancel Core's defaults (including :where(figure)).
+        foreach ( array(
+            SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS,
+            SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS,
+        ) as $marker ) {
+            if ( str_contains($serializedBlocks, $marker) ) {
+                $parts[] = ':root :where(.' . $marker . '){margin-top:0;margin-bottom:0}';
+            }
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
+            $parts[] = '.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS) ) {
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS . '){margin:0}';
+        }
+        if ( str_contains($serializedBlocks, HtmlCompilation::LOWERED_PARAGRAPH_CLASS) ) {
+            $parts[] = ':root :where(p.' . HtmlCompilation::LOWERED_PARAGRAPH_CLASS . '){margin-block-start:0;margin-block-end:0}';
+        }
+        return $parts;
+    }
+
+    /**
+     * Core block-shape overrides that always compete at unlayered weight.
      *
      * @return list<string>
      */

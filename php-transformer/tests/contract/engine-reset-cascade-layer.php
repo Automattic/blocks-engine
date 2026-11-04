@@ -38,4 +38,32 @@ $assert(1 === preg_match('/@layer\s+data-blocks-engine-capture-disclosure-base\s
 
 $mixed = $css($captureLayer . '@layer utilities{' . $base . '}');
 $assert(1 === preg_match('/@layer\s+blocks-engine-reset\s*,\s*data-blocks-engine-capture-disclosure-base\s*,\s*utilities\s*;/', $mixed), 'an authored layer next to the capture layer still moves the resets into the engine layer');
+// Core's unlayered figure margin must not return when the author uses layers
+// (#4233). Exercise both the default and a projected layered author margin.
+$chrome = getenv('CHROME_PATH') ?: trim((string) shell_exec('command -v google-chrome || command -v chromium'));
+$assert('' !== $chrome, 'a browser is required for the synthetic figure margin contract');
+$temp = tempnam(sys_get_temp_dir(), 'synthetic-margin-');
+$file = $temp . '.html';
+unlink($temp);
+$profile = '/tmp/synthetic-margin-profile-' . getmypid();
+try {
+    foreach (array(false, true) as $authored) {
+        $source = '<style>@layer a{.x{margin-bottom:5px}}</style><div><img '
+            . ($authored ? 'class="x" ' : '') . 'src="x.jpg"></div>';
+        $result = (new HtmlTransformer())->transform($source)->toArray();
+        $outputCss = implode("\n", array_column(array_filter($result['assets'], static fn (array $a): bool => 'css' === ($a['kind'] ?? '')), 'content'));
+        // The WordPress block-library figure default is deliberately unlayered
+        // and loaded last, so source order cannot hide a layered reset regression.
+        file_put_contents($file, '<!doctype html><style>' . $outputCss . '</style>'
+            . '<style>:where(figure){margin:0 0 1em}</style>' . $result['serialized_blocks']
+            . '<script>document.body.dataset.margin=getComputedStyle(document.querySelector("figure")).marginBottom</script>');
+        $output = shell_exec('TMPDIR=/tmp ' . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --user-data-dir='
+            . escapeshellarg($profile) . ' --dump-dom --virtual-time-budget=1000 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
+        $expected = $authored ? '5px' : '0px';
+        $assert(str_contains((string) $output, 'data-margin="' . $expected . '"'), 'synthetic figure bottom margin is ' . $expected . ' against unlayered Core CSS: ' . (string) $output);
+    }
+} finally {
+    @unlink($file);
+    shell_exec('rm -rf ' . escapeshellarg($profile));
+}
 echo "ok\n";

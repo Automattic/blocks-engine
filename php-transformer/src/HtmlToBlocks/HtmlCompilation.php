@@ -2852,6 +2852,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $engineResetParts = $engineSupportCss->beforeAuthorCss($serializedBlocks);
         $engineResetStart = count($beforeAuthorCssParts);
         array_push($beforeAuthorCssParts, ...$engineResetParts);
+        $coreDefaultResetParts = $engineSupportCss->coreDefaultResetCss($serializedBlocks);
+        $coreDefaultResetStart = count($beforeAuthorCssParts);
+        array_push($beforeAuthorCssParts, ...$coreDefaultResetParts);
         array_push($beforeAuthorCssParts, ...$engineSupportCss->coreOverrideCss($serializedBlocks));
         // Precedence for everything below is declared on each contribution's
         // CascadeLayer (see CascadeLayer), not by the order these calls
@@ -2928,6 +2931,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 if ( ! str_contains($part, '!important') ) {
                     $beforeAuthorCssParts[$engineResetStart + $offset] = '@layer ' . self::ENGINE_RESET_LAYER . '{' . $part . '}';
                 }
+            }
+            foreach ( $coreDefaultResetParts as $offset => $part ) {
+                // Beat Core's unlayered default, but roll back to the author
+                // layers when they declare this margin. The engine layer is
+                // the fallback only when no author layer owns the property.
+                $bridge = preg_replace('/(?<=[{:;])0(?=[;}])/', 'revert-layer', $part);
+                $beforeAuthorCssParts[$coreDefaultResetStart + $offset] = '@layer ' . self::ENGINE_RESET_LAYER . '{' . $part . '}' . $bridge;
             }
             $authorLayerOrder = '@layer ' . self::ENGINE_RESET_LAYER . ',' . substr($authorLayerOrder, strlen('@layer '));
         }
