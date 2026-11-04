@@ -25,7 +25,8 @@ foreach ($plan['pages'] ?? array() as $page) {
 $assert(null !== $post && 'post' === $post['post_type'], 'The dated child entry is imported as a post.');
 $source = (string) (array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'] ?? '');
 $assert(str_contains($source, 'block_core_breadcrumbs_items'), 'The theme runtime filters Core breadcrumb items.');
-$assert(str_contains($source, "'/news/short-label/' => ") && str_contains($source, "'route' => NULL") && str_contains($source, "'label' => 'Short label'"), 'The post route records its source trail.');
+$assert(isset($post['reconciliation_identity']) && str_contains($source, var_export($post['reconciliation_identity'], true) . ' =>') && str_contains($source, '_blocks_engine_reconciliation_identity') && str_contains($source, "'route' => NULL") && str_contains($source, "'label' => 'Short label'"), 'The post route records its source trail.');
 $assert(str_contains($source, "'label' => 'News'") && str_contains($source, "'route' => '/news/'"), 'The trail keeps the listing crumb and its link.');
 
+$assert(str_contains($source, "'label' => 'Second'"), 'A self-linked current crumb is recorded.');
 echo "breadcrumb-trail-post-source-labels: ok\n";
