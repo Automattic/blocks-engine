@@ -36,7 +36,7 @@ foreach ($plan['pages'] as $page) {
     $assert(!str_contains($markup, '<!-- wp:navigation '), $page['source_path'] . ' does not keep an inline navigation copy.');
 }
 
-// A menu converted to li groups carries the disclosure class on the served
+// A menu converted to li groups (its submenu to list items) carries the disclosure class on the served
 // route's item, and in a submenu on its parent item too. A class every
 // sibling carries is presentation.
 $listMenu = static function (array $disclosed): string {
@@ -44,7 +44,12 @@ $listMenu = static function (array $disclosed): string {
         $class = trim((in_array($label, $disclosed, true) ? 'expanded ' : '') . 'menu-entry blocks-engine-source-li-fa45d51ecca6-0');
         return '<!-- wp:group {"className":"' . $class . '","tagName":"li"} --><li class="wp-block-group ' . $class . '"><!-- wp:paragraph --><p>' . $label . '</p><!-- /wp:paragraph -->' . $inner . '</li><!-- /wp:group -->';
     };
-    $submenu = '<!-- wp:group {"tagName":"ul"} --><ul class="wp-block-group">' . $item('Fiat', $disclosed) . $item('Ford', $disclosed) . '</ul><!-- /wp:group -->';
+    // A submenu of plain links converts to a core/list.
+    $listItem = static function (string $label, array $disclosed): string {
+        $class = trim((in_array($label, $disclosed, true) ? 'expanded ' : '') . 'blocks-engine-source-li-fa45d51ecca6-0');
+        return '<!-- wp:list-item {"className":"' . $class . '"} --><li class="' . $class . '"><a href="/' . strtolower($label) . '/">' . $label . '</a></li><!-- /wp:list-item -->';
+    };
+    $submenu = '<!-- wp:list --><ul class="wp-block-list">' . $listItem('Fiat', $disclosed) . $listItem('Ford', $disclosed) . '</ul><!-- /wp:list -->';
     return '<!-- wp:group {"tagName":"ul"} --><ul class="wp-block-group">' . $item('Home', $disclosed) . $item('About', $disclosed) . $item('Models', $disclosed, $submenu) . '</ul><!-- /wp:group -->';
 };
 $resting = static fn(string $markup): string => ShellExtraction::withoutCurrentNavigationState($markup, true);
@@ -52,6 +57,6 @@ foreach (array(array('About'), array('Models', 'Fiat'), array('Models', 'Ford'))
     $assert($resting($listMenu(array('Home'))) === $resting($listMenu($served)), 'The served item\'s disclosure classes do not split li-group menu chrome: ' . implode(', ', $served));
 }
 $assert(!str_contains($resting($listMenu(array('Models', 'Fiat'))), 'expanded'), 'The shared li-group menu does not freeze disclosure state.');
-$assert(5 === substr_count($resting($listMenu(array('Home', 'About', 'Models', 'Fiat', 'Ford'))), 'class="wp-block-group expanded '), 'A disclosure class every sibling carries stays.');
+$assert(5 === preg_match_all('/<li class="(?:wp-block-group )?expanded /', $resting($listMenu(array('Home', 'About', 'Models', 'Fiat', 'Ford')))), 'A disclosure class every sibling carries stays.');
 
 echo "navigation-disclosure-current-item-shared-header contract passed\n";

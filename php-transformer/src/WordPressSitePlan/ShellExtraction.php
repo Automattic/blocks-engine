@@ -3548,24 +3548,27 @@ final class ShellExtraction
     }
 
     /**
-     * A menu authored as list items converts to li groups. The source paints
-     * the item holding the served route (and, in a submenu, its parent item)
-     * with a disclosure class its sibling items do not carry. That class is
-     * route state, so it is neither part of the chrome's identity nor frozen
-     * into the shared part.
+     * A menu authored as list items converts to li groups or list items. The
+     * source paints the item holding the served route (and, in a submenu,
+     * its parent item) with a disclosure class its sibling items do not
+     * carry. That class is route state, so it is neither part of the
+     * chrome's identity nor frozen into the shared part.
      */
     private static function withoutListItemDisclosureState(string $markup): string
     {
-        if (!preg_match_all('/<!-- (\/)?wp:group(?: (\{[^>]*?\}))? (\/)?-->(?:<li class="([^"]*)")?/', $markup, $tokens, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) return $markup;
-        // Li groups keyed by the block that holds them: siblings of one list.
+        // Block attributes never hold `-->`: serialization escapes `--`.
+        if (!preg_match_all('/<!-- (\/)?wp:([a-z0-9-]+(?:\/[a-z0-9-]+)?)(?: (\{.*?\}))? (\/)?-->(?:<li class="([^"]*)")?/s', $markup, $tokens, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) return $markup;
+        // Li items keyed by the block that holds them: siblings of one list.
         $stack = array(); $lists = array();
         foreach ($tokens as $index => $token) {
             if ('' !== ($token[1][0] ?? '')) { array_pop($stack); continue; }
-            $attrs = json_decode((string) ($token[2][0] ?? ''), true);
-            if (is_array($attrs) && 'li' === ($attrs['tagName'] ?? null) && '' !== ($token[4][0] ?? '')) {
-                $lists[(string) end($stack)][] = array('token' => $index, 'attrs' => $attrs, 'classes' => preg_split('/\s+/', trim($token[4][0])) ?: array());
+            $name = $token[2][0];
+            $attrs = json_decode((string) ($token[3][0] ?? ''), true);
+            $attrs = is_array($attrs) ? $attrs : array();
+            if ('' !== ($token[5][0] ?? '') && ('list-item' === $name || ('group' === $name && 'li' === ($attrs['tagName'] ?? null)))) {
+                $lists[(string) end($stack)][] = array('token' => $index, 'name' => $name, 'attrs' => $attrs, 'classes' => preg_split('/\s+/', trim($token[5][0])) ?: array());
             }
-            if ('' === ($token[3][0] ?? '')) $stack[] = $index;
+            if ('' === ($token[4][0] ?? '')) $stack[] = $index;
         }
         $replacements = array();
         foreach ($lists as $items) {
@@ -3580,7 +3583,8 @@ final class ShellExtraction
                 $kept = array_values(array_diff(preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(), $routeState));
                 if (array() === $kept) unset($attrs['className']); else $attrs['className'] = implode(' ', $kept);
                 $token = $tokens[$item['token']];
-                $replacements[] = array($token[0][1], strlen($token[0][0]), '<!-- wp:group ' . BlockAttributes::encode($attrs) . ' --><li class="' . implode(' ', array_values(array_diff($item['classes'], $routeState))) . '"');
+                $comment = '<!-- wp:' . $item['name'] . (array() === $attrs ? '' : ' ' . BlockAttributes::encode($attrs)) . ' -->';
+                $replacements[] = array($token[0][1], strlen($token[0][0]), $comment . '<li class="' . implode(' ', array_values(array_diff($item['classes'], $routeState))) . '"');
             }
         }
         usort($replacements, static fn(array $left, array $right): int => $right[0] <=> $left[0]);
