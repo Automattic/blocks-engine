@@ -2052,7 +2052,15 @@ final class AuthorStylesheetProjector
                     continue;
                 }
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-                $rewritten[] = $inner['selector'] . $this->selectorSpecificityShims($parsed, $context) . $suffix . $inner['pseudo_element'];
+                if ($inner['author_precedence']) {
+                    $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+                }
+                // A constant baseline beats native defaults without flattening
+                // source specificity, states, conditional groups or layer order.
+                $baseline = $inner['author_precedence']
+                    ? str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', 4)
+                    : '';
+                $rewritten[] = $inner['selector'] . $baseline . $this->selectorSpecificityShims($parsed, $context) . $suffix . $inner['pseudo_element'];
             }
             if ( array() === $remainingSubjects ) continue;
             $matches = $remainingSubjects;

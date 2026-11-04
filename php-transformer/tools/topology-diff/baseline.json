@@ -561,7 +561,8 @@
             "retagged svg>img": 2
         },
         "39-old-internet-cms": {
-            "added a": 36,
+            "added a": 30,
+            "added a [blocks-engine-semantic]": 6,
             "added b": 29,
             "added br": 53,
             "added div [blocks-engine-layout-table-cell]": 24,

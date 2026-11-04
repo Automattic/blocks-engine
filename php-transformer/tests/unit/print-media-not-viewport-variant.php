@@ -16,7 +16,10 @@ if ( $withoutPrint === $source ) {
 foreach ( array( '@media print', '@media only print', '@media speech' ) as $query ) {
     $withPrint = (new HtmlTransformer())->transform(str_replace('@media print', $query, $source))->toArray()['serialized_blocks'];
     $screenOnly = (new HtmlTransformer())->transform($withoutPrint)->toArray()['serialized_blocks'];
-    if ( $withPrint !== $screenOnly ) {
+    // Native inner-subject marker namespaces include stylesheet context;
+    // a dormant print rule may change their hash, but not their topology.
+    $normalize = static fn(string $markup): string => preg_replace('/blocks-engine-semantic-[a-f0-9]+-/', 'blocks-engine-semantic-context-', $markup) ?? $markup;
+    if ( $normalize($withPrint) !== $normalize($screenOnly) ) {
         throw new RuntimeException("$query rule changed the screen conversion");
     }
     if ( str_contains($withPrint, '"orientation":"vertical"') ) {

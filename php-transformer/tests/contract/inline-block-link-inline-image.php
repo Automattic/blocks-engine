@@ -30,7 +30,7 @@ foreach ( $out['assets'] ?? array() as $asset ) {
     }
 }
 
-$assert(1 === preg_match('/<figure class="[^"]*blocks-engine-synthetic-image-figure-inline[^"]*"><a href="\/" class="logo">/', $blocks), 'the linked image figure follows inline flow', $blocks);
+$assert(1 === preg_match('/<figure class="[^"]*blocks-engine-synthetic-image-figure-inline[^"]*"><a href="\/" class="logo(?: [^"]*)?">/', $blocks), 'the linked image figure follows inline flow', $blocks);
 $assert(str_contains($css, ':root .blocks-engine-synthetic-image-figure-inline{display:contents}'), 'the inline figure generates no box', $css);
 $assert(str_contains($css, '.blocks-engine-synthetic-image-figure-inline) > a > img{vertical-align:middle}'), 'the source vertical-align reaches the linked image', $css);
 

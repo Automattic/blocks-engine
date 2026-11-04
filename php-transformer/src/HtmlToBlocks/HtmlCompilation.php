@@ -11546,6 +11546,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( ! $hasHiddenLabel && $this->imageLinkOpensNativeLightbox($link) ) {
                 $attrs['lightbox'] = array( 'enabled' => true );
             } elseif ( '' !== LinkUrlSanitizer::sanitize($this->attr($link, 'href')) ) {
+                if ('' !== $this->authorStyles()->combinedCss()) {
+                    $projections = $this->session->authorSelectorProjectionState();
+                    $path = $link->getNodePath() ?? '';
+                    $marker = $projections->ensureSemanticMarker($path);
+                    $projections->installInnerSubject($path, ':where(.' . $marker . ')', '', true);
+                }
                 $attrs = array_filter(array_merge($attrs, $this->imageLinkAttributes($link)), static fn ($value): bool => '' !== $value);
             }
         }

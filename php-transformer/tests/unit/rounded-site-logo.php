@@ -47,7 +47,7 @@ foreach (array($logo, '<img src="/avatar.jpg" width="50" height="50" alt="Logo">
         }
         if ('success' !== ($result['status'] ?? '') || !$hasRadiusCarrier
             || !preg_match('/<figure[^>]*>\s*(?:<a\b[^>]*>)?<img\b/', $markup)
-            || !preg_match('/:is\(a,\s*img\)\s*\{\s*border-radius:\s*inherit/', $emittedCss)) {
+            || !preg_match('/:is\(a,\s*img\)(?:,[^{]+)?\s*\{\s*border-radius:\s*inherit/', $emittedCss)) {
             fwrite(STDERR, "FAIL: replacement figure does not supply the inherited $radius radius\n$markup\n$emittedCss\n");
             exit(1);
         }
