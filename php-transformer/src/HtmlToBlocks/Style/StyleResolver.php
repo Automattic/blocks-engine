@@ -1903,14 +1903,17 @@ final class StyleResolver implements ElementPresentationResolver
         array $excludedProperties = array(),
         array $forcedProperties = array(),
         array $forcedDeclarations = array(),
-        bool $carrierOwnsInlineGeometry = false
+        bool $carrierOwnsInlineGeometry = false,
+        bool $buttonLinkShadow = false
     ): string {
         return $this->inlineGeometry()->className(
             $element,
             $excludedProperties,
             $forcedProperties,
             $forcedDeclarations,
-            $carrierOwnsInlineGeometry
+            $carrierOwnsInlineGeometry,
+            false,
+            $buttonLinkShadow
         );
     }
 

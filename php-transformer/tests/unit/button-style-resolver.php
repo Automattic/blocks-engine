@@ -74,7 +74,7 @@ $carriedShadowButton = ( new HtmlTransformer() )->transform(
 $carriedShadowCss = implode("\n", array_column($carriedShadowButton['assets'] ?? array(), 'content'));
 $carriedShadowMarkup = (string) ($carriedShadowButton['serialized_blocks'] ?? '');
 $assert(2 === substr_count($carriedShadowMarkup, '<!-- wp:button '), 'shadow-drawn controls lower to core/button', $carriedShadowMarkup);
-$assert(1 === preg_match('/\.be-inline-geometry-[0-9a-f]+\{box-shadow:inset 0 0 0 1px #383838 !important\}/', $carriedShadowCss), 'a control with its own geometry carrier keeps the inline shadow on a generated carrier', $carriedShadowCss);
+$assert(2 === preg_match_all('/\.be-inline-geometry-[0-9a-f]+>\.wp-block-button__link\{box-shadow:inset 0 0 0 1px #383838 !important\}/', $carriedShadowCss), 'controls with and without their own geometry carrier paint the inline shadow on the link', $carriedShadowCss);
 $assert(2 === substr_count($carriedShadowCss, 'box-shadow:inset 0 0 0 1px #383838'), 'each shadow-drawn control keeps its shadow exactly once in the generated CSS', $carriedShadowCss);
 $assert('pass' === ($carriedShadowButton['source_reports']['wp_block_validity']['status'] ?? ''), 'shadow-carried buttons remain editor-valid', json_encode($carriedShadowButton['source_reports']['wp_block_validity'] ?? array()));
 

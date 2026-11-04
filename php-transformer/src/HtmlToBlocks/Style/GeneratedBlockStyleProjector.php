@@ -137,7 +137,9 @@ final class GeneratedBlockStyleProjector
             $sourceElement,
             array_diff($this->styleResolver->inlineGeometryProperties(), array_keys($fallbackDeclarations)),
             array_keys($fallbackDeclarations),
-            $fallbackDeclarations
+            $fallbackDeclarations,
+            false,
+            'core/button' === $name
         );
         if ( '' !== $carrier ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);

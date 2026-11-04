@@ -12,7 +12,7 @@ declare(strict_types=1);
  *  - a link inside a paragraph keeps its inline box values on a generated
  *    anchor-owned class rule (`a.be-inline-geometry-*{...!important}`);
  *  - a link lowered to core/button keeps it on the projected control's
- *    generated carrier — including when the control carries its own geometry
+ *    generated carrier's link rule — including when the control carries its own geometry
  *    carrier already (e.g. an authored inline width), which used to unset the
  *    shadow from the fallback declarations.
  */
@@ -81,9 +81,27 @@ foreach ( array( '#one', '#two' ) as $href ) {
     $link = strpos($buttonMarkup, 'href="' . $href . '"');
     $assert(false !== $link, 'the ' . $href . ' control keeps its destination', $buttonMarkup);
 }
-$assert(1 === preg_match('/\\.be-inline-geometry-[0-9a-f]+\\{box-shadow:inset 0 0 0 1px #383838 !important\\}/', $buttonCss), 'the width-carried control keeps its shadow on a generated carrier', $buttonCss);
+$assert(2 === preg_match_all('/\\.be-inline-geometry-[0-9a-f]+>\\.wp-block-button__link\\{box-shadow:inset 0 0 0 1px #383838 !important\\}/', $buttonCss), 'both controls paint the shadow on their links', $buttonCss);
+$assert(1 === preg_match('/\\.be-inline-geometry-[0-9a-f]+\\{width:180px !important;max-width:100% !important\\}/', $buttonCss), 'the existing width geometry stays on its carrier', $buttonCss);
 $assert(2 === substr_count($buttonCss, 'box-shadow:inset 0 0 0 1px #383838'), 'both controls keep their shadow exactly once in the generated CSS', $buttonCss);
 $assert('pass' === ( $buttonResult['source_reports']['wp_block_validity']['status'] ?? '' ), 'the lowered buttons remain valid', (string) json_encode($buttonResult['source_reports']['wp_block_validity'] ?? array()));
+
+// A standalone control paints its background on the link, not the carrier div.
+$standaloneResult = ( new HtmlTransformer() )->transform(
+    '<style>.btn{display:inline-flex;padding:8px 16px;color:#383838;text-decoration:none}</style><div class="row"><a class="btn" href="/" style="border:0px;box-shadow:inset 0 0 0 1px #383838;background-color:#fff">Back to start</a></div>'
+)->toArray();
+$standaloneMarkup = (string) ( $standaloneResult['serialized_blocks'] ?? '' );
+$standaloneCss = $cssFor($standaloneResult);
+$assert(1 === preg_match('/<div class="wp-block-button ([^"]+)"[^>]*><a class="wp-block-button__link [^"]*"[^>]*style="[^"]*background-color:#fff/', $standaloneMarkup, $buttonMatch), 'the standalone link lowers to a button with its own background', $standaloneMarkup);
+$carriers = array();
+preg_match_all('/be-inline-geometry-[0-9a-f]+/', $buttonMatch[1] ?? '', $carriers);
+$linkShadowRules = 0;
+foreach ( $carriers[0] as $carrier ) {
+    $linkShadowRules += preg_match('/\\.' . $carrier . '\\s*>\\s*\\.wp-block-button__link\\{[^}]*box-shadow:inset 0 0 0 1px #383838 !important/', $standaloneCss);
+    $assert(0 === preg_match('/\\.' . $carrier . '\\{[^}]*box-shadow:/', $standaloneCss), 'the button wrapper does not paint the shadow', $standaloneCss);
+}
+$assert(1 === $linkShadowRules, 'the standalone shadow rule targets the background-owning button link exactly once', $standaloneCss);
+$assert('pass' === ( $standaloneResult['source_reports']['wp_block_validity']['status'] ?? '' ), 'the standalone button remains valid');
 
 if ( 0 !== $failures ) {
     fwrite(STDERR, "inline box-shadow outline contract: {$failures} failed, {$passes} passed\n");
