@@ -24,7 +24,7 @@ $menu = '<div id="menu" aria-label="Main menu"><ul role="menu">'
     . $item('/', 'Home') . $item('/about/', 'About') . '<li role="none" class="divider"></li>'
     . $item('/models/', 'Models', '<ul role="menu">' . $item('/models/fiat/', 'Fiat') . $item('/models/ford/', 'Ford') . '</ul>')
     . '</ul></div>';
-$markup = json_encode((new HtmlTransformer())->transform('<body><header>' . $menu . '</header><main><p>Body.</p></main></body>')->toArray(), JSON_UNESCAPED_SLASHES);
+$markup = (new HtmlTransformer())->transform('<body><header>' . $menu . '</header><main><p>Body.</p></main></body>')->toArray()['serialized_blocks'];
 
 $assert(1 === substr_count($markup, '<!-- wp:navigation '), 'An ARIA menu converts to one navigation.', $markup);
 $assert(1 === substr_count($markup, '<!-- wp:navigation-submenu '), 'Its nested ARIA menu converts to a submenu.', $markup);
