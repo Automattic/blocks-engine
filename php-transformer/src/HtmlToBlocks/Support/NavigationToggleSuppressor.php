@@ -181,8 +181,29 @@ final class NavigationToggleSuppressor
         $this->context->navigationProjection()->projectTarget($control, $navigation);
         $this->context->navigationProjection()->suppress($target);
         $this->context->navigationProjection()->suppress($navigation);
+        $this->suppressCaptureCloseHelpers($target);
         if ( $this->isProjectableHashAnchorMenuToggle($control) ) {
             $this->suppressEquivalentNavigationDuplicates($control, $navigation);
+        }
+    }
+
+    /**
+     * The capture's hidden close helper for a panel the native overlay now
+     * replaces closes nothing: Core's overlay brings its own close button.
+     */
+    private function suppressCaptureCloseHelpers(DOMElement $target): void
+    {
+        $id = trim(SourceDom::attr($target, CaptureEvidence::DIALOG_PANEL));
+        if ( '' === $id || null === $target->ownerDocument ) {
+            return;
+        }
+        foreach ( $target->ownerDocument->getElementsByTagName('button') as $button ) {
+            if ( $button instanceof DOMElement
+                && $id === trim(SourceDom::attr($button, CaptureEvidence::DIALOG_CLOSE))
+                && $button->hasAttribute('hidden')
+                && ! SourceDom::elementContains($target, $button) ) {
+                $this->context->navigationProjection()->suppress($button);
+            }
         }
     }
 
@@ -434,7 +455,7 @@ final class NavigationToggleSuppressor
         foreach ( $candidates as $candidate ) {
             if ( $this->isAssociatedNavigationTarget($candidate)
                 && '' !== $this->sourceNavigationSignature($candidate)
-                && $this->convertsToCoreNavigation($candidate) ) {
+                && $this->ownsCoreNavigation($candidate) ) {
                 return $candidate;
             }
         }
@@ -504,6 +525,37 @@ final class NavigationToggleSuppressor
     public function projectedNavigationTargetForControl(DOMElement $control): ?DOMElement
     {
         return $this->context->navigationProjection()->targetForControl($control);
+    }
+
+    /**
+     * The panel boxes a toggle's controlled target draws around a navigation
+     * the control projects: the target itself and each wrapper down to (not
+     * including) the navigation, outer first. Core's overlay replaces that
+     * whole surface, so its paint belongs to the overlay.
+     *
+     * @return list<DOMElement>
+     */
+    public function controlledPanelBoxes(DOMElement $navigation): array
+    {
+        $toggle = $this->navigationToggleControl($navigation);
+        if ( ! $toggle instanceof DOMElement ) {
+            return array();
+        }
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
+            $panel = '' === trim($controlledId) ? null : $this->elementWithId($toggle, ltrim(trim($controlledId), '#'));
+            if ( ! $panel instanceof DOMElement || $panel->isSameNode($navigation) || ! SourceDom::elementContains($panel, $navigation) ) {
+                continue;
+            }
+            $boxes = array();
+            for ( $node = $navigation->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+                array_unshift($boxes, $node);
+                if ( $node->isSameNode($panel) ) {
+                    return $boxes;
+                }
+            }
+        }
+
+        return array();
     }
 
     public function isImplicitDialogNavigationControl(DOMElement $control): bool

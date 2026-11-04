@@ -1,0 +1,78 @@
+<!doctype html>
+<html><head><title>Dialog navigation</title>
+<style>
+:root{--accent:#ffffff;--ink:#515b2a;--heading:900 34px/1.2 Georgia,serif}
+.data-blocks-engine-capture-dialog{display:none!important}
+.data-blocks-engine-capture-dialog{display:block;position:fixed;inset:0;z-index:2147483646;overflow:auto;background:#fff}
+.data-blocks-engine-capture-dialog>:first-child{display:block!important;visibility:visible!important;opacity:1!important}
+.bar{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;background:#2d5d99}
+.desktop-menu{display:flex;gap:24px}
+.desktop-menu a{color:#fff;font:16px/1.4 sans-serif}
+.burger-host{display:none}
+.burger{width:27px;height:27px;padding:0;border:0;background:none}
+.burger svg{fill:var(--glyph,#070707)}
+.menu .drawer{--panel:#fdfdfd;background:var(--panel)}
+.menu .drawer .item{display:block;text-decoration:none}
+@media screen and (max-width:1023px){
+  .desktop-menu{display:none}
+  .burger-host{display:block}
+  .bar{--glyph:var(--accent)}
+  .menu .item{font:var(--heading);color:var(--ink)}
+}
+</style>
+</head><body>
+<header class="bar"><a class="brand" href="/">Brand</a>
+<nav class="desktop-menu" aria-label="Site"><a href="/one.html">One</a><a href="/two.html">Two</a><a href="/three.html">Three</a></nav>
+<div class="menu burger-host"><nav class="opener" aria-label="Site"><button class="burger" aria-label="Open Menu" aria-haspopup="dialog" aria-expanded="false" aria-controls="data-blocks-engine-capture-dialog-0" data-blocks-engine-capture-dialog-trigger="data-blocks-engine-capture-dialog-0"><svg viewBox="0 0 24 24" width="27" height="27"><path d="M2 6h20v2H2zm0 5h20v2H2zm0 5h20v2H2z"/></svg></button><div class="data-blocks-engine-capture-dialog" role="dialog" aria-modal="true" hidden="" id="data-blocks-engine-capture-dialog-0" data-blocks-engine-capture-dialog-panel="data-blocks-engine-capture-dialog-0" aria-label="Site"><div class="drawer" role="dialog"><div class="drawer-body"><nav class="links" aria-label="Site"><a class="item" href="/one.html">One</a><a class="item" href="/two.html">Two</a><a class="item" href="/three.html">Three</a></nav></div></div></div></nav><button hidden="" data-blocks-engine-capture-dialog-close="data-blocks-engine-capture-dialog-0" aria-label="Close Menu"></button></div>
+</header>
+<main><h1>Welcome</h1><p>Body copy.</p></main>
+<script data-blocks-engine-capture-disclosure-runtime="true">(function(){
+function triggers(){return document.querySelectorAll('[data-blocks-engine-capture-dialog-trigger]');}
+function panel(trigger){var id=trigger.getAttribute('aria-controls');return id?document.getElementById(id):null;}
+function closeFor(trigger){var id=trigger.getAttribute('aria-controls');return id?document.querySelector('[data-blocks-engine-capture-dialog-close="'+id+'"]'):null;}
+function concealed(trigger){var style=getComputedStyle(trigger);if(style.display==='none'||style.visibility==='hidden')return true;var rect=trigger.getBoundingClientRect();return rect.width===0||rect.height===0;}
+function ancestorBindings(trigger){try{return JSON.parse(trigger.getAttribute('data-blocks-engine-capture-dialog-ancestor-state')||'[]');}catch(error){return [];}}
+function classTokens(value){return (value||'').split(/\s+/).filter(Boolean);}
+function ancestorAt(trigger,depth){var node=trigger;while(depth--&&node)node=node.parentElement;return node;}
+function applyAncestors(trigger,open){ancestorBindings(trigger).forEach(function(binding){var node=ancestorAt(trigger,binding.depth);if(!node)return;
+  Object.keys(binding.closed).forEach(function(name){var value=open?binding.opened[name]:binding.closed[name];
+    if(!open){var owner=Array.prototype.find.call(triggers(),function(other){return other!==trigger&&!concealed(other)&&other.getAttribute('aria-expanded')==='true'&&ancestorBindings(other).some(function(row){return ancestorAt(other,row.depth)===node&&Object.prototype.hasOwnProperty.call(row.opened,name);});});if(owner){var row=ancestorBindings(owner).find(function(row){return ancestorAt(owner,row.depth)===node&&Object.prototype.hasOwnProperty.call(row.opened,name);});value=row.opened[name];}}
+    if(name==='class'){var target=classTokens(value);classTokens(open?binding.closed[name]:binding.opened[name]).forEach(function(token){if(target.indexOf(token)<0)node.classList.remove(token);});target.forEach(function(token){node.classList.add(token);});if(value===null&&!node.classList.length)node.removeAttribute(name);return;}
+    if(value===null)node.removeAttribute(name);else node.setAttribute(name,value);
+  });
+});}
+function apply(trigger){
+  var target=panel(trigger);if(!target)return;
+  var inactive=concealed(trigger),open=trigger.getAttribute('aria-expanded')==='true'&&!inactive;
+  applyAncestors(trigger,open);
+  if(!open&&Array.prototype.some.call(triggers(),function(other){return other!==trigger&&panel(other)===target&&!concealed(other)&&other.getAttribute('aria-expanded')==='true';}))return;
+  var captured=trigger.getAttribute('data-blocks-engine-capture-dialog-panel-state');
+  var opened=captured?JSON.parse(captured):null;
+  if(open&&opened&&target.__dlaDialogState!==captured){target.innerHTML=opened.html;target.__dlaDialogState=captured;}
+  var existing=target.getAttribute('data-blocks-engine-capture-existing-panel');
+  if(existing){
+    var states=JSON.parse(existing),resting=states.resting.html!==undefined;
+    var state=(inactive||(resting&&!open))?states.resting:(opened||states.opened);
+    if(resting&&!open&&target.__dlaDialogState!==null){target.innerHTML=states.resting.html;target.__dlaDialogState=null;}
+    ['style','class'].forEach(function(name){if(state[name]===null)target.removeAttribute(name);else target.setAttribute(name,state[name]);});
+    target.toggleAttribute('data-blocks-engine-capture-resting-panel',inactive);
+    target.hidden=inactive?states.resting.hidden:!open;
+    if(inactive&&!target.classList.contains('data-blocks-engine-capture-dropdown')){
+      // Observe authored resting CSS, not the generated modal positioning.
+      // A concealed control only exposes a panel that is visible in normal flow.
+      var style=getComputedStyle(target),rect=target.getBoundingClientRect();
+      var inline=style.display!=='none'&&style.visibility!=='hidden'&&style.position!=='fixed'&&style.position!=='absolute'&&rect.width>0&&rect.height>0;
+      target.toggleAttribute('data-blocks-engine-capture-resting-panel',inline);
+      if(!inline)target.hidden=true;
+    }
+  }else target.hidden=!open;
+  var close=closeFor(trigger);if(close)close.hidden=!open;
+}
+function set(trigger,open){if(open&&concealed(trigger))open=false;if(open)triggers().forEach(function(other){if(other!==trigger&&panel(other)===panel(trigger)&&other.getAttribute('aria-expanded')==='true')set(other,false);});trigger.setAttribute('aria-expanded',open?'true':'false');var label=trigger.getAttribute('data-blocks-engine-capture-disclosure-label');if(label)trigger.setAttribute('aria-label',open?'Close '+label:label);apply(trigger);}
+function toggle(trigger){set(trigger,trigger.getAttribute('aria-expanded')!=='true');}
+function onClick(event){var close=event.target.closest&&event.target.closest('[data-blocks-engine-capture-dialog-close]');if(close){event.preventDefault();var id=close.getAttribute('data-blocks-engine-capture-dialog-close');var owner=id&&document.querySelector('[data-blocks-engine-capture-dialog-trigger][aria-controls="'+id+'"]');if(owner){set(owner,false);owner.focus();}return;}var trigger=event.target.closest&&event.target.closest('[data-blocks-engine-capture-dialog-trigger]');if(!trigger||!panel(trigger))return;var nested=event.target.closest('a,button');if(nested&&nested!==trigger)return;event.preventDefault();var was=trigger.getAttribute('aria-expanded')==='true';toggle(trigger);if(was)trigger.focus();}
+function onKey(event){if(event.key==='Escape'){var open=Array.prototype.slice.call(triggers()).filter(function(item){var target=panel(item);return !concealed(item)&&item.getAttribute('aria-expanded')==='true'&&target&&!target.hidden;}).pop();if(open){event.preventDefault();set(open,false);open.focus();return;}var details=Array.prototype.slice.call(document.querySelectorAll('details.data-blocks-engine-capture-initial-dialog[open]')).pop();if(!details)return;event.preventDefault();details.open=false;var summary=details.querySelector(':scope > summary');if(summary)summary.focus();return;}if(event.key!=='Enter'&&event.key!==' ')return;var trigger=event.target.closest&&event.target.closest('[data-blocks-engine-capture-dialog-trigger]');if(!trigger||!panel(trigger))return;if(trigger.tagName==='BUTTON'||(trigger.tagName==='A'&&event.key==='Enter'))return;event.preventDefault();toggle(trigger);}
+function ready(){document.addEventListener('click',onClick);document.addEventListener('keydown',onKey);window.addEventListener('resize',function(){triggers().forEach(apply);});triggers().forEach(apply);}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready);else ready();
+})();</script>
+</body></html>
