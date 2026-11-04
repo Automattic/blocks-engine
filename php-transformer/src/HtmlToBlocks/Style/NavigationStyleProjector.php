@@ -1756,6 +1756,8 @@ final class NavigationStyleProjector
                     $selector = '.wp-block-navigation.' . $className . '.' . $className
                         . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content' . $restingSuffix
                         . ',.wp-block-navigation.' . $className . '.' . $className
+                        . ' .wp-block-navigation-item.current-menu-ancestor>.wp-block-navigation-item__content' . $restingSuffix
+                        . ',.wp-block-navigation.' . $className . '.' . $className
                         . ' .wp-block-navigation-item>.wp-block-navigation-item__content[aria-current]' . $restingSuffix;
                     $rules['current:' . $className] = $selector . '{color:' . $currentColors[$className]['color'] . '}';
                 }

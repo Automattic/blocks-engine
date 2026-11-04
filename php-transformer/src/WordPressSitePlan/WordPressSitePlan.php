@@ -6170,18 +6170,30 @@ PHP;
             // descendants can already be current; inspect only its own first anchor.
             foreach (array('navigation-link', 'navigation-submenu') as $navigationBlock) {
             $lines[] = "add_filter( 'render_block_core/{$navigationBlock}', static function ( string \$content, array \$block ): string {";
+            $lines[] = "    \$is_current = static function ( array \$attrs ): bool {";
+            $lines[] = "        if ( str_contains( (string) ( \$attrs['className'] ?? '' ), 'blocks-engine-current-navigation-item' ) ) return true;";
+            $lines[] = "        \$url = is_string( \$attrs['url'] ?? null ) ? trim( (string) \$attrs['url'] ) : '';";
+            $lines[] = "        if ( '' === \$url || '/' !== \$url[0] || ( 1 < strlen( \$url ) && '/' === \$url[1] ) ) return false;";
+            $lines[] = "        \$document = " . self::DOCUMENT_ID_EXPRESSION . ";";
+            $lines[] = "        \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
+            $lines[] = "        return null !== \$served && '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' ) === \$served;";
+            $lines[] = "    };";
+            if ('navigation-submenu' === $navigationBlock) {
+                // A submenu is Core's current ancestor when any descendant link is
+                // current, including a URL-less toggle that is never current itself.
+                $lines[] = "    \$has_current = static function ( array \$blocks ) use ( &\$has_current, \$is_current ): bool {";
+                $lines[] = "        foreach ( \$blocks as \$inner ) {";
+                $lines[] = "            if ( in_array( \$inner['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true ) && \$is_current( (array) ( \$inner['attrs'] ?? array() ) ) ) return true;";
+                $lines[] = "            if ( \$has_current( (array) ( \$inner['innerBlocks'] ?? array() ) ) ) return true;";
+                $lines[] = "        }";
+                $lines[] = "        return false;";
+                $lines[] = "    };";
+                $lines[] = "    if ( \$has_current( (array) ( \$block['innerBlocks'] ?? array() ) ) ) {";
+                $lines[] = "        \$content = preg_replace_callback( '/^<li\\b[^>]*\\bclass=\"([^\"]*)\"/', static function ( array \$match ): string { return in_array( 'current-menu-ancestor', preg_split( '/\\s+/', \$match[1] ), true ) ? \$match[0] : substr( \$match[0], 0, -1 ) . ' current-menu-ancestor\"'; }, \$content, 1 ) ?? \$content;";
+                $lines[] = "    }";
+            }
             $lines[] = "    if ( ! preg_match( '/<a\\b[^>]*>/', \$content, \$anchor ) || str_contains( \$anchor[0], 'aria-current' ) ) return \$content;";
-            $lines[] = "    \$current = str_contains( (string) ( \$block['attrs']['className'] ?? '' ), 'blocks-engine-current-navigation-item' );";
-            $lines[] = "    if ( ! \$current ) {";
-            $lines[] = "        \$url = is_string( \$block['attrs']['url'] ?? null ) ? trim( (string) \$block['attrs']['url'] ) : '';";
-            $lines[] = "        if ( '' !== \$url && '/' === \$url[0] && ( 1 === strlen( \$url ) || '/' !== \$url[1] ) ) {";
-            $lines[] = "            \$target = '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' );";
-            $lines[] = "            \$document = " . self::DOCUMENT_ID_EXPRESSION . ";";
-            $lines[] = "            \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
-            $lines[] = "            \$current = null !== \$served && \$target === \$served;";
-            $lines[] = "        }";
-            $lines[] = "    }";
-            $lines[] = "    if ( ! \$current ) return \$content;";
+            $lines[] = "    if ( ! \$is_current( (array) ( \$block['attrs'] ?? array() ) ) ) return \$content;";
             if ('navigation-submenu' === $navigationBlock) {
                 // Only the outer item is current, never a descendant or ancestor.
                 $lines[] = "    \$content = preg_replace_callback( '/^<li\\b[^>]*\\bclass=\"([^\"]*)\"/', static function ( array \$match ): string { return in_array( 'current-menu-item', preg_split( '/\\s+/', \$match[1] ), true ) ? \$match[0] : substr( \$match[0], 0, -1 ) . ' current-menu-item\"'; }, \$content, 1 ) ?? \$content;";
