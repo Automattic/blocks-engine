@@ -10447,7 +10447,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        return $this->createBlock('core/image', array_filter(array(
+        $image = $this->createBlock('core/image', array_filter(array(
             'url'       => $this->resolvedAssetImageUrl($url),
             'alt'       => $this->backgroundImageExtractor->altFromAttributes($this->htmlAttributes($element)),
             // A painted background never contributes intrinsic size, so the
@@ -10457,6 +10457,43 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'height'    => ! in_array(strtolower($height), array( '', 'auto' ), true) ? $height : '',
             'scale'     => $sized ? $scale : '',
         ), static fn (string $value): bool => '' !== $value), array(), $element);
+
+        if ( ! $sized ) {
+            return $image;
+        }
+
+        // The image is now a child of the original painted box. Keep its
+        // colour and other layers, but replace only the handed-off URL layer
+        // with none (rather than shifting the remaining layers' geometry).
+        $background = (string) ($declarations['background-image'] ?? $declarations['background'] ?? 'url(' . $url . ')');
+        $background = preg_replace('/\s*!\s*important\s*$/i', '', $background) ?? $background;
+        $layers = CssValueSplitter::splitTopLevel($background, array( ',' ));
+        // Shorthand layers also contain position, repeat and colour tokens;
+        // only their image token belongs in the background-image override.
+        foreach ( $layers as &$layer ) {
+            $tokens = CssValueSplitter::splitTopLevelWhitespace($layer);
+            $layer = 'none';
+            foreach ( $tokens as $token ) {
+                if ( preg_match('/^(?:url|[a-z-]*gradient|image|image-set|cross-fade|var)\(/i', $token) ) {
+                    $layer = $token;
+                    break;
+                }
+            }
+        }
+        unset($layer);
+        foreach ( $layers as &$layer ) {
+            if ( $url === $this->backgroundImageExtractor->urlFromStyle('background-image:' . $layer) ) {
+                $layer = 'none';
+                break;
+            }
+        }
+        unset($layer);
+        $rule = '{background-image:' . implode(',', $layers) . ' !important}';
+        $carrier = $this->layoutGeometry()->allocateCarrier('materialized-background' . "\n" . $rule);
+        $this->layoutGeometry()->registerRule($carrier, ':root .' . $carrier . $rule);
+        $attrs = $this->styleResolver->presentationAttributes($element);
+        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
+        return $this->createBlock('core/group', $attrs, array( $image ), $element);
     }
 
     /**
