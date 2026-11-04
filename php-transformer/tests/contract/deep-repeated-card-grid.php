@@ -35,11 +35,19 @@ $assert(1 === preg_match('/collection-[0-9a-f]{8,}/', $frozen['serialized_blocks
 $assert(str_contains(json_encode($frozen['source_reports']['generated_blocks']), 'raw_html'), 'Fallback retains the raw_html editing surface.');
 $assert(str_contains(json_encode($frozen['diagnostics']), 'generated_component_non_native_items'), 'Fallback explains native representability failure.');
 
-// Attribute-bearing ancestor chains are not collapsed speculatively. Keep
-// the bounded fallback when promotion could exceed the existing depth cap.
+foreach ($frozen['diagnostics'] as $diagnostic) {
+    if ('generated_component' === ($diagnostic['type'] ?? '')) {
+        $assert('editable_approximation' === ($diagnostic['conversion_classification'] ?? ''), 'Preserved generated content must not become unsupported loss.');
+    }
+}
+
+// Real padded boxes, unlike inert attribute-bearing wrappers, consume depth.
 $pressured = $html;
 for ($depth = 0; $depth < 24; ++$depth) {
-    $pressured = str_replace('<body>', '<body><div id="depth-' . $depth . '">', $pressured);
+    // Fourteen independent padded groups leave room for the generated leaf;
+    // the remaining id wrappers are packed by layout-shell normalization.
+    $padding = $depth < 14 ? ' style="padding:1px"' : '';
+    $pressured = str_replace('<body>', '<body><div id="depth-' . $depth . '"' . $padding . '>', $pressured);
     $pressured = str_replace('</body>', '</div></body>', $pressured);
 }
 $bounded = $transform($pressured);
