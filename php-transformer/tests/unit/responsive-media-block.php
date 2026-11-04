@@ -27,7 +27,7 @@ $assert(ResponsiveMediaBlockGenerator::RENDERER === ($definition['renderer'] ?? 
 $payload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), array($definition));
 $assert(ResponsiveMediaBlockGenerator::RENDERER === ($payload['blocks'][0]['renderer'] ?? null) && !isset($payload['blocks'][0]['render']), 'the audited renderer identifier survives companion payload normalization');
 $editor = (string) ($definition['assets']['index.js'] ?? '');
-$assert(str_contains($editor, "registerBlockType( 'ssi-example/responsive-media'") && !str_contains($editor, 'ServerSideRender') && str_contains($editor, 'dangerouslySetInnerHTML') && str_contains($editor, 'InspectorControls') && str_contains($editor, 'TextareaControl') && str_contains($editor, 'save: function() { return null; }') && !str_contains($editor, "display: 'none'") && !str_contains($editor, 'RawHTML'), 'the editor renders captured HTML directly and keeps source controls in the inspector');
+$assert(str_contains($editor, "registerBlockType( 'ssi-example/responsive-media'") && !str_contains($editor, 'ServerSideRender') && str_contains($editor, 'dangerouslySetInnerHTML') && str_contains($editor, 'InspectorControls') && str_contains($editor, 'TextControl') && !str_contains($editor, 'TextareaControl') && str_contains($editor, 'save: function() { return null; }') && !str_contains($editor, "display: 'none'") && !str_contains($editor, 'RawHTML'), 'the editor renders captured HTML directly and exposes media fields in the inspector');
 $editorSchemaRunner = <<<'JS'
 const vm = require( 'node:vm' );
 let settings;
