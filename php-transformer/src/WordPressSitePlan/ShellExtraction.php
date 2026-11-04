@@ -28,6 +28,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
  */
 final class ShellExtraction
 {
+    /** Source classes that disclose the served route, not the chrome: a site builder paints the current item or its submenu with them. */
+    private const DISCLOSURE_CLASSES = array('open', 'is-open', 'expanded', 'is-expanded');
+
     /**
      * Capture-document siblings after the root owning main are page chrome,
      * not article content. Keep their device scope when moving them to the
@@ -3463,6 +3466,20 @@ final class ShellExtraction
             }
             $current = in_array('blocks-engine-current-navigation-item', $classes, true);
             $peer = $restingPeers[$navigationIndex . ':' . $depth] ?? null;
+            $peerClasses = is_array($peer) ? (preg_split('/\\s+/', trim((string) ($peer['className'] ?? ''))) ?: array()) : array();
+            if (is_array($peer) && 'navigation' !== $match[1] && ($semanticIdentity || $current || isset($routeState['current_submenus'][$blockIndex]))) {
+                // A site builder paints the served route's item, and the submenu
+                // holding it, with its disclosure classes. The chrome reads as it
+                // rests: disclosure absent from the resting peers is route state,
+                // not authored presentation, so it never reaches the shared part.
+                $resting = self::withoutDisclosureClasses($classes, $peerClasses);
+                if ($resting !== $classes) {
+                    $classes = $resting;
+                    if (array() === array_filter($classes)) unset($attrs['className']);
+                    else $attrs['className'] = implode(' ', $classes);
+                    $match[0] = self::navigationBlockOpening($match[1], $attrs, $selfClosing);
+                }
+            }
             if ($current && 'navigation-link' === $match[1] && is_array($peer)) {
                 // A client router can paint the current item through its own
                 // utility classes instead of an aria-current hook. The shared part
@@ -3520,7 +3537,49 @@ final class ShellExtraction
         // part serves every route, so that page-scoped state is neither part of
         // the chrome's identity nor frozen into the part.
         $markup = preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $markup) ?? $markup;
+        $markup = self::withoutListItemDisclosureState($markup);
         return self::withoutMenuSelectionState($markup, true);
+    }
+
+    /**
+     * A menu authored as list items converts to li groups. The source paints
+     * the item holding the served route (and, in a submenu, its parent item)
+     * with a disclosure class its sibling items do not carry. That class is
+     * route state, so it is neither part of the chrome's identity nor frozen
+     * into the shared part.
+     */
+    private static function withoutListItemDisclosureState(string $markup): string
+    {
+        if (!preg_match_all('/<!-- (\/)?wp:group(?: (\{[^>]*?\}))? (\/)?-->(?:<li class="([^"]*)")?/', $markup, $tokens, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) return $markup;
+        // Li groups keyed by the block that holds them: siblings of one list.
+        $stack = array(); $lists = array();
+        foreach ($tokens as $index => $token) {
+            if ('' !== ($token[1][0] ?? '')) { array_pop($stack); continue; }
+            $attrs = json_decode((string) ($token[2][0] ?? ''), true);
+            if (is_array($attrs) && 'li' === ($attrs['tagName'] ?? null) && '' !== ($token[4][0] ?? '')) {
+                $lists[(string) end($stack)][] = array('token' => $index, 'attrs' => $attrs, 'classes' => preg_split('/\s+/', trim($token[4][0])) ?: array());
+            }
+            if ('' === ($token[3][0] ?? '')) $stack[] = $index;
+        }
+        $replacements = array();
+        foreach ($lists as $items) {
+            if (2 > count($items)) continue;
+            $counts = array();
+            foreach ($items as $item) foreach (array_intersect($item['classes'], self::DISCLOSURE_CLASSES) as $class) $counts[$class] = ($counts[$class] ?? 0) + 1;
+            $routeState = array_keys(array_filter($counts, static fn(int $count): bool => 1 === $count));
+            if (array() === $routeState) continue;
+            foreach ($items as $item) {
+                if (array() === array_intersect($item['classes'], $routeState)) continue;
+                $attrs = $item['attrs'];
+                $kept = array_values(array_diff(preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(), $routeState));
+                if (array() === $kept) unset($attrs['className']); else $attrs['className'] = implode(' ', $kept);
+                $token = $tokens[$item['token']];
+                $replacements[] = array($token[0][1], strlen($token[0][0]), '<!-- wp:group ' . BlockAttributes::encode($attrs) . ' --><li class="' . implode(' ', array_values(array_diff($item['classes'], $routeState))) . '"');
+            }
+        }
+        usort($replacements, static fn(array $left, array $right): int => $right[0] <=> $left[0]);
+        foreach ($replacements as [$offset, $length, $replacement]) $markup = substr_replace($markup, $replacement, $offset, $length);
+        return $markup;
     }
 
     /**
@@ -3529,15 +3588,17 @@ final class ShellExtraction
      *
      * - current_navigations: navigation blocks (counted like its
      *   $navigationIndex) that contain the current item.
+     * - current_submenus: submenu blocks that contain the current item.
      * - current_link_subjects: for each current link (counted like its
      *   $blockIndex), the anchor subject its resting siblings in the same
      *   navigation or submenu share.
      *
-     * @return array{current_navigations:array<int,true>,current_link_subjects:array<int,array<string,mixed>>}
+     * @return array{current_navigations:array<int,true>,current_submenus:array<int,true>,current_link_subjects:array<int,array<string,mixed>>}
      */
     private static function navigationRouteState(string $markup): array
     {
         $currentNavigations = array();
+        $currentSubmenus = array();
         $currentLinkContainers = array();
         $subjectCounts = array();
         // Open navigation and submenu blocks, innermost last.
@@ -3576,6 +3637,8 @@ final class ShellExtraction
                 foreach ($containers as $ancestor) {
                     if (null !== $ancestor['navigation']) {
                         $currentNavigations[$ancestor['navigation']] = true;
+                    } elseif (str_starts_with($ancestor['key'], 'submenu-')) {
+                        $currentSubmenus[(int) substr($ancestor['key'], 8)] = true;
                     }
                 }
                 if ('navigation-link' === $name) {
@@ -3598,7 +3661,7 @@ final class ShellExtraction
                 $currentLinkSubjects[$link] = $subject;
             }
         }
-        return array('current_navigations' => $currentNavigations, 'current_link_subjects' => $currentLinkSubjects);
+        return array('current_navigations' => $currentNavigations, 'current_submenus' => $currentSubmenus, 'current_link_subjects' => $currentLinkSubjects);
     }
 
     /**
@@ -3636,15 +3699,16 @@ final class ShellExtraction
     }
 
     /**
-     * A menu block's classes without the disclosure state the source sets
-     * on the menu that holds the served route.
+     * Classes without disclosure state not shared by the resting peers.
+     * With no peer classes, this preserves the navigation-root behavior.
      *
      * @param array<int,string> $classes
+     * @param array<int,string> $peerClasses
      * @return array<int,string>
      */
-    private static function withoutDisclosureClasses(array $classes): array
+    private static function withoutDisclosureClasses(array $classes, array $peerClasses = array()): array
     {
-        return array_values(array_diff($classes, array('open', 'is-open', 'expanded', 'is-expanded')));
+        return array_values(array_diff($classes, array_diff(self::DISCLOSURE_CLASSES, $peerClasses)));
     }
 
     /**
