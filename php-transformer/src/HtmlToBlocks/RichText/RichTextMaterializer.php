@@ -26,16 +26,6 @@ final class RichTextMaterializer implements RichTextMaterialization
     ) {
     }
 
-    /** Convert invalid block wrappers inside a heading into valid RichText breaks. */
-    public function headingContent(string $content): string
-    {
-        if ( ! preg_match('/<\/?(?:div|p)\b/i', $content) ) {
-            return $content;
-        }
-        $content = preg_replace_callback('/<\s*(\/)?\s*(?:div|p)\b[^>]*>/i', static fn (array $match): string => ! empty($match[1]) ? '<br>' : '', $content) ?? $content;
-        return preg_replace('/(?:<br>\s*){2,}/i', '<br>', $content) ?? $content;
-    }
-
     public function requiresHtmlFallback(string $content): bool
     {
         return (bool) preg_match('/<(?:svg|canvas|img|picture|video|audio|iframe|object|embed|input|button|select|textarea|form)\b/i', $content);

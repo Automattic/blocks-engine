@@ -10,8 +10,6 @@ interface RichTextMaterialization
     /** @param array<int, string> $excludedTags */
     public function content(DOMElement $element, array $excludedTags = array()): string;
 
-    public function headingContent(string $content): string;
-
     public function requiresHtmlFallback(string $content): bool;
 
     public function hasStructuralHtml(string $content): bool;

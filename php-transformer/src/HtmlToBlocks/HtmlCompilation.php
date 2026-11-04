@@ -5300,7 +5300,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 // Core headings cannot store a block-level decoration in RichText.
                 // Keep the decorated wrapper but retain its one text child as an
                 // editable heading rather than silently turning it into a paragraph.
-                if ( 'core/heading' === $name ) {
+                // Authored paragraphs are flow content, not a decorated
+                // heading's synthetic text run; keep them as paragraphs.
+                if ( 'core/heading' === $name && 0 === $sourceElement->getElementsByTagName('p')->length ) {
                     $textChildren = array_keys(array_filter($children, static fn (array $child): bool =>
                         'core/paragraph' === ($child['blockName'] ?? null)
                         && '' !== trim(strip_tags((string) ($child['attrs']['content'] ?? '')))

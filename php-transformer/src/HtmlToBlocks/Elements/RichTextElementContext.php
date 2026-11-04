@@ -95,9 +95,9 @@ final class RichTextElementContext
         return $this->richTextMaterializer->content($element, $excludedTags);
     }
 
-    public function headingRichTextContent(string $content): string
+    public function richTextContentHasStructuralHtml(string $content): bool
     {
-        return $this->richTextMaterializer->headingContent($content);
+        return $this->richTextMaterializer->hasStructuralHtml($content);
     }
 
     public function richTextWithMaterializedSvgImages(DOMElement $element, string $content): ?string
