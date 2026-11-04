@@ -3357,28 +3357,73 @@ PHP;
     {
         $html = is_string($document['html'] ?? null) ? $document['html'] : (string) ($document['block_markup'] ?? '');
         if (!preg_match_all('~<a\b[^>]*?\bhref\s*=\s*["\']([^"\']*)["\']~i', $html, $matches)) return array();
-        $base = '/' === $route ? '/' : $route . '/';
         $linked = array();
         foreach ($matches[1] as $href) {
-            $href = html_entity_decode((string) preg_replace('/[?#].*$/s', '', trim($href)), ENT_QUOTES | ENT_HTML5);
-            if (1 === preg_match('~^[a-z][a-z0-9+.-]*:~i', $href) || str_starts_with($href, '//')) {
-                $path = parse_url(str_starts_with($href, '//') ? 'http:' . $href : $href, PHP_URL_PATH);
-                if (!is_string($path)) continue;
-                $href = '' === $path ? '/' : $path;
-            }
-            if ('' === $href) continue;
-            $path = str_starts_with($href, '/') ? $href : $base . $href;
-            $segments = array();
-            foreach (explode('/', $path) as $segment) {
-                if ('' === $segment || '.' === $segment) continue;
-                if ('..' === $segment) { array_pop($segments); continue; }
-                $segments[] = $segment;
-            }
-            if (array() !== $segments && 1 === preg_match('/^index\.html?$/i', (string) end($segments))) array_pop($segments);
-            elseif (array() !== $segments) $segments[count($segments) - 1] = (string) preg_replace('/\.html?$/i', '', (string) end($segments));
-            $linked['/' . implode('/', $segments)] = true;
+            $path = self::hrefRoute((string) $href, $route);
+            if (null !== $path) $linked[$path] = true;
         }
         return array_keys($linked);
+    }
+    /** Route path one href resolves to from the page at $route, or null when it names none. */
+    private static function hrefRoute(string $href, string $route): ?string
+    {
+        $base = '/' === $route ? '/' : $route . '/';
+        $href = html_entity_decode((string) preg_replace('/[?#].*$/s', '', trim($href)), ENT_QUOTES | ENT_HTML5);
+        if (1 === preg_match('~^[a-z][a-z0-9+.-]*:~i', $href) || str_starts_with($href, '//')) {
+            $path = parse_url(str_starts_with($href, '//') ? 'http:' . $href : $href, PHP_URL_PATH);
+            if (!is_string($path)) return null;
+            $href = '' === $path ? '/' : $path;
+        }
+        if ('' === $href) return null;
+        $path = str_starts_with($href, '/') ? $href : $base . $href;
+        $segments = array();
+        foreach (explode('/', $path) as $segment) {
+            if ('' === $segment || '.' === $segment) continue;
+            if ('..' === $segment) { array_pop($segments); continue; }
+            $segments[] = $segment;
+        }
+        if (array() !== $segments && 1 === preg_match('/^index\.html?$/i', (string) end($segments))) array_pop($segments);
+        elseif (array() !== $segments) $segments[count($segments) - 1] = (string) preg_replace('/\.html?$/i', '', (string) end($segments));
+        return '/' . implode('/', $segments);
+    }
+    /**
+     * Child routes a listing's repeated cards link to, each with the card's
+     * single visible date. A card is the smallest element around a link that
+     * holds exactly one <time> and links to exactly one child route. The
+     * datetime attribute is ignored: templates repeat a placeholder there, so
+     * the visible text is the source of truth. A date that does not parse
+     * yields null rather than a wrong timestamp.
+     *
+     * @param array<string,mixed> $document
+     * @param array<string,bool> $childRoutes
+     * @return array<string,string|null> child route => UTC timestamp
+     */
+    private static function listingCardDates(array $document, string $route, array $childRoutes): array
+    {
+        $html = is_string($document['html'] ?? null) ? $document['html'] : (string) ($document['block_markup'] ?? '');
+        if ('' === trim($html) || array() === $childRoutes) return array();
+        $dom = new \DOMDocument();
+        @$dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        $xpath = new \DOMXPath($dom);
+        $cards = array();
+        foreach ($xpath->query('//a[@href]') ?: array() as $anchor) {
+            $target = self::hrefRoute((string) $anchor->getAttribute('href'), $route);
+            if (null === $target || !isset($childRoutes[$target])) continue;
+            $card = $anchor;
+            while ($card instanceof \DOMElement && 0 === ($xpath->query('descendant-or-self::time', $card)->length ?? 0)) $card = $card->parentNode;
+            if (!$card instanceof \DOMElement || 'body' === $card->nodeName || 'html' === $card->nodeName) continue;
+            $targets = array();
+            foreach ($xpath->query('descendant-or-self::a[@href]', $card) ?: array() as $link) {
+                $linked = self::hrefRoute((string) $link->getAttribute('href'), $route);
+                if (null !== $linked && isset($childRoutes[$linked])) $targets[$linked] = true;
+            }
+            $times = $xpath->query('descendant-or-self::time', $card);
+            if (1 !== count($targets) || 1 !== $times->length) continue;
+            $cards[$target][] = self::parseVisiblePublicationTimestamp((string) $times->item(0)->textContent);
+        }
+        $dates = array();
+        foreach ($cards as $target => $found) if (1 === count($found)) $dates[$target] = $found[0];
+        return $dates;
     }
     /** @param array<int,array<string,string>> $evidence */
     private static function hasOnlyPublishTimeMeta(array $evidence): bool
@@ -3429,6 +3474,17 @@ PHP;
         foreach ($evidenceByIndex as $index => $evidence) {
             $parentIndex = $indexByRoute[self::parentRoutePath($routes[$index])] ?? null;
             $evidenceByIndex[$index] = array_intersect(array('BlogPosting', 'NewsArticle'), $structuredTypes[$index]) ? $evidence : self::withoutUnsupportedArticleMarkers($evidence, $documents[$index], $routes[$index], null === $parentIndex ? null : $documents[$parentIndex]);
+        }
+        // A listing whose repeated cards each link to one child and carry one
+        // visible date dates the children that carry no evidence themselves.
+        foreach ($documents as $listingIndex => $listingDocument) {
+            $listingRoute = $routes[$listingIndex];
+            if ('/' === $listingRoute || null !== self::paginationParentRoute($listingRoute) || TaxonomyProjection::isTermRoute($listingRoute)) continue;
+            $children = array();
+            foreach ($routes as $childIndex => $childRoute) if ($listingRoute === self::parentRoutePath($childRoute) && array() === $evidenceByIndex[$childIndex] && empty($documents[$childIndex]['entrypoint']) && !isset($pageEvidenceByIndex[$childIndex])) $children[$childRoute] = $childIndex;
+            $cardDates = self::listingCardDates($listingDocument, $listingRoute, array_fill_keys(array_keys($children), true));
+            if (count($cardDates) < 2) continue;
+            foreach ($cardDates as $childRoute => $date) $evidenceByIndex[$children[$childRoute]] = array(array_filter(array('source' => 'listing:card-date', 'publication_timestamp' => $date), static fn(mixed $value): bool => null !== $value));
         }
         $datedByParent = array();
         foreach ($evidenceByIndex as $index => $evidence) {
