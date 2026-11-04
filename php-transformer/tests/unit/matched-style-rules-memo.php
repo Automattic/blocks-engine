@@ -34,7 +34,6 @@ $session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $node
 $context = null;
 $context = new StyleResolutionContext(
     $session,
-    static fn (DOMElement $node): int => 0,
     static fn (string $value): string => $value,
     static function (string $selector) use (&$context): array {
         return $context->sourceStyles()->parsedSelector($selector);

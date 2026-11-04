@@ -16,7 +16,7 @@
     "content": "<section class=\"resource-grid\"><a class=\"resource-card\" href=\"/resources/block-patterns\"><div class=\"resource-card__media\"><img src=\"/assets/patterns.jpg\" alt=\"Pattern examples\"></div><div class=\"resource-card__content\"><p class=\"resource-card__eyebrow\">Guide</p><h3>Block Pattern Basics</h3><p>Learn how reusable layouts are assembled.</p></div></a><a class=\"resource-card\" href=\"/resources/site-launch\" target=\"_blank\" rel=\"noopener\"><div class=\"resource-card__content\"><p class=\"resource-card__eyebrow\">Checklist</p><h3>Launch Review</h3><p>Confirm content, navigation, and assets.</p></div></a></section>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "resource-grid", "layout": { "type": "grid" } } },
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "resource-grid" } },
     { "path": "blocks.0.innerBlocks.0", "name": "custom/layout-shell" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "className": "resource-card__media blocks-engine-synthetic-image-figure" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "resource-card__content" } },

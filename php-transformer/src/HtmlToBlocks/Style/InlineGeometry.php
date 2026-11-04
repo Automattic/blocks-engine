@@ -6,7 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use Closure;
 use DOMElement;
 
@@ -746,8 +745,7 @@ final class InlineGeometry
      * expressible (`minimumColumnWidth` or `columnCount`); every other
      * structural grid is demoted to CSS ownership, which drops the layout
      * attribute. Parents that reach a grid layout attribute without
-     * structural display (a `data-layout` attribute, an explicit grid class
-     * token) are not demoted.
+     * structural display (a `data-layout` attribute) are not demoted.
      */
     public function isCoreGridContainerParent(DOMElement $parent, string $mergedStyle): bool
     {
@@ -1106,20 +1104,13 @@ final class InlineGeometry
             return array();
         }
 
-        // An explicit grid class token (`grid`, `grid-3`, `footer-grid`,
-        // `card-grid`, …) is a deterministic CSS-grid signal on its own. When the
-        // container holds more than one element child, emit grid layout so the
-        // multi-column arrangement survives even when the children are plain
-        // wrappers rather than recognized card markup. Without this the grid
-        // collapses to a vertical stack and loses visual parity.
-        if ( $this->hasExplicitGridClass($element) && 1 < SourceDom::directElementChildCount($element) ) {
-            return array( 'type' => 'grid' );
-        }
-
-        if ( $this->hasGridLikeClass($element) && 1 < $this->context->cardLikeChildCount($element) ) {
-            return array( 'type' => 'grid' );
-        }
-
+        // A class name is not evidence of `display: grid`. A grid-looking token
+        // (`mz_grid`, `grid-3`, `card-grid`, `features`) on a container whose
+        // cascade resolves a non-grid display — or no display at all — keeps
+        // the flow/default layout; the class token alone minted grid layout
+        // here and squeezed full-width children into narrow columns
+        // (Automattic/blocks-engine#4302). Grid layout needs cascade evidence:
+        // resolved `display: grid` plus a track list core can express.
         return array();
     }
 
@@ -1365,77 +1356,4 @@ final class InlineGeometry
         return count($trackList);
     }
 
-    /**
-     * Unambiguous grid class tokens: a bare `grid`, a numbered `grid-N`, or any
-     * token ending `*-grid` / `*_grid` (footer-grid, card-grid, mission-grid, …)
-     * plus the common `grid-cols` / `grid-columns` utility names. Matched as whole
-     * class tokens, so mid-token fragments (`border-grid-line`, `grid-pattern`,
-     * `text-grid-500`) are not signals. These map directly to `display:grid`
-     * containers, so they are safe to treat as grids regardless of child
-     * semantics. Ambiguous semantic names (cards, features, …) stay gated on
-     * card-like children via hasGridLikeClass().
-     */
-    private function hasExplicitGridClass(DOMElement $element): bool
-    {
-        foreach ( $this->authorClassTokens($element) as $token ) {
-            if ( $this->isExplicitGridClassToken($token) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function hasGridLikeClass(DOMElement $element): bool
-    {
-        foreach ( $this->authorClassTokens($element) as $token ) {
-            if ( $this->isGridLikeClassToken($token) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function isExplicitGridClassToken(string $token): bool
-    {
-        $token = $this->classTokenBase($token);
-        if ( 'grid' === $token || 'grid-cols' === $token || 'grid-columns' === $token ) {
-            return true;
-        }
-        if ( 1 === preg_match('/^grid-(?:[0-9]+|cols-[0-9]+)$/', $token) ) {
-            return true;
-        }
-
-        return str_ends_with($token, '-grid') || str_ends_with($token, '_grid');
-    }
-
-    private function isGridLikeClassToken(string $token): bool
-    {
-        $token = $this->classTokenBase($token);
-
-        return in_array($token, array( 'cards', 'features', 'services', 'providers', 'testimonials', 'resources', 'posts', 'projects', 'stats', 'badges', 'grid', 'tiles', 'collection', 'gallery' ), true)
-            || 1 === preg_match('/^grid-[0-9]+$/', $token);
-    }
-
-    private function classTokenBase(string $token): string
-    {
-        $slash = strpos($token, '/');
-
-        return false === $slash ? $token : substr($token, 0, $slash);
-    }
-
-    /**
-     * Class tokens with generated markers filtered out, so transformer-emitted
-     * classes (blocks-engine-css-owned-grid, …) re-ingested from prior output
-     * never trip the author grid-class heuristics.
-     *
-     * @return array<int, string>
-     */
-    private function authorClassTokens(DOMElement $element): array
-    {
-        $tokens = preg_split('/\s+/', strtolower(trim(SourceDom::attr($element, 'class')))) ?: array();
-
-        return array_values(array_filter($tokens, static fn (string $token): bool => '' !== $token && ! GeneratedGutenbergClassPolicy::isGeneratedClassName($token) && ! str_starts_with($token, 'blocks-engine-') && ! str_starts_with($token, 'be-inline-geometry-')));
-    }
 }

@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-non-grid-class-stays-plain-group",
-  "description": "Guard: a container whose class is not an explicit grid token and whose children are not card-like stays a plain core/group with no grid layout, so the explicit-grid promotion does not over-match neutral wrappers.",
+  "description": "Guard: a container whose cascade carries no grid evidence stays a plain core/group with flow layout. Grid-looking class tokens (`feature-list`) are not evidence of display:grid; the native layout attribute only comes from resolved grid CSS.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-non-grid-class-stays-plain-group.json",
-    "notes": "Negative control for the explicit grid-class layout promotion."
+    "notes": "Negative control: class tokens alone never mint a native grid layout attribute."
   },
   "legacy_comparison": {
     "skip": true,
