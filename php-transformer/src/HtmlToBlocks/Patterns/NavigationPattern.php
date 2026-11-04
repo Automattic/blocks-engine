@@ -2505,6 +2505,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     {
         $blocks = array();
         $hasListBackedMenu = false;
+        $currentPageRun = MenuVocabulary::isCurrentPageLinkRun($element);
         $allowsDescriptiveChrome = $allowsDescriptiveChrome || $this->hasSubmenuSignal($element);
         // A caller that has already established structurally that this element IS
         // the nav's link cluster vouches for its direct anchors. The class
@@ -2522,6 +2523,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( $currentPageRun && $child instanceof DOMElement && 'a' !== strtolower($child->tagName) && 0 === $child->getElementsByTagName('a')->length ) {
                 continue;
             }
 
