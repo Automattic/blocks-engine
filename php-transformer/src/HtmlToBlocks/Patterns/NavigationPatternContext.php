@@ -641,20 +641,7 @@ final class NavigationPatternContext
             // The instance names the resting menu: per-item link colours follow
             // the served route, and current-item presentation is lifted above.
             $resting = array_filter($targets, static fn(string $marker): bool => 1 !== preg_match('/^blocks-engine-navigation-(?:current-color|link-color(?:-states)?)-/', $marker), ARRAY_FILTER_USE_KEY);
-            // Shared chrome is compiled in isolation before it is factored out
-            // of each route. Absolute DOM paths change when preceding siblings
-            // disappear; identify placements relative to their landmark instead.
-            // The resting subjects still distinguish different menu cascades.
-            $path = preg_replace('~^/body(?=/|$)~', '/html/body', $source->getNodePath() ?? '') ?? '';
-            for ($landmark = $source; $landmark instanceof DOMElement; $landmark = $landmark->parentNode) {
-                $tag = strtolower($landmark->tagName);
-                $role = strtolower(trim($landmark->getAttribute('role')));
-                if (!in_array($tag, array('header', 'footer'), true) && !in_array($role, array('banner', 'contentinfo'), true)) continue;
-                $root = $landmark->getNodePath() ?? '';
-                $path = ('footer' === $tag || 'contentinfo' === $role ? '/footer' : '/header') . substr($source->getNodePath() ?? '', strlen($root));
-                break;
-            }
-            $scope = $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $path . json_encode($resting));
+            $scope = $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
             $this->recordCurrentItemPresentation($current, $scope, $source);
             $markup = (string) json_encode($block);
@@ -682,6 +669,29 @@ final class NavigationPatternContext
             }
         }
         unset($block);
+    }
+
+    /**
+     * Chrome can be compiled alone or inside a route, without a landmark.
+     * Name its menu by source-owned identity, never sibling offsets. Stop at
+     * the landmark or top-level chrome root, excluding route/body wrappers.
+     * Resting subjects further distinguish menus with different contents.
+     */
+    private function navigationSourceIdentity(DOMElement $source): string
+    {
+        $identity = array();
+        $projections = $this->session->authorSelectorProjectionState();
+        for ($node = $source; $node instanceof DOMElement; $node = $node->parentNode) {
+            $tag = strtolower($node->tagName);
+            if (in_array($tag, array('html', 'body'), true)) break;
+            $classes = preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array();
+            $classes = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && !str_starts_with($class, 'blocks-engine-') && !$projections->isCurrentNavigationClass($class) && !$projections->selectsCurrentNavigationState('.' . $class)));
+            sort($classes);
+            $role = strtolower(trim($node->getAttribute('role')));
+            $identity[] = array($tag, $node->getAttribute('id'), $classes, $role);
+            if (in_array($tag, array('header', 'footer'), true) || in_array($role, array('banner', 'contentinfo'), true)) break;
+        }
+        return (string) json_encode($identity);
     }
 
     /** @var array<string, array{content: string, reset: string, state_mask: int}> Current-item presentation by item marker. */
