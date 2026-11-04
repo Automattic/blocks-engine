@@ -658,8 +658,20 @@ final class SourceElementClassifier
             return false;
         }
 
-        return '' === $this->visibleTextContent($element)
-            || $this->hasBlockLevelDescendant($element);
+        if ( '' === $this->visibleTextContent($element) || $this->hasBlockLevelDescendant($element) ) {
+            return true;
+        }
+
+        // A descriptive image beside a caption is content, not an inline
+        // button icon. Keep it outside core/button RichText so its media and
+        // caption remain independently editable rather than flattening alt text.
+        foreach ( $element->getElementsByTagName('img') as $image ) {
+            if ( '' !== trim(SourceDom::attr($image, 'alt')) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

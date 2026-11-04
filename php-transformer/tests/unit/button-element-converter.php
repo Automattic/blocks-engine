@@ -100,6 +100,10 @@ $mode = 'generic';
 $generic = $converter->convert($button, 'button', $fallbacks);
 $assert($generic->handled && 'core/buttons' === ($generic->block['blockName'] ?? ''), 'ordinary-button-delegated');
 
+$galleryButton = ( new HtmlTransformer() )->transform('<main><h2>Gallery</h2><ul><li><button type="button" aria-label="Open photo 1"><img src="photo.webp" width="640" height="480" alt="Garden"><span>Garden</span></button></li></ul></main>')->toArray();
+$galleryMarkup = (string) ($galleryButton['serialized_blocks'] ?? '');
+$assert(str_contains($galleryMarkup, 'photo.webp'), 'gallery button keeps its source image');
+$assert(1 === substr_count($galleryMarkup, '>Garden<'), 'gallery button caption is emitted exactly once');
 $iconButton = ( new HtmlTransformer() )->transform('<main><button type="button" aria-label="Previous photograph"><img src="icon.svg" alt=""></button></main>')->toArray();
 $iconMarkup = (string) ($iconButton['serialized_blocks'] ?? '');
 $assert(str_contains($iconMarkup, 'ariaLabel') && str_contains($iconMarkup, 'Previous photograph'), 'icon-only button accessible name is retained in authored button attributes');
