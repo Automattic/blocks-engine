@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -42,6 +44,12 @@ final class ProjectedNavigationConverter implements ElementConverter
             && $this->retainsRuntimeButtonBinding($element);
         $projectedNavigation = $runtimeButton ? $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element) : null;
         if ( $runtimeButton && ! $projectedNavigation instanceof DOMElement ) {
+            // A capture close helper for a panel Core's overlay replaced
+            // closes nothing; the overlay brings its own close button.
+            if ( $this->navigationToggleSuppressor->isProjectedNavigationSuppressed($element) ) {
+                $this->supersedeRuntimeSelectorsForControl($element);
+                return ConversionOutcome::handled(null);
+            }
             // The runtime binding keeps ordinary wired controls interactive.
             // A hamburger whose menu the emitted core/navigation already owns
             // is not one: Core renders its own open button in the control's
@@ -61,6 +69,14 @@ final class ProjectedNavigationConverter implements ElementConverter
         $projectedNavigation ??= $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element);
         if ( $projectedNavigation instanceof DOMElement ) {
             $block = ($this->recognizePatterns)($projectedNavigation, $fallbacks, array(NavigationPattern::class));
+            // A landmark carrier is the panel's own box around its menu. The
+            // control's slot takes only that menu; Core's overlay is the panel.
+            if ( null !== $block && $this->navigationToggleSuppressor->isNavigationCarrier($projectedNavigation)
+                && 'core/group' === ($block['blockName'] ?? '')
+                && 1 === count($block['innerBlocks'] ?? array())
+                && 'core/navigation' === ($block['innerBlocks'][0]['blockName'] ?? '') ) {
+                $block = $block['innerBlocks'][0];
+            }
             if ( null !== $block ) {
                 $nativeClassNames = 'blocks-engine-list-navigation blocks-engine-native-responsive-navigation';
                 if ( $this->navigationToggleSuppressor->isImplicitDialogNavigationControl($element) ) {
@@ -205,6 +221,13 @@ final class ProjectedNavigationConverter implements ElementConverter
                 $hasUsableHeight = $hasUsableHeight || ( in_array($property, array( 'height', 'min-height' ), true) && $this->nativeNavigationToggleDimensionIsUsable($comparable) );
                 $declarations[] = $property . ':' . $comparable . '!important';
             }
+        }
+        // Core's own icon paints with currentColor. When the source artwork
+        // is not carried, its resting glyph colour still belongs to the icon.
+        $glyphColor = $isJumpMenu || null !== $source ? '' : $this->sourceGlyphColor($toggle);
+        if ( '' !== $glyphColor ) {
+            $declarations = array_values(array_filter($declarations, static fn (string $declaration): bool => ! str_starts_with($declaration, 'color:')));
+            $declarations[] = 'color:' . $glyphColor . '!important';
         }
         // A toggle carried by its own padding, border and an icon child keeps
         // that intrinsic box; the touch-target floor is for boxes with none.
@@ -390,7 +413,8 @@ final class ProjectedNavigationConverter implements ElementConverter
     public function responsiveNavigationOverlayAttributes(DOMElement $navigation): array
     {
         $attrs = array();
-        foreach ( $this->collapsedPanelChain($navigation) as $panel ) {
+        $panels = array_merge($this->navigationToggleSuppressor->controlledPanelBoxes($navigation), $this->collapsedPanelChain($navigation));
+        foreach ( $panels as $panel ) {
             $values = $this->styleResolver->collapsedViewportDeclarations($panel, array('background', 'background-color', 'color', 'text-align', 'align-items', 'flex-direction'));
             $background = '';
             foreach ( $values as $property => $value ) {
@@ -411,7 +435,7 @@ final class ProjectedNavigationConverter implements ElementConverter
                     if ( '' !== $justify ) $attrs['layout'] = array('type' => 'flex', 'justifyContent' => $justify);
                 }
             }
-            $paint = $this->portableCollapsedPaint($panel, $background);
+            $paint = $this->portableCollapsedPaint($panel, $this->backgroundColorLayer($panel, $background));
             if ( '' !== $paint ) $attrs['customOverlayBackgroundColor'] = $paint;
         }
 
@@ -530,6 +554,62 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return $chain;
+    }
+
+    /**
+     * The resting fill of a toggle's single drawn glyph at the collapsed
+     * viewport, as a portable colour, or ''. A glyph that paints with
+     * currentColor takes its own resolved text colour.
+     */
+    private function sourceGlyphColor(DOMElement $toggle): string
+    {
+        $glyph = null;
+        foreach ( $toggle->getElementsByTagName('svg') as $svg ) {
+            if ( ! $svg instanceof DOMElement || ! SourceDom::svgHasDrawableContent($svg) ) {
+                continue;
+            }
+            if ( null !== $glyph ) {
+                return '';
+            }
+            $glyph = $svg;
+        }
+        if ( ! $glyph instanceof DOMElement ) {
+            return '';
+        }
+        $fill = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->collapsedViewportAuthorDeclarations($glyph, array( 'fill' ))['fill'] ?? '')));
+        $fill = '' === $fill ? '' : $this->styleResolver->resolveCssVariablesAtViewport($fill, $glyph, StyleResolver::MOBILE_REFERENCE_WIDTH);
+        if ( 'currentcolor' === strtolower($fill) ) {
+            $fill = '';
+            for ( $node = $glyph; $node instanceof DOMElement; $node = $node->parentNode ) {
+                $color = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->collapsedViewportAuthorDeclarations($node, array( 'color' ))['color'] ?? '')));
+                if ( '' !== $color && ! in_array(strtolower($color), array( 'inherit', 'currentcolor' ), true) ) {
+                    $fill = $this->styleResolver->resolveCssVariablesAtViewport($color, $node, StyleResolver::MOBILE_REFERENCE_WIDTH);
+                    break;
+                }
+            }
+        }
+        $fill = trim($fill);
+
+        return null !== CssColor::parse($fill) && ! CssValueInspector::isTransparentColor($fill) ? $fill : '';
+    }
+
+    /**
+     * The colour layer of a background declaration, or ''. A shorthand such
+     * as a reset's `background:0 0` names a position, not a paint.
+     */
+    private function backgroundColorLayer(DOMElement $panel, string $value): string
+    {
+        $resolved = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $panel);
+        // A gradient is the paint itself; Core's overlay background takes it whole.
+        if ( preg_match('/^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i', trim($resolved)) ) {
+            return $value;
+        }
+        $colors = array_values(array_filter(
+            CssValueSplitter::splitTopLevelWhitespace(trim($resolved)),
+            static fn (string $token): bool => null !== CssColor::parse($token)
+        ));
+
+        return 1 === count($colors) ? $colors[0] : '';
     }
 
     /** A collapsed-state colour value that can be restated away from the source stylesheet, or ''. */

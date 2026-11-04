@@ -8,6 +8,18 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
  */
 final class CssStylesheetTransformer
 {
+    private CssRuleTreeCache $localTrees;
+
+    public function __construct()
+    {
+        $this->localTrees = new CssRuleTreeCache();
+    }
+
+    private function tree(string $css): CssRuleTree
+    {
+        return CssRuleTreeCache::parse($css, $this->localTrees);
+    }
+
     /**
      * Transform selector preludes in style rules, retaining all other source bytes.
      *
@@ -60,19 +72,11 @@ final class CssStylesheetTransformer
         }
         $parts = array();
         $start = 0;
-        $offset = 0;
-        while ( null !== ($boundary = $this->nextRuleBoundary($body, $offset)) ) {
-            if ( ';' === $body[$boundary] ) {
-                $offset = $boundary + 1;
-                continue;
-            }
-            $end = $this->matchingBrace($body, $boundary);
-            if ( null === $end ) {
-                return array(array('declarations' => $body));
-            }
+        foreach ($this->tree($body)->rules() as $rule) {
+            ['start' => $offset, 'boundary' => $boundary, 'end' => $end] = $rule;
+            if (';' === $body[$boundary]) continue;
             $prelude = substr($body, $offset, $boundary - $offset);
             if ( preg_match('/^(?:\s|\/\*.*?\*\/)*--[^\s:]+\s*:/s', $prelude) ) {
-                $offset = $end + 1;
                 continue;
             }
             $declarations = substr($body, $start, $offset - $start);
@@ -84,7 +88,7 @@ final class CssStylesheetTransformer
                 'body' => substr($body, $boundary + 1, $end - $boundary - 1),
                 'at_rule' => $this->isAtRule($prelude) ? self::atRuleName($prelude) : '',
             );
-            $start = $offset = $end + 1;
+            $start = $end + 1;
         }
         if ( $start < strlen($body) ) {
             $parts[] = array('declarations' => substr($body, $start));
@@ -897,37 +901,29 @@ final class CssStylesheetTransformer
      */
     private function collectRuleUnits(string $css, array $context, array &$units): void
     {
-        $offset = 0;
-        $length = strlen($css);
-        while ( $offset < $length ) {
-            $boundary = $this->nextRuleBoundary($css, $offset);
-            if ( null === $boundary ) {
-                if ( '' !== trim(substr($css, $offset)) ) {
-                    $units[] = array( 'context' => $context, 'text' => substr($css, $offset), 'dedupable' => false );
-                }
-                return;
-            }
-            $end = ';' === $css[ $boundary ] ? $boundary : $this->matchingBrace($css, $boundary);
-            if ( null === $end ) {
-                $units[] = array( 'context' => $context, 'text' => substr($css, $offset), 'dedupable' => false );
-                return;
-            }
-            $prelude = substr($css, $offset, $boundary - $offset);
+        $this->collectTreeUnits($this->tree($css), -1, $context, $units);
+    }
+
+    private function collectTreeUnits(CssRuleTree $tree, int $scope, array $context, array &$units): void
+    {
+        $css = $tree->source;
+        $offset = $scope + 1;
+        foreach ($tree->rules($scope) as $rule) {
+            ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
+            $prelude = substr($css, $start, $boundary - $start);
             $atRule = $this->isAtRule($prelude) ? self::atRuleName($prelude) : '';
-            // A layer block is kept whole: distinct blocks can be distinct layers.
-            if ( '{' === $css[ $boundary ] && '' !== $atRule && 'layer' !== $atRule && $this->walksNestedRules($prelude) ) {
+            if ('{' === $css[$boundary] && '' !== $atRule && 'layer' !== $atRule && $this->walksNestedRules($prelude)) {
                 $nested = $context;
                 $nested[] = trim($prelude);
-                $this->collectRuleUnits(substr($css, $boundary + 1, $end - $boundary - 1), $nested, $units);
+                $this->collectTreeUnits($tree, $boundary, $nested, $units);
             } else {
-                $units[] = array(
-                    'context'   => $context,
-                    'text'      => substr($css, $offset, $end - $offset + 1),
-                    'dedupable' => ! in_array($atRule, array( 'charset', 'import', 'layer', 'namespace' ), true),
-                );
+                $units[] = array('context' => $context, 'text' => substr($css, $start, $end - $start + 1), 'dedupable' => !in_array($atRule, array('charset', 'import', 'layer', 'namespace'), true));
             }
             $offset = $end + 1;
         }
+        $limit = -1 === $scope ? strlen($css) : $tree->blockEnd($scope);
+        $tail = substr($css, $offset, $limit - $offset);
+        if ('' !== trim($tail)) $units[] = array('context' => $context, 'text' => $tail, 'dedupable' => false);
     }
 
     /**
@@ -999,93 +995,71 @@ final class CssStylesheetTransformer
      */
     private function transformRules(string $css, callable $transformSelectorPrelude, ?callable $transformStyleRule, bool $walkNested = true, array $ancestors = array()): string
     {
+        $tree = $this->tree($css);
+        return $this->renderTree($tree, -1, $transformSelectorPrelude, $transformStyleRule, $walkNested, $ancestors);
+    }
+
+    private function renderTree(CssRuleTree $tree, int $scope, callable $selector, ?callable $style, bool $walkNested, array $ancestors): string
+    {
+        $css = $tree->source;
+        $offset = $scope + 1;
+        $limit = -1 === $scope ? strlen($css) : $tree->blockEnd($scope);
         $output = '';
-        $offset = 0;
-        $length = strlen($css);
-
-        while ( $offset < $length ) {
-            $boundary = $this->nextRuleBoundary($css, $offset);
-            if ( null === $boundary ) {
-                return $output . substr($css, $offset);
-            }
-
-            $token = $css[ $boundary ];
-            if ( ';' === $token ) {
-                $output .= substr($css, $offset, $boundary - $offset + 1);
-                $offset = $boundary + 1;
-                continue;
-            }
-
-            $blockEnd = $this->matchingBrace($css, $boundary);
-            if ( null === $blockEnd ) {
-                return $output . substr($css, $offset);
-            }
-
-            $prelude = substr($css, $offset, $boundary - $offset);
-            if ( $this->isAtRule($prelude) ) {
-                $output .= $prelude . '{';
-                $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
-                $nestedAncestors = $ancestors;
-                $nestedAncestors[] = trim($prelude);
-                $output .= $walkNested && $this->walksNestedRules($prelude) ? $this->transformRules($body, $transformSelectorPrelude, $transformStyleRule, true, $nestedAncestors) : $body;
-                $output .= '}';
-            } elseif ( $this->isStylePrelude($prelude) ) {
-                $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
-                if ( null !== $transformStyleRule ) {
-                    $output .= $transformStyleRule($prelude, $body, $ancestors);
-                } else {
-                    $transformed = $transformSelectorPrelude($prelude, $body, $ancestors);
-                    if ( is_array($transformed) ) {
-                        foreach ( $transformed as $rule ) {
-                            $output .= $rule['prelude'] . '{' . $rule['body'] . '}';
-                        }
-                    } else {
-                        $output .= $transformed . '{' . $body . '}';
-                    }
+        foreach ($tree->rules($scope) as $rule) {
+            ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
+            if (';' === $css[$boundary]) continue;
+            $prelude = substr($css, $start, $boundary - $start);
+            $body = substr($css, $boundary + 1, $end - $boundary - 1);
+            $replacement = null;
+            if ($this->isAtRule($prelude)) {
+                if ($walkNested && $this->walksNestedRules($prelude)) {
+                    $nested = $ancestors;
+                    $nested[] = trim($prelude);
+                    $changed = $this->renderTree($tree, $boundary, $selector, $style, true, $nested);
+                    if ($changed !== $body) $replacement = $prelude . '{' . $changed . '}';
                 }
-            } else {
-                $output .= substr($css, $offset, $blockEnd - $offset + 1);
+            } elseif ($this->isStylePrelude($prelude)) {
+                if (null !== $style) $replacement = $style($prelude, $body, $ancestors);
+                else {
+                    $changed = $selector($prelude, $body, $ancestors);
+                    if (is_array($changed)) {
+                        $replacement = '';
+                        foreach ($changed as $part) $replacement .= $part['prelude'] . '{' . $part['body'] . '}';
+                    } elseif ($changed !== $prelude) $replacement = $changed . '{' . $body . '}';
+                }
             }
-
-            $offset = $blockEnd + 1;
+            if (null !== $replacement) {
+                $output .= substr($css, $offset, $start - $offset) . $replacement;
+                $offset = $end + 1;
+            }
         }
-
-        return $output;
+        return $output . substr($css, $offset, $limit - $offset);
     }
 
     /** @param callable(string, string, list<string>): void $visitStyleRule @param callable(string, string): void|null $visitKeyframes @param list<string> $ancestors */
     private function visitRules(string $css, callable $visitStyleRule, ?callable $visitKeyframes, array $ancestors): void
     {
-        $offset = 0;
-        $length = strlen($css);
-        while ($offset < $length) {
-            $boundary = $this->nextRuleBoundary($css, $offset);
-            if (null === $boundary || ';' === $css[$boundary]) {
-                $offset = null === $boundary ? $length : $boundary + 1;
-                continue;
-            }
-            $blockEnd = $this->matchingBrace($css, $boundary);
-            if (null === $blockEnd) {
-                return;
-            }
-            $prelude = CssSyntaxScanner::withoutComments(substr($css, $offset, $boundary - $offset));
-            $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
+        $this->visitTree($this->tree($css), -1, $visitStyleRule, $visitKeyframes, $ancestors);
+    }
+
+    private function visitTree(CssRuleTree $tree, int $scope, callable $visitStyleRule, ?callable $visitKeyframes, array $ancestors): void
+    {
+        foreach ($tree->rules($scope) as $rule) {
+            ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
+            if (';' === $tree->source[$boundary]) continue;
+            $prelude = CssSyntaxScanner::withoutComments(substr($tree->source, $start, $boundary - $start));
+            $body = substr($tree->source, $boundary + 1, $end - $boundary - 1);
             if ($this->isAtRule($prelude)) {
                 $name = self::atRuleName($prelude);
                 if (null !== $visitKeyframes && ('keyframes' === $name || str_ends_with($name, '-keyframes'))) {
                     $animationName = self::keyframesAnimationName($prelude);
-                    if ('' !== $animationName) {
-                        $visitKeyframes($animationName, $body);
-                    }
+                    if ('' !== $animationName) $visitKeyframes($animationName, $body);
                 } elseif ($this->walksNestedRules($prelude)) {
                     $nested = $ancestors;
                     $nested[] = trim($prelude);
-                    $this->visitRules($body, $visitStyleRule, $visitKeyframes, $nested);
+                    $this->visitTree($tree, $boundary, $visitStyleRule, $visitKeyframes, $nested);
                 }
-            } elseif ($this->isStylePrelude($prelude)) {
-                $visitStyleRule($prelude, $body, $ancestors);
-            }
-            $offset = $blockEnd + 1;
+            } elseif ($this->isStylePrelude($prelude)) $visitStyleRule($prelude, $body, $ancestors);
         }
     }
 
@@ -1102,47 +1076,7 @@ final class CssStylesheetTransformer
 
     private function nextRuleBoundary(string $css, int $offset): ?int
     {
-        $state  = CssSyntaxScanner::state();
-        $length = strlen($css);
-        for ( $index = $offset; $index < $length; ++$index ) {
-            $index = CssSyntaxScanner::inertEnd($css, $index, $state, '{;');
-            if ( $index >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $index, $state);
-            if ( null === $next ) {
-                return null;
-            }
-            if ( $topLevel && $next === $index + 1 && ('{' === $css[ $index ] || ';' === $css[ $index ]) ) {
-                return $index;
-            }
-            $index = $next - 1;
-        }
-
-        return null;
-    }
-
-    private function matchingBrace(string $css, int $openingBrace): ?int
-    {
-        $state  = CssSyntaxScanner::state();
-        $depth  = 0;
-        $length = strlen($css);
-        for ( $index = $openingBrace; $index < $length; ++$index ) {
-            $index = CssSyntaxScanner::inertEnd($css, $index, $state, '{}');
-            if ( $index >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $index, $state);
-            if ( null === $next ) {
-                return null;
-            }
-            if ( $topLevel && $next === $index + 1 && '{' === $css[ $index ] ) {
-                ++$depth;
-            } elseif ( $topLevel && $next === $index + 1 && '}' === $css[ $index ] && 0 === --$depth ) {
-                return $index;
-            }
-            $index = $next - 1;
-        }
-
-        return null;
+        return $this->tree($css)->nextBoundary($offset);
     }
 
     private function isAtRule(string $prelude): bool
@@ -1167,86 +1101,16 @@ final class CssStylesheetTransformer
 
     private function isWellFormedStylesheet(string $css): bool
     {
-        $state = CssSyntaxScanner::state();
-        $braces = 0;
-        $length = strlen($css);
-        for ( $offset = 0; $offset < $length; ) {
-            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state, '{}');
-            if ( $offset >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($css, $offset, $state);
-            if ( null === $next ) {
-                return false;
-            }
-            if ( $topLevel && $next === $offset + 1 ) {
-                if ( '{' === $css[ $offset ] ) {
-                    ++$braces;
-                } elseif ( '}' === $css[ $offset ] ) {
-                    if ( --$braces < 0 ) {
-                        return false;
-                    }
-                }
-            }
-            $offset = $next;
-        }
-        return 0 === $braces && CssSyntaxScanner::isComplete($state);
+        return $this->tree($css)->wellFormed;
     }
 
     private static function firstSignificantCharacter(string $value): string
     {
-        $state = CssSyntaxScanner::state();
-        $length = strlen($value);
-        for ( $offset = 0; $offset < $length; ) {
-            $end = CssSyntaxScanner::inertEnd($value, $offset, $state);
-            if ( $end > $offset ) {
-                if ( CssSyntaxScanner::isTopLevel($state) ) {
-                    $significant = $offset + strspn($value, " \t\n\r\f", $offset, $end - $offset);
-                    if ( $significant < $end ) {
-                        return $value[ $significant ];
-                    }
-                }
-                $offset = $end;
-                continue;
-            }
-            $next = CssSyntaxScanner::consume($value, $offset, $state);
-            if ( null === $next ) {
-                return '';
-            }
-            if ( $next === $offset + 1 && CssSyntaxScanner::isTopLevel($state) && ! CssSyntaxScanner::isCssWhitespace($value[ $offset ]) ) {
-                return $value[ $offset ];
-            }
-            $offset = $next;
-        }
-        return '';
+        return substr(ltrim(CssSyntaxScanner::withoutComments($value), " \t\n\r\f"), 0, 1);
     }
 
     private static function atRuleName(string $prelude): string
     {
-        $state = CssSyntaxScanner::state();
-        $length = strlen($prelude);
-        $seenAt = false;
-        $name = '';
-        for ( $offset = 0; $offset < $length; ) {
-            $next = CssSyntaxScanner::consume($prelude, $offset, $state);
-            if ( null === $next ) {
-                return '';
-            }
-            if ( $next !== $offset + 1 || ! CssSyntaxScanner::isTopLevel($state) ) {
-                $offset = $next;
-                continue;
-            }
-            $character = $prelude[ $offset ];
-            if ( ! $seenAt ) {
-                if ( CssSyntaxScanner::isCssWhitespace($character) ) { $offset = $next; continue; }
-                if ( '@' !== $character ) { return ''; }
-                $seenAt = true;
-            } elseif ( ctype_alpha($character) || '-' === $character ) {
-                $name .= strtolower($character);
-            } else {
-                return $name;
-            }
-            $offset = $next;
-        }
-        return $name;
+        return preg_match('/^\s*@([a-z-]+)/i', CssSyntaxScanner::withoutComments($prelude), $match) ? strtolower($match[1]) : '';
     }
 }

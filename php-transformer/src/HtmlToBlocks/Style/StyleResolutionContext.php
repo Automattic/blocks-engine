@@ -17,7 +17,6 @@ use DOMElement;
 final class StyleResolutionContext
 {
     /**
-     * @param Closure(DOMElement): int                 $cardLikeChildCount
      * @param Closure(string): string                  $cssComparableValue
      * @param Closure(string): array<string, mixed>    $parsedCssSelector
      * @param Closure(string): string                  $promotedClassName
@@ -26,7 +25,6 @@ final class StyleResolutionContext
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $cardLikeChildCount,
         private readonly Closure $cssComparableValue,
         private readonly Closure $parsedCssSelector,
         private readonly Closure $promotedClassName,
@@ -68,11 +66,6 @@ final class StyleResolutionContext
     public function transformationEvidence(): TransformationEvidenceState
     {
         return $this->session->transformationEvidenceState();
-    }
-
-    public function cardLikeChildCount(DOMElement $element): int
-    {
-        return ($this->cardLikeChildCount)($element);
     }
 
     public function cssComparableValue(string $value): string

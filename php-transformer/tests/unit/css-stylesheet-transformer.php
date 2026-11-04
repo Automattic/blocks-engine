@@ -239,6 +239,15 @@ foreach (array($markedShared . "\n" . $markedDelta, $markedPage . $markedShared)
 }
 $assert($sheets[0] === $sheets[1], 'split shared and delta stylesheets resolve identically to the source sheet');
 
+// Dynamic blocks render their className on the front end only, so a rule
+// naming that class may still compete: re-emitting a base rule keeps the
+// later responsive override that it lost to in the shared sheet.
+$dynamicDocument = new DOMDocument();
+@$dynamicDocument->loadHTML('<html><body><nav class="menu"><!-- wp:navigation-link {"label":"About","url":"/about/","className":"menu-link"} /--></nav></body></html>');
+$dynamicIndex = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex(array('page' => $dynamicDocument));
+$dynamicShared = '.menu-link{color:#fff;width:100%}@media (min-width:1280px){.menu-link{width:auto}}';
+$assert(':where(.menu){color:red}' . $dynamicShared === $transformer->rulesAbsentFrom(array(':where(.menu){color:red}' . $dynamicShared), array($dynamicShared), true, $dynamicIndex, 'page'), 'a re-emitted dynamic-block rule keeps the later override it lost to');
+
 $compact = static fn(string $list): string => \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::compact($list);
 $assert('.catalog :is(.one,.two,.three)' === $compact('.catalog .one,.catalog .two,.catalog .three'), 'equal-weight compounds factor once');
 foreach ( array(

@@ -39,6 +39,12 @@ fixture and fails when any count moves:
 COMPOSER_PROCESS_TIMEOUT=0 composer topology-diff -- --update-baseline tools/topology-diff/baseline.json
 ```
 
+Regenerate the baseline from the merged tree using CI's topology runtime (PHP
+8.4, with the same libxml version). `DOMDocument` recovery of malformed HTML can
+differ between libxml versions: for example, `30-cursed-pangolin-fanwiki` has
+multiple document roots and a trailing `<plaintext>` element. A refresh with a
+newer parser can record different counts even when transformer code is unchanged.
+
 Run one shard locally with `--shard <i>/4 --baseline tools/topology-diff/baseline.json`.
 
 ## Divergence kinds

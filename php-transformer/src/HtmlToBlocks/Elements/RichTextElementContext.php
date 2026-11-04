@@ -33,6 +33,7 @@ final class RichTextElementContext
      * @param Closure(string): array<int, array<string, mixed>>                                              $convertText
      * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>>   $convertChildren
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $emptyInlineGeometryBlock
+     * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $mediaBlockFromTextlessHeading
      */
     public function __construct(
         private readonly ElementPresentationResolver $presentationResolver,
@@ -51,7 +52,8 @@ final class RichTextElementContext
         private readonly Closure $convertChildren,
         private readonly ?Closure $emptyInlineGeometryBlock = null,
         private readonly ?Closure $nativeDisclosureBlock = null,
-        private readonly ?Closure $decorativeSvgBlock = null
+        private readonly ?Closure $decorativeSvgBlock = null,
+        private readonly ?Closure $mediaBlockFromTextlessHeading = null
     ) {
     }
 
@@ -221,5 +223,18 @@ final class RichTextElementContext
     public function nativeDisclosureBlock(DOMElement $element, array &$fallbacks): ?array
     {
         return null === $this->nativeDisclosureBlock ? null : ($this->nativeDisclosureBlock)($element, $fallbacks);
+    }
+
+    /**
+     * A heading with no text whose only content is one media element lowers
+     * that element through the shared media routes (embed, image) instead of
+     * keeping an inline heading image or a core/html island.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    public function mediaBlockFromTextlessHeading(DOMElement $element, array &$fallbacks): ?array
+    {
+        return null === $this->mediaBlockFromTextlessHeading ? null : ($this->mediaBlockFromTextlessHeading)($element, $fallbacks);
     }
 }

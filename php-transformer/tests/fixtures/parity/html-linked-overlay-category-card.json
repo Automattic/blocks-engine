@@ -16,7 +16,7 @@
     "content": "<div class=\"category-grid\"><a class=\"category-card overlay-card\" href=\"/category/design\" aria-label=\"Read design category\"><div class=\"card__bg\"><img src=\"/images/design.jpg\" alt=\"Design desk\"></div><div class=\"overlay\"><p class=\"category-card__label\">Design</p><h2>Sharp Visual Systems</h2><p>Patterns for expressive page sections.</p></div></a><a class=\"category-card overlay-card\" href=\"/category/build\"><div class=\"card__bg\"><img src=\"/images/build.jpg\" alt=\"Build tools\"></div><div class=\"content\"><p class=\"category-card__label\">Build</p><h2>Production Workflows</h2><p>Ship reliable experiences from compiled artifacts.</p></div></a></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "category-grid", "layout": { "type": "grid" } } },
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "category-grid" } },
     { "path": "blocks.0.innerBlocks.0", "name": "custom/layout-shell", "attrs": { "wrappers": [{ "tagName": "a", "attributes": { "aria-label": "Read design category", "class": "category-card overlay-card", "href": "/category/design" } }] } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "card__bg" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "overlay" } },
