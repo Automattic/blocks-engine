@@ -1386,8 +1386,27 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $this->rememberNativeDisclosure($element);
                 }
                 return $block;
-            }
+            },
+            fn (DOMElement $element): ?array => $this->decorativeTextSvgBlock($element)
         );
+    }
+
+    /** @return array<string, mixed>|null */
+    private function decorativeTextSvgBlock(DOMElement $element): ?array
+    {
+        if (!SourceDom::isSafeSvgContent(SourceDom::outerHtml($element)) || !SvgMaterializer::isPassiveSvgMarkup($element)) {
+            return null;
+        }
+        foreach ($element->attributes as $attribute) {
+            if (str_starts_with(strtolower($attribute->name), 'aria-') || in_array(strtolower($attribute->name), array('role', 'tabindex'), true)) {
+                return null;
+            }
+        }
+        $declarations = $this->styleResolver->presentationDeclarations($element);
+        if ('absolute' !== strtolower(trim((string) ($declarations['position'] ?? '')))) {
+            return null;
+        }
+        return $this->svgArtworkBlock($element, $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($element)));
     }
 
     /**
