@@ -4276,8 +4276,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $customImage = SourceDom::imageOnlyCustomElement($element);
         if ( $customImage instanceof DOMElement ) {
             $this->imageDimensions()->fillParentImageViewportPair($customImage);
+            if ('' === $this->imageSourceUrl($customImage) && !$customImage->hasAttribute('srcset')) {
+                return null;
+            }
             if ( ! $this->canPromoteImageOnlyCustomElement($element, $customImage) ) {
-                return $this->responsiveMediaBlock($element);
+                return $this->nativeImageInCustomHost($element, $customImage) ?? $this->responsiveMediaBlock($element);
             }
             $picture = $customImage->parentNode;
             return $this->convertImageElement(
@@ -10887,6 +10890,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture, $anchor) : null;
         }
         if ( ! $image instanceof DOMElement && 0 < $anchor->getElementsByTagName('img')->length ) {
+            $host = $this->elementElementChildren($anchor);
+            if (1 === count($host) && ($customImage = SourceDom::imageOnlyCustomElement($host[0])) instanceof DOMElement) {
+                $media = $this->nativeImageInCustomHost($host[0], $customImage);
+                if (null !== $media) {
+                    return $this->layoutShellBlockForElements(array($anchor), array($media), $anchor);
+                }
+            }
             return $this->responsiveMediaBlock($anchor);
         }
         return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
@@ -11831,11 +11841,63 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $src;
     }
 
-    /**
-     * A core/image save is a block figure, not a custom-element host. Only erase
-     * a host when its box and identity are provably inert after that substitution.
-     * Everything else stays in responsive media, which preserves the source DOM.
-     */
+    /** Retain a static host box around independently editable native media. */
+    private function nativeImageInCustomHost(DOMElement $host, DOMElement $image): ?array
+    {
+        // Retain inline hosts and metadata-backed captured media boxes.
+        // Ordinary block hosts keep the conservative clipping/crop policy;
+        // interactive hosts must keep their original inline control topology.
+        if (!$this->isSafeTransparentCustomElement($host)
+            || ($this->hasBlockFigureDisplay($host) && !$host->hasAttribute('data-image-info'))
+            || $this->ancestorElement($host, 'button') instanceof DOMElement
+            || $this->runtimeIslands->isRuntimeDomTarget($host)
+            || array() !== $this->interactiveAttributes($host)
+            || $this->hasAuthorSemanticMarker($host)) {
+            return null;
+        }
+        // Unknown host data may describe presentation that native media does
+        // not model. Only the already-understood image metadata permits that
+        // boundary to be split into a retained shell and editable image.
+        if (!$host->hasAttribute('data-image-info')) {
+            foreach ($host->attributes as $attribute) {
+                if (str_starts_with(strtolower($attribute->name), 'data-')) {
+                    return null;
+                }
+            }
+        }
+        $picture = $image->parentNode;
+        if ($picture instanceof DOMElement && 'picture' === strtolower($picture->tagName)
+            && $this->sourceElementClassifier->hasPictureSourceSelection($picture)) {
+            return null;
+        }
+        $block = $this->convertImageElement($image);
+        if (null === $block || 'core/image' !== $block['blockName']) {
+            return null;
+        }
+        if ($this->hasCropFocusThatCoreImageCannotCarry($image)) {
+            $shape = $this->styleResolver->imageShapeDeclarations($image);
+            $position = CssValueInspector::carriableDeclarationValue((string) ($shape['object-position']['value'] ?? ''));
+            if ('' !== $position) {
+                $carrier = $this->layoutGeometry()->allocateCarrier('custom-host-image-position' . "\n" . $position);
+                $this->layoutGeometry()->registerRule($carrier, '.' . $carrier . '{object-position:' . $position . '}.' . $carrier . ' img{object-position:inherit}');
+                $block['attrs']['className'] = $this->mergeClassNames((string) ($block['attrs']['className'] ?? ''), $carrier);
+                $block = $this->blockFactory->rebuild($block, $block['attrs']);
+            }
+        }
+        $block['attrs']['className'] = $this->mergeClassNames((string) ($block['attrs']['className'] ?? ''), 'blocks-engine-custom-host-image');
+        $block = $this->blockFactory->rebuild($block, $block['attrs']);
+        // Preserve the host's box and identity separately from the editable
+        // image. In particular an id and captured image metadata are not a
+        // reason to make the image itself an opaque HTML editing surface.
+        $this->authorSelectorProjections()->ensureTagMarker(strtolower($host->tagName));
+        $wrappers = array($host);
+        if ($picture instanceof DOMElement && $picture !== $host) {
+            $wrappers[] = $picture;
+        }
+        return $this->layoutShellBlockForElements($wrappers, array($block), $host);
+    }
+
+    /** Only erase the host when its box and identity are inert. */
     private function canPromoteImageOnlyCustomElement(DOMElement $host, DOMElement $image): bool
     {
         if ( ! $this->hasOnlyInertImageHostAttributes($host)

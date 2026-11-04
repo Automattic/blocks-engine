@@ -178,7 +178,8 @@ foreach (array(
     'script-referenced data hook' => '<media-frame data-hook="profile-image" style="display:block"><img src="profile.png" alt="Profile"></media-frame><script>document.querySelector("[data-hook]")</script>',
 ) as $name => $source) {
     $candidate = ( new HtmlTransformer() )->transform($source)->toArray();
-    $assert(in_array('custom/responsive-media', array_column($candidate['blocks'] ?? array(), 'blockName'), true), $name . ' remains responsive media rather than silently losing host semantics');
+    $carrier = 'inline custom host' === $name ? 'custom/layout-shell' : 'custom/responsive-media';
+    $assert(in_array($carrier, array_column($candidate['blocks'] ?? array(), 'blockName'), true), $name . ' retains host semantics in its appropriate carrier');
 }
 
 $centeredDataHost = ( new HtmlTransformer() )->transform('<media-frame data-image-info="{}" style="display:block"><img src="profile.png" style="object-fit:cover;object-position:50% 50%" alt="Profile"></media-frame>')->toArray();
@@ -198,7 +199,7 @@ $assert('core/html' === ($inlineFlow['blocks'][0]['blockName'] ?? null) && str_c
 
 $wrappedSource = '<a class="profile-link" href="/profile" target="_blank" rel="noopener"><media-frame class="profile-frame" data-image-info="bounded"><img class="profile-image" src="profile.png" width="30" height="30" alt="Profile"></media-frame></a>';
 $wrapped = ( new HtmlTransformer() )->transform($wrappedSource)->toArray();
-$assert('custom/responsive-media' === ($wrapped['blocks'][0]['blockName'] ?? null) && str_contains((string) ($wrapped['blocks'][0]['attrs']['content'] ?? ''), '<a class="profile-link" href="/profile"') && str_contains((string) ($wrapped['blocks'][0]['attrs']['content'] ?? ''), '<img class="profile-image" src="profile.png"'), 'a linked custom image wrapper remains a carrier when its source topology cannot be lowered to core/image');
+$assert('custom/layout-shell' === ($wrapped['blocks'][0]['blockName'] ?? null) && str_contains($wrapped['serialized_blocks'], 'href="/profile"') && str_contains($wrapped['serialized_blocks'], 'profile.png'), 'a linked custom image wrapper retains its link around native image content');
 
 $nestedWrappedSource = '<a href="/profile"><div class="crop" style="overflow:hidden"><media-frame data-image-info="bounded"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame></div></a>';
 $nestedWrapped = ( new HtmlTransformer() )->transform($nestedWrappedSource)->toArray();
@@ -213,7 +214,7 @@ $srcsetContent = (string) ($srcsetWrapper['blocks'][0]['attrs']['content'] ?? ''
 $assert('custom/responsive-media' === ($srcsetWrapper['blocks'][0]['blockName'] ?? null) && str_contains($srcsetContent, 'srcset="profile.png 1x, profile-2x.png 2x"') && str_contains($srcsetContent, 'sizes="30px"'), 'responsive candidates remain responsive media because core/image cannot serialize srcset or sizes');
 
 $selectorDependentWrapper = ( new HtmlTransformer() )->transform('<style>.media-frame .media-image{border-radius:50%}</style><a href="/profile"><media-frame class="media-frame"><img class="media-image" src="profile.png" alt="Profile"></media-frame></a>')->toArray();
-$assert('custom/responsive-media' === ($selectorDependentWrapper['blocks'][0]['blockName'] ?? null), 'a custom wrapper whose descendant selector would change remains responsive media');
+$assert('custom/layout-shell' === ($selectorDependentWrapper['blocks'][0]['blockName'] ?? null), 'a custom wrapper keeps descendant selector identity around native image content');
 
 $deferredHost = ( new HtmlTransformer() )->transform('<wow-image class="_wowImage" data-image-info="{&quot;alignType&quot;:&quot;center&quot;,&quot;imageData&quot;:{&quot;name&quot;:&quot;Logo.png&quot;,&quot;url&quot;:&quot;https://cdn.example.test/logo.png&quot;,&quot;alt&quot;:&quot;Logo.png&quot;}}"><picture><img alt="Logo.png"></picture></wow-image>')->toArray();
 $deferredContent = (string) ($deferredHost['blocks'][0]['attrs']['content'] ?? $deferredHost['serialized_blocks'] ?? '');
