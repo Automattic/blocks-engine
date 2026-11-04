@@ -105,8 +105,8 @@ final class SvgElementConverter implements ElementConverter
 
         // An SVG whose only content is one foreignObject-wrapped text element
         // (the "fit text" technique) is the text it renders, not artwork: lower
-        // it to the native text block instead of the inline-SVG fallback that
-        // renders nothing.
+        // it to a group holding the native text block instead of the inline-SVG
+        // fallback that renders nothing.
         $textBlock = $this->context->foreignObjectTextBlock($element, $fallbacks);
         if ( null !== $textBlock ) {
             return ConversionOutcome::handled($textBlock);

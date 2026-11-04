@@ -8334,9 +8334,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * box that paints nothing and survives sanitization as an empty graphic, so
      * it used to fall back as metadata that rendered nothing. The inner p,
      * heading, or phrasing-only div/span converts through the ordinary
-     * rich-text path instead; core's fit-text support (`fitText: true`, saved
-     * with the `has-fit-text` class) re-fits the line to its container, and the
-     * SVG's own class keeps sizing the line the box sized.
+     * rich-text path inside a core/group that carries the SVG's own class and
+     * presentation: author rules target the text as a descendant of that class
+     * (`.fit p`), so merging the class onto the text block itself would sever
+     * every one of them. The group keeps the source element relationship — the
+     * authored `.fit` sizing applies to the box fit text measures and `.fit p`
+     * still reaches the text. Core's fit-text support (`fitText: true`) re-fits
+     * the line to that container; it adds the `has-fit-text` class itself in
+     * save and server render, so the class is never baked into `className`.
      *
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
@@ -8356,9 +8361,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $attrs = $block['attrs'];
         $attrs['fitText'] = true;
-        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceDom::attr($svg, 'class'), 'has-fit-text');
 
-        return $this->blockFactory->rebuild($block, $attrs);
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($svg), array($this->blockFactory->rebuild($block, $attrs)), $svg);
     }
 
     /**

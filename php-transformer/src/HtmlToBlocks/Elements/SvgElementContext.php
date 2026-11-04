@@ -90,8 +90,9 @@ final class SvgElementContext
     }
 
     /**
-     * The native text block a foreignObject-only fit-text SVG lowers to, or
-     * null when the SVG is not that shape.
+     * The core/group a foreignObject-only fit-text SVG lowers to — it holds the
+     * SVG's presentation and the native text block — or null when the SVG is
+     * not that shape.
      *
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null

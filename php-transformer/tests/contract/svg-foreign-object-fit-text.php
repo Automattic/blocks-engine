@@ -4,6 +4,8 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 /**
@@ -15,14 +17,18 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
  * SVG itself paints nothing, survives sanitization as an empty graphic, and
  * used to fall back as metadata that rendered nothing. It lowers to the native
  * text block the inner element renders as — core/paragraph, or core/heading
- * for h1-h6 — with core's fit-text support (`"fitText":true`, saved with the
- * `has-fit-text` class) and the SVG's own class kept on the text block so the
- * authored box still sizes the line.
+ * for h1-h6 — held by a core/group that carries the SVG's own class and
+ * presentation. Author rules target the text as a descendant of that class
+ * (`.fit p`), so the class must stay on the container: merging it onto the
+ * text block itself would sever every one of them and the wordmark would
+ * render unstyled. Core's fit-text support (`"fitText":true`) adds the
+ * `has-fit-text` class itself in save and server render, so the emitted
+ * markup never bakes it into `className`.
  */
 
-$assert = static function (bool $condition, string $message): void {
+$assert = static function (bool $condition, string $message, string $detail = ''): void {
     if (! $condition) {
-        throw new RuntimeException($message);
+        throw new RuntimeException($message . ('' === $detail ? '' : "\n" . substr($detail, 0, 3000)));
     }
 };
 
@@ -41,17 +47,18 @@ $pageMarkUp = static function (array $result): string {
     return (string) (current($plan['pages'] ?? array())['canonical_block_markup'] ?? '');
 };
 
+/** Every block carrying fitText, paired with its immediate container block. */
 $fitBlocks = static function (string $page): array {
     $found = array();
-    $walk = static function (array $blocks) use (&$walk, &$found): void {
+    $walk = static function (array $blocks, ?array $container) use (&$walk, &$found): void {
         foreach ($blocks as $block) {
             if (true === ($block['attrs']['fitText'] ?? null)) {
-                $found[] = $block;
+                $found[] = array($block, $container);
             }
-            $walk($block['innerBlocks'] ?? array());
+            $walk($block['innerBlocks'] ?? array(), $block);
         }
     };
-    $walk((new Runtime())->parseBlocks($page));
+    $walk((new Runtime())->parseBlocks($page), null);
 
     return $found;
 };
@@ -71,39 +78,131 @@ $paragraphs = static function (string $page): array {
     return $found;
 };
 
+/** The emitted page markup parsed for selector matching. */
+$loadMarkup = static function (string $markup): DOMXPath {
+    $document = new DOMDocument();
+    $previous = libxml_use_internal_errors(true);
+    $document->loadHTML('<?xml encoding="utf-8" ?><!doctype html><html><body>' . $markup . '</body></html>');
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+
+    return new DOMXPath($document);
+};
+
+/** The nearest ancestor carrying a class, mirroring the source `.fit` box. */
+$bearerClassAncestor = static function (DOMElement $element, string $class): ?DOMElement {
+    for ($node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+        $classes = ' ' . preg_replace('/\s+/', ' ', trim($node->getAttribute('class'))) . ' ';
+        if (str_contains($classes, ' ' . $class . ' ')) {
+            return $node;
+        }
+    }
+
+    return null;
+};
+
+/** The front-end stylesheets the page loads, in document order. */
+$frontendCss = static function (array $result): string {
+    $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
+    $frontend = '';
+    foreach ($plan['assets'] ?? array() as $asset) {
+        if ('css' === ($asset['kind'] ?? null) && in_array($asset['stylesheet_target'] ?? 'both', array('frontend', 'both'), true)) {
+            $frontend .= (string) ($asset['content'] ?? '') . "\n";
+        }
+    }
+
+    return $frontend;
+};
+
+/** Every non-editor front-end rule that reaches $element, as declaration bodies. */
+$bodies = static function (DOMElement $element, string $frontend): array {
+    $matched = array();
+    (new CssStylesheetTransformer())->transformStyleRules($frontend, static function (string $prelude, string $body) use ($element, &$matched): string {
+        foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+            $selector = trim($selector);
+            if (str_contains($selector, '.editor-styles-wrapper')) {
+                continue;
+            }
+            $match = CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector));
+            if ($match['supported'] && $match['matches']) {
+                $matched[] = $body;
+                break;
+            }
+        }
+        return $prelude . '{' . $body . '}';
+    });
+
+    return $matched;
+};
+
+/** Whether one of the matched bodies declares the property (with var() fallbacks). */
+$declares = static function (array $bodies, string $property, string $value): bool {
+    $pattern = '/(?:^|;)\s*' . preg_quote($property, '/') . '\s*:\s*(?:' . preg_quote($value, '/') . '|var\([^;{}]*,\s*' . preg_quote($value, '/') . '\s*\))\s*(?:!important)?\s*(?:;|$)/i';
+    foreach ($bodies as $body) {
+        if (1 === preg_match($pattern, $body)) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
 foreach (array(
     'paragraph' => array(
-        'svg'       => '<svg class="fit" viewBox="0 0 83 16"><foreignObject width="100%" height="100%"><p>SCHWARTZ</p></foreignObject></svg>',
-        'rule'      => '.fit p{margin:0;color:#f5f3ee;font-family:sans-serif;font-weight:500;line-height:1em;white-space:nowrap}',
-        'blockName' => 'core/paragraph',
-        'saveTag'   => 'p',
+        'svg'        => '<svg class="fit" viewBox="0 0 83 16"><foreignObject width="100%" height="100%"><p>SCHWARTZ</p></foreignObject></svg>',
+        'rule'       => '.fit p{margin:0;color:#f5f3ee;font-family:sans-serif;font-weight:500;line-height:1em;white-space:nowrap}',
+        'blockName'  => 'core/paragraph',
+        'query'      => '//footer//p[contains(., "SCHWARTZ")]',
+        'boundStyle' => array('color', '#f5f3ee'),
+        'alsoBound'  => array('font-family', 'sans-serif'),
     ),
     'heading' => array(
-        'svg'       => '<svg class="fit" viewBox="0 0 83 16"><foreignObject width="100%" height="100%"><h2>SCHWARTZ</h2></foreignObject></svg>',
-        'rule'      => '.fit h2{margin:0}',
-        'blockName' => 'core/heading',
-        'level'     => 2,
-        'saveTag'   => 'h2',
+        'svg'        => '<svg class="fit" viewBox="0 0 83 16"><foreignObject width="100%" height="100%"><h2>SCHWARTZ</h2></foreignObject></svg>',
+        'rule'       => '.fit h2{margin:0}',
+        'blockName'  => 'core/heading',
+        'level'      => 2,
+        'query'      => '//footer//h2[contains(., "SCHWARTZ")]',
+        'boundStyle' => array('margin', '0'),
     ),
 ) as $label => $case) {
     $result = $compile($case['svg'], $case['rule']);
     $assert(! str_contains((string) json_encode($result), 'html_inline_svg_fallback'), "{$label}: the fit-text SVG is not routed to the inline SVG fallback.");
     $page = $pageMarkUp($result);
+    $assert(! str_contains($page, 'has-fit-text'), "{$label}: core owns the has-fit-text class; the emitted markup never bakes it in.", $page);
 
     $fit = $fitBlocks($page);
     $assert(1 === count($fit), "{$label}: exactly one block carries fitText.");
-    $block = $fit[0];
+    list($block, $container) = $fit[0];
     $assert($case['blockName'] === ($block['blockName'] ?? ''), "{$label}: the inner text element lowers to its native text block.");
     $assert(true === ($block['attrs']['fitText'] ?? null), "{$label}: the text block declares fitText.");
+    $assert(! preg_match('/(?:^| )(?:fit|has-fit-text)(?:$| )/', (string) ($block['attrs']['className'] ?? '')), "{$label}: the text block keeps only its own classes; the SVG's class stays on the container.");
     if (isset($case['level'])) {
         $assert($case['level'] === ($block['attrs']['level'] ?? null), "{$label}: the heading keeps the inner element's level.");
     }
-    $assert(str_contains($page, '"fitText":true'), "{$label}: the serialized comment declares \"fitText\":true.");
-    $assert(1 === preg_match('/<' . $case['saveTag'] . '[^>]*class="[^"]*\bfit\b[^"]*\bhas-fit-text\b[^"]*">SCHWARTZ</', $page), "{$label}: the saved markup carries the SVG's class and the has-fit-text class with the lowered text.");
 
-    $siblings = $paragraphs($page);
+    $assert('core/group' === ($container['blockName'] ?? ''), "{$label}: the text block sits inside a core/group container.", $page);
+    $assert(str_contains(' ' . (string) ($container['attrs']['className'] ?? '') . ' ', ' fit '), "{$label}: the container carries the SVG's own class.", $page);
+    $assert(str_contains($page, '"fitText":true'), "{$label}: the serialized comment declares \"fitText\":true.");
+
+    $textElement = $loadMarkup($page)->query($case['query'])->item(0);
+    $assert($textElement instanceof DOMElement, "{$label}: the lowered text is present in the saved markup.", $page);
+    $bearer = $bearerClassAncestor($textElement, 'fit');
+    $assert($bearer instanceof DOMElement && 'div' === $bearer->tagName, "{$label}: the saved text element sits inside the container that carries the SVG class.", $page);
+    $assert(! preg_match('/(?:^| )has-fit-text(?:$| )/', $textElement->getAttribute('class')), "{$label}: the saved text element's className does not contain has-fit-text.", $page);
+
+    // The author rule still binds: the compiled descendant selector matches the
+    // text element's position inside the emitted container.
+    $frontend = $frontendCss($result);
+    $assert('' !== trim($frontend), "{$label}: the page loads front-end styles.", $frontend);
+    $matchedBodies = $bodies($textElement, $frontend);
+    $assert($declares($matchedBodies, $case['boundStyle'][0], $case['boundStyle'][1]), "{$label}: the authored .fit descendant rule still reaches the lowered text.", $frontend);
+    if (isset($case['alsoBound'])) {
+        $assert($declares($matchedBodies, $case['alsoBound'][0], $case['alsoBound'][1]), "{$label}: the authored .fit descendant rule's styling survives the lowering.", $frontend);
+    }
+    $assert($declares($bodies($bearer, $frontend), 'display', 'block'), "{$label}: the authored .fit box rule still reaches the container.", $frontend);
+
     $sibling = null;
-    foreach ($siblings as $candidate) {
+    foreach ($paragraphs($page) as $candidate) {
         if (str_contains((string) ($candidate['innerHTML'] ?? ''), 'Footer text')) {
             $sibling = $candidate;
             break;
