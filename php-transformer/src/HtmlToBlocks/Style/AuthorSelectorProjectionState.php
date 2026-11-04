@@ -252,7 +252,7 @@ final class AuthorSelectorProjectionState
     /** Whether a selector addresses the served route's current-item state. */
     public function selectsCurrentNavigationState(string $selector): bool
     {
-        if (1 === preg_match('/\[\s*aria-current\b/i', $selector)) return true;
+        if (1 === preg_match('/\[\s*(?:aria-current\b|data-status\s*=\s*["\']?active\b)/i', $selector)) return true;
         preg_match_all('/\.((?:\\.|[A-Za-z0-9_-])+)/', $selector, $classes);
         foreach ($classes[1] as $class) {
             // Recognize class-only router state before a captured current item
@@ -260,6 +260,7 @@ final class AuthorSelectorProjectionState
             // a source subject marker that none of its resting peers receives.
             // A container named current-menu is not an item-state signal.
             if (isset($this->currentNavigationClasses[stripslashes($class)])
+                || in_array(strtolower(stripslashes($class)), array('current-menu-item', 'current_page_item', 'current-menu-ancestor', 'current_page_parent', 'current-menu-parent'), true)
                 || (MenuVocabulary::containsCurrentStateToken(stripslashes($class))
                     && (!MenuVocabulary::containsMenuToken(stripslashes($class)) || str_contains($class, 'item')))) return true;
         }

@@ -153,17 +153,27 @@ final class DeclarationAddressedClasses
      */
     public function rewrite(mixed $value, array $replacements): mixed
     {
+        $paths = array_filter($replacements, static fn (string $key): bool => str_starts_with($key, 'assets/css/'), ARRAY_FILTER_USE_KEY);
+        return $this->rewriteValue($value, $replacements, $paths);
+    }
+
+    /**
+     * Partition the replacement map once, not once per scalar compilation fact.
+     * @param array<string, string> $replacements
+     * @param array<string, string> $paths
+     */
+    private function rewriteValue(mixed $value, array $replacements, array $paths): mixed
+    {
         if (is_string($value)) {
             $value = preg_replace_callback(self::PATTERN, static fn (array $match): string => $replacements[$match[0]] ?? $match[0], $value) ?? $value;
-            $paths = array_filter($replacements, static fn (string $key): bool => str_starts_with($key, 'assets/css/'), ARRAY_FILTER_USE_KEY);
-            return strtr($value, $paths);
+            return str_contains($value, 'assets/css/') ? strtr($value, $paths) : $value;
         }
         if (!is_array($value)) return $value;
         $originalContent = $value['content'] ?? null;
         $contentAddressed = self::isContentAddressedStylesheet($value);
         $rewritten = array();
         foreach ($value as $key => $item) {
-            $rewritten[is_string($key) ? strtr($key, $replacements) : $key] = $this->rewrite($item, $replacements);
+            $rewritten[is_string($key) ? strtr($key, $replacements) : $key] = $this->rewriteValue($item, $replacements, $paths);
         }
         $value = $rewritten;
         if (is_string($originalContent) && $originalContent !== $value['content']) {

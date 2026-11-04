@@ -79,4 +79,17 @@ $asset = current($rewritten['assets']);
 $assert(array_key_first($rewritten['assets']) === $asset['path'] && $rewritten['blocks']['stylesheet'] === $asset['path'] && $rewritten['stylesheets'][0]['path'] === $asset['path'] && $asset['target_path'] === $asset['path'], 'Asset registry keys, block and stylesheet references follow the final path.');
 $assert($asset['hash'] === hash('sha256', $asset['content']) && $asset['source_hash'] === $asset['hash'] && $asset['bytes'] === strlen($asset['content']), 'Asset integrity metadata follows rewritten content.');
 $assert(str_contains($asset['path'], substr($asset['hash'], 0, 16)), 'Generated stylesheet paths remain content addressed.');
+// A large compilation carries many unrelated marker replacements alongside
+// deeply nested scalar facts. The same partitioned map must reach every leaf.
+$largeMap = $map;
+$largeFacts = array();
+for ($i = 0; $i < 2000; ++$i) {
+    $marker = 'blocks-engine-control-' . substr(hash('sha256', (string) $i), 0, 12) . '-0';
+    $largeMap[$marker] = $a;
+    $largeFacts[] = array('attrs' => array('className' => $marker, 'stylesheet' => $path, 'label' => 'Unchanged'));
+}
+$largeResult = $identity->rewrite($largeFacts, $largeMap);
+foreach ($largeResult as $fact) {
+    $assert($a === $fact['attrs']['className'] && $map[$path] === $fact['attrs']['stylesheet'] && 'Unchanged' === $fact['attrs']['label'], 'Nested facts share marker and path replacements without rewriting replacement values twice.');
+}
 echo "declaration-addressed-classes unit passed\n";

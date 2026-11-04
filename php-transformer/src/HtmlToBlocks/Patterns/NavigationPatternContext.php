@@ -637,7 +637,10 @@ final class NavigationPatternContext
             $current = $this->withoutCurrentItemPresentation($block);
             $targets = array();
             $collect($block['innerBlocks'] ?? array(), '');
-            if (array() === $targets && array() === $current) continue;
+            if (array() === $targets && array() === $current) {
+                $this->publishInheritedNavigationPresentation($block, $source, '');
+                continue;
+            }
             // The instance names the resting menu: per-item link colours follow
             // the served route, and current-item presentation is lifted above.
             $resting = array_filter($targets, static fn(string $marker): bool => 1 !== preg_match('/^blocks-engine-navigation-(?:current-color|link-color(?:-states)?)-/', $marker), ARRAY_FILTER_USE_KEY);
@@ -649,6 +652,7 @@ final class NavigationPatternContext
             $this->recordCurrentItemPresentation($current, $scope, $source);
             $markup = (string) json_encode($block);
             $root = $source->getNodePath() ?? '';
+            $this->publishInheritedNavigationPresentation($block, $source, $scope);
             foreach ($this->pendingNavigationSubjects as $path => $subject) {
                 if ($path !== $root && !str_starts_with($path, $root . '/')) continue;
                 $marker = $subject['marker'];
@@ -1468,8 +1472,33 @@ final class NavigationPatternContext
             return;
         }
 
-        $selector = '.wp-block-navigation' . CssIdent::compoundClassSelector($authorClasses) . ' .wp-block-navigation-item__content';
-        $this->sourceTargetProjection->record(SourceDom::elementSelector($navigation), $selector, implode(';', $declarations));
+        // Shared list classes do not imply a shared cascade. Wait for the
+        // emitted instance before publishing this menu's recovered type.
+        $this->pendingInheritedPresentations[] = array('path' => $navigation->getNodePath() ?? '', 'source' => SourceDom::elementSelector($navigation), 'classes' => $authorClasses, 'declarations' => implode(';', $declarations));
+    }
+
+    /** @var list<array{path: string, source: string, classes: array<int, string>, declarations: string}> */
+    private array $pendingInheritedPresentations = array();
+
+    /** Publish recovered type only on the emitted menu that owns it. */
+    private function publishInheritedNavigationPresentation(array &$block, DOMElement $source, string $scope): void
+    {
+        if (!$this->sourceTargetProjection instanceof SourceTargetProjectionState) return;
+        $root = $source->getNodePath() ?? '';
+        $classes = preg_split('/\s+/', trim((string) ($block['attrs']['className'] ?? ''))) ?: array();
+        foreach ($this->pendingInheritedPresentations as $index => $pending) {
+            // The correspondence is rooted at the list, while the recovered
+            // inheritance may belong to its enclosing landmark.
+            if ($pending['path'] !== $root && !str_starts_with($pending['path'], $root . '/') && !str_starts_with($root, $pending['path'] . '/')) continue;
+            if (array() !== array_diff($pending['classes'], $classes)) continue;
+            if ('' === $scope) {
+                preg_match('/(?:^|\s)(blocks-engine-navigation-instance-[a-f0-9]{12}-[0-9]+)(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''), $existing);
+                $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . $pending['declarations']);
+                $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
+            }
+            $this->sourceTargetProjection->record($pending['source'], '.wp-block-navigation.' . $scope . ' .wp-block-navigation-item__content', $pending['declarations']);
+            unset($this->pendingInheritedPresentations[$index]);
+        }
     }
 
     /** A retained item/wrapper owns its inherited presentation, including state and query changes. */
@@ -1480,7 +1509,8 @@ final class NavigationPatternContext
         if (str_starts_with($property, 'font-')) $properties[] = 'font';
         foreach ($anchors as $anchor) {
             for ($node = $anchor->parentNode; $node instanceof DOMElement && !$node->isSameNode($navigation); $node = $node->parentNode) {
-                if ('' === $this->session->authorSelectorProjectionState()->navigationSubject($node->getNodePath() ?? '')) continue;
+                $path = $node->getNodePath() ?? '';
+                if (!isset($this->pendingNavigationSubjects[$path]) && '' === $this->session->authorSelectorProjectionState()->navigationSubject($path)) continue;
                 foreach ($this->styleResolver->cssDeclarations($node->getAttribute('style')) as $name => $value) {
                     if (in_array($name, $properties, true) && !in_array(strtolower(trim($value)), array('inherit', 'unset', 'revert', 'revert-layer'), true)) return true;
                 }
