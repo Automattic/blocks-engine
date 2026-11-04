@@ -215,7 +215,7 @@ $withoutDuration = static function (array $result): array {
         if (!is_array($value)) {
             return $value;
         }
-        unset($value['transform_duration_ms']);
+        unset($value['transform_duration_ms'], $value['step_timings']);
         foreach ($value as $key => $child) {
             $value[$key] = $stripDuration($child);
         }

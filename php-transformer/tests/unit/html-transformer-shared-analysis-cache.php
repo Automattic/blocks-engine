@@ -14,7 +14,7 @@ $assert = static function (bool $condition, string $message): void {
 };
 $withoutDurations = static function (array $value) use (&$withoutDurations): array {
     foreach ( $value as $key => &$item ) {
-        if ( 'transform_duration_ms' === $key ) {
+        if ( 'transform_duration_ms' === $key || 'step_timings' === $key ) {
             unset($value[$key]);
             continue;
         }
@@ -28,7 +28,7 @@ $withoutDurations = static function (array $value) use (&$withoutDurations): arr
 };
 $withoutObservationalMetrics = static function (array $value) use (&$withoutObservationalMetrics): array {
     foreach ( $value as $key => &$item ) {
-        if ( 'transform_duration_ms' === $key || str_contains((string) $key, '_cache_') ) {
+        if ( 'transform_duration_ms' === $key || 'step_timings' === $key || str_contains((string) $key, '_cache_') ) {
             unset($value[$key]);
             continue;
         }

@@ -1605,8 +1605,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /**
      * @param array<string, mixed> $options
      */
-    public function transform(string $html, array $options = array()): TransformerResult
+    public function transform(string $html, array $options = array(), ?\Automattic\BlocksEngine\PhpTransformer\Support\StepTimer $timer = null): TransformerResult
     {
+        $timer ??= new \Automattic\BlocksEngine\PhpTransformer\Support\StepTimer('transform.source_preparation');
+        $timer->start('transform.source_preparation');
         $validationEvidence = \Automattic\BlocksEngine\PhpTransformer\Contract\ValidationEvidencePolicy::fromOptions($options);
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
@@ -1660,6 +1662,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ), $this->transformationProvenance()->fallback()),
         );
 
+        $timer->start('transform.source_parse');
         $sourceBodyClasses = $this->documentBodyClassNames($html);
         $this->sourceDocumentHosts = NativeGetFormBlockBuilder::declaredDocumentHosts($html);
         $normalizedHtml = NativeControlState::withoutReplayScript(
@@ -1675,20 +1678,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $selectorCache = $this->sourceStyles()->selectorMatchCache;
 
         if ( ! $loaded ) {
-            return $resultComposer->parseFailed(
+            return $timer->result($resultComposer->parseFailed(
                 $html,
                 $this->transformationProvenance()->fallback(),
                 $provenance,
                 $context,
                 $startedAt,
                 $selectorCache
-            );
+            ));
         }
 
         $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
-            return $resultComposer->emptyBody($html, $provenance, $context, $startedAt, $selectorCache);
+            return $timer->result($resultComposer->emptyBody($html, $provenance, $context, $startedAt, $selectorCache));
         }
+        $timer->start('transform.source_normalization');
         SourceDom::removeIntegerKeyAttributes($body);
         $this->restoreNativeNavigationPanels($body);
         $this->restoreCapturedExistingPanelRestingStates($body);
@@ -1742,6 +1746,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // prepared, so style projection and component promotion both observe the
         // content rather than the source's wrapping convention.
         $this->unwrapRenderNeutralCustomElements($body, $this->authoredCssText($html, (string) ($options['static_css'] ?? '')));
+        $timer->start('transform.author_selector_preparation');
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
         $this->fallbackEmitter()->configure($this->transformationProvenance()->fallback(), $this->runtimeBehavior()->runtimeScriptMetadata(), $this->runtimeSelectors(), $this->authorSelectorProjections()->tagMarkers());
         // Author-selector preparation marks source nodes for later projection.
@@ -1750,6 +1755,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->styleResolver->collectEditorHiddenStateFindings($body);
         $this->reusableComponents()->installRecognition($this->reusableComponentRecognizer->recognize($body));
 
+        $timer->start('transform.conversion');
         $fallbacks   = array();
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::install($document);
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::indexDocument($document);
@@ -1776,9 +1782,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 // in extracted shell/template artifacts, even with shared names.
                 $compilation = new self($this->runtime, $this->analysisCache);
                 $compilation->deepMediaBoundaryPaths = $this->discoveredDeepMediaBoundaryPaths;
-                return $compilation->transform($html, $options);
+                return $compilation->transform($html, $options, $timer);
             }
         }
+        $timer->start('transform.fallback_reduction');
         $fallbacks = array_merge($fallbacks, $this->transformationEvidence()->responsiveImageFallbacks());
         $this->reconcileNativeListItemFallbacks($fallbacks, $blocks);
         $this->reconcileFormControlGroupFallbacks($body, $fallbacks);
@@ -1805,6 +1812,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // in place of the preserved island, so its blocks need the same
         // generated stylesheet as the page's own blocks. Serialized first:
         // serializing resets the runtime diagnostics of the page serialization.
+        $timer->start('transform.serialization');
         $readableMarkup = '';
         foreach ($fallbacks as $fallback) {
             if ( is_array($fallback['readable_blocks'] ?? null) && array() !== $fallback['readable_blocks'] ) {
@@ -1823,6 +1831,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->emittedStyleMarkup = $serializedBlocks;
         $authorStylesheetProjections = $this->authorStylesheetProjections();
         $runtimeScriptProjections = $this->runtimeScriptProjections();
+        $timer->start('transform.stylesheet_materialization');
         $this->materializeAuthorStylesheet(
             $html,
             (string) ($options['static_css'] ?? ''),
@@ -1842,6 +1851,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // Publish declaration addresses only after every generated support
         // family has contributed. Provisional source bindings never escape
         // this compilation boundary as the identity of a control's styles.
+        $timer->start('transform.class_identity_rewrite');
         $classIdentity = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DeclarationAddressedClasses();
         $assets = $this->materializedAssets()->checkpoint();
         // Author projections may already be materialized; count each source
@@ -1865,16 +1875,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $reusableComponentRecognition = $classIdentity->rewrite($reusableComponentRecognition, $classReplacements);
         $this->projectedSelectorBindings = $classIdentity->rewrite($this->projectedSelectorBindings, $classReplacements);
         $this->materializedAssets()->restore($classIdentity->rewrite($assets, $classReplacements));
+        $timer->start('transform.validation.block_validity');
         $blockValidityEvaluation = $this->runtime->evaluateBlockSerialization($blocks);
         $blockValidityReport = $blockValidityEvaluation->report();
+        $timer->start('transform.validation.semantic_parity');
         $semanticParityEvaluation = $this->semanticParityReporter->evaluate($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
         $semanticParityReport = $semanticParityEvaluation->report($validationEvidence);
+        $timer->start('transform.validation.content_round_trip');
         $contentRoundTripEvaluation = $this->contentRoundTripReporter->evaluate($serializedBlocks, $html, $this->transformationEvidence()->formControlEchoTexts());
         $contentRoundTripReport = $contentRoundTripEvaluation->report();
         // The round-trip check runs output ⊆ source to catch invented copy. This
         // runs the other way for media, which nothing did: an image demoted to
         // its own `alt` text is not absent, so every loss counter stayed at zero
         // while the page lost its pictures.
+        $timer->start('transform.validation.media_retention');
         $sourceMediaRetentionReport = $this->sourceMediaRetentionReporter->evaluate(
             $html,
             $serializedBlocks,
@@ -1886,6 +1900,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 )
             )
         )->report();
+        $timer->start('transform.validation.dead_selectors');
         $deadProjectedSelectorHaystack = $serializedBlocks;
         foreach ( $shellArtifacts as $shellArtifact ) {
             $deadProjectedSelectorHaystack .= "\n" . (string) ( $shellArtifact['block_markup'] ?? '' );
@@ -1895,6 +1910,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             array($this->currentSourcePath => $deadProjectedSelectorHaystack)
         );
         $deadProjectedSelectorsReport = $deadProjectedSelectorEvaluation->report();
+        $timer->start('transform.diagnostics');
         $validationOutcome = \Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome::fromValidationFacts(
             $blockValidityEvaluation->status,
             $blockValidityEvaluation->findings,
@@ -1944,10 +1960,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // conversion work, so they are read before the collector reuses the
         // resolver's caches.
         $conversionSelectorCache = clone $selectorCache;
+        $timer->start('transform.validation.design_usage');
         $designUsage = (new DesignUsageCollector($this->styleResolver))->collect($body);
+        $timer->start('transform.validation.editability');
+        $editabilityReport = (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $ownershipPaths['runtime'], $ownershipPaths['visual'], $sourceProvenance, $this->generatedBlocks()->definitions());
+        $timer->start('transform.result_composition');
         $blockCompilationOutput = new BlockCompilationOutput(
             sourceProvenance: $sourceProvenance,
-            editabilityReport: (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $ownershipPaths['runtime'], $ownershipPaths['visual'], $sourceProvenance, $this->generatedBlocks()->definitions()),
+            editabilityReport: $editabilityReport,
             responsiveCounterpartContracts: $responsiveCounterpartContracts,
             layoutGeometryProof: $this->layoutGeometry()->proofProvenance(),
             reusableComponents: $reusableComponentRecognition,
@@ -1965,7 +1985,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             designUsage: $designUsage
         );
 
-        return $resultComposer->result(array(
+        return $timer->result($resultComposer->result(array(
             'source' => HtmlTransformer::class,
             'html' => $html,
             'blocks' => $blocks,
@@ -2003,7 +2023,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'grid_placement_carrier_findings' => $this->transformationEvidence()->gridPlacementCarrierFindings(),
             'unscoped_core_selector_drops' => $this->transformationEvidence()->unscopedCoreSelectorDrops(),
             'has_description_list_block' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class),
-        ), $blockCompilationOutput);
+        ), $blockCompilationOutput));
     }
 
     private function engineSupportCss(): string
