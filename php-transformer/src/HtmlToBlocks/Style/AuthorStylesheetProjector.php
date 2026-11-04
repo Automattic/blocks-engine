@@ -1150,7 +1150,19 @@ final class AuthorStylesheetProjector
         }
         foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
             $colon = strpos($declaration, ':');
-            if ( false !== $colon && $this->isButtonControlBoxSize(trim(substr($declaration, 0, $colon)), trim(substr($declaration, $colon + 1)), null === $element ? array() : array( $element )) ) {
+            if ( false === $colon ) {
+                continue;
+            }
+            $controls = null === $element ? array() : array( $element );
+            $property = trim(substr($declaration, 0, $colon));
+            $value = trim(substr($declaration, $colon + 1));
+            // A layout-item width release competes on the link and rides the
+            // compatibility restatement; it does not specialize the button the
+            // way wrapper-owned geometry does.
+            if ( $this->isButtonLinkCompetingBoxSize($property, $value, $controls) ) {
+                continue;
+            }
+            if ( $this->isButtonControlBoxSize($property, $value, $controls) ) {
                 return true;
             }
         }
@@ -1498,15 +1510,32 @@ final class AuthorStylesheetProjector
             }
             return true;
         }
-        if ( $this->buttonSubjectsAreLayoutItems($controls)
-            && ( 'min-width' === $property || 'auto' === CssValueInspector::comparable($value) )
-        ) {
-            // Auto must compete with intrinsic widths on the same link; the
-            // minimum constrains that box rather than only its outer carrier.
+        if ( $this->isButtonLinkCompetingBoxSize($property, $value, $controls) ) {
             return true;
         }
         $value = strtolower(CssValueInspector::withoutImportant($value));
         return in_array($value, array( 'min-content', 'max-content', 'fit-content', 'content' ), true);
+    }
+
+    /**
+     * A box-size declaration the projection keeps on the link so it can compete
+     * there: on a flex or grid item, `width:auto` releases the stretched size
+     * and a `min-width` constrains the rendered box, so both describe the link
+     * itself. The compatibility restatement must carry them like every other
+     * authored declaration — a boosted base rule declaring the stretched width
+     * would otherwise beat a conditional override restated only at its authored
+     * weight, at every viewport.
+     *
+     * @param list<DOMElement> $controls
+     */
+    private function isButtonLinkCompetingBoxSize(string $property, string $value, array $controls = array()): bool
+    {
+        if ( ! in_array($property, array( 'width', 'min-width', 'max-width' ), true) || ! $this->buttonSubjectsAreLayoutItems($controls) ) {
+            return false;
+        }
+        // Auto must compete with intrinsic widths on the same link; the
+        // minimum constrains that box rather than only its outer carrier.
+        return 'min-width' === $property || 'auto' === CssValueInspector::comparable($value);
     }
 
     /** @param list<DOMElement> $controls */
