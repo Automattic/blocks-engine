@@ -11,6 +11,7 @@ final class RouteSelectorMatchIndex
     private CssSelectorMatchCache $cache;
     private array $elements = array();
     private array $owners = array();
+    private array $canonicalOwners = array();
     private array $elementOwners = array();
     private array $ownerElements = array();
     private array $keys = array();
@@ -20,10 +21,18 @@ final class RouteSelectorMatchIndex
     private array $cascadeMatches = array();
 
     /** @param array<string,DOMDocument> $documents */
-    public function __construct(array $documents)
+    public function __construct(array $documents, private readonly ?\Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ComposeFacts $facts = null)
     {
         $this->cache = new CssSelectorMatchCache();
+        $fingerprints = array();
         foreach ($documents as $owner => $document) {
+            // Exact serialized DOM includes root/body context, attributes and text.
+            // Equivalent owners share element ids; sets are compared only within a route.
+            $fingerprint = $document->saveHTML();
+            $canonical = $fingerprints[$fingerprint] ?? $owner;
+            $this->canonicalOwners[$owner] = $canonical;
+            if ($canonical !== $owner) continue;
+            $fingerprints[$fingerprint] = $owner;
             $this->owners[$owner] = true;
             foreach ($document->getElementsByTagName('*') as $element) {
                 $id = count($this->elements);
@@ -49,15 +58,22 @@ final class RouteSelectorMatchIndex
      */
     public function matchedElements(string $arm, string $owner): ?array
     {
+        $owner = $this->canonicalOwner($owner);
         if ( ! array_key_exists($arm, $this->cascadeMatches) || ! array_key_exists($owner, $this->cascadeMatches[$arm]) ) {
             $this->cascadeMatches[$arm][$owner] = $this->computeMatchedElements($arm, $owner);
         }
         return $this->cascadeMatches[$arm][$owner];
     }
 
+    public function canonicalOwner(string $owner): string
+    {
+        return (string) ($this->canonicalOwners[$owner] ?? $owner);
+    }
+
     /** @return array<int|string, true>|null */
     private function computeMatchedElements(string $arm, string $owner): ?array
     {
+        $this->facts?->count('route_selector_matches');
         if ( ! isset($this->owners[$owner]) ) {
             return null;
         }
@@ -285,6 +301,7 @@ final class RouteSelectorMatchIndex
         [$parsed, $byOwner] = $this->selectors[$arm];
         if (!$parsed['supported']) return false;
         foreach ($outside as $owner => $_) {
+            $owner = $this->canonicalOwner((string) $owner);
             if (!isset($this->owners[$owner])) return false;
             if (!isset($this->hits[$arm][$owner])) {
                 $hit = false;

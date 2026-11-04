@@ -335,6 +335,7 @@ final class ArtifactCompiler
     private function finalizeArtifact(array $artifact, array $reduction): TransformerResult
     {
         $startedAt = hrtime(true);
+        $composeFacts = new ComposeFacts();
         $normalized = $reduction['normalized'];
         $routeIdentities = array();
         foreach ($normalized['files'] as $file) {
@@ -458,7 +459,7 @@ final class ArtifactCompiler
         foreach ($pageMarkup as &$markup) $markup .= "\n" . $sharedMarkup;
         unset($markup);
         $authoredFiles = $normalized['files'];
-        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics, $sharedMarkup);
+        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics, $sharedMarkup, $composeFacts);
         foreach ($normalized['files'] as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
             $documentFiles = $normalized['files'];
@@ -713,7 +714,8 @@ final class ArtifactCompiler
                 'terminal_reduction_count' => 1,
             ),
             $startedAt,
-            fn(): array => ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks)
+            fn(): array => ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks),
+            $composeFacts
         );
     }
 
@@ -2660,7 +2662,7 @@ final class ArtifactCompiler
      * @param string $primaryOwner The page that produced the primary projections, '' when they are site-wide.
      * @return array<int, array<string, mixed>>
      */
-    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = '', array $pageMarkup = array(), array &$projectionDiagnostics = array(), string $sharedMarkup = ''): array
+    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array(), string $primaryOwner = '', array $pageMarkup = array(), array &$projectionDiagnostics = array(), string $sharedMarkup = '', ?ComposeFacts $composeFacts = null): array
     {
         $this->authorStylesheetProjectionCount = 0;
         // Asset identity is its path, not the number of partition occurrences.
@@ -2717,7 +2719,7 @@ final class ArtifactCompiler
                 $pageByPath[$projection['path']][$owner][] = $projection['content'];
             }
         }
-        $transformer = new CssStylesheetTransformer();
+        $transformer = new CssStylesheetTransformer($composeFacts);
         $routeIdentities = array();
         $routeDocuments = array();
         foreach ($files as $document) {
@@ -2742,7 +2744,7 @@ final class ArtifactCompiler
             }
             $routeDocuments[$owner] = $dom;
         }
-        $routeMatchIndex = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex($routeDocuments);
+        $routeMatchIndex = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex($routeDocuments, $composeFacts);
         $reserved = array_fill_keys(array_column($files, 'path'), true);
         $output = array();
         foreach ( $files as $file ) {

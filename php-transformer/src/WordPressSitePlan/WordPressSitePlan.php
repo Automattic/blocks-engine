@@ -248,11 +248,11 @@ PHP;
     }
 
     /** @return array<string,mixed> */
-    public function fromResult(TransformerResult|array $result): array
+    public function fromResult(TransformerResult|array $result, ?\Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ComposeFacts $composeFacts = null): array
     {
         $data = $result instanceof TransformerResult ? $result->toArray() : $result;
         TransformerResult::assertCanonicalEnvelope($data);
-        return $this->fromCompilerInput($data, WordPressSitePlanInput::fromCompilerResult($data, $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array()));
+        return $this->fromCompilerInput($data, WordPressSitePlanInput::fromCompilerResult($data, $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array()), $composeFacts);
     }
 
     /**
@@ -272,7 +272,19 @@ PHP;
      * @param array<string,mixed> $data
      * @return array<string,mixed>
      */
-    public function fromCompilerInput(array $data, WordPressSitePlanInput $input): array
+    public function fromCompilerInput(array $data, WordPressSitePlanInput $input, ?\Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ComposeFacts $composeFacts = null): array
+    {
+        $data['metrics'] = array_filter($data['metrics'], static fn (string $key): bool => !str_starts_with($key, 'compose_'), ARRAY_FILTER_USE_KEY);
+        $composeFacts ??= new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ComposeFacts();
+        try {
+            return $this->composeCompilerInput($data, $input, $composeFacts);
+        } finally {
+            // Preset binding contains compose-owned facts, never retain them on a reusable planner.
+            $this->presetBinding = null;
+        }
+    }
+
+    private function composeCompilerInput(array $data, WordPressSitePlanInput $input, \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ComposeFacts $composeFacts): array
     {
         $this->sourceUrl = $this->sourceUrlFromProvenance($data['provenance'] ?? array());
         $this->listingQueryContainers = array();
@@ -322,7 +334,7 @@ PHP;
         // which is what tells a button that renders through them apart from
         // one that never had the value.
         $this->designSystem = DesignSystem::fromUsage(self::designUsage($documents))?->withButtonElementsOwnedBy(array_values(array_filter(array_column($documents, 'block_markup'), 'is_string')));
-        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, self::designUsage($documents));
+        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, self::designUsage($documents), $composeFacts);
         $tokens = $this->tokens($assets);
         $surfaces = $this->templateSurfaces($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));

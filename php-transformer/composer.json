@@ -253,6 +253,7 @@
       "php tests/contract/richtext-subject-arm-scaling.php",
       "php tests/contract/editor-rich-text-nowrap.php",
       "php tests/contract/shared-author-stylesheet-scaling.php",
+      "php tests/contract/compose-distinct-input-scaling.php",
       "php tests/contract/selector-binding-isolation.php",
       "php tests/contract/shared-chrome-paint-order-root.php",
       "php tests/contract/shared-chrome-backdrop-containing-block.php",

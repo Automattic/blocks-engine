@@ -8,6 +8,21 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
  */
 final class CssStylesheetTransformer
 {
+    public function __construct(private readonly ?\Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ComposeFacts $facts = null)
+    {
+    }
+
+    private function ruleUnits(string $css, array $context): array
+    {
+        $compute = function () use ($css, $context): array {
+            $this->facts?->count('rule_unit_collections');
+            $units = array();
+            $this->collectRuleUnits($css, $context, $units);
+            return $units;
+        };
+        return null === $this->facts ? $compute() : $this->facts->get('rule_units', serialize(array($css, $context)), $compute);
+    }
+
     /**
      * Transform selector preludes in style rules, retaining all other source bytes.
      *
@@ -148,6 +163,12 @@ final class CssStylesheetTransformer
      */
     public function concatenateWithoutRedundantRules(array $stylesheets): string
     {
+        $compute = fn (): string => $this->concatenateRules($stylesheets);
+        return null === $this->facts ? $compute() : $this->facts->get('concatenated_rules', serialize($stylesheets), $compute);
+    }
+
+    private function concatenateRules(array $stylesheets): string
+    {
         foreach ( $stylesheets as $stylesheet ) {
             if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
                 return implode("\n", $stylesheets);
@@ -157,8 +178,7 @@ final class CssStylesheetTransformer
         $kept = array();
         $seen = array();
         foreach ( array_reverse($stylesheets) as $stylesheet ) {
-            $units = array();
-            $this->collectRuleUnits($stylesheet, array(), $units);
+            $units = $this->ruleUnits($stylesheet, array());
             foreach ( array_reverse($units) as $unit ) {
                 if ( $unit['dedupable'] ) {
                     $key = self::ruleUnitKey($unit);
@@ -194,6 +214,13 @@ final class CssStylesheetTransformer
      */
     public function rulesAbsentFrom(array $stylesheets, array $present, bool $preserveCascade = false, ?RouteSelectorMatchIndex $matchIndex = null, ?string $owner = null): string
     {
+        $compute = fn (): string => $this->computeRulesAbsentFrom($stylesheets, $present, $preserveCascade, $matchIndex, $owner);
+        $identity = serialize(array($stylesheets, $present, $preserveCascade, null === $matchIndex ? null : spl_object_id($matchIndex), null === $owner ? null : ($matchIndex?->canonicalOwner($owner) ?? $owner)));
+        return null === $this->facts ? $compute() : $this->facts->get('absent_rules', $identity, $compute);
+    }
+
+    private function computeRulesAbsentFrom(array $stylesheets, array $present, bool $preserveCascade, ?RouteSelectorMatchIndex $matchIndex, ?string $owner): string
+    {
         foreach ( array_merge($stylesheets, $present) as $stylesheet ) {
             if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
                 return implode("\n", $stylesheets);
@@ -201,8 +228,7 @@ final class CssStylesheetTransformer
         }
         $seen = array();
         foreach ( $present as $stylesheet ) {
-            $units = array();
-            $this->collectRuleUnits($stylesheet, array(), $units);
+            $units = $this->ruleUnits($stylesheet, array());
             foreach ( $units as $unit ) {
                 $seen[ self::ruleUnitKey($unit) ] = true;
             }
@@ -216,14 +242,13 @@ final class CssStylesheetTransformer
         $elementFamilies = array();
         $unknownFamilies = array();
         foreach ( $stylesheets as $stylesheet ) {
-            $units = array();
-            $this->collectRuleUnits($stylesheet, array(), $units);
+            $units = $this->ruleUnits($stylesheet, array());
             foreach ( $units as $unit ) {
                 $key = self::ruleUnitKey($unit);
                 $properties = $preserveCascade ? self::cascadePropertyFamilies($unit['text']) : array();
                 $duplicate = $unit['dedupable'] && isset($seen[ $key ]);
                 $targets = $selectorProof && ( ! $duplicate || self::cascadeFamiliesOverlap($properties, $keptProperties) )
-                    ? self::cascadeTargets($matchIndex, (string) $owner, $unit['text'])
+                    ? $this->cascadeTargets($matchIndex, (string) $owner, $unit['text'])
                     : null;
                 $keep = ! $duplicate || self::cascadeFamiliesOverlap($properties, $keptProperties);
                 if ( $keep && $duplicate && $selectorProof ) {
@@ -266,7 +291,13 @@ final class CssStylesheetTransformer
      *
      * @return array<int|string, true>|null
      */
-    private static function cascadeTargets(RouteSelectorMatchIndex $matchIndex, string $owner, string $rule): ?array
+    private function cascadeTargets(RouteSelectorMatchIndex $matchIndex, string $owner, string $rule): ?array
+    {
+        $compute = static fn (): ?array => self::computeCascadeTargets($matchIndex, $owner, $rule);
+        return null === $this->facts ? $compute() : $this->facts->get('cascade_targets', serialize(array(spl_object_id($matchIndex), $matchIndex->canonicalOwner($owner), $rule)), $compute);
+    }
+
+    private static function computeCascadeTargets(RouteSelectorMatchIndex $matchIndex, string $owner, string $rule): ?array
     {
         // Keyframes compete only with keyframes of the same name.
         if ( 1 === preg_match('/^@(?:-[a-z]+-)?keyframes\s+([^\s{]+)\s*\{/i', ltrim(CssSyntaxScanner::withoutComments($rule)), $keyframes) ) {
@@ -309,12 +340,17 @@ final class CssStylesheetTransformer
      * @param array<string,string> $markup
      * @return array<string,array<string,true>>
      */
-    private static function markerCarriers(array $markup): array
+    private function markerCarriers(array $markup): array
     {
         $carriers = array();
         foreach ($markup as $owner => $html) {
-            preg_match_all(CssSelectorListCompactor::PAGE_MARKER, $html, $matches);
-            foreach (array_unique($matches[0]) as $marker) $carriers[$marker][$owner] = true;
+            $compute = function () use ($html): array {
+                $this->facts?->count('marker_carriers');
+                preg_match_all(CssSelectorListCompactor::PAGE_MARKER, $html, $matches);
+                return array_unique($matches[0]);
+            };
+            $markers = null === $this->facts ? $compute() : $this->facts->get('markers', $html, $compute);
+            foreach ($markers as $marker) $carriers[$marker][$owner] = true;
         }
         return $carriers;
     }
@@ -385,7 +421,7 @@ final class CssStylesheetTransformer
     public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null, array $markup = array(), ?RouteSelectorMatchIndex $matchIndex = null, array $routeClasses = array(), ?string $sharedMarkup = null): array
     {
         $base = array();
-        foreach ($shared as $css) $this->collectRuleUnits($css, array(), $base);
+        foreach ($shared as $css) $base = array_merge($base, $this->ruleUnits($css, array()));
         $base = self::withoutIgnoredImports($base);
         $baseImports = self::routeImports($base);
         // Byte-dependent facts live only for this reconciliation, not per route.
@@ -438,7 +474,7 @@ final class CssStylesheetTransformer
             $reason = $sharedReason;
             foreach ($sheets as $css) $checkSheet($css, $reason);
             if (null !== $reason) { $reasons[$owner] = $reason; continue; }
-            foreach ($sheets as $css) $this->collectRuleUnits($css, array(), $units);
+            foreach ($sheets as $css) $units = array_merge($units, $this->ruleUnits($css, array()));
             $units = self::withoutIgnoredImports($units);
             if (null === $baseImports || self::routeImports($units) !== $baseImports) {
                 $reasons[$owner] = 'different or non-leading @import rules';
@@ -511,7 +547,7 @@ final class CssStylesheetTransformer
         while (isset($allRoutes[$baseOwner])) $baseOwner .= '#';
         $allRoutes[$baseOwner] = true;
         if (null !== $sharedMarkup) $markup[$baseOwner] = $sharedMarkup;
-        $carriers = self::markerCarriers($markup);
+        $carriers = $this->markerCarriers($markup);
         $emitArms = function (array $units, array $prototype) use (&$output, &$unionOutput, &$armLists, &$parsedArms, $routeClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex): void {
             [$lead, $rule] = self::splitLeadingComments($prototype['text']);
             $brace = (int) $this->nextRuleBoundary($rule, 0);

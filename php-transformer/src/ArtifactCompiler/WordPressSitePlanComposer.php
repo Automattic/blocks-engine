@@ -19,7 +19,7 @@ final class WordPressSitePlanComposer
     /**
      * @param array<string, int|float> $processMetrics
      */
-    public function compose(TransformerResult $envelope, array $processMetrics = array(), ?int $startedAt = null, ?callable $runtimeParity = null): TransformerResult
+    public function compose(TransformerResult $envelope, array $processMetrics = array(), ?int $startedAt = null, ?callable $runtimeParity = null, ?ComposeFacts $composeFacts = null): TransformerResult
     {
         $data = $envelope->toArray();
         $sourceReports = $data['source_reports'];
@@ -37,7 +37,7 @@ final class WordPressSitePlanComposer
         // all other failures have no materializable source identity or site plan.
         if ( array() === $identityFailures && ( 'failed' !== $status || 'failed' === ($editabilityPolicy['status'] ?? null) ) ) {
             try {
-                $wordpressSitePlan = ( new WordPressSitePlan() )->fromResult($envelope);
+                $wordpressSitePlan = ( new WordPressSitePlan() )->fromResult($envelope, $composeFacts);
                 $editabilityReport = (new EditabilityReport())->withTemplateSurfaceSelection($editabilityReport, $wordpressSitePlan['templates']);
                 $editabilityReport = (new EditabilityReport())->withDesignSystem($editabilityReport, is_array($wordpressSitePlan['theme']['design_system'] ?? null) ? $wordpressSitePlan['theme']['design_system'] : array());
                 $sourceReports['editability_report'] = $editabilityReport;
@@ -102,6 +102,7 @@ final class WordPressSitePlanComposer
         if ( array() === $sourceReports['wordpress_site_plan_diagnostics'] ) {
             unset($sourceReports['wordpress_site_plan_diagnostics']);
         }
+        $processMetrics = array_merge($processMetrics, $composeFacts?->metrics() ?? array());
         foreach ( $processMetrics as $key => $value ) {
             $metrics[$key] = $value;
         }

@@ -195,7 +195,7 @@ final class PresetBinding
      * @param array<int,array<string,mixed>> $assets
      * @param array<string,array<string,mixed>> $usageBySource Design usage keyed by document source path.
      */
-    public function __construct(private readonly DesignSystem $system, array $assets, array $usageBySource = array())
+    public function __construct(private readonly DesignSystem $system, array $assets, array $usageBySource = array(), private readonly ?\Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ComposeFacts $composeFacts = null)
     {
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
@@ -1455,6 +1455,13 @@ final class PresetBinding
      */
     private function stateMatches(string $family, array $tokens): bool
     {
+        $compute = fn (): bool => $this->computeStateMatches($family, $tokens);
+        return null === $this->composeFacts ? $compute() : $this->composeFacts->get('state_matches', serialize(array($this->stateTokens[$family] ?? array(), $tokens)), $compute);
+    }
+
+    private function computeStateMatches(string $family, array $tokens): bool
+    {
+        $this->composeFacts?->count('state_matches');
         foreach ($this->stateTokens[$family] ?? array() as $subject) {
             if (array() !== array_intersect_key(array_flip($subject['negated']), $tokens)) continue;
             if (array() !== $subject['tokens'] && array() === array_intersect_key(array_flip($subject['tokens']), $tokens)) continue;
