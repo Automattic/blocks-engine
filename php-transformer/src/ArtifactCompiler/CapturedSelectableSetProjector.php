@@ -22,7 +22,6 @@ final class CapturedSelectableSetProjector
     public const LABEL_ATTRIBUTE = 'data-blocks-engine-tab-label';
     public const FLOW_INLINE = 'inline';
     public const FLOW_LIST_LAST = 'list-last';
-    private const MAX_PAGES = 128;
     private const MAX_SETS_PER_PAGE = 8;
     private const MAX_MEMBERS_PER_SET = 32;
     private const MAX_REGION_BYTES = 65536;
@@ -64,7 +63,6 @@ final class CapturedSelectableSetProjector
         if (!CapturedInteractionReport::valid($report) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
-        $report['pages'] = CapturedComponentStates::boundPages($report['pages'], self::MAX_PAGES, 'captured_selectable_set_limit_exceeded', self::class, $diagnostics);
 
         $hasSelectableSets = false;
         foreach ($report['pages'] as $page) {
@@ -140,7 +138,7 @@ final class CapturedSelectableSetProjector
             return array('files' => $files, 'projected_count' => 0, 'native_runtime_replacements' => array());
         }
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);
-        foreach (array_slice($report['pages'] ?? array(), 0, self::MAX_PAGES) as $page) {
+        foreach (($report['pages'] ?? array()) as $page) {
             $path = $routes[$this->normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
             foreach ($files as &$file) {
                 if ('' === $path || $path !== ($file['path'] ?? null) || !is_string($file['content'] ?? null)) continue;

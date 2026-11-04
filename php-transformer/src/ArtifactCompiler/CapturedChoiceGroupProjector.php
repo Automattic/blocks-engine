@@ -13,7 +13,6 @@ use DOMElement;
 final class CapturedChoiceGroupProjector
 {
     private const KIND = 'choice-group';
-    private const MAX_PAGES = 128;
     private const MAX_GROUPS_PER_PAGE = 8;
     private const MAX_CHOICES = 32;
     private const MAX_STATES = 32;
@@ -213,7 +212,6 @@ final class CapturedChoiceGroupProjector
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
         $diagnostics = array();
-        $report['pages'] = CapturedComponentStates::boundPages($report['pages'], self::MAX_PAGES, 'captured_choice_group_limit_exceeded', self::class, $diagnostics);
 
         $receipt = CaptureReceiptReport::read($files);
         if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {

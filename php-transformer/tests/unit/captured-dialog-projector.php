@@ -284,11 +284,11 @@ $reportState = $state(array('selector' => 'header > button', 'tag' => 'button', 
 $acrossDocuments = $project($files(array('https://example.test/' => '<html><body><div class="data-blocks-engine-capture-desktop-document">' . $reportButton . '</div><div class="data-blocks-engine-capture-mobile-document">' . $reportButton . '</div></body></html>'), array('https://example.test/' => array($reportState))));
 $assert(1 === $acrossDocuments['projected_count'] && 'body.' === $dialogParent((string) $acrossDocuments['files'][0]['content']), 'a captured dialog whose triggers sit in several responsive documents mounts on the body');
 $oneDocument = $project($files(array('https://example.test/' => '<html><body><div class="data-blocks-engine-capture-desktop-document"><p>Wide</p></div><div class="data-blocks-engine-capture-mobile-document">' . $reportButton . '</div></body></html>'), array('https://example.test/' => array($reportState))));
-$assert(1 === $oneDocument['projected_count'] && 'div.data-blocks-engine-capture-mobile-document' === $dialogParent((string) $oneDocument['files'][0]['content']), 'a captured modal whose triggers sit in one responsive document mounts inside it');
+$assert(1 === $oneDocument['projected_count'] && 'header.' === $dialogParent((string) $oneDocument['files'][0]['content']), 'a captured modal travels with its header inside the responsive document');
 $dropdownState = $reportState;
 $dropdownState['dialog']['presentation'] = 'dropdown';
 $dropdownInDocument = $project($files(array('https://example.test/' => '<html><body><div class="data-blocks-engine-capture-desktop-document"><p>Wide</p></div><div class="data-blocks-engine-capture-mobile-document">' . $reportButton . '</div></body></html>'), array('https://example.test/' => array($dropdownState))));
-$assert(1 === $dropdownInDocument['projected_count'] && 'body.' === $dialogParent((string) $dropdownInDocument['files'][0]['content']), 'a captured dropdown without a source place keeps the body mount its view script positions');
+$assert(1 === $dropdownInDocument['projected_count'] && 'header.' === $dialogParent((string) $dropdownInDocument['files'][0]['content']), 'a captured dropdown travels with its shared header for template extraction');
 
 $menuBody = '<div><div><a href="/parent">Parent</a><div><a href="/first">First child</a><a href="/second">Second child</a></div></div><div><a href="/other">Other</a></div></div>';
 $menuHtml = '<html><body><header><button type="button" aria-haspopup="menu" aria-controls="menu" data-blocks-engine-capture-dialog-trigger="menu" data-blocks-engine-capture-disclosure-label="Menu">Menu</button>' . $wiredPanel('menu', $menuBody) . '</header><main><h1>Page</h1></main></body></html>';

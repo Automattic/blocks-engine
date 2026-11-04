@@ -386,6 +386,20 @@ final class ArtifactCompiler
         );
         $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
         $allFallbacks = $entryBlocks['fallbacks'];
+        foreach ($capturedDialogs['diagnostics'] as $projectionDiagnostic) {
+            $code = (string) ($projectionDiagnostic['code'] ?? '');
+            if (!str_contains($code, 'limit_exceeded') && 'captured_interaction_ref_unresolved' !== $code) continue;
+            $allFallbacks[] = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic::build(array(
+                'diagnostic_code' => $code,
+                'severity' => 'error',
+                'summary' => $projectionDiagnostic['message'],
+                'source' => $projectionDiagnostic['source'] ?? self::class,
+                'context' => $projectionDiagnostic['context'] ?? array(),
+                'conversion_classification' => 'unsupported',
+                'loss_class' => 'content_loss',
+                'diagnostic_class' => 'content_loss',
+            ));
+        }
         foreach (array_merge(CaptureReceiptReport::diagnostics($normalized['files']), CaptureReceiptReport::normalizationDiagnostics($normalized['diagnostics'])) as $receiptDiagnostic) {
             if (!in_array($receiptDiagnostic, $diagnostics, true)) $diagnostics[] = $receiptDiagnostic;
             $lostControls = array();

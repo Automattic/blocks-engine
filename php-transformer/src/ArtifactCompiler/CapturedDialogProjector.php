@@ -17,7 +17,6 @@ use DOMXPath;
 /** Projects bounded captured-dialog evidence into the matching source document. */
 final class CapturedDialogProjector
 {
-    private const MAX_PAGES = 128;
     private const MAX_STATES_PER_PAGE = 8;
     // Data Liberation emits at most 8 trigger dialogs plus 8 initially-open dialogs per page.
     private const MAX_DIALOG_STATES_PER_PAGE = 16;
@@ -73,7 +72,7 @@ final class CapturedDialogProjector
             return array('files' => $files, 'projected_count' => 0, 'native_runtime_replacements' => array());
         }
         $routes = CaptureReceiptRoutes::resolve($files, $receipt);
-        foreach (array_slice($report['pages'] ?? array(), 0, self::MAX_PAGES) as $page) {
+        foreach (($report['pages'] ?? array()) as $page) {
             $path = $routes[$this->normalizedUrl((string) ($page['sourceUrl'] ?? ''))] ?? '';
             foreach ($files as &$file) {
                 if ('' === $path || $path !== ($file['path'] ?? null) || !is_string($file['content'] ?? null)) continue;
@@ -229,7 +228,6 @@ final class CapturedDialogProjector
         if (!CapturedInteractionReport::valid($report) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_invalid', 'warning', 'The captured interaction report has an unsupported schema or pages shape.')), 'projected_count' => 0);
         }
-        $report['pages'] = CapturedComponentStates::boundPages($report['pages'], self::MAX_PAGES, 'captured_interactions_limit_exceeded', self::class, $diagnostics);
         if (! $this->hasDialogStates($report['pages'])) {
             return $this->retireOwnedDisclosureWithoutProjection($files, $diagnostics);
         }
@@ -721,9 +719,19 @@ final class CapturedDialogProjector
             $sourcePlace->parentNode->replaceChild($dialogElement, $sourcePlace);
             return $dialogElement;
         }
-        // A modal mounts in its triggers' responsive document; a dropdown's
-        // placement is owned by the view script, so it keeps the body mount.
-        ($dropdown ? ($document->getElementsByTagName('body')->item(0) ?? $document->documentElement) : $this->triggerDocumentScope($document, $triggers))->appendChild($dialogElement);
+        // By default a modal mounts in its triggers' responsive document and a
+        // dropdown in the body. Shared headers below carry their panels instead;
+        // under-header placement remains fixed and is owned by the view script.
+        $mount = $dropdown ? ($document->getElementsByTagName('body')->item(0) ?? $document->documentElement) : $this->triggerDocumentScope($document, $triggers);
+        // Keep shared chrome self-contained when it is extracted as a template
+        // part. The dialog must travel with its trigger, not remain page content.
+        foreach ($document->getElementsByTagName('header') as $header) {
+            if ($triggers && !array_filter($triggers, static fn(DOMElement $trigger): bool => !SourceDom::elementContains($header, $trigger))) {
+                $mount = $header;
+                break;
+            }
+        }
+        $mount->appendChild($dialogElement);
         return $dialogElement;
     }
 
