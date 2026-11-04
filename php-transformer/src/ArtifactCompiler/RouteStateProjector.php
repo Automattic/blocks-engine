@@ -24,11 +24,12 @@ use DOMXPath;
  * state is judged against the document's resting links, not a link's
  * siblings, so a router that marks every link of a menu current is still
  * recognised by the links it left resting elsewhere. When the document holds
- * a resting link, each current link loses `data-status` and the current-state
- * class tokens (`active`, `nav-item--current`) that every current link (or
- * every current link's single-link wrapper at the same depth, such as its
- * `li`) carries and no resting link at that depth does. Other tokens are the
- * link's own identity, even when only the current link has them.
+ * a resting link, each current link and each of its single-link wrappers
+ * (such as its `li`) loses `data-status` and the current-state class tokens
+ * (`active`, `nav-item--current`) that no resting link or wrapper at that
+ * depth carries. A menu item holding a submenu wraps one link, its label, so
+ * a current parent item rests too. Other tokens are the link's own
+ * identity, even when only the current link has them.
  *
  * `aria-current` stays where WordPress restores it: on a menu link to the
  * page, whose state navigation re-derives on the served route. A link to a
@@ -510,37 +511,30 @@ final class RouteStateProjector
 
         $changed = false;
         if (array() !== $resting) {
-            $depth = max(array_map('count', $current));
-            for ($level = 0; $level < $depth; ++$level) {
-                $atLevel = array_values(array_filter(array_map(static fn(array $chain): ?DOMElement => $chain[$level] ?? null, $current)));
-                if (count($atLevel) !== count($current)) {
-                    continue;
-                }
-                $state = null;
-                foreach ($atLevel as $element) {
-                    $classes = self::classes($element);
-                    $state = null === $state ? $classes : array_values(array_intersect($state, $classes));
-                }
-                $restingClasses = array();
-                foreach ($resting as $chain) {
-                    if (isset($chain[$level])) {
-                        foreach (self::classes($chain[$level]) as $class) {
-                            $restingClasses[$class] = true;
-                        }
+            $restingClasses = array();
+            foreach ($resting as $chain) {
+                foreach ($chain as $level => $element) {
+                    foreach (self::classes($element) as $class) {
+                        $restingClasses[$level][$class] = true;
                     }
                 }
-                $state = array_values(array_filter($state ?? array(), static fn(string $class): bool => ! isset($restingClasses[$class]) && (MenuVocabulary::containsCurrentStateToken($class) || 'page_item' === $class || 1 === preg_match('/^page-item-\d+$/', $class))));
-                if (array() === $state) {
-                    continue;
-                }
-                $changed = true;
-                foreach ($atLevel as $element) {
+            }
+            foreach ($current as $chain) {
+                foreach ($chain as $level => $element) {
+                    $state = array_values(array_filter(self::classes($element), static fn(string $class): bool => ! isset($restingClasses[$level][$class]) && (MenuVocabulary::containsCurrentStateToken($class) || 'page_item' === $class || 1 === preg_match('/^page-item-\d+$/', $class))));
+                    if (array() === $state) {
+                        continue;
+                    }
                     // Keep page-item evidence for navigation's current-paint
                     // projection, but not router state on fragment links (Core
                     // cannot restore those as the current page).
                     $link = 'a' === strtolower($element->tagName) ? $element : $element->getElementsByTagName('a')->item(0);
                     if ($preserveNavigationPresentation && self::inMenu($element) && $link instanceof DOMElement && !ArtifactPath::namesSection($link->getAttribute('href'))) continue;
                     $elementState = array_filter($state, static fn(string $class): bool => ('page_item' !== $class && 1 !== preg_match('/^page-item-\d+$/', $class)) || AuthorSelectorProjectionState::hasWordPressCurrentSignal($element));
+                    if (array() === $elementState) {
+                        continue;
+                    }
+                    $changed = true;
                     $classes = array_values(array_diff(self::classes($element), $elementState));
                     if (array() === $classes) {
                         $element->removeAttribute('class');
@@ -604,13 +598,35 @@ final class RouteStateProjector
             if (in_array($tag, array('nav', 'body', 'html', 'header', 'footer', 'main'), true) || 'navigation' === strtolower($cursor->getAttribute('role'))) {
                 break;
             }
-            if (1 !== $cursor->getElementsByTagName('a')->length) {
+            if (1 !== self::ownLinkCount($cursor)) {
                 break;
             }
             $chain[] = $cursor;
         }
 
         return $chain;
+    }
+
+    /**
+     * Links an element holds. A menu item holding a submenu owns one link,
+     * its label; the submenu's links belong to the submenu's own items.
+     */
+    private static function ownLinkCount(DOMElement $element): int
+    {
+        if ('li' !== strtolower($element->tagName)) {
+            return $element->getElementsByTagName('a')->length;
+        }
+        $count = 0;
+        foreach ($element->getElementsByTagName('a') as $link) {
+            for ($cursor = $link->parentNode; $cursor instanceof DOMElement && $cursor !== $element; $cursor = $cursor->parentNode) {
+                if (in_array(strtolower($cursor->tagName), array('ul', 'ol'), true)) {
+                    continue 2;
+                }
+            }
+            ++$count;
+        }
+
+        return $count;
     }
 
     /** @return list<string> */
