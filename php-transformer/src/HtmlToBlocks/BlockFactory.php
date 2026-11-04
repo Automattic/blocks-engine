@@ -1139,7 +1139,7 @@ final class BlockFactory
         $presetClasses = $this->presetColorClasses($attrs);
         $layoutClasses = $this->layoutClasses($attrs['layout'] ?? null, $baseClass);
         $alignmentClasses = $this->textAlignmentClasses($attrs);
-        $classes = SourceDom::mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, $alignmentClasses, (string) ($attrs['className'] ?? ''));
+        $classes = SourceDom::mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, $alignmentClasses, (string) ($attrs['className'] ?? ''), $this->fitTextClasses($attrs));
         $style = trim(
             (string) $support['style'] . ';' . (null === $styleOverride
                 ? (string) ($attrs['inlineGeometryStyle'] ?? '')
@@ -1160,6 +1160,22 @@ final class BlockFactory
     {
         $align = strtolower(trim((string) ($attrs['align'] ?? '')));
         return in_array($align, array( 'left', 'center', 'right' ), true) ? 'has-text-align-' . $align : '';
+    }
+
+    /**
+     * Core's fit-text typography support (core/paragraph, core/heading) derives
+     * the `has-fit-text` class in `save()` whenever the `fitText` attribute is
+     * true — the same supports-derived path as the other `has-*` classes above.
+     * The class belongs only in the saved element's class list, after the
+     * `className` tokens exactly as core serializes it (`class="src-p
+     * has-fit-text"`); the `className` attribute itself stays clean, so the
+     * stored markup round-trips the editor's save() validation unchanged.
+     *
+     * @param array<string, mixed> $attrs
+     */
+    private function fitTextClasses(array $attrs): string
+    {
+        return true === ($attrs['fitText'] ?? null) ? 'has-fit-text' : '';
     }
 
     /**
