@@ -339,8 +339,12 @@ foreach ( $rules($drawerOutput) as [ $stack, $selector, $body ] ) {
             $drawerFixed = $declares($body, 'top:0px!important') && $declares($body, 'right:0px!important') && $declares($body, 'z-index:3!important');
             $assert($isCollapsedMedia($stack), $case . ': fixed placement is inside max-width media', $body);
         }
-    } elseif ( str_ends_with($selector, $drawerMarker) ) {
+    } elseif ( str_ends_with($selector, $drawerMarker) || str_ends_with($selector, $drawerMarker . ':not(.wp-block-navigation__container)') ) {
         $assert($isCollapsedMedia($stack), $case . ': host changes are collapsed-only', $body);
+        if ( $declares($body, 'position:absolute!important') ) {
+            // Core repeats host classes on the inner list; it keeps its box in the open overlay.
+            $assert(str_ends_with($selector, ':not(.wp-block-navigation__container)'), $case . ': out-of-flow host rule spares the inner list', $selector);
+        }
         $drawerEmpty = $drawerEmpty || ($declares($body, 'position:absolute!important') && $declares($body, 'height:0!important') && $declares($body, 'width:0!important'));
     }
 }
@@ -365,6 +369,9 @@ if ('checkbox drawer ancestor' === $case) {
     $assert($seenDrawer, 'checkbox drawer: native open dialog gets source side-drawer geometry', $drawerOutput);
     $assert(str_contains($drawerOutput, 'background:rgba(0,0,0,.5)!important'), 'checkbox drawer: source dimming backdrop is retained', $drawerOutput);
     $assert(str_contains($drawerOutput, 'flex-direction:column!important'), 'checkbox drawer: open links stack vertically', $drawerOutput);
+    // An unsized SVG fills its definite-width control, as in the source.
+    [ $unsizedBlocks, $unsizedOutput ] = $transform(str_replace('.cs-ico-menu,.cs-ico-menu-close{width:22px;height:22px;fill:#f79122}', '.cs-ico-menu,.cs-ico-menu-close{fill:#f79122}', $checkboxCss), $checkboxHtml);
+    $assert(str_contains($unsizedBlocks, 'blocksEngineNavigationOpener') && str_contains($unsizedOutput, 'width:100%!important;height:auto!important'), 'checkbox drawer: unsized SVG fills the source control', $unsizedOutput);
 }
 $assert($drawerFixed, $case . ': native opener retains viewport edge placement and drawer stacking', $drawerOutput);
 $assert($drawerEmpty, $case . ': collapsed host adds no layout row', $drawerOutput);

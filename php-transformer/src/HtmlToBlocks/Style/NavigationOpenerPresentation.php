@@ -68,6 +68,15 @@ final class NavigationOpenerPresentation
         $paint = array('fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin');
         $icon = $this->styles->authoredControlPresentation($svg, array_merge($box, $paint));
         $icon[''] ??= array();
+        // An unsized SVG in a definite-width control fills the control's
+        // content box and takes its height from the viewBox ratio.
+        $declared = fn (string $property): bool => isset($icon[''][$property]) || '' !== trim($svg->getAttribute($property))
+            || isset($this->styles->collapsedViewportAuthorDeclarations($svg, array($property))[$property]);
+        $definiteControl = array_filter($button, static fn (array $values): bool => (bool) preg_match('/^\d+(?:\.\d+)?(?:px|em|rem)$/D', CssValueInspector::withoutImportant($values['width'] ?? '')));
+        if (!$declared('width') && !$declared('height') && '' !== trim($svg->getAttribute('viewBox') ?: $svg->getAttribute('viewbox')) && array() !== $definiteControl) {
+            $icon['']['width'] = '100%';
+            $icon['']['height'] = 'auto';
+        }
         foreach (array('width', 'height') as $property) {
             if (!isset($icon[''][$property])) {
                 $collapsed = $this->styles->collapsedViewportAuthorDeclarations($svg, array($property));

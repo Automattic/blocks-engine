@@ -288,13 +288,16 @@ final class ProjectedNavigationConverter implements ElementConverter
         $drawer = $this->collapsedContainingBlock($toggle);
         $drawerPlacement = $drawer instanceof DOMElement && $this->containsNavigation($drawer, $navigation)
             ? $this->portableCollapsedPlacement($drawer, array('position')) : array();
+        $outOfFlowRule = '';
         if ( 'fixed' === ($placement['position'] ?? '') && 'fixed' === ($drawerPlacement['position'] ?? '') ) {
             // The removed drawer occupied no layout slot. Keep its empty
             // host out of flow too, without retaining panel dimensions.
-            $hostDeclarations = array_merge($hostDeclarations, array('position:absolute!important', 'inset:auto!important', 'width:0!important', 'height:0!important', 'margin:0!important', 'flex-basis:0!important'));
+            // Core repeats the host classes on its inner list, which must
+            // keep its own box inside the open overlay.
+            $outOfFlowRule = $host . ':not(.wp-block-navigation__container){position:absolute!important;inset:auto!important;width:0!important;height:0!important;margin:0!important;flex-basis:0!important}';
             $slotDeclarations = array();
         }
-        $hostRule = $host . '{' . implode(';', array_merge($hostDeclarations, $slotDeclarations)) . '}';
+        $hostRule = $host . '{' . implode(';', array_merge($hostDeclarations, $slotDeclarations)) . '}' . $outOfFlowRule;
         // Core repeats source list classes on its inner container. Neither
         // that list nor the replacement toggle host is the source drawer:
         // retaining its translation (or a transform hint) moves the closed
