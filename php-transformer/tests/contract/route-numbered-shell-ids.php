@@ -15,8 +15,8 @@ $assert = static function (bool $condition, string $message): void { if (! $cond
 // copy. Unattributed and identical ids already extract and must not regress.
 
 $css = '.bar{display:flex;padding:16px;background:#222;color:#fff}';
-$page = static function (string $id, string $title, string $extra = ''): string {
-    return '<!doctype html><html><head><meta charset="utf-8"><title>' . $title . '</title><link rel="stylesheet" href="/style.css"></head><body>'
+$page = static function (string $id, string $title, string $extra = '', string $head = ''): string {
+    return '<!doctype html><html><head><meta charset="utf-8"><title>' . $title . '</title>' . $head . '<link rel="stylesheet" href="/style.css"></head><body>'
         . '<header' . ('' === $id ? '' : ' id="' . $id . '"') . ' class="bar"><a href="/">Acme</a>' . $extra . '<nav><a href="/">Home</a><a href="/about/">About</a></nav></header>'
         . '<main class="content"><h1>' . $title . '</h1><p>' . $title . ' body text.</p></main>'
         . '<footer class="foot"><p>Copyright 2026 Acme.</p></footer></body></html>';
@@ -75,4 +75,36 @@ $referencedCodes = array_column(array_filter($referencedPlan['diagnostics'], sta
 $assert(array() === $referencedHeaders && array() !== $referencedCodes, 'Referenced route-numbered ids keep the header page-owned: ' . json_encode(array_column($referencedPlan['diagnostics'], 'code')));
 foreach (array_column($referencedPlan['pages'], null, 'source_path') as $source => $row) {
     $assert(str_contains((string) $row['canonical_block_markup'], 'Acme') && str_contains((string) $row['canonical_block_markup'], 'href="#top-'), "{$source} keeps its referenced header.");
+}
+
+// An id an author stylesheet names carries per-route presentation: the shared
+// part keeps one page's id, so the other page would lose the styling written
+// for its own (About's `#top-202` border). Any id form counts — `#…` and
+// `[id=…]` — in any stylesheet that applies to a candidate page. A stylesheet
+// naming an unrelated id leaves the extraction alone.
+$styleCases = array(
+    'inline id selector' => array('<style>#top-202{border-top:4px solid red}</style>', false),
+    'inline id attribute selector' => array('<style>[id="top-202"]{border-top:4px solid red}</style>', false),
+    'unrelated id selector' => array('<style>#elsewhere{border-top:4px solid red}</style>', true),
+);
+foreach ($styleCases as $label => [$head, $extracts]) {
+    $stylePlan = (new ArtifactCompiler())->compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array(
+            'index.html' => $page('top-101', 'Home'),
+            'about/index.html' => $page('top-202', 'About', '', $head),
+            'style.css' => $css,
+        ),
+    ))->toArray()['source_reports']['wordpress_site_plan'];
+    WordPressSitePlan::assertValid($stylePlan);
+    $styleHeaders = array_values(array_filter($stylePlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+    $styleCodes = array_column(array_filter($stylePlan['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_shell_retained_ambiguous' === ($diagnostic['code'] ?? null) && 'header' === ($diagnostic['area'] ?? null)), 'code');
+    if ($extracts) {
+        $assert(1 === count($styleHeaders) && array() === $styleCodes, "{$label}: an unrelated stylesheet reference still extracts the header: " . json_encode(array_column($stylePlan['diagnostics'], 'code')));
+    } else {
+        $assert(array() === $styleHeaders && array() !== $styleCodes, "{$label}: a stylesheet-named route-numbered id keeps the header page-owned: " . json_encode(array_column($stylePlan['diagnostics'], 'code')));
+        foreach (array_column($stylePlan['pages'], null, 'source_path') as $source => $row) {
+            $assert(str_contains((string) $row['canonical_block_markup'], 'Acme') && str_contains((string) $row['canonical_block_markup'], 'body text.'), "{$label}: {$source} keeps its header copy and content.");
+        }
+    }
 }
