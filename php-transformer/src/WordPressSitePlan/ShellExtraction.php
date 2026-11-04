@@ -568,7 +568,9 @@ final class ShellExtraction
         if (2 <= count($ranges) - $lead) {
             $head = $ranges[$lead];
             $first = substr($markup, $head['offset'], $head['length']);
-            if (self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::chromeSplitIsInside($index, $head)) {
+            // Capture documents are detection roots, not chrome: descend into
+            // each device document instead of claiming its route content.
+            if (!str_contains($first, CaptureEvidence::DOCUMENT_SCOPE) && self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::chromeSplitIsInside($index, $head)) {
                 $restHasContent = false;
                 foreach (array_slice($ranges, $lead + 1) as $range) {
                     $sibling = substr($markup, $range['offset'], $range['length']);
