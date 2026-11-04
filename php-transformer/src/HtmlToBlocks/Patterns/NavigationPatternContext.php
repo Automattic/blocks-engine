@@ -403,6 +403,9 @@ final class NavigationPatternContext
      * reset on the item to the source item's own winner, so the box is not
      * painted twice now that it lives on the anchor again.
      *
+     * A declaration with media variants is not carried: a static restatement
+     * would freeze the base breakpoint's value over every other width.
+     *
      * Background and padding are never inherited, so a value resolved here was
      * owned by the source anchor itself: a box authored on the source list
      * item resolves nothing here and stays where the author put it.
@@ -420,7 +423,9 @@ final class NavigationPatternContext
             return '';
         }
 
-        $declarations = $this->styleResolver->cssDeclarations($style($anchor));
+        // A side with media variants stays with the author rule: core renders
+        // the source class on the item, where those variants still win.
+        $declarations = $this->styleResolver->classOwnedResponsiveDeclarations($anchor, $this->styleResolver->cssDeclarations($style($anchor)));
         $content = array();
         $paddingSides = array();
         $background = trim((string) ($declarations['background-color'] ?? ''));
