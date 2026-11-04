@@ -1,0 +1,12 @@
+/* Every component rule is scoped by the page wrapper `#app`, as site
+   builders scope their generated CSS. */
+#app :where(.cta) {
+  border: 1px solid #ffffff;
+  border-radius: 999px;
+  background: #123456;
+  color: #ffffff;
+  padding: 8px 24px;
+}
+#app :where(.cta).button .icon.icon {
+  display: none;
+}

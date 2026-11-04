@@ -1753,7 +1753,7 @@ final class ArtifactCompiler
         );
     }
 
-    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false, array $runtimeDeclarations = array()): array
+    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false, array $runtimeDeclarations = array(), int $globalShellContextDepth = 0): array
     {
         ++$this->htmlDocumentTransformCount;
         $preserveBlockMarkup = $this->isBlockMarkup($html);
@@ -1839,6 +1839,7 @@ final class ArtifactCompiler
             'generated_block_namespace' => $generatedBlockNamespace,
             'generated_asset_root'       => $this->generatedAssetRoot,
             'extract_global_shell'       => $extractGlobalShell,
+            'global_shell_context_depth' => $globalShellContextDepth,
             // A shared shell's projection joins every page's stylesheet, where
             // a rule it left unprojected would bypass the page's projection.
             'project_only_matched_author_rules' => 'artifact-shared-shell' === $sourceScope,
@@ -3862,7 +3863,7 @@ final class ArtifactCompiler
                     $area = ShellLandmarkPolicy::landmarkKind($tag, trim($child->getAttribute('role')));
                     if (!$content && isset($rows[$area])) {
                         $markup = $dom->saveHTML($child);
-                        if (is_string($markup) && '' !== $markup) $rows[$area][] = array('markup' => $markup, 'identity' => self::normalizeSourceShellIdentity($markup));
+                        if (is_string($markup) && '' !== $markup) $rows[$area][] = array('markup' => $markup, 'identity' => self::normalizeSourceShellIdentity($markup), 'context' => self::sourceShellAncestorContext($child));
                     }
                     $walk($child, $content);
                 }
@@ -3907,8 +3908,16 @@ final class ArtifactCompiler
                     }
                     return $match[0];
                 }, $head) ?? $head;
-                $synthetic = '<!doctype html><html><head>' . $head . '</head><body>' . $canonicalMarkup . '</body></html>';
-                $compiled = $this->compileHtmlDocumentBlocks($synthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true);
+                // The landmark keeps the ancestor context its members share, so
+                // author rules scoped by an ancestor (`#app .button`, inherited
+                // custom properties) resolve as they do on every member page.
+                // Member-specific ancestor attributes are dropped like route-only
+                // stylesheets, keeping the shell canonical rather than page-seeded.
+                $context = self::sharedSourceShellAncestorContext(array_map(static fn(array $member): array => $member['rows'][$area][$variant]['context'], $members));
+                $open = ''; $close = '';
+                foreach (array_slice($context, 2) as $ancestor) { $open .= '<' . $ancestor['tag'] . self::sourceShellAttributes($ancestor['attributes']) . '>'; $close = '</' . $ancestor['tag'] . '>' . $close; }
+                $synthetic = '<!doctype html><html' . self::sourceShellAttributes($context[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . self::sourceShellAttributes($context[1]['attributes'] ?? array()) . '>' . $open . $canonicalMarkup . $close . '</body></html>';
+                $compiled = $this->compileHtmlDocumentBlocks($synthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($context) - 2));
                 $shell = current(array_filter($compiled['shell_artifacts'], static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
                 if (!is_array($shell)) continue;
                 $slug = 1 === count($groups) ? $area : $area . '-' . ($variant + 1);
@@ -3936,6 +3945,70 @@ final class ArtifactCompiler
             'author_stylesheet_projections' => $authorStylesheetProjections,
             'runtime_script_projections' => $runtimeScriptProjections,
         );
+    }
+
+    /**
+     * The landmark's ancestors, outermost first: `html`, `body`, then each
+     * wrapper down to its parent.
+     *
+     * @return list<array{tag:string,attributes:array<string,string>}>
+     */
+    private static function sourceShellAncestorContext(\DOMElement $landmark): array
+    {
+        $context = array();
+        for ($cursor = $landmark->parentNode; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
+            $attributes = array();
+            foreach ($cursor->attributes ?? array() as $attribute) $attributes[strtolower($attribute->name)] = $attribute->value;
+            array_unshift($context, array('tag' => strtolower($cursor->tagName), 'attributes' => $attributes));
+        }
+        return $context;
+    }
+
+    /**
+     * Ancestor context every member shares: depth-wise while tags agree, with
+     * only attribute values (and class tokens) common to all members.
+     *
+     * @param array<int|string,list<array{tag:string,attributes:array<string,string>}>> $contexts
+     * @return list<array{tag:string,attributes:array<string,string>}>
+     */
+    private static function sharedSourceShellAncestorContext(array $contexts): array
+    {
+        $contexts = array_values($contexts);
+        $shared = array();
+        if (array() === $contexts) return $shared;
+        for ($depth = 0; ; ++$depth) {
+            $level = array();
+            foreach ($contexts as $context) {
+                if (!isset($context[$depth]) || (array() !== $level && $context[$depth]['tag'] !== $level[0]['tag'])) break 2;
+                $level[] = $context[$depth];
+            }
+            $attributes = $level[0]['attributes'];
+            foreach (array_slice($level, 1) as $ancestor) {
+                foreach ($attributes as $name => $value) {
+                    if (!array_key_exists($name, $ancestor['attributes'])) { unset($attributes[$name]); continue; }
+                    if ('class' === $name) {
+                        $tokens = preg_split('/\s+/', trim($ancestor['attributes'][$name])) ?: array();
+                        $attributes[$name] = implode(' ', array_values(array_intersect(preg_split('/\s+/', trim($value)) ?: array(), $tokens)));
+                        if ('' === $attributes[$name]) unset($attributes[$name]);
+                    } elseif ($ancestor['attributes'][$name] !== $value) {
+                        unset($attributes[$name]);
+                    }
+                }
+            }
+            $shared[] = array('tag' => $level[0]['tag'], 'attributes' => $attributes);
+        }
+        return $shared;
+    }
+
+    /** @param array<string,string> $attributes */
+    private static function sourceShellAttributes(array $attributes): string
+    {
+        $html = '';
+        foreach ($attributes as $name => $value) {
+            if (1 !== preg_match('/^[a-z_:][a-z0-9_:.-]*$/', $name)) continue;
+            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        return $html;
     }
 
     private static function normalizeSourceShellIdentity(string $markup): string

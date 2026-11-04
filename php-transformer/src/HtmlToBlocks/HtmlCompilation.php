@@ -1777,7 +1777,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
             $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
             $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
-            $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
+            $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html'), false, max(0, (int) ($options['global_shell_context_depth'] ?? 0))) : array();
             $this->collectGeneratedComponentCandidates($body);
             $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates(), $this->transformationProvenance()->sourceCollapsedWrapperHiddenStates());
         } finally {
@@ -2190,11 +2190,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      *
      * @return array<int, array<string, mixed>>
      */
-    private function globalShellArtifacts(DOMElement $body, string $source, bool $removeFromContent = false): array
+    private function globalShellArtifacts(DOMElement $body, string $source, bool $removeFromContent = false, int $contextDepth = 0): array
     {
         $artifacts = array();
         $removals = array();
-        foreach ( $body->childNodes as $child ) {
+        // A shell compiled inside its source ancestor context sits below that
+        // many single-child wrappers; the wrappers only supply style context.
+        $container = $body;
+        for ( $depth = 0; $depth < $contextDepth; ++$depth ) {
+            $children = array();
+            foreach ( $container->childNodes as $child ) if ( $child instanceof DOMElement ) $children[] = $child;
+            if ( 1 !== count($children) ) return $artifacts;
+            $container = $children[0];
+        }
+        foreach ( $container->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
@@ -2246,7 +2255,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ($removeFromContent) $removals[] = $child;
         }
 
-        foreach ($removals as $child) $body->removeChild($child);
+        foreach ($removals as $child) $child->parentNode?->removeChild($child);
 
         return $artifacts;
     }
