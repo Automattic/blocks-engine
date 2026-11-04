@@ -24,7 +24,7 @@ $form = '<!-- wp:group {"className":"signup"} --><div class="wp-block-group sign
 $footer = '<!-- wp:group {"anchor":"site-foot"} --><div id="site-foot" class="wp-block-group">' . $paragraph('12 Harbour Street') . $form . '</div><!-- /wp:group -->';
 $formOffset = strpos($footer, '<!-- wp:group {"className":"signup"}');
 $formIndex = null;
-foreach (WordPressSitePlan::blockRanges($footer) as $index => $range) if ($range['offset'] === $formOffset) $formIndex = $index;
+foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($footer))->ranges() as $index => $range) if ($range['offset'] === $formOffset) $formIndex = $index;
 $partSource = 'wordpress-site-plan/shared/footer#footer';
 $part = array('source_path' => $partSource, 'slug' => 'footer', 'area' => 'footer', 'canonical_block_markup' => $footer, 'placement' => array('kind' => 'shared_shell', 'template_slugs' => array('index', 'page', 'front-page')), 'provenance' => array('sources' => array('index.html' => 'x', 'about.html' => 'x', 'team.html' => 'x')));
 $pages = array_map(static fn (string $path): array => array('source_path' => $path, 'canonical_block_markup' => $paragraph('Body for ' . $path), 'entrypoint' => 'index.html' === $path, 'post_type' => 'page', 'slug' => basename($path, '.html')), array('index.html', 'about.html', 'team.html'));

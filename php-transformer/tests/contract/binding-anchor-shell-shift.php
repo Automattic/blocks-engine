@@ -25,7 +25,7 @@ $assert(isset($result['source_reports']['wordpress_site_plan']), 'The shared-she
 $plan = $result['source_reports']['wordpress_site_plan'];
 $headers = array_values(array_filter($plan['template_parts'], static fn (array $part): bool => 'header' === ($part['area'] ?? null)));
 $assert(1 === count($headers) && 'shared_shell' === ($headers[0]['placement']['kind'] ?? null), 'The shared header is extracted into one template part.');
-$assert(4 === count(WordPressSitePlan::blockRanges($headers[0]['canonical_block_markup'])), 'The extracted header has the four-block repeat period of a card.');
+$assert(4 === count((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($headers[0]['canonical_block_markup']))->ranges()), 'The extracted header has the four-block repeat period of a card.');
 $shop = array_column($plan['pages'], null, 'source_path')['shop/index.html'];
 $markup = $shop['canonical_block_markup'];
 $assert(!str_contains($markup, 'Tagline'), 'The shop canonical page no longer contains the header.');
@@ -35,7 +35,7 @@ foreach ($plan['runtime_declarations'] as $declaration) foreach ($declaration['p
 }
 $assert(3 === count($bindings), 'All three identical add-to-cart controls retain their bindings.');
 $search = $bindings[0]['search_block_markup'];
-$matches = array_values(array_filter(WordPressSitePlan::blockRanges($markup), static fn (array $range): bool => $search === substr($markup, $range['offset'], $range['length'])));
+$matches = array_values(array_filter((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges(), static fn (array $range): bool => $search === substr($markup, $range['offset'], $range['length'])));
 $assert(3 === count($matches), 'The canonical page emits three identical bound blocks.');
 foreach ($bindings as $index => $binding) {
     $assert($index + 1 === $binding['projected_anchor']['source_occurrence'] && $index + 1 === $binding['occurrence'], 'Bindings retain their source occurrence order.');

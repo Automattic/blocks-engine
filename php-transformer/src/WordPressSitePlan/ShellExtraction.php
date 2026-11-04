@@ -50,7 +50,7 @@ final class ShellExtraction
         foreach ($pages as $index => $page) {
             if ('post' !== ($page['post_type'] ?? null)) continue;
             $markup = (string) ($page['canonical_block_markup'] ?? '');
-            $nodes = self::blockNodes($markup);
+            $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
             $removals = array();
             foreach (self::topLevelNodeIds($nodes) as $id) {
                 $wrapper = $nodes[$id];
@@ -131,10 +131,12 @@ final class ShellExtraction
         foreach ($pages as $page) foreach ($page['shell_candidates'] ?? array() as $candidate) {
             $identities[$candidate['area']][$candidate['identity_markup'] ?? $candidate['markup']] = true;
         }
-        $variantIdentities = array();
-        foreach ($pages as $page) foreach (array('header', 'footer') as $area) {
-            foreach ($this->nestedLandmarkCandidates($page['canonical_block_markup'], '', $area) as $position => $row) {
-                $variantIdentities[$area][$position + 1][$row['identity_markup']] = true;
+        $variantIdentities = array(); $sourceRows = array();
+        foreach ($pages as $page) {
+            $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']);
+            foreach (array('header', 'footer') as $area) {
+                $sourceRows[$page['source_path']][$area] = $this->nestedLandmarkCandidates($index, '', $area);
+                foreach ($sourceRows[$page['source_path']][$area] as $position => $row) $variantIdentities[$area][$position + 1][$row['identity_markup']] = true;
             }
         }
         foreach ($pages as &$page) {
@@ -143,7 +145,7 @@ final class ShellExtraction
             $page['_source_shared_variant_identities'] = array();
             foreach (array('header', 'footer') as $area) {
                 $variant = 0;
-                foreach ($this->nestedLandmarkCandidates($page['canonical_block_markup'], '', $area) as $row) {
+                foreach ($sourceRows[$page['source_path']][$area] as $row) {
                     ++$variant;
                     $class = self::responsiveVariantClass($row);
                     if (null === $class || !empty($row['capture_scope_edge']) || count($variantIdentities[$area][$variant]) < 2) continue;
@@ -245,8 +247,9 @@ final class ShellExtraction
             foreach ($originals as $original) {
                 if (!in_array($original['source_path'], $sources, true)) continue;
                 $markup = $original['canonical_block_markup'];
-                $nodes = self::blockNodes($markup);
-                foreach ($this->nestedLandmarkCandidates($markup, '', 'footer') as $row) {
+                $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+                $nodes = self::blockNodes($index);
+                foreach ($this->nestedLandmarkCandidates($index, '', 'footer') as $row) {
                     $scope = self::responsiveVariantClass($row) ?? '';
                     foreach ($nodes as $id => $node) {
                         if ($node['offset'] !== $row['offset'] || $node['end'] !== $row['offset'] + $row['length']) continue;
@@ -266,7 +269,7 @@ final class ShellExtraction
             }
             $partMarkup = $part['canonical_block_markup'];
             $insertions = array();
-            foreach ($this->nestedLandmarkCandidates($partMarkup, '', 'footer') as $row) {
+            foreach ($this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($partMarkup), '', 'footer') as $row) {
                 $scope = self::responsiveVariantClass($row) ?? '';
                 $trailing = '';
                 foreach ($evidence[$scope] ?? array() as $identities) {
@@ -281,7 +284,8 @@ final class ShellExtraction
                         if (null === $content) continue;
                         $current = $page['canonical_block_markup'];
                         $matches = array();
-                        $currentNodes = self::blockNodes($current);
+                        $currentIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($current);
+                        $currentNodes = self::blockNodes($currentIndex);
                         foreach ($currentNodes as $nodeId => $node) {
                             if ($content !== substr($current, $node['offset'], $node['end'] - $node['offset'])) continue;
                             $classes = '';
@@ -295,7 +299,7 @@ final class ShellExtraction
                         }
                         if (1 !== count($matches)) continue;
                         $retained = false;
-                        foreach ($this->nestedLandmarkCandidates($current, '', 'footer') as $remaining) {
+                        foreach ($this->nestedLandmarkCandidates($currentIndex, '', 'footer') as $remaining) {
                             if ((self::responsiveVariantClass($remaining) ?? '') === $scope) $retained = true;
                         }
                         if (!$retained) $removals[$index] = array('offset' => $matches[0], 'content' => $content);
@@ -347,6 +351,7 @@ final class ShellExtraction
     /** @param array<string,mixed> $document @return array<int,array<string,mixed>> */
     public function shellCandidates(array $document, AssetReferenceCanonicalizer $references, array $routes, string $canonical): array
     {
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($canonical);
         $candidates = array();
         foreach ($document['shell_artifacts'] ?? array() as $candidate) {
             if (!is_array($candidate) || !in_array($candidate['area'] ?? null, array('header', 'footer'), true) || !is_string($candidate['block_markup'] ?? null) || '' === trim($candidate['block_markup'])) continue;
@@ -360,7 +365,7 @@ final class ShellExtraction
             // position directly instead of re-deriving it by searching for the
             // candidate's bytes, which a coincidental duplicate elsewhere in the
             // page could otherwise make ambiguous.
-            $range = $this->topLevelShellRange($canonical, (string) $candidate['area'], $markup);
+            $range = $this->topLevelShellRange($index, (string) $candidate['area'], $markup);
             $identity = self::normalizeNestedChromeMarkup($markup);
             $row = array('area' => $candidate['area'], 'markup' => $markup, 'template_part_markup' => $templatePartMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '');
             if (is_array($range)) { $row['offset'] = $range['offset']; $row['length'] = $range['length']; }
@@ -368,15 +373,15 @@ final class ShellExtraction
         }
         $sourcePath = WordPressSitePlan::value($document, 'source_path');
         $occupiedAreas = array_column($candidates, 'area');
-        $nestedLandmarks = $this->nestedLandmarkShellCandidates($canonical, $sourcePath, $occupiedAreas);
+        $nestedLandmarks = $this->nestedLandmarkShellCandidates($index, $sourcePath, $occupiedAreas);
         if (array() === $nestedLandmarks) {
-            return array_merge($candidates, $this->nestedChromeCandidates($canonical, $sourcePath, $occupiedAreas));
+            return array_merge($candidates, $this->nestedChromeCandidates($index, $sourcePath, $occupiedAreas));
         }
         // A labelled landmark claims only its own area. Unlabeled chrome still
         // supplies the other one, so a page with a nested <footer> and an
         // unlabeled leading masthead shares both.
         $occupiedAreas = array_merge($occupiedAreas, array_column($nestedLandmarks, 'area'));
-        return array_merge($candidates, $nestedLandmarks, $this->unlabeledChromeCandidates($canonical, $sourcePath, $occupiedAreas));
+        return array_merge($candidates, $nestedLandmarks, $this->unlabeledChromeCandidates($index, $sourcePath, $occupiedAreas));
     }
 
     /**
@@ -390,51 +395,53 @@ final class ShellExtraction
      * @param array<int,string> $occupiedAreas
      * @return array<int,array<string,mixed>>
      */
-    private function nestedChromeCandidates(string $markup, string $sourcePath, array $occupiedAreas = array()): array
+    private function nestedChromeCandidates(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, string $sourcePath, array $occupiedAreas = array()): array
     {
-        $legacy = $this->legacyTwoChildChromeCandidate($markup, $sourcePath);
+        $markup = $index->markup;
+        $legacy = $this->legacyTwoChildChromeCandidate($index, $sourcePath);
         if (array() !== $legacy) {
             return $legacy;
         }
-        return $this->unlabeledChromeCandidates($markup, $sourcePath, $occupiedAreas);
+        return $this->unlabeledChromeCandidates($index, $sourcePath, $occupiedAreas);
     }
 
     /** @return array<int,array<string,mixed>> */
-    private function legacyTwoChildChromeCandidate(string $markup, string $sourcePath): array
+    private function legacyTwoChildChromeCandidate(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, string $sourcePath): array
     {
-        $topLevel = self::topLevelBlockRanges($markup);
-        foreach ($topLevel as $index => $wrapperRange) {
+        $markup = $index->markup;
+        $topLevel = $index->topLevel();
+        foreach ($topLevel as $position => $wrapperRange) {
             $wrapper = substr($markup, $wrapperRange['offset'], $wrapperRange['length']);
-            $preceding = $topLevel[$index - 1] ?? null;
+            $preceding = $topLevel[$position - 1] ?? null;
             $toggle = is_array($preceding) ? substr($markup, $preceding['offset'], $preceding['length']) : '';
             // The responsive core/navigation overlay supersedes the only allowed
             // sibling: its legacy authored checkbox toggle.
-            if (count($topLevel) !== $index + 1 || (0 < $index && (1 !== $index || !self::isCheckboxBlock($toggle)))) {
+            if (count($topLevel) !== $position + 1 || (0 < $position && (1 !== $position || !self::isCheckboxBlock($toggle)))) {
                 continue;
             }
-            $children = self::directChildBlockRanges($wrapper);
+            $children = $index->children($wrapperRange);
             if (2 !== count($children) || !self::isGroupBlock($wrapper)) {
                 continue;
             }
             $navigationChildren = array_values(array_filter(
                 $children,
-                static fn(array $range): bool => str_contains(substr($wrapper, $range['offset'], $range['length']), '<!-- wp:navigation ')
+                static fn(array $range): bool => str_contains(substr($markup, $range['offset'], $range['length']), '<!-- wp:navigation ')
             ));
             if (1 !== count($navigationChildren)) {
                 continue;
             }
             $chromeRange = $navigationChildren[0];
             $contentRange = current(array_filter($children, static fn(array $range): bool => $range !== $chromeRange));
-            if (!is_array($contentRange) || !self::isGroupBlock(substr($wrapper, $contentRange['offset'], $contentRange['length']))) {
+            if (!is_array($contentRange) || !self::isGroupBlock(substr($markup, $contentRange['offset'], $contentRange['length']))) {
                 continue;
             }
-            $chrome = substr($wrapper, $chromeRange['offset'], $chromeRange['length']);
-            $content = substr($wrapper, $contentRange['offset'], $contentRange['length']);
+            $chrome = substr($markup, $chromeRange['offset'], $chromeRange['length']);
+            $content = substr($markup, $contentRange['offset'], $contentRange['length']);
             $opening = self::blockOpeningMarkup($wrapper);
             if (null === $opening) {
                 continue;
             }
-            $contentOffset = $wrapperRange['offset'] + $contentRange['offset'];
+            $contentOffset = $contentRange['offset'];
             $identity = self::normalizeNestedChromeMarkup($chrome);
             if ('' === $identity) {
                 continue;
@@ -460,11 +467,12 @@ final class ShellExtraction
      * @param array<int,string> $occupiedAreas
      * @return array<int,array<string,mixed>>
      */
-    private function unlabeledChromeCandidates(string $markup, string $sourcePath, array $occupiedAreas): array
+    private function unlabeledChromeCandidates(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, string $sourcePath, array $occupiedAreas): array
     {
+        $markup = $index->markup;
         $headers = array();
         $footers = array();
-        $this->collectNestedChrome($markup, 0, $headers, $footers);
+        $this->collectNestedChrome($index, $index->topLevel(), $headers, $footers);
         $candidates = array();
         foreach (array('header' => $headers, 'footer' => $footers) as $area => $rows) {
             if (in_array($area, $occupiedAreas, true) || array() === $rows) {
@@ -508,9 +516,9 @@ final class ShellExtraction
      * @param array<int,array<string,mixed>> $headers
      * @param array<int,array<string,mixed>> $footers
      */
-    private function collectNestedChrome(string $markup, int $baseOffset, array &$headers, array &$footers): void
+    private function collectNestedChrome(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $ranges, array &$headers, array &$footers): void
     {
-        $ranges = self::topLevelBlockRanges($markup);
+        $markup = $index->markup;
         // Empty decoration groups ahead of the header do not move it: the first
         // block that holds anything is the one that may be the header.
         $lead = 0;
@@ -518,7 +526,7 @@ final class ShellExtraction
         if (2 <= count($ranges) - $lead) {
             $head = $ranges[$lead];
             $first = substr($markup, $head['offset'], $head['length']);
-            if (self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::chromeSplitIsInside($first)) {
+            if (self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::chromeSplitIsInside($index, $head)) {
                 $restHasContent = false;
                 foreach (array_slice($ranges, $lead + 1) as $range) {
                     $sibling = substr($markup, $range['offset'], $range['length']);
@@ -528,7 +536,7 @@ final class ShellExtraction
                     }
                 }
                 if ($restHasContent) {
-                    $headers[] = $this->nestedChromeRow($first, $baseOffset + $head['offset'], $head['length']);
+                    $headers[] = $this->nestedChromeRow($first, $head['offset'], $head['length']);
                     // A projected modal dialog mounts at the end of its document;
                     // it renders in the top layer, so the footer is the last
                     // sibling before it.
@@ -537,26 +545,15 @@ final class ShellExtraction
                     $last = $ranges[$lastIndex];
                     $lastMarkup = substr($markup, $last['offset'], $last['length']);
                     if ($last !== $head && self::isFooterChrome($lastMarkup)) {
-                        $footers[] = $this->nestedChromeRow($lastMarkup, $baseOffset + $last['offset'], $last['length']);
+                        $footers[] = $this->nestedChromeRow($lastMarkup, $last['offset'], $last['length']);
                     }
                     return;
                 }
             }
         }
         foreach ($ranges as $range) {
-            $block = substr($markup, $range['offset'], $range['length']);
-            $children = self::directChildBlockRanges($block);
-            if (array() === $children) {
-                continue;
-            }
-            $innerStart = $children[0]['offset'];
-            $innerEnd = $children[count($children) - 1]['offset'] + $children[count($children) - 1]['length'];
-            $this->collectNestedChrome(
-                substr($block, $innerStart, $innerEnd - $innerStart),
-                $baseOffset + $range['offset'] + $innerStart,
-                $headers,
-                $footers
-            );
+            $children = $index->children($range);
+            if (array() !== $children) $this->collectNestedChrome($index, $children, $headers, $footers);
         }
     }
 
@@ -586,8 +583,9 @@ final class ShellExtraction
     private static function unwrapChromeContainers(string $markup): string
     {
         $markup = trim($markup);
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         while (preg_match('/^<!--\s*wp:\S+/', $markup)) {
-            $children = self::directChildBlockRanges($markup);
+            $children = 1 === count($index->topLevel()) ? $index->atDepth(1) : array();
             if (array() === $children) {
                 break;
             }
@@ -602,6 +600,7 @@ final class ShellExtraction
                 break;
             }
             $markup = trim($inner);
+            $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         }
         return $markup;
     }
@@ -653,9 +652,10 @@ final class ShellExtraction
      * Extra wrappers around header-only chrome have no later content child and
      * stay the header candidate.
      */
-    private static function chromeSplitIsInside(string $markup): bool
+    private static function chromeSplitIsInside(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $range): bool
     {
-        $children = self::directChildBlockRanges($markup);
+        $markup = $index->markup;
+        $children = $index->children($range);
         if (count($children) < 2) {
             return false;
         }
@@ -720,13 +720,13 @@ final class ShellExtraction
     }
 
     /** @param array<int,string> $occupiedAreas @return array<int,array<string,mixed>> */
-    private function nestedLandmarkShellCandidates(string $markup, string $sourcePath, array $occupiedAreas): array
+    private function nestedLandmarkShellCandidates(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, string $sourcePath, array $occupiedAreas): array
     {
-        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $markup = $index->markup;
         $candidates = array();
         foreach (array('header', 'footer') as $area) {
             if (in_array($area, $occupiedAreas, true)) continue;
-            $rows = $this->nestedLandmarkCandidates($markup, $sourcePath, $area, $index);
+            $rows = $this->nestedLandmarkCandidates($index, $sourcePath, $area);
             if (array() === $rows) continue;
             if (!empty($rows[0]['document_level']) && 1 < count($rows)) continue;
             $identities = array_column($rows, 'identity_markup');
@@ -757,7 +757,7 @@ final class ShellExtraction
             usort($areaArtifacts, static fn(array $left, array $right): int => ($left['variant'] ?? 0) <=> ($right['variant'] ?? 0));
             $candidates = array(); $variantCount = null; $rejected = false; $variantBindings = array();
             foreach ($applicable as $index => $page) {
-                $rows = $this->nestedLandmarkCandidates($page['canonical_block_markup'], $page['source_path'], $area);
+                $rows = $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']), $page['source_path'], $area);
                 if (!empty($rows[0]['document_level']) && 1 < count($rows)) { $rejected = true; break; }
                 foreach ($rows as $row) if (null !== self::responsiveVariantClass($row)) continue 3;
                 if (array() === $rows) { $rejected = true; break; }
@@ -857,13 +857,14 @@ final class ShellExtraction
     private function boundBlockRanges(array $declarations, array $document): array
     {
         $markup = (string) ($document['canonical_block_markup'] ?? '');
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         $ranges = array();
         foreach ($declarations as $declaration) foreach ($this->entities($declaration) as $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $binding) {
             if (($binding['source_path'] ?? null) !== ($document['source_path'] ?? null)) continue;
             $position = $binding['position'] ?? null;
             $search = $binding['search_block_markup'] ?? null;
             if (!is_string($search) || '' === $search) continue;
-            if (WordPressSitePlan::bindingPosition($position, $markup, $search)) { $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']); continue; }
+            if (WordPressSitePlan::bindingPosition($position, $index, $search)) { $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']); continue; }
             // A manifest record keeps the position it was compiled with, which
             // page canonicalization can shift; protect every block it may name.
             for ($offset = strpos($markup, $search); false !== $offset; $offset = strpos($markup, $search, $offset + strlen($search))) $ranges[] = array('offset' => $offset, 'length' => strlen($search));
@@ -921,7 +922,7 @@ final class ShellExtraction
         $clusters = array();
         foreach ($documents as $documentIndex => $document) {
             $regionMarkup = substr($document['markup'], $document['region']['offset'], $document['region']['length']);
-            foreach (WordPressSitePlan::blockRanges($regionMarkup) as $range) {
+            foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($regionMarkup))->ranges() as $range) {
                 $block = substr($regionMarkup, $range['offset'], $range['length']);
                 if (!preg_match('/^<!--\s*wp:paragraph\b/', ltrim($block))) continue;
                 $absolute = $document['region']['offset'] + $range['offset'];
@@ -1031,22 +1032,16 @@ final class ShellExtraction
     private function footerContentRegions(string $markup, string $sourcePath, bool $wholePart = false): array
     {
         if ($wholePart) return array(array('offset' => 0, 'length' => strlen($markup)));
-        return array_values(array_map(static fn(array $candidate): array => array('offset' => $candidate['offset'], 'length' => $candidate['length']), $this->nestedLandmarkCandidates($markup, $sourcePath, 'footer')));
-    }
-
-    /** @return array<int,array{token:string,offset:int,closing:bool,name:string,attributes:string,self_closing:bool}> */
-    private static function blockCommentTokens(string $markup): array
-    {
-        return (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->tokens();
+        return array_values(array_map(static fn(array $candidate): array => array('offset' => $candidate['offset'], 'length' => $candidate['length']), $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), $sourcePath, 'footer')));
     }
 
     /** @return array<int,array<string,mixed>> */
-    private function nestedLandmarkCandidates(string $markup, string $sourcePath, string $area, ?\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index = null): array
+    private function nestedLandmarkCandidates(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, string $sourcePath, string $area): array
     {
         // Keep the existing shell-main rule, with an exception for a unique
         // document-edge landmark inside main/section. Article/aside landmarks
         // remain content even when they happen to sit at a document edge.
-        $index ??= new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $markup = $index->markup;
         $tokens = $index->tokens();
         $landmarks = array();
         foreach ($tokens as $token) {
@@ -1144,7 +1139,7 @@ final class ShellExtraction
                 $preceded = preg_match_all('/<!--\s*wp:/', $between) > count($stack) || 0 < preg_match_all('/<!--\s*\/wp:/', $between);
                 if ($preceded) $backdropIds = self::backdropAncestorIds($markup, $stack, $offset);
             }
-            if (!$selfClosing) $stack[] = array('document_edge' => $edgeLandmark && (array() !== $mainAncestors || $disallowedAncestor), 'offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'named_footer' => $candidate && $namedFooter, 'document_end' => $stack[0]['document_end'] ?? $documentEnds[$offset] ?? strlen($markup), 'main_ancestors' => $edgeLandmark ? array() : $mainAncestors, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'static_start_ids' => $candidate ? self::precedingStaticStartIds($markup, $stack, $offset) : array(), 'anchor' => $anchor, 'class_name' => $className, 'variant_scope_classes' => $variantScopeClasses);
+            if (!$selfClosing) $stack[] = array('document_edge' => $edgeLandmark && (array() !== $mainAncestors || $disallowedAncestor), 'offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'named_footer' => $candidate && $namedFooter, 'document_end' => $stack[0]['document_end'] ?? $documentEnds[$offset] ?? strlen($markup), 'main_ancestors' => $edgeLandmark ? array() : $mainAncestors, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'static_start_ids' => $candidate ? self::precedingStaticStartIds($index, $stack, $offset) : array(), 'anchor' => $anchor, 'class_name' => $className, 'variant_scope_classes' => $variantScopeClasses);
         }
         $rows = array_values(array_filter($rows, static fn(array $row): bool => array() === array_diff($row['main_ancestors'], $shellMains ?? array())));
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
@@ -1189,13 +1184,12 @@ final class ShellExtraction
             }
         }
         foreach ($scopes as $scope) {
-            $wrapper = substr($markup, $scope['offset'], $scope['length']);
-            $children = self::directChildBlockRanges($wrapper);
+            $children = $index->children($scope);
             if (array() === $children) continue;
             $base = $children[0]['offset'];
             $last = $children[count($children) - 1];
-            $document = substr($wrapper, $base, $last['offset'] + $last['length'] - $base);
-            $edge = $this->routeEdge($document, array(), $area, array());
+            $document = substr($markup, $base, $last['offset'] + $last['length'] - $base);
+            $edge = $this->routeEdge(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($document), array(), $area, array());
             foreach ($rows as &$row) {
                 if ($row['offset'] < $scope['offset'] || $row['offset'] + $row['length'] > $scope['offset'] + $scope['length']) continue;
                 $at = $this->edgeLandmarkIndex($document, $edge, $row['markup']);
@@ -1203,7 +1197,7 @@ final class ShellExtraction
                 $length = $at + 1;
                 while ($length < count($edge) && self::isOutOfFlowChrome(substr($document, $edge[$length]['offset'], $edge[$length]['length']))) ++$length;
                 $range = self::edgeRange($edge, $length);
-                $row['offset'] = $scope['offset'] + $base + $range['offset'];
+                $row['offset'] = $base + $range['offset'];
                 $row['length'] = $range['length'];
                 $row['markup'] = substr($markup, $row['offset'], $row['length']);
                 $row['identity_markup'] = self::normalizeNestedChromeMarkup($row['markup']);
@@ -1300,13 +1294,13 @@ final class ShellExtraction
      * @param array<int,array<string,mixed>> $stack
      * @return list<string>
      */
-    private static function precedingStaticStartIds(string $markup, array $stack, int $offset): array
+    private static function precedingStaticStartIds(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $stack, int $offset): array
     {
         $ids = array();
         foreach ($stack as $level => $ancestor) {
             $start = (int) ($ancestor['inner_offset'] ?? $ancestor['offset']);
             $end = (int) ($stack[$level + 1]['offset'] ?? $offset);
-            $tokens = self::blockCommentTokens(substr($markup, $start, max(0, $end - $start)));
+            $tokens = array_filter($index->tokens(), static fn(array $token): bool => $token['offset'] >= $start && $token['offset'] < $end);
             $depth = 0;
             foreach ($tokens as $token) {
                 if ($token['closing']) { --$depth; continue; }
@@ -1561,7 +1555,7 @@ final class ShellExtraction
             // and leave route-owned ancestors and sibling order intact.
             // A single document's newly recognized page-edge landmark belongs
             // in every template; established multi-route layout bindings stay put.
-            $inlineShell = (bool) array_filter($cluster['indexes'], fn(int $index): bool => (count($applicable) > 1 || empty($candidates[$index][0]['document_edge'])) && $this->hasLayoutAncestor($pages[$index]['canonical_block_markup'], $candidates[$index][0], $area));
+            $inlineShell = (bool) array_filter($cluster['indexes'], fn(int $index): bool => (count($applicable) > 1 || empty($candidates[$index][0]['document_edge'])) && $this->hasLayoutAncestor(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($pages[$index]['canonical_block_markup']), $candidates[$index][0], $area));
             // A heterogeneous responsive bundle has its own visibility owner.
             // Nesting that bundle beneath one viewport would hide the other;
             // retain the existing partition contract for those bundles.
@@ -1793,7 +1787,7 @@ final class ShellExtraction
             }
             $edges = array();
             foreach (array_keys($applicable) as $index) {
-                $edge = $this->routeEdge((string) $pages[$index]['canonical_block_markup'], $pages[$index], $area, $runtimeDeclarations);
+                $edge = $this->routeEdge(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex((string) $pages[$index]['canonical_block_markup']), $pages[$index], $area, $runtimeDeclarations);
                 if (array() !== $edge) $edges[$index] = $edge;
             }
             $edges = self::normalizeEdgeLinks($edges, $pages);
@@ -1899,7 +1893,7 @@ final class ShellExtraction
                 // A partial landmark is route content, not the shared part's
                 // frame. Put the reference before it and retain its remainder.
                 $insert = $at;
-                foreach (self::blockNodes($page) as $node) {
+                foreach (self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page)) as $node) {
                     if ($node['offset'] < $at && $node['end'] > $end && preg_match('/"tagName":"' . $area . '"/', $node['attributes'])) $insert = $node['offset'];
                 }
                 $pages[$index]['canonical_block_markup'] = substr($page, 0, $insert) . $reference . substr($page, $insert, $at - $insert) . substr($page, $end);
@@ -1961,13 +1955,14 @@ final class ShellExtraction
      * @param array<int,array<string,mixed>> $runtimeDeclarations
      * @return list<array{offset:int,length:int,identity:string}>
      */
-    private function routeEdge(string $markup, array $page, string $area, array $runtimeDeclarations): array
+    private function routeEdge(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $page, string $area, array $runtimeDeclarations): array
     {
+        $markup = $index->markup;
         // Device-split documents keep their existing correspondence contract;
         // never extract only the desktop edge from a multi-document bundle.
         if (substr_count($markup, '"tagName":"main"') > 1) return array();
         $base = 0; $depth = 0;
-        $ranges = self::topLevelBlockRanges($markup);
+        $ranges = $index->topLevel();
         // Empty embed holders beside the app frame stay page-owned and do
         // not count against its sole rendering wrapper.
         while (true) {
@@ -1976,9 +1971,8 @@ final class ShellExtraction
             $wrapper = $rendering[0];
             $block = substr($markup, $base + $wrapper['offset'], $wrapper['length']);
             if (!self::isGroupBlock($block) || preg_match('/^<!--\s*wp:group\s+\{[^}]*"tagName":"main"/', $block)) return array();
-            $children = self::directChildBlockRanges($block);
+            $children = $index->children($wrapper);
             if (array() === $children) return array();
-            $base += $wrapper['offset'];
             $ranges = $children;
             ++$depth;
         }
@@ -1991,10 +1985,8 @@ final class ShellExtraction
         $outer = $ranges[$position];
         $block = substr($markup, $base + $outer['offset'], $outer['length']);
         if ('header' === $area && self::isGroupBlock($block) && preg_match('/"tagName":"header"/', $block) && str_contains($block, '<!-- wp:heading')) {
-            $children = self::directChildBlockRanges($block);
+            $children = $index->children($outer);
             if (count($children) > 1) {
-                foreach ($children as &$child) $child['offset'] += $outer['offset'];
-                unset($child);
                 array_splice($ranges, $position, 1, $children);
                 ++$depth;
             }
@@ -2345,7 +2337,7 @@ final class ShellExtraction
      */
     private function shellFrame(string $markup, array $areas): ?array
     {
-        $nodes = self::blockNodes($markup);
+        $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
         if (array() === $nodes) return null;
         $refs = array();
         foreach ($nodes as $id => $node) {
@@ -2398,10 +2390,11 @@ final class ShellExtraction
      *
      * @return array<int,array{name:string,attributes:string,offset:int,end:int,parent:?int,children:array<int,int>}>
      */
-    private static function blockNodes(string $markup): array
+    private static function blockNodes(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index): array
     {
+        $markup = $index->markup;
         $nodes = array(); $stack = array();
-        foreach (self::blockCommentTokens($markup) as $token) {
+        foreach ($index->tokens() as $token) {
             $end = $token['offset'] + strlen($token['token']);
             if ($token['closing']) {
                 $open = array_pop($stack);
@@ -2439,11 +2432,12 @@ final class ShellExtraction
     }
 
     /** Whether a recognized occurrence has an actual block-tree ancestor. */
-    private function hasLayoutAncestor(string $markup, array $candidate, string $area): bool
+    private function hasLayoutAncestor(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $candidate, string $area): bool
     {
+        $markup = $index->markup;
         if (empty($candidate['nested_shell'])) return false;
         $roots = array();
-        foreach (self::topLevelBlockRanges($markup) as $range) $roots[$range['offset'] . ':' . $range['length']] = true;
+        foreach ($index->topLevel() as $range) $roots[$range['offset'] . ':' . $range['length']] = true;
         foreach ($this->nestedShellRanges($markup, $candidate, $area) as $range) {
             if (!isset($roots[$range['offset'] . ':' . $range['length']])) return true;
         }
@@ -2455,7 +2449,7 @@ final class ShellExtraction
     {
         $reference = '<!-- wp:template-part {"slug":"' . $area . '","area":"' . $area . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
         if (!empty($candidate['nested_shell'])) return $this->withoutNestedShell($markup, $candidate, $reference);
-        $range = $this->topLevelShellRange($markup, $area, $candidate['markup'], $candidate['offset'] ?? null);
+        $range = $this->topLevelShellRange(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), $area, $candidate['markup'], $candidate['offset'] ?? null);
         if (null === $range) return null;
         return substr($markup, 0, $range['offset']) . $reference . substr($markup, $range['offset'] + $range['length']);
     }
@@ -2481,7 +2475,7 @@ final class ShellExtraction
         $refs = array();
         $blocked = false;
         if (array() === $ranges) return array('refs' => $refs, 'blocked' => false);
-        $blockRanges = null;
+        $documentIndex = null;
         foreach ($declarations as $declarationIndex => $declaration) foreach ($this->entities($declaration) as $entityIndex => $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $bindingIndex => $binding) {
             // A binding stored as a manifest record is not rewritten here, so
             // chrome holding one stays page-owned rather than moving.
@@ -2490,8 +2484,8 @@ final class ShellExtraction
             if (($binding['source_path'] ?? null) !== ($page['source_path'] ?? null)) continue;
             $search = $binding['search_block_markup'] ?? null;
             if (!is_string($search) || '' === $search) continue;
-            $blockRanges ??= WordPressSitePlan::blockRanges($page['canonical_block_markup']);
-            $block = WordPressSitePlan::bindingPosition($position, $page['canonical_block_markup'], $search) ? ($blockRanges[$position['block_index']] ?? null) : null;
+            $documentIndex ??= new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']);
+            $block = WordPressSitePlan::bindingPosition($position, $documentIndex, $search) ? ($documentIndex->ranges()[$position['block_index']] ?? null) : null;
             foreach ($ranges as $range) {
                 if (is_array($block) && $block['offset'] >= $range['offset'] && $block['offset'] + $block['length'] <= $range['offset'] + $range['length']) {
                     if ($movable) $refs[] = array('declaration' => $declarationIndex, 'entity' => $entityIndex, 'binding' => $bindingIndex, 'offset' => $block['offset'], 'range' => $range);
@@ -2549,9 +2543,9 @@ final class ShellExtraction
             $keys = $pageKeys;
         }
         $keep = array();
-        $partRanges = WordPressSitePlan::blockRanges($partMarkup);
+        $partRanges = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($partMarkup))->ranges();
         $pageMarkup = $pages[$canonical]['canonical_block_markup'];
-        $pageRanges = WordPressSitePlan::blockRanges($pageMarkup);
+        $pageRanges = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($pageMarkup))->ranges();
         foreach ($shellBindings[$canonical] as $ref) {
             $search = $declarations[$ref['declaration']]['payload']['entities'][$ref['entity']]['bindings'][$ref['binding']]['search_block_markup'];
             $rank = count(array_filter($pageRanges, static fn(array $range): bool => $range['offset'] >= $ref['range']['offset'] && $range['offset'] <= $ref['offset'] && $search === substr($pageMarkup, $range['offset'], $range['length'])));
@@ -2606,12 +2600,13 @@ final class ShellExtraction
 
     private function shellContainsRuntimeBindingOutsideRange(array $declarations, array $page, int $offset, int $length): bool
     {
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']);
         foreach ($declarations as $declaration) foreach ($this->entities($declaration) as $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $binding) {
             $position = $binding['position'] ?? null;
             if (($binding['source_path'] ?? null) !== ($page['source_path'] ?? null)) continue;
             $search = $binding['search_block_markup'] ?? null;
-            if (!is_string($search) || !WordPressSitePlan::bindingPosition($position, $page['canonical_block_markup'], $search)) continue;
-            $range = WordPressSitePlan::blockRanges($page['canonical_block_markup'])[$position['block_index']] ?? null;
+            if (!is_string($search) || !WordPressSitePlan::bindingPosition($position, $index, $search)) continue;
+            $range = $index->ranges()[$position['block_index']] ?? null;
             if (is_array($range) && ($range['offset'] < $offset || $range['offset'] + $range['length'] > $offset + $length)) return true;
         }
         return false;
@@ -2688,7 +2683,7 @@ final class ShellExtraction
         if (1 !== preg_match('/(?:' . preg_quote(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_DOCUMENT_CLASS, '/') . '|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
             return false;
         }
-        return array() !== $this->nestedLandmarkCandidates($markup, '', $area);
+        return array() !== $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), '', $area);
     }
 
     /**
@@ -2788,7 +2783,7 @@ final class ShellExtraction
      */
     private function stripMatchingVariantLandmarks(string $markup, string $area, array $identities, bool $requireAll, array $sourceIdentities = array()): ?string
     {
-        $rows = $this->nestedLandmarkCandidates($markup, '', $area);
+        $rows = $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), '', $area);
         $remove = array();
         $present = array();
         $scopeless = array() !== $rows;
@@ -2801,7 +2796,7 @@ final class ShellExtraction
             usort($classes, static fn(string $left, string $right): int => self::responsiveVariantRank($left) <=> self::responsiveVariantRank($right) ?: strcmp($left, $right));
             $primary = array() === $classes ? null : $identities[$classes[0]];
             foreach ($rows as $row) {
-                $edge = $this->routeEdge($markup, array(), $area, array());
+                $edge = $this->routeEdge(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), array(), $area, array());
                 $at = $this->edgeLandmarkIndex($markup, $edge, $row['markup']);
                 if (null !== $at) {
                     $range = self::edgeRange($edge, $at + 1);
@@ -2856,7 +2851,7 @@ final class ShellExtraction
     /** @param array<string,mixed> $page @param array<int,array<string,mixed>> $runtimeDeclarations */
     private function variantLandmarksContainRuntimeBinding(array $page, string $area, array $runtimeDeclarations): bool
     {
-        foreach ($this->nestedLandmarkCandidates($page['canonical_block_markup'], '', $area) as $row) {
+        foreach ($this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']), '', $area) as $row) {
             if (null === self::responsiveVariantClass($row)) continue;
             if ($this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $row['offset'], $row['length'])) return true;
         }
@@ -2867,7 +2862,7 @@ final class ShellExtraction
     private function scopedVariantLandmarks(string $markup, string $area): ?array
     {
         $scoped = array();
-        foreach ($this->nestedLandmarkCandidates($markup, '', $area) as $row) {
+        foreach ($this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), '', $area) as $row) {
             $class = self::responsiveVariantClass($row);
             if (null === $class) return null;
             $scoped[$class][] = $row;
@@ -2939,13 +2934,14 @@ final class ShellExtraction
         $area = (string) ($candidate['area'] ?? '');
         $matches = array();
         if ('' !== $identity && '' !== $area) {
-            foreach ($this->nestedLandmarkCandidates($markup, (string) ($candidate['source_path'] ?? ''), $area) as $row) {
+            foreach ($this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), (string) ($candidate['source_path'] ?? ''), $area) as $row) {
                 if ($identity === ($row['identity_markup'] ?? null)) $matches[] = $row;
             }
             if (array() === $matches) {
                 $headers = array();
                 $footers = array();
-                $this->collectNestedChrome($markup, 0, $headers, $footers);
+                $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+                $this->collectNestedChrome($index, $index->topLevel(), $headers, $footers);
                 foreach (('footer' === $area ? $footers : $headers) as $row) {
                     if ($identity === ($row['identity_markup'] ?? null)) {
                         $matches[] = $row;
@@ -2980,7 +2976,7 @@ final class ShellExtraction
             }
             return $ranges;
         }
-        $range = $this->topLevelShellRange($markup, $area, (string) ($candidate['markup'] ?? ''), isset($candidate['offset']) && is_int($candidate['offset']) ? $candidate['offset'] : null);
+        $range = $this->topLevelShellRange(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), $area, (string) ($candidate['markup'] ?? ''), isset($candidate['offset']) && is_int($candidate['offset']) ? $candidate['offset'] : null);
         return is_array($range) ? array($range) : array();
     }
 
@@ -3007,15 +3003,17 @@ final class ShellExtraction
 
     public function replaceTopLevelShell(string $markup, string $area, string $replacement, string $candidateMarkup = '', ?int $offset = null): ?string
     {
-        $range = $this->topLevelShellRange($markup, $area, $candidateMarkup, $offset);
+        $range = $this->topLevelShellRange(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), $area, $candidateMarkup, $offset);
         return is_array($range) ? substr($markup, 0, $range['offset']) . $replacement . substr($markup, $range['offset'] + $range['length']) : null;
     }
 
     /**
      * @return array{offset:int,length:int}|null
      */
-    private function topLevelShellRange(string $markup, string $area, string $candidateMarkup = '', ?int $offset = null): ?array
+    private function topLevelShellRange(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, string $area, string $candidateMarkup = '', ?int $offset = null): ?array
     {
+        $markup = $index->markup;
+        $tokens = array_column($index->tokens(), null, 'offset');
         if ('' !== $candidateMarkup) {
             // Trust an already-known block-tree position over a fresh search: a
             // byte-identical top-level sibling elsewhere in the page must not
@@ -3025,13 +3023,13 @@ final class ShellExtraction
                 return array('offset' => $offset, 'length' => strlen($candidateMarkup));
             }
             $matches = array();
-            foreach (self::topLevelBlockRanges($markup) as $range) if ($candidateMarkup === substr($markup, $range['offset'], $range['length'])) $matches[] = $range;
+            foreach ($index->topLevel() as $range) if ($candidateMarkup === substr($markup, $range['offset'], $range['length'])) $matches[] = $range;
             if (1 === count($matches)) return $matches[0];
             if (1 < count($matches)) return null;
         }
         $candidate = null;
-        foreach (self::topLevelBlockRanges($markup) as $range) {
-            $token = self::blockCommentTokens(substr($markup, $range['offset'], $range['length']))[0] ?? null;
+        foreach ($index->topLevel() as $range) {
+            $token = $tokens[$range['offset']] ?? null;
             if (!is_array($token) || ('group' !== $token['name'] && !str_ends_with($token['name'], '/layout-shell'))) continue;
             $decoded = json_decode($token['attributes'], true);
             if (!is_array($decoded)) continue;
@@ -3042,30 +3040,6 @@ final class ShellExtraction
         }
         if (!is_array($candidate) || !is_int($candidate['end'])) return null;
         return array('offset' => $candidate['start'], 'length' => $candidate['end'] - $candidate['start']);
-    }
-
-    /**
-     * Ranges of the blocks at one nesting depth, from the single block-comment
-     * scan every structural walk in this class shares.
-     *
-     * @return array<int,array{offset:int,length:int}>
-     */
-    private static function blockRangesAtDepth(string $markup, int $depth): array
-    {
-        return (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->atDepth($depth);
-    }
-
-    /** @return array<int,array{offset:int,length:int}> */
-    private static function topLevelBlockRanges(string $markup): array
-    {
-        return self::blockRangesAtDepth($markup, 0);
-    }
-
-    /** @return array<int,array{offset:int,length:int}> The direct children of a markup that is exactly one block. */
-    private static function directChildBlockRanges(string $markup): array
-    {
-        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
-        return 1 === count($index->topLevel()) ? $index->atDepth(1) : array();
     }
 
     private static function isGroupBlock(string $markup): bool { return preg_match('/^<!--\s*wp:group(?:\s|\{)/', $markup) === 1; }

@@ -233,6 +233,7 @@ final class WordPressSitePlanResolver
     private static function resolveEntityBindings(array $declarations, array $pages, array $references, bool $normalize = true, array $attachments = array()): array
     {
         $pagesBySource = array_column($pages, null, 'source_path');
+        $canonicalIndexes = array(); $resolvedIndexes = array();
         foreach ($declarations as $declarationIndex => $declaration) {
             if (!is_array($declaration['payload']['entities'] ?? null)) continue;
             foreach ($declaration['payload']['entities'] as $entityIndex => $entity) {
@@ -244,9 +245,11 @@ final class WordPressSitePlanResolver
                     $page = $pagesBySource[$binding['source_path']] ?? null;
                     if (!is_array($page) || !is_string($page['canonical_block_markup'] ?? null) || !is_string($page['resolved_block_markup'] ?? null)) continue;
                     $canonical = $page['canonical_block_markup']; $resolved = $page['resolved_block_markup'];
+                    $canonicalIndex = $canonicalIndexes[$binding['source_path']] ??= new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($canonical);
+                    $resolvedIndex = $resolvedIndexes[$binding['source_path']] ??= new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($resolved);
                     $canonicalOffset = self::occurrenceOffset($canonical, $binding['search_block_markup'], $binding['occurrence']);
                     $blockIndex = null;
-                    foreach (self::blockRanges($canonical) as $index => $range) if ($range['offset'] === $canonicalOffset && $binding['search_block_markup'] === substr($canonical, $range['offset'], $range['length'])) { $blockIndex = $index; break; }
+                    foreach ($canonicalIndex->ranges() as $index => $range) if ($range['offset'] === $canonicalOffset && $binding['search_block_markup'] === substr($canonical, $range['offset'], $range['length'])) { $blockIndex = $index; break; }
                     if (!is_int($blockIndex)) throw new InvalidArgumentException('WordPress site plan runtime binding cannot be resolved from its canonical source document anchor.');
                     $search = self::resolveMarkup($binding['search_block_markup'], $references, $attachments);
                     // A token can change byte length, and filtered malformed ranges can
@@ -254,7 +257,7 @@ final class WordPressSitePlanResolver
                     // instead of assuming indexes remain numerically stable.
                     $resolvedOffset = self::resolvedOffset($canonical, $canonicalOffset, $resolved, $references, $attachments);
                     $range = null;
-                    foreach (self::blockRanges($resolved) as $index => $candidate) if ($candidate['offset'] === $resolvedOffset && $search === substr($resolved, $candidate['offset'], $candidate['length'])) { $range = $candidate; $blockIndex = $index; break; }
+                    foreach ($resolvedIndex->ranges() as $index => $candidate) if ($candidate['offset'] === $resolvedOffset && $search === substr($resolved, $candidate['offset'], $candidate['length'])) { $range = $candidate; $blockIndex = $index; break; }
                     if (!is_array($range)) throw new InvalidArgumentException('WordPress site plan runtime binding resolved anchor is detached from its source document.');
                     $binding['search_block_markup'] = $search;
                     $binding['occurrence'] = self::occurrenceAtOffset($resolved, $search, $range['offset']);
@@ -279,11 +282,6 @@ final class WordPressSitePlanResolver
             $resolved[] = array('reconciliation_identity' => $declaration['reconciliation_identity'], 'kind' => $declaration['kind'], 'type' => $declaration['type'] ?? null, 'entity_schema' => $payload['entity_schema'], 'entities' => $expanded[0]['payload']['entities']);
         }
         return $resolved;
-    }
-    /** @return array<int,array{offset:int,length:int}> */
-    private static function blockRanges(string $markup): array
-    {
-        return (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges();
     }
     private static function occurrenceOffset(string $markup, string $search, int $occurrence): ?int
     {

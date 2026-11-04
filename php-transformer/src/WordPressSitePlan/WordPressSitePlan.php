@@ -829,7 +829,7 @@ PHP;
                     $ownedMarkup = $markupBySource[$source] ?? null;
                     $position = $binding['position'] ?? null;
                     $offset = is_string($ownedMarkup) && is_string($search) && is_int($occurrence) ? self::occurrenceOffset($ownedMarkup, $search, $occurrence) : null;
-                    if ( !is_string($source) || !is_string($search) || '' === $search || !is_int($occurrence) || $occurrence < 1 || !is_string($ownedMarkup) || null === $offset || (null !== $position && (!self::bindingPosition($position, $ownedMarkup, $search) || $position['offset'] !== $offset)) ) throw new InvalidArgumentException('A runtime entity binding no longer has its declared source document block anchor after shell extraction: ' . (is_string($source) ? $source : 'unknown') . ' (' . (is_string($binding['role'] ?? null) ? $binding['role'] : 'unknown') . ').');
+                    if ( !is_string($source) || !is_string($search) || '' === $search || !is_int($occurrence) || $occurrence < 1 || !is_string($ownedMarkup) || null === $offset || (null !== $position && (!self::bindingPosition($position, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($ownedMarkup), $search) || $position['offset'] !== $offset)) ) throw new InvalidArgumentException('A runtime entity binding no longer has its declared source document block anchor after shell extraction: ' . (is_string($source) ? $source : 'unknown') . ' (' . (is_string($binding['role'] ?? null) ? $binding['role'] : 'unknown') . ').');
                 }
                 $formId = is_array($entity) && is_array($entity['form'] ?? null) && is_string($entity['form']['id'] ?? null) ? $entity['form']['id'] : '';
                 foreach ( is_array($entity) && is_array($entity['superseded_scripts'] ?? null) ? $entity['superseded_scripts'] : array() as $supersession ) {
@@ -4420,7 +4420,7 @@ PHP;
         foreach ($pages as $page) {
             if ('post' !== ($page['post_type'] ?? null)) continue;
             $source = $page['canonical_block_markup'];
-            foreach (self::blockRanges($source) as $range) {
+            foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($source))->ranges() as $range) {
                 $slice = substr($source, $range['offset'], $range['length']);
                 if (str_starts_with($slice, '<!-- wp:comments') && str_contains($slice, '<!-- wp:comment-template')) {
                     $capturedComments = $slice;
@@ -4437,7 +4437,7 @@ PHP;
             $markup = $post['canonical_block_markup'];
             $markupIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
             $contents = array();
-            foreach (self::blockRanges($markup) as $range) {
+            foreach ($markupIndex->ranges() as $range) {
                 $slice = substr($markup, $range['offset'], $range['length']);
                 $attrs = self::listingBlockAttributes($slice);
                 if (in_array('wp-block-post-content', preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true)) $contents[] = $range;
@@ -4458,7 +4458,7 @@ PHP;
                     $last = $children[count($children) - 1];
                     $length = $last['offset'] + $last['length'] - $start;
                     $owner = null;
-                    foreach (self::blockRanges($markup) as $candidate) {
+                    foreach ($markupIndex->ranges() as $candidate) {
                         if ($candidate['offset'] >= $content['offset'] || $candidate['offset'] + $candidate['length'] <= $content['offset']) continue;
                         $slice = substr($markup, $candidate['offset'], $candidate['length']);
                         // The generated-block namespace is consumer-owned.
@@ -4530,7 +4530,7 @@ PHP;
         if (null !== $capturedComments && isset($templates['single'])) {
             $template = $templates['single'];
             $replacements = array();
-            foreach (self::blockRanges($template) as $range) {
+            foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($template))->ranges() as $range) {
                 $slice = substr($template, $range['offset'], $range['length']);
                 if (preg_match('/^<!-- wp:comments(?:\s|-->)/', $slice)) $replacements[] = $range;
             }
@@ -4730,6 +4730,7 @@ PHP;
     private function postBoundBlockRanges(array $declarations, array $records, array $post): array
     {
         $markup = (string) ($post['canonical_block_markup'] ?? '');
+        $documentIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         $ranges = array();
         foreach ($declarations as $declaration) {
             $payload = $declaration['payload'] ?? array();
@@ -4741,7 +4742,7 @@ PHP;
                 $search = $binding['search_block_markup'] ?? null;
                 if (!is_string($search) || '' === $search) continue;
                 $position = $binding['position'] ?? null;
-                if (self::bindingPosition($position, $markup, $search)) { $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']); continue; }
+                if (self::bindingPosition($position, $documentIndex, $search)) { $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']); continue; }
                 // A manifest record keeps the position it was compiled with, which
                 // page canonicalization can shift; protect every block it may name.
                 for ($offset = strpos($markup, $search); false !== $offset; $offset = strpos($markup, $search, $offset + strlen($search))) $ranges[] = array('offset' => $offset, 'length' => strlen($search));
@@ -4758,7 +4759,7 @@ PHP;
         $shared = null;
         foreach ($posts as $post) {
             $identities = array();
-            foreach (self::blockRanges($post['canonical_block_markup']) as $range) {
+            foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($post['canonical_block_markup']))->ranges() as $range) {
                 $identity = ShellExtraction::identityMarkup(substr($post['canonical_block_markup'], $range['offset'], $range['length']));
                 if ('' !== $identity) {
                     $identities[$identity] = true;
@@ -4790,8 +4791,9 @@ PHP;
             $attrs = self::listingBlockAttributes($slice);
             if ('main' !== ($attrs['tagName'] ?? null) || array() === $index->children($candidate)) continue;
             $hasTitle = false;
-            foreach (self::blockRanges($slice) as $descendant) {
-                if ($this->headingMatchesPostTitle(substr($slice, $descendant['offset'], $descendant['length']), $post)) $hasTitle = true;
+            foreach ($index->ranges() as $descendant) {
+                if ($descendant['offset'] < $candidate['offset'] || $descendant['offset'] + $descendant['length'] > $candidate['offset'] + $candidate['length']) continue;
+                if ($this->headingMatchesPostTitle(substr($markup, $descendant['offset'], $descendant['length']), $post)) { $hasTitle = true; break; }
             }
             if ($hasTitle) continue;
             if (null !== $contentRange) { $contentRange = null; break; }
@@ -5027,16 +5029,20 @@ PHP;
             if (array() !== array_diff_key(NavigationEntityProjection::renderedMenus($page['canonical_block_markup']), NavigationEntityProjection::renderedMenus($replaced))) continue;
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = self::contentHash($replaced);
-            $firstCard = ($this->listingCardRanges($sourceListingMarkup, $posts, isset($postsByArchive[$page['source_path']]) ? 1 : 2) ?? array())[0] ?? null;
-            $parent = is_array($firstCard) ? (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($sourceListingMarkup))->parent($firstCard) : null;
+            $listingIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($sourceListingMarkup);
+            $cards = $this->listingCardRanges($listingIndex, $posts, isset($postsByArchive[$page['source_path']]) ? 1 : 2) ?? array();
+            $firstCard = $cards[0] ?? null;
+            $parent = is_array($firstCard) ? $listingIndex->parent($firstCard) : null;
             if (is_array($parent)) $this->listingQueryContainers[] = substr($sourceListingMarkup, $parent['offset'], $parent['length']);
             foreach ($fields as $source => $values) $postMeta[$source] = ($postMeta[$source] ?? array()) + $values;
-            foreach ($this->listingCardRanges($sourceListingMarkup, $posts, isset($postsByArchive[$page['source_path']]) ? 1 : 2) ?? array() as $card) {
+            foreach ($cards as $card) {
+                $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
+                $cardIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup);
                 if (str_contains($replaced, '<!-- wp:post-featured-image')) {
-                    $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
-                    foreach (self::blockRanges($cardMarkup) as $leaf) {
+                    $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup']);
+                    foreach ($cardIndex->ranges() as $leaf) {
                         $slice = substr($cardMarkup, $leaf['offset'], $leaf['length']);
-                        if ('featured-image' !== $this->classifyListingCardBlock($slice, $card['post'], $card['route'], new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup'])) && !('image' === self::listingBlockName($slice) && str_contains($cardMarkup, '"wrappers"'))) continue;
+                        if ('featured-image' !== $this->classifyListingCardBlock($slice, $card['post'], $card['route'], $postIndex) && !('image' === self::listingBlockName($slice) && str_contains($cardMarkup, '"wrappers"'))) continue;
                         $image = self::listingCardImage($slice);
                         if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
                         break;
@@ -5044,8 +5050,7 @@ PHP;
                 }
                 $description = ListingExcerptProjection::description($card['post']);
                 if (null === $description) continue;
-                $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
-                foreach (self::blockRanges($cardMarkup) as $leaf) {
+                foreach ($cardIndex->ranges() as $leaf) {
                     $slice = substr($cardMarkup, $leaf['offset'], $leaf['length']);
                     if ('paragraph' === self::listingBlockName($slice) && ListingExcerptProjection::matches($slice, $card['post'])) { $excerpts[$card['post']['source_path']] = $description; break; }
                 }
@@ -5068,8 +5073,8 @@ PHP;
      */
     private function postsRepeatListingChrome(string $markup, array $posts): bool
     {
-        $cards = $this->listingCardRanges($markup, $posts) ?? array();
         $markupIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $cards = $this->listingCardRanges($markupIndex, $posts) ?? array();
         $chrome = array();
         foreach ($markupIndex->ranges() as $range) {
             $end = $range['offset'] + $range['length'];
@@ -5115,18 +5120,19 @@ PHP;
     /** @param array<int,array<string,mixed>> $posts */
     private function replaceListingMarkup(string $markup, array $posts, array &$fields = array(), bool $inheritQuery = false): ?string
     {
-        $cards = $this->listingCardRanges($markup, $posts, $inheritQuery ? 1 : 2);
+        $documentIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $cards = $this->listingCardRanges($documentIndex, $posts, $inheritQuery ? 1 : 2);
         if (null === $cards) {
             return $this->replaceListingArchives($markup, $posts);
         }
-        $template = $this->listingCardTemplate($markup, $cards, $fields);
+        $template = $this->listingCardTemplate($documentIndex, $cards, $fields);
         if (null === $template) {
             return $this->replaceListingArchives($markup, $posts);
         }
         $start = $cards[0]['offset'];
         $end = $cards[count($cards) - 1]['offset'] + $cards[count($cards) - 1]['length'];
         $query = self::listingQueryMarkup(count($cards), $template, $inheritQuery);
-        $parent = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->parent($cards[0]);
+        $parent = $documentIndex->parent($cards[0]);
         if (is_array($parent) && 'columns' === self::listingBlockName(substr($markup, $parent['offset'], $parent['length']))) {
             $query = '<!-- wp:column --><div class="wp-block-column">' . $query . '</div><!-- /wp:column -->';
         }
@@ -5137,15 +5143,15 @@ PHP;
      * @param array<int,array<string,mixed>> $posts
      * @return array<int,array{offset:int,length:int,route:string,post:array<string,mixed>}>|null
      */
-    private function listingCardRanges(string $markup, array $posts, int $minimumCards = 2): ?array
+    private function listingCardRanges(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $documentIndex, array $posts, int $minimumCards = 2): ?array
     {
+        $markup = $documentIndex->markup;
         $routes = array();
         foreach ($posts as $post) {
             if (is_string($post['route']['path'] ?? null)) {
                 $routes[$post['route']['path']] = $post;
             }
         }
-        $documentIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         $ranges = $documentIndex->ranges();
         $cards = array();
         foreach ($routes as $route => $post) {
@@ -5194,9 +5200,9 @@ PHP;
     /**
      * @param array<int,array{offset:int,length:int,route:string,post:array<string,mixed>}> $cards
      */
-    private function listingCardTemplate(string $markup, array $cards, array &$fields): ?string
+    private function listingCardTemplate(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $documentIndex, array $cards, array &$fields): ?string
     {
-        $documentIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $markup = $documentIndex->markup;
         $first = $cards[0];
         $groups = $this->listingLinkedMetadataGroups($documentIndex, $first);
         $boundGroups = array();
@@ -5274,7 +5280,7 @@ PHP;
         $description = false;
         $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup']);
         $slice = substr($markup, $card['offset'], $card['length']);
-        foreach (self::blockRanges($slice) as $range) {
+        foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($slice))->ranges() as $range) {
             $paragraph = substr($slice, $range['offset'], $range['length']);
             if ('paragraph' !== self::listingBlockName($paragraph)) continue;
             if (ListingExcerptProjection::matches($paragraph, $card['post'])) { $description = true; continue; }
@@ -5629,7 +5635,7 @@ PHP;
             return $markup;
         }
         $best = null;
-        foreach (self::blockRanges($markup) as $range) {
+        foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges() as $range) {
             $slice = substr($markup, $range['offset'], $range['length']);
             if (str_contains($slice, '<!-- wp:query') || str_contains($slice, '<!-- wp:post-template') || str_contains($slice, '<!-- wp:archives')) {
                 continue;
@@ -6553,12 +6559,13 @@ PHP;
                 $claims[] = $members;
             }
             $markup = $bindings[0]['markup']; $search = $bindings[0]['search'];
+            $documentIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
             // Claims beyond the emitted matching blocks find no candidate below and are dropped.
             $claimedOffsets = array(); $claimedClaims = array(); $resolved = array();
             foreach ($claims as $claimIndex => $members) {
                 $identity = $members[0];
                 $position = $declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['position'] ?? null;
-                if (isset($declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['projected_anchor']) || true !== $identity['canonical_position'] || !self::bindingPosition($position, $markup, $search)) continue;
+                if (isset($declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['projected_anchor']) || true !== $identity['canonical_position'] || !self::bindingPosition($position, $documentIndex, $search)) continue;
                 if (isset($claimedOffsets[$position['offset']])) throw new InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.');
                 $claimedOffsets[$position['offset']] = true;
                 $claimedClaims[$claimIndex] = true;
@@ -6572,7 +6579,7 @@ PHP;
                 $isAnchorSource = static fn(string $markup, array $range): bool => $anchor['source_block_length'] === $range['length'] && hash_equals($anchor['source_block_hash'], hash('sha256', substr($markup, $range['offset'], $range['length'])));
                 $sourceMarkup = $sourceMarkupBySource[$identity['source']] ?? null;
                 if (!is_string($sourceMarkup)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
-                $sourceRanges = self::blockRanges($sourceMarkup); $canonicalRanges = self::blockRanges($markup);
+                $sourceRanges = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($sourceMarkup))->ranges(); $canonicalRanges = $documentIndex->ranges();
                 $sourceMatches = array_values(array_filter($sourceRanges, static fn(array $range): bool => $isAnchorSource($sourceMarkup, $range)));
                 if (isset($anchor['source_occurrence_count']) && $anchor['source_occurrence_count'] !== count($sourceMatches)) throw new InvalidArgumentException('A runtime entity binding source anchor is ambiguous after reprojection.');
                 $canonicalMatches = array_values(array_filter($canonicalRanges, static fn(array $range): bool => $search === substr($markup, $range['offset'], $range['length'])));
@@ -6611,15 +6618,17 @@ PHP;
                 if (!is_array($range)) throw new InvalidArgumentException('A runtime entity binding no longer identifies an emitted canonical block.');
                 $binding = &$declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']];
                 $documentMarkup = $markup;
+                $bindingIndex = $documentIndex;
                 $landing = isset($patternSources[$identity['source']]) ? SyncedPatternProjection::rebase($patternSources[$identity['source']], $projectedMarkupBySource[$identity['source']], $range) : null;
                 if (null !== $landing) {
                     // A copy of pattern content: the pattern document's own binding replaces it.
                     if ($landing['duplicate']) { $binding['_synced_pattern_duplicate'] = $landing['claim']; unset($binding); continue; }
                     $documentMarkup = $landing['markup'];
+                    $bindingIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($documentMarkup);
                     $range = $landing['range'];
                 }
                 $canonical = substr($documentMarkup, $range['offset'], $range['length']);
-                $blockIndex = array_search($range, self::blockRanges($documentMarkup), true);
+                $blockIndex = array_search($range, $bindingIndex->ranges(), true);
                 if (!is_string($canonical) || '' === $canonical || !is_int($blockIndex)) throw new InvalidArgumentException('A runtime entity binding resolved to empty canonical block markup.');
                 $anchored[$identity['id']] = true;
                 $binding['search_block_markup'] = $canonical;
@@ -6645,7 +6654,7 @@ PHP;
             if (null === $selected || !is_string($fallback) || '' === $fallback) continue;
             $matches = array();
             foreach ($declarations as $di => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $ei => $entity) foreach ($entity['bindings'] ?? array() as $bi => $binding) {
-                if (!isset($anchored[$di . ':' . $ei . ':' . $bi]) || $selected !== ($binding['source_path'] ?? null) || null === $sourceBindings[$di][$ei][$bi] || $sourceBindings[$di][$ei][$bi] !== $sourceBindings[$drop['declaration']][$drop['entity']][$drop['binding']] || !self::bindingPosition($binding['position'] ?? null, $markupBySource[$selected], $binding['search_block_markup'])) continue;
+                if (!isset($anchored[$di . ':' . $ei . ':' . $bi]) || $selected !== ($binding['source_path'] ?? null) || null === $sourceBindings[$di][$ei][$bi] || $sourceBindings[$di][$ei][$bi] !== $sourceBindings[$drop['declaration']][$drop['entity']][$drop['binding']] || !self::bindingPosition($binding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markupBySource[$selected]), $binding['search_block_markup'])) continue;
                 $matches[] = array($di, $ei);
             }
             if (1 !== count($matches)) continue;
@@ -7465,17 +7474,13 @@ PHP;
         return array_values(array_filter(array_column($documents, 'canonical_block_markup'), 'is_string'));
     }
     private static function hash(mixed $value): bool { return is_string($value) && preg_match('/^[a-f0-9]{64}$/', $value); }
-    /** @return array<int,array{offset:int,length:int}> */
-    public static function blockRanges(string $markup): array
-    {
-        return (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges();
-    }
     /** @param array<string,mixed>|mixed $position */
-    public static function bindingPosition(mixed $position, string $markup, string $search): bool
+    public static function bindingPosition(mixed $position, \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $documentIndex, string $search): bool
     {
+        $markup = $documentIndex->markup;
         if (!is_array($position) || 'blocks-engine/runtime-binding-position/v1' !== ($position['schema'] ?? null) || !is_int($position['block_index'] ?? null) || $position['block_index'] < 0 || !is_int($position['offset'] ?? null) || $position['offset'] < 0 || !is_int($position['length'] ?? null) || $position['length'] < 1) return false;
-        foreach (self::blockRanges($markup) as $index => $range) if ($index === $position['block_index'] && $range['offset'] === $position['offset'] && $range['length'] === $position['length'] && $search === substr($markup, $range['offset'], $range['length'])) return true;
-        return false;
+        $range = $documentIndex->ranges()[$position['block_index']] ?? null;
+        return null !== $range && $range['offset'] === $position['offset'] && $range['length'] === $position['length'] && $search === substr($markup, $range['offset'], $range['length']);
     }
     private static function occurrenceAtOffset(string $markup, string $search, int $offset): int
     {

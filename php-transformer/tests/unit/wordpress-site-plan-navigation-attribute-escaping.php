@@ -28,7 +28,7 @@ foreach ($plan['writes'] ?? array() as $write) {
 }
 foreach ($markups as $markup) {
     $parsedRefs = 0;
-    foreach (WordPressSitePlan::blockRanges($markup) as $range) {
+    foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges() as $range) {
         $block = substr($markup, $range['offset'], $range['length']);
         if (!preg_match('/^<!-- wp:navigation (\{.*\}) \/-->$/s', $block, $match)) continue;
         $attrs = json_decode($match[1], true, 512, JSON_THROW_ON_ERROR);
