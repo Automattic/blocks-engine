@@ -237,15 +237,19 @@ JS;
         $providerNameSlug = '' === $url ? '' : $this->embedProviderSlug($url);
         // A provider round-trip replaces the source iframe with a new box and
         // cannot preserve its conditional geometry. CSS-sized frames use the
-        // existing editable iframe block so source selectors still own the box.
-        $sourceSized = $this->sourceOwnsIframeGeometry($surface, $styleResolver);
+        // existing editable iframe block so source selectors still own the box,
+        // except an inline fill at a core embed ratio, which core/embed draws as is.
+        $fluidRatio = '' === $providerNameSlug ? null : $this->fluidAspectRatio($surface, $styleResolver);
+        $sourceSized = null === $fluidRatio && $this->sourceOwnsIframeGeometry($surface, $styleResolver);
         if ( '' !== $providerNameSlug && ! $sourceSized ) {
             $embedAttrs = array_merge($styleResolver->presentationAttributes($surface), array(
                 'url'              => $this->canonicalEmbedUrl($url),
                 'type'             => $this->embedTypeForSlug($providerNameSlug),
                 'providerNameSlug' => $providerNameSlug,
             ));
-            $sizingClassName = $this->embedSizingClassName($surface, $styleResolver);
+            $sizingClassName = null !== $fluidRatio
+                ? $this->nearestEmbedAspectRatioClassName($fluidRatio)
+                : $this->embedSizingClassName($surface, $styleResolver);
             if ( '' !== $sizingClassName ) {
                 // Only once the source has committed to an exact sizing intent
                 // (#1918's ratio or #1923's absolute height) does the figure's
@@ -556,6 +560,38 @@ JS;
     {
         return array() !== $styleResolver->authorDeclaredPropertyValues($iframe, array( 'width', 'height', 'aspect-ratio', 'position' ))
             || 1 === preg_match('/(?:^|;)\s*(?:width|height|aspect-ratio|position)\s*:/i', SourceDom::attr($iframe, 'style'));
+    }
+
+    /**
+     * The ratio of a frame whose only sizing is an unconditional inline "fill
+     * the width at a core embed ratio" (`width:100%;height:auto;aspect-ratio:16/9`).
+     * A responsive core/embed draws exactly that box, so such a frame needs no
+     * source-owned geometry and no pinned wrapper height. Null for any other
+     * sizing: author rules (which may be conditional) and ratios no
+     * `wp-embed-aspect-*` preset matches keep the visual-iframe block, so no
+     * ratio is approximated.
+     */
+    private function fluidAspectRatio(DOMElement $iframe, StyleResolver $styleResolver): ?float
+    {
+        if ( array() !== $styleResolver->authorDeclaredPropertyValues($iframe, array( 'width', 'height', 'aspect-ratio', 'position' )) ) {
+            return null;
+        }
+        $declarations = array_change_key_case($styleResolver->cssDeclarations(SourceDom::attr($iframe, 'style')));
+        $value = static fn (string $property): string => strtolower(trim((string) ($declarations[ $property ] ?? '')));
+        if ( '100%' !== $value('width') || ! in_array($value('height'), array( '', 'auto' ), true) || ! in_array($value('position'), array( '', 'static' ), true) ) {
+            return null;
+        }
+        if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+(?:\.\d+)?))?$/', $value('aspect-ratio'), $match) ) {
+            return null;
+        }
+        $ratio = (float) $match[1] / (float) ($match[2] ?? 1);
+        foreach ( self::EMBED_ASPECT_RATIO_CLASSES as $presetRatio ) {
+            if ( abs($ratio - $presetRatio) <= $presetRatio * 0.005 ) {
+                return $presetRatio;
+            }
+        }
+
+        return null;
     }
 
     /** Only attribute-sized, CSS-free provider embeds reach this path. */
