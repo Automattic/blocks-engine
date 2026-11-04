@@ -49,6 +49,20 @@ final class HostBlockGapEncoder
     /** User-agent heading and small-text sizes, in em of the parent. */
     private const UA_FONT_EM = array( 'h1' => 2.0, 'h2' => 1.5, 'h3' => 1.17, 'h4' => 1.0, 'h5' => 0.83, 'h6' => 0.67, 'small' => 0.833 );
 
+    /** Defaults lost when a heading's box is emitted with a different tag. */
+    public static function headingBoxDefaults(string $tag): array
+    {
+        if (!preg_match('/^h[1-6]$/', $tag)) {
+            return array();
+        }
+        return array(
+            'font-size' => self::UA_FONT_EM[$tag] . 'em',
+            'font-weight' => 'bold',
+            'margin-top' => self::UA_BLOCK_MARGIN_EM[$tag] . 'em',
+            'margin-bottom' => self::UA_BLOCK_MARGIN_EM[$tag] . 'em',
+        );
+    }
+
     private const RESPONSIVE_MARGIN_TOP_CLASS_PREFIX = 'blocks-engine-responsive-margin-top-';
 
     /** @var \WeakMap<DOMElement, array{0: float, 1: bool}>|null Font size in px and whether it is static. */

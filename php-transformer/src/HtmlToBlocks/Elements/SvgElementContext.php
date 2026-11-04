@@ -19,6 +19,7 @@ final class SvgElementContext
      * @param Closure(string): bool $isSafeContent
      * @param Closure(DOMElement): bool $hasDrawableContent
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): void $captureFallback
+     * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $foreignObjectTextBlock
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier,
@@ -30,7 +31,8 @@ final class SvgElementContext
         private readonly ElementPresentationResolver $presentationResolver,
         private readonly SourceBlockCreator $createBlock,
         private readonly Closure $captureFallback,
-        private readonly ?Closure $omitEmptyPaint = null
+        private readonly ?Closure $omitEmptyPaint = null,
+        private readonly ?Closure $foreignObjectTextBlock = null
     ) {
     }
 
@@ -85,5 +87,18 @@ final class SvgElementContext
     public function captureFallback(DOMElement $element, array &$fallbacks): void
     {
         ($this->captureFallback)($element, $fallbacks);
+    }
+
+    /**
+     * The core/group a foreignObject-only fit-text SVG lowers to — it holds the
+     * SVG's presentation and the native text block — or null when the SVG is
+     * not that shape.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    public function foreignObjectTextBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        return null === $this->foreignObjectTextBlock ? null : ($this->foreignObjectTextBlock)($element, $fallbacks);
     }
 }

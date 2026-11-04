@@ -124,7 +124,7 @@ final class RichTextElementConverter implements ElementConverter
     /** @return array<string, mixed>|null */
     private function convertHeading(DOMElement $element, int $level): ?array
     {
-        $content        = $this->context->headingRichTextContent($this->context->richTextContent($element));
+        $content        = $this->context->richTextContent($element);
         $withLowered    = $this->context->richTextWithInlineSafeButtonsLowered($element, $content);
         if ( null !== $withLowered ) {
             $content = $withLowered;
@@ -138,11 +138,14 @@ final class RichTextElementConverter implements ElementConverter
             $content = $withInlineSvg;
         }
 
-        if ( $this->context->requiresHtmlFallbackForElement($element, $content) ) {
+        // Let createBlock's structural RichText lowering convert flow children
+        // before the HTML fallback gate rejects media inside their wrappers.
+        $hasStructuralHtml = $this->context->richTextContentHasStructuralHtml($content);
+        if ( ! $hasStructuralHtml && $this->context->requiresHtmlFallbackForElement($element, $content) ) {
             return $this->context->htmlPreservationBlock($element);
         }
 
-        if ( '' === trim($this->context->stripAllTags($content))
+        if ( ! $hasStructuralHtml && '' === trim($this->context->stripAllTags($content))
             && ! SourceDom::carriesOnlyRichTextInlineImages($element)
             && ! $this->context->containsNativeSvgImageObject($content) ) {
             return null;

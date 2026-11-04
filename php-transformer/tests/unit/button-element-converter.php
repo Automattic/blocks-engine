@@ -100,6 +100,26 @@ $mode = 'generic';
 $generic = $converter->convert($button, 'button', $fallbacks);
 $assert($generic->handled && 'core/buttons' === ($generic->block['blockName'] ?? ''), 'ordinary-button-delegated');
 
+$galleryButton = ( new HtmlTransformer() )->transform('<main><h2>Gallery</h2><ul><li><button type="button" aria-label="Open photo 1"><img src="photo.webp" width="640" height="480" alt="Garden"><span>Garden</span></button></li></ul></main>')->toArray();
+$galleryMarkup = (string) ($galleryButton['serialized_blocks'] ?? '');
+$assert(str_contains($galleryMarkup, 'photo.webp'), 'gallery button keeps its source image');
+$assert(1 === substr_count($galleryMarkup, '>Garden<'), 'gallery button caption is emitted exactly once');
+foreach (array(
+    'named icon and label' => '<button type="button"><img src="search.svg" width="16" height="16" alt="Search icon"> Search</button>',
+    'unsized named icon and label' => '<button type="button"><img src="search.svg" alt="Search icon"> Search</button>',
+    'decorative icon and label' => '<button type="button"><img src="search.svg" width="16" height="16" alt=""> Search</button>',
+) as $label => $html) {
+    $result = ( new HtmlTransformer() )->transform('<main>' . $html . '</main>')->toArray();
+    $markup = (string) ($result['serialized_blocks'] ?? '');
+    $assert(str_contains($markup, '<!-- wp:button '), $label . ' stays a core/button');
+    $assert(! str_contains($markup, '<!-- wp:group') && ! str_contains($markup, '<!-- wp:image'), $label . ' is not re-homed into media content');
+}
+
+$nestedGallery = ( new HtmlTransformer() )->transform('<main><button type="button"><div style="aspect-ratio:4/3"><img src="photo.webp" alt="Garden" srcset="photo.webp 640w, photo-large.webp 1280w"></div><span>Garden</span></button></main>')->toArray();
+$nestedGalleryMarkup = (string) ($nestedGallery['serialized_blocks'] ?? '');
+$assert(str_contains($nestedGalleryMarkup, '<!-- wp:custom/responsive-media') && str_contains($nestedGalleryMarkup, 'photo.webp') && str_contains($nestedGalleryMarkup, 'photo-large.webp'), 'nested gallery retains responsive image candidates');
+$assert(1 === substr_count($nestedGalleryMarkup, '>Garden<'), 'nested gallery caption is emitted once');
+
 $iconButton = ( new HtmlTransformer() )->transform('<main><button type="button" aria-label="Previous photograph"><img src="icon.svg" alt=""></button></main>')->toArray();
 $iconMarkup = (string) ($iconButton['serialized_blocks'] ?? '');
 $assert(str_contains($iconMarkup, 'ariaLabel') && str_contains($iconMarkup, 'Previous photograph'), 'icon-only button accessible name is retained in authored button attributes');

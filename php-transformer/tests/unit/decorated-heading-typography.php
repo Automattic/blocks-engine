@@ -18,7 +18,7 @@ $markup = (string) ((new HtmlTransformer())->transform(
     array()
 )->toArray()['serialized_blocks'] ?? '');
 
-if (1 !== preg_match('/<!-- wp:group \{"className":"title"\} -->.*<h2 class="wp-block-heading" style="([^"]*)"/s', $markup, $match)) {
+if (1 !== preg_match('/<!-- wp:group \{[^\n]*"className":"title"[^\n]*\} -->.*<h2 class="wp-block-heading" style="([^"]*)"/s', $markup, $match)) {
     $failures[] = 'decorated heading keeps the source-classed wrapper and an inner heading: ' . $markup;
 } else {
     foreach (array('font-size', 'font-weight', 'line-height', 'letter-spacing', 'text-transform', 'font-style') as $property) {
